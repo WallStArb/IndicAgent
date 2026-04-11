@@ -6,9 +6,7 @@ Runs a 5-minute audit loop during market hours. Checks:
 2. Pipeline lag P50/P95 from signal_ledger.pipeline_lag_ms over last 1h.
 3. CIS score distribution (mean/stddev) per tf over a rolling 5-day window.
 
-Batch efficiency: replaces 472 per-cycle DB round-trips with 1 via batch_signal_coverage().
 Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
-Emits SignalReplayRequest to market.events.signal_replay_requests for zero-signal sessions.
 DB-aware (reads signal_ledger). AuditorAgent role — read-only, never writes.
 Metrics port: :9128
 
@@ -18,16 +16,15 @@ Golden Signals:
 - Errors: signal_auditor_audit_errors_total
 - Saturation: signal_coverage_pct{symbol, tf}
 
-Version: 2.0.0
-Phase: 63.6
+Version: 1.0.0
+Phase: 61
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime, timedelta
-from datetime import date as date_type
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -38,10 +35,8 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base import BaseAgent
-from src.core.audit_utils import SignalCoverageResult, batch_signal_coverage
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.schemas.market_events import SignalReplayRequest
-from src.core.stream_keys import topic_signal_audit, topic_signal_replay_requests
+from src.core.stream_keys import topic_signal_audit
 from src.observability.otel import init_tracing
 
 # ---------------------------------------------------------------------------
@@ -112,10 +107,7 @@ class SignalAuditorAgent(BaseAgent):
     """AuditorAgent: validates signal coverage and pipeline health.
 
     Reads signal_ledger every 5 minutes during market hours.
-    Uses batch_signal_coverage() — 1 DB round-trip per cycle (was 472).
     Emits SignalCoverageGapEvent to intelligence.signal.audit for missing coverage.
-    Emits SignalReplayRequest to market.events.signal_replay_requests for zero-signal
-    sessions so BarReplayAgent can trigger signal recomputation.
 
     DB-aware (reads signal_ledger). Never writes. Metrics port: :9128.
     """
@@ -151,10 +143,7 @@ class SignalAuditorAgent(BaseAgent):
 
     @property
     def topics_produced(self) -> list[str]:
-        return [
-            topic_signal_audit(self._env_name),
-            topic_signal_replay_requests(self._env_name),
-        ]
+        return [topic_signal_audit(self._env_name)]
 
     async def _setup(self) -> None:
         self._db_pool = await asyncpg.create_pool(
@@ -201,24 +190,16 @@ class SignalAuditorAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _run_audit(self, instruments: list | None = None) -> None:
-        """Run a full audit cycle using batch_signal_coverage (1 DB round-trip).
-
-        Replaces the old _check_coverage + _check_pipeline_lag two-method pattern
-        with a single batch call. Also publishes SignalReplayRequest for sessions
-        with zero signals. Catches exceptions to keep the loop alive.
-        """
+        """Run a full audit cycle. Catches exceptions to keep the loop alive."""
         if instruments is None:
             instruments = get_active_contracts(self._settings)
         try:
             with self._audit_duration.time():
-                results: list[SignalCoverageResult] = await batch_signal_coverage(
-                    self._db_pool, instruments, list(_COVERAGE_TFS)
-                )
-                gap_events, replay_requests = self._process_coverage_results(results)
+                gap_events = await self._check_coverage(instruments)
+                await self._check_pipeline_lag(instruments)
                 await self._check_cis_distribution()
 
             assert self._kafka_producer is not None
-
             for event in gap_events:
                 await self._kafka_producer.publish(
                     topic_signal_audit(self._env_name),
@@ -227,18 +208,10 @@ class SignalAuditorAgent(BaseAgent):
                 )
                 self._coverage_gaps_published.inc()
 
-            for req in replay_requests:
-                await self._kafka_producer.publish(
-                    topic_signal_replay_requests(self._env_name),
-                    req.model_dump(mode="json"),
-                    key=f"{req.symbol}:{req.tf}",
-                )
-
             self._audits_run.inc()
             self.logger.info(
                 "signal_auditor_agent.audit_complete",
                 coverage_gaps_published=len(gap_events),
-                replay_requests_published=len(replay_requests),
             )
 
         except Exception as exc:
@@ -248,74 +221,118 @@ class SignalAuditorAgent(BaseAgent):
                 error=str(exc),
             )
 
-    def _process_coverage_results(
-        self,
-        results: list[SignalCoverageResult],
-    ) -> tuple[list[dict], list[SignalReplayRequest]]:
-        """Process batch coverage results: update gauges, build gap events and replay requests.
+    async def _check_coverage(self, instruments: list) -> list[dict]:
+        """Check signal coverage for the last completed trading session.
 
-        Returns:
-            gap_events: list of SignalCoverageGapEvent dicts to publish to topic_signal_audit
-            replay_requests: list of SignalReplayRequest to publish to topic_signal_replay_requests
+        For each active symbol × _COVERAGE_TFS:
+        - Find the last completed session window via session_window_for_date(yesterday).
+        - Count signal_ledger rows in that window.
+        - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap).
+        - Return SignalCoverageGapEvent dicts for any (symbol, tf) with 0 signals.
         """
-        now_utc = datetime.now(UTC)
         gap_events: list[dict] = []
-        replay_requests: list[SignalReplayRequest] = []
+        yesterday = date.today() - timedelta(days=1)
+        now_utc = datetime.now(UTC)
 
-        for result in results:
-            coverage = 1.0 if result.signal_count > 0 else 0.0
-            self._signal_coverage_pct.labels(
-                agent=self.name, symbol=result.symbol, tf=result.tf
-            ).set(coverage)
+        assert self._db_pool is not None
+        async with self._db_pool.acquire() as conn:
+            for instrument in instruments:
+                session = instrument.trading_session
+                window = session.session_window_for_date(yesterday)
+                if window[0] is None or window[1] is None:
+                    continue  # Non-trading day
 
-            if result.p50_lag_ms is not None:
-                self._pipeline_lag_p50.labels(
-                    agent=self.name, symbol=result.symbol, tf=result.tf
-                ).set(result.p50_lag_ms)
-            if result.p95_lag_ms is not None:
-                self._pipeline_lag_p95.labels(
-                    agent=self.name, symbol=result.symbol, tf=result.tf
-                ).set(result.p95_lag_ms)
-                if result.p95_lag_ms > _LAG_P95_WARN_MS:
-                    self.logger.warning(
-                        "signal_auditor_agent.lag_threshold_exceeded",
-                        symbol=result.symbol,
-                        tf=result.tf,
-                        p95_ms=round(result.p95_lag_ms, 1),
-                        threshold_ms=_LAG_P95_WARN_MS,
+                session_start, session_end = window
+
+                for tf in _COVERAGE_TFS:
+                    count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*)
+                        FROM signal_ledger
+                        WHERE symbol = $1
+                          AND timeframe = $2
+                          AND feature_ts >= $3
+                          AND feature_ts < $4
+                        """,
+                        instrument.symbol,
+                        tf,
+                        session_start,
+                        session_end,
                     )
+                    count = count or 0
+                    coverage = 1.0 if count > 0 else 0.0
 
-            if result.signal_count == 0:
-                date_str = result.session_start.date().isoformat()
-                self.logger.warning(
-                    "signal_auditor_agent.coverage_gap",
-                    symbol=result.symbol,
-                    tf=result.tf,
-                    session_date=date_str,
-                    session_start=result.session_start.isoformat(),
-                    session_end=result.session_end.isoformat(),
-                )
-                gap_events.append(
-                    {
-                        "symbol": result.symbol,
-                        "tf": result.tf,
-                        "session_date": date_str,
-                        "signals_found": 0,
-                        "expected_session_start": result.session_start.isoformat(),
-                        "expected_session_end": result.session_end.isoformat(),
-                        "ts": now_utc.isoformat(),
-                    }
-                )
-                replay_requests.append(
-                    SignalReplayRequest(
-                        symbol=result.symbol,
-                        tf=result.tf,
-                        session_start=result.session_start,
-                        session_end=result.session_end,
+                    self._signal_coverage_pct.labels(
+                        agent=self.name, symbol=instrument.symbol, tf=tf
+                    ).set(coverage)
+
+                    if count == 0:
+                        self.logger.warning(
+                            "signal_auditor_agent.coverage_gap",
+                            symbol=instrument.symbol,
+                            tf=tf,
+                            session_date=str(yesterday),
+                            session_start=session_start.isoformat(),
+                            session_end=session_end.isoformat(),
+                        )
+                        gap_events.append(
+                            {
+                                "symbol": instrument.symbol,
+                                "tf": tf,
+                                "session_date": str(yesterday),
+                                "signals_found": 0,
+                                "expected_session_start": session_start.isoformat(),
+                                "expected_session_end": session_end.isoformat(),
+                                "ts": now_utc.isoformat(),
+                            }
+                        )
+
+        return gap_events
+
+    async def _check_pipeline_lag(self, instruments: list) -> None:
+        """Observe P50/P95 pipeline_lag_ms from signal_ledger for the last 1h.
+
+        Logs WARNING when P95 > _LAG_P95_WARN_MS. Updates Prometheus gauges.
+        """
+        assert self._db_pool is not None
+        async with self._db_pool.acquire() as conn:
+            for instrument in instruments:
+                for tf in _COVERAGE_TFS:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT
+                          percentile_cont(0.50) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p50,
+                          percentile_cont(0.95) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p95
+                        FROM signal_ledger
+                        WHERE symbol = $1
+                          AND timeframe = $2
+                          AND feature_ts >= NOW() - INTERVAL '1 hour'
+                          AND pipeline_lag_ms IS NOT NULL
+                        """,
+                        instrument.symbol,
+                        tf,
                     )
-                )
+                    if row is None or row["p50"] is None:
+                        continue  # No data for this (symbol, tf) in the last hour
 
-        return gap_events, replay_requests
+                    p50: float = row["p50"]
+                    p95: float = row["p95"]
+
+                    self._pipeline_lag_p50.labels(
+                        agent=self.name, symbol=instrument.symbol, tf=tf
+                    ).set(p50)
+                    self._pipeline_lag_p95.labels(
+                        agent=self.name, symbol=instrument.symbol, tf=tf
+                    ).set(p95)
+
+                    if p95 > _LAG_P95_WARN_MS:
+                        self.logger.warning(
+                            "signal_auditor_agent.lag_threshold_exceeded",
+                            symbol=instrument.symbol,
+                            tf=tf,
+                            p95_ms=round(p95, 1),
+                            threshold_ms=_LAG_P95_WARN_MS,
+                        )
 
     async def _check_cis_distribution(self) -> None:
         """Observe CIS score mean/stddev per tf over the last _CIS_LOOKBACK_DAYS days.
@@ -356,7 +373,7 @@ class SignalAuditorAgent(BaseAgent):
                 return True
             # Check within post-close buffer — yesterday's session_end is the reference
             # because is_open() already returned False (session has ended for today's date)
-            yesterday = date_type.today() - timedelta(days=1)
+            yesterday = date.today() - timedelta(days=1)
             window = session.session_window_for_date(yesterday)
             if window[1] is not None and now_utc <= window[1] + buffer:
                 return True

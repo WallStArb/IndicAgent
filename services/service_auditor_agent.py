@@ -54,7 +54,6 @@ SERVICE_REGISTRY: list[ServiceSpec] = [
     ServiceSpec("indicagent-provider-merger", 9130, 500, 2, True),
     ServiceSpec("indicagent-bar-aggregator-compute", 9120, 500, 3, True),
     ServiceSpec("indicagent-bar-auditor", 9123, 200, 3, True),
-    ServiceSpec("indicagent-bar-replay", 9135, 0, 3, True),
     ServiceSpec("indicagent-bar-writer", 9121, 1000, 4, True),
     ServiceSpec("indicagent-intelligence-pipeline@1", 9125, 500, 5, True),
     ServiceSpec("indicagent-feature-writer", 9116, 1000, 6, True),
@@ -81,7 +80,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "cross_asset_service": "indicagent-cross-asset",
     "bar_auditor_agent": "indicagent-bar-auditor",
     "provider_merger_agent": "indicagent-provider-merger",
-    "bar_replay_agent": "indicagent-bar-replay",
 }
 
 
@@ -204,19 +202,8 @@ class ServiceAuditorAgent(BaseAgent):
         while self.running:
             await asyncio.sleep(self._systemd_check_interval)
             try:
-                results = await asyncio.gather(
-                    *[self._check_systemd_state(spec.unit) for spec in _SORTED_REGISTRY],
-                    return_exceptions=True,
-                )
-                for spec, result in zip(_SORTED_REGISTRY, results, strict=True):
-                    if isinstance(result, Exception):
-                        self.logger.warning(
-                            "service_auditor.systemd_check_exception",
-                            service=spec.unit,
-                            error=str(result),
-                        )
-                        continue
-                    active, sub = result
+                for spec in _SORTED_REGISTRY:
+                    active, sub = await self._check_systemd_state(spec.unit)
                     if active in ("failed", "inactive") or sub == "start-limit-hit":
                         await self._evaluate_service(spec, active, sub, 0, False)
             except Exception as exc:

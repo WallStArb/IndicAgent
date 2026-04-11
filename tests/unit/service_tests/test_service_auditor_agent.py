@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -49,8 +49,7 @@ def test_registry_dag_order_sources_before_sinks():
     by_unit = {s.unit: s.dag_order for s in SERVICE_REGISTRY}
     assert by_unit["indicagent-ibkr-provider"] < by_unit["indicagent-provider-merger"]
     assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator-compute"]
-    pipeline_unit = "indicagent-intelligence-pipeline@1"
-    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit[pipeline_unit]
+    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit["indicagent-intelligence-pipeline@1"]
     assert by_unit["indicagent-intelligence-pipeline@1"] < by_unit["indicagent-feature-writer"]
 
 
@@ -196,156 +195,3 @@ async def test_emit_health_event_inserts_correct_schema():
     assert "service_health_events" in sql_and_args[0]
     assert "indicagent-bar-writer" in sql_and_args
     assert "restart" in sql_and_args
-
-
-# ── Plan 03: asyncio.gather parallelism + bar-replay registry ─────────────────
-
-def test_registry_includes_bar_replay():
-    """SERVICE_REGISTRY must include indicagent-bar-replay at dag_order=3, port=9135."""
-    from services.service_auditor_agent import SERVICE_REGISTRY
-    units = {s.unit for s in SERVICE_REGISTRY}
-    assert "indicagent-bar-replay" in units, "indicagent-bar-replay missing from SERVICE_REGISTRY"
-    spec = next(s for s in SERVICE_REGISTRY if s.unit == "indicagent-bar-replay")
-    assert spec.metrics_port == 9135
-    assert spec.dag_order == 3
-    assert spec.lag_threshold_messages == 0
-
-
-def test_agent_id_to_unit_includes_bar_replay():
-    """_AGENT_ID_TO_UNIT must map 'bar_replay_agent' -> 'indicagent-bar-replay'."""
-    from services.service_auditor_agent import _AGENT_ID_TO_UNIT
-    assert _AGENT_ID_TO_UNIT.get("bar_replay_agent") == "indicagent-bar-replay"
-
-
-def test_registry_covers_all_active_services_including_bar_replay():
-    """Extended required set must include indicagent-bar-replay."""
-    from services.service_auditor_agent import SERVICE_REGISTRY
-    units = {s.unit for s in SERVICE_REGISTRY}
-    required = {
-        "indicagent-ibkr-provider", "indicagent-provider-merger",
-        "indicagent-bar-aggregator-compute", "indicagent-bar-writer",
-        "indicagent-bar-auditor", "indicagent-intelligence-pipeline@1",
-        "indicagent-signal-tracker", "indicagent-signal-writer",
-        "indicagent-ai-narrative", "indicagent-feature-writer",
-        "indicagent-llm-writer", "indicagent-cross-asset",
-        "indicagent-bar-replay",  # Plan 03 addition
-    }
-    assert not required - units, f"Missing: {required - units}"
-
-
-@pytest.mark.asyncio
-async def test_systemd_check_loop_uses_asyncio_gather():
-    """_systemd_check_loop must use asyncio.gather for parallel checks, not sequential loop."""
-    from services.service_auditor_agent import _SORTED_REGISTRY
-
-    agent = _make_agent()
-    # _stop_event is not set, so running=True initially
-    agent._systemd_check_interval = 0
-
-    gather_called_with_count: list[int] = []
-    original_gather = asyncio.gather
-
-    async def _mock_check_systemd_state(unit: str) -> tuple[str, str]:
-        return ("active", "running")
-
-    agent._check_systemd_state = _mock_check_systemd_state
-    agent._evaluate_service = AsyncMock()
-
-    async def _patched_gather(*coros, return_exceptions=False):
-        gather_called_with_count.append(len(coros))
-        # Stop after first iteration
-        agent._stop_event.set()
-        # Run the real gather so results are correct
-        return await original_gather(*coros, return_exceptions=return_exceptions)
-
-    with patch("services.service_auditor_agent.asyncio.gather", side_effect=_patched_gather):
-        try:
-            await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except TimeoutError:
-            pass
-
-    assert len(gather_called_with_count) >= 1, "asyncio.gather was never called"
-    # Should have been called with one coroutine per registry entry
-    expected = len(_SORTED_REGISTRY)
-    actual = gather_called_with_count[0]
-    assert actual == expected, f"Expected gather with {expected} coroutines, got {actual}"
-
-
-@pytest.mark.asyncio
-async def test_systemd_check_loop_skips_exception_results():
-    """Exception results from asyncio.gather must be logged and skipped, not propagated."""
-
-    agent = _make_agent()
-    # _stop_event not set → running=True initially
-    agent._systemd_check_interval = 0
-    agent._evaluate_service = AsyncMock()
-
-    # First spec raises, rest return active
-    call_count = 0
-
-    async def _mock_check_systemd_state(unit: str) -> tuple[str, str]:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            raise RuntimeError("systemctl timeout")
-        return ("active", "running")
-
-    agent._check_systemd_state = _mock_check_systemd_state
-
-    sleep_count = 0
-
-    async def _mock_sleep(delay):
-        nonlocal sleep_count
-        sleep_count += 1
-        if sleep_count >= 1:
-            agent._stop_event.set()
-
-    with patch("services.service_auditor_agent.asyncio.sleep", side_effect=_mock_sleep):
-        try:
-            await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except TimeoutError:
-            pass
-
-    # _evaluate_service should NOT have been called for the exception result
-    # (all remaining are active/running, so no _evaluate_service call at all)
-    agent._evaluate_service.assert_not_called()
-    # logger.warning should have been called for the exception
-    agent.logger.warning.assert_called()
-
-
-@pytest.mark.asyncio
-async def test_systemd_check_loop_calls_evaluate_on_failed():
-    """asyncio.gather result with active='failed' must trigger _evaluate_service."""
-    from services.service_auditor_agent import _SORTED_REGISTRY, ServiceState
-
-    agent = _make_agent()
-    # _stop_event not set → running=True initially
-    agent._systemd_check_interval = 0
-    agent._evaluate_service = AsyncMock()
-
-    # All specs return "failed"
-    async def _mock_check_systemd_state(unit: str) -> tuple[str, str]:
-        return ("failed", "start-limit-hit")
-
-    agent._check_systemd_state = _mock_check_systemd_state
-
-    sleep_count = 0
-
-    async def _mock_sleep(delay):
-        nonlocal sleep_count
-        sleep_count += 1
-        if sleep_count >= 1:
-            agent._stop_event.set()
-
-    # Provide service_states for all specs
-    for spec in _SORTED_REGISTRY:
-        agent._service_states[spec.unit] = ServiceState()
-
-    with patch("services.service_auditor_agent.asyncio.sleep", side_effect=_mock_sleep):
-        try:
-            await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except TimeoutError:
-            pass
-
-    # _evaluate_service must have been called at least once (for failed services)
-    assert agent._evaluate_service.call_count >= 1
