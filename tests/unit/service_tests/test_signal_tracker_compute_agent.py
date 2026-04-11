@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_tracker_compute import SignalTrackerCompute
+from services.signal_tracker_compute_agent import SignalTrackerCompute
 
 
 def _read_source() -> str:
     """Read the agent source file for structural assertions."""
     from pathlib import Path
 
-    return Path("services/signal_tracker_compute.py").read_text()
+    return Path("services/signal_tracker_compute_agent.py").read_text()
 
 
 def _make_agent() -> SignalTrackerCompute:
