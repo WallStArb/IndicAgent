@@ -878,8 +878,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             tf_seconds = TF_SECONDS.get(bar.tf, 60)
             if (bar.ts.timestamp() - prev_ts) > tf_seconds * 1.5:
                 bar = bar.model_copy(update={"gap_preceding": True})
-        if bar.ts.timestamp() > self._last_bar_ts.get(key, 0):
-            self._last_bar_ts[key] = bar.ts.timestamp()
+        self._last_bar_ts[key] = bar.ts.timestamp()
 
         # 2. Append to BarHistory
         self._bar_history.append(bar)

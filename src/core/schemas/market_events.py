@@ -24,8 +24,7 @@ ContractUpdateEvent design decisions (Phase 58.1):
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -75,20 +74,3 @@ class ContractUpdateEvent(BaseModel):
     old_contract: str
     new_contract: str
     promoted_at: datetime  # UTC
-
-
-class SignalReplayRequest(BaseModel):
-    """Replay request published by SignalAuditorAgent to topic_signal_replay_requests.
-
-    BarReplayAgent consumes these, fetches bars from market_data_ohlcv,
-    and republishes to market.bars / market.bars.htf for signal recomputation.
-
-    All datetimes must be UTC-aware (validated at construction time).
-    """
-
-    request_id: UUID = Field(default_factory=uuid4)
-    symbol: str
-    tf: str
-    session_start: datetime  # UTC-aware
-    session_end: datetime  # UTC-aware
-    requested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
