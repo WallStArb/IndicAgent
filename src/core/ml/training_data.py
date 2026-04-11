@@ -3,6 +3,7 @@
 No lookahead: WHERE f.ts < sl.activated_at enforced in SQL.
 Returns polars DataFrame with all FeatureVector fields + outcome columns.
 """
+
 from __future__ import annotations
 
 from typing import Any

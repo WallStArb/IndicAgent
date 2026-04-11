@@ -4,6 +4,7 @@ Called automatically by AIBaseAgent (Plan 56-04 SwarmBaseAgent via compute()).
 Zero per-agent boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,8 @@ logger = structlog.get_logger(__name__)
 
 _INSERT_SQL = """
 INSERT INTO alpha_multiplier_shadow
-    (ts, signal_id, agent_id, symbol, tf, hmm_regime, path, predicted_multiplier, confidence, features)
+    (ts, signal_id, agent_id, symbol, tf,
+     hmm_regime, path, predicted_multiplier, confidence, features)
 VALUES
     ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (signal_id, agent_id) DO NOTHING
