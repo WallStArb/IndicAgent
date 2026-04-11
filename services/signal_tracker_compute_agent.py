@@ -622,6 +622,7 @@ class SignalTrackerCompute(BaseAgent):
                            entry_zone_high, activated_at, market_entry_price
                     FROM signal_ledger
                     WHERE status IN ('pending', 'active') AND exit_at IS NULL
+                      AND timestamp > NOW() - INTERVAL '3 days'
                     """)
                 for row in rows:
                     sig = dict(row)

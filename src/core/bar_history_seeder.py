@@ -202,7 +202,7 @@ class BarHistorySeeder:
 
         async def _fallback_one(symbol: str, tf: str) -> None:
             nonlocal fallback_seeded
-            if len(bar_history.get(symbol, tf)) >= min_bars_for_tf(tf):
+            if len(bar_history.get(symbol, tf)) >= min_bars_for_tf(tf) * 2:
                 return
             async with sem:
                 min_bars = min_bars_for_tf(tf) * 2
