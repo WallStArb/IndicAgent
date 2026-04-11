@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""
+"""DEPRECATED: 1,327-line narrative monolith — archived 2026-04-10 (Phase 56-05).
+
+Replaced by: services/ai_narrative_agent.py (~200 lines)
+             src/intelligence/narrative/ (prompt logic, parsing, orchestration)
+Why archived: Accumulated I/O + domain logic in one file. Violated plugin/service boundary.
+
+Original docstring:
 AI Narrative Service — I8 LLM synthesis of trading signals into human-readable narratives
 
 Subscribes to signals:SYMBOL:TF:aggregated stream. For each selected signal,
