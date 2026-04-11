@@ -3,6 +3,7 @@
 All LLM agents must fetch prompts from here — never build from raw market data f-strings.
 This prevents prompt injection from malformed OHLCV values.
 """
+
 from __future__ import annotations
 
 

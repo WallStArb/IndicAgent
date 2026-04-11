@@ -8,6 +8,7 @@ Extends BaseAgent with:
 
 Subclasses implement: _compute(context: SwarmContext) -> AgentResult
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,18 +32,19 @@ _NEUTRAL_CONFIDENCE = 0.0
 class SwarmBaseAgent(BaseAgent):
     """Abstract base for swarm agents. Subclasses implement _compute()."""
 
-    agent_id: str = ""                  # override in subclass
-    path: str = "deterministic"         # override to "llm_swarm" for LLM agents
-    shadow_only: bool = True            # never set to False manually — promotion process only
-    latency_budget_ms: float = 5000.0   # override per agent
+    agent_id: str = ""  # override in subclass
+    path: str = "deterministic"  # override to "llm_swarm" for LLM agents
+    shadow_only: bool = True  # never set to False manually — promotion process only
+    latency_budget_ms: float = 5000.0  # override per agent
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
 
-    async def compute(self, context: "SwarmContext") -> AgentResult:
+    async def compute(self, context: SwarmContext) -> AgentResult:
         """Run _compute() with timeout + exception safety + OTel span."""
         import time
+
         t0 = time.monotonic()
         try:
             result = await asyncio.wait_for(
@@ -51,17 +53,18 @@ class SwarmBaseAgent(BaseAgent):
             )
             latency_ms = (time.monotonic() - t0) * 1000
             return result.model_copy(update={"latency_ms": latency_ms})
-        except asyncio.TimeoutError:
+        except TimeoutError:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.warning("swarm_agent.timeout", agent_id=self.agent_id, timeout_s=self._timeout_s)
-            return self._neutral(error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms)
+            msg = f"timeout after {self._timeout_s:.1f}s"
+            return self._neutral(error=msg, latency_ms=latency_ms)
         except Exception as exc:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.exception("swarm_agent.exception", agent_id=self.agent_id, error=str(exc))
             return self._neutral(error=str(exc), latency_ms=latency_ms)
 
     @abstractmethod
-    async def _compute(self, context: "SwarmContext") -> AgentResult:
+    async def _compute(self, context: SwarmContext) -> AgentResult:
         """Implement the agent's core alpha computation logic."""
         ...
 

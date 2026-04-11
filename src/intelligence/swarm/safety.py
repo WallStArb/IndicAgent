@@ -3,6 +3,7 @@
 Enforces: asyncio timeout, exception isolation, neutral fallback (multiplier=1.0),
 latency recording, and circuit breaker integration.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,7 @@ class SafeSwarmWrapper:
         budget_ms: float = getattr(contributor, "latency_budget_ms", 5000.0)
         self._timeout_s: float = budget_ms / 1000.0
 
-    async def run(self, context: "SwarmContext") -> AgentResult:
+    async def run(self, context: SwarmContext) -> AgentResult:
         """Run contributor.compute() with timeout + exception safety.
 
         Returns a neutral AgentResult (multiplier=1.0) on timeout or exception.
@@ -48,7 +49,7 @@ class SafeSwarmWrapper:
             # Re-create with latency (frozen model — need new instance)
             return result.model_copy(update={"latency_ms": latency_ms})
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.warning(
                 "swarm_wrapper.timeout",
@@ -56,7 +57,8 @@ class SafeSwarmWrapper:
                 timeout_s=self._timeout_s,
                 latency_ms=round(latency_ms, 1),
             )
-            return self._neutral(error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms)
+            msg = f"timeout after {self._timeout_s:.1f}s"
+            return self._neutral(error=msg, latency_ms=latency_ms)
 
         except Exception as exc:
             latency_ms = (time.monotonic() - t0) * 1000

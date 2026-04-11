@@ -4,6 +4,7 @@ Path A (deterministic) and Path B (LLM) are aggregated separately,
 then combined with a discount factor on Path B confidence.
 production_multiplier is conservatively clamped to [0.7, 1.3] for safety.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -58,12 +59,16 @@ class SwarmAggregator:
             final = _NEUTRAL
         else:
             total_weight = sum(weights)
-            final = sum(c * w for c, w in zip(components, weights)) / max(total_weight, 1e-9)
+            final = sum(c * w for c, w in zip(components, weights, strict=True)) / max(
+                total_weight, 1e-9
+            )
 
         production = max(_PRODUCTION_CLAMP_LOW, min(_PRODUCTION_CLAMP_HIGH, final))
 
         all_contributors = {r.agent_id: r for r in (path_a_results + path_b_results)}
-        any_shadow = any(r.shadow_only for r in all_contributors.values()) if all_contributors else True
+        any_shadow = (
+            any(r.shadow_only for r in all_contributors.values()) if all_contributors else True
+        )
 
         return AlphaMultiplier(
             signal_id=signal_id,
