@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,8 @@ logger = structlog.get_logger(__name__)
 
 _INSERT_SQL = """
 INSERT INTO alpha_multiplier_shadow
-    (ts, signal_id, agent_id, symbol, tf, hmm_regime, path, predicted_multiplier, confidence, features)
+    (ts, signal_id, agent_id, symbol, tf, hmm_regime,
+     path, predicted_multiplier, confidence, features)
 VALUES
     ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (signal_id, agent_id) DO NOTHING
@@ -106,9 +107,7 @@ class SwarmWriterAgent(BaseAgent):
 
     async def _handle_message(self, payload: Any) -> None:
         if not isinstance(payload, dict) or not _REQUIRED_FIELDS.issubset(payload.keys()):
-            self.logger.warning(
-                "swarm_writer.malformed_payload", payload=str(payload)[:200]
-            )
+            self.logger.warning("swarm_writer.malformed_payload", payload=str(payload)[:200])
             assert self._producer is not None
             await self._producer.publish(
                 topic_swarm_writer_dlq(self._settings.env_name),
@@ -126,9 +125,7 @@ class SwarmWriterAgent(BaseAgent):
         try:
             rows = [
                 (
-                    datetime.fromisoformat(p["ts"])
-                    if isinstance(p["ts"], str)
-                    else p["ts"],
+                    datetime.fromisoformat(p["ts"]) if isinstance(p["ts"], str) else p["ts"],
                     p["signal_id"],
                     p["agent_id"],
                     p["symbol"],
@@ -145,9 +142,7 @@ class SwarmWriterAgent(BaseAgent):
                 await conn.executemany(_INSERT_SQL, rows)
             self.logger.info("swarm_writer.batch_written", count=len(rows))
         except Exception as exc:
-            self.logger.exception(
-                "swarm_writer.db_error", error=str(exc), batch_size=len(batch)
-            )
+            self.logger.exception("swarm_writer.db_error", error=str(exc), batch_size=len(batch))
             await self._producer.publish(
                 topic_swarm_writer_dlq(self._settings.env_name),
                 {"error": str(exc), "batch_size": len(batch)},
