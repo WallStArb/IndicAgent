@@ -1,0 +1,13 @@
+[Unit]
+Description=IndicAgent ML Data Quality Auditor
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_data_quality_agent.py
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+
+[Install]
+WantedBy=multi-user.target
