@@ -619,9 +619,7 @@ class SignalTrackerCompute(BaseAgent):
                 rows = await db.execute_query("""
                     SELECT signal_id, timestamp, symbol, timeframe, status, direction,
                            entry_price, stop_loss, targets, confidence, entry_zone_low,
-                           entry_zone_high, ttl_bars, bars_elapsed, hmm_regime_at_fire,
-                           garch_sigma_at_fire, garch_sigma, hmm_regime, atr_14,
-                           point_value, activated_at, market_entry_price
+                           entry_zone_high, activated_at, market_entry_price
                     FROM signal_ledger
                     WHERE status IN ('pending', 'active') AND exit_at IS NULL
                     """)
