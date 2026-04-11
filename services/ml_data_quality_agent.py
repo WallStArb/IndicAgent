@@ -11,6 +11,7 @@ Checks:
 
 Score = weighted average: CIS(30%) + coverage(30%) + gaps(20%) + outliers(20%).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,10 +33,10 @@ from src.core.stream_keys import topic_ml_data_quality_alerts
 logger = structlog.get_logger(__name__)
 
 # Thresholds
-_CIS_NULL_MAX = 0.01        # > 1% null → fails CIS check
-_COVERAGE_MIN = 0.95        # < 95% labeled → fails coverage check
-_GAP_MAX = 50               # > 50 missing bars → fails gap check
-_OUTLIER_MAX = 100          # > 100 6σ outlier values → fails outlier check
+_CIS_NULL_MAX = 0.01  # > 1% null → fails CIS check
+_COVERAGE_MIN = 0.95  # < 95% labeled → fails coverage check
+_GAP_MAX = 50  # > 50 missing bars → fails gap check
+_OUTLIER_MAX = 100  # > 100 6σ outlier values → fails outlier check
 
 # Weights for composite score (must sum to 1.0)
 _W_CIS = 0.30
@@ -94,8 +95,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
     async def _check_cis_null_rate(self) -> float:
         """Returns 1.0 if null rate < 1%, linearly degrades to 0 at 50%."""
         async with self._pool.acquire() as conn:
-            null_rate = await conn.fetchval(
-                """
+            null_rate = await conn.fetchval("""
                 SELECT COALESCE(
                     1.0 - COUNT(*) FILTER (WHERE i7 IS NOT NULL OR i7->>'cis' IS NOT NULL)::float
                     / NULLIF(COUNT(*), 0),
@@ -103,8 +103,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
                 )
                 FROM intelligence_features
                 WHERE ts >= NOW() - INTERVAL '30 days'
-                """
-            ) or 0.0
+                """) or 0.0
         null_rate = float(null_rate)
         if null_rate <= _CIS_NULL_MAX:
             return 1.0
@@ -113,16 +112,14 @@ class MLDataQualityAuditorAgent(BaseAgent):
     async def _check_outcome_coverage(self) -> float:
         """Returns 1.0 if > 95% of signal_ledger rows have non-null outcome."""
         async with self._pool.acquire() as conn:
-            coverage = await conn.fetchval(
-                """
+            coverage = await conn.fetchval("""
                 SELECT COALESCE(
                     COUNT(*) FILTER (WHERE outcome IS NOT NULL)::float / NULLIF(COUNT(*), 0),
                     0.0
                 )
                 FROM signal_ledger
                 WHERE timestamp >= NOW() - INTERVAL '30 days'
-                """
-            ) or 0.0
+                """) or 0.0
         coverage = float(coverage)
         if coverage >= _COVERAGE_MIN:
             return 1.0
@@ -131,8 +128,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
     async def _check_feature_gaps(self) -> float:
         """Check for missing bars per (symbol, tf) in last 30 days. Returns 1.0 if no gaps."""
         async with self._pool.acquire() as conn:
-            gap_count = await conn.fetchval(
-                """
+            gap_count = await conn.fetchval("""
                 SELECT COALESCE(
                     COUNT(*),
                     0
@@ -144,8 +140,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
                     GROUP BY symbol, tf, hour_bucket
                     HAVING COUNT(*) < 50  -- expected ~60 bars/hour for 1m
                 ) gap_hours
-                """
-            ) or 0
+                """) or 0
         gap_count = int(gap_count)
         if gap_count <= _GAP_MAX:
             return 1.0
@@ -154,8 +149,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
     async def _check_outliers(self) -> float:
         """Check for extreme outlier feature values (> 6σ). Returns 1.0 if count below threshold."""
         async with self._pool.acquire() as conn:
-            outlier_count = await conn.fetchval(
-                """
+            outlier_count = await conn.fetchval("""
                 SELECT COALESCE(COUNT(*), 0)
                 FROM intelligence_features
                 WHERE ts >= NOW() - INTERVAL '30 days'
@@ -163,8 +157,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
                     ABS((i1->>'rsi_14')::float - 50) > 6 * 20
                     OR (i1->>'atr_14')::float > 200
                   )
-                """
-            ) or 0
+                """) or 0
         outlier_count = int(outlier_count)
         if outlier_count <= _OUTLIER_MAX:
             return 1.0
@@ -194,9 +187,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
                     ),
                 },
             )
-            self.logger.warning(
-                "ml_data_quality.alert_published", score=score, threshold=min_score
-            )
+            self.logger.warning("ml_data_quality.alert_published", score=score, threshold=min_score)
 
 
 def main() -> None:
