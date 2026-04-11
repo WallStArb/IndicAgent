@@ -885,4 +885,5 @@ class AlphaMultiplier(BaseModel):
 
     @property
     def is_production_ready(self) -> bool:
+        """Returns True only when all contributors are production-ready (not shadow-only)."""
         return not self.shadow_only
