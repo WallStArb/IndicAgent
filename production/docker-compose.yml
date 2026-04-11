@@ -118,6 +118,35 @@ services:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: indicagent-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: indicagent-langfuse
+    ports:
+      - "3010:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@timescaledb:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3010
+      NEXTAUTH_SECRET: dev-secret-replace-in-production
+      SALT: dev-salt-replace-in-production
+    depends_on:
+      - timescaledb
+    restart: unless-stopped
+
 volumes:
   timescale-data:
   redpanda-data:
@@ -125,6 +154,7 @@ volumes:
   prometheus-data:
   grafana-data:
   tempo-data:
+  mlflow_data:
 
 
 

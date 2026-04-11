@@ -332,6 +332,43 @@ MERGER_BAR_LATENCY_SECONDS = Histogram(
 )
 
 
+# ---------------------------------------------------------------------------
+# LLM Infrastructure Metrics (Phase 56-01)
+# ---------------------------------------------------------------------------
+
+LLM_CALL_DURATION = Histogram(
+    "llm_call_duration_seconds",
+    "LLM call latency per provider and call_type",
+    ["provider", "call_type", "status"],
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+
+LLM_TOKENS_USED = Counter(
+    "llm_tokens_used_total",
+    "Total tokens consumed per provider and call_type",
+    ["provider", "call_type"],
+)
+
+LLM_CACHE_HITS = Counter(
+    "llm_cache_hit_total",
+    "Semantic cache hits per call_type",
+    ["call_type"],
+)
+
+LLM_GUARDRAILS_REJECTIONS = Counter(
+    "llm_guardrails_rejections_total",
+    "LLM responses rejected by guardrails schema validation",
+    ["call_type"],
+)
+
+LLM_RATE_LIMIT_WAIT = Histogram(
+    "llm_rate_limit_wait_seconds",
+    "Time spent waiting for rate limit token bucket",
+    ["provider"],
+    buckets=[0.01, 0.1, 0.5, 1.0, 5.0, 15.0, 30.0],
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started
