@@ -85,12 +85,17 @@ class TrainingDataQuery:
         """
         import polars as pl
 
-        sql = _BASE_SQL
         params: list = [symbol, tf, start_date, end_date]
 
         if regime is not None:
-            sql += f" AND (f.i4->>'hmm_regime')::int = ${len(params) + 1}"
+            # Insert regime filter into WHERE clause before ORDER BY
+            sql = _BASE_SQL.replace(
+                "ORDER BY f.ts",
+                f"  AND (f.i4->>'hmm_regime')::int = ${len(params) + 1}\nORDER BY f.ts",
+            )
             params.append(regime)
+        else:
+            sql = _BASE_SQL
 
         async with self._pool.acquire() as conn:
             records = await conn.fetch(sql, *params)
