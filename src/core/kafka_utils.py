@@ -181,6 +181,13 @@ class KafkaConsumerClient:
 
         if total_lag > max_lag:
             await self._consumer.seek_to_end()
+            # Commit after seek so manual-commit consumers (enable_auto_commit=False)
+            # persist the new position — otherwise Redpanda still shows full lag on
+            # next restart and the consumer reprocesses from the old committed offset.
+            try:
+                await self._consumer.commit()
+            except Exception:
+                pass  # auto-commit consumers raise; ignore
             logger.info(
                 "kafka_consumer.lag_skip",
                 lag=total_lag,
