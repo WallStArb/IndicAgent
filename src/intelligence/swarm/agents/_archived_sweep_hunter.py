@@ -1,3 +1,10 @@
+"""DEPRECATED: Old get_multiplier(sid, dict) contract stub — archived 2026-04-10.
+
+Replaced by: Phase 66 will create the first real IAlphaContributor (SkepticAgent).
+Why archived: Implemented get_multiplier(sid, dict) — wrong contract.
+              New contract: IAlphaContributor.compute(SwarmContext) → AgentResult.
+              Contains no real logic (placeholder values only).
+"""
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID

@@ -1,17 +1,7 @@
-from typing import Any, Protocol, runtime_checkable
+"""IAlphaContributor — backward-compat re-export from src.core.agents.
 
-from src.intelligence.schemas import AlphaMultiplier
+Canonical home: src/core/agents/alpha_contributor.py (Phase 56-03).
+"""
+from src.core.agents.alpha_contributor import IAlphaContributor  # noqa: F401
 
-
-@runtime_checkable
-class IAlphaContributor(Protocol):
-    """
-    Standard interface for all intelligence contributions to the Signal Lifecycle.
-    Ensures decoupled execution between Path A (Deterministic) and Path B (LLM-Swarm).
-    """
-    async def get_multiplier(self, sid: str, context: dict[str, Any]) -> AlphaMultiplier:
-        """
-        Compute an alpha multiplier given signal ID and market context.
-        Must be thread-safe and non-blocking if possible.
-        """
-        ...
+__all__ = ["IAlphaContributor"]
