@@ -91,10 +91,27 @@ class LLMProviderChain:
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
-        # 2. Budget check — fall back to Ollama-only if exceeded
+        # 2. Budget check — route to Ollama-only if daily budget exceeded
         if _budget.is_exceeded():
             logger.warning("llm_chain.budget_exceeded", call_type=self._call_type)
-            # Future: swap inner chain to ollama-only here
+            ollama_providers = [p for p in self._inner.providers if isinstance(p, OllamaProvider)]
+            if not ollama_providers:
+                return None
+            t0 = time.monotonic()
+            response = await LLMChain(ollama_providers).generate(
+                prompt, system, max_tokens=max_tokens, timeout=timeout
+            )
+            latency_ms = (time.monotonic() - t0) * 1000
+            if response is None:
+                return None
+            estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
+            _budget.record(call_type=self._call_type, provider="ollama", tokens=estimated_tokens)
+            if self._cache_ttl > 0:
+                _cache.put(
+                    system=system, prompt=prompt, model=model,
+                    response=response, ttl=self._cache_ttl,
+                )
+            return response
 
         # 3. Call inner chain
         t0 = time.monotonic()
