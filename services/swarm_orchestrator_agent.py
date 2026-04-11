@@ -104,7 +104,11 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         assert self._signal_consumer is not None
         async for _topic, _key, payload in self._signal_consumer.messages():
             self._record_message_consumed()
-            symbol = payload.get("symbol") if isinstance(payload, dict) else getattr(payload, "symbol", None)
+            symbol = (
+                payload.get("symbol")
+                if isinstance(payload, dict)
+                else getattr(payload, "symbol", None)
+            )
             tf = payload.get("tf") if isinstance(payload, dict) else getattr(payload, "tf", None)
             await self._handle_signal(payload, symbol=symbol, tf=tf)
 
@@ -134,12 +138,9 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
 
         # Path A: run all deterministic contributors concurrently
         path_a_wrappers = [
-            w for w in self._contributors
-            if getattr(w._contributor, "path", "") == "deterministic"
+            w for w in self._contributors if getattr(w._contributor, "path", "") == "deterministic"
         ]
-        path_a_results = list(
-            await asyncio.gather(*[w.run(ctx) for w in path_a_wrappers])
-        )
+        path_a_results = list(await asyncio.gather(*[w.run(ctx) for w in path_a_wrappers]))
 
         # Fan-out each AgentResult to swarm results topic
         env = self._settings.env_name
