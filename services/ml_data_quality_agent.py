@@ -97,7 +97,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
         async with self._pool.acquire() as conn:
             null_rate = await conn.fetchval("""
                 SELECT COALESCE(
-                    1.0 - COUNT(*) FILTER (WHERE i7 IS NOT NULL OR i7->>'cis' IS NOT NULL)::float
+                    COUNT(*) FILTER (WHERE i7 IS NULL OR i7->>'cis' IS NULL)::float
                     / NULLIF(COUNT(*), 0),
                     1.0
                 )
