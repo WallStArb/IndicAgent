@@ -3,6 +3,7 @@
 Creates metrics via src/observability/metrics.py to prevent duplicate registration.
 Label convention: agent_id (not agent=).
 """
+
 from __future__ import annotations
 
 from prometheus_client import Counter, Gauge, Histogram
