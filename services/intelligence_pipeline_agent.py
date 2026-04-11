@@ -620,6 +620,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             group_id=self._consumer_group,
         )
         await self._kafka_consumer.start()
+        await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
         # 3. Restore state from checkpoint topic

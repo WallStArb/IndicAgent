@@ -152,6 +152,44 @@ class KafkaConsumerClient:
         """
         await self._consumer.seek_to_end()
 
+    async def skip_lag_if_needed(self, max_lag: int) -> int:
+        """Seek to end if total committed lag exceeds max_lag.
+
+        Call after start(). Triggers a short poll to force partition assignment,
+        then checks end_offset - position for each partition. If total lag
+        exceeds max_lag, seeks all partitions to end and logs the skip.
+
+        Returns the lag found (0 if already caught up or assignment failed).
+        Why: live pipeline services seed state from DB at startup; old Kafka
+        messages are redundant and cause hours-long reprocessing after restarts.
+        """
+        partitions = self._consumer.assignment()
+        if not partitions:
+            await self._consumer.getmany(timeout_ms=2000, max_records=1)
+            partitions = self._consumer.assignment()
+        if not partitions:
+            return 0
+
+        end_offsets = await self._consumer.end_offsets(list(partitions))
+        total_lag = 0
+        for tp, end_offset in end_offsets.items():
+            try:
+                current = await self._consumer.position(tp)
+                total_lag += max(0, end_offset - current)
+            except Exception:
+                pass
+
+        if total_lag > max_lag:
+            await self._consumer.seek_to_end()
+            logger.info(
+                "kafka_consumer.lag_skip",
+                lag=total_lag,
+                max_lag=max_lag,
+                action="seeked_to_end",
+            )
+
+        return total_lag
+
     async def getmany(
         self, *, timeout_ms: int = 0, max_records: int = 100
     ) -> dict:

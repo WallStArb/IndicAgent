@@ -188,6 +188,7 @@ class FeatureSnapshotWriterAgent(BaseAgent):
             enable_auto_commit=False,
         )
         await self._consumer.start()
+        await self._consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info(
             "snapshot_writer_consumer_started",
             topic=topic_intelligence_journal(self._env_name),

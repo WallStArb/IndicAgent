@@ -43,6 +43,7 @@ class AINarrativeComputeAgent(BaseAgent):
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
         )
         await self._consumer.start()
+        await self._consumer.skip_lag_if_needed(max_lag=100)
         await self._producer.start()
 
     async def _teardown(self) -> None:
