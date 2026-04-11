@@ -235,7 +235,6 @@ class MLDiscoveryComputeAgent(BaseAgent):
 
 
 def main() -> None:
-    setup_service_logging("logs/ml_discovery_agent.log")
     settings = Settings()
     agent = MLDiscoveryComputeAgent(settings)
     asyncio.run(agent.start())

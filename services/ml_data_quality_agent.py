@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -166,8 +167,6 @@ class MLDataQualityAuditorAgent(BaseAgent):
 
     async def _write_score(self, score: float) -> None:
         """Persist quality score to ml_data_quality_runs so orchestrator can read it."""
-        from datetime import UTC, datetime
-
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO ml_data_quality_runs (ts, score) VALUES ($1, $2)",
@@ -187,7 +186,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
 
     async def _maybe_publish_alert(self, score: float) -> None:
         """Publish alert to Kafka if score below threshold."""
-        min_score = getattr(self._settings, "DATA_QUALITY_MIN_SCORE", 0.85)
+        min_score = self._settings.DATA_QUALITY_MIN_SCORE
         if score < min_score:
             await self._producer.publish(
                 topic_ml_data_quality_alerts(self._settings.env_name),
@@ -204,7 +203,6 @@ class MLDataQualityAuditorAgent(BaseAgent):
 
 
 def main() -> None:
-    setup_service_logging("logs/ml_data_quality_agent.log")
     settings = Settings()
     agent = MLDataQualityAuditorAgent(settings)
     asyncio.run(agent.start())

@@ -77,7 +77,8 @@ async def _call_llm_with_circuit_breaker(
 
     # --- Pre-call: enforce OPEN / HALF_OPEN gate ---
     if plugin_state.state == CircuitState.OPEN:
-        elapsed = time.monotonic() - _llm_open_since.get(provider_id, 0)
+        # Default to current time if key missing — treats unknown state as "just opened"
+        elapsed = time.monotonic() - _llm_open_since.get(provider_id, time.monotonic())
         if elapsed < _llm_circuit_breaker.config.recovery_timeout:
             logger.warning(
                 "llm_circuit_open.skipping",

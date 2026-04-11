@@ -155,7 +155,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
                     "ts": ctx.ts.isoformat() if hasattr(ctx.ts, "isoformat") else str(ctx.ts),
                     "multiplier": result.multiplier,
                     "confidence": result.confidence,
-                    "path": "path_a",
+                    "path": result.path,
                     "shadow_only": result.shadow_only,
                     "hmm_regime": ctx.hmm_regime,
                     "features": None,  # ShadowRecorder (Plan 56-08) adds features

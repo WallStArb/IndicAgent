@@ -19,7 +19,6 @@ Phase 67 adds TrainingNode and MonitorNode implementations -- no architecture ch
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import sys
 from pathlib import Path
 from typing import TypedDict
@@ -69,9 +68,15 @@ class MLOrchestratorComputeAgent(BaseAgent):
             bootstrap_servers=settings.kafka_bootstrap_servers,
         )
 
+    async def _setup(self) -> None:
+        self._pool = await asyncpg.create_pool(self._settings.database_url)
+
+    async def _teardown(self) -> None:
+        if self._pool:
+            await self._pool.close()
+
     async def _run(self) -> None:
         """One-shot entry point: run LangGraph pipeline and exit."""
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
         self.logger.info("ml_orchestrator.starting")
         try:
             initial_state: MLOrchestrationState = {
@@ -93,9 +98,6 @@ class MLOrchestratorComputeAgent(BaseAgent):
                 topic_ml_orchestrator_dlq(self._settings.env_name),
                 {"error": str(exc)},
             )
-        finally:
-            if self._pool:
-                await self._pool.close()
 
     async def _run_graph(self, initial_state: MLOrchestrationState) -> MLOrchestrationState:
         """Run LangGraph pipeline or sequential fallback if langgraph unavailable."""
@@ -135,7 +137,7 @@ class MLOrchestratorComputeAgent(BaseAgent):
         return state
 
     def _quality_gate(self, state: MLOrchestrationState) -> str:
-        min_score = getattr(self._settings, "DATA_QUALITY_MIN_SCORE", 0.85)
+        min_score = self._settings.DATA_QUALITY_MIN_SCORE
         score = state.get("data_quality_score") or 0.0
         if score < min_score:
             self.logger.warning(
@@ -150,14 +152,19 @@ class MLOrchestratorComputeAgent(BaseAgent):
         """Trigger data quality service and read the resulting score."""
         self.logger.info("ml_orchestrator.data_quality_node.starting")
         try:
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                ["sudo", "systemctl", "start", "indicagent-ml-data-quality.service"],
-                timeout=600,
-                capture_output=True,
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "start", "--wait", "indicagent-ml-data-quality.service",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            except TimeoutError as exc:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError("data quality service timed out after 600s") from exc
             if proc.returncode != 0:
-                raise RuntimeError(f"data quality service failed: {proc.stderr.decode()[:200]}")
+                raise RuntimeError(f"data quality service failed: {stderr.decode()[:200]}")
 
             async with self._pool.acquire() as conn:
                 score = await conn.fetchval(
@@ -175,14 +182,20 @@ class MLOrchestratorComputeAgent(BaseAgent):
         """Trigger discovery service and capture run_id."""
         self.logger.info("ml_orchestrator.discovery_node.starting")
         try:
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                ["sudo", "systemctl", "start", "indicagent-ml-discovery.service"],
-                timeout=1800,  # 30 min max for tsfresh
-                capture_output=True,
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "start", "--wait", "indicagent-ml-discovery.service",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            try:
+                # 30 min max for tsfresh
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+            except TimeoutError as exc:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError("discovery service timed out after 1800s") from exc
             if proc.returncode != 0:
-                raise RuntimeError(f"discovery service failed: {proc.stderr.decode()[:200]}")
+                raise RuntimeError(f"discovery service failed: {stderr.decode()[:200]}")
 
             async with self._pool.acquire() as conn:
                 run_id = await conn.fetchval(
@@ -213,7 +226,6 @@ class MLOrchestratorComputeAgent(BaseAgent):
 
 
 def main() -> None:
-    setup_service_logging("logs/ml_orchestrator_agent.log")
     settings = Settings()
     agent = MLOrchestratorComputeAgent(settings)
     asyncio.run(agent.start())
