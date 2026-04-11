@@ -145,7 +145,7 @@ class SwarmWriterAgent(BaseAgent):
             self.logger.exception("swarm_writer.db_error", error=str(exc), batch_size=len(batch))
             await self._producer.publish(
                 topic_swarm_writer_dlq(self._settings.env_name),
-                {"error": str(exc), "batch_size": len(batch)},
+                {"error": str(exc), "batch_size": len(batch), "payloads": batch[:10]},
             )
 
 
