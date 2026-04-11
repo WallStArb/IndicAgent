@@ -3,9 +3,12 @@
 This module is a backward-compatibility re-export stub. Import from src.core.llm instead.
 """
 from src.core.llm.providers import (  # noqa: F401
+    AnthropicProvider,
     LLMChain,
     LLMProvider,
     OllamaProvider,
     OpenRouterProvider,
     ZAIProvider,
+    _call_llm_with_circuit_breaker,
+    _llm_circuit_breaker,
 )
