@@ -10,11 +10,11 @@ from typing import Any
 
 import structlog
 
-from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
-from src.core.llm.semantic_cache import SemanticCache
-from src.core.llm.rate_limiter import RateLimiter
-from src.core.llm.token_budget import TokenBudget
 from src.core.llm.guardrails import GuardrailsValidator
+from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
+from src.core.llm.rate_limiter import RateLimiter
+from src.core.llm.semantic_cache import SemanticCache
+from src.core.llm.token_budget import TokenBudget
 
 logger = structlog.get_logger(__name__)
 
@@ -59,18 +59,23 @@ class LLMProviderChain:
                 )
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list from settings or fall back to defaults."""
+        """Build provider list from settings. OpenRouter first (if key set), Ollama always last."""
         if settings is None:
             return [OllamaProvider("gemma4:e4b")]
         providers = []
-        if hasattr(settings, "openrouter_api_key") and settings.openrouter_api_key:
+        if settings.openrouter_api_key:
             providers.append(
                 OpenRouterProvider(
-                    model=getattr(settings, "openrouter_model", "meta-llama/llama-3.3-70b-instruct:free"),
+                    model=settings.openrouter_model,
                     api_key=settings.openrouter_api_key,
                 )
             )
-        providers.append(OllamaProvider(getattr(settings, "ollama_model", "gemma4:e4b")))
+        providers.append(
+            OllamaProvider(
+                model=settings.ollama_model,
+                base_url=settings.ollama_base_url,
+            )
+        )
         return providers
 
     async def generate(

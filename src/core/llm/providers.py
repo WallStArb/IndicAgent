@@ -1,8 +1,7 @@
-"""LLM provider abstraction — Anthropic/Z.ai (primary), OpenRouter (secondary), Ollama (fallback).
+"""LLM provider abstraction — OpenRouter (primary), Ollama (local fallback).
 
 Usage:
     chain = LLMChain([
-        AnthropicProvider("claude-sonnet-4.6", api_key="sk-..."),
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
         OllamaProvider("gemma4:e4b"),
     ])
@@ -256,120 +255,6 @@ class OpenRouterProvider:
         max_tokens: int,
         timeout: float,
     ) -> str | None:
-        def _call() -> str | None:
-            payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
-                "max_tokens": max_tokens,
-                "stream": False,
-            }
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self.base_url}/chat/completions",
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-            choices = result.get("choices") or []
-            return _extract_message_content(choices)
-
-        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
-
-
-class AnthropicProvider:
-    """Calls Anthropic API v1/messages (supports Z.ai proxy)."""
-
-    ANTHROPIC_VERSION = "2023-06-01"
-
-    def __init__(
-        self,
-        model: str,
-        api_key: str,
-        base_url: str = "https://api.anthropic.com",
-        timeout: float | None = None,
-    ) -> None:
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout or _default_llm_timeout()
-        self.provider_id = f"anthropic:{model}"
-
-    async def generate(
-        self,
-        prompt: str,
-        system: str,
-        max_tokens: int,
-        timeout: float,
-    ) -> str | None:
-        def _call() -> str | None:
-            payload = {
-                "model": self.model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": [
-                    {"role": "user", "content": prompt},
-                ],
-            }
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self.base_url}/v1/messages",
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": self.api_key,
-                    "anthropic-version": self.ANTHROPIC_VERSION,
-                },
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-            content_block = result.get("content", [])
-            if not content_block:
-                return None
-            return content_block[0].get("text", "").strip() or None
-
-        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
-
-
-class ZAIProvider:
-    """Calls Z.ai API (OpenAI-compatible) with GLM-5 model.
-
-    Z.ai provides GLM-5, a SOTA foundation model for agentic engineering.
-    API: https://api.z.ai/api/paas/v4/chat/completions
-
-    Usage:
-        provider = ZAIProvider(model="glm-5", api_key="your-api-key")
-        text = await provider.generate(prompt, system, max_tokens=500, timeout=30.0)
-    """
-
-    def __init__(
-        self,
-        model: str = "glm-5",
-        api_key: str = "",
-        base_url: str = "https://api.z.ai/api/paas/v4",
-        timeout: float | None = None,
-    ) -> None:
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout or _default_llm_timeout()
-        self.provider_id = f"zai:{model}"
-
-    async def generate(
-        self,
-        prompt: str,
-        system: str,
-        max_tokens: int,
-        timeout: float,
-    ) -> str | None:
-        """Return generated text, or None on failure."""
-
         def _call() -> str | None:
             payload = {
                 "model": self.model,
