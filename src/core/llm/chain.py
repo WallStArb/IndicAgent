@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider, ZAIProvider
+from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.token_budget import TokenBudget
@@ -104,7 +104,14 @@ class LLMProviderChain:
         if response is None:
             return None
 
-        # 4. Record token spend (estimate: 1 token ≈ 4 chars)
+        # 4. Guardrails validation — reject responses that fail schema checks
+        if self._call_type and self._call_type in _guardrails._schemas:
+            validated = _guardrails.validate(self._call_type, response)
+            if validated is None:
+                logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
+                return None
+
+        # 5. Record token spend (estimate: 1 token ≈ 4 chars)
         estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
         provider_id = getattr(self._inner, "last_provider_id", "unknown") or "unknown"
         _budget.record(
@@ -113,7 +120,7 @@ class LLMProviderChain:
             tokens=estimated_tokens,
         )
 
-        # 5. Store in cache
+        # 6. Store in cache
         if self._cache_ttl > 0:
             _cache.put(
                 system=system,
