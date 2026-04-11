@@ -285,65 +285,6 @@ def topic_lifecycle_transitions(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.transitions"
 
 
-# ---------------------------------------------------------------------------
-# Swarm topics (Phase 56)
-# ---------------------------------------------------------------------------
-
-
-def topic_swarm_results(env_name: str) -> str:
-    """Per-AgentResult fan-out topic. SwarmWriterAgent subscribes here.
-    One message = one AgentResult from one contributor for one signal.
-    """
-    return f"{env_prefix(env_name)}intelligence.swarm"
-
-
-def topic_swarm_alpha_path_a(env_name: str) -> str:
-    """Assembled AlphaMultiplier from deterministic (Path A) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_a"
-
-
-def topic_swarm_alpha_path_b(env_name: str) -> str:
-    """Assembled AlphaMultiplier from LLM swarm (Path B) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_b"
-
-
-def topic_swarm_world_state(env_name: str) -> str:
-    """Compacted world state topic (cleanup.policy=compact).
-    Create manually: rpk topic create dev.swarm.world_state --topic-config cleanup.policy=compact
-    """
-    return f"{env_prefix(env_name)}swarm.world_state"
-
-
-def topic_swarm_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for SwarmOrchestratorComputeAgent — unresolvable contexts."""
-    return f"{env_prefix(env_name)}swarm.orchestrator.dlq"
-
-
-def topic_swarm_writer_dlq(env_name: str) -> str:
-    """DLQ for SwarmWriterAgent — malformed payloads or DB insert failures."""
-    return f"{env_prefix(env_name)}swarm.writer.dlq"
-
-
-# ---------------------------------------------------------------------------
-# ML topics (Phase 56)
-# ---------------------------------------------------------------------------
-
-
-def topic_ml_data_quality_alerts(env_name: str) -> str:
-    """MLDataQualityAuditorAgent publishes here when score < DATA_QUALITY_MIN_SCORE."""
-    return f"{env_prefix(env_name)}ml.data_quality.alerts"
-
-
-def topic_ml_discovery_results(env_name: str) -> str:
-    """MLDiscoveryComputeAgent publishes top-IC feature summaries here."""
-    return f"{env_prefix(env_name)}ml.discovery.results"
-
-
-def topic_ml_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for MLOrchestratorComputeAgent — node failures."""
-    return f"{env_prefix(env_name)}ml.orchestrator.dlq"
-
-
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
