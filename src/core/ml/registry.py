@@ -6,6 +6,7 @@ Hides the MLflow API from all callers. Four operations:
   promote(model_id)
   revert(model_id)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,7 +20,9 @@ logger = structlog.get_logger(__name__)
 class ModelRegistry:
     """DB-backed model registry. MLflow stores artifacts; this table routes inference."""
 
-    def __init__(self, pool: asyncpg.Pool, mlflow_tracking_uri: str = "http://localhost:5000") -> None:
+    def __init__(
+        self, pool: asyncpg.Pool, mlflow_tracking_uri: str = "http://localhost:5000"
+    ) -> None:
         self._pool = pool
         self._mlflow_uri = mlflow_tracking_uri
 
@@ -32,6 +35,7 @@ class ModelRegistry:
     ) -> str:
         """Insert model record, return model_id UUID string."""
         import json
+
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -51,7 +55,9 @@ class ModelRegistry:
     async def load_latest(self, segment: dict[str, Any]) -> Any | None:
         """Load latest production model artifact for segment. Returns None if none promoted."""
         import json
+
         import mlflow
+
         mlflow.set_tracking_uri(self._mlflow_uri)
 
         async with self._pool.acquire() as conn:
@@ -70,12 +76,15 @@ class ModelRegistry:
         try:
             return mlflow.pyfunc.load_model(row["artifact_path"])
         except Exception as exc:
-            logger.error("model_registry.load_failed", artifact=row["artifact_path"], error=str(exc))
+            logger.error(
+                "model_registry.load_failed", artifact=row["artifact_path"], error=str(exc)
+            )
             return None
 
     async def promote(self, model_id: str) -> None:
         """Set model status to production."""
         from datetime import UTC, datetime
+
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "UPDATE ml_models SET status='production', promoted_at=$1 WHERE model_id=$2::uuid",

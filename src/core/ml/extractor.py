@@ -4,6 +4,7 @@ Two entry points, same logic:
   from_event(IntelligenceEvent) → FeatureVector  (real-time path)
   from_row(dict)                → FeatureVector  (training/batch path)
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -24,7 +25,7 @@ def _safe(obj: Any, attr: str) -> Any:
 class FeatureExtractor:
     """Extract FeatureVector from IntelligenceEvent (inference) or dict row (training)."""
 
-    def from_event(self, event: "IntelligenceEvent") -> FeatureVector:
+    def from_event(self, event: IntelligenceEvent) -> FeatureVector:
         """Real-time path: IntelligenceEvent → FeatureVector."""
         i1 = _safe(event, "i1")
         i2 = _safe(event, "i2")
