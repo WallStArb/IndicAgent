@@ -6,7 +6,7 @@ publishes to narratives topic. All narrative logic is in src/intelligence/narrat
 from __future__ import annotations
 
 import asyncio
-import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -29,26 +29,32 @@ class AINarrativeComputeAgent(BaseAgent):
         self._settings = settings
         chain = LLMProviderChain(call_type="narrative", settings=settings)
         self._orchestrator = NarrativeOrchestrator(chain=chain, max_tokens=200, timeout=30.0)
+        # Kafka clients created in _setup() — AIOKafkaConsumer requires a running event loop.
+        self._consumer: KafkaConsumerClient | None = None
+        self._producer: KafkaProducerClient | None = None
+
+    async def _setup(self) -> None:
         self._consumer = KafkaConsumerClient(
-            topic_intelligence_journal(settings.env_name),
-            bootstrap_servers=settings.kafka_bootstrap_servers,
+            topic_intelligence_journal(self._settings.env_name),
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id="ai_narrative_consumer",
         )
         self._producer = KafkaProducerClient(
-            bootstrap_servers=settings.kafka_bootstrap_servers,
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
         )
-
-    async def _setup(self) -> None:
         await self._consumer.start()
         await self._producer.start()
 
     async def _teardown(self) -> None:
-        await self._consumer.stop()
-        await self._producer.stop()
+        if self._consumer:
+            await self._consumer.stop()
+        if self._producer:
+            await self._producer.stop()
 
     async def _run(self) -> None:
         """Main loop: consume records, generate narratives, publish."""
         self.logger.info("ai_narrative_agent.starting")
+        assert self._consumer is not None, "_run called before _setup"
         async for _topic, _key, payload in self._consumer.messages():
             if self._stop_event.is_set():
                 break
@@ -56,6 +62,9 @@ class AINarrativeComputeAgent(BaseAgent):
                 await self._process_bar(payload)
             except Exception as exc:
                 self.logger.exception("ai_narrative_agent.consume_error", error=str(exc))
+
+    # Drop bars older than this — prevents wasting LLM tokens on replay/stale data.
+    _STALENESS_LIMIT = timedelta(minutes=10)
 
     async def _process_bar(self, record: Any) -> None:
         """Generate and publish a narrative for one BarIntelligenceRecord payload.
@@ -67,6 +76,31 @@ class AINarrativeComputeAgent(BaseAgent):
         try:
             # Adapt dict payload to object with attribute access
             adapted = _RecordAdapter(record) if isinstance(record, dict) else record
+
+            # Freshness gate — skip stale bars (replay, backfill, lag) to avoid
+            # wasting LLM tokens on data that is no longer actionable.
+            bar_ts_raw = adapted.intelligence.ts
+            if bar_ts_raw:
+                try:
+                    bar_ts = (
+                        bar_ts_raw
+                        if isinstance(bar_ts_raw, datetime)
+                        else datetime.fromisoformat(str(bar_ts_raw))
+                    )
+                    if bar_ts.tzinfo is None:
+                        bar_ts = bar_ts.replace(tzinfo=UTC)
+                    age = datetime.now(UTC) - bar_ts
+                    if age > self._STALENESS_LIMIT:
+                        self.logger.info(
+                            "ai_narrative_agent.skipped_stale_bar",
+                            symbol=adapted.intelligence.symbol,
+                            tf=adapted.intelligence.tf,
+                            bar_age_s=round(age.total_seconds()),
+                        )
+                        return
+                except (ValueError, TypeError):
+                    pass  # Unparseable ts — let it through rather than block
+
             narrative = await self._orchestrator.generate(adapted)
             if narrative is None:
                 return

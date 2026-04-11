@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from asyncio import to_thread
 from collections.abc import Callable
@@ -34,6 +35,11 @@ from src.observability.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class ProviderRateLimitError(Exception):
+    """Raised when a provider returns HTTP 429 — do not retry, trip circuit immediately."""
+
 
 # Circuit breaker for LLM provider calls — shared across all providers.
 # Uses a 5-minute recovery timeout and 3 consecutive failures threshold.
@@ -274,8 +280,13 @@ class OpenRouterProvider:
                     "Authorization": f"Bearer {self.api_key}",
                 },
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    result = json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429:
+                    raise ProviderRateLimitError("HTTP 429: Too Many Requests") from exc
+                raise
             choices = result.get("choices") or []
             return _extract_message_content(choices)
 
