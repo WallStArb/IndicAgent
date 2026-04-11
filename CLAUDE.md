@@ -106,6 +106,8 @@ When removing/replacing services (5 existing `_archived_*.py` files):
 - Journal rotation can hide exit reasons — check logs immediately after failure
 - `Restart=always` + `RestartSec=10` means "keep restarting", but StartLimitBurst overrides this
 - Timer-triggered services (data-quality, weight-updater) show `inactive (dead)` normally — check `TriggeredBy:` field
+- **Verify new code is running after fixes**: check `git log --format="%ai %s" -3` vs `systemctl status <unit>` start time — if service started before the fix commit, it's running old code. Always restart AFTER commits land.
+- **Systemd CGroup shows stale script name after rename**: after renaming a service file, the CGroup display may still show the old filename. Trust the unit file's `ExecStart` and the file on disk, not the CGroup.
 
 ### Post-Milestone Housekeeping
 `git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
@@ -344,6 +346,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **Disable compression order**: Must `SELECT decompress_chunk(...)` on all compressed chunks BEFORE `ALTER TABLE SET (timescaledb.compress = false)` — the ALTER fails if any chunk is still compressed.
 - **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Primary time column is `timestamp` (not `ts` or `feature_ts`).
+- **signal_ledger garbage cleanup**: When lifecycle tracker bootstrap fails, pending signals accumulate forever. Clean up with direct DELETE — never expire+mark. `DELETE FROM signal_ledger WHERE exit_reason IN ('bulk_startup_expire', 'orphaned_pre_restart');` then `DELETE FROM signal_ledger WHERE status = 'pending' AND exit_at IS NULL;`. Rule: always hard DELETE garbage rows, never leave stale data.
+- **signal_ledger valid exit_reason values**: `ttl_expired`, `stop_loss`, `bulk_startup_expire`, `orphaned_pre_restart`. Valid outcome values: `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind` (see `chk_signal_ledger_outcome` constraint).
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 - **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `intelligence_pipeline_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
 - **Canonical bar enforcement:** With continuous 1m bar flow (60 bars/hour), BarAccumulator emits: 24× 1h/day, 6× 4h/day, 1× 1d/day. Session break logic at RTH close prevents cross-session contamination. Overnight gaps don't skip bars—period boundary crossing on next 1m bar triggers emission of accumulated HTF bar.
