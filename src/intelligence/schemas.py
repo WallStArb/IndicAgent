@@ -851,30 +851,40 @@ MAX_MULTIPLIER: float = 2.0
 
 
 class AgentResult(BaseModel):
-    """Result of a single swarm agent calculation."""
+    """Result from a single swarm agent. Immutable."""
 
     model_config = ConfigDict(frozen=True)
 
     agent_id: str
+    path: Literal["deterministic", "llm_swarm"]
     multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
     confidence: float = Field(..., ge=0.0, le=1.0)
+    shadow_only: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+    latency_ms: float = 0.0
+    error: str | None = None
 
 
 class AlphaMultiplier(BaseModel):
-    """Unified payload for Alpha Multiplier contributions."""
+    """Assembled alpha multiplier for a signal. Published to swarm.alpha.* topics."""
 
     model_config = ConfigDict(frozen=True)
 
     signal_id: UUID
+    symbol: str
+    timeframe: str
     ts: datetime
 
-    path: Literal["deterministic", "llm_swarm"]
+    path_a_multiplier: float | None
+    path_b_multiplier: float | None
+    path_b_discount: float = 0.3
 
     contributors: dict[str, AgentResult]
     final_alpha_multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
+    production_multiplier: float
+    shadow_only: bool
 
     @property
     def is_production_ready(self) -> bool:
-        """Returns True only for deterministic-path multipliers safe for production injection."""
-        return self.path == "deterministic"
+        """Returns True only when all contributors are production-ready (not shadow-only)."""
+        return not self.shadow_only
