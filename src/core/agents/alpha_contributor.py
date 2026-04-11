@@ -3,6 +3,7 @@
 Canonical location: src/core/agents/alpha_contributor.py
 Imported by src/intelligence/swarm/interface.py for backward compat.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
@@ -21,7 +22,7 @@ class IAlphaContributor(Protocol):
     shadow_only: bool
     latency_budget_ms: float
 
-    async def compute(self, context: "SwarmContext") -> "AgentResult":
+    async def compute(self, context: SwarmContext) -> AgentResult:
         """Compute alpha contribution. Must not raise — return neutral AgentResult on any error."""
         ...
 

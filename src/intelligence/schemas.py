@@ -398,9 +398,9 @@ class I4Context(BaseModel):
     distance_to_val_atr: float | None = None
 
     # VIXRegimePlugin + CrossAssetContextPlugin outputs (Phase 46.1)
-    vix_level: float | None = None            # VIX close price; computed from 1h bars always
-    vix_z: float | None = None                # VIX z-score, 20-bar rolling mean, 1h window
-    eq_spread_z: float | None = None          # dominant EQ pair spread z-score; EQ_INDEX only
+    vix_level: float | None = None  # VIX close price; computed from 1h bars always
+    vix_z: float | None = None  # VIX z-score, 20-bar rolling mean, 1h window
+    eq_spread_z: float | None = None  # dominant EQ pair spread z-score; EQ_INDEX only
     eq_pairs_confirming: float | None = None  # 0.0-2.0 confirming pairs; EQ_INDEX only
 
 
@@ -634,8 +634,8 @@ class SMCContext(BaseModel):
     hmm_prob_trending_up: float | None = None
     hmm_prob_trending_down: float | None = None
     hmm_regime_duration: float | None = None
-    hmm_n_dims: int | None = None       # 2 or 5 — emission dimensionality this bar
-    hmm_warmed_up: bool | None = None   # False during convergence window post-reset
+    hmm_n_dims: int | None = None  # 2 or 5 — emission dimensionality this bar
+    hmm_warmed_up: bool | None = None  # False during convergence window post-reset
 
     # LiquidityPoolsPlugin outputs
     bsl_level: float | None = None
@@ -748,7 +748,6 @@ class I6Confluence(BaseModel):
     i6_ob_tf_1h: float | None = None
     i6_ob_tf_4h: float | None = None
     i6_ob_tf_1d: float | None = None
-
 
 
 class IntelligenceEvent(BaseModel):

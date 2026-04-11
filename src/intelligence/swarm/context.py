@@ -3,6 +3,7 @@
 Built from Kafka-deserialized data at the SwarmOrchestratorAgent boundary.
 Never touches the database. Bar loop populates the cache; signal loop reads it.
 """
+
 from __future__ import annotations
 
 import time
@@ -77,7 +78,7 @@ class SwarmContextCache:
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str], tuple[Any, float]] = {}
 
-    def update(self, event: "IntelligenceEvent") -> None:
+    def update(self, event: IntelligenceEvent) -> None:
         key = (event.symbol, event.tf)
         self._cache[key] = (event, time.monotonic())
 
@@ -85,7 +86,7 @@ class SwarmContextCache:
         self,
         symbol: str,
         tf: str,
-        signal: "RankedSignal",
+        signal: RankedSignal,
         signal_id: UUID,
     ) -> SwarmContext | None:
         key = (symbol, tf)
