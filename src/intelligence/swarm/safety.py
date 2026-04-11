@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 # Nil UUID for fallback (should never be used in production)
 NIL_UUID = UUID(int=0)
 
+
 class SafeSwarmWrapper:
     """Defensive wrapper to enforce safety guardrails and schema validation for Swarm agents."""
 
@@ -29,7 +30,7 @@ class SafeSwarmWrapper:
                 logger.error(
                     "Safety Violation: Agent returned multiplier out of safe bounds. agent_output=%s signal_id=%s",
                     result.final_alpha_multiplier,
-                    str(result.signal_id)
+                    str(result.signal_id),
                 )
                 return self._default_neutral_response(result.signal_id, "Out of bounds multiplier.")
 

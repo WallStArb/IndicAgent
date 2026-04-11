@@ -10,7 +10,9 @@ from src.intelligence.swarm.interface import IAlphaContributor
 logger = structlog.get_logger(__name__)
 
 
-def load_contributors(config_path: str = "config/intelligence_contributors.json") -> list[IAlphaContributor]:
+def load_contributors(
+    config_path: str = "config/intelligence_contributors.json",
+) -> list[IAlphaContributor]:
     """Factory to instantiate intelligence contributors from configuration.
 
     Returns empty list if config file does not exist (swarm is optional/shadow).

@@ -5,6 +5,7 @@ Why archived: Implemented get_multiplier(sid, dict) — wrong contract.
               New contract: IAlphaContributor.compute(SwarmContext) → AgentResult.
               Contains no real logic (placeholder values only).
 """
+
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -18,6 +19,7 @@ class LiquiditySweepHunter(IAlphaContributor):
     Path B: LLM-Swarm/Shadow.
     Analyzes volume-price divergence to detect liquidity sweeps.
     """
+
     @property
     def is_production_ready(self) -> bool:
         return False
@@ -45,8 +47,8 @@ class LiquiditySweepHunter(IAlphaContributor):
                     agent_id="sweep_hunter_01",
                     multiplier=multiplier,
                     confidence=0.8,
-                    metadata={"reasoning": reasoning, "volume_ratio": volume_ratio}
+                    metadata={"reasoning": reasoning, "volume_ratio": volume_ratio},
                 )
             },
-            final_alpha_multiplier=multiplier
+            final_alpha_multiplier=multiplier,
         )

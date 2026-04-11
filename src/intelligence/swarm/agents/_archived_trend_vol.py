@@ -5,6 +5,7 @@ Why archived: Implemented get_multiplier(sid, dict) — wrong contract.
               New contract: IAlphaContributor.compute(SwarmContext) → AgentResult.
               Contains no real logic (placeholder values only).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
