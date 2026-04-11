@@ -34,6 +34,11 @@ class SafeSwarmWrapper:
         budget_ms: float = getattr(contributor, "latency_budget_ms", 5000.0)
         self._timeout_s: float = budget_ms / 1000.0
 
+    @property
+    def path(self) -> str:
+        """Public accessor for the contributor's execution path."""
+        return self._path
+
     async def run(self, context: SwarmContext) -> AgentResult:
         """Run contributor.compute() with timeout + exception safety.
 

@@ -138,7 +138,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
 
         # Path A: run all deterministic contributors concurrently
         path_a_wrappers = [
-            w for w in self._contributors if getattr(w._contributor, "path", "") == "deterministic"
+            w for w in self._contributors if w.path == "deterministic"
         ]
         path_a_results = list(await asyncio.gather(*[w.run(ctx) for w in path_a_wrappers]))
 
