@@ -51,7 +51,6 @@ class NarrativeOrchestrator:
             system=_SYSTEM_PROMPT,
             max_tokens=self._max_tokens,
             timeout=self._timeout,
-            call_type=call_type,
         )
 
         if result is None:

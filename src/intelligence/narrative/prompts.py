@@ -51,7 +51,7 @@ def build_short_prompt(record: BarIntelligenceRecord) -> str:
     direction = record.winner_direction or 0
     confidence = record.winner_confidence or 0.0
     plugin = record.winner_plugin or ""
-    close = intel.bar.close
+    close = intel.bar.c
     atr = getattr(intel.i1, "atr_14", None) or 1.0
     regime = getattr(intel.i4, "hmm_regime", None)
     regime_prob = getattr(intel.i4, "hmm_regime_prob", None)
@@ -100,7 +100,7 @@ def build_deep_prompt(record: BarIntelligenceRecord) -> str:
     direction = record.winner_direction or 0
     confidence = record.winner_confidence or 0.0
     plugin = record.winner_plugin or ""
-    close = intel.bar.close
+    close = intel.bar.c
     atr = getattr(intel.i1, "atr_14", None) or 1.0
     regime = getattr(intel.i4, "hmm_regime", None)
     regime_prob = getattr(intel.i4, "hmm_regime_prob", None)
