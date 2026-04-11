@@ -62,6 +62,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
     """One-shot weekly feature IC discovery agent."""
 
     def __init__(self, settings: Settings) -> None:
+        setup_service_logging("logs/ml_discovery_agent.log")
         super().__init__(name="MLDiscoveryComputeAgent")
         self._settings = settings
         self._pool: asyncpg.Pool | None = None
