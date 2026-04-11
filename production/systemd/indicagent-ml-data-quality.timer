@@ -1,0 +1,10 @@
+[Unit]
+Description=ML Data Quality Auditor Timer — Monday 05:00 UTC
+
+[Timer]
+OnCalendar=Mon *-*-* 05:00:00 UTC
+Persistent=true
+Unit=indicagent-ml-data-quality.service
+
+[Install]
+WantedBy=timers.target
