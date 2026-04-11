@@ -12,6 +12,7 @@ Steps:
 
 Exception: writes directly to DB (timer batch job -- ComputeAgent DB-ignorant rule suspended).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,20 +37,23 @@ _TSFRESH_TIMEOUT_S = 300.0  # 5 min max for tsfresh -- partial result on timeout
 
 try:
     import tsfresh
+
     _TSFRESH_AVAILABLE = True
 except ImportError:
     logger.warning("ml_discovery.tsfresh_not_installed", msg="pip install tsfresh")
     _TSFRESH_AVAILABLE = False
 
 try:
-    import alphalens
+    import alphalens as _alphalens_mod  # noqa: F401 — availability probe only
+
     _ALPHALENS_AVAILABLE = True
 except ImportError:
     logger.warning("ml_discovery.alphalens_not_installed", msg="pip install alphalens-reloaded")
     _ALPHALENS_AVAILABLE = False
 
 _INSERT_SQL = """
-INSERT INTO ml_discovery_runs (ts, symbol, tf, regime, top_features, ic_scores, feature_count, status)
+INSERT INTO ml_discovery_runs
+    (ts, symbol, tf, regime, top_features, ic_scores, feature_count, status)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 """
 
@@ -97,10 +101,8 @@ class MLDiscoveryComputeAgent(BaseAgent):
                 self._run_discovery(symbol=symbol, tf=tf, regime=regime),
                 timeout=timeout_s,
             )
-        except asyncio.TimeoutError:
-            self.logger.warning(
-                "ml_discovery.timeout", symbol=symbol, tf=tf, regime=regime
-            )
+        except TimeoutError:
+            self.logger.warning("ml_discovery.timeout", symbol=symbol, tf=tf, regime=regime)
             return {"top_features": [], "ic_scores": {}, "feature_count": 0, "status": "partial"}
         except Exception as exc:
             self.logger.exception(
@@ -133,8 +135,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
         feature_cols = [
             c
             for c in pdf.columns
-            if c
-            not in {"ts", "symbol", "tf", "outcome", "pnl_r", "mae", "mfe", "bars_in_trade"}
+            if c not in {"ts", "symbol", "tf", "outcome", "pnl_r", "mae", "mfe", "bars_in_trade"}
         ]
 
         if not feature_cols:
@@ -204,9 +205,9 @@ class MLDiscoveryComputeAgent(BaseAgent):
             from src.observability.metrics import FEATURE_IC_SCORE
 
             for feat in result.get("top_features", []):
-                FEATURE_IC_SCORE.labels(
-                    feature_name=feat["name"], regime=str(regime)
-                ).set(abs(feat["ic"]))
+                FEATURE_IC_SCORE.labels(feature_name=feat["name"], regime=str(regime)).set(
+                    abs(feat["ic"])
+                )
         except Exception as exc:
             self.logger.warning("ml_discovery.metric_update_failed", error=str(exc))
 
