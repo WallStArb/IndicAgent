@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.intelligence.llm_providers import (
+from src.core.llm.providers import (
     AnthropicProvider,
     LLMChain,
     OllamaProvider,
