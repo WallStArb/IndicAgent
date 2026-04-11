@@ -1,0 +1,14 @@
+[Unit]
+Description=IndicAgent ML Feature Discovery Agent
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_discovery_agent.py
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

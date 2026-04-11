@@ -1,0 +1,10 @@
+[Unit]
+Description=ML Feature Discovery Timer -- Monday 06:00 UTC (after data quality at 05:00)
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00 UTC
+Persistent=true
+Unit=indicagent-ml-discovery.service
+
+[Install]
+WantedBy=timers.target
