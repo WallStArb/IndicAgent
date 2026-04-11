@@ -59,22 +59,19 @@ class LLMProviderChain:
                 )
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list from settings. OpenRouter first (if key set), Ollama always last."""
+        """Build provider list: OpenRouter models in priority order, then Ollama fallback."""
         if settings is None:
             return [OllamaProvider("gemma4:e4b")]
         providers = []
         if settings.openrouter_api_key:
-            providers.append(
-                OpenRouterProvider(
-                    model=settings.openrouter_model,
-                    api_key=settings.openrouter_api_key,
-                )
-            )
+            for slug in settings.openrouter_models.split(","):
+                slug = slug.strip()
+                if slug:
+                    providers.append(
+                        OpenRouterProvider(model=slug, api_key=settings.openrouter_api_key)
+                    )
         providers.append(
-            OllamaProvider(
-                model=settings.ollama_model,
-                base_url=settings.ollama_base_url,
-            )
+            OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
         )
         return providers
 
