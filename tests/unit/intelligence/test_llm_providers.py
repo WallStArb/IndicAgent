@@ -15,11 +15,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.core.llm.providers import (
-    AnthropicProvider,
     LLMChain,
     OllamaProvider,
     OpenRouterProvider,
-    ZAIProvider,
     _call_llm_with_circuit_breaker,
     _llm_circuit_breaker,
 )
@@ -34,17 +32,6 @@ def _make_openrouter_response(content: str) -> bytes:
 
     return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
-
-def _make_anthropic_response(text: str) -> bytes:
-    import json
-
-    return json.dumps({"content": [{"text": text}]}).encode()
-
-
-def _make_zai_response(content: str) -> bytes:
-    import json
-
-    return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
 def _make_ollama_response(content: str) -> bytes:
@@ -187,112 +174,6 @@ class TestOpenRouterProvider:
 
         state = _llm_circuit_breaker.plugin_states[provider.provider_id]
         assert state.success_count >= 1
-
-
-# ---------------------------------------------------------------------------
-# AnthropicProvider tests
-# ---------------------------------------------------------------------------
-
-
-class TestAnthropicProvider:
-    def _make_provider(self) -> AnthropicProvider:
-        return AnthropicProvider(
-            model="claude-test",
-            api_key="sk-test",
-            base_url="http://fake-anthropic.local",
-        )
-
-    @pytest.mark.asyncio
-    async def test_generate_success(self):
-        """generate() returns text from content block on success."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        mock_resp = MagicMock()
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_resp.read.return_value = _make_anthropic_response("Anthropic reply")
-
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            result = await provider.generate("prompt", "system", 100, 30.0)
-
-        assert result == "Anthropic reply"
-
-    @pytest.mark.asyncio
-    async def test_generate_failure_returns_none(self):
-        """generate() returns None on network exception."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
-            result = await provider.generate("prompt", "system", 100, 30.0)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_failure_tracked_in_circuit_breaker(self):
-        """Failure increments failure_count for this provider_id."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
-            await provider.generate("prompt", "system", 100, 30.0)
-
-        state = _llm_circuit_breaker.plugin_states[provider.provider_id]
-        assert state.failure_count >= 1
-
-
-# ---------------------------------------------------------------------------
-# ZAIProvider tests
-# ---------------------------------------------------------------------------
-
-
-class TestZAIProvider:
-    def _make_provider(self) -> ZAIProvider:
-        return ZAIProvider(
-            model="glm-5",
-            api_key="zai-key",
-            base_url="http://fake-zai.local",
-        )
-
-    @pytest.mark.asyncio
-    async def test_generate_success(self):
-        """generate() returns content from choices on success."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        mock_resp = MagicMock()
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_resp.read.return_value = _make_zai_response("ZAI reply")
-
-        with patch("urllib.request.urlopen", return_value=mock_resp):
-            result = await provider.generate("prompt", "system", 100, 30.0)
-
-        assert result == "ZAI reply"
-
-    @pytest.mark.asyncio
-    async def test_generate_failure_returns_none(self):
-        """generate() returns None on network exception."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
-            result = await provider.generate("prompt", "system", 100, 30.0)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_failure_tracked_in_circuit_breaker(self):
-        """Failure increments failure_count for this provider_id."""
-        _llm_circuit_breaker.plugin_states.clear()
-        provider = self._make_provider()
-
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
-            await provider.generate("prompt", "system", 100, 30.0)
-
-        state = _llm_circuit_breaker.plugin_states[provider.provider_id]
-        assert state.failure_count >= 1
 
 
 # ---------------------------------------------------------------------------

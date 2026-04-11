@@ -75,14 +75,22 @@ class Settings(BaseSettings):
     ibkr_contracts_json: str | None = Field(default=None, validation_alias="IBKR_CONTRACTS_JSON")
 
     # LLM providers
-    zai_api_key: str = Field(default="", validation_alias="ZAI_API_KEY")
-    zai_base_url: str = Field(
-        default="https://api.z.ai/api/paas/v4", validation_alias="ZAI_BASE_URL"
-    )
-    zai_model: str = Field(default="glm-5", validation_alias="ZAI_MODEL")
-    zai_timeout_sec: float = Field(default=30.0, validation_alias="ZAI_TIMEOUT_SEC")
-
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    openrouter_model: str = Field(
+        default="meta-llama/llama-3.3-70b-instruct:free",
+        validation_alias="OPENROUTER_MODEL",
+        description="OpenRouter model slug — set OPENROUTER_MODEL in .env to change",
+    )
+    ollama_model: str = Field(
+        default="gemma4:e4b",
+        validation_alias="OLLAMA_MODEL",
+        description="Local Ollama model tag — set OLLAMA_MODEL in .env to change",
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        validation_alias="OLLAMA_BASE_URL",
+        description="Ollama server URL",
+    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
