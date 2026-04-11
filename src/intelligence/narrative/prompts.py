@@ -3,6 +3,7 @@
 All functions accept BarIntelligenceRecord and return str.
 No I/O, no LLM calls, no Kafka — fully testable without infrastructure.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -42,8 +43,8 @@ def _direction_label(direction: int) -> str:
     return "Bullish" if direction > 0 else "Bearish"
 
 
-def build_short_prompt(record: "BarIntelligenceRecord") -> str:
-    """Two-sentence prompt. confidence >= 0.75 → direct; 0.50-0.74 → conditional; < 0.50 → monitor."""
+def build_short_prompt(record: BarIntelligenceRecord) -> str:
+    """Two-sentence prompt. confidence >= 0.75 → direct; 0.50-0.74 → conditional; < 0.50 → monitor."""  # noqa: E501
     intel = record.intelligence
     symbol = intel.symbol
     tf = intel.tf
@@ -70,13 +71,11 @@ def build_short_prompt(record: "BarIntelligenceRecord") -> str:
             f"Entry {entry}, stop {stop}."
         )
     else:
-        exec_line = (
-            f"Sentence 2 (Monitor): Name what level confirms this setup. Frame as 'watch' not 'enter'."
-        )
+        exec_line = "Sentence 2 (Monitor): Name what level confirms this setup. Frame as 'watch' not 'enter'."  # noqa: E501
 
     regime_line = ""
     if regime is not None and regime_prob is not None:
-        regime_line = f"Regime: {_REGIME_LABELS.get(regime, str(regime))} (prob {float(regime_prob):.0%})\n"
+        regime_line = f"Regime: {_REGIME_LABELS.get(regime, str(regime))} (prob {float(regime_prob):.0%})\n"  # noqa: E501
 
     ctf_line = f"CTF Alignment: {ctf:.2f}\n" if ctf is not None else ""
 
@@ -88,12 +87,12 @@ def build_short_prompt(record: "BarIntelligenceRecord") -> str:
         f"{ctf_line}"
         f"Entry: {entry} | Stop: {stop}\n\n"
         f"Write exactly 2 sentences:\n"
-        f"Sentence 1 (Context — STRUCTURAL): What is the market doing and why does this level matter?\n"
+        f"Sentence 1 (Context — STRUCTURAL): What is the market doing and why does this level matter?\n"  # noqa: E501
         f"{exec_line}"
     )
 
 
-def build_deep_prompt(record: "BarIntelligenceRecord") -> str:
+def build_deep_prompt(record: BarIntelligenceRecord) -> str:
     """Three-sentence prompt: Confluence + Key Levels + Guidance/Invalidation."""
     intel = record.intelligence
     symbol = intel.symbol
@@ -115,7 +114,7 @@ def build_deep_prompt(record: "BarIntelligenceRecord") -> str:
 
     regime_line = ""
     if regime is not None and regime_prob is not None:
-        regime_line = f"Regime: {_REGIME_LABELS.get(regime, str(regime))} (HMM prob {float(regime_prob):.0%})\n"
+        regime_line = f"Regime: {_REGIME_LABELS.get(regime, str(regime))} (HMM prob {float(regime_prob):.0%})\n"  # noqa: E501
 
     confluence_parts = []
     if ctf_trend is not None:
@@ -132,7 +131,7 @@ def build_deep_prompt(record: "BarIntelligenceRecord") -> str:
         f"{confluence_line}"
         f"Entry: {entry} | Stop: {stop} | T1: {target} (R:R {rr})\n\n"
         f"Write exactly 3 sentences:\n"
-        f"Sentence 1 (Confluence): Name every source aligning — timeframes, SMC structure, HMM state, zone.\n"
-        f"Sentence 2 (Key Levels): Entry rationale (why THIS level). Stop placement logic. T1 significance.\n"
-        f"Sentence 3 (Guidance + Invalidation): Confidence-weighted sizing. End with what invalidates thesis."
+        f"Sentence 1 (Confluence): Name every source aligning — timeframes, SMC structure, HMM state, zone.\n"  # noqa: E501
+        f"Sentence 2 (Key Levels): Entry rationale (why THIS level). Stop placement logic. T1 significance.\n"  # noqa: E501
+        f"Sentence 3 (Guidance + Invalidation): Confidence-weighted sizing. End with what invalidates thesis."  # noqa: E501
     )

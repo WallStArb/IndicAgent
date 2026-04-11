@@ -3,6 +3,7 @@
 No I/O — extracts fields needed by NarrativeOrchestrator from the record.
 Returns None when direction=0 (no actionable signal to narrate).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
     from src.intelligence.schemas import BarIntelligenceRecord
 
 
-def parse_bar_intelligence_record(record: "BarIntelligenceRecord") -> dict[str, Any] | None:
+def parse_bar_intelligence_record(record: BarIntelligenceRecord) -> dict[str, Any] | None:
     """Extract narrative-relevant fields from a BarIntelligenceRecord.
 
     Returns None if direction is 0 (no actionable signal).

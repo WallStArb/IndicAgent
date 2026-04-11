@@ -3,6 +3,7 @@
 Accepts BarIntelligenceRecord, builds appropriate prompt tier, calls LLM.
 Pure orchestration — no Kafka, no DB. Use LLMProviderChain from src.core.llm.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -34,7 +35,7 @@ class NarrativeOrchestrator:
 
     async def generate(
         self,
-        record: "BarIntelligenceRecord",
+        record: BarIntelligenceRecord,
         deep: bool = False,
         call_type: str = "narrative",
     ) -> str | None:
