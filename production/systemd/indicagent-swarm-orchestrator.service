@@ -1,0 +1,15 @@
+[Unit]
+Description=IndicAgent Swarm Orchestrator Compute Agent
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/swarm_orchestrator_agent.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+
+[Install]
+WantedBy=multi-user.target
