@@ -70,10 +70,25 @@ async def _call_llm_with_circuit_breaker(
     Note:
         retry_with_backoff wraps call_fn with exponential backoff.
         Each retry attempt invokes call_fn fresh (not a pre-built coroutine).
-        Circuit breaker state (success_count, failure_count) tracks health.
+        Circuit breaker state tracks health and opens after failure_threshold failures.
     """
     plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
     previous_state = plugin_state.state
+
+    # --- Pre-call: enforce OPEN / HALF_OPEN gate ---
+    if plugin_state.state == CircuitState.OPEN:
+        elapsed = time.monotonic() - _llm_open_since.get(provider_id, 0)
+        if elapsed < _llm_circuit_breaker.config.recovery_timeout:
+            logger.warning(
+                "llm_circuit_open.skipping",
+                provider=provider_id,
+                elapsed_s=round(elapsed, 1),
+                recovery_timeout=_llm_circuit_breaker.config.recovery_timeout,
+            )
+            return None
+        # Recovery timeout elapsed — allow one probe (HALF_OPEN)
+        plugin_state.state = CircuitState.HALF_OPEN
+        logger.info("llm_circuit_half_open", provider=provider_id)
 
     async def _run() -> str | None:
         return await to_thread(call_fn)
@@ -93,6 +108,12 @@ async def _call_llm_with_circuit_breaker(
         plugin_state.success_count += 1
         plugin_state.last_success_time = datetime.now()
         plugin_state.total_calls += 1
+
+        # Close circuit after successful HALF_OPEN probe
+        if plugin_state.state == CircuitState.HALF_OPEN:
+            plugin_state.state = CircuitState.CLOSED
+            plugin_state.failure_count = 0
+            logger.info("llm_circuit_closed_after_recovery", provider=provider_id)
 
         # Record state transition if recovered from non-closed state
         if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
@@ -121,6 +142,19 @@ async def _call_llm_with_circuit_breaker(
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
 
+        # Trip circuit to OPEN after failure_threshold consecutive failures
+        if (
+            plugin_state.state != CircuitState.OPEN
+            and plugin_state.failure_count >= _llm_circuit_breaker.config.failure_threshold
+        ):
+            plugin_state.state = CircuitState.OPEN
+            _llm_open_since[provider_id] = time.monotonic()
+            logger.warning(
+                "llm_circuit_opened",
+                provider=provider_id,
+                failure_count=plugin_state.failure_count,
+            )
+
         # Record state transition if tripped to OPEN
         if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
             CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
@@ -129,7 +163,8 @@ async def _call_llm_with_circuit_breaker(
                 to_state="open",
             ).inc()
             # Start timing how long this provider's circuit stays OPEN
-            _llm_open_since[provider_id] = time.monotonic()
+            if provider_id not in _llm_open_since:
+                _llm_open_since[provider_id] = time.monotonic()
 
         logger.warning(
             "LLM provider call failed",
