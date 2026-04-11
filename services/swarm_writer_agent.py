@@ -8,9 +8,8 @@ DLQ:      topic_swarm_writer_dlq() — malformed payloads or DB failures
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +25,15 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_swarm_results, topic_swarm_writer_dlq
 
 logger = structlog.get_logger(__name__)
+
+
+def _parse_ts(ts: str | datetime) -> datetime:
+    """Parse timestamp string to UTC-aware datetime for asyncpg timestamptz columns."""
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+    dt = datetime.fromisoformat(ts)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
 
 _INSERT_SQL = """
 INSERT INTO alpha_multiplier_shadow
@@ -125,7 +133,7 @@ class SwarmWriterAgent(BaseAgent):
         try:
             rows = [
                 (
-                    datetime.fromisoformat(p["ts"]) if isinstance(p["ts"], str) else p["ts"],
+                    _parse_ts(p["ts"]),
                     p["signal_id"],
                     p["agent_id"],
                     p["symbol"],
@@ -134,7 +142,7 @@ class SwarmWriterAgent(BaseAgent):
                     p["path"],
                     float(p["multiplier"]),
                     float(p["confidence"]),
-                    json.dumps(p["features"]) if p.get("features") else None,
+                    p.get("features"),  # asyncpg handles dict→JSONB natively
                 )
                 for p in batch
             ]

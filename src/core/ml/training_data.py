@@ -60,6 +60,11 @@ WHERE f.symbol = $1
 ORDER BY f.ts
 """
 
+_REGIME_SQL = _BASE_SQL.replace(
+    "ORDER BY f.ts",
+    "  AND (f.i4->>'hmm_regime')::int = $5\nORDER BY f.ts",
+)
+
 
 class TrainingDataQuery:
     """Fetch labeled training data for a given (symbol, tf, date_range)."""
@@ -88,11 +93,7 @@ class TrainingDataQuery:
         params: list = [symbol, tf, start_date, end_date]
 
         if regime is not None:
-            # Insert regime filter into WHERE clause before ORDER BY
-            sql = _BASE_SQL.replace(
-                "ORDER BY f.ts",
-                f"  AND (f.i4->>'hmm_regime')::int = ${len(params) + 1}\nORDER BY f.ts",
-            )
+            sql = _REGIME_SQL
             params.append(regime)
         else:
             sql = _BASE_SQL
