@@ -1,0 +1,14 @@
+[Unit]
+Description=IndicAgent ML Orchestrator Agent
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_orchestrator_agent.py
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+TimeoutStartSec=7200
+
+[Install]
+WantedBy=multi-user.target

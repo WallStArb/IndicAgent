@@ -1,0 +1,10 @@
+[Unit]
+Description=ML Orchestrator Timer -- Monday 04:00 UTC (before data quality at 05:00, discovery at 06:00)
+
+[Timer]
+OnCalendar=Mon *-*-* 04:00:00 UTC
+Persistent=true
+Unit=indicagent-ml-orchestrator.service
+
+[Install]
+WantedBy=timers.target
