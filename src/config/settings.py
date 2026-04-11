@@ -76,10 +76,19 @@ class Settings(BaseSettings):
 
     # LLM providers
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
-    openrouter_model: str = Field(
-        default="meta-llama/llama-3.3-70b-instruct:free",
-        validation_alias="OPENROUTER_MODEL",
-        description="OpenRouter model slug — set OPENROUTER_MODEL in .env to change",
+    openrouter_models: str = Field(
+        default=(
+            "nvidia/nemotron-super-49b-v1:free,"
+            "arcee-ai/trinity-large-preview:free,"
+            "minimax/minimax-m2.5:free,"
+            "google/gemma-4-31b-it:free,"
+            "z-ai/glm-4.5-air:free"
+        ),
+        validation_alias="OPENROUTER_MODELS",
+        description=(
+            "Comma-separated OpenRouter model slugs in priority order. "
+            "Set OPENROUTER_MODELS in .env to override."
+        ),
     )
     ollama_model: str = Field(
         default="gemma4:e4b",
