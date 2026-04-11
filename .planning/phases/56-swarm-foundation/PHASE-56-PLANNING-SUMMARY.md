@@ -3,7 +3,7 @@
 **Date:** 2026-04-09
 **Status:** Ready for Implementation
 **Design Doc:** `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
-**Plans:** 7 plans across 5 waves
+**Plans:** 8 plans across 5 waves
 
 ---
 
@@ -19,7 +19,7 @@ Full swarm infrastructure: shared LLM layer, corrected DAG protocols, narrative 
 | 2 | 56-03 (Protocol+Schema), 56-04 (Safety+Aggregator) | — parallel |
 | 3 | 56-05 (Narrative Service) | 56-01 + 56-02 done |
 | 4 | 56-06 (DB + Stream Keys) | 56-03 + 56-04 done |
-| 5 | 56-07 (Swarm Services) | 56-06 done |
+| 5 | 56-07 (Swarm Services), 56-08 (PromotionAuditor) | 56-06 done — parallel |
 
 ## Plan Summaries
 
