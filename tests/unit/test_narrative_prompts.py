@@ -24,9 +24,9 @@ def _make_record(
     event.tf = tf
     event.ts = datetime(2026, 4, 9, 14, 30, tzinfo=UTC)
     event.bar = MagicMock()
-    event.bar.close = 5280.25
-    event.bar.high = 5285.0
-    event.bar.low = 5275.0
+    event.bar.c = 5280.25
+    event.bar.h = 5285.0
+    event.bar.l = 5275.0
     event.i1 = MagicMock()
     event.i1.atr_14 = 8.5
     event.i1.rsi_14 = 62.0
