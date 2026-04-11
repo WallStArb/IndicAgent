@@ -137,6 +137,23 @@ class Settings(BaseSettings):
     )
     provider_silence_bars_threshold: int = Field(default=5)
 
+    # ---------------------------------------------------------------------------
+    # ML/AI Foundation constants (Phase 56)
+    # ---------------------------------------------------------------------------
+    LLM_SEMANTIC_CACHE_SIZE: int = Field(default=500, description="SemanticCache LRU max entries")
+    LLM_RATE_LIMIT_RPM: int = Field(default=60, description="Default LLM requests per minute")
+    LLM_RATE_LIMIT_TPM: int = Field(default=100_000, description="Default LLM tokens per minute")
+
+    SHADOW_CORRELATION_THRESHOLD: float = Field(default=0.4, description="Min Pearson rho for promotion")
+    SHADOW_MIN_SAMPLES: int = Field(default=100, description="Min N for promotion consideration")
+
+    DATA_QUALITY_MIN_SCORE: float = Field(default=0.85, description="Min quality score to gate discovery")
+    ML_DISCOVERY_LOOKBACK_DAYS: int = Field(default=90, description="tsfresh rolling lookback window")
+    ML_DISCOVERY_IC_THRESHOLD: float = Field(default=0.05, description="Min IC to include in report")
+
+    MLFLOW_TRACKING_URI: str = Field(default="http://localhost:5000", description="MLflow server URI")
+    LANGFUSE_HOST: str = Field(default="http://localhost:3010", description="LangFuse server URI")
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
     @property
