@@ -369,6 +369,27 @@ LLM_RATE_LIMIT_WAIT = Histogram(
 )
 
 
+# ---------------------------------------------------------------------------
+# ML Observability Metrics (Phase 56-04)
+# ---------------------------------------------------------------------------
+
+FEATURE_IC_SCORE = Gauge(
+    "feature_ic_score",
+    "Information coefficient per feature per regime (updated weekly by MLDiscoveryComputeAgent)",
+    ["feature_name", "regime"],
+)
+
+DATA_QUALITY_SCORE = Gauge(
+    "data_quality_score",
+    "Training data quality score 0-1 (updated by MLDataQualityAuditorAgent)",
+)
+
+ML_DISCOVERY_FEATURES_EXTRACTED = Gauge(
+    "ml_discovery_features_extracted",
+    "Number of tsfresh features extracted in last discovery run",
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started
