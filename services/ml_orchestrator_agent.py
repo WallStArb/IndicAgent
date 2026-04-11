@@ -150,7 +150,8 @@ class MLOrchestratorComputeAgent(BaseAgent):
         """Trigger data quality service and read the resulting score."""
         self.logger.info("ml_orchestrator.data_quality_node.starting")
         try:
-            proc = subprocess.run(
+            proc = await asyncio.to_thread(
+                subprocess.run,
                 ["sudo", "systemctl", "start", "indicagent-ml-data-quality.service"],
                 timeout=600,
                 capture_output=True,
@@ -174,7 +175,8 @@ class MLOrchestratorComputeAgent(BaseAgent):
         """Trigger discovery service and capture run_id."""
         self.logger.info("ml_orchestrator.discovery_node.starting")
         try:
-            proc = subprocess.run(
+            proc = await asyncio.to_thread(
+                subprocess.run,
                 ["sudo", "systemctl", "start", "indicagent-ml-discovery.service"],
                 timeout=1800,  # 30 min max for tsfresh
                 capture_output=True,
