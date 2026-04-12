@@ -14,7 +14,9 @@ Environment=PYTHONUNBUFFERED=1
 Environment=INDICAGENT_ENV=development
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/swarm_writer_agent.py
 Restart=always
-TimeoutStopSec=30
+WatchdogSec=60
+NotifyAccess=main
+TimeoutStopSec=90
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
