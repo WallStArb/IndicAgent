@@ -16,7 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 55-56, 64 (deferred until 30+ days clean signal data)
-- 🔨 **v2.4 Observability Hardening** — Phase 67 (active)
+- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (active)
 
 ## Phases
 
@@ -252,12 +252,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔨 v2.4 Observability Hardening (Phase 67) — ACTIVE</summary>
+<summary>🔨 v2.4 Observability Hardening (Phases 67–68) — ACTIVE</summary>
 
-**Milestone Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps.
+**Milestone Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps. Harden the signal pipeline and write-path to institutional standard.
 
 - [ ] **Phase 67: Observability, Alerting & Automation** — Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds
   Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
+
+- [ ] **Phase 68: Pipeline Hardening & Institutional Foundation** — Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate
+  Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
 </details>
 
@@ -521,6 +524,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63.4. Signal Quality: ATR Caps + Backfill Gap Fix | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 67. Observability, Alerting & Automation | v2.4 | 0/TBD | In Progress | — |
+| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 0/3 | Planned | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -795,3 +799,16 @@ Plans:
 - [ ] 67-02-PLAN.md — Code fixes: signal_tracker_compute bootstrap retry (3× exponential backoff + sd_notify gate) + SwarmOrchestratorAgent context cache seeding (200 rows/tf on startup)
 - [ ] 67-03-PLAN.md — Grafana alerting + roll automation: alert-rules.yml, contact-points.yml/.example.yml, roll event consumer in service_auditor_agent, bar_auditor gap_fill_dlq topic + counter
 - [ ] 67-04-PLAN.md — Dashboard rebuild: operations.json (new), pipeline-health.json (rebuilt), signals-i8.json (rebuilt) — Golden Signals layout, current service names, live panel queries
+
+
+### Phase 68: Pipeline Hardening & Institutional Foundation
+
+**Goal:** Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings thresholds, numeric label, long bias, confidence boost pre-calibration), add BaseWriterAgent consolidating shared buffer/flush/offset-commit/DLQ machinery across all 5 writer agents, add end-to-end bar_id trace from provider to lifecycle exit, full 5-point confidence attribution vector, and TRUNCATE signal_ledger for a clean slate after regime filtering was bypassed for all historical signals.
+**Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
+**Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
+**Depends on:** Phase 67
+
+Plans:
+- [ ] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
+- [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge
+- [ ] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
