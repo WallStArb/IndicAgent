@@ -16,6 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 55-56, 64 (deferred until 30+ days clean signal data)
+- 🔨 **v2.4 Observability Hardening** — Phase 67 (active)
 
 ## Phases
 
@@ -247,6 +248,16 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 7 plans, shadow-only, 49 TDD tests
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. `IAlphaContributor`: "what's wrong with this signal?" Tracks predictions to `alpha_multiplier_shadow`, validates p < 0.05 n ≥ 30 before next agent.
+
+</details>
+
+<details>
+<summary>🔨 v2.4 Observability Hardening (Phase 67) — ACTIVE</summary>
+
+**Milestone Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps.
+
+- [ ] **Phase 67: Observability, Alerting & Automation** — Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds
+  Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 
 </details>
 
@@ -509,6 +520,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63.3. Pipeline Correctness: Plugin Dependency Violations | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 63.4. Signal Quality: ATR Caps + Backfill Gap Fix | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
+| 67. Observability, Alerting & Automation | v2.4 | 0/TBD | In Progress | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -769,3 +781,17 @@ Plans:
 - [ ] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
 - [ ] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement
 - [ ] 65-05-PLAN.md — Verification: scanner zero violations + CI test gate + full suite
+
+
+### Phase 67: Observability, Alerting & Automation
+
+**Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alert rules push CRITICAL events to Telegram and HIGH/MEDIUM events to Discord within 60s. Roll events trigger automatic `ibkr-provider` restart. Gap windows are persisted to `market_data_gaps` for ML training exclusion. Four targeted code fixes close bootstrap-reliability holes. Three Grafana dashboards rebuilt with current service names and live data.
+**Design doc:** `docs/plans/2026-04-12-observability-automation-design.md`
+**Requirements**: [OBS-GRAFANA-ALERTS, OBS-CONTACT-POINTS, OBS-GAP-TABLE, OBS-BAR-AUDITOR, OBS-ROLL-AUTO, OBS-WEBHOOK-DISPATCHER, OBS-BOOTSTRAP-RETRY, OBS-SWARM-SEED, OBS-DASHBOARDS]
+**Depends on:** Phase 63
+
+Plans:
+- [ ] 67-01-PLAN.md — Foundation: Settings fields (telegram/discord), webhook dispatcher methods in service_auditor_agent, service_auditor_service_restarts_total counter, market_data_gaps migration 062
+- [ ] 67-02-PLAN.md — Code fixes: signal_tracker_compute bootstrap retry (3× exponential backoff + sd_notify gate) + SwarmOrchestratorAgent context cache seeding (200 rows/tf on startup)
+- [ ] 67-03-PLAN.md — Grafana alerting + roll automation: alert-rules.yml, contact-points.yml/.example.yml, roll event consumer in service_auditor_agent, bar_auditor gap_fill_dlq topic + counter
+- [ ] 67-04-PLAN.md — Dashboard rebuild: operations.json (new), pipeline-health.json (rebuilt), signals-i8.json (rebuilt) — Golden Signals layout, current service names, live panel queries
