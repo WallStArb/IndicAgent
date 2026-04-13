@@ -1,6 +1,5 @@
 """Tests for signal_tracker_compute_agent bootstrap retry logic."""
 
-import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -84,7 +83,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
     async def mock_execute(query: str):
         call_count[0] += 1
         if "COUNT" in query:
-            return [{"cnt": 3}]  # Ledger has 3 rows
+            return [{"count": 3}]  # Ledger has 3 rows
         else:
             return mock_rows  # Return all 3 signal rows
 
@@ -167,7 +166,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
     async def mock_execute(query: str):
         call_count[0] += 1
         if "COUNT" in query:
-            return [{"cnt": 2}]  # Ledger has 2 rows
+            return [{"count": 2}]  # Ledger has 2 rows
         elif call_count[0] <= 2:
             return []  # Empty first 2 calls
         else:
@@ -190,7 +189,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
         assert "sig2" in agent._signal_ids
         # Verify retry happened (check log calls)
         assert any(
-            "bootstrap_retry" in str(call) for call in agent.logger.method_calls
+            "bootstrap_empty_retry" in str(call) for call in agent.logger.method_calls
         )
 
 
@@ -214,7 +213,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
     async def mock_execute(query: str):
         call_count[0] += 1
         if "COUNT" in query:
-            return [{"cnt": 0}]  # Ledger is empty
+            return [{"count": 0}]  # Ledger is empty
         else:
             return []  # No rows
 
@@ -245,6 +244,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
     agent._settings = MagicMock()
     agent._settings.database_url = "postgresql://test"
     agent._settings.env_name = "dev"
+    agent._env_name = "dev"  # Set directly since __init__ is bypassed
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()
@@ -257,7 +257,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
 
     async def mock_execute(query: str):
         if "COUNT" in query:
-            return [{"cnt": 5}]  # Ledger has 5 rows
+            return [{"count": 5}]  # Ledger has 5 rows
         else:
             return []  # But query always returns empty
 
@@ -272,11 +272,16 @@ async def test_bootstrap_exhausted_publishes_health_event():
 
         await agent._bootstrap_active_signals()
 
+        # Check that bootstrap failed was logged
+        assert any(
+            "bootstrap_failed_exhausted" in str(call) for call in agent.logger.method_calls
+        ), "bootstrap_failed_exhausted should be logged"
+
         # Should publish health event
         agent._producer.publish.assert_called_once()
         call_args = agent._producer.publish.call_args
-        assert call_args[0][0] == "dev.health.events"
-        payload = call_args[0][1]
+        assert call_args[0][0] == "dev.system.health.events"
+        payload = call_args[1]["value"]  # Payload is passed as keyword argument
         assert payload["event_type"] == "bootstrap_failed"
         assert "signal_tracker_compute" in payload.get("service", "")
 
@@ -325,7 +330,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
     async def mock_execute(query: str):
         call_order.append("db_query")
         if "COUNT" in query:
-            return [{"cnt": 1}]
+            return [{"count": 1}]
         else:
             return mock_rows
 

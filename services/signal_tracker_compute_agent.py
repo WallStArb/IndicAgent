@@ -610,12 +610,21 @@ class SignalTrackerCompute(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _bootstrap_active_signals(self) -> None:
-        """One-time DB read at startup to load pending/active signals."""
+        """One-time DB read at startup to load pending/active signals.
+
+        Retries up to 3 times with exponential backoff (2s, 4s, 8s) if the DB
+        returns 0 rows while the ledger provably has rows. On exhaustion, publishes
+        a bootstrap_failed health event and proceeds with empty state.
+
+        sd_notify(READY=1) is called ONLY after this method returns.
+        """
+        _MAX_ATTEMPTS = 3
+        _BACKOFF_SECONDS = [2, 4, 8]
+
+        db = DatabaseManager(self._settings.database_url)
+        await db.initialize()
         try:
-            settings = self._settings
-            db = DatabaseManager(settings.database_url)
-            await db.initialize()
-            try:
+            for attempt in range(_MAX_ATTEMPTS):
                 rows = await db.execute_query("""
                     SELECT signal_id, timestamp, symbol, timeframe, status, direction,
                            entry_price, stop_loss, targets, confidence, entry_zone_low,
@@ -623,47 +632,113 @@ class SignalTrackerCompute(BaseAgent):
                     FROM signal_ledger
                     WHERE status IN ('pending', 'active') AND exit_at IS NULL
                       AND timestamp > NOW() - INTERVAL '3 days'
-                    """)
-                for row in rows:
-                    sig = dict(row)
-                    sid = str(sig.get("signal_id", ""))
-                    symbol = sig.get("symbol", "")
-                    tf = sig.get("timeframe", "")
-                    if not sid or not symbol or not tf:
-                        continue
+                """)
 
-                    # Restore point value
-                    if symbol not in self._point_values:
-                        pv = sig.get("point_value")
-                        if pv:
-                            self._point_values[symbol] = float(pv)
-                        else:
-                            pv_setting = get_point_value(symbol)
-                            if pv_setting:
-                                self._point_values[symbol] = float(pv_setting)
+                # If we got rows, load them and succeed
+                if rows:
+                    for row in rows:
+                        sig = dict(row)
+                        sid = str(sig.get("signal_id", ""))
+                        symbol = sig.get("symbol", "")
+                        tf = sig.get("timeframe", "")
+                        if not sid or not symbol or not tf:
+                            continue
 
-                    # Initialize MAE/MFE
-                    self._mae[sid] = 0.0
-                    self._mfe[sid] = 0.0
+                        # Restore point value
+                        if symbol not in self._point_values:
+                            pv = sig.get("point_value")
+                            if pv:
+                                self._point_values[symbol] = float(pv)
+                            else:
+                                pv_setting = get_point_value(symbol)
+                                if pv_setting:
+                                    self._point_values[symbol] = float(pv_setting)
 
-                    # Restore activated_at for active signals
-                    if sig.get("status") == SignalStatus.ACTIVE and sig.get("activated_at"):
-                        self._activated_at[sid] = sig["activated_at"]
+                        # Initialize MAE/MFE
+                        self._mae[sid] = 0.0
+                        self._mfe[sid] = 0.0
 
-                    self._signal_ids.add(sid)
-                    self._active_index[(symbol, tf)].append(sig)
-                    self._active_symbols.add(symbol)
+                        # Restore activated_at for active signals
+                        if sig.get("status") == SignalStatus.ACTIVE and sig.get("activated_at"):
+                            self._activated_at[sid] = sig["activated_at"]
 
-                total = sum(len(v) for v in self._active_index.values())
-                self.logger.info(
-                    "bootstrap_complete",
-                    signals=total,
-                    symbols=len(self._active_symbols),
-                )
-            finally:
-                await db.close()
+                        self._signal_ids.add(sid)
+                        self._active_index[(symbol, tf)].append(sig)
+                        self._active_symbols.add(symbol)
+
+                    total = sum(len(v) for v in self._active_index.values())
+                    self.logger.info(
+                        "bootstrap_complete",
+                        signals=total,
+                        symbols=len(self._active_symbols),
+                        attempt=attempt + 1,
+                    )
+                    return
+
+                # No rows returned — check if ledger is truly empty or transient failure
+                count_row = await db.execute_query("""
+                    SELECT COUNT(*) as count
+                    FROM signal_ledger
+                    WHERE status IN ('pending', 'active') AND exit_at IS NULL
+                      AND timestamp > NOW() - INTERVAL '3 days'
+                """)
+                ledger_count = count_row[0]["count"] if count_row else 0
+
+                if ledger_count == 0:
+                    # Ledger truly empty — success, no retry needed
+                    self.logger.info("bootstrap_complete_empty_ledger")
+                    return
+
+                # Ledger has rows but we got 0 — transient failure, retry with backoff
+                if attempt < _MAX_ATTEMPTS - 1:
+                    backoff = _BACKOFF_SECONDS[attempt]
+                    self.logger.warning(
+                        "bootstrap_empty_retry",
+                        attempt=attempt + 1,
+                        max_attempts=_MAX_ATTEMPTS,
+                        ledger_count=ledger_count,
+                        backoff_seconds=backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                else:
+                    # Exhausted retries — publish health event and proceed with empty state
+                    self.logger.error(
+                        "bootstrap_failed_exhausted",
+                        ledger_count=ledger_count,
+                        attempts=_MAX_ATTEMPTS,
+                    )
+                    await self._publish_bootstrap_failed_event(ledger_count)
+
+        finally:
+            await db.close()
+
+    async def _publish_bootstrap_failed_event(self, ledger_count: int) -> None:
+        """Publish bootstrap_failed health event to Kafka."""
+        if not self._producer:
+            return
+
+        from src.core.stream_keys import topic_health_events
+
+        payload = {
+            "event_type": "bootstrap_failed",
+            "service": "signal_tracker_compute",
+            "severity": "HIGH",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "details": {
+                "ledger_count": ledger_count,
+                "attempts": 3,
+                "reason": "DB returned 0 rows after 3 retry attempts with exponential backoff",
+            },
+        }
+
+        try:
+            await self._producer.publish(
+                topic_health_events(self._env_name),
+                key=message_key("signal_tracker_compute"),
+                value=payload,
+            )
         except Exception as exc:
-            self.logger.warning("bootstrap_failed", error=str(exc))
+            self.logger.error("bootstrap_failed_event_publish_error", error=str(exc))
 
     # ------------------------------------------------------------------
     # Consumer lag reporting
