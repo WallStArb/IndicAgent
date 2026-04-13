@@ -529,7 +529,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 67. Observability, Alerting & Automation | v2.4 | 0/4 | In Progress | — |
-| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 0/3 | Planned | — |
+| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 4/4 | Complete    | 2026-04-13 |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -812,7 +812,7 @@ Plans:
 **Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
 **Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
 **Depends on:** Phase 63 (runs BEFORE Phase 67 — migration numbers 062/063 reserved here; 067 renumbers to 064+)
-**Plans:** 4 plans (Wave A: 01+02 parallel, Wave B: 03, Wave C: 04)
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
