@@ -338,3 +338,119 @@ async def test_setup_failure_does_not_log_run_failed() -> None:
     assert "agent.run_failed" not in logged_events, (
         "agent.run_failed must not be logged when _setup() fails — _run() was never called"
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 067-01 Task 1: BaseAgent Observability + Alert Publishing — RED phase
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_base_agent_has_crash_metrics() -> None:
+    """BaseAgent tracks crashes via agent_crash_total counter."""
+
+    class CrashAgent(BaseAgent):
+        async def _run(self) -> None:
+            raise RuntimeError("simulated crash")
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = CrashAgent(name="crash_test")
+        # Get the crash total before and after
+        from src.core.agent.base import AGENT_CRASH_TOTAL
+        before = AGENT_CRASH_TOTAL.labels(agent="crash_test")._value.get()
+        with pytest.raises(RuntimeError):
+            await a.start()
+        after = AGENT_CRASH_TOTAL.labels(agent="crash_test")._value.get()
+        # Counter should have incremented
+        assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_base_agent_tracks_setup_success() -> None:
+    """BaseAgent tracks successful _setup() completion."""
+
+    class SuccessAgent(BaseAgent):
+        async def _setup(self) -> None:
+            pass
+
+        async def _run(self) -> None:
+            self._stop_event.set()
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = SuccessAgent(name="success_test")
+        from src.core.agent.base import AGENT_SETUP_SUCCESS_TOTAL
+        before = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test")._value.get()
+        await a.start()
+        after = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test")._value.get()
+        assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_base_agent_tracks_setup_failure() -> None:
+    """BaseAgent tracks failed _setup() with error_type label."""
+
+    class FailSetupAgent(BaseAgent):
+        async def _setup(self) -> None:
+            raise ValueError("config error")
+
+        async def _run(self) -> None:
+            pass
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = FailSetupAgent(name="fail_setup_test")
+        from src.core.agent.base import AGENT_SETUP_FAILURE_TOTAL
+        before = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError")._value.get()
+        with pytest.raises(ValueError):
+            await a.start()
+        after = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError")._value.get()
+        assert after == before + 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="Task 4: topic_alert_requests not yet added to stream_keys.py")
+async def test_base_agent_send_alert_publishes_to_kafka() -> None:
+    """BaseAgent._send_alert() publishes to alert.requests topic via Kafka producer."""
+
+    class AlertAgent(BaseAgent):
+        async def _run(self) -> None:
+            self._stop_event.set()
+
+    # Mock topic_alert_requests at import point in base.py (Task 4 will add it to stream_keys.py)
+    with patch("src.core.agent.base.topic_alert_requests", return_value="test.alert.requests"):
+        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+            a = AlertAgent(name="alert_test")
+            # Mock the producer with an async method
+            from unittest.mock import AsyncMock
+            mock_producer = AsyncMock()
+            a._producer = mock_producer
+            # Mock settings for env_name
+            a._settings = MagicMock()
+            a._settings.env_name = "test"
+            # Call _send_alert
+            await a._send_alert("CRITICAL", "test alert", context={"symbol": "ES"})
+            # Verify producer.publish was called
+            mock_producer.produce.assert_called_once()
+            call_args = mock_producer.produce.call_args
+            assert "alert.requests" in call_args[0][0]  # topic contains alert.requests
+            payload = call_args[0][1]
+            assert payload["severity"] == "CRITICAL"
+            assert payload["message"] == "test alert"
+            assert payload["source"] == "alert_test"
+            assert "timestamp" in payload
+            assert payload["symbol"] == "ES"
+
+
+@pytest.mark.asyncio
+async def test_base_agent_send_alert_noop_without_producer() -> None:
+    """BaseAgent._send_alert() is graceful no-op when producer not configured."""
+
+    class NoProducerAgent(BaseAgent):
+        async def _run(self) -> None:
+            self._stop_event.set()
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = NoProducerAgent(name="no_producer_test")
+        # No _producer attribute set
+        # Should not raise
+        await a._send_alert("CRITICAL", "test")
+        # If we get here, test passes
