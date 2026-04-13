@@ -51,10 +51,12 @@ def rank_signals(
         plugin_name = s.get("setup_plugin", "unknown")
 
         priority = SETUP_PRIORITY.get(plugin_name, 999)
+        _key_specific = (plugin_name, tf, symbol)
+        _key_global = (plugin_name, tf, "*")
         perf_multiplier = (
-            perf_weights.get((plugin_name, tf, symbol))
-            or perf_weights.get((plugin_name, tf, "*"))
-            or 1.0
+            perf_weights[_key_specific]
+            if _key_specific in perf_weights
+            else perf_weights.get(_key_global, 1.0)
         )
         adjusted_rank = round(priority * perf_multiplier, 4)
 
