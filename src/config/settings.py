@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     regime_prob_min: float = Field(default=0.30, validation_alias="REGIME_PROB_MIN")
     regime_dur_min: int = Field(default=1, validation_alias="REGIME_DUR_MIN")
 
+    # Winner selector configuration (Phase 68-01)
+    winner_long_bias: bool = Field(default=True, validation_alias="WINNER_LONG_BIAS")
+
     # Provider Merger Agent (Phase 54-04)
     # provider_raw_topics: list of provider names whose raw topics to subscribe to
     # provider_routing_config: asset_class -> authoritative provider name

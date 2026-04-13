@@ -390,6 +390,17 @@ ML_DISCOVERY_FEATURES_EXTRACTED = Gauge(
 )
 
 
+# ---------------------------------------------------------------------------
+# Regime gate suppression metrics (Phase 68-01)
+# ---------------------------------------------------------------------------
+
+REGIME_GATE_SUPPRESSIONS_TOTAL = Counter(
+    "regime_gate_suppressions_total",
+    "Signals suppressed by regime gate",
+    labelnames=["reason", "plugin", "tf"],
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started
