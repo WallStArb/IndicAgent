@@ -76,6 +76,16 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         await self._producer.start()
         self.logger.info("swarm_orchestrator.started")
 
+        # Seed context cache from historical intelligence_features (Phase 67 fix)
+        import asyncpg as _asyncpg
+        _db_pool = await _asyncpg.create_pool(
+            self._settings.database_url, min_size=1, max_size=2
+        )
+        try:
+            await self._seed_context_cache(_db_pool)
+        finally:
+            await _db_pool.close()
+
     async def _teardown(self) -> None:
         if self._bar_consumer:
             await self._bar_consumer.stop()
@@ -189,6 +199,33 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
             },
         )
 
+
+    async def _seed_context_cache(self, pool: asyncpg.Pool) -> None:
+        """Seed SwarmContextCache from last row per (symbol, tf) in intelligence_features.
+
+        Called once during _setup() before the consume loop starts.
+        One startup DB read — amortized cost negligible vs processing first N bars cold.
+        Uses seed_from_db_row() to construct SimpleNamespace proxies (not full IntelligenceEvent).
+        """
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT DISTINCT ON (symbol, tf)
+                        symbol, tf, ts, bar, i1, i4, i6
+                    FROM intelligence_features
+                    WHERE ts > NOW() - INTERVAL '7 days'
+                      AND i1 IS NOT NULL
+                      AND i4 IS NOT NULL
+                    ORDER BY symbol, tf, ts DESC
+                """)
+            loaded = 0
+            for row in rows:
+                self._context_cache.seed_from_db_row(dict(row))
+                loaded += 1
+            self.logger.info("swarm_orchestrator.cache_seeded", rows=loaded)
+        except Exception as exc:
+            self.logger.warning("swarm_orchestrator.cache_seed_failed", error=str(exc))
+            # Proceed with empty cache — degraded but not broken
 
 def main() -> None:
     settings = Settings()
