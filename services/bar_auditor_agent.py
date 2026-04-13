@@ -38,7 +38,8 @@ from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.market_events import BarGapRequest
-from src.core.stream_keys import topic_contract_updates, topic_gap_requests
+from src.core.stream_keys import topic_contract_updates, topic_gap_fill_dlq, topic_gap_requests
+from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 from src.observability.otel import init_tracing
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,10 @@ class BarAuditorAgent(BaseAgent):
         self._requested_today: set[tuple[str, str]] = set()
         self._requested_today_date: str = ""  # YYYY-MM-DD of last clear
 
+        # Gap request dedup: (symbol, tf, date_str) — cleared every 24h
+        self._seen_gap_requests: set[tuple[str, str, str]] = set()
+        self._seen_gap_requests_date: str = ""
+
         # Cache labeled children — avoids .labels() lookup on every audit cycle
         self._audits_run = _AUDITS_RUN.labels(agent=self.name)
         self._gap_requests_published = _GAP_REQUESTS_PUBLISHED.labels(agent=self.name)
@@ -120,6 +125,9 @@ class BarAuditorAgent(BaseAgent):
         self._audit_errors = _AUDIT_ERRORS.labels(agent=self.name)
         # Dynamic symbol/tf labels — cannot pre-cache; call .labels() at use time
         self._canonical_completeness = _CANONICAL_COMPLETENESS
+
+        # Module-level counter (already registered in metrics.py via Plan 1)
+        self._gap_fill_dlq_depth = BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -291,6 +299,49 @@ class BarAuditorAgent(BaseAgent):
                     ).set(completeness)
 
                     if completeness < threshold:
+                        # UPSERT gap row to market_data_gaps table
+                        await self._upsert_market_data_gap(
+                            conn,
+                            instrument.symbol,
+                            "1m",
+                            date_start_utc,
+                            expected,
+                            expected - actual,
+                        )
+                        # Dedup: skip if already requested today (prevents infinite
+                        # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
+                        today_str = str(today)
+                        if self._requested_today_date != today_str:
+                            self._requested_today.clear()
+                            self._requested_today_date = today_str
+                        gap_key = (instrument.symbol, str(target_date))
+                        if gap_key in self._requested_today:
+                            continue
+
+                        self.logger.warning(
+                            "bar_auditor_agent.gap_detected",
+                            symbol=instrument.symbol,
+                            date=str(target_date),
+                            actual=actual,
+                            expected=expected,
+                            completeness=round(completeness, 3),
+                            threshold=round(threshold, 3),
+                        )
+                        gaps.append(
+                            BarGapRequest(
+                                symbol=instrument.symbol,
+                                tf="1m",
+                                start_ts=date_start_utc,
+                                end_ts=date_end_utc,
+                            )
+                        )
+                        self._requested_today.add(gap_key)
+
+                    # Resolve gap if completeness reached 100%
+                    elif completeness >= 1.0:
+                        await self._resolve_market_data_gap(
+                            conn, instrument.symbol, "1m", date_start_utc
+                        )
                         # Dedup: skip if already requested today (prevents infinite
                         # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
                         today_str = str(today)
@@ -394,6 +445,99 @@ class BarAuditorAgent(BaseAgent):
                 error=str(exc),
             )
             # Do not re-raise — audit loop must continue on transient failures
+
+    # -- market_data_gaps write path -------------------------------------------
+
+    async def _upsert_market_data_gap(
+        self,
+        conn: asyncpg.Connection,
+        symbol: str,
+        tf: str,
+        gap_start_ts: datetime,
+        bars_expected: int,
+        bars_missing: int,
+    ) -> None:
+        """UPSERT a gap row. Updates bars_missing if row already exists."""
+        await conn.execute(
+            """
+            INSERT INTO market_data_gaps
+                (symbol, tf, gap_start_ts, bars_expected, bars_missing, detected_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (symbol, tf, gap_start_ts)
+            DO UPDATE SET
+                bars_missing = EXCLUDED.bars_missing,
+                detected_at  = EXCLUDED.detected_at
+            """,
+            symbol,
+            tf,
+            gap_start_ts,
+            bars_expected,
+            bars_missing,
+            datetime.now(UTC),
+        )
+
+    async def _resolve_market_data_gap(
+        self,
+        conn: asyncpg.Connection,
+        symbol: str,
+        tf: str,
+        gap_start_ts: datetime,
+    ) -> None:
+        """Mark an open gap as resolved (completeness reached 100%)."""
+        existing_id = await conn.fetchval(
+            """
+            SELECT id FROM market_data_gaps
+            WHERE symbol = $1 AND tf = $2 AND gap_start_ts = $3
+              AND resolved_at IS NULL
+            """,
+            symbol,
+            tf,
+            gap_start_ts,
+        )
+        if existing_id is None:
+            return
+        now = datetime.now(UTC)
+        await conn.execute(
+            """
+            UPDATE market_data_gaps
+            SET resolved_at = $1, gap_end_ts = $1
+            WHERE id = $2
+            """,
+            now,
+            existing_id,
+        )
+
+    async def _publish_gap_fill_dlq(
+        self,
+        symbol: str,
+        tf: str,
+        start_ts: datetime,
+        end_ts: datetime,
+        retry_count: int,
+        error: str,
+    ) -> None:
+        """Publish unresolvable gap request to DLQ after retry exhaustion."""
+        payload = {
+            "symbol": symbol,
+            "tf": tf,
+            "start_ts": start_ts.isoformat(),
+            "end_ts": end_ts.isoformat(),
+            "retry_count": retry_count,
+            "error": error,
+        }
+        await self._kafka_producer.publish(
+            topic_gap_fill_dlq(self._env_name),
+            payload,
+            key=symbol,
+        )
+        self._gap_fill_dlq_depth.inc()
+        self.logger.warning(
+            "bar_auditor_agent.gap_fill_dlq",
+            symbol=symbol,
+            tf=tf,
+            retry_count=retry_count,
+            error=error,
+        )
 
     def _any_session_open(self, instruments: list) -> bool:
         """True if any active instrument's trading session is currently open."""
