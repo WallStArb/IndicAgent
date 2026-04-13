@@ -6,6 +6,10 @@ and batch-writes complete rows to the intelligence_features TimescaleDB hypertab
 
 Phase 44.3: Single atomic INSERT per bar from BarIntelligenceRecord.
 No more i7/i8 two-phase UPSERT writes — every row is complete at insert time.
+
+Version: 3.0.0
+Last Updated: 2026-04-13
+Status: Phase 68 Plan 02 — migrated to BaseWriterAgent
 """
 
 from __future__ import annotations
@@ -28,7 +32,12 @@ from src.config.settings import Settings, get_active_contracts, get_active_symbo
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
+from src.core.service_utils import (
+    normalize_session_type,
+    parse_iso_ts,
+    parse_roll_event,
+    setup_service_logging,
+)
 from src.core.stream_keys import (
     topic_cross_asset,
     topic_intelligence_journal,
@@ -97,18 +106,6 @@ _ROLL_BOUNDARY_TF = "1m"
 logger = structlog.get_logger(__name__)
 
 
-def _parse_ts(ts_raw: str | bytes) -> datetime:
-    """Parse an ISO 8601 timestamp string (or bytes) to a UTC-aware datetime.
-
-    asyncpg requires a datetime object for timestamptz columns — raw strings
-    cause a type_mismatch error at execute time.
-    """
-    if isinstance(ts_raw, bytes):
-        ts_raw = ts_raw.decode()
-    dt = datetime.fromisoformat(ts_raw)
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
 
 
 # ── Module-level pure functions (testable without class instantiation) ─────────
@@ -437,6 +434,8 @@ class FeatureWriterAgent(BaseWriterAgent):
             enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
+        # Wire up BaseWriterAgent._consumer so _do_flush() can commit offsets
+        self._consumer = self._kafka_consumer
         self.logger.info(
             "Kafka consumer started",
             topics=topics,
@@ -552,7 +551,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             return
         old_symbol, new_symbol = result
         detected_at_raw: str = event.get("detection_ts") or datetime.now(tz=UTC).isoformat()
-        detected_at = _parse_ts(detected_at_raw)
+        detected_at = parse_iso_ts(detected_at_raw)
 
         # INTEL-04: Extract roll_premium_pct from event payload (default None for backward compat)
         roll_premium_pct_raw = event.get("roll_premium_pct")
@@ -595,8 +594,8 @@ class FeatureWriterAgent(BaseWriterAgent):
                 )
 
             # Explicitly commit after roll boundary write
-            if self._kafka_consumer:
-                await self._kafka_consumer.commit()
+            if self._consumer:
+                await self._consumer.commit()
 
             self.logger.info(
                 "roll_boundary_written",
@@ -624,7 +623,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             ts_raw = payload.get("ts", "")
             if not tf or not ts_raw or not payload.get("ready"):
                 return
-            ts_dt = _parse_ts(ts_raw)
+            ts_dt = parse_iso_ts(ts_raw)
             cross_asset_data = {
                 "cross_asset": {
                     "es_nq_spread_z": payload.get("es_nq_spread_z"),
@@ -642,8 +641,8 @@ class FeatureWriterAgent(BaseWriterAgent):
             await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)
 
             # Explicitly commit after cross-asset write
-            if self._kafka_consumer:
-                await self._kafka_consumer.commit()
+            if self._consumer:
+                await self._consumer.commit()
 
             self.logger.debug(
                 "cross_asset_persisted",

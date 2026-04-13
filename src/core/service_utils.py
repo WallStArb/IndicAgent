@@ -7,7 +7,7 @@ service files: logging setup and timeframe bar thresholds.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -125,8 +125,38 @@ def normalize_session_type(value: str | None, default: str = "rth") -> str:
     if st.startswith("SessionType."):
         name = st.split(".", 1)[1].upper()
         from src.core.schemas.bar_message import SessionType  # local import avoids circular
+
         st = SessionType.__members__.get(name, SessionType(default)).value
     return st
+
+
+def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:
+    """Parse ISO-8601 timestamp to UTC-aware datetime for asyncpg timestamptz columns.
+
+    Handles:
+    - ISO-8601 strings (with or without 'Z' suffix)
+    - bytes (decoded first)
+    - datetime objects (passed through with UTC fix)
+    - None (returns None)
+
+    Returns timezone-aware UTC datetime or None if parsing fails.
+
+    This centralizes timestamp parsing logic that was duplicated across
+    lifecycle_writer_agent, signal_writer_agent, feature_writer_agent, and swarm_writer_agent.
+    """
+    if ts is None:
+        return None
+    if isinstance(ts, bytes):
+        ts = ts.decode()
+    if isinstance(ts, str):
+        try:
+            dt = datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+    else:
+        dt = ts
+
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:

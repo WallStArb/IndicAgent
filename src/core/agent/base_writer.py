@@ -76,7 +76,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         super().__init__(name=name, metrics_port=metrics_port, **kwargs)
         self._buffer: list[Any] = []
         self._last_flush: float = 0.0
-        self._consumer: Any = None  # Set in subclass _setup()
+        self._consumer: Any = None  # Set in subclass _setup() — MUST be assigned for offset commits
 
         # Metrics — safe registration via module-level cache (test safety)
         agent_snake = name.lower().replace(" ", "_")
@@ -128,10 +128,9 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """
         self._buffer.extend(rows)
 
-        # Overflow guard
         if len(self._buffer) > self.MAX_BUFFER_SIZE:
             dropped = len(self._buffer) - self.MAX_BUFFER_SIZE
-            self._buffer = self._buffer[-self.MAX_BUFFER_SIZE:]
+            self._buffer = self._buffer[-self.MAX_BUFFER_SIZE :]
             self._buffer_overflow_total.inc(dropped)
             self.logger.warning("buffer_overflow", dropped=dropped, max_size=self.MAX_BUFFER_SIZE)
 
@@ -171,6 +170,10 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         Guarantees:
         - Offset committed ONLY after _flush_batch succeeds (no data loss on crash)
         - On _flush_batch exception: buffer left intact for retry
+
+        IMPORTANT: Subclasses MUST assign self._consumer in _setup() for offset
+        commits to work. Using a different attribute name (e.g. self._kafka_consumer)
+        will silently skip commits, causing lag to never decrease on restart.
         """
         if not self._buffer:
             return
@@ -179,7 +182,6 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             await self._flush_batch(batch)
             self._buffer.clear()
             self._buffer_depth_gauge.set(0)
-            # Commit offset AFTER successful flush
             if self._consumer and hasattr(self._consumer, "commit"):
                 await self._consumer.commit()
         except Exception:

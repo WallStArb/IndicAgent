@@ -47,7 +47,9 @@ from src.core.stream_keys import topic_contract_updates, topic_market_bars, topi
 # ---------------------------------------------------------------------------
 
 _INSERT_OHLCV_SQL: str = """
-INSERT INTO market_data_ohlcv (timestamp, symbol, base, timeframe, open, high, low, close, volume, source)
+INSERT INTO market_data_ohlcv (
+    timestamp, symbol, base, timeframe, open, high, low, close, volume, source
+)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
@@ -215,6 +217,8 @@ class BarWriterAgent(BaseWriterAgent):
             enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
+        # Wire up BaseWriterAgent._consumer so _do_flush() can commit offsets
+        self._consumer = self._kafka_consumer
         self._last_flush = time.monotonic()
         self.logger.info(
             "bar_writer_agent.setup_complete",

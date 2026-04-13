@@ -4,13 +4,14 @@ Each entry: (suffix, num_partitions, retention_ms, cleanup_policy)
 
 Retention tiers:
   hot      — 2h (7,200,000ms)     Real-time transport, consumed within seconds
-  pipeline — 4h (14,400,000ms)    Audit snapshots, replay buffer for restarts
-  output   — 24h (86,400,000ms)   Output buffer for lagging consumers
+  buffer   — 1d (86,400,000ms)    Standard buffer — all data persisted to TimescaleDB
+  htf      — 3d (259,200,000ms)   HTF bars need accumulation window for 4h/1d catch-up
   compact  — compacted topic, no time-based retention
 
 Rationale: Redpanda is a transport layer, not storage. Once consumed and
-persisted to TimescaleDB, Kafka data is redundant. Retention matches the
-SLA of the slowest consumer, not "just in case." Ground truth is in the DB.
+persisted to TimescaleDB, Kafka data is redundant. Retention is sized for
+restart catch-up only — ground truth lives in the DB. At 55 symbols, even
+1 day of 1m bars is ~76K messages; 7 days of intelligence output was 89 GB.
 
 Used by pipeline_reset.py to delete + recreate all topics on a full reset.
 """
@@ -18,50 +19,59 @@ Used by pipeline_reset.py to delete + recreate all topics on a full reset.
 # ---------------------------------------------------------------------------
 # Retention tiers (milliseconds)
 # ---------------------------------------------------------------------------
-_HOT_MS: int = 7_200_000          # 2 hours
-_PIPELINE_MS: int = 14_400_000    # 4 hours
-_OUTPUT_MS: int = 86_400_000      # 24 hours
+_HOT_MS: int = 7_200_000          # 2 hours — ticks, sub-minute transport
+_BUFFER_MS: int = 86_400_000      # 1 day   — standard restart catch-up
+_HTF_MS: int = 259_200_000        # 3 days  — HTF bar accumulation window
 
 # ---------------------------------------------------------------------------
 # Topic specifications
 # ---------------------------------------------------------------------------
 # (suffix, num_partitions, retention_ms, cleanup_policy)
 _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
-    # --- Market data (hot — consumed in real-time by pipeline services) ---
-    ("market.ticks",               1, _HOT_MS,      "delete"),
-    ("market.bars",                1, _HOT_MS,      "delete"),
-    ("market.bars.htf",            1, _HOT_MS,      "delete"),
+    # --- Market data ---
+    ("market.ticks",               1, _HOT_MS,    "delete"),
+    ("market.bars",                1, _BUFFER_MS, "delete"),
+    ("market.bars.htf",            1, _HTF_MS,    "delete"),
     # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
-    ("market.events.gap_requests", 1, _PIPELINE_MS, "delete"),
-    ("market.events.roll",         1, _PIPELINE_MS, "delete"),
-    ("market.data.quality",        1, _OUTPUT_MS,   "delete"),
-    # --- Intelligence pipeline (pipeline — audit snapshots, replay buffer) ---
-    ("indicators",                 1, _PIPELINE_MS, "delete"),
-    ("intelligence",               1, _PIPELINE_MS, "delete"),
-    ("intelligence.i8",            1, _PIPELINE_MS, "delete"),
-    ("intelligence.journal",       1, _OUTPUT_MS,   "delete"),
-    ("intelligence.record",        1, _PIPELINE_MS, "delete"),
-    # --- Signal pipeline stages (pipeline — consumed within seconds) ---
-    ("pipeline.quality_gated",     1, _PIPELINE_MS, "delete"),
-    ("pipeline.regime_gated",      1, _PIPELINE_MS, "delete"),
-    ("pipeline.tod_adjusted",      1, _PIPELINE_MS, "delete"),
-    ("pipeline.calibrated",        1, _PIPELINE_MS, "delete"),
-    ("pipeline.ranked",            1, _PIPELINE_MS, "delete"),
-    # --- Signals (output — consumed by tracker/narrative, buffer for restart) ---
-    ("signals",                    1, _PIPELINE_MS, "delete"),
-    ("signals.aggregated",         1, _OUTPUT_MS,   "delete"),
-    # --- LLM (output — audit trail, consumed by writer) ---
-    ("llm.calls",                  1, _OUTPUT_MS,   "delete"),
-    ("llm.outcomes",               1, _OUTPUT_MS,   "delete"),
-    # --- Narratives (output — consumed by dashboard SSE) ---
-    ("narratives",                 1, _OUTPUT_MS,   "delete"),
-    ("narratives.group",           1, _OUTPUT_MS,   "delete"),
-    # --- Cross-asset (pipeline — consumed by pipeline in real-time) ---
-    ("cross_asset",                1, _PIPELINE_MS, "delete"),
-    # --- System (compact — state + events, low volume) ---
-    ("system.events",              1, _PIPELINE_MS, "delete"),
-    ("audit",                      1, _OUTPUT_MS,   "delete"),
-    ("pipeline.data_quality",      1, _PIPELINE_MS, "delete"),
+    ("market.events.gap_requests", 1, _BUFFER_MS, "delete"),
+    ("market.events.roll",         1, _BUFFER_MS, "delete"),
+    ("market.data.quality",        1, _BUFFER_MS, "delete"),
+    # --- Intelligence pipeline (all persisted by feature_writer → intelligence_features) ---
+    ("indicators",                 1, _BUFFER_MS, "delete"),
+    ("intelligence",               1, _BUFFER_MS, "delete"),
+    ("intelligence.i8",            1, _BUFFER_MS, "delete"),
+    ("intelligence.journal",       1, _BUFFER_MS, "delete"),
+    ("intelligence.record",        1, _BUFFER_MS, "delete"),
+    ("intelligence.i7.signals",    1, _BUFFER_MS, "delete"),
+    ("intelligence.signal_metrics", 1, _BUFFER_MS, "delete"),
+    ("intelligence.signal.audit",  1, _BUFFER_MS, "delete"),
+    ("intelligence.service_auditor.journal.dlq", 1, _BUFFER_MS, "delete"),
+    # --- Signal pipeline stages (consumed within seconds, persisted downstream) ---
+    ("pipeline.quality_gated",     1, _BUFFER_MS, "delete"),
+    ("pipeline.regime_gated",      1, _BUFFER_MS, "delete"),
+    ("pipeline.tod_adjusted",      1, _BUFFER_MS, "delete"),
+    ("pipeline.calibrated",        1, _BUFFER_MS, "delete"),
+    ("pipeline.ranked",            1, _BUFFER_MS, "delete"),
+    # --- Signals (persisted by signal_writer → signal_ledger) ---
+    ("signals",                    1, _BUFFER_MS, "delete"),
+    ("signals.aggregated",         1, _BUFFER_MS, "delete"),
+    # --- LLM (persisted by llm_writer → llm_calls) ---
+    ("llm.calls",                  1, _BUFFER_MS, "delete"),
+    ("llm.outcomes",               1, _BUFFER_MS, "delete"),
+    # --- Narratives (consumed by dashboard SSE) ---
+    ("narratives",                 1, _BUFFER_MS, "delete"),
+    ("narratives.group",           1, _BUFFER_MS, "delete"),
+    # --- Cross-asset (consumed in real-time by pipeline) ---
+    ("cross_asset",                1, _BUFFER_MS, "delete"),
+    # --- Lifecycle (persisted by lifecycle_writer) ---
+    ("lifecycle.transitions",      1, _BUFFER_MS, "delete"),
+    # --- Swarm (persisted by swarm_writer) ---
+    ("intelligence.swarm",         1, _BUFFER_MS, "delete"),
+    # --- System ---
+    ("system.events",              1, _BUFFER_MS, "delete"),
+    ("system.health.events",       1, _BUFFER_MS, "delete"),
+    ("audit",                      1, _BUFFER_MS, "delete"),
+    ("pipeline.data_quality",      1, _BUFFER_MS, "delete"),
 ]
 
 # Compacted topics (state snapshots — key-based retention)
@@ -80,7 +90,7 @@ def get_topic_specs(providers: list[str]) -> list[tuple[str, int, int, str]]:
                    (e.g. ["ibkr", "polygon"]).
     """
     raw_provider_specs = [
-        (f"market.bars.raw.{provider}", 1, _HOT_MS, "delete") for provider in providers
+        (f"market.bars.raw.{provider}", 1, _BUFFER_MS, "delete") for provider in providers
     ]
     # Insert raw provider topics immediately after market.bars.htf
     insert_after = next(i for i, t in enumerate(_TOPIC_SPECS) if t[0] == "market.bars.htf")
