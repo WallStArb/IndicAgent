@@ -85,11 +85,11 @@ WHERE signal_id = $1::uuid
 
 _UPSERT_SCORE_SQL = """
 INSERT INTO llm_model_scores (
-    model, regime, setup_type, call_type,
+    model, regime, setup_type, call_type, symbol,
     n_calls, n_outcomes, win_rate, avg_pnl_r, avg_latency_ms,
     p_value, is_significant, score_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-ON CONFLICT (model, regime, setup_type, call_type)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+ON CONFLICT (model, regime, setup_type, call_type, symbol)
 DO UPDATE SET
     n_calls = EXCLUDED.n_calls,
     n_outcomes = EXCLUDED.n_outcomes,
@@ -108,7 +108,7 @@ WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
 
 _SELECT_OUTCOME_ROWS_SQL = """
-SELECT model, regime, setup_type, call_type,
+SELECT model, regime, setup_type, call_type, symbol,
        COUNT(*) AS n_calls,
        COUNT(outcome) AS n_outcomes,
        AVG(CASE WHEN win THEN 1.0 ELSE 0.0 END) AS win_rate,
@@ -116,7 +116,7 @@ SELECT model, regime, setup_type, call_type,
        AVG(latency_ms) AS avg_latency_ms
 FROM llm_calls
 WHERE outcome IS NOT NULL
-GROUP BY model, regime, setup_type, call_type
+GROUP BY model, regime, setup_type, call_type, symbol
 """
 
 logger = structlog.get_logger(__name__)
@@ -679,6 +679,7 @@ class LLMWriterService:
                 regime = row["regime"] or "__all__"
                 setup_type = row["setup_type"] or "__all__"
                 call_type = row["call_type"] or "__all__"
+                symbol = row.get("symbol") or "*"
                 n_calls = int(row["n_calls"])
                 n_outcomes = int(row["n_outcomes"])
                 win_rate = float(row["win_rate"]) if row["win_rate"] is not None else 0.0
@@ -704,6 +705,7 @@ class LLMWriterService:
                         regime,
                         setup_type,
                         call_type,
+                        symbol,
                         n_calls,
                         n_outcomes,
                         win_rate,
