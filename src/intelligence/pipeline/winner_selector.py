@@ -11,12 +11,13 @@ from collections import defaultdict
 from typing import Any
 
 from src.intelligence.enums.signal_status import SignalStatus
-from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
 
 
 def select_winner(
     signals: list[dict],
     cis_result: Any = None,
+    *,
+    long_bias: bool = True,
 ) -> tuple[dict | None, list[dict], str]:
     """Select winning signal from all ranked signals for a bar.
 
@@ -28,7 +29,10 @@ def select_winner(
         "setup_plugin", "confidence".
     cis_result:
         Pre-computed CIS result from the caller (bar-level, Kalman-filtered).
-        Must have a ``direction`` attribute (+1/-1/0). None → skip CIS override.
+        Must have a ``direction`` attribute (+1/-1/0). None -> skip CIS override.
+    long_bias:
+        When True and longs==shorts in fallback, bias toward long direction.
+        When False, select highest-ranked signal regardless of direction.
 
     Returns
     -------
@@ -52,7 +56,7 @@ def select_winner(
         if winner is not None:
             return winner, signals, method
 
-    winner, method = _aggregate_fallback(active, signals)
+    winner, method = _aggregate_fallback(active, signals, long_bias=long_bias)
     return winner, signals, method
 
 
@@ -61,7 +65,7 @@ def _aggregate_via_cis(
     cis_result: Any,
     all_ranked: list[dict],
 ) -> tuple[dict | None, str]:
-    """Select winner matching CIS direction, boost by agreeing count."""
+    """Select winner matching CIS direction, capture agreeing/opposing counts."""
     cis_direction = cis_result.direction
     matching = [s for s in active if s.get("direction", 0) == cis_direction]
 
@@ -71,12 +75,14 @@ def _aggregate_via_cis(
     matching_sorted = sorted(matching, key=lambda s: s.get("adjusted_rank", 999))
     selected = dict(matching_sorted[0])
 
-    extra_agreeing = len(matching) - 1
-    boosted = min(
-        1.0,
-        float(selected.get("confidence", 0.0)) + _CONFIDENCE_BOOST_PER_AGREE * extra_agreeing,
+    # Capture agreeing/opposing counts instead of boosting confidence
+    winner_direction = selected.get("direction", 0)
+    selected["n_agreeing_signals"] = len(
+        [s for s in active if s.get("direction") == winner_direction]
     )
-    selected["confidence"] = round(boosted, 4)
+    selected["n_opposing_signals"] = len(
+        [s for s in active if s.get("direction") != winner_direction and s.get("direction", 0) != 0]
+    )
     selected["status"] = SignalStatus.PENDING.value
 
     return selected, "cis_override"
@@ -85,6 +91,8 @@ def _aggregate_via_cis(
 def _aggregate_fallback(
     active: list[dict],
     all_ranked: list[dict],
+    *,
+    long_bias: bool = True,
 ) -> tuple[dict | None, str]:
     """Select winner by majority direction, then adjusted_rank sort."""
     by_direction: dict[int, list[dict]] = defaultdict(list)
@@ -94,13 +102,30 @@ def _aggregate_fallback(
     longs = len(by_direction.get(1, []))
     shorts = len(by_direction.get(-1, []))
 
-    # Tie (longs == shorts): deliberately bias toward long to avoid short-side noise.
-    majority_group = by_direction[1] if longs >= shorts else by_direction[-1]
+    # Tie (longs == shorts): parameterize via long_bias
+    if longs == shorts:
+        if long_bias:
+            majority_group = by_direction[1]
+        else:
+            # No bias — pick highest-ranked signal regardless of direction
+            majority_group = sorted(active, key=lambda s: s.get("adjusted_rank", 999))[:1]
+    else:
+        majority_group = by_direction[1] if longs > shorts else by_direction[-1]
+
     if not majority_group:
         return None, "no_signal"
 
     sorted_group = sorted(majority_group, key=lambda s: s.get("adjusted_rank", 999))
     selected = dict(sorted_group[0])
+
+    # Capture agreeing/opposing counts
+    winner_direction = selected.get("direction", 0)
+    selected["n_agreeing_signals"] = len(
+        [s for s in active if s.get("direction") == winner_direction]
+    )
+    selected["n_opposing_signals"] = len(
+        [s for s in active if s.get("direction") != winner_direction and s.get("direction", 0) != 0]
+    )
     selected["status"] = SignalStatus.PENDING.value
 
     return selected, "priority_majority"
