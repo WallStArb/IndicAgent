@@ -21,7 +21,7 @@ def test_computes_adjusted_rank():
     priority = SETUP_PRIORITY[plugin]
     weight = 0.8
     sig = make_signal(plugin=plugin)
-    result = rank_signals([sig], {(plugin, "1m"): weight}, "1m")
+    result = rank_signals([sig], {(plugin, "1m", "*"): weight}, "1m")
     expected_rank = round(priority * weight, 4)
     assert result[0]["adjusted_rank"] == expected_rank
     assert result[0]["perf_multiplier"] == weight
@@ -51,3 +51,40 @@ def test_does_not_mutate_input():
     rank_signals([sig], {}, "1m")
     assert sig["confidence"] == original_conf
     assert "adjusted_rank" not in sig
+
+
+# -- Symbol-keyed lookup tests (Phase 68-04) --
+
+
+def test_symbol_specific_weight_used():
+    """When symbol='ES', the (plugin, tf, 'ES') weight is used."""
+    plugin = "trad_TrendFollowing"
+    priority = SETUP_PRIORITY[plugin]
+    weight = 0.6
+    sig = make_signal(plugin=plugin)
+    result = rank_signals([sig], {(plugin, "1m", "ES"): weight}, "1m", symbol="ES")
+    expected_rank = round(priority * weight, 4)
+    assert result[0]["perf_multiplier"] == weight
+    assert result[0]["adjusted_rank"] == expected_rank
+
+
+def test_symbol_falls_back_to_global_star():
+    """When no symbol-specific weight, falls back to (plugin, tf, '*')."""
+    plugin = "trad_TrendFollowing"
+    priority = SETUP_PRIORITY[plugin]
+    weight = 0.8
+    sig = make_signal(plugin=plugin)
+    result = rank_signals([sig], {(plugin, "1m", "*"): weight}, "1m", symbol="ES")
+    expected_rank = round(priority * weight, 4)
+    assert result[0]["perf_multiplier"] == weight
+    assert result[0]["adjusted_rank"] == expected_rank
+
+
+def test_symbol_no_weight_defaults_to_one():
+    """When neither symbol-specific nor global weight exists, defaults to 1.0."""
+    plugin = "trad_TrendFollowing"
+    priority = SETUP_PRIORITY[plugin]
+    sig = make_signal(plugin=plugin)
+    result = rank_signals([sig], {}, "1m", symbol="ES")
+    assert result[0]["perf_multiplier"] == 1.0
+    assert result[0]["adjusted_rank"] == round(priority * 1.0, 4)

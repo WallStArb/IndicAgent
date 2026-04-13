@@ -287,6 +287,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "tf": mr.tf,
                             "regime_type": mr.regime_type,
                             "window_days": mr.window_days,
+                            "symbol": mr.symbol,
                             "n": mr.n,
                             "n_outliers": mr.n_outliers,
                             "never_activated_pct": mr.never_activated_pct,
@@ -299,7 +300,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "avg_mfe": mr.avg_mfe,
                             "computed_at": mr.computed_at.isoformat(),
                         },
-                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}",
+                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}:{mr.symbol}",
                     )
 
             # IC metrics (measures confidence predictive power; not track-split)
