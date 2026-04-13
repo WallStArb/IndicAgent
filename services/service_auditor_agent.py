@@ -29,6 +29,7 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq
+from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -265,6 +266,11 @@ class ServiceAuditorAgent(BaseAgent):
                     {"service": spec.unit, "restart_count": len(state.restart_times)},
                     Exception("escalation threshold reached"),
                 )
+                await self._dispatch_webhook(
+                    "CRITICAL",
+                    f"Service escalated: {spec.unit}",
+                    f"{len(state.restart_times)} restarts in 10 min — stopped retrying.",
+                )
                 self.logger.error("service_auditor.escalated", service=spec.unit)
                 return
 
@@ -355,6 +361,8 @@ class ServiceAuditorAgent(BaseAgent):
                     args=cmd_args,
                     stderr=stderr.decode().strip(),
                 )
+        # Increment metric after successful restart
+        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=spec.unit).inc()
 
     # -- Prometheus interface -------------------------------------------------
 
@@ -445,6 +453,63 @@ class ServiceAuditorAgent(BaseAgent):
             payload,
             payload.get("service", "unknown"),
         )
+
+    async def _notify_telegram(self, title: str, body: str) -> None:
+        """POST CRITICAL alert to Telegram bot. No-op if token not configured."""
+        token = self._settings.telegram_bot_token
+        chat_id = self._settings.telegram_chat_id
+        if not token or not chat_id:
+            return
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        text = f"*[CRITICAL]* {title}\n{body}"
+        try:
+            assert self._http_session is not None
+            async with self._http_session.post(
+                url,
+                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    self.logger.warning("telegram.notify_failed", status=resp.status, title=title)
+                else:
+                    self.logger.info("telegram.notified", title=title)
+        except Exception as exc:
+            self.logger.error("telegram.notify_error", error=str(exc))
+
+    async def _notify_discord(self, title: str, body: str, severity: str) -> None:
+        """POST HIGH/MEDIUM alert to Discord webhook. No-op if URL not configured."""
+        url = self._settings.discord_webhook_url
+        if not url:
+            return
+        content = f"**[{severity}]** {title}\n{body}"
+        try:
+            assert self._http_session is not None
+            async with self._http_session.post(
+                url,
+                json={"content": content},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status not in (200, 204):
+                    self.logger.warning("discord.notify_failed", status=resp.status, title=title)
+                else:
+                    self.logger.info("discord.notified", severity=severity, title=title)
+        except Exception as exc:
+            self.logger.error("discord.notify_error", error=str(exc))
+
+    async def _dispatch_webhook(self, severity: str, title: str, body: str) -> None:
+        """Route alert to correct contact point(s) based on severity.
+
+        CRITICAL  -> Telegram only (immediate DM)
+        HIGH      -> Discord only (#indicagent-ops)
+        MEDIUM    -> Discord only (#indicagent-ops)
+        Other     -> no-op (log at debug)
+        """
+        if severity == "CRITICAL":
+            await self._notify_telegram(title, body)
+        elif severity in ("HIGH", "MEDIUM"):
+            await self._notify_discord(title, body, severity)
+        else:
+            self.logger.debug("dispatch_webhook.unknown_severity", severity=severity)
 
 
 # ---------------------------------------------------------------------------

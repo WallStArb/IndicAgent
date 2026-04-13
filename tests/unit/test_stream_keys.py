@@ -219,3 +219,36 @@ def test_topic_ml_orchestrator_dlq():
     from src.core.stream_keys import topic_ml_orchestrator_dlq
 
     assert topic_ml_orchestrator_dlq("dev") == "dev.ml.orchestrator.dlq"
+
+
+# ---------------------------------------------------------------------------
+# Plan 067-01 Task 4: Alerting and Gap-Fill DLQ stream keys — RED phase
+# ---------------------------------------------------------------------------
+
+
+def test_topic_alert_requests_no_env():
+    """topic_alert_requests returns 'alert.requests' with no env prefix."""
+    from src.core.stream_keys import topic_alert_requests
+
+    assert topic_alert_requests("") == "alert.requests"
+
+
+def test_topic_alert_requests_with_env():
+    """topic_alert_requests prefixes with env name when provided."""
+    from src.core.stream_keys import topic_alert_requests
+
+    assert topic_alert_requests("dev") == "dev.alert.requests"
+
+
+def test_topic_gap_fill_dlq_no_env():
+    """topic_gap_fill_dlq returns 'gap_fill.dlq' with no env prefix."""
+    from src.core.stream_keys import topic_gap_fill_dlq
+
+    assert topic_gap_fill_dlq("") == "gap_fill.dlq"
+
+
+def test_topic_gap_fill_dlq_with_env():
+    """topic_gap_fill_dlq prefixes with env name when provided."""
+    from src.core.stream_keys import topic_gap_fill_dlq
+
+    assert topic_gap_fill_dlq("dev") == "dev.gap_fill.dlq"
