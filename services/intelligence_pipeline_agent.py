@@ -1409,13 +1409,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = apply_quality_gate(raw_signals, features)
         regime_gated = apply_regime_gate(quality_gated, features)
-        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et)
+        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et, symbol=symbol)
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
-        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf)
+        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf, symbol=symbol)
         ranked = rank_signals(calibrated, self._perf_weights, tf)
 
         # Annotate each ranked signal with ledger metadata before publishing
@@ -1731,31 +1731,50 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.warning("cis_weights.load_failed", error=str(exc))
 
     async def _load_calibration_curves(self) -> None:
-        """Load calibration curves from calibration_curves table."""
+        """Load calibration curves from calibration_curves table.
+
+        In-memory key: (setup_plugin, tf, symbol) where tf is extracted from
+        curve_data JSONB and symbol is the instrument sentinel ('*' = global).
+        Rows missing timeframe in curve_data are skipped (can't build lookup key).
+        """
         if self._db is None:
             return
         try:
+            import numpy as np
+
             rows = await self._db.execute_query(
-                "SELECT setup_plugin, curve_data FROM calibration_curves"
+                "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
             )
             curves: dict = {}
             for r in rows:
-                curves[r["setup_plugin"]] = r.get("curve_data", {})
+                curve_data = r.get("curve_data") or {}
+                tf_val = curve_data.get("timeframe")
+                bp = curve_data.get("breakpoints")
+                vals = curve_data.get("values")
+                if not tf_val or not bp or not vals:
+                    continue  # incomplete row — skip
+                key = (r["setup_plugin"], tf_val, r["symbol"])
+                curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
             self._calibration_curves = curves
         except Exception as exc:
             self.logger.warning("calibration_curves.load_failed", error=str(exc))
 
     async def _load_tod_multipliers(self) -> None:
-        """Load TOD multipliers from tod_multipliers table."""
+        """Load TOD multipliers from tod_multipliers table.
+
+        In-memory key: (regime_type, tf, hour_et, symbol).
+        symbol='*' rows are the global sentinel; symbol-specific rows take priority
+        during lookup in apply_tod_adjustment.
+        """
         if self._db is None:
             return
         try:
             rows = await self._db.execute_query(
-                "SELECT regime_type, tf, hour_et, multiplier FROM tod_multipliers"
+                "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
             )
             priors: dict = {}
             for r in rows:
-                key = (r["regime_type"], r["tf"], r["hour_et"])
+                key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
                 priors[key] = float(r["multiplier"])
             self._tod_priors = {**self._tod_priors, **priors}
         except Exception as exc:

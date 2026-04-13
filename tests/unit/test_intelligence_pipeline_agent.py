@@ -277,3 +277,116 @@ def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
     assert payload["symbol"] == "ES"
     assert payload["tf"] == "1m"
     assert payload["signal_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 68-04: Symbol-keyed load methods and call sites
+# ---------------------------------------------------------------------------
+
+
+class TestLoadCalibrationCurvesSymbolKeyed:
+    """Test _load_calibration_curves builds (setup_plugin, tf, symbol) keys."""
+
+    @pytest.mark.asyncio
+    async def test_builds_three_tuple_key_with_symbol(self):
+        agent = _make_agent()
+        db = AsyncMock()
+        db.execute_query = AsyncMock(return_value=[
+            {
+                "setup_plugin": "trad_X",
+                "symbol": "ES",
+                "curve_data": {
+                    "timeframe": "5m",
+                    "breakpoints": [0.0, 0.5, 1.0],
+                    "values": [0.0, 0.6, 1.0],
+                },
+            },
+            {
+                "setup_plugin": "trad_Y",
+                "symbol": "*",
+                "curve_data": {
+                    "timeframe": "1m",
+                    "breakpoints": [0.0, 1.0],
+                    "values": [0.1, 0.9],
+                },
+            },
+        ])
+        agent._db = db
+        await agent._load_calibration_curves()
+        curves = agent._calibration_curves
+        assert ("trad_X", "5m", "ES") in curves
+        assert ("trad_Y", "1m", "*") in curves
+        # Verify numpy arrays
+        import numpy as np
+        bp, vals = curves[("trad_X", "5m", "ES")]
+        assert len(bp) == 3
+        assert len(vals) == 3
+
+    @pytest.mark.asyncio
+    async def test_skips_rows_missing_timeframe(self):
+        agent = _make_agent()
+        db = AsyncMock()
+        db.execute_query = AsyncMock(return_value=[
+            {
+                "setup_plugin": "trad_Z",
+                "symbol": "*",
+                "curve_data": {"breakpoints": [0.0], "values": [0.5]},
+                # missing "timeframe"
+            },
+        ])
+        agent._db = db
+        await agent._load_calibration_curves()
+        assert agent._calibration_curves == {}
+
+
+class TestLoadTodMultipliersSymbolKeyed:
+    """Test _load_tod_multipliers builds (regime_type, tf, hour_et, symbol) keys."""
+
+    @pytest.mark.asyncio
+    async def test_builds_four_tuple_key_with_symbol(self):
+        agent = _make_agent()
+        db = AsyncMock()
+        db.execute_query = AsyncMock(return_value=[
+            {"regime_type": "trend", "tf": "1m", "hour_et": 9, "symbol": "ES", "multiplier": 1.2},
+            {"regime_type": "trend", "tf": "1m", "hour_et": 9, "symbol": "*", "multiplier": 1.1},
+        ])
+        agent._db = db
+        agent._tod_priors = {}
+        await agent._load_tod_multipliers()
+        assert ("trend", "1m", 9, "ES") in agent._tod_priors
+        assert ("trend", "1m", 9, "*") in agent._tod_priors
+        assert agent._tod_priors[("trend", "1m", 9, "ES")] == 1.2
+        assert agent._tod_priors[("trend", "1m", 9, "*")] == 1.1
+
+
+class TestCallSitesPassSymbol:
+    """Test that pipeline call sites pass symbol=bar.symbol."""
+
+    def test_tod_adjustment_imports_symbol_kwarg(self):
+        """Verify apply_tod_adjustment accepts symbol kwarg."""
+        import inspect
+        from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
+        sig = inspect.signature(apply_tod_adjustment)
+        assert "symbol" in sig.parameters
+
+    def test_calibrator_imports_symbol_kwarg(self):
+        """Verify apply_calibration accepts symbol kwarg."""
+        import inspect
+        from src.intelligence.pipeline.calibrator import apply_calibration
+        sig = inspect.signature(apply_calibration)
+        assert "symbol" in sig.parameters
+
+    def test_pipeline_calls_tod_with_symbol(self):
+        """Verify the pipeline source passes symbol= to apply_tod_adjustment."""
+        import inspect
+        from services import intelligence_pipeline_agent as m
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        assert "apply_tod_adjustment" in src
+        assert "symbol=symbol" in src
+
+    def test_pipeline_calls_calibrator_with_symbol(self):
+        """Verify the pipeline source passes symbol= to apply_calibration."""
+        import inspect
+        from services import intelligence_pipeline_agent as m
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        assert "apply_calibration" in src
