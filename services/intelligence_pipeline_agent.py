@@ -114,6 +114,7 @@ from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     PLUGIN_DURATION_MS,
     PLUGIN_ERRORS_TOTAL,
+    REGIME_GATE_SUPPRESSIONS_TOTAL,
     THREAD_POOL_WORKERS,
     counter,
     gauge,
@@ -267,7 +268,13 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
                 if v is not None:
                     f[k] = v
     f["vix"] = getattr(event, "vix", None)
-    f["regime_type"] = f.get("hmm_regime", "ranging")
+    # HMM label separation: numeric hmm_regime stays as-is; hmm_regime_label is semantic string.
+    # regime_type is NOT set here — it comes from plugin class attribute in _run_i7.
+    hmm_val = f.get("hmm_regime")
+    hmm_int = int(hmm_val) if hmm_val is not None else None
+    f["hmm_regime_label"] = (
+        _HMM_REGIME_LABEL.get(hmm_int, "unknown") if hmm_int is not None else None
+    )
     return f
 
 
@@ -494,9 +501,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Last-observed HMM regime integer (0=ranging, 1/2=trending); updated per bar
         self._last_hmm_regime: int | None = None
 
-        # I7 config
-        self._regime_prob_min: float = 0.30
-        self._regime_dur_min: float = 0.30
+        # I7 config — wired to Settings (not hardcoded)
+        self._regime_prob_min: float = self._settings.regime_prob_min
+        self._regime_dur_min: int = self._settings.regime_dur_min
 
         # Output buffer
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
@@ -749,6 +756,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     if "_last_bar_offset" in state:
                         for k, v in state["_last_bar_offset"].items():
                             self._last_bar_offset[_restore_tuple_key(k)] = v
+                    if "_setup_last_fire" in state:
+                        for k, v in state["_setup_last_fire"].items():
+                            self._setup_last_fire[_restore_tuple_key(k)] = v
                     result[0] = True
 
             try:
@@ -1362,6 +1372,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 sig["setup_plugin"] = task.plugin_name
                 sig["symbol"] = symbol
                 sig["tf"] = tf
+                # regime_type from plugin class attribute — NOT from HMM numeric value
+                plugin_inst = self._plugin_cache.get(task.plugin_name)
+                sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
 
                 # Alpha decay
                 fire_key = (symbol, tf, task.plugin_name, sig.get("direction", 0))
@@ -1408,7 +1421,30 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = apply_quality_gate(raw_signals, features)
-        regime_gated = apply_regime_gate(quality_gated, features)
+
+        # Attribution capture: AFTER quality gate, BEFORE regime gate
+        for sig in quality_gated:
+            sig["pre_regime_confidence"] = sig.get("confidence", 0.0)
+
+        regime_gated = apply_regime_gate(
+            quality_gated, features,
+            prob_min=self._regime_prob_min,
+            dur_min=self._regime_dur_min,
+        )
+
+        # Regime suppression metric — increment for each suppressed signal
+        for sig in regime_gated:
+            if not sig.get("regime_eligible", True):
+                REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
+                    reason=sig.get("suppression_reason", "unknown"),
+                    plugin=sig.get("setup_plugin", "unknown"),
+                    tf=tf,
+                ).inc()
+
+        # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
+        for sig in regime_gated:
+            sig["pre_tod_confidence"] = sig.get("confidence", 0.0)
+
         tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et)
 
         # Attribution capture: BEFORE calibration
@@ -1425,8 +1461,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["num_signals_bar"] = num_signals
             sig["was_selected"] = False  # filled in after winner selection below
             sig["status"] = "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
-            # Regime context from features (populated by _build_features_from_event)
-            sig["regime_type"] = features.get("regime_type")
+            # HMM context: numeric hmm_regime + semantic label (set in _build_features_from_event).
+            # sig["regime_type"] already set from plugin class attr — do NOT overwrite.
+            sig["hmm_regime_label"] = features.get("hmm_regime_label")
             sig["hmm_regime_at_fire"] = features.get("hmm_regime")
             # is_shadow: check plugin class attribute via _plugin_cache
             plugin_inst = self._plugin_cache.get(sig.get("setup_plugin", ""))
@@ -1440,7 +1477,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["weights_version"] = cis_result.weights_version
 
         # Select winner — pass all ranked signals (select_winner filters active internally)
-        winner, _, resolution_method = select_winner(ranked, cis_result)
+        winner, _, resolution_method = select_winner(
+            ranked, cis_result, long_bias=self._settings.winner_long_bias,
+        )
+
+        # Stamp resolution_method on every ranked signal (not just the winner)
+        for sig in ranked:
+            sig["resolution_method"] = resolution_method
+
         winner_plugin = winner.get("setup_plugin") if winner else None
 
         # Mark the winner
@@ -1496,6 +1540,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_tod_priors": self._tod_priors,
             "_bar_history": self._bar_history._data,
             "_last_bar_offset": self._last_bar_offset,
+            "_setup_last_fire": self._setup_last_fire,
         }
         encoded = StateSerializer.encode(state)
         checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
