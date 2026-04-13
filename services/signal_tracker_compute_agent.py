@@ -84,6 +84,10 @@ class SignalTrackerCompute(BaseAgent):
       - Publishes LifecycleTransition events for every state change
     """
 
+    # Bootstrap retry configuration
+    _BOOTSTRAP_MAX_ATTEMPTS = 3
+    _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
+
     def __init__(self) -> None:
         super().__init__(name="SignalTrackerCompute", metrics_port=9127)
         settings = Settings()
@@ -612,19 +616,17 @@ class SignalTrackerCompute(BaseAgent):
     async def _bootstrap_active_signals(self) -> None:
         """One-time DB read at startup to load pending/active signals.
 
-        Retries up to 3 times with exponential backoff (2s, 4s, 8s) if the DB
-        returns 0 rows while the ledger provably has rows. On exhaustion, publishes
-        a bootstrap_failed health event and proceeds with empty state.
+        Bootstrap retries protect against transient DB connection failures at
+        startup. We proceed with empty state after exhaustion to avoid blocking
+        the service start. On exhaustion, publishes a bootstrap_failed health
+        event for monitoring.
 
         sd_notify(READY=1) is called ONLY after this method returns.
         """
-        _MAX_ATTEMPTS = 3
-        _BACKOFF_SECONDS = [2, 4, 8]
-
         db = DatabaseManager(self._settings.database_url)
         await db.initialize()
         try:
-            for attempt in range(_MAX_ATTEMPTS):
+            for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):
                 rows = await db.execute_query("""
                     SELECT signal_id, timestamp, symbol, timeframe, status, direction,
                            entry_price, stop_loss, targets, confidence, entry_zone_low,
@@ -690,12 +692,12 @@ class SignalTrackerCompute(BaseAgent):
                     return
 
                 # Ledger has rows but we got 0 — transient failure, retry with backoff
-                if attempt < _MAX_ATTEMPTS - 1:
-                    backoff = _BACKOFF_SECONDS[attempt]
+                if attempt < self._BOOTSTRAP_MAX_ATTEMPTS - 1:
+                    backoff = self._BOOTSTRAP_BACKOFF_SECONDS[attempt]
                     self.logger.warning(
                         "bootstrap_empty_retry",
                         attempt=attempt + 1,
-                        max_attempts=_MAX_ATTEMPTS,
+                        max_attempts=self._BOOTSTRAP_MAX_ATTEMPTS,
                         ledger_count=ledger_count,
                         backoff_seconds=backoff,
                     )
@@ -705,7 +707,7 @@ class SignalTrackerCompute(BaseAgent):
                     self.logger.error(
                         "bootstrap_failed_exhausted",
                         ledger_count=ledger_count,
-                        attempts=_MAX_ATTEMPTS,
+                        attempts=self._BOOTSTRAP_MAX_ATTEMPTS,
                     )
                     await self._publish_bootstrap_failed_event(ledger_count)
 
@@ -726,8 +728,8 @@ class SignalTrackerCompute(BaseAgent):
             "timestamp": datetime.now(UTC).isoformat(),
             "details": {
                 "ledger_count": ledger_count,
-                "attempts": 3,
-                "reason": "DB returned 0 rows after 3 retry attempts with exponential backoff",
+                "attempts": self._BOOTSTRAP_MAX_ATTEMPTS,
+                "reason": f"DB returned 0 rows after {self._BOOTSTRAP_MAX_ATTEMPTS} retry attempts with exponential backoff",
             },
         }
 
