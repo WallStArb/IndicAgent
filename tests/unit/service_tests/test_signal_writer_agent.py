@@ -247,30 +247,30 @@ class TestSignalWriterAgentFlush:
 
 
 # ---------------------------------------------------------------------------
-# _parse_ts helper
+# parse_iso_ts helper (moved from signal_writer_agent to src.core.service_utils)
 # ---------------------------------------------------------------------------
 
 
 class TestParseTs:
     def test_parses_iso_with_tz(self):
-        from services.signal_writer_agent import _parse_ts
+        from src.core.service_utils import parse_iso_ts
 
-        result = _parse_ts("2026-03-30T12:00:00+00:00")
+        result = parse_iso_ts("2026-03-30T12:00:00+00:00")
         assert result.tzinfo is not None
         assert result.year == 2026
 
     def test_naive_gets_utc(self):
-        from services.signal_writer_agent import _parse_ts
+        from src.core.service_utils import parse_iso_ts
 
-        result = _parse_ts("2026-03-30T12:00:00")
+        result = parse_iso_ts("2026-03-30T12:00:00")
         assert result.tzinfo is not None
 
     def test_none_returns_none(self):
-        from services.signal_writer_agent import _parse_ts
+        from src.core.service_utils import parse_iso_ts
 
-        assert _parse_ts(None) is None
+        assert parse_iso_ts(None) is None
 
     def test_invalid_returns_none(self):
-        from services.signal_writer_agent import _parse_ts
+        from src.core.service_utils import parse_iso_ts
 
-        assert _parse_ts("not-a-date") is None
+        assert parse_iso_ts("not-a-date") is None

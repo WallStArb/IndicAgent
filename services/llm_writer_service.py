@@ -27,8 +27,7 @@ sys.path.insert(0, str(project_root))
 import structlog
 from scipy.stats import binomtest
 
-# Reuse timestamp parsing utility from feature_writer_agent
-from services.feature_writer_agent import _parse_ts
+from src.core.service_utils import parse_iso_ts as _parse_ts
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient

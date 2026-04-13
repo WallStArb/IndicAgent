@@ -15,7 +15,6 @@ import asyncio
 import sys
 import time
 from collections import defaultdict
-from datetime import UTC, datetime
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -25,6 +24,7 @@ from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
+from src.core.service_utils import parse_iso_ts
 from src.core.stream_keys import topic_lifecycle_transitions
 from src.intelligence.trading.lifecycle_transitions import from_dict
 from src.observability.metrics import (
@@ -43,9 +43,13 @@ from src.persistence.repository.signal_ledger_repository import (
 CONSUMER_GROUP = "lifecycle_writer_group"
 
 # Fields that asyncpg expects as Python datetime, not ISO strings
-_TIMESTAMP_FIELDS = frozenset({
-    "activated_at", "exit_at", "shadow_tracking_start_ts",
-})
+_TIMESTAMP_FIELDS = frozenset(
+    {
+        "activated_at",
+        "exit_at",
+        "shadow_tracking_start_ts",
+    }
+)
 
 
 def _ensure_datetimes(entry: dict) -> None:
@@ -56,11 +60,8 @@ def _ensure_datetimes(entry: dict) -> None:
     """
     for key in _TIMESTAMP_FIELDS:
         val = entry.get(key)
-        if isinstance(val, str):
-            dt = datetime.fromisoformat(val)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            entry[key] = dt
+        if val is not None:
+            entry[key] = parse_iso_ts(val)
 
 
 class LifecycleWriterAgent(BaseWriterAgent):
@@ -95,12 +96,8 @@ class LifecycleWriterAgent(BaseWriterAgent):
             "lifecycle_writer_write_errors_total",
             "Failed batch writes",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(
-            agent_id="lifecycle_writer_agent"
-        )
-        self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(
-            agent_id="lifecycle_writer_agent"
-        )
+        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="lifecycle_writer_agent")
+        self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(agent_id="lifecycle_writer_agent")
 
     def _topic_name(self) -> str:
         return topic_lifecycle_transitions(self._settings.env_name)

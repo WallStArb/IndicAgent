@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,6 +25,7 @@ from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
+from src.core.service_utils import parse_iso_ts
 from src.core.stream_keys import topic_intelligence_i7_signals
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
@@ -77,12 +77,8 @@ class SignalWriterAgent(BaseWriterAgent):
             "signal_writer_write_errors_total",
             "Failed batch inserts",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(
-            agent_id="signal_writer_agent"
-        )
-        self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(
-            agent_id="signal_writer_agent"
-        )
+        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="signal_writer_agent")
+        self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(agent_id="signal_writer_agent")
 
     def _topic_name(self) -> str:
         return topic_intelligence_i7_signals(self._settings.env_name)
@@ -147,8 +143,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
     symbol = payload.get("symbol", "")
     tf = payload.get("tf", "")
     signals: list[dict] = payload.get("signals", [])
-    computed_at = _parse_ts(payload.get("computed_at"))
-    bar_ts = _parse_ts(payload.get("bar_ts")) or computed_at
+    computed_at = parse_iso_ts(payload.get("computed_at"))
+    bar_ts = parse_iso_ts(payload.get("bar_ts")) or computed_at
 
     if not signals:
         return []
@@ -202,15 +198,6 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
     return entries
 
 
-def _parse_ts(value: str | None) -> datetime | None:
-    """Parse ISO-8601 timestamp string to timezone-aware UTC datetime."""
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(value)
-        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
-    except (ValueError, TypeError):
-        return None
 
 
 if __name__ == "__main__":

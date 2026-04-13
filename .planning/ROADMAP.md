@@ -17,6 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 55, 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 shipped 2026-04-13; Phase 67 pending)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phase 69 (planning 2026-04-13)
 
 ## Phases
 
@@ -268,6 +269,52 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 67: Observability, Alerting & Automation** ← EXECUTE SECOND
   Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
   Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
+
+</details>
+
+<details>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phase 69) — PLANNING</summary>
+
+**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation.
+
+**Execution order:** 69.1 → 69.2 → 69.3 → 69.4 (critical fixes → observability → validation → rollout)
+
+- [ ] **Phase 69: Writer Agent Renaissance Refactor** ← READY TO EXECUTE
+  **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
+  **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
+  
+  **Wave 1: Critical Fixes** (Day 1)
+  - Plan 01: Base class creates consumer (eliminate dual patterns)
+  - Plan 02: Move consume loop to base class (eliminate duplication)
+  - Plan 03: Buffer overflow critical alert + backpressure
+  - Plan 04: Offset commit integration tests (prove correctness)
+  
+  **Wave 2: Observability** (Day 2)
+  - Plan 05: Flush latency histogram instrumentation
+  - Plan 06: Background flush flag (prepare for optimization)
+  - Plan 07: Batch size auto-tuning foundation
+  - Plan 08: Writer health dashboard (Grafana)
+  
+  **Wave 3: Validation & Rollout** (Days 3-4)
+  - Plan 09: Comprehensive test coverage (unit + integration + load)
+  - Plan 10: Canary deployment (lifecycle_writer first)
+  - Plan 11: Full rollout + 48h monitoring
+
+**Success Criteria:**
+- ✅ Single consumer creation pattern across all 6 writers
+- ✅ 5/6 writers use base class `_run()` loop (feature_writer exception)
+- ✅ Buffer overflow triggers critical alert (pager + backpressure)
+- ✅ Integration tests verify offset commits
+- ✅ No throughput regression (> 1000 msg/sec)
+- ✅ No data loss in load test (1000 msg/sec, 10K messages)
+
+**Renaissance Compliance:**
+- Simplicity: One pattern for consumer creation
+- Modularity: Base class owns consume loop
+- Data Quality: Critical alerts on buffer overflow
+- Instrument Everything: Offset commit tests + flush metrics
+- Earn the Right: Batch tuning based on data
+- Let the System Run: Auto-tuning ready (disabled by default)
 
 </details>
 

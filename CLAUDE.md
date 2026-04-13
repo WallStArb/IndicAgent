@@ -1,8 +1,6 @@
 # CLAUDE.md
 
-Version: 5.33.0
-Last Updated: 2026-04-08
-Status: v2.2 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
+Version: 5.33.0 | Status: v2.2 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -13,28 +11,9 @@ Status: v2.2 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
 - **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
 
-## Renaissance Agentic DAG Principles (v2.1)
-- **Agentic DAG Architecture:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics (`intelligence.i{N}`), DataWriterAgents manage persistence
-- **The Persistence DAG:** WriterAgents use "Convergence Gate" (StreamMerger) to join tiered streams → single journal entry → atomic persistence
-- **DLQ pattern:** All agents maintain DLQ (`intelligence.[domain].journal.dlq`) for unprocessable payloads
-- **Observability:** Golden Signals (Traffic, Latency, Errors, Saturation) via Prometheus + Grafana
-- **Lifecycle:** Agents implement `SIGTERM` handlers for graceful drain
-- **Taxonomy:** Persistence logic in `src/persistence/repository/` (Repositories) + `src/persistence/writer/` (WriterAgents)
-- **Scaling:** systemd process management + Prometheus lag monitoring (no Kubernetes HPA)
-
-Apply this framing when: designing features, choosing approaches, deciding what to log, evaluating performance.
-
-# IndicAgent Market Intelligence Platform
-
-Real-time market intelligence platform with plugin-native architecture, Redpanda event-driven pipeline, and production-grade monitoring infrastructure.
+**Agentic DAG Architecture:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics (`intelligence.i{N}`), DataWriterAgents manage persistence. WriterAgents use "Convergence Gate" (StreamMerger) for atomic persistence. All agents maintain DLQ (`intelligence.[domain].journal.dlq`). Scaling: systemd + Prometheus lag monitoring (no Kubernetes HPA).
 
 ## Quick Start
-
-### Prerequisites
-- Python 3.11+, pip, venv
-- Docker & Docker Compose (for TimescaleDB, Redpanda)
-- systemd (for service management)
-- Node.js 18+ (for dashboard)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
@@ -45,129 +24,18 @@ cd dashboard && npm run dev
 /simplify && /coderabbit:code-review  # pre-commit mandatory
 ```
 
-## Knowledge Hierarchy
-
-| Level | Location | Description |
-|-------|----------|-------------|
-| **Captures** | `.planning/IDEAS.md` | Bullet list of ideas; links to detailed files when fleshed out |
-| **Research** | `docs/ideas/*.md` | Per-idea files — status/priority/milestone in frontmatter; reviewed by human + LLM |
-| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning — living document |
-| **Design docs** | `docs/plans/*.md` | `brainstorming` output — reviewed before planning. Archive to `docs/plans/archive/` after phase ships. |
-| **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements (`/gsd:add-todo`) |
-| **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases + backlog (GSD-managed) |
-| **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (`/gsd:plan-phase`) |
-
-Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features.
-
-## AI Working Rules
-
-> How to work with Claude Code without losing momentum or shipping broken code. Full rules: `docs/ai-working-rules.md`
-
-- **Pick Your Mode first:** shipping (no experiments) or researching (shadow only) — don't mix in one session
-- **3-Prompt Rule:** bug unsolved after 3 tries → stop, manually debug 5 min or rewrite the prompt
-- **Shadow First:** algo changes that affect signal output go shadow-only until proven
-- **The "Does It Run?" Gate:** session isn't done until the service starts and produces output
-
-## Required Workflows
-
-### Pre-Commit Quality Gate (Mandatory)
-Before committing: `/simplify` then `/coderabbit:code-review`.
-
-### Post-Phase Cleanup Checklist
-After each phase completion, verify:
-1. **No broken shims** — Search for `import.*from.*feature_compute_agent` (or other archived modules)
-2. **Test imports updated** — Any tests importing archived modules must be updated or archived
-3. **Systemd units audited** — Check all services are active/inactive as expected:
-   ```bash
-   systemctl list-units --all | grep indicagent
-   ```
-4. **Orphaned files archived** — Any service without a systemd unit should be archived or documented
-5. **Service status verified** — All `enabled` services should be `active` (unless timer-triggered)
-
-### Service Audit Commands
-Verify service health and conventions:
-- `systemctl list-units --all | grep indicagent` — check all units + states (active/inactive/failed)
-- `grep "^class.*Agent.*:" services/*_agent.py | grep -v "BaseAgent\|archived"` — find agents missing BaseAgent inheritance
-- `systemctl status indicant-<name>` — check if systemd unit exists (typo = "not found")
-- `journalctl -u <service> --since "X hours ago"` — investigate why service stopped
-- `systemctl show <service> -p StartLimitBurst,StartLimitIntervalSec` — check restart limits
-- `grep -r "from services.<old_module>" . --include="*.py"` — find broken imports after archival
-
-### Archival Pattern
-When removing/replacing services (5 existing `_archived_*.py` files):
-1. Rename to `_archived_<name>.py`
-2. Add deprecation header: `"""DEPRECATED: <what> <when> — <why> — <where it went now>"""`
-3. Archive or update tests importing the module (`test_<old>.py` → `_archived_test_<old>.py`)
-4. Delete backward-compatibility shims immediately (don't wait "one release cycle")
-5. Verify no broken imports remain
-
-### Service Lifecycle Gotchas
-- Services can exit cleanly (status=0/SUCCESS) but fail to restart due to **StartLimitBurst** (5 failures in 300s = stop trying)
-- Journal rotation can hide exit reasons — check logs immediately after failure
-- `Restart=always` + `RestartSec=10` means "keep restarting", but StartLimitBurst overrides this
-- Timer-triggered services (data-quality, weight-updater) show `inactive (dead)` normally — check `TriggeredBy:` field
-- **Verify new code is running after fixes**: check `git log --format="%ai %s" -3` vs `systemctl status <unit>` start time — if service started before the fix commit, it's running old code. Always restart AFTER commits land.
-- **Systemd CGroup shows stale script name after rename**: after renaming a service file, the CGroup display may still show the old filename. Trust the unit file's `ExecStart` and the file on disk, not the CGroup.
-
-### Post-Milestone Housekeeping
-`git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
-**Design doc archive:** After each phase ships, move its `docs/plans/*.md` to `docs/plans/archive/` if `Status: Shipped`. Do this as part of post-phase cleanup, not just at milestone boundaries.
-**Todo store:** `.planning/todos/pending/` (active) and `.planning/todos/done/` (completed). GSD config reports `completed_dir` but actual dir on disk is `done/`.
-
-### Skill Output Path Overrides
-The `brainstorming` skill saves to `docs/superpowers/specs/` by default — **override: save to `docs/plans/YYYY-MM-DD-<topic>-design.md`**.
-The `writing-plans` skill saves to `docs/superpowers/plans/` by default — **override: implementation plans live in `.planning/phases/` (GSD-managed); do NOT create a separate file in docs**.
-
-### Feature Development (any new plugin, service, or significant change)
-**Mandatory skill chain — do not skip steps:**
-1. `brainstorming` — design approval → `docs/plans/YYYY-MM-DD-<topic>-design.md`
-2. `writing-plans` — TDD implementation plan → `.planning/phases/` (GSD manages this)
-3. `executing-plans` — task-by-task with review checkpoints
-4. `verification-before-completion` — full test suite + lint
-5. `finishing-a-development-branch` — clean git history, decide merge/PR/cleanup
-
-**Do NOT jump straight to coding.** Even "simple" plugins need the brainstorming step.
-
-### Refactoring Philosophy
-Refactors should produce a **cleaner DAG** — modules with single responsibilities that compose upward into services. Never refactor just to reduce line count. Ask: *can this module be reused by another service? does it have exactly one job? does it make the dependency graph more explicit?* Monolithic services that accumulate logic over time are the anti-pattern to avoid.
-
-### Plugin vs Service Boundary
-**If it decides something about market data or signals → plugin/intelligence layer (`src/intelligence/`)**
-**If it moves data between places → service layer (`services/`)**
-Services should be thin: Redpanda consumer/producer + lifecycle wiring only. Regime gating, staleness scoring, confidence adjustments, TTL logic — all analytical, all belong in `src/intelligence/`. Plugins must never know about other plugins directly; cross-plugin communication goes through tier output schemas only. A plugin reusable in multiple contexts signals it should be a shared module, not duplicated.
-
-### Bug Fixes & Debugging
-1. `systematic-debugging` — structured investigation before proposing fixes
-2. **Reproduce first (Mandatory)** — Create a standalone `reproduce_bug.py` script that demonstrates the failure before writing any fix.
-3. `verification-before-completion` — confirm fix works (and reproduction script now passes) before committing.
-
-### Inquiry vs. Directive Protocol (Gemini & Claude)
-To prevent premature or "helpful" code changes during the research phase:
-- **Inquiry:** If asked "How should we...?" or "What's the best approach?", research and propose in a `docs/ideas/` or `docs/research/` file. **Do NOT modify codebase.**
-- **Directive:** Only when an explicit instruction to "Implement X" or "Execute phase Y" is given, move to implementation and code changes.
-
-### After Major Changes
-`revise-claude-md` · `verification-before-completion` · `requesting-code-review`
-
-### Library & Framework Documentation
-Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB, etc.
-
-### Todo Management
-`/gsd:add-todo` · `/gsd:check-todos` · `/gsd:review-todos`
+**Requires:** Python 3.11+, Docker (TimescaleDB, Redpanda), systemd, Node.js 18+.
 
 ## Core Commands
 
-> Full reference: `docs/cheatsheet.md` (pipeline reset, backfill scripts, service management, metrics ports)
+**Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
+**Dashboard:** `cd dashboard && npm run dev` (`:3000`)
+**API:** `uvicorn src.api.main:app` (`:8000`)
+**Service status:** `systemctl list-units --all | grep indicagent`
+**Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
+**Full reference:** `docs/cheatsheet.md`
 
-**Consumer debugging:** `docker exec redpanda rpk group describe feature_pipeline -t` — shows consumer lag per topic. `docker exec redpanda rpk topic consume market.bars.htf` — verify HTF bars are being published correctly.
-
-**Roadmap consistency check:** `node gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Run after any phase completion.
-**GSD decimal phases not resolvable by gsd-tools**: `init execute-phase "57.1"` returns `phase_found: false` — tools only parse whole-number phases from ROADMAP.md. Execute decimal phases manually: read PLAN.md directly, spawn gsd-executor with explicit `phase_dir`, skip gsd-tools state update calls (executor handles ROADMAP/STATE directly).
-
-**Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
-**Dashboard dev:** `cd dashboard && npm run dev`
-**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{ibkr-provider,intelligence-pipeline,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
-**Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
+---
 
 ## Naming Conventions
 
@@ -364,7 +232,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157`.
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only.
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons. Always via `stream_keys.py`.
-- **Redpanda topic retention**: Set `retention.ms=604800000` (7 days) explicitly — broker default purges seeded I1 messages over weekends.
+- **Redpanda topic retention**: Redpanda is transport, not storage — once persisted to TimescaleDB, data is redundant. Retention tiers defined in `production/scripts/kafka_init_topics.py`: `_HOT_MS` (2h, ticks), `_BUFFER_MS` (1 day, everything persisted to DB), `_HTF_MS` (3 days, HTF bars need accumulation window). At 55 symbols, 7-day retention on intelligence topics consumed 89 GB — keep retention minimal.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. Restart on futures expiry: `sudo systemctl restart indicagent-ibkr-provider`.
 - **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — no manual start needed.
