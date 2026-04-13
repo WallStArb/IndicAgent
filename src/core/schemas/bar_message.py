@@ -18,8 +18,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Literal
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.core.bar_normalizer import (
     SOURCE_HTF_DERIVED,
@@ -68,6 +69,9 @@ class BarMessage(BaseModel):
         is_flat_bar   — True when bar has zero volume (flat fill from prev close);
                         False for normal bars with real trade activity.
                         HTF bars: True only when ALL constituent 1m bars were flat.
+        bar_id        — Unique UUID for this bar, auto-generated on construction.
+                        Flows through IntelligenceEvent to signal_ledger for
+                        end-to-end traceability (Phase 68-03).
     """
 
     ts: datetime
@@ -82,3 +86,4 @@ class BarMessage(BaseModel):
     session_type: SessionType
     gap_preceding: bool = False
     is_flat_bar: bool = False
+    bar_id: UUID = Field(default_factory=uuid4)
