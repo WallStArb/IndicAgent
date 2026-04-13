@@ -87,3 +87,52 @@ class TestBuildContractsBaseSymbolTemplates:
                     f"Futures symbol {f.symbol!r} looks like a front-month contract code; "
                     f"defaults should use base symbols only"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Plan 067-01 Task 2: Alerting Settings Fields — RED phase
+# ---------------------------------------------------------------------------
+
+
+class TestAlertingSettingsFields:
+    """Verify Settings has alerting webhook fields (Task 2)."""
+
+    def test_telegram_bot_token_defaults_empty(self):
+        """telegram_bot_token defaults to empty string (channel disabled)."""
+        s = Settings()
+        assert s.telegram_bot_token == ""
+
+    def test_telegram_chat_id_defaults_empty(self):
+        """telegram_chat_id defaults to empty string (channel disabled)."""
+        s = Settings()
+        assert s.telegram_chat_id == ""
+
+    def test_discord_webhook_url_defaults_empty(self):
+        """discord_webhook_url defaults to empty string (channel disabled)."""
+        s = Settings()
+        assert s.discord_webhook_url == ""
+
+    def test_telegram_fields_populated_from_env(self):
+        """Telegram fields read from TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars."""
+        import os
+
+        try:
+            os.environ["TELEGRAM_BOT_TOKEN"] = "test_bot_token_123"
+            os.environ["TELEGRAM_CHAT_ID"] = "test_chat_id_456"
+            s = Settings()
+            assert s.telegram_bot_token == "test_bot_token_123"
+            assert s.telegram_chat_id == "test_chat_id_456"
+        finally:
+            os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+            os.environ.pop("TELEGRAM_CHAT_ID", None)
+
+    def test_discord_webhook_populated_from_env(self):
+        """discord_webhook_url reads from DISCORD_WEBHOOK_URL env var."""
+        import os
+
+        try:
+            os.environ["DISCORD_WEBHOOK_URL"] = "https://discord.com/api/webhooks/test"
+            s = Settings()
+            assert s.discord_webhook_url == "https://discord.com/api/webhooks/test"
+        finally:
+            os.environ.pop("DISCORD_WEBHOOK_URL", None)

@@ -15,9 +15,9 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
-- ⏸ **v2.3 ML Foundation** — Phases 55, 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
+- ⏸ **v2.3 ML Foundation** — Phases 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 shipped 2026-04-13; Phase 67 pending)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phase 69 (planning 2026-04-13)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70 (planning 2026-04-13)
 
 ## Phases
 
@@ -241,11 +241,10 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>⏸ v2.3 ML Foundation (Phases 55, 64, 65, 66) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
+<summary>⏸ v2.3 ML Foundation (Phases 64, 65, 66) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
 
-**Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
+**Milestone Goal:** Intelligence pipeline expansion (cross-TF confluence, gradient scoring), and the first swarm agent (SkepticAgent) on Phase 56 infrastructure.
 
-- [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [ ] **Phase 64: I6 Confluence Expansion** — Cross-TF plugins + macro context service (CrossTFMomentumDivergence, MacroContextComputeAgent, 4 additional cross-TF plugins); 3 plans
@@ -273,15 +272,16 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phase 69) — PLANNING</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69, 70) — PLANNING</summary>
 
-**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation.
+**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 70 adds statistically validated ML scoring layer (LightGBM) once 30+ days of clean signal data is available.
 
 **Execution order:** 69.1 → 69.2 → 69.3 → 69.4 (critical fixes → observability → validation → rollout)
 
 - [ ] **Phase 69: Writer Agent Renaissance Refactor** ← READY TO EXECUTE
   **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
   **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
+- [ ] **Phase 70: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. Requires 30+ days clean signal_ledger outcomes. `_shadow` dict already captured in all I7 plugins (Phase 45).
   
   **Wave 1: Critical Fixes** (Day 1)
   - Plan 01: Base class creates consumer (eliminate dual patterns)
@@ -456,9 +456,9 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 | Item | Notes | Analysis |
 |------|-------|---------|
 | **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
-| **Phase 55: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 55` in Phase Details section |
+| **Phase 70: ML Scoring Model** | Moved from Phase 55 — requires 30+ days of clean signal_ledger outcomes + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). Scheduled after Phase 69. | — |
 | **Phase 66: SkepticAgent** | First swarm agent built on Phase 56 infrastructure. `IAlphaContributor` that asks "what's wrong with this signal?" — predicts failure probability via LLM. Tracks predictions to `alpha_multiplier_shadow`. Gate: p < 0.05, n ≥ 30 before building next agent. | `docs/ideas/intelligence-swarm-manifest.md` |
-| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 55 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
+| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
@@ -491,7 +491,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 deferred (Phases 55-56, awaiting 30+ days clean signal data).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 deferred (Phases 64-66, awaiting 30+ days clean signal data; Phase 56 complete).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -582,6 +582,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 0/4 | In Progress | — |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 4/4 | Complete    | 2026-04-13 |
+| 69. Writer Agent Renaissance Refactor | v2.5 | 0/? | Planning | — |
+| 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
