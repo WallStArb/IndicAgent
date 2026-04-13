@@ -28,9 +28,10 @@ _TOD_CLAMP: tuple[float, float] = (0.7, 1.3)   # Hard multiplier bounds
 
 def apply_tod_adjustment(
     signals: list[dict],
-    tod_table: dict[tuple[str, str, int], float],
+    tod_table: dict[tuple[str, str, int, str], float],
     tf: str,
     hour_et: int,
+    symbol: str = "*",
 ) -> list[dict]:
     """Apply TOD multiplier to all signals.
 
@@ -39,12 +40,23 @@ def apply_tod_adjustment(
     signals:
         List of signal dicts. Each may have "regime_type_at_fire" and "confidence".
     tod_table:
-        Dict keyed by (regime_type, tf, hour_et) → multiplier float.
+        Dict keyed by (regime_type, tf, hour_et, symbol) → multiplier float.
         Loaded from DB by the caller. Empty dict falls back to session priors.
+        symbol='*' is the global sentinel (cross-instrument aggregate).
     tf:
         Current timeframe string (e.g. "1m").
     hour_et:
-        Current ET hour of the bar (0–23).
+        Current ET hour of the bar (0-23).
+    symbol:
+        Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
+        Falls back to global '*' sentinel when no symbol-specific row exists.
+        Default '*' preserves backward compatibility with call sites that omit it.
+
+    Lookup hierarchy:
+        1. (regime_type, tf, hour_et, symbol)  -- symbol-specific
+        2. (regime_type, tf, hour_et, '*')      -- global sentinel
+        3. _TOD_SESSION_PRIORS[(regime_type, hour_et)]  -- hardcoded prior
+        4. 1.0 -- neutral fallback
 
     Returns
     -------
@@ -59,9 +71,10 @@ def apply_tod_adjustment(
         before = float(s.get("confidence", 0.0))
         regime_type = s.get("regime_type_at_fire", "any")
 
-        # Lookup DB multiplier first
-        cell_key = (regime_type, tf, hour_et)
-        tod_multiplier = tod_table.get(cell_key)
+        # 2-level DB lookup, then session priors
+        specific_key = (regime_type, tf, hour_et, symbol)
+        global_key = (regime_type, tf, hour_et, "*")
+        tod_multiplier = tod_table.get(specific_key) or tod_table.get(global_key)
 
         if tod_multiplier is None:
             # Fall back to session priors
