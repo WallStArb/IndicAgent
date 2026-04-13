@@ -618,6 +618,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             *topics,
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id=self._consumer_group,
+            enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
@@ -847,6 +848,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                             if bar is None:
                                 continue
                             await self._process_bar(bar)
+
+                        # Commit offset after successful message processing
+                        await self._kafka_consumer.commit()
                     except Exception as exc:
                         self.logger.error(
                             "bar.process_error",

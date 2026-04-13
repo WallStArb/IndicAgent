@@ -184,15 +184,37 @@ class KafkaConsumerClient:
             # Commit after seek so manual-commit consumers (enable_auto_commit=False)
             # persist the new position — otherwise Redpanda still shows full lag on
             # next restart and the consumer reprocesses from the old committed offset.
-            try:
-                await self._consumer.commit()
-            except Exception:
-                pass  # auto-commit consumers raise; ignore
+            await self._consumer.commit()
+
+            # Verify the seek actually persisted by re-checking lag
+            post_seek_lag = 0
+            end_offsets = await self._consumer.end_offsets(list(partitions))
+            for tp, end_offset in end_offsets.items():
+                try:
+                    current = await self._consumer.position(tp)
+                    post_seek_lag += max(0, end_offset - current)
+                except Exception:
+                    pass
+
+            if post_seek_lag > max_lag:
+                logger.critical(
+                    "kafka_consumer.lag_skip_failed",
+                    pre_seek_lag=total_lag,
+                    post_seek_lag=post_seek_lag,
+                    max_lag=max_lag,
+                    error="seek_to_end+commit did not persist — consumer will reprocess from old offset",
+                )
+                raise RuntimeError(
+                    f"skip_lag_if_needed failed: lag was {total_lag}, still {post_seek_lag} after seek_to_end+commit. "
+                    "Check Redpanda connectivity and consumer group state."
+                )
+
             logger.info(
                 "kafka_consumer.lag_skip",
                 lag=total_lag,
                 max_lag=max_lag,
-                action="seeked_to_end",
+                action="seeked_to_end_verified",
+                post_seek_lag=post_seek_lag,
             )
 
         return total_lag
