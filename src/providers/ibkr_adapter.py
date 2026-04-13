@@ -233,9 +233,9 @@ class IBKRAdapter:
                 silence_s = loop.time() - last_bar_wall[0]
                 if silence_s > _NO_BAR_TIMEOUT_S and self._provider.is_connected():
                     logger.warning(
-                        "ibkr_adapter.bar_flow_timeout_forcing_restart",
-                        silence_seconds=int(silence_s),
-                        threshold_seconds=_NO_BAR_TIMEOUT_S,
+                        "ibkr_adapter.bar_flow_timeout_forcing_restart silence=%ds threshold=%ds",
+                        int(silence_s),
+                        _NO_BAR_TIMEOUT_S,
                     )
                     await bar_queue.put(_RECONNECT)
                     return
