@@ -364,6 +364,66 @@ def topic_gap_fill_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}gap_fill.dlq"
 
 
+# ---------------------------------------------------------------------------
+# DLQ topics for all agents that parse payloads (Plan 067-07)
+# ---------------------------------------------------------------------------
+
+
+def topic_bar_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for BarWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}bar.writer.dlq"
+
+
+def topic_feature_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for FeatureWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}feature.writer.dlq"
+
+
+def topic_signal_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for SignalWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}signal.writer.dlq"
+
+
+def topic_lifecycle_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for LifecycleWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}lifecycle.writer.dlq"
+
+
+def topic_swarm_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for SwarmWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}swarm.writer.dlq"
+
+
+def topic_bar_audit_dlq(env_name: str) -> str:
+    """Dead letter queue for BarAuditorAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}bar.audit.dlq"
+
+
+def topic_signal_audit_dlq(env_name: str) -> str:
+    """Dead letter queue for SignalAuditorAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}signal.audit.dlq"
+
+
+def topic_intelligence_pipeline_dlq(env_name: str) -> str:
+    """Dead letter queue for IntelligencePipelineComputeAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
+
+
+def topic_signal_tracker_dlq(env_name: str) -> str:
+    """Dead letter queue for SignalTrackerComputeAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}signal.tracker.dlq"
+
+
+def topic_cross_asset_dlq(env_name: str) -> str:
+    """Dead letter queue for CrossAssetComputeAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}cross.asset.dlq"
+
+
+def topic_llm_writer_dlq(env_name: str) -> str:
+    """Dead letter queue for LLMWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}llm.writer.dlq"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
