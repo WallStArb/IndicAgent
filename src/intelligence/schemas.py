@@ -789,6 +789,11 @@ class IntelligenceEvent(BaseModel):
     session_type: SessionType = SessionType.RTH
     pipeline_latency_ms: float = 0.0
 
+    # bar_id: unique UUID tracing back to the BarMessage that generated this event.
+    # None during transition period (backward compat for pre-68-03 events).
+    # Phase 68-03 — end-to-end bar traceability.
+    bar_id: UUID | None = None
+
 
 class RankedSignal(BaseModel):
     """A single I7 signal after all 6 pipeline stages have been applied.
