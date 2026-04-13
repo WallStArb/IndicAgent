@@ -120,7 +120,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
         self._env_name: str = self._settings.env_name or ""
-        super().__init__(name="bar_aggregator_agent", metrics_port=9120)
+        super().__init__(name="bar_aggregator_agent", metrics_port=9120, max_idle_seconds=300)
 
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
@@ -295,6 +295,9 @@ class BarAggregatorComputeAgent(BaseAgent):
                                 ).inc()
                                 self._health_metrics.record_skip()
                                 continue
+
+                            # Track liveness for stall detection (Phase 067-06)
+                            self._record_message_consumed()
 
                             self._health_metrics.record_bar(bar.ts)
 
