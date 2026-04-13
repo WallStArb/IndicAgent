@@ -391,6 +391,22 @@ ML_DISCOVERY_FEATURES_EXTRACTED = Gauge(
 
 
 # ---------------------------------------------------------------------------
+# Observability & Alerting Metrics (Phase 67)
+# ---------------------------------------------------------------------------
+
+SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL = Counter(
+    "service_auditor_service_restarts_total",
+    "Total service restarts triggered by ServiceAuditorAgent",
+    ["service_name"],
+)
+
+BAR_AUDITOR_GAP_FILL_DLQ_DEPTH = Counter(
+    "bar_auditor_gap_fill_dlq_depth",
+    "Total gap-fill requests routed to DLQ after retry exhaustion",
+)
+
+
+# ---------------------------------------------------------------------------
 # Regime gate suppression metrics (Phase 68-01)
 # ---------------------------------------------------------------------------
 
