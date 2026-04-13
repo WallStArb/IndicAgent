@@ -27,8 +27,8 @@ import asyncpg
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
-from src.core.kafka_utils import KafkaProducerClient
-from src.core.stream_keys import topic_health_events, topic_health_events_dlq
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
 from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
@@ -129,9 +129,11 @@ class ServiceAuditorAgent(BaseAgent):
         self._db_pool: asyncpg.Pool | None = None
         self._http_session: aiohttp.ClientSession | None = None
         self._kafka_producer: KafkaProducerClient | None = None
+        self._roll_consumer: KafkaConsumerClient | None = None
         self._service_states: dict[str, ServiceState] = {
             s.unit: ServiceState() for s in SERVICE_REGISTRY
         }
+        self._handled_rolls: set[tuple[str, str]] = set()
         self._topics_produced = [
             topic_health_events(self._env_name),
             topic_health_events_dlq(self._env_name),
@@ -153,6 +155,13 @@ class ServiceAuditorAgent(BaseAgent):
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
         )
         await self._kafka_producer.start()
+        self._roll_consumer = KafkaConsumerClient(
+            topic_roll_events(self._env_name),
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            group_id="service_auditor_roll_consumer",
+            auto_offset_reset="latest",
+        )
+        await self._roll_consumer.start()
         self.logger.info(
             "service_auditor_agent.setup_complete",
             services=len(SERVICE_REGISTRY),
@@ -162,6 +171,8 @@ class ServiceAuditorAgent(BaseAgent):
     async def _teardown(self) -> None:
         if self._kafka_producer:
             await self._kafka_producer.stop()
+        if self._roll_consumer:
+            await self._roll_consumer.stop()
         if self._http_session:
             await self._http_session.close()
         if self._db_pool:
@@ -171,10 +182,11 @@ class ServiceAuditorAgent(BaseAgent):
         prom_task = asyncio.create_task(self._prometheus_check_loop())
         sysd_task = asyncio.create_task(self._systemd_check_loop())
         hb_task = asyncio.create_task(self._heartbeat_loop())
+        roll_task = asyncio.create_task(self._roll_consumer_loop())
         await self._stop_event.wait()
-        for t in (prom_task, sysd_task, hb_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task):
             t.cancel()
-        for t in (prom_task, sysd_task, hb_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task):
             try:
                 await t
             except asyncio.CancelledError:
@@ -495,6 +507,76 @@ class ServiceAuditorAgent(BaseAgent):
                     self.logger.info("discord.notified", severity=severity, title=title)
         except Exception as exc:
             self.logger.error("discord.notify_error", error=str(exc))
+
+    # -- Roll automation -------------------------------------------------------
+
+    async def _roll_consumer_loop(self) -> None:
+        """Consume topic_roll_events and trigger ibkr-provider restart on roll_complete."""
+        if self._roll_consumer is None:
+            return
+        async for _topic, _key, payload in self._roll_consumer.messages():
+            if self._stop_event.is_set():
+                break
+            try:
+                await self._handle_roll_event(payload)
+            except Exception as exc:
+                self.logger.error("roll_consumer.error", error=str(exc))
+
+    async def _handle_roll_event(self, payload: dict) -> None:
+        """Process a RollEvent. Only fires on roll_complete; deduped by (symbol, new_expiry)."""
+        event_type = payload.get("event_type")
+        if event_type != "roll_complete":
+            return
+
+        symbol = payload.get("symbol", "")
+        new_expiry = payload.get("new_expiry", "")
+        old_expiry = payload.get("old_expiry", "")
+        dedup_key = (symbol, new_expiry)
+
+        if dedup_key in self._handled_rolls:
+            self.logger.debug("roll_consumer.dedup_skip", symbol=symbol, new_expiry=new_expiry)
+            return
+
+        self._handled_rolls.add(dedup_key)
+        self.logger.info(
+            "roll_automation.triggered",
+            symbol=symbol,
+            old_expiry=old_expiry,
+            new_expiry=new_expiry,
+        )
+
+        await self._dispatch_webhook(
+            "HIGH",
+            f"Futures roll: {symbol} {old_expiry} → {new_expiry}",
+            "Restarting indicagent-ibkr-provider to subscribe to new front-month contract.",
+        )
+        await self._restart_ibkr_provider()
+
+    async def _restart_ibkr_provider(self) -> None:
+        """Restart indicagent-ibkr-provider via sudo systemctl.
+
+        Requires sudoers entry (one-time manual setup):
+            bg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart indicagent-ibkr-provider
+
+        Uses subprocess.run (blocking) — acceptable since this is an infrequent operation
+        (at most once per futures roll cycle, ~4x/year per contract).
+        """
+        import subprocess
+
+        cmd = ["sudo", "systemctl", "restart", "indicagent-ibkr-provider"]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+                service_name="indicagent-ibkr-provider"
+            ).inc()
+            self.logger.info("roll_automation.restart_complete", service="indicagent-ibkr-provider")
+        except subprocess.CalledProcessError as exc:
+            self.logger.error(
+                "roll_automation.restart_failed",
+                service="indicagent-ibkr-provider",
+                returncode=exc.returncode,
+                stderr=exc.stderr.decode() if exc.stderr else "",
+            )
 
     async def _dispatch_webhook(self, severity: str, title: str, body: str) -> None:
         """Route alert to correct contact point(s) based on severity.
