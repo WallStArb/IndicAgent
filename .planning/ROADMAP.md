@@ -16,7 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 55, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
-- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (active)
+- ✅ **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 shipped 2026-04-13; Phase 67 pending)
 
 ## Phases
 
