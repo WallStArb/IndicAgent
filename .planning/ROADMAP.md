@@ -252,15 +252,19 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔨 v2.4 Observability Hardening (Phases 67–68) — ACTIVE</summary>
+<summary>🔨 v2.4 Observability Hardening (Phases 68→67) — ACTIVE</summary>
 
-**Milestone Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps. Harden the signal pipeline and write-path to institutional standard.
+**Milestone Goal:** Fix critical pipeline correctness bugs first (regime filtering bypass, write-path reliability, clean slate), then instrument the corrected system with observability. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps.
 
-- [ ] **Phase 67: Observability, Alerting & Automation** — Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds
-  Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
+**Execution order: 63-06 → 68 → 67** (correctness before instrumentation — Renaissance principle)
 
-- [ ] **Phase 68: Pipeline Hardening & Institutional Foundation** — Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate
+- [ ] **Phase 68: Pipeline Hardening & Institutional Foundation** ← EXECUTE FIRST
+  Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
   Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
+
+- [ ] **Phase 67: Observability, Alerting & Automation** ← EXECUTE SECOND
+  Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
+  Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 
 </details>
 
@@ -793,10 +797,10 @@ Plans:
 **Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alert rules push CRITICAL events to Telegram and HIGH/MEDIUM events to Discord within 60s. Roll events trigger automatic `ibkr-provider` restart. Gap windows are persisted to `market_data_gaps` for ML training exclusion. Four targeted code fixes close bootstrap-reliability holes. Three Grafana dashboards rebuilt with current service names and live data.
 **Design doc:** `docs/plans/2026-04-12-observability-automation-design.md`
 **Requirements**: [OBS-GRAFANA-ALERTS, OBS-CONTACT-POINTS, OBS-GAP-TABLE, OBS-BAR-AUDITOR, OBS-ROLL-AUTO, OBS-WEBHOOK-DISPATCHER, OBS-BOOTSTRAP-RETRY, OBS-SWARM-SEED, OBS-DASHBOARDS]
-**Depends on:** Phase 63
+**Depends on:** Phase 68 (observability instruments a corrected pipeline — run AFTER Phase 68)
 
 Plans:
-- [ ] 67-01-PLAN.md — Foundation: Settings fields (telegram/discord), webhook dispatcher methods in service_auditor_agent, service_auditor_service_restarts_total counter, market_data_gaps migration 062
+- [ ] 67-01-PLAN.md — Foundation: Settings fields (telegram/discord), webhook dispatcher methods in service_auditor_agent, service_auditor_service_restarts_total counter, market_data_gaps migration (renumber to 064 — see phase_reorder memory)
 - [ ] 67-02-PLAN.md — Code fixes: signal_tracker_compute bootstrap retry (3× exponential backoff + sd_notify gate) + SwarmOrchestratorAgent context cache seeding (200 rows/tf on startup)
 - [ ] 67-03-PLAN.md — Grafana alerting + roll automation: alert-rules.yml, contact-points.yml/.example.yml, roll event consumer in service_auditor_agent, bar_auditor gap_fill_dlq topic + counter
 - [ ] 67-04-PLAN.md — Dashboard rebuild: operations.json (new), pipeline-health.json (rebuilt), signals-i8.json (rebuilt) — Golden Signals layout, current service names, live panel queries
@@ -807,10 +811,11 @@ Plans:
 **Goal:** Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings thresholds, numeric label, long bias, confidence boost pre-calibration), add BaseWriterAgent consolidating shared buffer/flush/offset-commit/DLQ machinery across all 5 writer agents, add end-to-end bar_id trace from provider to lifecycle exit, full 5-point confidence attribution vector, and TRUNCATE signal_ledger for a clean slate after regime filtering was bypassed for all historical signals.
 **Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
 **Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
-**Depends on:** Phase 67
-**Plans:** 3 plans
+**Depends on:** Phase 63 (runs BEFORE Phase 67 — migration numbers 062/063 reserved here; 067 renumbers to 064+)
+**Plans:** 4 plans (Wave A: 01+02 parallel, Wave B: 03, Wave C: 04)
 
 Plans:
 - [ ] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
 - [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge
 - [ ] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
+- [ ] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064

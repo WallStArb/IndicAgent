@@ -189,8 +189,10 @@ Phase 68 delivers three parallel workstreams:
 ### Wave Ordering — LOCKED
 - Wave A (parallel): Plan 68-01 (signal pipeline correctness) AND Plan 68-02 (BaseWriterAgent)
 - Wave B (after 68-01): Plan 68-03 (trace ID + migration + clean slate)
+- Wave C (after 68-03): Plan 68-04 (symbol-keyed aggregate tables)
 - 68-01 and 68-02 touch disjoint files — safe to parallelize
 - 68-03 depends on 68-01 because bar_id must flow through corrected pipeline
+- 68-04 depends on 68-03 because both touch intelligence_pipeline_agent.py
 
 ### Claude's Discretion
 - Test file structure and naming within `tests/unit/`
