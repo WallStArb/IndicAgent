@@ -414,6 +414,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         _log_file = os.environ.get("LOG_FILE")
         if _log_file:
             from src.core.service_utils import setup_service_logging
+
             setup_service_logging(_log_file)
 
         super().__init__(
@@ -442,6 +443,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Full plugin validation — hard-crashes on misconfiguration
         from src.core.plugin_validator import PluginValidator
+
         PluginValidator().validate_all()
 
         # Plugin caches
@@ -794,9 +796,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task exceptions (swallowed by return_exceptions=True)
         task_names = [
-            "_process_loop", "_drain_output", "_health_monitor_loop",
-            "_load_perf_weights", "_refresh_drift_penalties",
-            "_load_cis_weights", "_load_calibration_curves", "_load_tod_multipliers"
+            "_process_loop",
+            "_drain_output",
+            "_health_monitor_loop",
+            "_load_perf_weights",
+            "_refresh_drift_penalties",
+            "_load_cis_weights",
+            "_load_calibration_curves",
+            "_load_tod_multipliers",
         ]
         for name, result in zip(task_names, results):
             if isinstance(result, Exception):
@@ -1103,7 +1110,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if isinstance(out, Exception):
                 self._pipeline_errors.inc()
                 PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
-                self.logger.warning(f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out))
+                self.logger.warning(
+                    f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out)
+                )
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
                 PLUGIN_DURATION_MS.labels(plugin_name=task.plugin_name, tier=tier).observe(
@@ -1409,7 +1418,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = apply_quality_gate(raw_signals, features)
         regime_gated = apply_regime_gate(quality_gated, features)
-        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et, symbol=symbol)
+        tod_adjusted = apply_tod_adjustment(
+            regime_gated,
+            self._tod_priors,
+            tf,
+            hour_et,
+            symbol=symbol,
+        )
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
@@ -1701,7 +1716,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             n = len(ranked)
             weights: dict = {}
             for rank, row in enumerate(ranked):
-                weights[(row["setup_plugin"], row["tf"], row.get("symbol", "*"))] = round(0.5 + ((n - 1 - rank) / n), 4)
+                sym = row.get("symbol", "*")
+                weights[(row["setup_plugin"], row["tf"], sym)] = round(
+                    0.5 + ((n - 1 - rank) / n),
+                    4,
+                )
 
             self._perf_weights = weights
             self.logger.info(

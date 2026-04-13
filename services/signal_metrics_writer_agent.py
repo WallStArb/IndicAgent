@@ -19,6 +19,7 @@ Version: 1.0.0
 Last Updated: 2026-04-05
 Status: Phase 60 Plan 02
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,13 +83,22 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
             avg_mfe             = EXCLUDED.avg_mfe,
             computed_at         = EXCLUDED.computed_at
         """,
-        event["track"], event["setup_plugin"], event["tf"],
-        event["regime_type"], event["window_days"],
+        event["track"],
+        event["setup_plugin"],
+        event["tf"],
+        event["regime_type"],
+        event["window_days"],
         event.get("symbol", "*"),
-        event["n"], event["n_outliers"], event.get("never_activated_pct"),
-        event.get("win_rate"), event.get("avg_r"), event.get("std_r"),
-        event.get("sharpe"), event.get("p_value"),
-        event.get("avg_mae"), event.get("avg_mfe"),
+        event["n"],
+        event["n_outliers"],
+        event.get("never_activated_pct"),
+        event.get("win_rate"),
+        event.get("avg_r"),
+        event.get("std_r"),
+        event.get("sharpe"),
+        event.get("p_value"),
+        event.get("avg_mae"),
+        event.get("avg_mfe"),
         computed_at,
     )
 
@@ -140,10 +150,14 @@ async def _handle_ic_computed(conn, event: dict) -> None:
             is_significant = EXCLUDED.is_significant,
             computed_at    = EXCLUDED.computed_at
         """,
-        event["setup_plugin"], event["tf"],
-        event["regime_type"], event["window_days"],
+        event["setup_plugin"],
+        event["tf"],
+        event["regime_type"],
+        event["window_days"],
         event.get("symbol", "*"),
-        event["n"], event.get("ic"), event.get("p_value"),
+        event["n"],
+        event.get("ic"),
+        event.get("p_value"),
         event.get("is_significant", False),
         computed_at,
     )
@@ -159,10 +173,14 @@ async def _handle_dq_failure(conn, event: dict) -> None:
         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW())
         ON CONFLICT (signal_id, reason_code) DO NOTHING
         """,
-        event["signal_id"], event["reason_code"],
-        event.get("entry_price"), event.get("stop_loss"),
-        event.get("pnl_r"), event.get("direction"),
-        event.get("hmm_regime"), event.get("setup_plugin"),
+        event["signal_id"],
+        event["reason_code"],
+        event.get("entry_price"),
+        event.get("stop_loss"),
+        event.get("pnl_r"),
+        event.get("direction"),
+        event.get("hmm_regime"),
+        event.get("setup_plugin"),
     )
 
 

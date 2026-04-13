@@ -9,21 +9,21 @@ from __future__ import annotations
 # TOD session priors — mirrored from signal_generator_service.py
 # Key: (regime_type, hour_et) → prior win-rate ratio (>1.0 = favourable, <1.0 = avoid)
 _TOD_SESSION_PRIORS: dict[tuple[str, int], float] = {
-    ("trend",           9): 1.10,
-    ("mean_reversion",  9): 1.00,
-    ("any",             9): 1.00,
-    ("trend",          11): 0.90,
+    ("trend", 9): 1.10,
+    ("mean_reversion", 9): 1.00,
+    ("any", 9): 1.00,
+    ("trend", 11): 0.90,
     ("mean_reversion", 11): 0.90,
-    ("any",            11): 0.90,
-    ("trend",          12): 0.90,
+    ("any", 11): 0.90,
+    ("trend", 12): 0.90,
     ("mean_reversion", 12): 0.90,
-    ("any",            12): 0.90,
+    ("any", 12): 0.90,
     ("mean_reversion", 14): 1.08,
-    ("any",            15): 1.10,
+    ("any", 15): 1.10,
 }
 
-_TOD_ALPHA: float = 20.0        # Bayesian prior weight (virtual observations)
-_TOD_CLAMP: tuple[float, float] = (0.7, 1.3)   # Hard multiplier bounds
+_TOD_ALPHA: float = 20.0  # Bayesian prior weight (virtual observations)
+_TOD_CLAMP: tuple[float, float] = (0.7, 1.3)  # Hard multiplier bounds
 
 
 def apply_tod_adjustment(

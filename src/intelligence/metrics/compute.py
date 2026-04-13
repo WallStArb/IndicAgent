@@ -4,6 +4,7 @@
 No I/O. Called by SignalMetricsComputeAgent after data quality validation.
 Two tracks: 'zone' (structural setup quality) and 'market' (tradeable alpha).
 """
+
 from __future__ import annotations
 
 import math
@@ -111,12 +112,23 @@ def _build_metrics_result(
 
     if n == 0:
         return SignalMetricsResult(
-            track=track, setup_plugin=setup_plugin, tf=tf,
-            regime_type=regime_type, window_days=window_days, symbol=symbol,
-            n=0, n_outliers=n_outliers,
+            track=track,
+            setup_plugin=setup_plugin,
+            tf=tf,
+            regime_type=regime_type,
+            window_days=window_days,
+            symbol=symbol,
+            n=0,
+            n_outliers=n_outliers,
             never_activated_pct=never_act_pct,
-            win_rate=None, avg_r=None, std_r=None, sharpe=None,
-            p_value=None, avg_mae=None, avg_mfe=None, computed_at=now,
+            win_rate=None,
+            avg_r=None,
+            std_r=None,
+            sharpe=None,
+            p_value=None,
+            avg_mae=None,
+            avg_mfe=None,
+            computed_at=now,
         )
 
     avg_r = sum(pnl_rs) / n
@@ -129,9 +141,14 @@ def _build_metrics_result(
     avg_mfe = sum(mfes) / len(mfes) if mfes else None
 
     return SignalMetricsResult(
-        track=track, setup_plugin=setup_plugin, tf=tf,
-        regime_type=regime_type, window_days=window_days, symbol=symbol,
-        n=n, n_outliers=n_outliers,
+        track=track,
+        setup_plugin=setup_plugin,
+        tf=tf,
+        regime_type=regime_type,
+        window_days=window_days,
+        symbol=symbol,
+        n=n,
+        n_outliers=n_outliers,
         never_activated_pct=never_act_pct,
         win_rate=round(win_rate, 4) if win_rate is not None else None,
         avg_r=round(avg_r, 4),
@@ -244,12 +261,32 @@ def compute_signal_metrics(
     for (plugin, tf_val, regime_label, sym), acc in regime_accs.items():
         if len(acc["pnl_rs"]) < MIN_SAMPLE_SIZE:
             continue
-        result.append(_build_metrics_result(acc, track, plugin, tf_val, regime_label, window_days, symbol=sym))
+        result.append(
+            _build_metrics_result(
+                acc,
+                track,
+                plugin,
+                tf_val,
+                regime_label,
+                window_days,
+                symbol=sym,
+            )
+        )
 
     for (plugin, tf_val, sym), acc in all_accs.items():
         if len(acc["pnl_rs"]) < MIN_SAMPLE_SIZE:
             continue
-        result.append(_build_metrics_result(acc, track, plugin, tf_val, "all", window_days, symbol=sym))
+        result.append(
+            _build_metrics_result(
+                acc,
+                track,
+                plugin,
+                tf_val,
+                "all",
+                window_days,
+                symbol=sym,
+            )
+        )
 
     return result
 

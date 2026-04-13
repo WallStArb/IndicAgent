@@ -50,10 +50,7 @@ def apply_calibration(
         raw_confidence = float(s.get("confidence", 0.0))
         plugin_name = s.get("setup_plugin", "unknown")
 
-        curve = (
-            cal_curves.get((plugin_name, tf, symbol))
-            or cal_curves.get((plugin_name, tf, "*"))
-        )
+        curve = cal_curves.get((plugin_name, tf, symbol)) or cal_curves.get((plugin_name, tf, "*"))
 
         if curve is None:
             # No calibration curve — pass through unchanged
