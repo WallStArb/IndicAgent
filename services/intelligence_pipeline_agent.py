@@ -1815,7 +1815,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 vals = curve_data.get("values")
                 if not tf_val or not bp or not vals:
                     continue  # incomplete row — skip
-                key = (r["setup_plugin"], tf_val, r["symbol"])
+                key = (r["setup_plugin"], tf_val, r["symbol"] or "*")
                 curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
             self._calibration_curves = curves
         except Exception as exc:
