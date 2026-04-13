@@ -108,6 +108,11 @@ class Settings(BaseSettings):
         description="Timeout in seconds for LLM provider API calls",
     )
 
+    # Alerting webhooks (empty = channel disabled) — Phase 67 Task 2
+    telegram_bot_token: str = Field(default="", validation_alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", validation_alias="TELEGRAM_CHAT_ID")
+    discord_webhook_url: str = Field(default="", validation_alias="DISCORD_WEBHOOK_URL")
+
     # IBKR subscription cap (market data lines)
     ibkr_max_subscriptions: int = Field(default=80, validation_alias="IBKR_MAX_SUBSCRIPTIONS")
 
