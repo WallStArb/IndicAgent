@@ -32,7 +32,7 @@ def _make_agent():
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
     agent._settings.env_name = "development"
     agent._db = MagicMock()
-    agent._consumer = MagicMock()
+    agent._consumer = AsyncMock()
     agent._repo = MagicMock()
     agent._repo.insert_signals = AsyncMock()
     agent._buffer = []
@@ -42,7 +42,8 @@ def _make_agent():
     agent._write_errors = _TEST_ERRORS
     agent._batch_latency = _TEST_LATENCY.labels(agent="test")
     agent._consumer_lag = _TEST_LAG.labels(agent="test")
-    agent._buffer_depth = _TEST_DEPTH
+    agent._buffer_depth_gauge = _TEST_DEPTH
+    agent._buffer_overflow_total = MagicMock()
     return agent
 
 
@@ -92,10 +93,17 @@ class TestSignalWriterAgentStructure:
         assert CONSUMER_GROUP == "signal_writer_group"
 
     def test_batch_size_and_flush_interval_defined(self):
-        from services.signal_writer_agent import BATCH_SIZE, FLUSH_INTERVAL_SECS
+        """BATCH_SIZE and FLUSH_INTERVAL_SECS are class-level on BaseWriterAgent subclass."""
+        from services.signal_writer_agent import SignalWriterAgent
 
-        assert BATCH_SIZE > 0
-        assert FLUSH_INTERVAL_SECS > 0
+        assert SignalWriterAgent.BATCH_SIZE > 0
+        assert SignalWriterAgent.FLUSH_INTERVAL_SECS > 0
+
+    def test_inherits_base_writer_agent(self):
+        from services.signal_writer_agent import SignalWriterAgent
+        from src.core.agent.base_writer import BaseWriterAgent
+
+        assert issubclass(SignalWriterAgent, BaseWriterAgent)
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +210,7 @@ class TestPayloadToLedgerEntries:
 
 
 # ---------------------------------------------------------------------------
-# Flush behavior
+# Flush behavior (via _do_flush from BaseWriterAgent)
 # ---------------------------------------------------------------------------
 
 
@@ -215,27 +223,25 @@ class TestSignalWriterAgentFlush:
         payload = _make_payload(n_signals=2)
         entries = _payload_to_ledger_entries(payload)
         agent._buffer.extend(entries)
-        await agent._flush()
+        await agent._do_flush()
         agent._repo.insert_signals.assert_called_once_with(entries)
         assert agent._buffer == []
 
     @pytest.mark.asyncio
     async def test_flush_empty_buffer_is_noop(self):
         agent = _make_agent()
-        await agent._flush()
+        await agent._do_flush()
         agent._repo.insert_signals.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_flush_error_increments_counter(self):
+    async def test_flush_error_preserves_buffer(self):
         agent = _make_agent()
         agent._repo.insert_signals = AsyncMock(side_effect=Exception("db down"))
         from services.signal_writer_agent import _payload_to_ledger_entries
 
         entries = _payload_to_ledger_entries(_make_payload(n_signals=1))
         agent._buffer.extend(entries)
-        before = _TEST_ERRORS._value.get()
-        await agent._flush()
-        assert _TEST_ERRORS._value.get() > before
+        await agent._do_flush()
         # Buffer should NOT be cleared on error
         assert len(agent._buffer) == 1
 

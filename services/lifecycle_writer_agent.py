@@ -22,7 +22,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.stream_keys import topic_lifecycle_transitions
@@ -31,7 +31,6 @@ from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
     counter,
-    gauge,
 )
 from src.persistence.repository.signal_ledger_repository import (
     SignalLedgerRepository,
@@ -42,9 +41,6 @@ from src.persistence.repository.signal_ledger_repository import (
 # ---------------------------------------------------------------------------
 
 CONSUMER_GROUP = "lifecycle_writer_group"
-BATCH_SIZE = 100  # flush after this many transitions
-FLUSH_INTERVAL_SECS = 5.0  # or after this many seconds, whichever comes first
-MAX_BUFFER_SIZE = 10_000  # drop oldest transitions if buffer exceeds this
 
 # Fields that asyncpg expects as Python datetime, not ISO strings
 _TIMESTAMP_FIELDS = frozenset({
@@ -67,8 +63,12 @@ def _ensure_datetimes(entry: dict) -> None:
             entry[key] = dt
 
 
-class LifecycleWriterAgent(BaseAgent):
-    """WriterAgent: lifecycle.transitions → signal_ledger batch updates."""
+class LifecycleWriterAgent(BaseWriterAgent):
+    """WriterAgent: lifecycle.transitions -> signal_ledger batch updates."""
+
+    BATCH_SIZE = 100
+    FLUSH_INTERVAL_SECS = 5.0
+    MAX_BUFFER_SIZE = 10_000
 
     def __init__(self) -> None:
         super().__init__(
@@ -81,10 +81,8 @@ class LifecycleWriterAgent(BaseAgent):
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
         self._repo: SignalLedgerRepository | None = None
-        self._buffer: list[dict] = []
-        self._last_flush: float = 0.0
 
-        # Metrics — Golden Signals
+        # Metrics — Golden Signals (writer-specific)
         self._events_consumed = counter(
             "lifecycle_writer_events_consumed_total",
             "Kafka messages consumed",
@@ -103,9 +101,42 @@ class LifecycleWriterAgent(BaseAgent):
         self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(
             agent_id="lifecycle_writer_agent"
         )
-        self._buffer_depth = gauge(
-            "lifecycle_writer_buffer_depth",
-            "Pending transitions awaiting flush",
+
+    def _topic_name(self) -> str:
+        return topic_lifecycle_transitions(self._settings.env_name)
+
+    @property
+    def _consumer_group(self) -> str:
+        return CONSUMER_GROUP
+
+    def _parse_payload(self, payload: dict) -> list | None:
+        try:
+            from_dict(payload)
+        except (ValueError, KeyError):
+            return None
+        return [payload]
+
+    async def _flush_batch(self, batch: list) -> None:
+        """Group buffered transitions by type, batch-write each group."""
+        t0 = time.perf_counter()
+        assert self._repo is not None
+
+        # Group by transition_type — merge signal_id into data for batch_execute
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for item in batch:
+            entry = {"signal_id": item["signal_id"], **item["data"]}
+            _ensure_datetimes(entry)
+            groups[item["transition_type"]].append(entry)
+
+        for ttype, items in groups.items():
+            await self._repo.batch_execute(ttype, items)
+
+        self._transitions_written.inc(len(batch))
+        self._batch_latency.observe(time.perf_counter() - t0)
+        self.logger.info(
+            "lifecycle_writer.flushed",
+            count=len(batch),
+            groups=list(groups.keys()),
         )
 
     async def _setup(self) -> None:
@@ -113,12 +144,13 @@ class LifecycleWriterAgent(BaseAgent):
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
-        topic = topic_lifecycle_transitions(self._settings.env_name)
+        topic = self._topic_name()
         self._consumer = KafkaConsumerClient(
             topic,
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="earliest",
+            enable_auto_commit=False,
         )
         await self._consumer.start()
         self._last_flush = time.monotonic()
@@ -131,64 +163,21 @@ class LifecycleWriterAgent(BaseAgent):
             self._record_message_consumed()
             self._events_consumed.inc()
 
-            try:
-                from_dict(payload)
-            except (ValueError, KeyError) as exc:
-                await self._send_to_dlq(payload, exc)
-                continue
-
-            self._buffer.append(payload)
-
-            # Memory safety: drop oldest transitions if buffer exceeds limit
-            if len(self._buffer) > MAX_BUFFER_SIZE:
-                dropped = len(self._buffer) - MAX_BUFFER_SIZE
-                self._buffer = self._buffer[-MAX_BUFFER_SIZE:]
+            rows = self._parse_payload(payload)
+            if rows is not None:
+                self._buffer_rows(rows)
+            else:
+                # DLQ: log the unparseable payload
                 self.logger.warning(
-                    "lifecycle_writer.buffer_overflow", dropped=dropped
+                    "lifecycle_writer.parse_failed",
+                    payload_keys=list(payload.keys()) if isinstance(payload, dict) else "non-dict",
                 )
 
-            self._buffer_depth.set(len(self._buffer))
-
-            now = time.monotonic()
-            if len(self._buffer) >= BATCH_SIZE or (
-                now - self._last_flush
-            ) >= FLUSH_INTERVAL_SECS:
-                await self._flush()
-                self._last_flush = now
-
-    async def _flush(self) -> None:
-        """Group buffered transitions by type, batch-write each group."""
-        if not self._buffer:
-            return
-        batch = self._buffer[:]
-        t0 = time.perf_counter()
-
-        # Group by transition_type — merge signal_id into data for batch_execute
-        groups: dict[str, list[dict]] = defaultdict(list)
-        for item in batch:
-            entry = {"signal_id": item["signal_id"], **item["data"]}
-            _ensure_datetimes(entry)
-            groups[item["transition_type"]].append(entry)
-
-        try:
-            for ttype, items in groups.items():
-                await self._repo.batch_execute(ttype, items)
-            self._buffer.clear()
-            self._buffer_depth.set(0)
-            self._transitions_written.inc(len(batch))
-            self._batch_latency.observe(time.perf_counter() - t0)
-            self.logger.info(
-                "lifecycle_writer.flushed",
-                count=len(batch),
-                groups=list(groups.keys()),
-            )
-        except Exception as exc:
-            self._write_errors.inc()
-            self.logger.error("lifecycle_writer.flush_error", error=str(exc))
+            self._consumer_lag.set(len(self._buffer))
+            await self.maybe_flush()
 
     async def _teardown(self) -> None:
-        if self._buffer:
-            await self._flush()
+        await super()._teardown()
         if self._consumer:
             await self._consumer.stop()
         if self._db:

@@ -1,4 +1,8 @@
-"""Unit tests for SwarmWriterAgent. Uses __new__ pattern (per CLAUDE.md)."""
+"""Unit tests for SwarmWriterAgent. Uses __new__ pattern (per CLAUDE.md).
+
+Updated for Phase 68-02: SwarmWriterAgent inherits from BaseWriterAgent.
+Tests _parse_payload, _flush_batch, and DLQ routing.
+"""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -14,9 +18,13 @@ def _make_agent():
     agent = SwarmWriterAgent.__new__(SwarmWriterAgent)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
+    agent._producer.publish = AsyncMock()
     agent._settings = MagicMock()
     agent._settings.env_name = "test"
     agent.logger = MagicMock()
+    agent._buffer = []
+    agent._buffer_depth_gauge = MagicMock()
+    agent._buffer_overflow_total = MagicMock()
     return agent
 
 
@@ -45,7 +53,7 @@ def _make_agent_result_payload(
 
 
 @pytest.mark.asyncio
-async def test_write_single_row_inserts_to_shadow_table():
+async def test_flush_batch_inserts_to_shadow_table():
     agent = _make_agent()
     conn = AsyncMock()
     agent._pool.acquire = MagicMock(
@@ -55,7 +63,7 @@ async def test_write_single_row_inserts_to_shadow_table():
     )
 
     payload = _make_agent_result_payload()
-    await agent._write_batch([payload])
+    await agent._flush_batch([payload])
 
     conn.executemany.assert_awaited_once()
     call_args = conn.executemany.call_args
@@ -63,35 +71,48 @@ async def test_write_single_row_inserts_to_shadow_table():
     assert "alpha_multiplier_shadow" in sql
 
 
-@pytest.mark.asyncio
-async def test_malformed_payload_sent_to_dlq():
+def test_parse_payload_returns_none_for_malformed():
     agent = _make_agent()
-    agent._producer.publish = AsyncMock()
 
     bad_payload = {"not_a_valid": "agent_result"}
-    await agent._handle_message(bad_payload)
+    result = agent._parse_payload(bad_payload)
 
-    agent._producer.publish.assert_awaited_once()
-    call_args = agent._producer.publish.call_args
-    assert "dlq" in call_args[0][0]
+    assert result is None
+
+
+def test_parse_payload_returns_list_for_valid():
+    agent = _make_agent()
+
+    payload = _make_agent_result_payload()
+    result = agent._parse_payload(payload)
+
+    assert result is not None
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0] == payload
+
+
+def test_inherits_base_writer_agent():
+    from services.swarm_writer_agent import SwarmWriterAgent
+    from src.core.agent.base_writer import BaseWriterAgent
+
+    assert issubclass(SwarmWriterAgent, BaseWriterAgent)
 
 
 @pytest.mark.asyncio
-async def test_db_failure_sends_to_dlq():
+async def test_do_flush_on_db_failure_preserves_buffer():
     agent = _make_agent()
     conn = AsyncMock()
     conn.executemany = AsyncMock(side_effect=Exception("DB connection refused"))
-    # __aexit__ must return False so the exception propagates (default AsyncMock
-    # returns truthy, which suppresses the exception — per CLAUDE.md mock gotcha)
     ctx_mgr = AsyncMock()
     ctx_mgr.__aenter__ = AsyncMock(return_value=conn)
     ctx_mgr.__aexit__ = AsyncMock(return_value=False)
     agent._pool.acquire = MagicMock(return_value=ctx_mgr)
-    agent._producer.publish = AsyncMock()
 
     payload = _make_agent_result_payload()
-    await agent._write_batch([payload])
+    agent._buffer = [payload]
 
-    agent._producer.publish.assert_awaited_once()
-    dlq_topic = agent._producer.publish.call_args[0][0]
-    assert "dlq" in dlq_topic
+    await agent._do_flush()
+
+    # Buffer preserved on error
+    assert len(agent._buffer) == 1

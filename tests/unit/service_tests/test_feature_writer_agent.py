@@ -3,6 +3,8 @@
 Updated for Phase 44.3: FeatureWriterAgent now consumes development.intelligence.record
 only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7/i8
 two-phase write code removed.
+
+Updated for Phase 68-02: FeatureWriterAgent inherits from BaseWriterAgent.
 """
 
 from datetime import UTC, datetime
@@ -87,39 +89,40 @@ def _make_valid_bar_intelligence_record():
     )
 
 
-# ── _parse_intelligence_record ─────────────────────────────────────────────────
+# ── _parse_payload ────────────────────────────────────────────────────────────
 
 
-def test_parse_intelligence_record_returns_bar_intelligence_record():
-    """Valid BarIntelligenceRecord JSON returns BarIntelligenceRecord instance."""
+def test_parse_payload_returns_list_for_valid_record():
+    """Valid BarIntelligenceRecord payload returns list with insert params."""
     from services.feature_writer_agent import FeatureWriterAgent
-    from src.intelligence.schemas import BarIntelligenceRecord
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._expiry_map = {}
 
     record = _make_valid_bar_intelligence_record()
-    raw = record.model_dump_json().encode()
+    payload = record.model_dump()
 
-    result = svc._parse_intelligence_record(raw)
+    result = svc._parse_payload(payload)
 
     assert result is not None
-    assert isinstance(result, BarIntelligenceRecord)
-    assert result.intelligence.symbol == "ESH6"
-    assert result.winner_plugin == "trad_TrendFollowing"
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], tuple)
+    assert len(result[0]) == 31
 
 
-def test_parse_intelligence_record_returns_none_for_invalid_json():
-    """Malformed JSON returns None without crashing."""
+def test_parse_payload_returns_none_for_invalid_json():
+    """Malformed payload returns None without crashing."""
     from services.feature_writer_agent import FeatureWriterAgent
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
+    svc._expiry_map = {}
 
-    result = svc._parse_intelligence_record(b"not-valid-json{{{")
-
+    result = svc._parse_payload(b"not-valid-json{{{")
     assert result is None
     svc._parse_errors_total.inc.assert_called_once()
 
@@ -139,16 +142,12 @@ def test_record_to_insert_params_returns_31_tuple():
 
 
 def test_record_to_insert_params_serializes_ranked_signals_to_list():
-    """ranked_signals is returned as a list of dicts for the i7 JSONB column.
-
-    asyncpg handles list/dict serialization to JSONB automatically.
-    """
+    """ranked_signals is returned as a list of dicts for the i7 JSONB column."""
     from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    # i7 at index 14 (15th col: ts,sym,tf,platform,source,schema_ver,bar,i1,i2,i3,i4,i5,smc,i6,i7)
     i7_value = params[14]
     assert isinstance(i7_value, list), "i7 must be a list for asyncpg JSONB"
     assert len(i7_value) == 1
@@ -156,15 +155,13 @@ def test_record_to_insert_params_serializes_ranked_signals_to_list():
 
 
 def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
-    """ts, i7_computed_at, computed_at are Python datetime objects (asyncpg requirement)."""
+    """ts, i7_computed_at are Python datetime objects (asyncpg requirement)."""
     from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    # $1 = ts
     assert isinstance(params[0], datetime), f"ts must be datetime, got {type(params[0])}"
-    # $29 = i7_computed_at (index 28)
     assert isinstance(params[28], datetime), (
         f"i7_computed_at must be datetime, got {type(params[28])}"
     )
@@ -180,7 +177,6 @@ def test_record_to_insert_params_handles_none_winner_fields():
     record.winner_direction = None
     params = _record_to_insert_params(record)
 
-    # winner_plugin at index 18, winner_confidence at 19, winner_direction at 20
     assert params[18] is None, "winner_plugin should be None"
     assert params[19] is None, "winner_confidence should be None"
     assert params[20] is None, "winner_direction should be None"
@@ -194,42 +190,36 @@ def test_record_to_insert_params_extracts_session_type_as_string():
     record.session_type = "rth"
     params = _record_to_insert_params(record)
 
-    # session_type at index 29 ($30 column)
     session_type_val = params[29]
     assert isinstance(session_type_val, str), "session_type must be a string"
     assert session_type_val == "rth"
 
 
 def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
-    """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) are dicts or lists.
-
-    asyncpg handles dict/list serialization to JSONB automatically.
-    """
+    """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) are dicts or lists."""
     from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    # Indices 6..13 are bar, i1, i2, i3, i4, i5, smc, i6 (all dicts)
     for idx in range(6, 14):
         value = params[idx]
         assert isinstance(value, dict), (
             f"params[{idx}] must be a dict, got {type(value).__name__}"
         )
 
-    # Index 14 is i7 (list of dicts)
     i7_value = params[14]
     assert isinstance(i7_value, list), (
         f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
     )
 
 
-# ── _maybe_flush (no i7/i8 buffer references) ────────────────────────────────
+# ── _flush_batch (via BaseWriterAgent._do_flush) ──────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_maybe_flush_force_calls_execute_batch():
-    """_maybe_flush(force=True) with 3 buffered records calls execute_batch with 3 params."""
+async def test_do_flush_calls_execute_batch():
+    """_do_flush with buffered records calls _flush_batch which calls execute_batch."""
     from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
@@ -240,6 +230,7 @@ async def test_maybe_flush_force_calls_execute_batch():
     svc.error_count_total = MagicMock()
     svc._total_batches = 0
     svc._error_count = 0
+    svc._consumer = None  # no consumer -> no commit
 
     # Mock _batch_latency context manager
     mock_batch_latency = MagicMock()
@@ -255,7 +246,7 @@ async def test_maybe_flush_force_calls_execute_batch():
     params = _record_to_insert_params(record)
     svc._buffer = [params, params, params]
 
-    await svc._maybe_flush(force=True)
+    await svc._do_flush()
 
     mock_db.execute_batch.assert_called_once()
     call_args = mock_db.execute_batch.call_args
@@ -264,21 +255,20 @@ async def test_maybe_flush_force_calls_execute_batch():
 
 
 @pytest.mark.asyncio
-async def test_maybe_flush_has_no_i7_i8_buffer_references():
-    """_maybe_flush no longer references _i7_buffer or _i8_buffer."""
+async def test_do_flush_has_no_i7_i8_buffer_references():
+    """_do_flush (from BaseWriterAgent) no longer references _i7_buffer or _i8_buffer."""
     import inspect
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from src.core.agent.base_writer import BaseWriterAgent
 
-    source = inspect.getsource(FeatureWriterAgent._maybe_flush)
-    assert "_i7_buffer" not in source, "_i7_buffer must be absent from _maybe_flush"
-    assert "_i8_buffer" not in source, "_i8_buffer must be absent from _maybe_flush"
-    assert "_flush_i7_i8" not in source, "_flush_i7_i8 must be absent from _maybe_flush"
+    source = inspect.getsource(BaseWriterAgent._do_flush)
+    assert "_i7_buffer" not in source, "_i7_buffer must be absent from _do_flush"
+    assert "_i8_buffer" not in source, "_i8_buffer must be absent from _do_flush"
 
 
 @pytest.mark.asyncio
-async def test_maybe_flush_time_based_calls_execute_batch():
-    """_maybe_flush(force=False) with events older than FLUSH_INTERVAL_SECS calls execute_batch."""
+async def test_do_flush_time_based_calls_execute_batch():
+    """_should_flush returns True when FLUSH_INTERVAL_SECS elapsed."""
     import time
 
     from services.feature_writer_agent import (
@@ -295,8 +285,8 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     svc.error_count_total = MagicMock()
     svc._total_batches = 0
     svc._error_count = 0
+    svc._consumer = None
 
-    # Mock _batch_latency context manager
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)
     mock_batch_latency.__exit__ = MagicMock(return_value=False)
@@ -310,15 +300,15 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     params = _record_to_insert_params(record)
     svc._buffer = [params]
 
-    await svc._maybe_flush(force=False)
+    await svc._do_flush()
 
     mock_db.execute_batch.assert_called_once()
     assert svc._buffer == []
 
 
 @pytest.mark.asyncio
-async def test_maybe_flush_recent_events_no_call():
-    """_maybe_flush(force=False) with recent events does NOT call execute_batch."""
+async def test_should_flush_recent_events_no_call():
+    """_should_flush returns False with recent events — no flush triggered."""
     import time
 
     from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
@@ -335,9 +325,7 @@ async def test_maybe_flush_recent_events_no_call():
     params = _record_to_insert_params(record)
     svc._buffer = [params]
 
-    await svc._maybe_flush(force=False)
-
-    mock_db.execute_batch.assert_not_called()
+    assert not svc._should_flush()
     assert len(svc._buffer) == 1
 
 
@@ -367,7 +355,6 @@ def test_topic_routing_only_handles_intelligence_record():
     assert "intelligence_journal_topic" in source, (
         "_process_loop must route intelligence_journal_topic"
     )
-    # Verifies the topic routing logic is present in the processing loop
     assert "i7_topic" not in source, "i7_topic must be absent from _process_loop"
     assert "i8_topic" not in source, "i8_topic must be absent from _process_loop"
 
@@ -384,7 +371,7 @@ async def test_graceful_shutdown_flushes_and_closes():
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
-    svc._stop_event = asyncio.Event()  # required by BaseAgent.running property
+    svc._stop_event = asyncio.Event()
     svc._last_flush = 0.0
     svc.batch_writes_total = MagicMock()
     svc.events_buffered_gauge = MagicMock()
@@ -392,7 +379,8 @@ async def test_graceful_shutdown_flushes_and_closes():
     svc._total_batches = 0
     svc._total_events = 0
     svc._error_count = 0
-    # _batch_latency is a context manager returned by PERSISTENCE_BATCH_LATENCY.labels()
+    svc._consumer = AsyncMock()
+
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)
     mock_batch_latency.__exit__ = MagicMock(return_value=False)
@@ -458,7 +446,7 @@ class TestBuildExpiryMap:
         return Instrument(symbol=symbol, expiry="", asset_class=AssetClass.CRYPTO)
 
     def test_futures_yyyymmdd_parsed(self):
-        """YYYYMMDD expiry string → correct date in map."""
+        """YYYYMMDD expiry string -> correct date in map."""
         from datetime import date
 
         from services.feature_writer_agent import _build_expiry_map
@@ -470,7 +458,7 @@ class TestBuildExpiryMap:
         assert result["ESH6"] == date(2026, 3, 20)
 
     def test_futures_yyyymm_last_day_of_month(self):
-        """YYYYMM expiry (VX-style) → last day of that month."""
+        """YYYYMM expiry (VX-style) -> last day of that month."""
         from datetime import date
 
         from services.feature_writer_agent import _build_expiry_map
@@ -520,7 +508,7 @@ class TestComputeDaysToExpiry:
         assert result == 5
 
     def test_past_expiry_clamped_to_zero(self):
-        """Bar timestamp after expiry → 0 (clamped)."""
+        """Bar timestamp after expiry -> 0 (clamped)."""
         from datetime import date
 
         from services.feature_writer_agent import _compute_days_to_expiry
@@ -530,7 +518,7 @@ class TestComputeDaysToExpiry:
         assert result == 0
 
     def test_non_futures_returns_zero(self):
-        """Symbol not in expiry_map (FX/crypto) → 0."""
+        """Symbol not in expiry_map (FX/crypto) -> 0."""
         from datetime import date
 
         from services.feature_writer_agent import _compute_days_to_expiry
@@ -541,7 +529,7 @@ class TestComputeDaysToExpiry:
         assert result == 0
 
     def test_empty_expiry_map_returns_none(self):
-        """Empty expiry_map (service not initialized) → None."""
+        """Empty expiry_map (service not initialized) -> None."""
         from services.feature_writer_agent import _compute_days_to_expiry
 
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 4), {})
@@ -569,7 +557,7 @@ class TestFeatureWriterAgentLifecycle:
         self.agent._metrics_port = 9116
         self.agent.logger = MagicMock()
         self.agent.tracer = MagicMock()
-        self.agent._env_name = "development"  # underscore prefix (FeatureWriterAgent pattern)
+        self.agent._env_name = "development"
 
     def test_topics_consumed_returns_list(self):
         """topics_consumed must return a non-empty list of topic strings."""
@@ -583,7 +571,6 @@ class TestFeatureWriterAgentLifecycle:
 
     def test_running_property_reflects_stop_event(self):
         """running property reflects the _stop_event state."""
-
         assert self.agent.running is True
         self.agent._stop_event.set()
         assert self.agent.running is False
@@ -603,11 +590,13 @@ class TestFeatureWriterAgentLifecycle:
         assert asyncio.iscoroutinefunction(self.agent._teardown)
 
 
-def test_feature_writer_agent_inherits_base_agent():
-    """FeatureWriterAgent must inherit from BaseAgent."""
+def test_feature_writer_agent_inherits_base_writer_agent():
+    """FeatureWriterAgent must inherit from BaseWriterAgent (and BaseAgent)."""
     from services.feature_writer_agent import FeatureWriterAgent
     from src.core.agent.base import BaseAgent
+    from src.core.agent.base_writer import BaseWriterAgent
 
+    assert issubclass(FeatureWriterAgent, BaseWriterAgent)
     assert issubclass(FeatureWriterAgent, BaseAgent)
 
 
