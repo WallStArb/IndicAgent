@@ -4,6 +4,7 @@
 No I/O. Called by SignalMetricsComputeAgent after data quality validation.
 Two tracks: 'zone' (structural setup quality) and 'market' (tradeable alpha).
 """
+
 from __future__ import annotations
 
 import math
@@ -44,6 +45,7 @@ class SignalMetricsResult:
     tf: str
     regime_type: str
     window_days: int
+    symbol: str  # '*' = global sentinel (cross-instrument aggregate)
     n: int
     n_outliers: int
     never_activated_pct: float | None
@@ -93,6 +95,7 @@ def _build_metrics_result(
     tf: str,
     regime_type: str,
     window_days: int,
+    symbol: str = "*",
 ) -> SignalMetricsResult:
     """Compute statistics from an accumulated group dict and return a SignalMetricsResult."""
     pnl_rs = acc["pnl_rs"]
@@ -109,12 +112,23 @@ def _build_metrics_result(
 
     if n == 0:
         return SignalMetricsResult(
-            track=track, setup_plugin=setup_plugin, tf=tf,
-            regime_type=regime_type, window_days=window_days,
-            n=0, n_outliers=n_outliers,
+            track=track,
+            setup_plugin=setup_plugin,
+            tf=tf,
+            regime_type=regime_type,
+            window_days=window_days,
+            symbol=symbol,
+            n=0,
+            n_outliers=n_outliers,
             never_activated_pct=never_act_pct,
-            win_rate=None, avg_r=None, std_r=None, sharpe=None,
-            p_value=None, avg_mae=None, avg_mfe=None, computed_at=now,
+            win_rate=None,
+            avg_r=None,
+            std_r=None,
+            sharpe=None,
+            p_value=None,
+            avg_mae=None,
+            avg_mfe=None,
+            computed_at=now,
         )
 
     avg_r = sum(pnl_rs) / n
@@ -127,9 +141,14 @@ def _build_metrics_result(
     avg_mfe = sum(mfes) / len(mfes) if mfes else None
 
     return SignalMetricsResult(
-        track=track, setup_plugin=setup_plugin, tf=tf,
-        regime_type=regime_type, window_days=window_days,
-        n=n, n_outliers=n_outliers,
+        track=track,
+        setup_plugin=setup_plugin,
+        tf=tf,
+        regime_type=regime_type,
+        window_days=window_days,
+        symbol=symbol,
+        n=n,
+        n_outliers=n_outliers,
         never_activated_pct=never_act_pct,
         win_rate=round(win_rate, 4) if win_rate is not None else None,
         avg_r=round(avg_r, 4),
@@ -166,8 +185,8 @@ def compute_signal_metrics(
     n_outliers and are excluded from avg_r/win_rate/sharpe.
     NULL pnl_r (zone never activated) counts toward never_activated_pct.
 
-    Returns one SignalMetricsResult per (setup_plugin, tf, regime_type) group
-    with n >= MIN_SAMPLE_SIZE, plus an 'all' rollup row per (setup, tf).
+    Returns one SignalMetricsResult per (setup_plugin, tf, regime_type, symbol) group
+    with n >= MIN_SAMPLE_SIZE, plus an 'all' rollup row per (setup, tf, symbol).
 
     Args:
         rows:       list of signal_ledger row dicts (already fetched from DB)
@@ -175,9 +194,9 @@ def compute_signal_metrics(
         window_days: rolling window (7, 30, or 90)
         tick_sizes: dict mapping base symbol → minimum tick size
     """
-    # Per-regime accumulators keyed by (plugin, tf, regime_label)
+    # Per-regime accumulators keyed by (plugin, tf, regime_label, symbol)
     regime_accs: dict[tuple, dict] = defaultdict(_empty_acc)
-    # Rollup accumulators keyed by (plugin, tf)
+    # Rollup accumulators keyed by (plugin, tf, symbol)
     all_accs: dict[tuple, dict] = defaultdict(_empty_acc)
 
     for row in rows:
@@ -186,6 +205,8 @@ def compute_signal_metrics(
         hmm = row.get("hmm_regime_at_fire")
         if not plugin or not tf_val:
             continue
+
+        symbol_val = row.get("symbol") or "*"
 
         if track == "zone":
             pnl_r = row.get("pnl_r")
@@ -202,8 +223,8 @@ def compute_signal_metrics(
         if not regime_label:
             continue
 
-        regime_key = (plugin, tf_val, regime_label)
-        all_key = (plugin, tf_val)
+        regime_key = (plugin, tf_val, regime_label, symbol_val)
+        all_key = (plugin, tf_val, symbol_val)
 
         for acc in (regime_accs[regime_key], all_accs[all_key]):
             acc["n_total"] += 1
@@ -237,15 +258,35 @@ def compute_signal_metrics(
 
     result: list[SignalMetricsResult] = []
 
-    for (plugin, tf_val, regime_label), acc in regime_accs.items():
+    for (plugin, tf_val, regime_label, sym), acc in regime_accs.items():
         if len(acc["pnl_rs"]) < MIN_SAMPLE_SIZE:
             continue
-        result.append(_build_metrics_result(acc, track, plugin, tf_val, regime_label, window_days))
+        result.append(
+            _build_metrics_result(
+                acc,
+                track,
+                plugin,
+                tf_val,
+                regime_label,
+                window_days,
+                symbol=sym,
+            )
+        )
 
-    for (plugin, tf_val), acc in all_accs.items():
+    for (plugin, tf_val, sym), acc in all_accs.items():
         if len(acc["pnl_rs"]) < MIN_SAMPLE_SIZE:
             continue
-        result.append(_build_metrics_result(acc, track, plugin, tf_val, "all", window_days))
+        result.append(
+            _build_metrics_result(
+                acc,
+                track,
+                plugin,
+                tf_val,
+                "all",
+                window_days,
+                symbol=sym,
+            )
+        )
 
     return result
 

@@ -19,6 +19,7 @@ Version: 1.0.0
 Last Updated: 2026-04-05
 Status: Phase 60 Plan 02
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -73,7 +74,7 @@ _DQ_FAILURES = Counter(
 
 _AGENT_NAME = "signal_metrics_compute"
 _INTERVAL_SECONDS = 900  # 15 minutes
-_LOOKBACK_DAYS = 90      # max window — query covers full 90d
+_LOOKBACK_DAYS = 90  # max window — query covers full 90d
 _METRICS_PORT = 9126
 
 _QUERY = """
@@ -197,9 +198,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                         exc_info=True,
                     )
             try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self._interval_seconds
-                )
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval_seconds)
             except TimeoutError:
                 pass  # normal — time to run next cycle
 
@@ -266,15 +265,21 @@ class SignalMetricsComputeAgent(BaseAgent):
             # Filter rows to the actual window — compute_signal_metrics labels but doesn't filter
             cutoff = now - timedelta(days=window_days)
             window_rows = [
-                r for r in rows
-                if r.get("exit_at") and (
-                    r["exit_at"] if isinstance(r["exit_at"], datetime)
+                r
+                for r in rows
+                if r.get("exit_at")
+                and (
+                    r["exit_at"]
+                    if isinstance(r["exit_at"], datetime)
                     else datetime.fromisoformat(str(r["exit_at"]).replace("Z", "+00:00"))
-                ) >= cutoff
+                )
+                >= cutoff
             ]
             for track in ("zone", "market"):
                 metric_rows = compute_signal_metrics(
-                    window_rows, track=track, window_days=window_days,
+                    window_rows,
+                    track=track,
+                    window_days=window_days,
                     tick_sizes=self._tick_sizes,
                 )
                 for mr in metric_rows:
@@ -287,6 +292,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "tf": mr.tf,
                             "regime_type": mr.regime_type,
                             "window_days": mr.window_days,
+                            "symbol": mr.symbol,
                             "n": mr.n,
                             "n_outliers": mr.n_outliers,
                             "never_activated_pct": mr.never_activated_pct,
@@ -299,7 +305,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "avg_mfe": mr.avg_mfe,
                             "computed_at": mr.computed_at.isoformat(),
                         },
-                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}",
+                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}:{mr.symbol}",
                     )
 
             # IC metrics (measures confidence predictive power; not track-split)
@@ -334,8 +340,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         # Use str() — asyncpg returns UUID objects; k.split(":")[0] is a string.
         active_signal_ids = {str(r.get("signal_id")) for r in rows}
         self._published_dq_keys = {
-            k for k in self._published_dq_keys
-            if k.split(":")[0] in active_signal_ids
+            k for k in self._published_dq_keys if k.split(":")[0] in active_signal_ids
         }
 
 

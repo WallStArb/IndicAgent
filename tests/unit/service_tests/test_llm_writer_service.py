@@ -321,3 +321,98 @@ def test_i8_buffer_flushed_on_shutdown():
     call_args = mock_db.execute_batch.call_args
     assert call_args[0][0] == _UPDATE_I8_SQL
     assert len(svc._i8_buffer) == 0, "Buffer should be cleared after flush"
+
+
+# ---------------------------------------------------------------------------
+# Phase 68-04: Symbol-keyed LLM model scores
+# ---------------------------------------------------------------------------
+
+
+class TestLlmModelScoresSymbol:
+    """Test llm_model_scores SQL includes symbol dimension."""
+
+    def test_select_outcome_rows_includes_symbol(self):
+        """_SELECT_OUTCOME_ROWS_SQL includes symbol in SELECT and GROUP BY."""
+        from services.llm_writer_service import _SELECT_OUTCOME_ROWS_SQL
+        assert "symbol" in _SELECT_OUTCOME_ROWS_SQL
+        assert "GROUP BY model, regime, setup_type, call_type, symbol" in _SELECT_OUTCOME_ROWS_SQL
+
+    def test_upsert_score_sql_includes_symbol(self):
+        """_UPSERT_SCORE_SQL includes symbol column and ON CONFLICT with symbol."""
+        from services.llm_writer_service import _UPSERT_SCORE_SQL
+        assert "symbol" in _UPSERT_SCORE_SQL
+        assert "ON CONFLICT (model, regime, setup_type, call_type, symbol)" in _UPSERT_SCORE_SQL
+
+    @pytest.mark.asyncio
+    async def test_recompute_scores_passes_symbol_in_params(self):
+        """_recompute_scores passes symbol from row as 5th param in upsert tuple."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from services.llm_writer_service import LLMWriterService, _UPSERT_SCORE_SQL
+        svc = LLMWriterService.__new__(LLMWriterService)
+        svc.db_manager = AsyncMock()
+        svc.score_recomputes_total = MagicMock()
+        svc.logger = __import__("structlog").get_logger()
+        svc._error_count = 0
+        svc.error_count_total = MagicMock()
+
+        # Mock fetch_all to return a row with symbol
+        svc.db_manager.fetch_all = AsyncMock(return_value=[
+            {
+                "model": "test_model",
+                "regime": "trending",
+                "setup_type": "trad_TrendFollowing",
+                "call_type": "per_signal",
+                "symbol": "ES",
+                "n_calls": 50,
+                "n_outcomes": 50,
+                "win_rate": 0.60,
+                "avg_pnl_r": 0.5,
+                "avg_latency_ms": 200.0,
+            },
+        ])
+        svc.db_manager.execute_batch = AsyncMock()
+
+        await svc._recompute_scores()
+
+        svc.db_manager.execute_batch.assert_called_once()
+        call_args = svc.db_manager.execute_batch.call_args
+        assert call_args[0][0] == _UPSERT_SCORE_SQL
+        params = call_args[0][1]
+        assert len(params) == 1
+        # 5th element (index 4) should be symbol
+        assert params[0][4] == "ES"
+
+    @pytest.mark.asyncio
+    async def test_recompute_scores_defaults_symbol_to_star_when_null(self):
+        """_recompute_scores defaults symbol to '*' when row has no symbol."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from services.llm_writer_service import LLMWriterService
+        svc = LLMWriterService.__new__(LLMWriterService)
+        svc.db_manager = AsyncMock()
+        svc.score_recomputes_total = MagicMock()
+        svc.logger = __import__("structlog").get_logger()
+        svc._error_count = 0
+        svc.error_count_total = MagicMock()
+
+        svc.db_manager.fetch_all = AsyncMock(return_value=[
+            {
+                "model": "test_model",
+                "regime": "trending",
+                "setup_type": "trad_TrendFollowing",
+                "call_type": "per_signal",
+                "symbol": None,
+                "n_calls": 50,
+                "n_outcomes": 50,
+                "win_rate": 0.60,
+                "avg_pnl_r": 0.5,
+                "avg_latency_ms": 200.0,
+            },
+        ])
+        svc.db_manager.execute_batch = AsyncMock()
+
+        await svc._recompute_scores()
+
+        params = svc.db_manager.execute_batch.call_args[0][1]
+        assert params[0][4] == "*"

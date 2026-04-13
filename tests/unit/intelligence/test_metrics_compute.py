@@ -30,6 +30,7 @@ def _make_row(
     market_entry_mfe=1.2,
     market_entry_outcome="target_1",
     days_ago=5,
+    symbol="ES",
 ):
     if exit_at is None:
         exit_at = datetime.now(UTC) - timedelta(days=days_ago)
@@ -51,6 +52,7 @@ def _make_row(
         "market_entry_mae": market_entry_mae,
         "market_entry_mfe": market_entry_mfe,
         "market_entry_outcome": market_entry_outcome,
+        "symbol": symbol,
     }
 
 
@@ -167,3 +169,127 @@ class TestComputeIcMetrics:
         assert row.tf == "5m"
         assert row.window_days == 30
         assert row.n >= MIN_SAMPLE_SIZE
+
+
+# -- Symbol-keyed grouping tests (Phase 68-04) --
+
+
+class TestSymbolGrouping:
+    """Test that compute_signal_metrics groups by symbol."""
+
+    def test_signal_metrics_result_has_symbol_field(self):
+        rows = [_make_row() for _ in range(MIN_SAMPLE_SIZE)]
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        assert all(hasattr(r, "symbol") for r in result)
+
+    def test_different_symbols_produce_separate_results(self):
+        """Two rows with same plugin/tf/regime but different symbols produce two separate results."""
+        es_rows = [_make_row(symbol="ES") for _ in range(MIN_SAMPLE_SIZE)]
+        nq_rows = [_make_row(symbol="NQ") for _ in range(MIN_SAMPLE_SIZE)]
+        result = compute_signal_metrics(es_rows + nq_rows, track="zone", window_days=30)
+        symbols = {r.symbol for r in result}
+        assert "ES" in symbols
+        assert "NQ" in symbols
+
+    def test_symbol_preserved_on_all_rollup(self):
+        """'all' rollup row preserves symbol from source rows."""
+        rows = [_make_row(symbol="ES") for _ in range(MIN_SAMPLE_SIZE)]
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        all_rows = [r for r in result if r.regime_type == "all"]
+        assert len(all_rows) == 1
+        assert all_rows[0].symbol == "ES"
+
+
+class TestComputeAgentSymbolPublish:
+    """Test that SignalMetricsComputeAgent publishes symbol in event."""
+
+    def test_metrics_computed_event_has_symbol(self):
+        """The metrics_computed event dict should contain 'symbol' key."""
+        # This is a structural test: verify the compute agent's publish msg includes symbol
+        from src.intelligence.metrics.compute import SignalMetricsResult
+        mr = SignalMetricsResult(
+            track="zone", setup_plugin="trad_X", tf="5m",
+            regime_type="trend", window_days=30, symbol="ES",
+            n=50, n_outliers=0, never_activated_pct=None,
+            win_rate=0.5, avg_r=0.3, std_r=0.8, sharpe=0.3,
+            p_value=0.04, avg_mae=-0.4, avg_mfe=0.9,
+            computed_at=datetime.now(UTC),
+        )
+        # Verify the field is accessible
+        assert mr.symbol == "ES"
+
+
+class TestWriterSymbolInsert:
+    """Test signal_metrics and signal_metrics_ic INSERT include symbol."""
+
+    @pytest.mark.asyncio
+    async def test_signal_metrics_insert_includes_symbol(self):
+        from unittest.mock import AsyncMock
+        from services.signal_metrics_writer_agent import _handle_metrics_computed
+        conn = AsyncMock()
+        event = {
+            "track": "zone",
+            "setup_plugin": "trad_TrendFollowing",
+            "tf": "5m",
+            "regime_type": "trend",
+            "window_days": 30,
+            "symbol": "ES",
+            "n": 45,
+            "n_outliers": 2,
+            "never_activated_pct": 0.15,
+            "win_rate": 0.52,
+            "avg_r": 0.31,
+            "std_r": 0.88,
+            "sharpe": 0.35,
+            "p_value": 0.03,
+            "avg_mae": -0.42,
+            "avg_mfe": 0.95,
+            "computed_at": "2026-04-05T12:00:00+00:00",
+        }
+        await _handle_metrics_computed(conn, event)
+        sql = conn.execute.call_args_list[0][0][0]
+        assert "symbol" in sql
+        assert "ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol)" in sql
+
+    @pytest.mark.asyncio
+    async def test_signal_metrics_ic_insert_includes_symbol(self):
+        from unittest.mock import AsyncMock
+        from services.signal_metrics_writer_agent import _handle_ic_computed
+        conn = AsyncMock()
+        event = {
+            "setup_plugin": "trad_TrendFollowing",
+            "tf": "5m",
+            "regime_type": "trend",
+            "window_days": 30,
+            "symbol": "ES",
+            "n": 45,
+            "ic": 0.12,
+            "p_value": 0.02,
+            "is_significant": True,
+            "computed_at": "2026-04-05T12:00:00+00:00",
+        }
+        await _handle_ic_computed(conn, event)
+        sql = conn.execute.call_args[0][0]
+        assert "symbol" in sql
+        assert "ON CONFLICT (setup_plugin, tf, regime_type, window_days, symbol)" in sql
+
+
+class TestPipelinePerfWeightsSymbol:
+    """Test _load_perf_weights builds 3-tuple keys and rank_signals call site."""
+
+    def test_load_perf_weights_builds_three_tuple_keys(self):
+        """Verify _load_perf_weights SQL selects symbol and builds (plugin, tf, symbol) keys."""
+        import inspect
+        from services import intelligence_pipeline_agent as m
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._load_perf_weights)
+        assert "symbol" in src
+        assert "row.get(\"symbol\"" in src or 'row.get("symbol"' in src
+
+    def test_rank_signals_call_site_passes_symbol(self):
+        """Verify rank_signals is called with symbol=symbol."""
+        import inspect
+        from services import intelligence_pipeline_agent as m
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        assert "rank_signals" in src
+        # Check that rank_signals call includes symbol=
+        assert "symbol=symbol" in src

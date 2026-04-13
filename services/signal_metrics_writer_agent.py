@@ -19,6 +19,7 @@ Version: 1.0.0
 Last Updated: 2026-04-05
 Status: Phase 60 Plan 02
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -63,12 +64,12 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
     await conn.execute(
         """
         INSERT INTO signal_metrics
-            (track, setup_plugin, tf, regime_type, window_days,
+            (track, setup_plugin, tf, regime_type, window_days, symbol,
              n, n_outliers, never_activated_pct,
              win_rate, avg_r, std_r, sharpe, p_value,
              avg_mae, avg_mfe, computed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-        ON CONFLICT (track, setup_plugin, tf, regime_type, window_days)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol)
         DO UPDATE SET
             n                   = EXCLUDED.n,
             n_outliers          = EXCLUDED.n_outliers,
@@ -82,12 +83,22 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
             avg_mfe             = EXCLUDED.avg_mfe,
             computed_at         = EXCLUDED.computed_at
         """,
-        event["track"], event["setup_plugin"], event["tf"],
-        event["regime_type"], event["window_days"],
-        event["n"], event["n_outliers"], event.get("never_activated_pct"),
-        event.get("win_rate"), event.get("avg_r"), event.get("std_r"),
-        event.get("sharpe"), event.get("p_value"),
-        event.get("avg_mae"), event.get("avg_mfe"),
+        event["track"],
+        event["setup_plugin"],
+        event["tf"],
+        event["regime_type"],
+        event["window_days"],
+        event.get("symbol", "*"),
+        event["n"],
+        event["n_outliers"],
+        event.get("never_activated_pct"),
+        event.get("win_rate"),
+        event.get("avg_r"),
+        event.get("std_r"),
+        event.get("sharpe"),
+        event.get("p_value"),
+        event.get("avg_mae"),
+        event.get("avg_mfe"),
         computed_at,
     )
 
@@ -104,9 +115,9 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         await conn.execute(
             """
             INSERT INTO setup_performance
-                (setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio, updated_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (setup_plugin) DO UPDATE
+                (setup_plugin, symbol, win_rate, avg_pnl_r, sample_size, sharpe_ratio, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (setup_plugin, symbol) DO UPDATE
                 SET win_rate     = EXCLUDED.win_rate,
                     avg_pnl_r   = EXCLUDED.avg_pnl_r,
                     sample_size  = EXCLUDED.sample_size,
@@ -114,6 +125,7 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
                     updated_at   = EXCLUDED.updated_at
             """,
             event["setup_plugin"],
+            event.get("symbol", "*"),
             event.get("win_rate"),
             event.get("avg_r"),
             event["n"],
@@ -127,10 +139,10 @@ async def _handle_ic_computed(conn, event: dict) -> None:
     await conn.execute(
         """
         INSERT INTO signal_metrics_ic
-            (setup_plugin, tf, regime_type, window_days,
+            (setup_plugin, tf, regime_type, window_days, symbol,
              n, ic, p_value, is_significant, computed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        ON CONFLICT (setup_plugin, tf, regime_type, window_days)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ON CONFLICT (setup_plugin, tf, regime_type, window_days, symbol)
         DO UPDATE SET
             n              = EXCLUDED.n,
             ic             = EXCLUDED.ic,
@@ -138,9 +150,14 @@ async def _handle_ic_computed(conn, event: dict) -> None:
             is_significant = EXCLUDED.is_significant,
             computed_at    = EXCLUDED.computed_at
         """,
-        event["setup_plugin"], event["tf"],
-        event["regime_type"], event["window_days"],
-        event["n"], event.get("ic"), event.get("p_value"),
+        event["setup_plugin"],
+        event["tf"],
+        event["regime_type"],
+        event["window_days"],
+        event.get("symbol", "*"),
+        event["n"],
+        event.get("ic"),
+        event.get("p_value"),
         event.get("is_significant", False),
         computed_at,
     )
@@ -156,10 +173,14 @@ async def _handle_dq_failure(conn, event: dict) -> None:
         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW())
         ON CONFLICT (signal_id, reason_code) DO NOTHING
         """,
-        event["signal_id"], event["reason_code"],
-        event.get("entry_price"), event.get("stop_loss"),
-        event.get("pnl_r"), event.get("direction"),
-        event.get("hmm_regime"), event.get("setup_plugin"),
+        event["signal_id"],
+        event["reason_code"],
+        event.get("entry_price"),
+        event.get("stop_loss"),
+        event.get("pnl_r"),
+        event.get("direction"),
+        event.get("hmm_regime"),
+        event.get("setup_plugin"),
     )
 
 
