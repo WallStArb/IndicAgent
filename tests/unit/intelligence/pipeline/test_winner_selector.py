@@ -4,7 +4,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from src.intelligence.enums.signal_status import SignalStatus
-from src.intelligence.pipeline.winner_selector import _CONFIDENCE_BOOST_PER_AGREE, select_winner
+from src.intelligence.pipeline.winner_selector import select_winner
 
 
 def make_signal(
@@ -74,10 +74,9 @@ def test_fallback_majority_direction():
     assert winner["status"] == SignalStatus.PENDING.value
 
 
-def test_confidence_boost_per_agree():
-    """3 matching signals → boost = 0.05 * 2 extra agreeing applied to lowest-rank winner."""
+def test_cis_override_no_confidence_boost():
+    """3 matching signals → winner selected without confidence boost (68-01 removed boost)."""
     cis_result = MagicMock(direction=1)
-    # adjusted_rank=2 is lowest → this signal is selected as winner
     base_conf = 0.5
     signals = [
         make_signal(confidence=0.7, direction=1, plugin="trad_TrendFollowing", adjusted_rank=3),
@@ -85,10 +84,9 @@ def test_confidence_boost_per_agree():
         make_signal(confidence=base_conf, direction=1, plugin="trad_SqueezeExpansion", adjusted_rank=2),
     ]
     winner, _, method = select_winner(signals, cis_result)
-    # 3 matching → 2 extra agreeing → boost = 0.05 * 2 = 0.10
-    expected_conf = round(base_conf + _CONFIDENCE_BOOST_PER_AGREE * 2, 4)
     assert method == "cis_override"
-    assert winner["confidence"] == expected_conf
+    # Confidence should NOT be boosted — stays at original value
+    assert winner["confidence"] == base_conf
 
 
 def test_cis_direction_no_match_falls_back():
