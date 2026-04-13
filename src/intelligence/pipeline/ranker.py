@@ -11,8 +11,9 @@ from src.intelligence.trading.aggregator import SETUP_PRIORITY
 
 def rank_signals(
     signals: list[dict],
-    perf_weights: dict[tuple[str, str], float],
+    perf_weights: dict[tuple[str, str, str], float],
     tf: str,
+    symbol: str = "*",
 ) -> list[dict]:
     """Compute adjusted_rank for all signals.
 
@@ -21,11 +22,20 @@ def rank_signals(
     signals:
         List of signal dicts. Each must have "setup_plugin".
     perf_weights:
-        Dict keyed by (plugin_name, tf) → perf_multiplier float.
+        Dict keyed by (plugin_name, tf, symbol) → perf_multiplier float.
         Loaded from setup_performance table by the caller.
         Missing entries default to 1.0 (neutral).
+        symbol='*' is the global sentinel (cross-instrument aggregate).
     tf:
         Current timeframe string (e.g. "1m").
+    symbol:
+        Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
+        Falls back to global '*' sentinel. Default '*' for backward compatibility.
+
+    Lookup hierarchy:
+        1. (plugin_name, tf, symbol)  -- symbol-specific
+        2. (plugin_name, tf, '*')     -- global sentinel
+        3. 1.0                        -- neutral fallback
 
     Returns
     -------
@@ -41,7 +51,11 @@ def rank_signals(
         plugin_name = s.get("setup_plugin", "unknown")
 
         priority = SETUP_PRIORITY.get(plugin_name, 999)
-        perf_multiplier = perf_weights.get((plugin_name, tf), 1.0)
+        perf_multiplier = (
+            perf_weights.get((plugin_name, tf, symbol))
+            or perf_weights.get((plugin_name, tf, "*"))
+            or 1.0
+        )
         adjusted_rank = round(priority * perf_multiplier, 4)
 
         s["adjusted_rank"] = adjusted_rank

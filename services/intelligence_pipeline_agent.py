@@ -1416,7 +1416,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
         calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf, symbol=symbol)
-        ranked = rank_signals(calibrated, self._perf_weights, tf)
+        ranked = rank_signals(calibrated, self._perf_weights, tf, symbol=symbol)
 
         # Annotate each ranked signal with ledger metadata before publishing
         num_signals = len(ranked)
@@ -1657,6 +1657,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         Weights are ranked by Sharpe ascending so the best Sharpe gets the lowest
         multiplier (sorts first under ascending adjusted_rank in rank_signals).
+
+        Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals() in
+        ranker.py which does 2-level fallback: symbol-specific then '*'.
         """
         if self._db is None:
             return
@@ -1665,7 +1668,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             rows = await self._db.execute_query(
                 """
-                SELECT setup_plugin, tf, sharpe
+                SELECT setup_plugin, tf, symbol, sharpe
                 FROM signal_metrics
                 WHERE track = 'market'
                   AND regime_type = $1
@@ -1678,7 +1681,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not rows:
                 # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
                 rows = await self._db.execute_query("""
-                    SELECT setup_plugin, tf, sharpe
+                    SELECT setup_plugin, tf, symbol, sharpe
                     FROM signal_metrics
                     WHERE track = 'market'
                       AND regime_type = 'all'
@@ -1693,12 +1696,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Rank by Sharpe ascending (worst=rank 0, best=rank n-1)
             # Best Sharpe → lowest multiplier → sorts first under ascending adjusted_rank
-            # Keys are (setup_plugin, tf) tuples to match rank_signals() in ranker.py
+            # Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals()
             ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
             n = len(ranked)
             weights: dict = {}
             for rank, row in enumerate(ranked):
-                weights[(row["setup_plugin"], row["tf"])] = round(0.5 + ((n - 1 - rank) / n), 4)
+                weights[(row["setup_plugin"], row["tf"], row.get("symbol", "*"))] = round(0.5 + ((n - 1 - rank) / n), 4)
 
             self._perf_weights = weights
             self.logger.info(
