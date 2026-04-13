@@ -89,7 +89,7 @@ class SignalTrackerCompute(BaseAgent):
     _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
 
     def __init__(self) -> None:
-        super().__init__(name="SignalTrackerCompute", metrics_port=9127)
+        super().__init__(name="SignalTrackerCompute", metrics_port=9127, max_idle_seconds=300)
         settings = Settings()
         self._settings = settings
         self._env_name = settings.env_name or ""
