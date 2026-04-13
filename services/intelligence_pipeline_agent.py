@@ -421,6 +421,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         _log_file = os.environ.get("LOG_FILE")
         if _log_file:
             from src.core.service_utils import setup_service_logging
+
             setup_service_logging(_log_file)
 
         super().__init__(
@@ -449,6 +450,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Full plugin validation — hard-crashes on misconfiguration
         from src.core.plugin_validator import PluginValidator
+
         PluginValidator().validate_all()
 
         # Plugin caches
@@ -804,9 +806,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task exceptions (swallowed by return_exceptions=True)
         task_names = [
-            "_process_loop", "_drain_output", "_health_monitor_loop",
-            "_load_perf_weights", "_refresh_drift_penalties",
-            "_load_cis_weights", "_load_calibration_curves", "_load_tod_multipliers"
+            "_process_loop",
+            "_drain_output",
+            "_health_monitor_loop",
+            "_load_perf_weights",
+            "_refresh_drift_penalties",
+            "_load_cis_weights",
+            "_load_calibration_curves",
+            "_load_tod_multipliers",
         ]
         for name, result in zip(task_names, results):
             if isinstance(result, Exception):
@@ -1114,7 +1121,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if isinstance(out, Exception):
                 self._pipeline_errors.inc()
                 PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
-                self.logger.warning(f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out))
+                self.logger.warning(
+                    f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out)
+                )
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
                 PLUGIN_DURATION_MS.labels(plugin_name=task.plugin_name, tier=tier).observe(
@@ -1443,14 +1452,20 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for sig in regime_gated:
             sig["pre_tod_confidence"] = sig.get("confidence", 0.0)
 
-        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et)
+        tod_adjusted = apply_tod_adjustment(
+            regime_gated,
+            self._tod_priors,
+            tf,
+            hour_et,
+            symbol=symbol,
+        )
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
-        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf)
-        ranked = rank_signals(calibrated, self._perf_weights, tf)
+        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf, symbol=symbol)
+        ranked = rank_signals(calibrated, self._perf_weights, tf, symbol=symbol)
 
         # Annotate each ranked signal with ledger metadata before publishing
         num_signals = len(ranked)
@@ -1697,6 +1712,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         Weights are ranked by Sharpe ascending so the best Sharpe gets the lowest
         multiplier (sorts first under ascending adjusted_rank in rank_signals).
+
+        Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals() in
+        ranker.py which does 2-level fallback: symbol-specific then '*'.
         """
         if self._db is None:
             return
@@ -1705,7 +1723,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             rows = await self._db.execute_query(
                 """
-                SELECT setup_plugin, tf, sharpe
+                SELECT setup_plugin, tf, symbol, sharpe
                 FROM signal_metrics
                 WHERE track = 'market'
                   AND regime_type = $1
@@ -1718,7 +1736,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not rows:
                 # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
                 rows = await self._db.execute_query("""
-                    SELECT setup_plugin, tf, sharpe
+                    SELECT setup_plugin, tf, symbol, sharpe
                     FROM signal_metrics
                     WHERE track = 'market'
                       AND regime_type = 'all'
@@ -1733,12 +1751,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Rank by Sharpe ascending (worst=rank 0, best=rank n-1)
             # Best Sharpe → lowest multiplier → sorts first under ascending adjusted_rank
-            # Keys are (setup_plugin, tf) tuples to match rank_signals() in ranker.py
+            # Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals()
             ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
             n = len(ranked)
             weights: dict = {}
             for rank, row in enumerate(ranked):
-                weights[(row["setup_plugin"], row["tf"])] = round(0.5 + ((n - 1 - rank) / n), 4)
+                sym = row.get("symbol", "*")
+                weights[(row["setup_plugin"], row["tf"], sym)] = round(
+                    0.5 + ((n - 1 - rank) / n),
+                    4,
+                )
 
             self._perf_weights = weights
             self.logger.info(
@@ -1771,31 +1793,50 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.warning("cis_weights.load_failed", error=str(exc))
 
     async def _load_calibration_curves(self) -> None:
-        """Load calibration curves from calibration_curves table."""
+        """Load calibration curves from calibration_curves table.
+
+        In-memory key: (setup_plugin, tf, symbol) where tf is extracted from
+        curve_data JSONB and symbol is the instrument sentinel ('*' = global).
+        Rows missing timeframe in curve_data are skipped (can't build lookup key).
+        """
         if self._db is None:
             return
         try:
+            import numpy as np
+
             rows = await self._db.execute_query(
-                "SELECT setup_plugin, curve_data FROM calibration_curves"
+                "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
             )
             curves: dict = {}
             for r in rows:
-                curves[r["setup_plugin"]] = r.get("curve_data", {})
+                curve_data = r.get("curve_data") or {}
+                tf_val = curve_data.get("timeframe")
+                bp = curve_data.get("breakpoints")
+                vals = curve_data.get("values")
+                if not tf_val or not bp or not vals:
+                    continue  # incomplete row — skip
+                key = (r["setup_plugin"], tf_val, r["symbol"])
+                curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
             self._calibration_curves = curves
         except Exception as exc:
             self.logger.warning("calibration_curves.load_failed", error=str(exc))
 
     async def _load_tod_multipliers(self) -> None:
-        """Load TOD multipliers from tod_multipliers table."""
+        """Load TOD multipliers from tod_multipliers table.
+
+        In-memory key: (regime_type, tf, hour_et, symbol).
+        symbol='*' rows are the global sentinel; symbol-specific rows take priority
+        during lookup in apply_tod_adjustment.
+        """
         if self._db is None:
             return
         try:
             rows = await self._db.execute_query(
-                "SELECT regime_type, tf, hour_et, multiplier FROM tod_multipliers"
+                "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
             )
             priors: dict = {}
             for r in rows:
-                key = (r["regime_type"], r["tf"], r["hour_et"])
+                key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
                 priors[key] = float(r["multiplier"])
             self._tod_priors = {**self._tod_priors, **priors}
         except Exception as exc:

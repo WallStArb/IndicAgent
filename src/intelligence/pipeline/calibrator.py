@@ -11,8 +11,9 @@ import numpy as np
 
 def apply_calibration(
     signals: list[dict],
-    cal_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]],
+    cal_curves: dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]],
     tf: str,
+    symbol: str = "*",
 ) -> list[dict]:
     """Apply isotonic calibration curves to all signals.
 
@@ -21,10 +22,19 @@ def apply_calibration(
     signals:
         List of signal dicts. Each must have "confidence" and "setup_plugin".
     cal_curves:
-        Dict keyed by (plugin_name, tf) → (breakpoints, values) numpy arrays.
+        Dict keyed by (plugin_name, tf, symbol) → (breakpoints, values) numpy arrays.
         Loaded from DB by the caller. Empty dict → passthrough for all signals.
+        symbol='*' is the global sentinel (cross-instrument aggregate).
     tf:
         Current timeframe string (e.g. "1m").
+    symbol:
+        Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
+        Falls back to global '*' sentinel. Default '*' for backward compatibility.
+
+    Lookup hierarchy:
+        1. (plugin_name, tf, symbol)  -- symbol-specific
+        2. (plugin_name, tf, '*')     -- global sentinel
+        3. passthrough (confidence unchanged)
 
     Returns
     -------
@@ -40,8 +50,7 @@ def apply_calibration(
         raw_confidence = float(s.get("confidence", 0.0))
         plugin_name = s.get("setup_plugin", "unknown")
 
-        curve_key = (plugin_name, tf)
-        curve = cal_curves.get(curve_key)
+        curve = cal_curves.get((plugin_name, tf, symbol)) or cal_curves.get((plugin_name, tf, "*"))
 
         if curve is None:
             # No calibration curve — pass through unchanged
