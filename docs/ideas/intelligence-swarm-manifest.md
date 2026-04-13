@@ -4,7 +4,6 @@
 **Created:** 2026-03-07  
 **Updated:** 2026-04-08
 **Related:** 
-- `docs/plans/2026-04-08-ai-layer-refactor-design.md` — Phase 3 swarm integration
 - `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
 
 ---
@@ -104,8 +103,7 @@ To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pat
 - Shadow-first validation framework designed
 
 **🔄 Integration In Progress** (2026-04-08)
-- **Phase 3 of AI Layer Refactor:** Integrating swarm agents with shared LLM infrastructure
-- See: `docs/plans/2026-04-08-ai-layer-refactor-design.md#phase-3`
+- Swarm agents integrating with shared LLM infrastructure
 - Framework wiring: Context enrichment, Kafka bridge, shadow-table schema sync
 
 **📋 Extensions Roadmap** (2026-04-08)

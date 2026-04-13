@@ -3,7 +3,7 @@
 **Version:** 2.0.0
 **Last Updated:** 2026-04-08
 **Status:** Research & Design — ready for prioritization
-**Related:** `renaissance-i7-i8-refinement.md`, `regime-adaptive-trading.md`, `ai-layer-refactor-design-v3.md`
+**Related:** `renaissance-i7-i8-refinement.md`, `regime-adaptive-trading.md`
 
 ---
 
@@ -788,7 +788,7 @@ The existing `CrossTimeframeConfluencePlugin` already follows this pattern (weig
 
 - `renaissance-i7-i8-refinement.md` — Source of many original ideas
 - `regime-adaptive-trading.md` — Cross-TF synchronization, regime-specific models
-- `ai-layer-refactor-design-v3.md` — Build-one-at-a-time validation approach
+
 - `src/intelligence/confluence/cross_timeframe.py` — Current I6 implementation
 - `src/intelligence/schemas.py` — I6Confluence schema (16 fields)
 - `services/cross_asset_service.py` — Cross-asset spread computation
