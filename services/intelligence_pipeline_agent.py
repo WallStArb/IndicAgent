@@ -831,6 +831,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Consume all topics and route: bar → I1-I7 pipeline; non-bar → caches."""
         _cross_asset_topic = topic_cross_asset(self._settings.env_name)
         _system_topic = topic_system_events(self._settings.env_name)
+        COMMIT_BATCH_SIZE = 100  # Batch commits to avoid per-message network latency
+        msg_count = 0
         while self.running:
             try:
                 async for _topic, _key, payload in self._kafka_consumer.messages():
@@ -849,8 +851,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                                 continue
                             await self._process_bar(bar)
 
-                        # Commit offset after successful message processing
-                        await self._kafka_consumer.commit()
+                        # Commit offset in batches to avoid hot-path latency
+                        # Manual commit ensures deterministic offset persistence (fixes 32h reprocessing bug)
+                        msg_count += 1
+                        if msg_count >= COMMIT_BATCH_SIZE:
+                            await self._kafka_consumer.commit()
+                            msg_count = 0
                     except Exception as exc:
                         self.logger.error(
                             "bar.process_error",
