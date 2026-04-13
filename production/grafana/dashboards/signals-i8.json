@@ -16,7 +16,7 @@
       },
       "id": 1,
       "panels": [],
-      "title": "Signal funnel",
+      "title": "Signal Funnel",
       "type": "row"
     },
     {
@@ -35,8 +35,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 6,
+        "w": 8,
         "x": 0,
         "y": 1
       },
@@ -47,22 +47,154 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(generator_signals_generated_total[5m])",
-          "legendFormat": "Generated",
-          "refId": "A"
+          "expr": "rate(signal_tracker_compute_transitions_total[5m])",
+          "refId": "A",
+          "legendFormat": "lifecycle transitions/s"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(generator_signals_selected_total[5m])",
-          "legendFormat": "Selected",
-          "refId": "B"
+          "expr": "increase(intelligence_pipeline_signal_dlq_total[5m])",
+          "refId": "B",
+          "legendFormat": "DLQ (dropped)/5m"
         }
       ],
-      "title": "Signals generated vs selected (rate)",
+      "title": "Signals: Generated vs Written",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "signal_tracker_compute_active_signals",
+          "refId": "A",
+          "legendFormat": "Active"
+        }
+      ],
+      "title": "Active Signals",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 4
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(signal_tracker_compute_transitions_total[1h]) * 3600",
+          "refId": "A",
+          "legendFormat": "transitions/hr"
+        }
+      ],
+      "title": "Lifecycle Transitions/hr",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -80,33 +212,24 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 12,
         "x": 12,
         "y": 1
       },
-      "id": 3,
+      "id": 5,
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "tracker_active_signals_count",
-          "legendFormat": "Tracker active",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "lifecycle_active_signals_count",
-          "legendFormat": "Lifecycle active",
-          "refId": "B"
+          "expr": "increase(intelligence_pipeline_signal_dlq_total[5m])",
+          "refId": "A",
+          "legendFormat": "signal DLQ growth/5m"
         }
       ],
-      "title": "Active signals (open)",
+      "title": "Signal DLQ Depth",
       "type": "timeseries"
     },
     {
@@ -115,11 +238,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 7
       },
-      "id": 4,
+      "id": 10,
       "panels": [],
-      "title": "I8 AI narrative",
+      "title": "Routing",
       "type": "row"
     },
     {
@@ -138,42 +261,33 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 5,
         "w": 12,
         "x": 0,
-        "y": 10
+        "y": 8
       },
-      "id": 5,
+      "id": 11,
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(narrative_generated_total[5m])",
-          "legendFormat": "Generated",
-          "refId": "A"
+          "expr": "rate(merger_bars_routed_total[1m])",
+          "refId": "A",
+          "legendFormat": "routed {{ provider }}"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(narrative_skipped_total[5m])",
-          "legendFormat": "Skipped",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(narrative_group_generated_total[5m])",
-          "legendFormat": "Group narratives",
-          "refId": "C"
+          "expr": "rate(merger_bars_dropped_total[1m])",
+          "refId": "B",
+          "legendFormat": "dropped {{ provider }}"
         }
       ],
-      "title": "Narratives (rate)",
+      "title": "Merger Bars: Routed vs Dropped",
       "type": "timeseries"
     },
     {
@@ -183,7 +297,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms",
+          "unit": "s",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2
@@ -192,25 +306,38 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 5,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 8
       },
-      "id": 6,
+      "id": 12,
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "narrative_ollama_latency_ms",
-          "legendFormat": "Ollama latency",
-          "refId": "A"
+          "expr": "histogram_quantile(0.95, rate(merger_bar_latency_seconds_bucket[5m]))",
+          "refId": "A",
+          "legendFormat": "merger lag p95 {{ provider }}"
         }
       ],
-      "title": "Ollama latency (ms)",
+      "title": "Provider Merger Lag p95",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 20,
+      "panels": [],
+      "title": "AI Narrative (I8)",
+      "type": "row"
     },
     {
       "datasource": {
@@ -228,33 +355,112 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
-        "w": 24,
+        "h": 5,
+        "w": 8,
         "x": 0,
-        "y": 18
+        "y": 14
       },
-      "id": 7,
+      "id": 21,
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(tracker_lifecycle_transitions_total[5m])",
-          "legendFormat": "Tracker transitions",
-          "refId": "A"
+          "expr": "rate(langgraph_workflow_executions_total{workflow_name=~\".*narrative.*\"}[5m])",
+          "refId": "A",
+          "legendFormat": "narratives/s"
+        }
+      ],
+      "title": "Narrative Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          }
         },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 14
+      },
+      "id": 22,
+      "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(lifecycle_transitions_total[5m])",
-          "legendFormat": "Lifecycle transitions",
-          "refId": "B"
+          "expr": "histogram_quantile(0.95, rate(llm_call_duration_seconds_bucket[5m]))",
+          "refId": "A",
+          "legendFormat": "{{ provider }} p95"
         }
       ],
-      "title": "Lifecycle transitions (rate)",
+      "title": "LLM Call Latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "Closed"
+                },
+                "1": {
+                  "text": "Open"
+                },
+                "2": {
+                  "text": "Half-Open"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 14
+      },
+      "id": 23,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "plugin_circuit_breaker_state",
+          "refId": "A",
+          "legendFormat": "{{ plugin_name }}"
+        }
+      ],
+      "title": "LLM Circuit Breaker State",
       "type": "timeseries"
     }
   ],
@@ -269,11 +475,11 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timezone": "browser",
-  "title": "Signals & I8",
+  "title": "IndicAgent Signals + I8",
   "uid": "indicagent-signals-i8",
   "version": 1
 }
