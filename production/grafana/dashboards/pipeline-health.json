@@ -47,7 +47,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(indic_bar_to_i1_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(indic_bar_to_i1_latency_seconds_bucket[5m])) by (le))",
           "refId": "A",
           "legendFormat": "I1 p95"
         }
@@ -83,7 +83,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(indic_bar_to_signal_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(indic_bar_to_signal_latency_seconds_bucket[5m])) by (le))",
           "refId": "A",
           "legendFormat": "I7 p95"
         }
@@ -290,7 +290,7 @@
           "legendFormat": "lifecycle transitions/s"
         }
       ],
-      "title": "Signals: Generated vs Selected vs Written",
+      "title": "Signal DLQ & Lifecycle Transitions",
       "type": "timeseries"
     },
     {

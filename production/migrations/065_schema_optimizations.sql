@@ -33,7 +33,8 @@ ALTER TABLE service_health_events SET (
 );
 
 -- Add a compression policy (30 days, same as drift_monitor)
-SELECT add_compression_policy('service_health_events', INTERVAL '30 days');
+-- Use if_not_exists for idempotency (migration can be safely rerun)
+SELECT add_compression_policy('service_health_events', INTERVAL '30 days', if_not_exists => true);
 
 -- ---------------------------------------------------------------------------
 -- 3. signal_metrics_dq_failures → hypertable

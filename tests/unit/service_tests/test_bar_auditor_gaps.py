@@ -69,13 +69,11 @@ async def test_resolve_gap_noop_when_no_open_gap():
 
 
 @pytest.mark.asyncio
-async def test_gap_requests_consumer_uses_earliest_offset():
-    """Verify gap_requests_consumer is created with auto_offset_reset='earliest'."""
-    # This test verifies the consumer is configured correctly in _setup
-    # The actual consumer creation is in _setup, so we check the implementation
+async def test_gap_requests_topic_name():
+    """Verify topic_gap_requests returns expected topic string."""
     from src.core.stream_keys import topic_gap_requests
 
-    # Verify topic_gap_fill_dlq exists in stream_keys
+    # Verify topic_gap_requests exists in stream_keys
     topic = topic_gap_requests("test")
     assert "gap_requests" in topic
 

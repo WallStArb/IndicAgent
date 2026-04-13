@@ -61,7 +61,7 @@
           "legendFormat": "DLQ (dropped)/5m"
         }
       ],
-      "title": "Signals: Generated vs Written",
+      "title": "Transitions vs DLQ",
       "type": "timeseries"
     },
     {

@@ -466,6 +466,28 @@ class ServiceAuditorAgent(BaseAgent):
             payload.get("service", "unknown"),
         )
 
+    async def _dispatch_webhook_http(self, url: str, payload: dict, log_name: str) -> bool:
+        """Generic webhook dispatcher with unified error handling.
+
+        Returns True on success, False on failure. Logs at appropriate level.
+        """
+        try:
+            assert self._http_session is not None
+            async with self._http_session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status in (200, 204):
+                    self.logger.info("webhook.success", service=log_name)
+                    return True
+                else:
+                    self.logger.warning("webhook.failed", status=resp.status, service=log_name)
+                    return False
+        except Exception as exc:
+            self.logger.error("webhook.error", service=log_name, error=str(exc))
+            return False
+
     async def _notify_telegram(self, title: str, body: str) -> None:
         """POST CRITICAL alert to Telegram bot. No-op if token not configured."""
         token = self._settings.telegram_bot_token
@@ -474,19 +496,11 @@ class ServiceAuditorAgent(BaseAgent):
             return
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         text = f"*[CRITICAL]* {title}\n{body}"
-        try:
-            assert self._http_session is not None
-            async with self._http_session.post(
-                url,
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    self.logger.warning("telegram.notify_failed", status=resp.status, title=title)
-                else:
-                    self.logger.info("telegram.notified", title=title)
-        except Exception as exc:
-            self.logger.error("telegram.notify_error", error=str(exc))
+        await self._dispatch_webhook_http(
+            url,
+            {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            "telegram",
+        )
 
     async def _notify_discord(self, title: str, body: str, severity: str) -> None:
         """POST HIGH/MEDIUM alert to Discord webhook. No-op if URL not configured."""
@@ -494,19 +508,7 @@ class ServiceAuditorAgent(BaseAgent):
         if not url:
             return
         content = f"**[{severity}]** {title}\n{body}"
-        try:
-            assert self._http_session is not None
-            async with self._http_session.post(
-                url,
-                json={"content": content},
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status not in (200, 204):
-                    self.logger.warning("discord.notify_failed", status=resp.status, title=title)
-                else:
-                    self.logger.info("discord.notified", severity=severity, title=title)
-        except Exception as exc:
-            self.logger.error("discord.notify_error", error=str(exc))
+        await self._dispatch_webhook_http(url, {"content": content}, "discord")
 
     # -- Roll automation -------------------------------------------------------
 
@@ -532,6 +534,10 @@ class ServiceAuditorAgent(BaseAgent):
         new_expiry = payload.get("new_expiry", "")
         old_expiry = payload.get("old_expiry", "")
         dedup_key = (symbol, new_expiry)
+
+        # Size-based dedup to prevent unbounded growth (1000 rolls/day is far above typical volume)
+        if len(self._handled_rolls) > 1000:
+            self._handled_rolls.clear()
 
         if dedup_key in self._handled_rolls:
             self.logger.debug("roll_consumer.dedup_skip", symbol=symbol, new_expiry=new_expiry)
