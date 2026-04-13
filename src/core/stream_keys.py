@@ -344,6 +344,26 @@ def topic_ml_orchestrator_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}ml.orchestrator.dlq"
 
 
+def topic_alert_requests(env_name: str) -> str:
+    """Alert requests from any agent to AlertingAgent.
+
+    Any agent can publish alert requests here via BaseAgent._send_alert().
+    AlertingAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
+    Consumer group: alerting_consumer
+    """
+    return f"{env_prefix(env_name)}alert.requests"
+
+
+def topic_gap_fill_dlq(env_name: str) -> str:
+    """DLQ for gap-fill requests that exhausted retries in bar_auditor_agent.
+
+    BarAuditorAgent routes to this topic after 3 failed retry attempts.
+    Payload: {symbol, tf, start_ts, end_ts, retry_count, error}
+    Consumer group: bar_auditor_gap_fill_consumer
+    """
+    return f"{env_prefix(env_name)}gap_fill.dlq"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
