@@ -1,0 +1,384 @@
+# alert-rules.yml — COMMITTED
+# Grafana unified alerting rules for IndicAgent pipeline.
+# Contact points: telegram-critical (CRITICAL), discord-ops (HIGH/MEDIUM)
+# All PromQL expressions reference current active service names only.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: IndicAgent CRITICAL Alerts
+    folder: IndicAgent
+    interval: 1m
+    rules:
+
+      - uid: provider_dead_uid
+        title: provider_dead
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: rate(provider_bars_produced_total[5m])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "IBKR provider producing zero bars for 5+ minutes"
+          description: "rate(provider_bars_produced_total[5m]) == 0. Check indicagent-ibkr-provider."
+        labels:
+          severity: critical
+          contact_point: telegram-critical
+
+      - uid: service_crash_looping_uid
+        title: service_crash_looping
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: rate(service_auditor_service_restarts_total[10m])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.005]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Service crash-looping: > 3 restarts in 10 minutes"
+          description: "rate(service_auditor_service_restarts_total[10m]) > 3/600s. Service: {{ $labels.service_name }}"
+        labels:
+          severity: critical
+          contact_point: telegram-critical
+
+      - uid: signals_dropped_uid
+        title: signals_dropped
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: increase(signal_writer_buffer_dropped_total[5m])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Signals being dropped by signal writer buffer"
+          description: "increase(signal_writer_buffer_dropped_total[5m]) > 0. Training data loss in progress."
+        labels:
+          severity: critical
+          contact_point: telegram-critical
+
+      - uid: signal_dlq_growing_uid
+        title: signal_dlq_growing
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: increase(intelligence_pipeline_signal_dlq_total[5m])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Signal DLQ growing — null-CIS signals detected"
+          description: "increase(intelligence_pipeline_signal_dlq_total[5m]) > 0. CIS regression in I7 pipeline."
+        labels:
+          severity: critical
+          contact_point: telegram-critical
+
+      - uid: data_completeness_critical_uid
+        title: data_completeness_critical
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: bar_auditor_canonical_completeness_pct
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.9]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Data completeness below 90% — ML training impact"
+          description: "bar_auditor_canonical_completeness_pct < 90% for {{ $labels.symbol }}/{{ $labels.tf }}."
+        labels:
+          severity: critical
+          contact_point: telegram-critical
+
+  - orgId: 1
+    name: IndicAgent HIGH Alerts
+    folder: IndicAgent
+    interval: 1m
+    rules:
+
+      - uid: consumer_lag_writer_uid
+        title: consumer_lag_writer
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: persistence_consumer_lag_records
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [1000]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Writer consumer lag > 1000 messages"
+          description: "persistence_consumer_lag_records > 1000 for agent {{ $labels.agent_id }}. DB write backlog."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: bar_flow_stale_uid
+        title: bar_flow_stale
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: bar_agg_time_since_last_bar_seconds
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [300]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Bar flow stale — no bars in 5+ minutes"
+          description: "bar_agg_time_since_last_bar_seconds > 300. Aggregator may be stuck."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: output_buffer_pressure_uid
+        title: output_buffer_pressure
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: intelligence_pipeline_output_buffer_depth
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [400]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Intelligence pipeline output buffer > 400 depth"
+          description: "intelligence_pipeline_output_buffer_depth > 400. Writer is falling behind."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: gap_fill_dlq_growing_uid
+        title: gap_fill_dlq_growing
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: increase(bar_auditor_gap_fill_dlq_depth[5m])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Gap fill DLQ growing — gap requests failing after retry"
+          description: "increase(bar_auditor_gap_fill_dlq_depth[5m]) > 0. IBKR gap fill retries exhausted."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+  - orgId: 1
+    name: IndicAgent MEDIUM Alerts
+    folder: IndicAgent
+    interval: 5m
+    rules:
+
+      - uid: data_completeness_soft_uid
+        title: data_completeness_soft
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: bar_auditor_canonical_completeness_pct
+              intervalMs: 300000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.95]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "Data completeness below 95% soft threshold"
+          description: "bar_auditor_canonical_completeness_pct < 95% for {{ $labels.symbol }}/{{ $labels.tf }}."
+        labels:
+          severity: medium
+          contact_point: discord-ops

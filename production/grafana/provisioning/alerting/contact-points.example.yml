@@ -1,0 +1,27 @@
+# contact-points.example.yml — COMMITTED (placeholder values only)
+# Copy to contact-points.yml and fill in real credentials.
+# contact-points.yml is gitignored — never commit it.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: telegram-critical
+    receivers:
+      - uid: telegram-critical-uid
+        type: telegram
+        settings:
+          bottoken: YOUR_BOT_TOKEN
+          chatid: "YOUR_CHAT_ID"
+          message: |
+            {{ template "default.message" . }}
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: discord-ops
+    receivers:
+      - uid: discord-ops-uid
+        type: webhook
+        settings:
+          url: YOUR_DISCORD_WEBHOOK_URL
+          httpMethod: POST
+        disableResolveMessage: false
