@@ -35,6 +35,36 @@ import structlog
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS, start_metrics_server
 from src.observability.otel import get_tracer
+from prometheus_client import Counter as _Counter, Histogram as _Histogram
+
+# ---------------------------------------------------------------------------
+# BaseAgent Observability Metrics (Phase 67)
+# ---------------------------------------------------------------------------
+
+AGENT_CRASH_TOTAL = _Counter(
+    "agent_crash_total",
+    "Agent crashes (uncaught exceptions) from BaseAgent._run()",
+    ["agent"]
+)
+
+AGENT_SETUP_SUCCESS_TOTAL = _Counter(
+    "agent_setup_success_total",
+    "Successful BaseAgent._setup() completions",
+    ["agent"]
+)
+
+AGENT_SETUP_FAILURE_TOTAL = _Counter(
+    "agent_setup_failure_total",
+    "Failed BaseAgent._setup() completions",
+    ["agent", "error_type"]
+)
+
+AGENT_SETUP_LATENCY_SECONDS = _Histogram(
+    "agent_setup_latency_seconds",
+    "BaseAgent._setup() execution time in seconds",
+    ["agent"],
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+)
 
 
 class BaseAgent(abc.ABC):
@@ -75,6 +105,13 @@ class BaseAgent(abc.ABC):
         # OTel tracer — no-op when init_tracing() has not been called; safe before init.
         self.tracer = get_tracer(name)
 
+        # NEW: Cache crash/setup observability metrics at init (minimal runtime overhead)
+        self._agent_label = name.lower().replace(" ", "_")
+        self._crash_total = AGENT_CRASH_TOTAL.labels(agent=self._agent_label)
+        self._setup_success_total = AGENT_SETUP_SUCCESS_TOTAL.labels(agent=self._agent_label)
+        # NOTE: _setup_failure_total not cached here - needs error_type label at exception time
+        self._setup_latency = AGENT_SETUP_LATENCY_SECONDS.labels(agent=self._agent_label)
+
     def _register_signal_handlers(self) -> None:
         """Register SIGTERM and SIGINT handlers that set the stop event.
 
@@ -101,18 +138,29 @@ class BaseAgent(abc.ABC):
         if self._metrics_port is not None:
             start_metrics_server(port=self._metrics_port)
         self.logger.info("agent.starting", agent=self.name)
+
+        # NEW: Track setup latency + success/failure
         try:
+            setup_start = time.monotonic()
             await self._setup()
-        except Exception:
-            self.logger.exception("agent.setup_failed", agent=self.name)
+            setup_duration = time.monotonic() - setup_start
+            self._setup_latency.observe(setup_duration)
+            self._setup_success_total.inc()
+        except Exception as exc:
+            # Log setup failure AND track metric
+            self.logger.exception("agent.setup_failed")
+            AGENT_SETUP_FAILURE_TOTAL.labels(agent=self._agent_label, error_type=type(exc).__name__).inc()
             raise
+
         lag_task = asyncio.create_task(self._report_consumer_lag())
         watchdog_task = asyncio.create_task(self._watchdog_notify())
         stall_task = asyncio.create_task(self._stall_watchdog())
         try:
             await self._run()
         except Exception:
-            self.logger.exception("agent.run_failed", agent=self.name)
+            # Log run failure AND track crash metric
+            self.logger.exception("agent.run_failed")
+            self._crash_total.inc()
             raise
         finally:
             lag_task.cancel()
@@ -245,6 +293,62 @@ class BaseAgent(abc.ABC):
             error=str(error),
             payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
         )
+
+    async def _send_alert(self, severity: str, message: str, context: dict | None = None) -> None:
+        """Send alert to AlertingAgent via Kafka.
+
+        Args:
+            severity: "CRITICAL" | "HIGH" | "MEDIUM"
+            message: Human-readable alert message
+            context: Optional structured context (symbol, tf, error details, etc.)
+
+        No-op if producer not configured (agents without Kafka output).
+        AlertingAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
+        """
+        if not hasattr(self, "_producer") or self._producer is None:
+            return
+
+        from src.core.stream_keys import topic_alert_requests
+        from datetime import datetime, UTC
+
+        payload = {
+            "severity": severity,
+            "message": message,
+            "source": self.name,
+            "timestamp": datetime.now(UTC).isoformat(),
+            **(context or {}),
+        }
+
+        try:
+            await self._producer.produce(topic_alert_requests(self._settings.env_name), payload)
+            self.logger.info("alert_published", severity=severity, message=message[:100])
+        except Exception as exc:
+            self.logger.error("alert_publish_failed", error=str(exc))
+
+    async def _setup_with_retry(self) -> None:
+        """Wrap _setup() with exponential backoff retry.
+
+        Subclasses call this from start() instead of _setup() directly
+        if they need bootstrap resilience. Default behavior is no retry.
+        """
+        _attempts = 3
+        _backoff_base = 2.0  # seconds
+        for attempt in range(_attempts):
+            try:
+                await self._setup()
+                return
+            except Exception as exc:
+                if attempt == _attempts - 1:
+                    raise
+                backoff = _backoff_base ** attempt
+                self.logger.warning(
+                    "agent.setup_retry",
+                    attempt=attempt + 1,
+                    max_attempts=_attempts,
+                    backoff_seconds=backoff,
+                    error=str(exc),
+                )
+                await asyncio.sleep(backoff)
 
     @abc.abstractmethod
     async def _run(self) -> None:
