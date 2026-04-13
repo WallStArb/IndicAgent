@@ -5,7 +5,9 @@ def test_062_market_data_gaps_sql_parseable():
     """Verify migration 062 has required table name and constraint."""
     import pathlib
 
-    sql_path = pathlib.Path("production/migrations/062_market_data_gaps.sql")
+    # Resolve path relative to test file location (tests/unit -> project root is ../..)
+    project_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    sql_path = project_root / "production" / "migrations" / "062_market_data_gaps.sql"
     assert sql_path.exists(), "Migration file 062_market_data_gaps.sql does not exist"
 
     sql = sql_path.read_text()
