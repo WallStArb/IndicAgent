@@ -421,29 +421,31 @@ class Settings(BaseSettings):
                 point_value=10.0,
                 tick_size=0.00001,
             ),
-            # Spot Crypto (PAXOS) — no expiry, 24/7
-            Instrument(
-                symbol="BTCUSD",
-                base="BTC",
-                exchange="PAXOS",
-                sector="crypto",
-                asset_class=AssetClass.CRYPTO,
-                session_id="crypto_24_7",
-                name="Bitcoin/US Dollar",
-                point_value=1.0,
-                tick_size=0.01,
-            ),
-            Instrument(
-                symbol="ETHUSD",
-                base="ETH",
-                exchange="PAXOS",
-                sector="crypto",
-                asset_class=AssetClass.CRYPTO,
-                session_id="crypto_24_7",
-                name="Ether/US Dollar",
-                point_value=1.0,
-                tick_size=0.01,
-            ),
+            # Spot Crypto (PAXOS) — DEACTIVATED 2026-04-13
+            # IBKR PAXOS feed has poor data quality (thin volume, unreliable bars).
+            # Poisoned training data. Re-enable with a better feed when available.
+            # Instrument(
+            #     symbol="BTCUSD",
+            #     base="BTC",
+            #     exchange="PAXOS",
+            #     sector="crypto",
+            #     asset_class=AssetClass.CRYPTO,
+            #     session_id="crypto_24_7",
+            #     name="Bitcoin/US Dollar",
+            #     point_value=1.0,
+            #     tick_size=0.01,
+            # ),
+            # Instrument(
+            #     symbol="ETHUSD",
+            #     base="ETH",
+            #     exchange="PAXOS",
+            #     sector="crypto",
+            #     asset_class=AssetClass.CRYPTO,
+            #     session_id="crypto_24_7",
+            #     name="Ether/US Dollar",
+            #     point_value=1.0,
+            #     tick_size=0.01,
+            # ),
             # ETFs — Pilot 5 (equity expansion phase A)
             Instrument(
                 symbol="SPY",
