@@ -1,7 +1,7 @@
 """Unit tests for BarWriterAgent — TDD tests for Plan 053.1-01 + Plan 63-06.
 
-Tests BarWriterAgent structural contract (BaseAgent inheritance, topics, metrics),
-behavioral contract (buffer bar, flush buffer, source tagging, error handling),
+Tests BarWriterAgent structural contract (BaseWriterAgent inheritance, topics, metrics),
+behavioral contract (parse payload, flush batch, source tagging, error handling),
 Golden Signals metrics, and contract cache invalidation.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
@@ -60,6 +60,14 @@ _TEST_CONTRACT_CACHE_RELOADS = Counter(
     "Cache reloads (test)",
     ["agent"],
 )
+_TEST_BUFFER_DEPTH = Gauge(
+    "test_bwa_buffer_depth",
+    "Buffer depth (test)",
+)
+_TEST_BUFFER_OVERFLOW = Counter(
+    "test_bwa_buffer_overflow_total",
+    "Buffer overflow (test)",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +89,8 @@ def _make_agent():
     agent._db_pool = AsyncMock()
     agent._buffer: list[tuple] = []
     agent._last_flush: float = 0.0
+    agent.BATCH_SIZE = 50
+    agent.FLUSH_INTERVAL_SECS = 5.0
 
     # Wire module-level test metrics
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_writer_agent")
@@ -92,7 +102,7 @@ def _make_agent():
     agent._bars_written_lbl: dict[str, Counter] = {
         tf: _TEST_BARS_WRITTEN.labels(agent="bar_writer_agent", tf=tf) for tf in _tfs
     }
-    # Contract cache (SoT: contract_metadata) — replaces _instruments_cache
+    # Contract cache (SoT: contract_metadata)
     agent._contract_cache: dict[str, str] = {
         "ESM6": "ES",
         "ESU6": "ES",
@@ -101,9 +111,11 @@ def _make_agent():
         "CLK6": "CL",
         "CLM6": "CL",
         "GCJ6": "GC",
-    }  # contract_code -> base_symbol (mirrors contract_metadata fixture)
+    }
     agent._contract_cache_size_lbl = _TEST_CONTRACT_CACHE_SIZE.labels(agent="bar_writer_agent")
     agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(agent="bar_writer_agent")
+    agent._buffer_depth_gauge = _TEST_BUFFER_DEPTH
+    agent._buffer_overflow_total = _TEST_BUFFER_OVERFLOW
     return agent
 
 
@@ -126,15 +138,17 @@ def _make_bar_payload(tf: str = "1m", symbol: str = "ESM6") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: BarWriterAgent.__init__ sets name and metrics_port
+# Test 1: BarWriterAgent inherits from BaseWriterAgent
 # ---------------------------------------------------------------------------
 
 
 def test_init_name_and_metrics_port():
-    """BarWriterAgent must set name='bar_writer_agent' and metrics_port=9121."""
+    """BarWriterAgent must inherit from BaseWriterAgent (and BaseAgent)."""
     from services.bar_writer_agent import BarWriterAgent
     from src.core.agent.base import BaseAgent
+    from src.core.agent.base_writer import BaseWriterAgent
 
+    assert issubclass(BarWriterAgent, BaseWriterAgent)
     assert issubclass(BarWriterAgent, BaseAgent)
 
 
@@ -172,19 +186,20 @@ def test_topics_produced():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: _buffer_bar correctly appends a 10-tuple to the buffer
+# Test 4: _parse_payload correctly returns a list with a 10-tuple
 # ---------------------------------------------------------------------------
 
 
-def test_buffer_bar_appends_tuple():
-    """_buffer_bar appends a 10-element tuple to self._buffer."""
+def test_parse_payload_appends_tuple():
+    """_parse_payload returns a list with a 10-element tuple."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m")
 
-    agent._buffer_bar(payload)
+    rows = agent._parse_payload(payload)
 
-    assert len(agent._buffer) == 1
-    row = agent._buffer[0]
+    assert rows is not None
+    assert len(rows) == 1
+    row = rows[0]
     assert len(row) == 10
     assert row[1] == "ESM6"   # symbol
     assert row[3] == "1m"     # timeframe (index 3 after base added at index 2)
@@ -192,36 +207,35 @@ def test_buffer_bar_appends_tuple():
 
 
 # ---------------------------------------------------------------------------
-# Test 5: _buffer_bar sets source="live_1m" for 1m, "live_htf" for 5m+
+# Test 5: _parse_payload sets source="live_1m" for 1m, "live_htf" for 5m+
 # ---------------------------------------------------------------------------
 
 
-def test_buffer_bar_source_tagging():
+def test_parse_payload_source_tagging():
     """source='live_1m' for tf='1m'; source='live_htf' for all other TFs."""
     agent = _make_agent()
 
-    agent._buffer_bar(_make_bar_payload(tf="1m"))
-    agent._buffer_bar(_make_bar_payload(tf="5m"))
-    agent._buffer_bar(_make_bar_payload(tf="1h"))
+    rows_1m = agent._parse_payload(_make_bar_payload(tf="1m"))
+    rows_5m = agent._parse_payload(_make_bar_payload(tf="5m"))
+    rows_1h = agent._parse_payload(_make_bar_payload(tf="1h"))
 
-    assert agent._buffer[0][9] == "live_1m"
-    assert agent._buffer[1][9] == "live_htf"
-    assert agent._buffer[2][9] == "live_htf"
+    assert rows_1m[0][9] == "live_1m"
+    assert rows_5m[0][9] == "live_htf"
+    assert rows_1h[0][9] == "live_htf"
 
 
 # ---------------------------------------------------------------------------
-# Test 6: _flush_buffer calls executemany, clears buffer, increments counters
+# Test 6: _flush_batch calls executemany and increments counters
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_flush_buffer_success():
-    """_flush_buffer calls executemany, clears the buffer on success."""
+async def test_flush_batch_success():
+    """_flush_batch calls executemany."""
     agent = _make_agent()
 
-    # Pre-populate buffer with a 1m bar (10-tuple: ts, symbol, base, tf, open, high, low, close, volume, source)
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")]
 
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
@@ -233,20 +247,19 @@ async def test_flush_buffer_success():
     ))
     agent._db_pool = mock_pool
 
-    await agent._flush_buffer()
+    await agent._flush_batch(batch)
 
     mock_conn.executemany.assert_called_once()
-    assert len(agent._buffer) == 0  # buffer cleared
 
 
 # ---------------------------------------------------------------------------
-# Test 7: _flush_buffer leaves buffer intact on DB error (retry on next cycle)
+# Test 7: _do_flush leaves buffer intact on DB error (retry on next cycle)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_flush_buffer_leaves_buffer_on_error():
-    """_flush_buffer leaves buffer intact when DB raises an exception."""
+async def test_flush_batch_leaves_buffer_on_error():
+    """_do_flush leaves buffer intact when DB raises an exception."""
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
@@ -259,58 +272,58 @@ async def test_flush_buffer_leaves_buffer_on_error():
     ))
     agent._db_pool = mock_pool
 
-    await agent._flush_buffer()
+    await agent._do_flush()
 
     # Buffer must remain intact for retry
     assert len(agent._buffer) == 1
 
 
 # ---------------------------------------------------------------------------
-# Test 8: _flush_buffer is a no-op when buffer is empty
+# Test 8: _do_flush is a no-op when buffer is empty
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_flush_buffer_noop_when_empty():
-    """_flush_buffer does nothing when the buffer is empty."""
+async def test_flush_batch_noop_when_empty():
+    """_do_flush does nothing when the buffer is empty."""
     agent = _make_agent()
     agent._buffer = []
 
     mock_pool = AsyncMock()
     agent._db_pool = mock_pool
 
-    await agent._flush_buffer()
+    await agent._do_flush()
 
     # pool.acquire should never be called when buffer is empty
     mock_pool.acquire.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# Test 9: _buffer_bar resolves futures contract code to base symbol
+# Test 9: _parse_payload resolves futures contract code to base symbol
 # ---------------------------------------------------------------------------
 
 
-def test_buffer_bar_resolves_futures_base():
-    """_buffer_bar resolves futures contract code to base symbol via _contract_cache."""
+def test_parse_payload_resolves_futures_base():
+    """_parse_payload resolves futures contract code to base symbol via _contract_cache."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m", symbol="ESM6")
 
-    agent._buffer_bar(payload)
+    rows = agent._parse_payload(payload)
 
-    row = agent._buffer[0]
+    row = rows[0]
     assert row[1] == "ESM6"   # symbol unchanged
     assert row[2] == "ES"     # base resolved from contract_cache
     assert row[3] == "1m"     # timeframe at correct index
 
 
-def test_buffer_bar_fallback_for_non_futures():
-    """_buffer_bar falls back to symbol as base for non-futures (ETF, FX)."""
+def test_parse_payload_fallback_for_non_futures():
+    """_parse_payload falls back to symbol as base for non-futures (ETF, FX)."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m", symbol="DIA")
 
-    agent._buffer_bar(payload)
+    rows = agent._parse_payload(payload)
 
-    row = agent._buffer[0]
+    row = rows[0]
     assert row[1] == "DIA"    # symbol
     assert row[2] == "DIA"    # base == symbol (fallback — DIA not in contract_metadata)
 
@@ -353,18 +366,18 @@ async def test_handle_contract_update_survives_malformed_payload():
 
 
 # ---------------------------------------------------------------------------
-# Test 11: _flush_buffer increments correct TF counter (row[3], not row[2])
+# Test 11: _flush_batch increments correct TF counter (row[3], not row[2])
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_flush_buffer_increments_tf_counter():
-    """_flush_buffer increments bars_written_lbl for correct timeframe (not base symbol)."""
+async def test_flush_batch_increments_tf_counter():
+    """_flush_batch increments bars_written_lbl for correct timeframe (not base symbol)."""
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
     # 10-tuple: (ts, symbol, base, tf, open, high, low, close, volume, source)
-    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")]
 
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
@@ -376,7 +389,7 @@ async def test_flush_buffer_increments_tf_counter():
     agent._db_pool = mock_pool
 
     before = agent._bars_written_lbl["1m"]._value.get()
-    await agent._flush_buffer()
+    await agent._flush_batch(batch)
     after = agent._bars_written_lbl["1m"]._value.get()
 
     assert after == before + 1  # exactly 1 bar written for "1m"

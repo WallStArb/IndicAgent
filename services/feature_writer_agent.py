@@ -14,7 +14,6 @@ import asyncio
 import calendar
 import json
 import sys
-import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +25,7 @@ import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
-from src.core.agent.base import BaseAgent
+from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
@@ -116,10 +115,10 @@ def _parse_ts(ts_raw: str | bytes) -> datetime:
 
 
 def _build_expiry_map(settings: Settings) -> dict[str, date]:
-    """Build symbol → expiry date lookup at service startup. Call once; cache result.
+    """Build symbol -> expiry date lookup at service startup. Call once; cache result.
 
-    VX format "YYYYMM" → last calendar day of that month (conservative estimate).
-    Non-futures (FX, CRYPTO) → omitted from map; _compute_days_to_expiry returns 0.
+    VX format "YYYYMM" -> last calendar day of that month (conservative estimate).
+    Non-futures (FX, CRYPTO) -> omitted from map; _compute_days_to_expiry returns 0.
     Malformed expiry strings are silently skipped (symbol omitted, returns 0).
     """
     from src.core.models import AssetClass
@@ -164,41 +163,7 @@ def _record_to_insert_params(
     record: BarIntelligenceRecord,
     expiry_map: dict[str, date] | None = None,
 ) -> tuple:
-    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
-
-    Returns positional params matching $1..$31:
-      $1  ts                       — datetime
-      $2  symbol                   — str
-      $3  tf                       — str
-      $4  platform                 — str
-      $5  source                   — str
-      $6  schema_version           — str (from BarIntelligenceRecord)
-      $7  bar                      — dict (jsonb)
-      $8  i1                       — dict (jsonb)
-      $9  i2                       — dict (jsonb)
-      $10 i3                       — dict (jsonb)
-      $11 i4                       — dict (jsonb)
-      $12 i5                       — dict (jsonb)
-      $13 smc                      — dict (jsonb)
-      $14 i6                       — dict (jsonb)
-      $15 i7                       — list[dict] (jsonb) — full ranked_signals array
-      $16 bar_close_ts             — datetime | None
-      $17 i1_computed_at           — datetime | None
-      $18 computed_at              — datetime | None
-      $19 winner_plugin            — str | None
-      $20 winner_confidence        — float | None
-      $21 winner_direction         — str | None (cast from int)
-      $22 signals_evaluated        — int
-      $23 signals_after_quality    — int
-      $24 signals_after_regime     — int
-      $25 signals_after_tod        — int
-      $26 signals_after_calibration — int
-      $27 ledger_written           — bool
-      $28 pipeline_latency_ms      — float
-      $29 i7_computed_at           — datetime
-      $30 session_type             — str
-      $31 days_to_expiry           — int | None
-    """
+    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
 
@@ -245,13 +210,16 @@ def _record_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriterAgent(BaseAgent):
-    """Async Kafka consumer agent: intelligence.record topic → buffer → batch INSERT to
+class FeatureWriterAgent(BaseWriterAgent):
+    """Async Kafka consumer agent: intelligence.record topic -> buffer -> batch INSERT to
     intelligence_features.
 
     Phase 44.3: Consumes development.intelligence.record only. Performs a single atomic
     INSERT per bar with all columns from BarIntelligenceRecord. No i7/i8 two-phase writes.
     """
+
+    BATCH_SIZE = BATCH_SIZE
+    FLUSH_INTERVAL_SECS = FLUSH_INTERVAL_SECS
 
     def __init__(self, config_file: str | None = None):
         self.start_time = datetime.now(tz=UTC)
@@ -269,9 +237,6 @@ class FeatureWriterAgent(BaseAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self.db_manager: DatabaseManager | None = None
 
-        self._buffer: list[tuple] = []
-        self._last_flush: float = time.monotonic()
-
         try:
             _s = Settings()
             self._env_name: str = _s.env_name or ""
@@ -281,7 +246,7 @@ class FeatureWriterAgent(BaseAgent):
             self._env_name = ""
             self._kafka_bootstrap = "localhost:19092"
 
-        # Prometheus metrics
+        # Prometheus metrics (writer-specific)
         self.events_consumed_total = counter(
             "feature_writer_events_consumed_total",
             "Total BarIntelligenceRecords consumed from intelligence.record topic",
@@ -313,6 +278,85 @@ class FeatureWriterAgent(BaseAgent):
         self._total_batches = 0
         self._error_count = 0
         self._expiry_map: dict[str, date] = {}
+
+    def _topic_name(self) -> str:
+        return topic_intelligence_journal(self._env_name)
+
+    @property
+    def _consumer_group(self) -> str:
+        return CONSUMER_GROUP
+
+    @property
+    def topics_consumed(self) -> list[str]:
+        return [topic_intelligence_journal(self._env_name)]
+
+    @property
+    def topics_produced(self) -> list[str]:
+        return []  # DB writer — no Kafka output
+
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 500  # persistence agent — tighter lag threshold
+
+    def _parse_payload(self, payload: dict) -> list | None:
+        """Parse a BarIntelligenceRecord payload into insert param tuples."""
+        try:
+            if isinstance(payload, dict):
+                record = BarIntelligenceRecord.model_validate(payload)
+            elif isinstance(payload, str):
+                record = BarIntelligenceRecord.model_validate_json(payload.encode())
+            elif isinstance(payload, bytes):
+                record = BarIntelligenceRecord.model_validate_json(payload)
+            else:
+                return None
+        except (ValidationError, ValueError):
+            self._parse_errors_total.inc()
+            return None
+
+        if record is None:
+            return None
+
+        params = _record_to_insert_params(record, self._expiry_map)
+        return [params]
+
+    async def _flush_batch(self, batch: list) -> None:
+        if not self.db_manager:
+            self.logger.warning(
+                "No database connection — cannot flush",
+                count=len(batch),
+            )
+            raise RuntimeError("No database connection")
+
+        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(len(batch))
+
+        with self._batch_latency.time():
+            await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
+
+        PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer").observe(0)
+        self.batch_writes_total.inc()
+        self._total_batches += 1
+        self.events_buffered_gauge.set(0)
+        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(0)
+        self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
+
+    async def _setup(self) -> None:
+        """Connect DB and start Kafka consumer."""
+        await self._connect_database()
+        await self._setup_kafka_clients()
+
+    async def _run(self) -> None:
+        """Main feature writing loop."""
+        self.logger.info("Feature Writer Agent started")
+        tasks = [
+            asyncio.create_task(self._process_loop()),
+            asyncio.create_task(self._periodic_flush_loop()),
+            asyncio.create_task(self._health_monitor_loop()),
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _teardown(self) -> None:
+        """Flush buffer, close Kafka consumer and DB pool."""
+        await self._shutdown()
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         try:
@@ -355,37 +399,6 @@ class FeatureWriterAgent(BaseAgent):
             level=self.config["logging"].get("level", "INFO"),
             backup_count=self.config["logging"].get("backup_count", 5),
         )
-
-    @property
-    def topics_consumed(self) -> list[str]:
-        return [topic_intelligence_journal(self._env_name)]
-
-    @property
-    def topics_produced(self) -> list[str]:
-        return []  # DB writer — no Kafka output
-
-    @property
-    def lag_threshold_messages(self) -> int:
-        return 500  # persistence agent — tighter lag threshold
-
-    async def _setup(self) -> None:
-        """Connect DB and start Kafka consumer."""
-        await self._connect_database()
-        await self._setup_kafka_clients()
-
-    async def _run(self) -> None:
-        """Main feature writing loop."""
-        self.logger.info("Feature Writer Agent started")
-        tasks = [
-            asyncio.create_task(self._process_loop()),
-            asyncio.create_task(self._periodic_flush_loop()),
-            asyncio.create_task(self._health_monitor_loop()),
-        ]
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _teardown(self) -> None:
-        """Flush buffer, close Kafka consumer and DB pool."""
-        await self._shutdown()
 
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
@@ -430,124 +443,97 @@ class FeatureWriterAgent(BaseAgent):
             group=CONSUMER_GROUP,
         )
 
-    def _parse_intelligence_record(self, raw: bytes | str) -> BarIntelligenceRecord | None:
-        """Parse BarIntelligenceRecord from Kafka message bytes/str.
+    async def _process_loop(self) -> None:
+        """Kafka consumer loop — reads intelligence.journal topic and routes by topic."""
+        if not self._kafka_consumer:
+            return
 
-        Returns None on any failure — caller skips the message.
-        """
-        try:
-            return BarIntelligenceRecord.model_validate_json(raw)
-        except (ValidationError, ValueError) as e:
-            self.logger.warning("parse_record_failed", error=str(e))
-            self._parse_errors_total.inc()
-            return None
+        intelligence_journal_topic = topic_intelligence_journal(self._env_name)
+        roll_events_topic = topic_roll_events(self._env_name)
+        cross_asset_topic = topic_cross_asset(self._env_name)
 
-    async def _process_single_message(
-        self,
-        symbol: str,
-        timeframe: str,
-        payload: dict | str | bytes,
-    ) -> bool:
-        """Parse one Kafka message payload (BarIntelligenceRecord), buffer insert params."""
-        try:
-            # Payload may be dict (auto-deserialized), str, or bytes (raw Kafka)
-            # Pydantic's model_validate() handles datetime objects natively
-            if isinstance(payload, dict):
-                record = BarIntelligenceRecord.model_validate(payload)
-            elif isinstance(payload, str):
-                record = self._parse_intelligence_record(payload.encode())
-            else:
-                record = self._parse_intelligence_record(payload)
-            if record is None:
-                self.logger.warning(
-                    "Malformed BarIntelligenceRecord — skipped",
-                    symbol=symbol,
-                    tf=timeframe,
-                )
+        async for kafka_topic, key, payload in self._kafka_consumer.messages():
+            if not self.running:
+                break
+            self._record_message_consumed()
+            try:
+                # Route roll_events to roll handler (no symbol/tf key required)
+                if kafka_topic == roll_events_topic:
+                    await self._handle_roll_event(payload)
+                    continue
+
+                # Route cross_asset topic — group-level, no symbol/tf key
+                if kafka_topic == cross_asset_topic:
+                    await self._process_cross_asset_message(payload)
+                    continue
+
+                # Extract symbol and timeframe from key (format "SYMBOL:TF")
+                key_str = key if isinstance(key, str) else (key.decode() if key else "")
+                parts = key_str.split(":")
+                if len(parts) != 2:
+                    self.logger.warning("Skipping message with malformed key", key=key_str)
+                    continue
+                symbol, timeframe = parts
+
+                # SAFETY: Skip raw intelligence events — these have {"event": "..."} wrapper
+                if isinstance(payload, dict) and "event" in payload:
+                    continue
+
+                if kafka_topic == intelligence_journal_topic:
+                    rows = self._parse_payload(payload)
+                    if rows is not None:
+                        self._buffer_rows(rows)
+                        self.events_consumed_total.inc()
+                        self._total_events += 1
+                    else:
+                        self.error_count_total.inc()
+                    self.events_buffered_gauge.set(len(self._buffer))
+                    await self.maybe_flush()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
-                return True
+                self._error_count += 1
 
-            params = _record_to_insert_params(record, self._expiry_map)
-            self._buffer.append(params)
-            self.events_consumed_total.inc()
-            self._total_events += 1
-            self.events_buffered_gauge.set(len(self._buffer))
+    async def _periodic_flush_loop(self) -> None:
+        """Flush buffered events every FLUSH_INTERVAL_SECS regardless of message rate.
 
-            # Flush if buffer full
-            if len(self._buffer) >= BATCH_SIZE:
-                await self._maybe_flush(force=True)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                "Error processing message",
-                symbol=symbol,
-                timeframe=timeframe,
-                error=str(e),
-            )
-            self.error_count_total.inc()
-            self._error_count += 1
-            return False
-
-    async def _maybe_flush(self, force: bool = False) -> None:
-        """Write buffered events to intelligence_features if conditions are met.
-
-        Flushes when:
-        - force=True (explicit flush, e.g. on shutdown)
-        - time since last flush >= FLUSH_INTERVAL_SECS (time-based flush)
-        - len(buffer) >= BATCH_SIZE (size-based safety net)
+        Without this, the time-based flush in maybe_flush only triggers when a new
+        message arrives. If the intelligence.record topic goes quiet, buffered events
+        never reach the database until the next message arrives.
         """
-        if not self._buffer:
-            return
+        while self.running:
+            try:
+                await asyncio.sleep(FLUSH_INTERVAL_SECS)
+                await self.maybe_flush()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in periodic flush loop", error=str(e))
 
-        should_flush = (
-            force
-            or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
-            or len(self._buffer) >= BATCH_SIZE
-        )
-
-        if not should_flush:
-            return
-
-        if not self.db_manager:
-            # No DB — clear buffer to avoid unbounded growth, log warning
-            self.logger.warning(
-                "No database connection — dropping buffered events",
-                count=len(self._buffer),
-            )
-            self._buffer.clear()
-            self._last_flush = time.monotonic()
-            return
-
-        # Snapshot the buffer so execute_batch has a stable list; on failure
-        # the original self._buffer is unchanged and will retry on the next flush.
-        params = list(self._buffer)
-        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(len(params))
-
-        batch_start = time.monotonic()
-        try:
-            with self._batch_latency.time():
-                await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
-            # Explicitly commit offsets after successful DB persistence
-            if getattr(self, "_kafka_consumer", None):
-                await self._kafka_consumer.commit()
-
-            batch_latency = time.monotonic() - batch_start
-            PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer").observe(batch_latency)
-            self._buffer.clear()
-            self._last_flush = time.monotonic()
-            self.batch_writes_total.inc()
-            self._total_batches += 1
-            self.events_buffered_gauge.set(0)
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(0)
-            self.logger.debug("Flushed intelligence_features batch", rows=len(params))
-        except Exception as e:
-            self.logger.error("Batch write failed", error=str(e), rows=len(params))
-            # params remain in self._buffer for retry on next flush cycle
-            self.error_count_total.inc()
-            self._error_count += 1
-            self.events_buffered_gauge.set(len(self._buffer))
+    async def _health_monitor_loop(self) -> None:
+        while self.running:
+            try:
+                uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
+                self.service_uptime_seconds.set(uptime)
+                self._consumer_lag_metric.set(len(self._buffer))
+                interval = self.config["service"].get("health_check_interval", 30)
+                self.logger.info(
+                    "Health check",
+                    uptime=uptime,
+                    events_consumed=self._total_events,
+                    batches_written=self._total_batches,
+                    buffer_size=len(self._buffer),
+                    errors=self._error_count,
+                )
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in health monitor", error=str(e))
+                await asyncio.sleep(5)
 
     async def _handle_roll_event(self, event: dict) -> None:
         """Write roll boundary marker to intelligence_features on futures roll.
@@ -669,97 +655,13 @@ class FeatureWriterAgent(BaseAgent):
             self.logger.warning("cross_asset_persist_failed", error=str(e))
             self.error_count_total.inc()
 
-    async def _process_loop(self) -> None:
-        """Kafka consumer loop — reads intelligence.journal topic and routes by topic."""
-        if not self._kafka_consumer:
-            return
-
-        intelligence_journal_topic = topic_intelligence_journal(self._env_name)
-        roll_events_topic = topic_roll_events(self._env_name)
-        cross_asset_topic = topic_cross_asset(self._env_name)
-
-        async for kafka_topic, key, payload in self._kafka_consumer.messages():
-            if not self.running:
-                break
-            self._record_message_consumed()
-            try:
-                # Route roll_events to roll handler (no symbol/tf key required)
-                if kafka_topic == roll_events_topic:
-                    await self._handle_roll_event(payload)
-                    continue
-
-                # Route cross_asset topic — group-level, no symbol/tf key
-                if kafka_topic == cross_asset_topic:
-                    await self._process_cross_asset_message(payload)
-                    continue
-
-                # Extract symbol and timeframe from key (format "SYMBOL:TF")
-                key_str = key if isinstance(key, str) else (key.decode() if key else "")
-                parts = key_str.split(":")
-                if len(parts) != 2:
-                    self.logger.warning("Skipping message with malformed key", key=key_str)
-                    continue
-                symbol, timeframe = parts
-
-                # SAFETY: Skip raw intelligence events — these have {"event": "..."} wrapper
-                if isinstance(payload, dict) and "event" in payload:
-                    continue
-
-                if kafka_topic == intelligence_journal_topic:
-                    await self._process_single_message(symbol, timeframe, payload)
-                    await self._maybe_flush(force=False)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in processing loop", error=str(e))
-                self.error_count_total.inc()
-                self._error_count += 1
-
-    async def _periodic_flush_loop(self) -> None:
-        """Flush buffered events every FLUSH_INTERVAL_SECS regardless of message rate.
-
-        Without this, the time-based flush in _maybe_flush only triggers when a new
-        message arrives. If the intelligence.record topic goes quiet, buffered events
-        never reach the database until the next message arrives.
-        """
-        while self.running:
-            try:
-                await asyncio.sleep(FLUSH_INTERVAL_SECS)
-                await self._maybe_flush(force=False)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in periodic flush loop", error=str(e))
-
-    async def _health_monitor_loop(self) -> None:
-        while self.running:
-            try:
-                uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
-                self.service_uptime_seconds.set(uptime)
-                self._consumer_lag_metric.set(len(self._buffer))
-                interval = self.config["service"].get("health_check_interval", 30)
-                self.logger.info(
-                    "Health check",
-                    uptime=uptime,
-                    events_consumed=self._total_events,
-                    batches_written=self._total_batches,
-                    buffer_size=len(self._buffer),
-                    errors=self._error_count,
-                )
-                await asyncio.sleep(interval)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in health monitor", error=str(e))
-                await asyncio.sleep(5)
-
     async def _shutdown(self) -> None:
         """Graceful shutdown: flush buffer, close connections."""
         self.logger.info("Shutting down Feature Writer Agent")
 
         # Flush remaining buffered records before closing
-        await self._maybe_flush(force=True)
+        if self._buffer:
+            await self._do_flush()
         self._buffer.clear()
 
         if self._kafka_consumer:

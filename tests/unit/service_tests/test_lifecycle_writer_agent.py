@@ -32,16 +32,18 @@ def _make_agent():
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
     agent._settings.env_name = "development"
     agent._db = MagicMock()
-    agent._consumer = MagicMock()
+    agent._consumer = AsyncMock()
     agent._repo = MagicMock()
     agent._repo.batch_execute = AsyncMock()
     agent._buffer = []
+    agent._last_flush = 0.0
     agent._events_consumed = _TEST_EVENTS
     agent._transitions_written = _TEST_WRITTEN
     agent._write_errors = _TEST_ERRORS
     agent._batch_latency = _TEST_LATENCY.labels(agent_id="test")
     agent._consumer_lag = _TEST_LAG.labels(agent_id="test")
-    agent._buffer_depth = _TEST_DEPTH
+    agent._buffer_depth_gauge = _TEST_DEPTH
+    agent._buffer_overflow_total = MagicMock()
     return agent
 
 
@@ -73,9 +75,9 @@ class TestLifecycleWriterAgentStructure:
         source = open("services/lifecycle_writer_agent.py").read()
         assert "LifecycleWriterAgent" in source
 
-    def test_inherits_base_agent(self):
+    def test_inherits_base_writer_agent(self):
         source = open("services/lifecycle_writer_agent.py").read()
-        assert "BaseAgent" in source
+        assert "BaseWriterAgent" in source
 
     def test_no_compute_logic(self):
         """WriterAgent must contain zero lifecycle evaluation logic."""
@@ -106,21 +108,21 @@ class TestBufferAccumulation:
 
 
 # ---------------------------------------------------------------------------
-# Flush behavior — grouping by type
+# Flush behavior — grouping by type (via _flush_batch)
 # ---------------------------------------------------------------------------
 
 
 class TestFlushGroupsByType:
     @pytest.mark.asyncio
     async def test_flush_groups_by_type(self):
-        """Two activations + one exit → two batch_execute calls."""
+        """Two activations + one exit -> two batch_execute calls."""
         agent = _make_agent()
-        agent._buffer.extend([
+        batch = [
             _make_transition("activation", "sig-001", data={"activation_price": 100.0}),
             _make_transition("exit", "sig-002", data={"exit_price": 105.0}),
             _make_transition("activation", "sig-003", data={"activation_price": 200.0}),
-        ])
-        await agent._flush()
+        ]
+        await agent._flush_batch(batch)
 
         # Should be called twice: once for "activation" (2 items), once for "exit" (1 item)
         assert agent._repo.batch_execute.call_count == 2
@@ -140,27 +142,27 @@ class TestFlushGroupsByType:
                 assert items[0]["exit_price"] == 105.0
 
     @pytest.mark.asyncio
-    async def test_flush_clears_buffer_on_success(self):
+    async def test_do_flush_clears_buffer_on_success(self):
         agent = _make_agent()
         agent._buffer.append(_make_transition("activation", "sig-001"))
-        await agent._flush()
+        await agent._do_flush()
         assert len(agent._buffer) == 0
 
     @pytest.mark.asyncio
-    async def test_flush_empty_buffer_is_noop(self):
+    async def test_do_flush_empty_buffer_is_noop(self):
         agent = _make_agent()
-        await agent._flush()
+        await agent._do_flush()
         agent._repo.batch_execute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_flush_handles_db_error_buffer_preserved(self):
+    async def test_do_flush_handles_db_error_buffer_preserved(self):
         agent = _make_agent()
         agent._repo.batch_execute = AsyncMock(side_effect=Exception("db down"))
         agent._buffer.extend([
             _make_transition("activation", "sig-001"),
             _make_transition("exit", "sig-002"),
         ])
-        await agent._flush()
+        await agent._do_flush()
         # Buffer should NOT be cleared on error
         assert len(agent._buffer) == 2
 

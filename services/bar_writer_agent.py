@@ -14,9 +14,9 @@ Golden Signals (D-06):
 - Errors: write_errors_total, conflict_skips_total
 - Saturation: persistence_consumer_lag
 
-Version: 1.0.0
-Last Updated: 2026-03-28
-Status: Phase 053.1 Plan 01
+Version: 2.0.0
+Last Updated: 2026-04-13
+Status: Phase 68 Plan 02 — migrated to BaseWriterAgent
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base_writer import BaseWriterAgent
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.schemas.market_events import ContractUpdateEvent
@@ -45,9 +45,6 @@ from src.core.stream_keys import topic_contract_updates, topic_market_bars, topi
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_BATCH_SIZE: int = 50
-_FLUSH_INTERVAL: float = 5.0
 
 _INSERT_OHLCV_SQL: str = """
 INSERT INTO market_data_ohlcv (timestamp, symbol, base, timeframe, open, high, low, close, volume, source)
@@ -92,7 +89,7 @@ _CONSUMER_LAG = Gauge(
 )
 _CONTRACT_CACHE_SIZE = Gauge(
     "bar_writer_contract_cache_size",
-    "Number of entries in the contract→base symbol cache (from contract_metadata)",
+    "Number of entries in the contract->base symbol cache (from contract_metadata)",
     ["agent"],
 )
 _CONTRACT_CACHE_RELOADS = Counter(
@@ -102,7 +99,7 @@ _CONTRACT_CACHE_RELOADS = Counter(
 )
 
 
-class BarWriterAgent(BaseAgent):
+class BarWriterAgent(BaseWriterAgent):
     """Dedicated OHLCV persistence agent.
 
     Consumes 1m bars from topic_market_bars and HTF bars from
@@ -113,6 +110,9 @@ class BarWriterAgent(BaseAgent):
     Cold-start: auto.offset.reset=latest (D-14).
     """
 
+    BATCH_SIZE = 50
+    FLUSH_INTERVAL_SECS = 5.0
+
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
@@ -122,8 +122,6 @@ class BarWriterAgent(BaseAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
-        self._buffer: list[tuple] = []
-        self._last_flush: float = 0.0
         # contract_code -> base_symbol (SoT: contract_metadata)
         self._contract_cache: dict[str, str] = {}
 
@@ -139,6 +137,13 @@ class BarWriterAgent(BaseAgent):
         self._contract_cache_size_lbl = _CONTRACT_CACHE_SIZE.labels(agent=self.name)
         self._contract_cache_reloads_lbl = _CONTRACT_CACHE_RELOADS.labels(agent=self.name)
 
+    def _topic_name(self) -> str:
+        return topic_market_bars(self._env_name)
+
+    @property
+    def _consumer_group(self) -> str:
+        return "bar_writer_consumer"
+
     @property
     def topics_consumed(self) -> list[str]:
         return [
@@ -151,45 +156,118 @@ class BarWriterAgent(BaseAgent):
     def topics_produced(self) -> list[str]:
         return []
 
+    def _parse_payload(self, payload: dict) -> list | None:
+        """Parse a bar payload into a buffer row tuple.
+
+        Returns list with one 10-tuple, empty list if parse fails (not DLQ),
+        or None for non-bar payloads (contract updates handled separately).
+        """
+        bar = self._parse_bar(payload)
+        if bar is None:
+            return None
+
+        base = self._contract_cache.get(bar.symbol, bar.symbol)
+        source = "live_1m" if bar.tf == "1m" else "live_htf"
+        row = (
+            bar.ts,
+            bar.symbol,
+            base,
+            bar.tf,
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+            bar.volume,
+            source,
+        )
+        return [row]
+
+    async def _flush_batch(self, batch: list) -> None:
+        assert self._db_pool is not None
+        t0 = time.monotonic()
+        async with self._db_pool.acquire() as conn:
+            with self._persistence_batch_latency_lbl.time():
+                await conn.executemany(_INSERT_OHLCV_SQL, batch)
+
+        for row in batch:
+            tf = row[3]
+            if tf in self._bars_written_lbl:
+                self._bars_written_lbl[tf].inc()
+
+        self.logger.debug(
+            "bar_writer_agent.flush_complete",
+            batch_size=len(batch),
+            latency_ms=round((time.monotonic() - t0) * 1000, 2),
+        )
+
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
         self._db_pool = await asyncpg.create_pool(self._settings.database_url)
-        await self._load_contract_cache()  # Load contract_metadata → contract_code→base_symbol
+        await self._load_contract_cache()
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_market_bars(self._env_name),
             topic_market_bars_htf(self._env_name),
-            topic_contract_updates(self._env_name),  # cache invalidation on roll promotions
+            topic_contract_updates(self._env_name),
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id="bar_writer_consumer",
             auto_offset_reset="latest",
+            enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
+        self._last_flush = time.monotonic()
         self.logger.info(
             "bar_writer_agent.setup_complete",
             topics_consumed=self.topics_consumed,
             contracts_cached=len(self._contract_cache),
         )
 
+    async def _run(self) -> None:
+        """Main loop: consume bars, buffer, flush on batch size or interval."""
+        _contract_updates_topic = topic_contract_updates(self._env_name)
+
+        async for _topic, _key, payload in self._kafka_consumer.messages():
+            if not self.running:
+                break
+
+            # Route contract update events to cache invalidation — do not buffer as bars
+            if _topic == _contract_updates_topic:
+                await self._handle_contract_update(payload)
+                continue
+
+            try:
+                rows = self._parse_payload(payload)
+                if rows is not None:
+                    self._buffer_rows(rows)
+                self._events_consumed_lbl.inc()
+            except Exception as exc:
+                self.logger.warning(
+                    "bar_writer_agent.parse_failed",
+                    error=str(exc),
+                    payload_preview=str(payload)[:200],
+                )
+                continue
+
+            self._persistence_consumer_lag_lbl.set(len(self._buffer))
+            await self.maybe_flush()
+
     async def _teardown(self) -> None:
-        """Flush remaining buffer, stop consumer, close DB pool."""
-        if self._buffer:
-            await self._flush_buffer()
+        await super()._teardown()
         if self._kafka_consumer is not None:
             await self._kafka_consumer.stop()
         if self._db_pool is not None:
             await self._db_pool.close()
 
     async def _load_contract_cache(self) -> None:
-        """Load contract_metadata into memory for O(1) contract→base lookups.
+        """Load contract_metadata into memory for O(1) contract->base lookups.
 
         Renaissance SoT: contract_metadata is the authoritative registry for
-        contract→base mappings, maintained by ContractMetadataWriterAgent.
+        contract->base mappings, maintained by ContractMetadataWriterAgent.
 
         Non-futures (ETFs, FX, crypto) are not in contract_metadata — fallback
         to bar.symbol is correct for those (they have no roll lifecycle).
 
-        Cache size: ~33 rows (11 base symbols × 3 expiries each) — trivial footprint.
+        Cache size: ~33 rows (11 base symbols x 3 expiries each) — trivial footprint.
         Reloaded on ContractUpdateEvent (quarterly rolls) and at startup.
         """
         query = "SELECT symbol, base_symbol FROM contract_metadata;"
@@ -213,111 +291,8 @@ class BarWriterAgent(BaseAgent):
                 count=cache_size,
             )
 
-    async def _run(self) -> None:
-        """Main loop: consume bars, buffer, flush on batch size or interval."""
-        _contract_updates_topic = topic_contract_updates(self._env_name)
-
-        async for _topic, _key, payload in self._kafka_consumer.messages():
-            if not self.running:
-                break
-
-            # Route contract update events to cache invalidation — do not buffer as bars
-            if _topic == _contract_updates_topic:
-                await self._handle_contract_update(payload)
-                continue
-
-            try:
-                self._buffer_bar(payload)
-                self._events_consumed_lbl.inc()
-            except Exception as exc:
-                self.logger.warning(
-                    "bar_writer_agent.parse_failed",
-                    error=str(exc),
-                    payload_preview=str(payload)[:200],
-                )
-                continue
-
-            # Flush if batch full or interval elapsed
-            should_flush = len(self._buffer) >= _BATCH_SIZE or (
-                self._buffer and time.monotonic() - self._last_flush > _FLUSH_INTERVAL
-            )
-            self._persistence_consumer_lag_lbl.set(len(self._buffer))
-
-            if should_flush:
-                await self._flush_buffer()
-
-    def _buffer_bar(self, payload: dict) -> None:
-        """Parse payload and append a 10-tuple to the write buffer.
-
-        Tuple layout: (ts, symbol, base, tf, open, high, low, close, volume, source)
-        source: "live_1m" for 1m bars, "live_htf" for all HTF bars (D-04).
-        """
-        bar = self._parse_bar(payload)
-        if bar is None:
-            return
-
-        # Renaissance SoT: Lookup base from contract_metadata cache (O(1))
-        # Fallback to symbol if not in cache (ETFs, FX, crypto — no roll lifecycle)
-        base = self._contract_cache.get(bar.symbol, bar.symbol)
-
-        source = "live_1m" if bar.tf == "1m" else "live_htf"
-        self._buffer.append(
-            (
-                bar.ts,  # $1 timestamp — Python datetime (asyncpg requirement)
-                bar.symbol,  # $2 symbol (contract code: ESM6, SPY, etc.)
-                base,  # $3 base (ES for futures, same as symbol for ETFs/FX)
-                bar.tf,  # $4 timeframe
-                bar.open,  # $5 open
-                bar.high,  # $6 high
-                bar.low,  # $7 low
-                bar.close,  # $8 close
-                bar.volume,  # $9 volume
-                source,  # $10 source
-            )
-        )
-
-    async def _flush_buffer(self) -> None:
-        """Batch-write _buffer to market_data_ohlcv.
-
-        Uses executemany for efficiency. ON CONFLICT DO NOTHING makes writes
-        idempotent — safe on replay or duplicate delivery.
-
-        On success: clears buffer, updates last_flush timestamp.
-        On error: logs, increments error counter, leaves buffer intact for retry.
-        """
-        if not self._buffer:
-            return
-
-        batch = self._buffer[:]
-        t0 = time.monotonic()
-        try:
-            async with self._db_pool.acquire() as conn:
-                with self._persistence_batch_latency_lbl.time():
-                    await conn.executemany(_INSERT_OHLCV_SQL, batch)
-
-            for row in batch:
-                tf = row[3]
-                if tf in self._bars_written_lbl:
-                    self._bars_written_lbl[tf].inc()
-
-            self._buffer.clear()
-            self._last_flush = time.monotonic()
-            self.logger.debug(
-                "bar_writer_agent.flush_complete",
-                batch_size=len(batch),
-                latency_ms=round((time.monotonic() - t0) * 1000, 2),
-            )
-        except Exception as exc:
-            self._write_errors_lbl.inc()
-            self.logger.error(
-                "bar_writer_agent.flush_failed",
-                error=str(exc),
-                buffer_size=len(batch),
-            )
-            # Leave buffer intact for retry on next flush cycle
-
     async def _handle_contract_update(self, payload: dict) -> None:
-        """Handle ContractUpdateEvent — invalidate and reload contract→base cache.
+        """Handle ContractUpdateEvent — invalidate and reload contract->base cache.
 
         Called when ContractMetadataWriterAgent promotes a new front-month contract.
         Reloads _contract_cache so subsequent bars use the new contract code's base symbol.
