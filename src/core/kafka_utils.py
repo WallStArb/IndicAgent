@@ -170,14 +170,7 @@ class KafkaConsumerClient:
         if not partitions:
             return 0
 
-        end_offsets = await self._consumer.end_offsets(list(partitions))
-        total_lag = 0
-        for tp, end_offset in end_offsets.items():
-            try:
-                current = await self._consumer.position(tp)
-                total_lag += max(0, end_offset - current)
-            except Exception:
-                pass
+        total_lag = await self._calculate_lag(partitions)
 
         if total_lag > max_lag:
             await self._consumer.seek_to_end()
@@ -187,14 +180,7 @@ class KafkaConsumerClient:
             await self._consumer.commit()
 
             # Verify the seek actually persisted by re-checking lag
-            post_seek_lag = 0
-            end_offsets = await self._consumer.end_offsets(list(partitions))
-            for tp, end_offset in end_offsets.items():
-                try:
-                    current = await self._consumer.position(tp)
-                    post_seek_lag += max(0, end_offset - current)
-                except Exception:
-                    pass
+            post_seek_lag = await self._calculate_lag(partitions)
 
             if post_seek_lag > max_lag:
                 logger.critical(
@@ -217,6 +203,26 @@ class KafkaConsumerClient:
                 post_seek_lag=post_seek_lag,
             )
 
+        return total_lag
+
+    async def _calculate_lag(self, partitions: set) -> int:
+        """Calculate total lag across partitions.
+
+        Returns sum of (end_offset - current_position) for all assigned partitions.
+        Returns 0 if partition assignment fails or position queries fail.
+        """
+        end_offsets = await self._consumer.end_offsets(list(partitions))
+        total_lag = 0
+        for tp, end_offset in end_offsets.items():
+            try:
+                current = await self._consumer.position(tp)
+                total_lag += max(0, end_offset - current)
+            except Exception as e:
+                logger.warning(
+                    "kafka_consumer.position_failed",
+                    topic_partition=tp,
+                    error=str(e),
+                )
         return total_lag
 
     async def getmany(
