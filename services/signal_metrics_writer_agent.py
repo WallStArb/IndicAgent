@@ -104,9 +104,9 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         await conn.execute(
             """
             INSERT INTO setup_performance
-                (setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio, updated_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (setup_plugin) DO UPDATE
+                (setup_plugin, symbol, win_rate, avg_pnl_r, sample_size, sharpe_ratio, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (setup_plugin, symbol) DO UPDATE
                 SET win_rate     = EXCLUDED.win_rate,
                     avg_pnl_r   = EXCLUDED.avg_pnl_r,
                     sample_size  = EXCLUDED.sample_size,
@@ -114,6 +114,7 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
                     updated_at   = EXCLUDED.updated_at
             """,
             event["setup_plugin"],
+            event.get("symbol", "*"),
             event.get("win_rate"),
             event.get("avg_r"),
             event["n"],

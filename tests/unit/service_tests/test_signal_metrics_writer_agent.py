@@ -86,6 +86,64 @@ class TestHandleMetricsComputed:
         await _handle_metrics_computed(conn, event)
         assert conn.execute.call_count == 1  # signal_metrics only
 
+    @pytest.mark.asyncio
+    async def test_setup_performance_includes_symbol_column(self):
+        """setup_performance INSERT includes symbol column with '*' default."""
+        conn = AsyncMock()
+        event = {
+            "track": "market",
+            "setup_plugin": "trad_TrendFollowing",
+            "tf": "5m",
+            "regime_type": "all",
+            "window_days": 30,
+            "n": 45,
+            "n_outliers": 0,
+            "never_activated_pct": None,
+            "win_rate": 0.52,
+            "avg_r": 0.31,
+            "std_r": 0.88,
+            "sharpe": 0.35,
+            "p_value": 0.03,
+            "avg_mae": -0.42,
+            "avg_mfe": 0.95,
+            "computed_at": "2026-04-05T12:00:00+00:00",
+        }
+        await _handle_metrics_computed(conn, event)
+        # Second call is setup_performance shim
+        shim_call = conn.execute.call_args_list[1]
+        shim_sql = shim_call[0][0]
+        assert "symbol" in shim_sql
+        assert "ON CONFLICT (setup_plugin, symbol)" in shim_sql
+
+    @pytest.mark.asyncio
+    async def test_setup_performance_defaults_symbol_to_star(self):
+        """setup_performance uses symbol='*' when event has no symbol field."""
+        conn = AsyncMock()
+        event = {
+            "track": "market",
+            "setup_plugin": "trad_TrendFollowing",
+            "tf": "5m",
+            "regime_type": "all",
+            "window_days": 30,
+            "n": 45,
+            "n_outliers": 0,
+            "never_activated_pct": None,
+            "win_rate": 0.52,
+            "avg_r": 0.31,
+            "std_r": 0.88,
+            "sharpe": 0.35,
+            "p_value": 0.03,
+            "avg_mae": -0.42,
+            "avg_mfe": 0.95,
+            "computed_at": "2026-04-05T12:00:00+00:00",
+        }
+        await _handle_metrics_computed(conn, event)
+        # Second call is setup_performance shim; check params
+        shim_call = conn.execute.call_args_list[1]
+        shim_params = shim_call[0][1:]
+        # Second param after setup_plugin is symbol, should be '*'
+        assert shim_params[1] == "*"
+
 
 class TestHandleIcComputed:
     @pytest.mark.asyncio
