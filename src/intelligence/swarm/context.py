@@ -7,6 +7,7 @@ Never touches the database. Bar loop populates the cache; signal loop reads it.
 from __future__ import annotations
 
 import time
+import types
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -81,6 +82,31 @@ class SwarmContextCache:
     def update(self, event: IntelligenceEvent) -> None:
         key = (event.symbol, event.tf)
         self._cache[key] = (event, time.monotonic())
+
+    def seed_from_db_row(self, row: dict) -> None:
+        """Seed cache from a raw intelligence_features DB row (asyncpg dict).
+
+        Constructs a SimpleNamespace proxy — satisfies getattr() access pattern
+        in build() without requiring a full IntelligenceEvent deserialization.
+        asyncpg returns JSONB columns as Python dicts; SimpleNamespace unpacks them.
+        """
+        def _ns(d: dict | None) -> types.SimpleNamespace:
+            if isinstance(d, dict):
+                return types.SimpleNamespace(**d)
+            return types.SimpleNamespace()
+
+        symbol = row["symbol"]
+        tf = row["tf"]
+        proxy = types.SimpleNamespace(
+            symbol=symbol,
+            tf=tf,
+            ts=row["ts"],
+            bar=_ns(row.get("bar")),
+            i1=_ns(row.get("i1")),
+            i4=_ns(row.get("i4")),
+            i6=_ns(row.get("i6")),
+        )
+        self._cache[(symbol, tf)] = (proxy, time.monotonic())
 
     def build(
         self,
