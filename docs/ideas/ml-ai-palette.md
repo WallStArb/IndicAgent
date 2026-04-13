@@ -4,7 +4,6 @@
 **Purpose:** Research-backed analysis of ML/AI technology choices. A "color palette" for our tech stack — each tool has strengths, weaknesses, and intended applications.
 **Last Updated:** 2026-04-08
 **Related:** 
-- `docs/plans/2026-04-08-ai-layer-refactor-design.md` — LLM infrastructure shared layer
 - `docs/plans/2026-04-08-ai-extensions-design.md` — AI services roadmap
 - `tech-stack.md`, `ml-agent-architecture.md`, `renaissance-alpha-pipeline.md`
 
