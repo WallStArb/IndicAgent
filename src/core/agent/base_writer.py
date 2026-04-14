@@ -113,6 +113,20 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """Override to return DLQ topic name. None = log-only (default)."""
         return None
 
+    async def _maybe_route_to_dlq(self, payload: dict, error: Exception) -> None:
+        """Route payload to DLQ if _dlq_topic() is configured.
+
+        Call from _run() when _parse_payload() returns None.
+        """
+        dlq_topic = self._dlq_topic()
+        if dlq_topic is None:
+            # No DLQ configured — log and discard via BaseAgent._send_to_dlq()
+            await self._send_to_dlq(payload, error)
+            return
+
+        # DLQ topic configured — route via BaseAgent._send_to_dlq() override in subclass
+        await self._send_to_dlq(payload, error)
+
     # -----------------------------------------------------------------------
     # Buffer management — called from subclass _run()
     # -----------------------------------------------------------------------
