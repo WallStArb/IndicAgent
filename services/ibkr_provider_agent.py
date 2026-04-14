@@ -41,9 +41,9 @@ class IBKRProviderAgent(BaseProviderAgent):
     def _create_adapter(self) -> DataProviderAdapter:
         """Return an IBKRAdapter using settings from base class."""
         return IBKRAdapter(
-            host=self._settings.ib_host,
-            port=self._settings.ib_port,
-            client_id=self._settings.ib_client_id,
+            host=self.settings.ib_host,
+            port=self.settings.ib_port,
+            client_id=self.settings.ib_client_id,
         )
 
 

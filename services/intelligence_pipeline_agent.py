@@ -39,7 +39,7 @@ from uuid import uuid4
 import structlog
 from pydantic import ValidationError
 
-from src.config.settings import get_active_contracts
+from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
@@ -424,10 +424,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             setup_service_logging(_log_file)
 
+        _settings = get_settings()
         super().__init__(
             name="intelligence_pipeline_agent",
-            metrics_port=self.settings.pipeline_metrics_port,
+            metrics_port=_settings.pipeline_metrics_port,
             max_idle_seconds=300,
+            settings=_settings,
         )
 
         self._contracts = get_active_contracts(self.settings)

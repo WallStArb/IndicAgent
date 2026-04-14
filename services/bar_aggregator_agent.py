@@ -116,9 +116,8 @@ class BarAggregatorComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        # config-before-super pattern (Phase 52.2 convention)
-        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="bar_aggregator_agent", metrics_port=9120, max_idle_seconds=300)
+        self._env_name: str = self.settings.env_name or ""
 
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None

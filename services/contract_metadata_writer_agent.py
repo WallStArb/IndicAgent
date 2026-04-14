@@ -93,11 +93,9 @@ class ContractMetadataWriterAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        # config-before-super pattern (Phase 52.2 convention)
-        self._env_name: str = self.settings.env_name or ""
         self._dry_run: bool = os.environ.get("DRY_RUN", "false").lower() == "true"
-
         super().__init__(name="contract_metadata_writer_agent", metrics_port=9124)
+        self._env_name: str = self.settings.env_name or ""
 
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
