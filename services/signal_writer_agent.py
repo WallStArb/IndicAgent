@@ -26,7 +26,10 @@ from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts
-from src.core.stream_keys import topic_intelligence_i7_signals
+from src.core.stream_keys import (
+    topic_intelligence_i7_signals,
+    topic_signal_writer_dlq,
+)
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
@@ -87,6 +90,10 @@ class SignalWriterAgent(BaseWriterAgent):
     def _consumer_group(self) -> str:
         return CONSUMER_GROUP
 
+    def _dlq_topic(self) -> str | None:
+        """Route unparseable signal payloads to DLQ."""
+        return topic_signal_writer_dlq(self._settings.env_name)
+
     def _parse_payload(self, payload: dict) -> list | None:
         rows = _payload_to_ledger_entries(payload)
         return rows if rows else None
@@ -126,6 +133,9 @@ class SignalWriterAgent(BaseWriterAgent):
             rows = self._parse_payload(payload)
             if rows is not None:
                 self._buffer_rows(rows)
+            else:
+                # Parse failed — route to DLQ for analysis
+                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             self._consumer_lag.set(len(self._buffer))
             await self.maybe_flush()
