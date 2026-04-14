@@ -1,9 +1,8 @@
 """Tests for Grafana provisioning YAML files."""
 
 import pathlib
-import yaml
 
-import pytest
+import yaml
 
 
 def test_contact_points_example_valid_yaml():

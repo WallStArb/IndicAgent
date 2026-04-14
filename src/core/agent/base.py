@@ -29,9 +29,10 @@ import os
 import signal
 import sys
 import time
-from typing import Any
 
 import structlog
+from prometheus_client import Counter as _Counter
+from prometheus_client import Histogram as _Histogram
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
@@ -41,7 +42,6 @@ from src.observability.metrics import (
     start_metrics_server,
 )
 from src.observability.otel import get_tracer, init_tracing
-from prometheus_client import Counter as _Counter, Histogram as _Histogram
 
 # ---------------------------------------------------------------------------
 # BaseAgent Observability Metrics (Phase 67)
@@ -312,7 +312,7 @@ class BaseAgent(abc.ABC):
         If subclass overrides _dlq_topic() to return a topic name, routes to DLQ
         with structured DLQPayload and emits metrics.
         """
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
 
         from src.core.schemas.dlq_payload import DLQPayload
         from src.observability.metrics import DLQ_DEPTH, DLQ_MESSAGES_TOTAL
@@ -399,8 +399,9 @@ class BaseAgent(abc.ABC):
         if not hasattr(self, "_producer") or self._producer is None:
             return
 
+        from datetime import UTC, datetime
+
         from src.core.stream_keys import topic_alert_requests
-        from datetime import datetime, UTC
 
         payload = {
             "severity": severity,

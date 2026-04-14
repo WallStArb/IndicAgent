@@ -9,13 +9,13 @@ Tests verify that BaseAgent observability metrics are emitted correctly:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import structlog
 
-from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 from services.cross_asset_service import CrossAssetComputeAgent
+from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 
 
 def _mock_base_agent_attributes(agent):
@@ -114,7 +114,6 @@ async def test_cross_asset_record_message_consumed_updates_timestamp():
     agent.max_idle_seconds = 300  # Override for long stall threshold
 
     # Initialize tracking attributes from BaseAgent.__init__
-    import time
     agent._last_message_ts = None
 
     # Before: no timestamp

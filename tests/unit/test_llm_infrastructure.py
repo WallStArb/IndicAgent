@@ -1,10 +1,10 @@
 """Tests for LLM infrastructure components: SemanticCache, RateLimiter, TokenBudget."""
 from __future__ import annotations
-import asyncio
+
 import time
 from unittest.mock import MagicMock
-import pytest
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # SemanticCache
@@ -115,8 +115,9 @@ def test_token_budget_not_exceeded_returns_false():
 # ---------------------------------------------------------------------------
 
 def test_guardrails_accepts_valid_schema():
-    from src.core.llm.guardrails import GuardrailsValidator
     from pydantic import BaseModel
+
+    from src.core.llm.guardrails import GuardrailsValidator
 
     class NarrativeSchema(BaseModel):
         summary: str
@@ -130,8 +131,9 @@ def test_guardrails_accepts_valid_schema():
 
 
 def test_guardrails_rejects_wrong_schema():
-    from src.core.llm.guardrails import GuardrailsValidator
     from pydantic import BaseModel
+
+    from src.core.llm.guardrails import GuardrailsValidator
 
     class NarrativeSchema(BaseModel):
         summary: str
@@ -158,7 +160,8 @@ def test_guardrails_no_schema_registered_returns_raw():
 
 @pytest.mark.asyncio
 async def test_provider_chain_returns_response_on_success():
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, patch
+
     from src.core.llm.chain import LLMProviderChain
 
     mock_chain = MagicMock()
@@ -174,7 +177,8 @@ async def test_provider_chain_returns_response_on_success():
 
 @pytest.mark.asyncio
 async def test_provider_chain_returns_cached_on_hit():
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, patch
+
     from src.core.llm.chain import LLMProviderChain
 
     mock_inner = MagicMock()

@@ -1,7 +1,7 @@
 """Tests for DLQPayload schema."""
 
-import pytest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from src.core.schemas.dlq_payload import DLQPayload
 
 

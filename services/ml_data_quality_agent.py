@@ -30,7 +30,6 @@ from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_ml_data_quality_alerts
 
-
 logger = structlog.get_logger(__name__)
 
 # Thresholds

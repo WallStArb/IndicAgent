@@ -204,7 +204,6 @@ class ParityAuditorAgent(BaseAgent):
 
         self.logger.info("parity_auditor_started", interval_secs=COMPARISON_INTERVAL_SECS)
 
-        # lag_task created by BaseAgent.start() at line 155
         while not self._stop_event.is_set():
             try:
                 await self._compare_cycle()

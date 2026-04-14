@@ -1,17 +1,17 @@
 """Tests for DLQ stream keys."""
 
 from src.core.stream_keys import (
-    topic_bar_writer_dlq,
-    topic_feature_writer_dlq,
-    topic_signal_writer_dlq,
-    topic_lifecycle_writer_dlq,
-    topic_swarm_writer_dlq,
     topic_bar_audit_dlq,
-    topic_signal_audit_dlq,
-    topic_intelligence_pipeline_dlq,
-    topic_signal_tracker_dlq,
+    topic_bar_writer_dlq,
     topic_cross_asset_dlq,
+    topic_feature_writer_dlq,
+    topic_intelligence_pipeline_dlq,
+    topic_lifecycle_writer_dlq,
     topic_llm_writer_dlq,
+    topic_signal_audit_dlq,
+    topic_signal_tracker_dlq,
+    topic_signal_writer_dlq,
+    topic_swarm_writer_dlq,
 )
 
 

@@ -105,6 +105,7 @@ def test_agent_result_has_path_field():
 
 def test_agent_result_rejects_out_of_bounds_multiplier():
     from pydantic import ValidationError
+
     from src.intelligence.schemas import AgentResult
 
     with pytest.raises(ValidationError):

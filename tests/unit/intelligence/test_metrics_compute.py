@@ -225,6 +225,7 @@ class TestWriterSymbolInsert:
     @pytest.mark.asyncio
     async def test_signal_metrics_insert_includes_symbol(self):
         from unittest.mock import AsyncMock
+
         from services.signal_metrics_writer_agent import _handle_metrics_computed
         conn = AsyncMock()
         event = {
@@ -254,6 +255,7 @@ class TestWriterSymbolInsert:
     @pytest.mark.asyncio
     async def test_signal_metrics_ic_insert_includes_symbol(self):
         from unittest.mock import AsyncMock
+
         from services.signal_metrics_writer_agent import _handle_ic_computed
         conn = AsyncMock()
         event = {
@@ -280,6 +282,7 @@ class TestPipelinePerfWeightsSymbol:
     def test_load_perf_weights_builds_three_tuple_keys(self):
         """Verify _load_perf_weights SQL selects symbol and builds (plugin, tf, symbol) keys."""
         import inspect
+
         from services import intelligence_pipeline_agent as m
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._load_perf_weights)
         assert "symbol" in src
@@ -288,6 +291,7 @@ class TestPipelinePerfWeightsSymbol:
     def test_rank_signals_call_site_passes_symbol(self):
         """Verify rank_signals is called with symbol=symbol."""
         import inspect
+
         from services import intelligence_pipeline_agent as m
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
         assert "rank_signals" in src
