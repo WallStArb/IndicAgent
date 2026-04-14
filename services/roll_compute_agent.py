@@ -343,9 +343,8 @@ class RollComputeAgent(BaseAgent):
     async def _run(self) -> None:
         """Main loop: consume bars, run RollMonitor, publish RollEvent on confirmed roll."""
         roll_topic = topic_roll_events(self.env_name)
-        lag_task = asyncio.create_task(self._report_consumer_lag())
-        try:
-            async for _topic, _key, payload in self._kafka_consumer.messages():
+        # lag_task created by BaseAgent.start() at line 155
+        async for _topic, _key, payload in self._kafka_consumer.messages():
                 if not self.running:
                     break
                 symbol = ""
@@ -415,12 +414,6 @@ class RollComputeAgent(BaseAgent):
                 except Exception as exc:
                     self._detection_errors_lbl.inc()
                     self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)
-        finally:
-            lag_task.cancel()
-            try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
 
 
 # ---------------------------------------------------------------------------

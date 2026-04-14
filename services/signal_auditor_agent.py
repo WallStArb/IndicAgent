@@ -172,32 +172,25 @@ class SignalAuditorAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Audit on startup, then every _AUDIT_INTERVAL seconds during market hours."""
-        lag_task = asyncio.create_task(self._report_consumer_lag())
-        try:
-            await self._run_audit()
+        # lag_task created by BaseAgent.start() at line 155
+        await self._run_audit()
 
-            while self.running:
-                try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(),
-                        timeout=_AUDIT_INTERVAL,
-                    )
-                    break
-                except TimeoutError:
-                    pass
-
-                if not self.running:
-                    break
-
-                instruments = get_active_contracts(self.settings)
-                if self._any_session_near_open(instruments):
-                    await self._run_audit(instruments)
-        finally:
-            lag_task.cancel()
+        while self.running:
             try:
-                await lag_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=_AUDIT_INTERVAL,
+                )
+                break
+            except TimeoutError:
                 pass
+
+            if not self.running:
+                break
+
+            instruments = get_active_contracts(self.settings)
+            if self._any_session_near_open(instruments):
+                await self._run_audit(instruments)
 
     # ------------------------------------------------------------------
     # Business logic

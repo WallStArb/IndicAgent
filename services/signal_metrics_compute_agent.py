@@ -191,30 +191,23 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Timer loop: run compute cycle every 15 minutes until stop event."""
-        lag_task = asyncio.create_task(self._report_consumer_lag())
-        try:
-            while not self._stop_event.is_set():
-                with _COMPUTE_DURATION.labels(agent=_AGENT_NAME).time():
-                    try:
-                        await self._run_compute_cycle()
-                        _COMPUTE_CYCLES.labels(agent=_AGENT_NAME).inc()
-                    except Exception as exc:
-                        _COMPUTE_ERRORS.labels(agent=_AGENT_NAME).inc()
-                        self.logger.error(
-                            "signal_metrics_compute.cycle_failed",
-                            error=str(exc),
-                            exc_info=True,
-                        )
+        # lag_task created by BaseAgent.start() at line 155
+        while not self._stop_event.is_set():
+            with _COMPUTE_DURATION.labels(agent=_AGENT_NAME).time():
                 try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval_seconds)
-                except TimeoutError:
-                    pass  # normal — time to run next cycle
-        finally:
-            lag_task.cancel()
+                    await self._run_compute_cycle()
+                    _COMPUTE_CYCLES.labels(agent=_AGENT_NAME).inc()
+                except Exception as exc:
+                    _COMPUTE_ERRORS.labels(agent=_AGENT_NAME).inc()
+                    self.logger.error(
+                        "signal_metrics_compute.cycle_failed",
+                        error=str(exc),
+                        exc_info=True,
+                    )
             try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval_seconds)
+            except TimeoutError:
+                pass  # normal — time to run next cycle
 
     async def _run_compute_cycle(self) -> None:
         """Fetch rows, validate, compute metrics, publish events."""
@@ -359,7 +352,6 @@ class SignalMetricsComputeAgent(BaseAgent):
 
 
 async def _amain() -> None:
-    setup_service_logging("logs/signal_metrics_compute_agent.log")
     init_tracing("signal-metrics-compute")
     agent = SignalMetricsComputeAgent()
     await agent.start()

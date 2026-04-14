@@ -232,44 +232,36 @@ class SignalMetricsWriterAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Consume events from intelligence.signal_metrics until stop event."""
-        lag_task = asyncio.create_task(self._report_consumer_lag())
-        try:
-            async for _topic, _key, event in self._kafka_consumer.messages():
-                if self._stop_event.is_set():
-                    break
-                event_type = event.get("event_type", "unknown")
-                try:
-                    async with self._db.get_connection() as conn:
-                        if event_type == "metrics_computed":
-                            await _handle_metrics_computed(conn, event)
-                        elif event_type == "ic_computed":
-                            await _handle_ic_computed(conn, event)
-                        elif event_type == "metrics_dq_failure":
-                            await _handle_dq_failure(conn, event)
-                        else:
-                            self.logger.warning(
-                                "signal_metrics_writer.unknown_event_type",
-                                event_type=event_type,
-                            )
-                    _EVENTS_CONSUMED.labels(agent=_AGENT_NAME, event_type=event_type).inc()
-                except Exception as exc:
-                    _WRITE_ERRORS.labels(agent=_AGENT_NAME, event_type=event_type).inc()
-                    self.logger.error(
-                        "signal_metrics_writer.write_error",
-                        event_type=event_type,
-                        error=str(exc),
-                        exc_info=True,
-                    )
-        finally:
-            lag_task.cancel()
+        # lag_task created by BaseAgent.start() at line 155
+        async for _topic, _key, event in self._kafka_consumer.messages():
+            if self._stop_event.is_set():
+                break
+            event_type = event.get("event_type", "unknown")
             try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
+                async with self._db.get_connection() as conn:
+                    if event_type == "metrics_computed":
+                        await _handle_metrics_computed(conn, event)
+                    elif event_type == "ic_computed":
+                        await _handle_ic_computed(conn, event)
+                    elif event_type == "metrics_dq_failure":
+                        await _handle_dq_failure(conn, event)
+                    else:
+                        self.logger.warning(
+                            "signal_metrics_writer.unknown_event_type",
+                            event_type=event_type,
+                        )
+                    _EVENTS_CONSUMED.labels(agent=_AGENT_NAME, event_type=event_type).inc()
+            except Exception as exc:
+                _WRITE_ERRORS.labels(agent=_AGENT_NAME, event_type=event_type).inc()
+                self.logger.error(
+                    "signal_metrics_writer.write_error",
+                    event_type=event_type,
+                    error=str(exc),
+                    exc_info=True,
+                )
 
 
 async def _amain() -> None:
-    setup_service_logging("logs/signal_metrics_writer_agent.log")
     init_tracing("signal-metrics-writer")
     agent = SignalMetricsWriterAgent()
     await agent.start()
