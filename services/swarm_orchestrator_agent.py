@@ -114,12 +114,16 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
     async def _bar_loop(self) -> None:
         assert self._bar_consumer is not None
         async for _topic, _key, payload in self._bar_consumer.messages():
+            if not self.running:
+                break
             self._record_message_consumed()
             await self._handle_bar(payload)
 
     async def _signal_loop(self) -> None:
         assert self._signal_consumer is not None
         async for _topic, _key, payload in self._signal_consumer.messages():
+            if not self.running:
+                break
             self._record_message_consumed()
             symbol = (
                 payload.get("symbol")
