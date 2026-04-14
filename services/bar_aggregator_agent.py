@@ -541,7 +541,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    from src.core.service_utils import setup_service_logging
-
-    setup_service_logging("logs/bar_aggregator_agent.log")
     asyncio.run(main())

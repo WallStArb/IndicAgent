@@ -623,7 +623,4 @@ class ServiceAuditorAgent(BaseAgent):
 if __name__ == "__main__":
     import asyncio
 
-    from src.core.service_utils import setup_service_logging
-
-    setup_service_logging("logs/service_auditor_agent.log")
     asyncio.run(ServiceAuditorAgent().start())
