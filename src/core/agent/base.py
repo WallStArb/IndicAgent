@@ -35,7 +35,11 @@ import structlog
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
-from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS, start_metrics_server
+from src.observability.metrics import (
+    AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
+    PERSISTENCE_CONSUMER_LAG,
+    start_metrics_server,
+)
 from src.observability.otel import get_tracer, init_tracing
 from prometheus_client import Counter as _Counter, Histogram as _Histogram
 
@@ -104,6 +108,8 @@ class BaseAgent(abc.ABC):
         self._last_message_ts: float | None = None
         # Cache labeled Prometheus child once — avoids dict lookup on every message.
         self._last_msg_ts_gauge = AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.labels(agent=name)
+        # Cache labeled Prometheus child for consumer lag — avoids dict lookup on every report
+        self._consumer_lag_gauge = PERSISTENCE_CONSUMER_LAG.labels(agent_id=name)
         # NOTE: attribute is self.logger (not self.log) to match the 20+ call sites
         # in existing agents that use self.logger.
         # Logger is created AFTER setup_service_logging() when log_file is provided.
@@ -230,12 +236,14 @@ class BaseAgent(abc.ABC):
         return 1000
 
     async def _report_consumer_lag(self) -> None:
-        """No-op consumer lag reporter.
+        """Report consumer lag until stop event.
 
-        Override in concrete agents to emit PERSISTENCE_CONSUMER_LAG metrics.
-        Loops until ``_stop_event`` is set.
+        Default implementation: set gauge to 0 (stream processors have no buffer).
+        Subclasses (e.g., BaseWriterAgent) override to report actual buffer depth.
+        Loops until _stop_event is set.
         """
         while not self._stop_event.is_set():
+            self._consumer_lag_gauge.set(0)
             await asyncio.sleep(15)
 
     def _record_message_consumed(self) -> None:
