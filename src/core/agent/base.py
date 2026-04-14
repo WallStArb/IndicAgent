@@ -386,7 +386,9 @@ class BaseAgent(abc.ABC):
         }
 
         try:
-            await self._producer.produce(topic_alert_requests(self._settings.env_name), payload)
+            env = getattr(self, "_settings", None)
+            env_name = env.env_name if env and hasattr(env, "env_name") else ""
+            await self._producer.publish(topic_alert_requests(env_name), payload)
             self.logger.info("alert_published", severity=severity, message=message[:100])
         except Exception as exc:
             self.logger.error("alert_publish_failed", error=str(exc))
