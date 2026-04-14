@@ -34,9 +34,9 @@ sys.path.insert(0, str(project_root))
 import structlog
 
 from src.config.settings import Settings
+from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import message_key, topic_cross_asset, topic_intelligence
 from src.intelligence.cross_asset_features import (
     _EQ_INDEX_BASES,
@@ -44,7 +44,7 @@ from src.intelligence.cross_asset_features import (
     compute_eq_index_features,
     resolve_eq_index_base,
 )
-from src.observability.metrics import counter, gauge, start_metrics_server
+from src.observability.metrics import counter, gauge
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -78,20 +78,20 @@ def _extract_base_symbol(symbol: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-class CrossAssetService:
+class CrossAssetComputeAgent(BaseAgent):
     """Cross-asset intelligence microservice.
 
     Subscribes to intelligence topic, computes EQ_INDEX spread features,
     and publishes results to the cross_asset topic.
+
+    Migrated to BaseAgent for Renaissance-style observability (Phase 067-05).
+    Inherits crash metrics, stall detection, and alert publishing.
     """
 
     def __init__(self) -> None:
         settings = Settings()
-        self.running = False
-        self.shutdown_requested = False
         self.env_name: str = settings.env_name or ""
         self._window_bars: int = settings.cross_asset_window_bars
-        self._metrics_port: int = settings.cross_asset_metrics_port
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
         self._database_url: str = settings.database_url
 
@@ -115,7 +115,7 @@ class CrossAssetService:
         # Group configuration (extensible for future groups)
         self._groups: dict[str, frozenset[str]] = CROSS_ASSET_GROUPS
 
-        # Consumers and producer (initialized in start())
+        # Consumers and producer (initialized in _setup)
         self._consumer: KafkaConsumerClient | None = None
         self._producer: KafkaProducerClient | None = None
         self._db: DatabaseManager | None = None
@@ -123,7 +123,7 @@ class CrossAssetService:
         # Metrics
         self._msg_counter = counter(
             "cross_asset_messages_processed",
-            "Messages processed by cross_asset_service",
+            "Messages processed by cross_asset_compute_agent",
         )
         self._spreads_counter = counter(
             "cross_asset_spreads_published",
@@ -134,17 +134,92 @@ class CrossAssetService:
             "EQ_INDEX data quality score (fraction of fresh symbols)",
         )
 
-        setup_service_logging("logs/cross_asset_service.log")
-        start_metrics_server(port=self._metrics_port)
-        self.logger = structlog.get_logger("cross_asset_service")
+        # Initialize BaseAgent with metrics port and stall detection
+        # max_idle_seconds=300 (5 minutes) - no intelligence messages for 5min = stall
+        super().__init__(
+            name="CrossAssetComputeAgent",
+            metrics_port=settings.cross_asset_metrics_port,
+            max_idle_seconds=300,
+        )
+
+        # Store settings for alert publishing
+        self._settings = settings
 
     # -----------------------------------------------------------------------
-    # Signal handling
+    # BaseAgent lifecycle hooks
     # -----------------------------------------------------------------------
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Shutdown signal received", signum=signum)
-        self.shutdown_requested = True
+    async def _setup(self) -> None:
+        """Initialize DB, seed from DB, start Kafka consumer/producer."""
+        # Initialize DB for seeding
+        self._db = DatabaseManager(self._database_url)
+        try:
+            await self._db.initialize()
+        except Exception as exc:
+            self.logger.warning("DB init failed — proceeding without seed", error=str(exc))
+            self._db = None
+
+        # Seed rolling windows from DB
+        await self._seed_from_db()
+
+        # Start Kafka consumer/producer
+        intelligence_topic = topic_intelligence(self.env_name)
+        self._consumer = KafkaConsumerClient(
+            intelligence_topic,
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="cross_asset_group",
+            auto_offset_reset="latest",
+        )
+        self._producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)
+
+        await self._consumer.start()
+        await self._producer.start()
+
+        # Store producer for alert publishing (BaseAgent._send_alert)
+        self._producer_client = self._producer
+
+        self.logger.info(
+            "agent.setup_complete",
+            env=self.env_name,
+            window_bars=self._window_bars,
+        )
+
+    async def _run(self) -> None:
+        """Main consumer loop — process intelligence messages until shutdown."""
+        intelligence_topic = topic_intelligence(self.env_name)
+        self.logger.info("agent.running", topic=intelligence_topic)
+
+        async for _topic, _key, payload in self._consumer.messages():
+            if not self.running:
+                break
+            try:
+                await self._process_intelligence_message(payload)
+                # Record message consumed for stall detection
+                self._record_message_consumed()
+            except Exception as exc:
+                self.logger.error(
+                    "Error processing intelligence message",
+                    error=str(exc),
+                    exc_info=True,
+                )
+
+    async def _teardown(self) -> None:
+        """Gracefully stop consumer, producer, and DB pool."""
+        if self._consumer is not None:
+            try:
+                await self._consumer.stop()
+            except Exception:
+                pass
+        if self._producer is not None:
+            try:
+                await self._producer.stop()
+            except Exception:
+                pass
+        if self._db is not None:
+            try:
+                await self._db.close()
+            except Exception:
+                pass
 
     # -----------------------------------------------------------------------
     # Public methods used by tests (pure logic, no I/O)
@@ -373,87 +448,6 @@ class CrossAssetService:
                 active_pair=result.get("active_pair"),
             )
 
-    # -----------------------------------------------------------------------
-    # Service lifecycle
-    # -----------------------------------------------------------------------
-
-    async def start(self) -> None:
-        """Start the cross-asset intelligence service."""
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-        self.logger.info(
-            "Starting CrossAssetService",
-            env=self.env_name,
-            window_bars=self._window_bars,
-        )
-
-        # Initialize DB for seeding
-        self._db = DatabaseManager(self._database_url)
-        try:
-            await self._db.initialize()
-        except Exception as exc:
-            self.logger.warning("DB init failed — proceeding without seed", error=str(exc))
-            self._db = None
-
-        # Seed rolling windows from DB
-        await self._seed_from_db()
-
-        # Start Kafka consumer/producer
-        intelligence_topic = topic_intelligence(self.env_name)
-        self._consumer = KafkaConsumerClient(
-            intelligence_topic,
-            bootstrap_servers=self._kafka_bootstrap,
-            group_id="cross_asset_group",
-            auto_offset_reset="latest",
-        )
-        self._producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)
-
-        await self._consumer.start()
-        await self._producer.start()
-
-        self.running = True
-        self.logger.info("CrossAssetService running", topic=intelligence_topic)
-
-        try:
-            await self._consume_loop()
-        finally:
-            await self.stop()
-
-    async def _consume_loop(self) -> None:
-        """Main consumer loop — process intelligence messages until shutdown."""
-        assert self._consumer is not None
-        async for _topic, _key, payload in self._consumer.messages():
-            if self.shutdown_requested:
-                break
-            try:
-                await self._process_intelligence_message(payload)
-            except Exception as exc:
-                self.logger.error(
-                    "Error processing intelligence message",
-                    error=str(exc),
-                    exc_info=True,
-                )
-
-    async def stop(self) -> None:
-        """Gracefully stop consumer, producer, and DB pool."""
-        self.running = False
-        if self._consumer is not None:
-            try:
-                await self._consumer.stop()
-            except Exception:
-                pass
-        if self._producer is not None:
-            try:
-                await self._producer.stop()
-            except Exception:
-                pass
-        if self._db is not None:
-            try:
-                await self._db.close()
-            except Exception:
-                pass
-        self.logger.info("CrossAssetService stopped")
 
 
 # ---------------------------------------------------------------------------
@@ -461,4 +455,12 @@ class CrossAssetService:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(CrossAssetService().start())
+    asyncio.run(CrossAssetComputeAgent().start())
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility shim
+# ---------------------------------------------------------------------------
+
+# Preserve old class name for test compatibility
+CrossAssetService = CrossAssetComputeAgent
