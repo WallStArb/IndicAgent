@@ -451,14 +451,18 @@ class BarAggregatorComputeAgent(BaseAgent):
             )
             await consumer.start()
 
-            partitions = self._kafka_consumer._consumer.assignment()
+            inner = getattr(self._kafka_consumer, "_consumer", None)
+            if inner is None:
+                await consumer.stop()
+                return 0
+            partitions = inner.assignment()
             if not partitions:
                 await consumer.stop()
                 return 0
 
-            tp = partitions[0]
+            tp = next(iter(partitions))
             end_offsets = await consumer.end_offsets([tp])
-            position = self._kafka_consumer._consumer.position(tp)
+            position = await inner.position(tp)
 
             await consumer.stop()
             return end_offsets[tp] - position if end_offsets[tp] >= position else 0
