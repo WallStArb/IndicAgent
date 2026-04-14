@@ -913,6 +913,15 @@ def _default_settings() -> Settings:
     return _settings_singleton
 
 
+def get_settings() -> Settings:
+    """Public accessor for the Settings singleton.
+
+    This is the preferred way to access configuration across the codebase.
+    Returns the cached module-level Settings instance, creating it on first use.
+    """
+    return _default_settings()
+
+
 # CME/CBOT futures month codes → YYYYMM suffix for IBKR lastTradeDateOrContractMonth
 _FUTURES_MONTH_CODES: dict[str, int] = {
     "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
