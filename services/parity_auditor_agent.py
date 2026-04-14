@@ -189,7 +189,7 @@ class ParityAuditorAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="ParityAuditorAgent")
+        super().__init__(name="ParityAuditorAgent", max_idle_seconds=600)
 
         self._settings = Settings()
         self._pool: asyncpg.Pool | None = None
