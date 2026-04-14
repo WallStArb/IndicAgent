@@ -21,17 +21,13 @@ Last Updated: 2026-03-18
 from __future__ import annotations
 
 import asyncio
-import signal
 import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-import structlog
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -457,10 +453,3 @@ class CrossAssetComputeAgent(BaseAgent):
 if __name__ == "__main__":
     asyncio.run(CrossAssetComputeAgent().start())
 
-
-# ---------------------------------------------------------------------------
-# Backward compatibility shim
-# ---------------------------------------------------------------------------
-
-# Preserve old class name for test compatibility
-CrossAssetService = CrossAssetComputeAgent
