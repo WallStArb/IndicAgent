@@ -71,8 +71,6 @@ class ProviderMergerAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="provider_merger_agent", metrics_port=9130)
-        self._env_name: str = self.settings.env_name or ""
-
         self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
             raise ValueError("provider_raw_topics must be non-empty")
@@ -92,7 +90,7 @@ class ProviderMergerAgent(BaseAgent):
 
         # Cache topic string -> provider name to avoid rsplit on every bar
         self._topic_to_provider: dict[str, str] = {
-            topic_market_bars_raw(self._env_name, p): p
+            topic_market_bars_raw(self.env_name, p): p
             for p in self._provider_raw_topics
         }
 
@@ -123,15 +121,15 @@ class ProviderMergerAgent(BaseAgent):
     @property
     def topics_consumed(self) -> list[str]:
         return [
-            topic_market_bars_raw(self._env_name, p)
+            topic_market_bars_raw(self.env_name, p)
             for p in self._provider_raw_topics
         ]
 
     @property
     def topics_produced(self) -> list[str]:
         return [
-            topic_market_bars(self._env_name),
-            topic_market_data_quality(self._env_name),
+            topic_market_bars(self.env_name),
+            topic_market_data_quality(self.env_name),
         ]
 
     @property
@@ -251,7 +249,7 @@ class ProviderMergerAgent(BaseAgent):
 
         # Publish bar to canonical market.bars topic (source preserved unchanged)
         await self._kafka_producer.publish(
-            topic_market_bars(self._env_name),
+            topic_market_bars(self.env_name),
             bar.model_dump(mode="json"),
             key=message_key(bar.symbol, bar.tf),
         )
@@ -343,7 +341,7 @@ class ProviderMergerAgent(BaseAgent):
             promoted_provider=promoted_provider,
         )
         await self._kafka_producer.publish(
-            topic_market_data_quality(self._env_name),
+            topic_market_data_quality(self.env_name),
             event.model_dump(mode="json"),
             key=message_key(bar.symbol, bar.tf),
         )

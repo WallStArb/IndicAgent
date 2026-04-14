@@ -336,7 +336,6 @@ class LLMWriterAgent(BaseWriterAgent):
             max_idle_seconds=300,
         )
 
-        self._env_name: str = self.settings.env_name or ""
         self._kafka_bootstrap: str = self.settings.kafka_bootstrap_servers
 
         # Second buffer for i8 column updates (separate from BaseWriterAgent._buffer)
@@ -396,7 +395,7 @@ class LLMWriterAgent(BaseWriterAgent):
 
     def _topic_name(self) -> str:
         """Primary Kafka topic — used by BaseWriterAgent for consumer setup."""
-        return topic_llm_calls(self._env_name)
+        return topic_llm_calls(self.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -428,7 +427,7 @@ class LLMWriterAgent(BaseWriterAgent):
 
     def _dlq_topic(self) -> str | None:
         """DLQ topic for unparseable messages."""
-        return topic_llm_writer_dlq(self._env_name)
+        return topic_llm_writer_dlq(self.env_name)
 
     # ── Setup helpers ─────────────────────────────────────────────────────────
 
@@ -475,9 +474,9 @@ class LLMWriterAgent(BaseWriterAgent):
         Assigns self._consumer (BaseWriterAgent attribute) for offset commits.
         Also starts a DLQ producer for routing unparseable messages.
         """
-        calls_topic = topic_llm_calls(self._env_name)
-        outcomes_topic = topic_llm_outcomes(self._env_name)
-        i8_topic = topic_intelligence_i8(self._env_name)
+        calls_topic = topic_llm_calls(self.env_name)
+        outcomes_topic = topic_llm_outcomes(self.env_name)
+        i8_topic = topic_intelligence_i8(self.env_name)
 
         kafka_consumer = KafkaConsumerClient(
             calls_topic,
@@ -497,7 +496,7 @@ class LLMWriterAgent(BaseWriterAgent):
 
         self._dlq_producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)
         await self._dlq_producer.start()
-        self.logger.info("DLQ producer started", dlq_topic=topic_llm_writer_dlq(self._env_name))
+        self.logger.info("DLQ producer started", dlq_topic=topic_llm_writer_dlq(self.env_name))
 
     # ── Main lifecycle ────────────────────────────────────────────────────────
 
@@ -802,7 +801,7 @@ class LLMWriterAgent(BaseWriterAgent):
         Increments DLQ_MESSAGES_TOTAL and DLQ_DEPTH metrics. Logs a warning.
         Continues processing (never raises) — bad messages must not crash the agent.
         """
-        dlq_topic = topic_llm_writer_dlq(self._env_name)
+        dlq_topic = topic_llm_writer_dlq(self.env_name)
         try:
             if self._dlq_producer:
                 await self._dlq_producer.publish(
@@ -853,9 +852,9 @@ class LLMWriterAgent(BaseWriterAgent):
         if not self._consumer:
             return
 
-        calls_topic = topic_llm_calls(self._env_name)
-        outcomes_topic = topic_llm_outcomes(self._env_name)
-        i8_topic = topic_intelligence_i8(self._env_name)
+        calls_topic = topic_llm_calls(self.env_name)
+        outcomes_topic = topic_llm_outcomes(self.env_name)
+        i8_topic = topic_intelligence_i8(self.env_name)
 
         async for kafka_topic, _key, payload in self._consumer.messages():
             if self._stop_event.is_set():

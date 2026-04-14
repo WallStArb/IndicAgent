@@ -27,7 +27,7 @@ sys.path.insert(0, str(project_root))
 
 import structlog
 
-from src.config.settings import Settings, get_point_value
+from src.config.settings import get_point_value
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -91,10 +91,7 @@ class SignalTrackerCompute(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="SignalTrackerCompute", metrics_port=9127, max_idle_seconds=300)
-        settings = Settings()
-        self.settings = settings
-        self._env_name = settings.env_name or ""
-        self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+        self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         # In-memory active signal index: (symbol, timeframe) -> [signal dicts]
         self._active_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -128,18 +125,18 @@ class SignalTrackerCompute(BaseAgent):
     @property
     def topics_consumed(self) -> list[str]:
         return [
-            topic_market_bars(self._env_name),
-            topic_market_bars_htf(self._env_name),
-            topic_intelligence_i7_signals(self._env_name),
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
+            topic_intelligence_i7_signals(self.env_name),
         ]
 
     @property
     def topics_produced(self) -> list[str]:
-        return [topic_lifecycle_transitions(self._env_name)]
+        return [topic_lifecycle_transitions(self.env_name)]
 
     def _dlq_topic(self) -> str | None:
         """Route unparseable payloads to DLQ."""
-        return topic_signal_tracker_dlq(self._env_name)
+        return topic_signal_tracker_dlq(self.env_name)
 
     async def _setup(self) -> None:
         """Bootstrap: load active signals from DB, start Kafka clients."""
@@ -147,8 +144,8 @@ class SignalTrackerCompute(BaseAgent):
 
         # Bar consumer — subscribes to both 1m and HTF bar topics
         self._bar_consumer = KafkaConsumerClient(
-            topic_market_bars(self._env_name),
-            topic_market_bars_htf(self._env_name),
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_tracker_compute",
             auto_offset_reset="latest",
@@ -157,7 +154,7 @@ class SignalTrackerCompute(BaseAgent):
 
         # Signal consumer — subscribes to i7.signals for new signal ingestion
         self._signal_consumer = KafkaConsumerClient(
-            topic_intelligence_i7_signals(self._env_name),
+            topic_intelligence_i7_signals(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_tracker_compute_signals",
             auto_offset_reset="latest",
@@ -565,7 +562,7 @@ class SignalTrackerCompute(BaseAgent):
         """Publish a LifecycleTransition to Kafka."""
         if self._producer is None:
             return
-        topic = topic_lifecycle_transitions(self._env_name)
+        topic = topic_lifecycle_transitions(self.env_name)
         msg = to_dict(lt)
         key = message_key(lt.symbol, lt.timeframe)
 
@@ -746,7 +743,7 @@ class SignalTrackerCompute(BaseAgent):
 
         try:
             await self._producer.publish(
-                topic_health_events(self._env_name),
+                topic_health_events(self.env_name),
                 key=message_key("signal_tracker_compute"),
                 value=payload,
             )

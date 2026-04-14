@@ -235,14 +235,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self.db_manager: DatabaseManager | None = None
 
-        try:
-            _s = Settings()
-            self._env_name: str = _s.env_name or ""
-            self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
-        except Exception as e:
-            self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
-            self._env_name = ""
-            self._kafka_bootstrap = "localhost:19092"
+        self._kafka_bootstrap: str = self.settings.kafka_bootstrap_servers
 
         # Prometheus metrics (writer-specific)
         self.events_consumed_total = counter(
@@ -278,7 +271,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         self._expiry_map: dict[str, date] = {}
 
     def _topic_name(self) -> str:
-        return topic_intelligence_journal(self._env_name)
+        return topic_intelligence_journal(self.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -286,7 +279,7 @@ class FeatureWriterAgent(BaseWriterAgent):
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [topic_intelligence_journal(self._env_name)]
+        return [topic_intelligence_journal(self.env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
@@ -298,7 +291,7 @@ class FeatureWriterAgent(BaseWriterAgent):
 
     def _dlq_topic(self) -> str | None:
         """Route unparseable intelligence payloads to DLQ."""
-        return topic_feature_writer_dlq(self._env_name)
+        return topic_feature_writer_dlq(self.env_name)
 
     def _parse_payload(self, payload: dict) -> list | None:
         """Parse a BarIntelligenceRecord payload into insert param tuples."""
@@ -425,9 +418,9 @@ class FeatureWriterAgent(BaseWriterAgent):
 
         # Build topics list
         topics = [
-            topic_intelligence_journal(self._env_name),
-            topic_roll_events(self._env_name),
-            topic_cross_asset(self._env_name),
+            topic_intelligence_journal(self.env_name),
+            topic_roll_events(self.env_name),
+            topic_cross_asset(self.env_name),
         ]
 
         # Single consumer subscribed to intelligence.record, roll_events, and cross_asset
@@ -452,9 +445,9 @@ class FeatureWriterAgent(BaseWriterAgent):
         if not self._kafka_consumer:
             return
 
-        intelligence_journal_topic = topic_intelligence_journal(self._env_name)
-        roll_events_topic = topic_roll_events(self._env_name)
-        cross_asset_topic = topic_cross_asset(self._env_name)
+        intelligence_journal_topic = topic_intelligence_journal(self.env_name)
+        roll_events_topic = topic_roll_events(self.env_name)
+        cross_asset_topic = topic_cross_asset(self.env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if not self.running:

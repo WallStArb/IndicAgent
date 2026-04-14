@@ -127,6 +127,11 @@ class BaseAgent(abc.ABC):
         # NOTE: _setup_failure_total not cached here - needs error_type label at exception time
         self._setup_latency = AGENT_SETUP_LATENCY_SECONDS.labels(agent=self._agent_label)
 
+    @property
+    def env_name(self) -> str:
+        """Kafka topic environment prefix from settings. Empty string in dev/default."""
+        return self.settings.env_name or ""
+
     def _register_signal_handlers(self) -> None:
         """Register SIGTERM and SIGINT handlers that set the stop event.
 

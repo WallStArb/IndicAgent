@@ -116,8 +116,6 @@ class BarWriterAgent(BaseWriterAgent):
 
     def __init__(self) -> None:
         super().__init__(name="bar_writer_agent", metrics_port=9121)
-        self._env_name: str = self.settings.env_name or ""
-
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
@@ -137,7 +135,7 @@ class BarWriterAgent(BaseWriterAgent):
         self._contract_cache_reloads_lbl = _CONTRACT_CACHE_RELOADS.labels(agent=self.name)
 
     def _topic_name(self) -> str:
-        return topic_market_bars(self._env_name)
+        return topic_market_bars(self.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -146,9 +144,9 @@ class BarWriterAgent(BaseWriterAgent):
     @property
     def topics_consumed(self) -> list[str]:
         return [
-            topic_market_bars(self._env_name),
-            topic_market_bars_htf(self._env_name),
-            topic_contract_updates(self._env_name),
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
+            topic_contract_updates(self.env_name),
         ]
 
     @property
@@ -205,9 +203,9 @@ class BarWriterAgent(BaseWriterAgent):
         await self._load_contract_cache()
 
         self._kafka_consumer = KafkaConsumerClient(
-            topic_market_bars(self._env_name),
-            topic_market_bars_htf(self._env_name),
-            topic_contract_updates(self._env_name),
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
+            topic_contract_updates(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_writer_consumer",
             auto_offset_reset="latest",
@@ -225,7 +223,7 @@ class BarWriterAgent(BaseWriterAgent):
 
     async def _run(self) -> None:
         """Main loop: consume bars, buffer, flush on batch size or interval."""
-        _contract_updates_topic = topic_contract_updates(self._env_name)
+        _contract_updates_topic = topic_contract_updates(self.env_name)
 
         async for _topic, _key, payload in self._kafka_consumer.messages():
             if not self.running:
