@@ -570,24 +570,33 @@ class ServiceAuditorAgent(BaseAgent):
         Requires sudoers entry (one-time manual setup):
             bg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart indicagent-ibkr-provider
 
-        Uses subprocess.run (blocking) — acceptable since this is an infrequent operation
-        (at most once per futures roll cycle, ~4x/year per contract).
+        Uses async subprocess to avoid blocking the event loop.
         """
-        import subprocess
-
         cmd = ["sudo", "systemctl", "restart", "indicagent-ibkr-provider"]
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            if proc.returncode != 0:
+                self.logger.error(
+                    "roll_automation.restart_failed",
+                    service="indicagent-ibkr-provider",
+                    returncode=proc.returncode,
+                    stderr=stderr.decode() if stderr else "",
+                )
+                return
             SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
                 service_name="indicagent-ibkr-provider"
             ).inc()
             self.logger.info("roll_automation.restart_complete", service="indicagent-ibkr-provider")
-        except subprocess.CalledProcessError as exc:
+        except Exception as exc:
             self.logger.error(
                 "roll_automation.restart_failed",
                 service="indicagent-ibkr-provider",
-                returncode=exc.returncode,
-                stderr=exc.stderr.decode() if exc.stderr else "",
+                error=str(exc),
             )
 
     async def _dispatch_webhook(self, severity: str, title: str, body: str) -> None:
