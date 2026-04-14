@@ -39,7 +39,7 @@ from src.core.bar_accumulator import _TF_MINUTES
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.market_events import BarGapRequest
 from src.core.stream_keys import topic_contract_updates, topic_gap_fill_dlq, topic_gap_requests
-from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
+from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH, PERSISTENCE_CONSUMER_LAG
 from src.observability.otel import init_tracing
 
 # ---------------------------------------------------------------------------
@@ -163,6 +163,12 @@ class BarAuditorAgent(BaseAgent):
             topics_produced=self.topics_produced,
             topics_consumed=self.topics_consumed,
         )
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Auditor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Stop producer, contract consumer, and close DB pool."""

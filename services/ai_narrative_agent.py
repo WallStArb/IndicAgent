@@ -17,6 +17,7 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
 from src.core.stream_keys import topic_intelligence_journal, topic_narratives
 from src.intelligence.narrative.orchestrator import NarrativeOrchestrator
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,12 @@ class AINarrativeComputeAgent(BaseAgent):
         await self._consumer.start()
         await self._consumer.skip_lag_if_needed(max_lag=100)
         await self._producer.start()
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         if self._consumer:

@@ -29,7 +29,7 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG, SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -167,6 +167,12 @@ class ServiceAuditorAgent(BaseAgent):
             services=len(SERVICE_REGISTRY),
             env=self._env_name,
         )
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Auditor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         if self._kafka_producer:

@@ -48,6 +48,7 @@ from src.core.stream_keys import (
     topic_roll_dlq,
     topic_roll_events,
 )
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 # ---------------------------------------------------------------------------
 # Module-level metrics — prevents duplicate registration across test runs
@@ -151,6 +152,12 @@ class ContractMetadataWriterAgent(BaseAgent):
             topics_consumed=self.topics_consumed,
             dry_run=self._dry_run,
         )
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Stop Kafka consumer/producer and close DB pool."""
