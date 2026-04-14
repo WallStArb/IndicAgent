@@ -23,6 +23,7 @@ Optionally override:
 from __future__ import annotations
 
 import abc
+import asyncio
 import time
 from typing import Any
 
@@ -30,6 +31,7 @@ from prometheus_client import Counter as _Counter
 from prometheus_client import Gauge as _Gauge
 
 from src.core.agent.base import BaseAgent
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 # Module-level metric caches — prevent duplicate registration across
 # multiple instantiations in the same process (e.g., unit tests).
@@ -203,3 +205,21 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """Final flush before shutdown. Override to add consumer/DB cleanup."""
         if self._buffer:
             await self._do_flush()
+
+    # -----------------------------------------------------------------------
+    # Consumer lag reporting (override of BaseAgent default)
+    # -----------------------------------------------------------------------
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag as buffer depth (override of BaseAgent default).
+
+        Writer agents accumulate unflushed records in self._buffer.
+        Lag = buffer size (records waiting to be flushed to DB).
+        """
+        # Use cached gauge from BaseAgent if available, else create
+        if not hasattr(self, "_consumer_lag_gauge"):
+            self._consumer_lag_gauge = PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name)
+
+        while not self._stop_event.is_set():
+            self._consumer_lag_gauge.set(len(self._buffer))
+            await asyncio.sleep(15)
