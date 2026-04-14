@@ -187,14 +187,12 @@ class SignalMetricsWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
-        self._env_name: str = self.settings.env_name or ""
-
         self._db: DatabaseManager | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [topic_signal_metrics(self._env_name)]
+        return [topic_signal_metrics(self.env_name)]
 
     async def _setup(self) -> None:
         """Connect DB pool and Kafka consumer."""
@@ -202,7 +200,7 @@ class SignalMetricsWriterAgent(BaseAgent):
         await self._db.initialize()
 
         self._kafka_consumer = KafkaConsumerClient(
-            topic_signal_metrics(self._env_name),
+            topic_signal_metrics(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=_CONSUMER_GROUP,
             auto_offset_reset="latest",

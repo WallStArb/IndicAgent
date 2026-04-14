@@ -113,8 +113,6 @@ class SignalAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="signal_auditor_agent", metrics_port=9134, max_idle_seconds=600)
-        self._env_name: str = self.settings.env_name or ""
-
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
@@ -140,7 +138,7 @@ class SignalAuditorAgent(BaseAgent):
 
     @property
     def topics_produced(self) -> list[str]:
-        return [topic_signal_audit(self._env_name)]
+        return [topic_signal_audit(self.env_name)]
 
     async def _setup(self) -> None:
         self._db_pool = await asyncpg.create_pool(
@@ -201,7 +199,7 @@ class SignalAuditorAgent(BaseAgent):
             assert self._kafka_producer is not None
             for event in gap_events:
                 await self._kafka_producer.publish(
-                    topic_signal_audit(self._env_name),
+                    topic_signal_audit(self.env_name),
                     event,
                     key=f"{event['symbol']}:{event['tf']}",
                 )

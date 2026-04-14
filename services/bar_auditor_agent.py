@@ -98,8 +98,6 @@ class BarAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="bar_auditor_agent", metrics_port=9123, max_idle_seconds=300)
-        self._env_name: str = self.settings.env_name or ""
-
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
@@ -133,11 +131,11 @@ class BarAuditorAgent(BaseAgent):
     @property
     def topics_consumed(self) -> list[str]:
         """Subscribe to contract updates for cache invalidation."""
-        return [topic_contract_updates(self._env_name)]
+        return [topic_contract_updates(self.env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
-        return [topic_gap_requests(self._env_name)]
+        return [topic_gap_requests(self.env_name)]
 
     async def _setup(self) -> None:
         """Connect asyncpg pool, Kafka producer, and contract update consumer."""
@@ -149,7 +147,7 @@ class BarAuditorAgent(BaseAgent):
         )
         await self._kafka_producer.start()
         self._contract_consumer = KafkaConsumerClient(
-            topic_contract_updates(self._env_name),
+            topic_contract_updates(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_auditor_contract_updates_consumer",
             auto_offset_reset="latest",
@@ -397,7 +395,7 @@ class BarAuditorAgent(BaseAgent):
 
             for req in gap_requests:
                 await self._kafka_producer.publish(
-                    topic_gap_requests(self._env_name),
+                    topic_gap_requests(self.env_name),
                     req.model_dump(mode="json"),
                     key=req.symbol,
                 )
@@ -497,7 +495,7 @@ class BarAuditorAgent(BaseAgent):
             "error": error,
         }
         await self._kafka_producer.publish(
-            topic_gap_fill_dlq(self._env_name),
+            topic_gap_fill_dlq(self.env_name),
             payload,
             key=symbol,
         )

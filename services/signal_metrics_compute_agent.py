@@ -115,8 +115,6 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
-        self._env_name: str = self.settings.env_name or ""
-
         self._db: DatabaseManager | None = None
         self._producer: KafkaProducerClient | None = None
         self._interval_seconds = _INTERVAL_SECONDS

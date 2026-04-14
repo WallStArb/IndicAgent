@@ -25,7 +25,7 @@ from datetime import UTC, datetime, timedelta
 import aiohttp
 import asyncpg
 
-from src.config.settings import Settings
+from src.config.settings import get_settings
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
@@ -122,10 +122,13 @@ class ServiceAuditorAgent(BaseAgent):
     """Monitors all pipeline services, self-heals, and audits every event."""
 
     def __init__(self) -> None:
-        settings = Settings()
-        super().__init__(name="service_auditor_agent", metrics_port=9131, max_idle_seconds=600)
-        self.settings = settings
-        self._env_name: str = getattr(settings, "env_prefix", "") or ""
+        _settings = get_settings()
+        super().__init__(
+            name="service_auditor_agent",
+            metrics_port=9131,
+            max_idle_seconds=600,
+            settings=_settings,
+        )
         self._db_pool: asyncpg.Pool | None = None
         self._http_session: aiohttp.ClientSession | None = None
         self._kafka_producer: KafkaProducerClient | None = None
@@ -135,8 +138,8 @@ class ServiceAuditorAgent(BaseAgent):
         }
         self._handled_rolls: set[tuple[str, str]] = set()
         self._topics_produced = [
-            topic_health_events(self._env_name),
-            topic_health_events_dlq(self._env_name),
+            topic_health_events(self.env_name),
+            topic_health_events_dlq(self.env_name),
         ]
         self._prometheus_check_interval = 15
         self._systemd_check_interval = 30
@@ -156,7 +159,7 @@ class ServiceAuditorAgent(BaseAgent):
         )
         await self._kafka_producer.start()
         self._roll_consumer = KafkaConsumerClient(
-            topic_roll_events(self._env_name),
+            topic_roll_events(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="service_auditor_roll_consumer",
             auto_offset_reset="latest",
@@ -165,7 +168,7 @@ class ServiceAuditorAgent(BaseAgent):
         self.logger.info(
             "service_auditor_agent.setup_complete",
             services=len(SERVICE_REGISTRY),
-            env=self._env_name,
+            env=self.env_name,
         )
 
 
@@ -442,7 +445,7 @@ class ServiceAuditorAgent(BaseAgent):
                 duration_degraded_s,
             )
         await self._kafka_producer.publish(
-            topic_health_events(self._env_name),
+            topic_health_events(self.env_name),
             {
                 "ts": now.isoformat(),
                 "service": service,
@@ -463,7 +466,7 @@ class ServiceAuditorAgent(BaseAgent):
             error=str(error),
         )
         await self._kafka_producer.publish(
-            topic_health_events_dlq(self._env_name),
+            topic_health_events_dlq(self.env_name),
             payload,
             payload.get("service", "unknown"),
         )

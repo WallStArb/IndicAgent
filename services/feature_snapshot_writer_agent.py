@@ -64,7 +64,6 @@ class FeatureSnapshotWriterAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__(name="FeatureSnapshotWriterAgent")
 
-        self._env_name = self.settings.env_name.strip()
         self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         self._expiry_map: dict = {}
@@ -123,7 +122,7 @@ class FeatureSnapshotWriterAgent(BaseAgent):
     async def _run(self) -> None:
         """Main consumer loop — reads intelligence.journal, writes to shadow table."""
         assert self._consumer is not None
-        _journal_topic = topic_intelligence_journal(self._env_name)
+        _journal_topic = topic_intelligence_journal(self.env_name)
 
         async for topic, _key, payload in self._consumer.messages():
             if self._stop_event.is_set():
@@ -172,8 +171,8 @@ class FeatureSnapshotWriterAgent(BaseAgent):
 
         # Kafka consumer — distinct group so offsets are tracked independently
         self._consumer = KafkaConsumerClient(
-            topic_intelligence_journal(self._env_name),
-            topic_system_events(self._env_name),
+            topic_intelligence_journal(self.env_name),
+            topic_system_events(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="earliest",
@@ -183,7 +182,7 @@ class FeatureSnapshotWriterAgent(BaseAgent):
         await self._consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info(
             "snapshot_writer_consumer_started",
-            topic=topic_intelligence_journal(self._env_name),
+            topic=topic_intelligence_journal(self.env_name),
             group=CONSUMER_GROUP,
         )
 

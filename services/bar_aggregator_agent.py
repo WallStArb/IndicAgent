@@ -117,8 +117,6 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="bar_aggregator_agent", metrics_port=9120, max_idle_seconds=300)
-        self._env_name: str = self.settings.env_name or ""
-
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
@@ -172,16 +170,16 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [topic_market_bars(self._env_name)]
+        return [topic_market_bars(self.env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
-        return [topic_market_bars_htf(self._env_name)]
+        return [topic_market_bars_htf(self.env_name)]
 
     def _make_consumer(self) -> KafkaConsumerClient:
         """Create a fresh KafkaConsumerClient for market.bars."""
         return KafkaConsumerClient(
-            topic_market_bars(self._env_name),
+            topic_market_bars(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_aggregator_consumer",
             auto_offset_reset="latest",
@@ -248,7 +246,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         checker_task = asyncio.create_task(self._health_checker())
 
         try:
-            htf_topic = topic_market_bars_htf(self._env_name)
+            htf_topic = topic_market_bars_htf(self.env_name)
             last_health_log = time.monotonic()
             last_minute_reset = time.monotonic()
 

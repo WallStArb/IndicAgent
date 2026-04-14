@@ -95,8 +95,6 @@ class ContractMetadataWriterAgent(BaseAgent):
     def __init__(self) -> None:
         self._dry_run: bool = os.environ.get("DRY_RUN", "false").lower() == "true"
         super().__init__(name="contract_metadata_writer_agent", metrics_port=9124)
-        self._env_name: str = self.settings.env_name or ""
-
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
@@ -113,13 +111,13 @@ class ContractMetadataWriterAgent(BaseAgent):
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [topic_roll_events(self._env_name)]
+        return [topic_roll_events(self.env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
         return [
-            topic_contract_updates(self._env_name),
-            topic_roll_dlq(self._env_name),
+            topic_contract_updates(self.env_name),
+            topic_roll_dlq(self.env_name),
         ]
 
     async def _setup(self) -> None:
@@ -131,7 +129,7 @@ class ContractMetadataWriterAgent(BaseAgent):
         await self._seed_missing_contracts()
 
         self._kafka_consumer = KafkaConsumerClient(
-            topic_roll_events(self._env_name),
+            topic_roll_events(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="contract_metadata_writer_consumer",
             auto_offset_reset="earliest",  # must not miss roll events
@@ -209,7 +207,7 @@ class ContractMetadataWriterAgent(BaseAgent):
     async def _publish_to_dlq(self, payload: dict, key: str = "unknown") -> None:
         """Route an unprocessable payload to the roll DLQ topic."""
         await self._kafka_producer.publish(
-            topic_roll_dlq(self._env_name),
+            topic_roll_dlq(self.env_name),
             payload,
             key=key,
         )
@@ -289,7 +287,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                         promoted_at=datetime.now(UTC),
                     )
                     await self._kafka_producer.publish(
-                        topic_contract_updates(self._env_name),
+                        topic_contract_updates(self.env_name),
                         {**update_event.model_dump(mode="json"), "dry_run": True},
                         key=f"dry_run:{event.symbol}",
                     )
@@ -346,7 +344,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 promoted_at=datetime.now(UTC),
             )
             await self._kafka_producer.publish(
-                topic_contract_updates(self._env_name),
+                topic_contract_updates(self.env_name),
                 update_event.model_dump(mode="json"),
                 key=event.symbol,
             )
