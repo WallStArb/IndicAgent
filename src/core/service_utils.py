@@ -174,6 +174,9 @@ def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
         return None
 
 
+_configured_log_file: str | None = None
+
+
 def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
     """Configure structlog and stdlib logging for a service.
 
@@ -183,7 +186,14 @@ def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int 
 
     Should be called once during service ``__init__``, before the first
     log statement.
+
+    Idempotent: the first call wins — subsequent calls are no-ops.
+    This prevents BaseAgent.__init__ from overwriting a pre-configured log path.
     """
+    global _configured_log_file
+    if _configured_log_file is not None:
+        return
+    _configured_log_file = log_file
     log_dir = Path(log_file).parent
     log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(
