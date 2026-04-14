@@ -115,9 +115,8 @@ class BarWriterAgent(BaseWriterAgent):
     FLUSH_INTERVAL_SECS = 5.0
 
     def __init__(self) -> None:
-        # config-before-super pattern (Phase 52.2 convention)
-        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="bar_writer_agent", metrics_port=9121)
+        self._env_name: str = self.settings.env_name or ""
 
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None

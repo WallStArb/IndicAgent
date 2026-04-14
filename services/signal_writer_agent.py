@@ -133,7 +133,6 @@ class SignalWriterAgent(BaseWriterAgent):
                 # Parse failed — route to DLQ for analysis
                 await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
-            self._consumer_lag.set(len(self._buffer))
             await self.maybe_flush()
 
 

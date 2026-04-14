@@ -17,6 +17,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: rate(provider_bars_produced_total[5m])
               intervalMs: 60000
@@ -53,6 +56,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: rate(service_auditor_service_restarts_total[10m])
               intervalMs: 60000
@@ -89,6 +95,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: increase(signal_writer_agent_buffer_overflow_total[5m])
               intervalMs: 60000
@@ -125,6 +134,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: increase(intelligence_pipeline_signal_dlq_total[5m])
               intervalMs: 60000
@@ -161,6 +173,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: bar_auditor_canonical_completeness_pct
               intervalMs: 60000
@@ -203,6 +218,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: persistence_consumer_lag_records
               intervalMs: 60000
@@ -239,6 +257,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: bar_agg_time_since_last_bar_seconds
               intervalMs: 60000
@@ -275,6 +296,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: intelligence_pipeline_output_buffer_depth
               intervalMs: 60000
@@ -311,6 +335,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: increase(bar_auditor_gap_fill_dlq_depth[5m])
               intervalMs: 60000
@@ -347,6 +374,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: dlq_depth
               intervalMs: 60000
@@ -389,6 +419,9 @@ groups:
         data:
           - refId: A
             datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
             model:
               expr: bar_auditor_canonical_completeness_pct
               intervalMs: 300000

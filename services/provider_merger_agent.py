@@ -70,9 +70,8 @@ class ProviderMergerAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        # config-before-super pattern (Phase 52.2 convention)
-        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="provider_merger_agent", metrics_port=9130)
+        self._env_name: str = self.settings.env_name or ""
 
         self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
