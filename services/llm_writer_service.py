@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""LLM Writer Service — persists LLM call audit data and outcome back-fills to TimescaleDB.
+"""LLM Writer Agent — persists LLM call audit data and outcome back-fills to TimescaleDB.
 
-Consumes two Kafka topics via consumer group 'llm_writer':
-  - {env}.llm.calls   — one message per LLM call; batch-INSERTs to llm_calls hypertable
-  - {env}.llm.outcomes — one message per signal exit; UPDATEs outcome columns WHERE signal_id
+Consumes three Kafka topics via consumer group 'llm_writer':
+  - {env}.llm.calls        — one message per LLM call; batch-INSERTs to llm_calls hypertable
+  - {env}.llm.outcomes     — one message per signal exit; UPDATEs outcome columns WHERE signal_id
+  - {env}.intelligence.i8  — i8 JSONB column updates for intelligence_features
 
 Also recomputes llm_model_scores every 15 minutes.
 
-Mirrors the feature_writer_agent.py pattern exactly: batch buffering, graceful SIGINT/SIGTERM.
+Inherits BaseWriterAgent for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
+Custom _run() handles the dual-consumer pattern (multiple topic subscriptions).
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import signal
 import sys
 import time
 from datetime import UTC, datetime
@@ -27,12 +28,10 @@ sys.path.insert(0, str(project_root))
 import structlog
 from scipy.stats import binomtest
 
-from src.config.settings import Settings
-from src.core.agent.base import AGENT_CRASH_TOTAL
+from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import parse_iso_ts as _parse_ts
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import (
     topic_intelligence_i8,
     topic_llm_calls,
@@ -43,10 +42,8 @@ from src.observability.metrics import (
     DLQ_DEPTH,
     DLQ_MESSAGES_TOTAL,
     PERSISTENCE_BATCH_LATENCY,
-    PERSISTENCE_CONSUMER_LAG,
     counter,
     gauge,
-    start_metrics_server,
 )
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -117,6 +114,7 @@ WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 _SELECT_OUTCOME_ROWS_SQL = """
 SELECT model, regime, setup_type, call_type, symbol,
        COUNT(*) AS n_calls,
+       COUNT(outcome) AS n_outcomes,
        COUNT(outcome) AS n_outcomes,
        AVG(CASE WHEN win THEN 1.0 ELSE 0.0 END) AS win_rate,
        AVG(pnl_r) AS avg_pnl_r,
@@ -310,52 +308,46 @@ def _build_score_insert_params(
     }
 
 
-# ── Service class ──────────────────────────────────────────────────────────────
+# ── Agent class ───────────────────────────────────────────────────────────────
 
 
-class LLMWriterService:
-    """Async Kafka consumer service: reads LLM topics and writes to TimescaleDB.
+class LLMWriterAgent(BaseWriterAgent):
+    """Async Kafka consumer agent: llm.calls + llm.outcomes + intelligence.i8 -> TimescaleDB.
 
-    Single consumer loop reads from llm.calls + llm.outcomes topics.
-    Score recompute loop runs every SCORE_RECOMPUTE_INTERVAL_SECS and upserts
-    llm_model_scores table.
+    Inherits BaseWriterAgent for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
+    Implements dual-consumer pattern (multiple topic subscriptions) via custom _run().
+    15-min score recomputation runs as a background task alongside the consume loop.
     """
 
+    BATCH_SIZE = 50
+    FLUSH_INTERVAL_SECS = 5.0
+    MAX_BUFFER_SIZE = 10_000
+
     def __init__(self, config_file: str | None = None):
-        self.running = False
-        self.shutdown_requested = False
         self.start_time = datetime.now(tz=UTC)
 
+        # Load config before super().__init__() to extract metrics_port
         self.config = self._load_config(config_file)
-        self._setup_logging()
+        metrics_port = self.config.get("service", {}).get("metrics_port", 9117)
 
-        self._kafka_consumer: KafkaConsumerClient | None = None
-        self.db_manager: DatabaseManager | None = None
+        super().__init__(
+            name="llm_writer_agent",
+            metrics_port=metrics_port,
+            max_idle_seconds=300,
+        )
 
-        self._calls_buffer: list[tuple] = []
+        self._env_name: str = self.settings.env_name or ""
+        self._kafka_bootstrap: str = self.settings.kafka_bootstrap_servers
+
+        # Second buffer for i8 column updates (separate from BaseWriterAgent._buffer)
         self._i8_buffer: list[tuple] = []
-        self._last_flush: float = time.monotonic()
         self._last_score_recompute: float = time.monotonic()
 
-        # Stall detection
-        self._last_message_ts: float | None = None
-        self._max_idle_seconds: int = 300  # 5 minutes
-
-        # DLQ producer (initialized in _setup_kafka_clients)
+        # Connections (assigned in _run before consumption starts)
+        self.db_manager: DatabaseManager | None = None
         self._dlq_producer: KafkaProducerClient | None = None
 
-        # Crash detection metric label
-        self._crash_metric = AGENT_CRASH_TOTAL.labels(agent="llm_writer_service")
-
-        try:
-            _s = Settings()
-            self._env_name: str = _s.env_name or ""
-            self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
-        except Exception:
-            self._env_name = ""
-            self._kafka_bootstrap = "localhost:19092"
-
-        # Prometheus metrics
+        # Prometheus metrics (preserve existing names for dashboard/alerting compatibility)
         self.calls_consumed_total = counter(
             "llm_writer_calls_consumed_total",
             "Total LLM call messages consumed from llm.calls topic",
@@ -374,7 +366,7 @@ class LLMWriterService:
         )
         self.error_count_total = counter(
             "llm_writer_errors_total",
-            "Total errors encountered by LLM writer service",
+            "Total errors encountered by LLM writer agent",
         )
         self.buffer_size_gauge = gauge(
             "llm_writer_buffer_size",
@@ -382,7 +374,7 @@ class LLMWriterService:
         )
         self.service_uptime_seconds = gauge(
             "llm_writer_service_uptime_seconds",
-            "LLM writer service uptime in seconds",
+            "LLM writer agent uptime in seconds",
         )
         self.i8_writes_total = counter(
             "llm_writer_i8_writes_total",
@@ -393,19 +385,52 @@ class LLMWriterService:
             "i8 UPDATEs that found 0 rows (timing window)",
         )
         self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="llm_writer")
-        self._consumer_lag_metric = PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer")
+        # _consumer_lag_gauge is inherited from BaseAgent.__init__
 
         self._total_calls = 0
         self._total_outcomes = 0
         self._total_batches = 0
         self._error_count = 0
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+    # ── BaseWriterAgent abstract method implementations ───────────────────────
 
-        self.logger = structlog.get_logger(__name__)
-        metrics_port = self.config.get("service", {}).get("metrics_port", 9117)
-        start_metrics_server(port=metrics_port)
+    def _topic_name(self) -> str:
+        """Primary Kafka topic — used by BaseWriterAgent for consumer setup."""
+        return topic_llm_calls(self._env_name)
+
+    @property
+    def _consumer_group(self) -> str:
+        """Kafka consumer group ID."""
+        return CONSUMER_GROUP
+
+    def _parse_payload(self, payload: dict) -> list | None:
+        """Parse llm.calls topic message into INSERT param tuple.
+
+        Returns None to route to DLQ on parse failure.
+        Only used when BaseWriterAgent's generic consume path is active;
+        LLMWriterAgent uses a custom _run() with direct message routing.
+        """
+        parsed = _parse_llm_call_fields(payload)
+        if parsed is None:
+            return None
+        return [self._parsed_to_insert_tuple(parsed)]
+
+    async def _flush_batch(self, batch: list) -> None:
+        """Write batch of llm_calls rows to TimescaleDB.
+
+        Called by BaseWriterAgent._do_flush(). Must NOT clear self._buffer — caller handles that.
+        """
+        if not self.db_manager:
+            raise RuntimeError("No database connection — cannot flush llm_calls batch")
+        await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, batch)
+        self.batch_writes_total.inc()
+        self._total_batches += 1
+
+    def _dlq_topic(self) -> str | None:
+        """DLQ topic for unparseable messages."""
+        return topic_llm_writer_dlq(self._env_name)
+
+    # ── Setup helpers ─────────────────────────────────────────────────────────
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         default_config: dict[str, Any] = {
@@ -434,17 +459,6 @@ class LLMWriterService:
 
         return default_config
 
-    def _setup_logging(self) -> None:
-        setup_service_logging(
-            self.config["logging"]["file"],
-            level=self.config["logging"].get("level", "INFO"),
-            backup_count=self.config["logging"].get("backup_count", 5),
-        )
-
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
-
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
         try:
@@ -458,13 +472,14 @@ class LLMWriterService:
     async def _setup_kafka_clients(self) -> None:
         """Create Kafka consumer subscribed to llm.calls, llm.outcomes, and intelligence.i8.
 
+        Assigns self._consumer (BaseWriterAgent attribute) for offset commits.
         Also starts a DLQ producer for routing unparseable messages.
         """
         calls_topic = topic_llm_calls(self._env_name)
         outcomes_topic = topic_llm_outcomes(self._env_name)
         i8_topic = topic_intelligence_i8(self._env_name)
 
-        self._kafka_consumer = KafkaConsumerClient(
+        kafka_consumer = KafkaConsumerClient(
             calls_topic,
             outcomes_topic,
             i8_topic,
@@ -472,7 +487,8 @@ class LLMWriterService:
             group_id=CONSUMER_GROUP,
             auto_offset_reset="latest",
         )
-        await self._kafka_consumer.start()
+        await kafka_consumer.start()
+        self._consumer = kafka_consumer  # BaseWriterAgent uses self._consumer for offset commits
         self.logger.info(
             "Kafka consumer started",
             topics=[calls_topic, outcomes_topic, i8_topic],
@@ -483,50 +499,51 @@ class LLMWriterService:
         await self._dlq_producer.start()
         self.logger.info("DLQ producer started", dlq_topic=topic_llm_writer_dlq(self._env_name))
 
-    async def _maybe_flush(self, force: bool = False) -> None:
-        """Flush buffered llm_calls INSERTs to TimescaleDB.
+    # ── Main lifecycle ────────────────────────────────────────────────────────
 
-        Flushes when force=True or FLUSH_INTERVAL_SECS has elapsed.
-        Drops buffer with warning if db_manager is unavailable (prevents unbounded growth).
+    async def _run(self) -> None:
+        """Main loop: connect, then run dual-consumer + score recompute tasks.
+
+        BaseAgent.start() calls this after signal handler registration and metrics server start.
+        BaseWriterAgent._teardown() handles final flush on exit.
         """
-        if not self._calls_buffer:
-            return
+        self.logger.info("LLM Writer Agent starting")
+        await self._connect_database()
+        await self._setup_kafka_clients()
 
-        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
-        if not should_flush:
-            return
+        tasks = [
+            asyncio.create_task(self._process_loop()),
+            asyncio.create_task(self._score_recompute_loop()),
+            asyncio.create_task(self._health_monitor_loop()),
+            asyncio.create_task(self._stall_watchdog()),
+        ]
+        self.logger.info("LLM Writer Agent started")
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-        if not self.db_manager:
-            self.logger.warning(
-                "No database connection — dropping buffered LLM calls",
-                count=len(self._calls_buffer),
-            )
-            self._calls_buffer.clear()
-            self._last_flush = time.monotonic()
-            return
+    async def _teardown(self) -> None:
+        """Flush buffer and close all connections. Override of BaseWriterAgent._teardown()."""
+        # Final flush of llm_calls buffer (base class behaviour)
+        await super()._teardown()
 
-        params = list(self._calls_buffer)
-        PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer").set(len(params))
-
-        batch_start = time.monotonic()
-        try:
-            await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, params)
-            batch_latency = time.monotonic() - batch_start
-            PERSISTENCE_BATCH_LATENCY.labels(agent_id="llm_writer").observe(batch_latency)
-            self._calls_buffer.clear()
-            self._last_flush = time.monotonic()
-            self.batch_writes_total.inc()
-            self._total_batches += 1
-            self.buffer_size_gauge.set(0)
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer").set(0)
-            self.logger.debug("Flushed llm_calls batch", rows=len(params))
-        except Exception as e:
-            self.logger.error("Batch write failed", error=str(e), rows=len(params))
-            self.error_count_total.inc()
-            self._error_count += 1
-            self.buffer_size_gauge.set(len(self._calls_buffer))
-        finally:
+        # Flush any remaining i8 updates
+        if self.db_manager:
             await self._flush_i8()
+
+        if self._consumer:
+            await self._consumer.stop()
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
+        if self.db_manager:
+            await self.db_manager.close()
+
+        self.logger.info(
+            "LLM Writer Agent stopped",
+            total_calls=self._total_calls,
+            total_outcomes=self._total_outcomes,
+            total_batches=self._total_batches,
+        )
+
+    # ── Message processing ────────────────────────────────────────────────────
 
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
         """Map parsed llm_call dict to a positional tuple for _INSERT_LLM_CALL_SQL."""
@@ -579,13 +596,13 @@ class LLMWriterService:
                 return True
 
             params = self._parsed_to_insert_tuple(parsed)
-            self._calls_buffer.append(params)
+            self._buffer_rows([params])  # Updates _buffer_depth_gauge via BaseWriterAgent
             self.calls_consumed_total.inc()
             self._total_calls += 1
-            self.buffer_size_gauge.set(len(self._calls_buffer))
+            self.buffer_size_gauge.set(len(self._buffer))
 
-            if len(self._calls_buffer) >= BATCH_SIZE:
-                await self._maybe_flush(force=True)
+            if len(self._buffer) >= self.BATCH_SIZE:
+                await self._do_flush()
 
             return True
 
@@ -645,8 +662,7 @@ class LLMWriterService:
     async def _process_i8_message(self, payload: dict) -> None:
         """Buffer i8 column from intelligence.i8 topic message for batch UPDATE flush.
 
-        Mirrors the removed FeatureWriterAgent._process_i8_message but uses
-        LLMWriterService's buffer. Silently skips messages with no ts field.
+        Silently skips messages with no ts field.
         """
         ts_raw = payload.get("ts") or payload.get(b"ts", b"")
         if not ts_raw:
@@ -688,7 +704,7 @@ class LLMWriterService:
             self._i8_buffer.clear()
         except Exception as e:
             self.logger.error("i8_flush_failed", error=str(e), buffer_size=len(batch))
-            # Leave buffer intact for retry — same pattern as _calls_buffer
+            # Leave buffer intact for retry — same pattern as _buffer
 
     async def _recompute_scores(self) -> None:
         """Query llm_calls for all rows with outcomes, compute model scores, upsert.
@@ -762,7 +778,7 @@ class LLMWriterService:
         """Route an unparseable message to the LLM writer DLQ topic.
 
         Increments DLQ_MESSAGES_TOTAL and DLQ_DEPTH metrics. Logs a warning.
-        Continues processing (never raises) — bad messages must not crash the service.
+        Continues processing (never raises) — bad messages must not crash the agent.
         """
         dlq_topic = topic_llm_writer_dlq(self._env_name)
         try:
@@ -777,11 +793,11 @@ class LLMWriterService:
                     },
                 )
             DLQ_MESSAGES_TOTAL.labels(
-                agent="llm_writer_service",
+                agent="llm_writer_agent",
                 topic=dlq_topic,
                 error_type=error_type,
             ).inc()
-            DLQ_DEPTH.labels(agent="llm_writer_service", topic=dlq_topic).inc()
+            DLQ_DEPTH.labels(agent="llm_writer_agent", topic=dlq_topic).inc()
             self.logger.warning(
                 "Message routed to DLQ",
                 dlq_topic=dlq_topic,
@@ -792,43 +808,40 @@ class LLMWriterService:
             self.logger.error("Failed to publish to DLQ", error=str(e), dlq_topic=dlq_topic)
 
     async def _stall_watchdog(self) -> None:
-        """Warn if no messages have been consumed for _max_idle_seconds.
+        """Warn if no messages have been consumed for max_idle_seconds.
 
         Checks every 60 seconds. Startup grace: does not warn until the first
-        message has been received. Only logs a warning — does not kill the process
-        (contrast with BaseAgent._stall_watchdog which calls sys.exit).
+        message has been received. Only logs a warning — does not kill the process.
         """
         check_interval = 60
-        while not self.shutdown_requested:
+        while not self._stop_event.is_set():
             await asyncio.sleep(check_interval)
-            if self._last_message_ts is None:
+            if self._last_msg_ts is None:
                 continue  # startup grace — no messages received yet
-            idle_secs = time.monotonic() - self._last_message_ts
-            if idle_secs >= self._max_idle_seconds:
+            idle_secs = time.monotonic() - self._last_msg_ts
+            if idle_secs >= self.max_idle_seconds:
                 self.logger.warning(
-                    "LLMWriterService stall detected — no messages consumed",
+                    "LLMWriterAgent stall detected — no messages consumed",
                     idle_seconds=int(idle_secs),
-                    max_idle_seconds=self._max_idle_seconds,
+                    max_idle_seconds=self.max_idle_seconds,
                 )
 
     async def _process_loop(self) -> None:
         """Kafka consumer loop for llm.calls + llm.outcomes + intelligence.i8 — routes by topic."""
-        if not self._kafka_consumer:
+        if not self._consumer:
             return
 
         calls_topic = topic_llm_calls(self._env_name)
         outcomes_topic = topic_llm_outcomes(self._env_name)
         i8_topic = topic_intelligence_i8(self._env_name)
 
-        async for kafka_topic, _key, payload in self._kafka_consumer.messages():
-            if self.shutdown_requested:
+        async for kafka_topic, _key, payload in self._consumer.messages():
+            if self._stop_event.is_set():
                 break
-            # Record timestamp for stall detection
-            self._last_message_ts = time.monotonic()
             try:
                 if kafka_topic == calls_topic:
                     await self._process_calls_message(payload, calls_topic)
-                    await self._maybe_flush(force=False)
+                    await self.maybe_flush()
                 elif kafka_topic == outcomes_topic:
                     await self._process_outcome_message(payload, outcomes_topic)
                 elif kafka_topic == i8_topic:
@@ -842,10 +855,10 @@ class LLMWriterService:
 
     async def _score_recompute_loop(self) -> None:
         """Periodic loop: recomputes llm_model_scores every SCORE_RECOMPUTE_INTERVAL_SECS."""
-        while self.running and not self.shutdown_requested:
+        while not self._stop_event.is_set():
             try:
                 await asyncio.sleep(SCORE_RECOMPUTE_INTERVAL_SECS)
-                if self.running and not self.shutdown_requested:
+                if not self._stop_event.is_set():
                     await self._recompute_scores()
             except asyncio.CancelledError:
                 break
@@ -855,11 +868,10 @@ class LLMWriterService:
 
     async def _health_monitor_loop(self) -> None:
         """Periodic health check: logs uptime and key counters."""
-        while self.running and not self.shutdown_requested:
+        while not self._stop_event.is_set():
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
-                self._consumer_lag_metric.set(len(self._calls_buffer))
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",
@@ -867,7 +879,7 @@ class LLMWriterService:
                     calls_consumed=self._total_calls,
                     outcomes_processed=self._total_outcomes,
                     batches_written=self._total_batches,
-                    buffer_size=len(self._calls_buffer),
+                    buffer_size=len(self._buffer),
                     errors=self._error_count,
                 )
                 await asyncio.sleep(interval)
@@ -877,58 +889,9 @@ class LLMWriterService:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
 
-    async def _shutdown(self) -> None:
-        """Graceful shutdown: flush buffer, close connections."""
-        self.logger.info("Shutting down LLM Writer Service")
-        self.shutdown_requested = True
-        self.running = False
 
-        # Flush remaining buffered calls before closing
-        await self._maybe_flush(force=True)
-        # Flush any remaining i8 that weren't flushed via _maybe_flush
-        # (e.g. if calls buffer was empty on shutdown)
-        if self.db_manager:
-            await self._flush_i8()
-
-        if self._kafka_consumer:
-            await self._kafka_consumer.stop()
-        if self._dlq_producer:
-            await self._dlq_producer.stop()
-        if self.db_manager:
-            await self.db_manager.close()
-
-        self.logger.info(
-            "LLM Writer Service stopped",
-            total_calls=getattr(self, "_total_calls", 0),
-            total_outcomes=getattr(self, "_total_outcomes", 0),
-            total_batches=getattr(self, "_total_batches", 0),
-        )
-
-    async def start(self) -> None:
-        """Start all async loops and run until shutdown.
-
-        Crash detection: AGENT_CRASH_TOTAL is incremented on any unhandled exception
-        from the main processing tasks so Prometheus alerting can page on crashes.
-        """
-        self.logger.info("Starting LLM Writer Service", config=self.config["service"])
-        try:
-            await self._connect_database()
-            await self._setup_kafka_clients()
-            self.running = True
-            tasks = [
-                asyncio.create_task(self._process_loop()),
-                asyncio.create_task(self._score_recompute_loop()),
-                asyncio.create_task(self._health_monitor_loop()),
-                asyncio.create_task(self._stall_watchdog()),
-            ]
-            self.logger.info("LLM Writer Service started")
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error("Failed to start LLM writer", error=str(e))
-            self._crash_metric.inc()
-            raise
-        finally:
-            await self._shutdown()
+# Backward-compatibility alias — existing tests import LLMWriterService
+LLMWriterService = LLMWriterAgent
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
@@ -937,13 +900,13 @@ class LLMWriterService:
 async def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="LLM Writer Service")
+    parser = argparse.ArgumentParser(description="LLM Writer Agent")
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    svc = LLMWriterService(args.config)
+    agent = LLMWriterAgent(args.config)
     try:
-        await svc.start()
+        await agent.start()
     except KeyboardInterrupt:
         pass
 

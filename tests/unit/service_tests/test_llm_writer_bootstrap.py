@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 from services.llm_writer_service import LLMWriterAgent
+from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 
 
 def _mock_base_agent_attributes(agent):
@@ -75,8 +75,10 @@ async def test_llm_writer_buffer_depth_gauge():
     # Verify initial buffer depth is 0
     assert len(agent._buffer) == 0
 
-    # Add some rows to buffer
-    agent._buffer.extend([1, 2, 3])
+    # Add rows via _buffer_rows() — the only path that updates _buffer_depth_gauge
+    agent._buffer_overflow_total = MagicMock()
+    agent._buffer_overflow_total.inc = MagicMock()
+    agent._buffer_rows([1, 2, 3])
     agent._buffer_depth_gauge.set.assert_called_with(3)
 
 
