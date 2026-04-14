@@ -156,15 +156,20 @@ class MLDataQualityAuditorAgent(BaseAgent):
         return max(0.0, 1.0 - (gap_count - _GAP_MAX) / 500.0)
 
     async def _check_outliers(self) -> float:
-        """Check for extreme outlier feature values (> 6σ). Returns 1.0 if count below threshold."""
+        """Check for structurally invalid or extreme outlier feature values.
+
+        Catches RSI outside [5, 95] (extreme but possible values indicating
+        potential data corruption) and negative ATR (structurally impossible).
+        Returns 1.0 if count below threshold.
+        """
         async with self._pool.acquire() as conn:
             outlier_count = await conn.fetchval("""
                 SELECT COALESCE(COUNT(*), 0)
                 FROM intelligence_features
                 WHERE ts >= NOW() - INTERVAL '30 days'
                   AND (
-                    ABS((i1->>'rsi_14')::float - 50) > 6 * 20
-                    OR (i1->>'atr_14')::float > 200
+                    ABS((i1->>'rsi_14')::float - 50) > 45
+                    OR (i1->>'atr_14')::float < 0
                   )
                 """) or 0
         outlier_count = int(outlier_count)
