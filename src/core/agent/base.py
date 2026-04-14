@@ -319,7 +319,7 @@ class BaseAgent(abc.ABC):
         try:
             # Check if agent has a Kafka producer
             if hasattr(self, "_kafka_producer") and self._kafka_producer is not None:
-                await self._kafka_producer.produce(dlq_topic, dlq_payload.model_dump())
+                await self._kafka_producer.publish(dlq_topic, dlq_payload.model_dump())
                 # Emit metrics
                 DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
                 DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
@@ -331,7 +331,7 @@ class BaseAgent(abc.ABC):
                 )
             elif hasattr(self, "_producer") and self._producer is not None:
                 # Some agents use self._producer instead of self._kafka_producer
-                await self._producer.produce(dlq_topic, dlq_payload.model_dump())
+                await self._producer.publish(dlq_topic, dlq_payload.model_dump())
                 DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
                 DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
                 self.logger.info(
