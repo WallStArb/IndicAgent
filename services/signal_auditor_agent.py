@@ -116,7 +116,7 @@ class SignalAuditorAgent(BaseAgent):
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
         self._env_name: str = self._settings.env_name or ""
-        super().__init__(name="signal_auditor_agent", metrics_port=9128)
+        super().__init__(name="signal_auditor_agent", metrics_port=9128, max_idle_seconds=600)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
