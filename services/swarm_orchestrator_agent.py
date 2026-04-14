@@ -42,7 +42,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
     """Orchestrate swarm contributors for each I7 signal."""
 
     def __init__(self, settings: Settings, contributors: list | None = None) -> None:
-        super().__init__(name="SwarmOrchestratorComputeAgent")
+        super().__init__(name="SwarmOrchestratorComputeAgent", max_idle_seconds=300)
         self._settings = settings
         self._context_cache = SwarmContextCache()
         self._contributors = [SafeSwarmWrapper(c) for c in (contributors or [])]
