@@ -44,7 +44,6 @@ from src.observability.metrics import (
     PARITY_MATCH_RATE,
     PARITY_VIOLATIONS_TOTAL,
     SHADOW_AHEAD_ROWS_TOTAL,
-    start_metrics_server,
 )
 from src.persistence.repository.parity_repository import ParityRepository
 
@@ -189,7 +188,7 @@ class ParityAuditorAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="ParityAuditorAgent", max_idle_seconds=600)
+        super().__init__(name="ParityAuditorAgent", metrics_port=METRICS_PORT, max_idle_seconds=600)
 
         self._settings = Settings()
         self._pool: asyncpg.Pool | None = None
@@ -358,7 +357,6 @@ class ParityAuditorAgent(BaseAgent):
 
 
 async def main() -> None:
-    start_metrics_server(port=METRICS_PORT)
     agent = ParityAuditorAgent()
     await agent.start()
 
