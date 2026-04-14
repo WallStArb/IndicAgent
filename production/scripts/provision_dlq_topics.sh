@@ -32,6 +32,14 @@ docker exec redpanda rpk topic create ${ENV_NAME}.cross.asset.dlq --config reten
 # LLM writer DLQ
 docker exec redpanda rpk topic create ${ENV_NAME}.llm.writer.dlq --config retention.ms=${RETENTION_MS}
 
+# Compute agent DLQs (additional)
+docker exec redpanda rpk topic create ${ENV_NAME}.intelligence.signal.dlq --config retention.ms=${RETENTION_MS}
+docker exec redpanda rpk topic create ${ENV_NAME}.swarm.orchestrator.dlq --config retention.ms=${RETENTION_MS}
+docker exec redpanda rpk topic create ${ENV_NAME}.market.events.roll.dlq --config retention.ms=${RETENTION_MS}
+docker exec redpanda rpk topic create ${ENV_NAME}.intelligence.service_auditor.journal.dlq --config retention.ms=${RETENTION_MS}
+docker exec redpanda rpk topic create ${ENV_NAME}.ml.orchestrator.dlq --config retention.ms=${RETENTION_MS}
+docker exec redpanda rpk topic create ${ENV_NAME}.gap_fill.dlq --config retention.ms=${RETENTION_MS}
+
 echo ""
 echo "Verifying DLQ topics:"
 docker exec redpanda rpk topic list | grep "${ENV_NAME}.*\.dlq"

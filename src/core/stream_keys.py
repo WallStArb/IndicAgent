@@ -389,11 +389,6 @@ def topic_lifecycle_writer_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.writer.dlq"
 
 
-def topic_swarm_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for SwarmWriterAgent unparseable payloads."""
-    return f"{env_prefix(env_name)}swarm.writer.dlq"
-
-
 def topic_bar_audit_dlq(env_name: str) -> str:
     """Dead letter queue for BarAuditorAgent unparseable payloads."""
     return f"{env_prefix(env_name)}bar.audit.dlq"
