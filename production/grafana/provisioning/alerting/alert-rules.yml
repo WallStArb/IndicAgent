@@ -114,7 +114,7 @@ groups:
         for: 0s
         annotations:
           summary: "Signals being dropped by signal writer buffer"
-          description: "increase(signal_writer_buffer_dropped_total[5m]) > 0. Training data loss in progress."
+          description: "increase(signal_writer_agent_buffer_overflow_total[5m]) > 0. Training data loss in progress."
         labels:
           severity: critical
           contact_point: telegram-critical

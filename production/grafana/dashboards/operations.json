@@ -499,7 +499,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(signal_writer_buffer_dropped_total[1m])",
+          "expr": "rate(signal_writer_agent_buffer_overflow_total[1m])",
           "refId": "A",
           "legendFormat": "drops/s"
         }
