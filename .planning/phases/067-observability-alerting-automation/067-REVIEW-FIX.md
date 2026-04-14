@@ -1,91 +1,67 @@
 ---
 phase: 067-observability-alerting-automation
-fixed_at: 2026-04-14T07:59:39Z
+fixed_at: 2026-04-14T00:00:00Z
 review_path: .planning/phases/067-observability-alerting-automation/067-REVIEW.md
 iteration: 1
-findings_in_scope: 10
-fixed: 8
-skipped: 2
+findings_in_scope: 6
+fixed: 5
+skipped: 1
 status: partial
 ---
 
 # Phase 067: Code Review Fix Report
 
-**Fixed at:** 2026-04-14T07:59:39Z
+**Fixed at:** 2026-04-14T00:00:00Z
 **Source review:** .planning/phases/067-observability-alerting-automation/067-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 10
-- Fixed: 8
-- Skipped: 2
+- Findings in scope: 6
+- Fixed: 5
+- Skipped: 1
 
 ## Fixed Issues
 
-### CR-01: BaseAgent._send_to_dlq calls producer.produce() -- method does not exist
+### WR-01: Runtime TypeError in `_get_consumer_lag` -- frozenset not subscriptable
 
-**Files modified:** `src/core/agent/base.py`
-**Commit:** 9b71fc5f
-**Applied fix:** Changed `produce()` to `publish()` in two locations within `_send_to_dlq()` (lines 322 and 334). KafkaProducerClient exposes `publish()`, not `produce()`, so every DLQ routing attempt would have raised AttributeError at runtime.
+**Files modified:** `services/bar_aggregator_agent.py`
+**Commit:** 55bc536f
+**Applied fix:** Replaced `self._kafka_consumer._consumer` direct access with `getattr(self._kafka_consumer, "_consumer", None)` guarded for None. Replaced `partitions[0]` subscript with `next(iter(partitions))` to handle frozenset. Added `await` to `inner.position(tp)` call.
 
-### CR-02: BaseAgent._send_alert references self._settings but it may not exist
+### WR-02: Blocking `subprocess.run` inside async event loop
 
-**Files modified:** `src/core/agent/base.py`
-**Commit:** a4077e1d
-**Applied fix:** Replaced direct `self._settings.env_name` access with safe `getattr(self, "_settings", None)` fallback, and changed `produce()` to `publish()`. Agents that do not set `self._settings` will now use empty string as env_name instead of crashing with AttributeError.
+**Files modified:** `services/service_auditor_agent.py`
+**Commit:** 857cb1d2
+**Applied fix:** Replaced synchronous `subprocess.run(cmd, check=True, capture_output=True)` with async `asyncio.create_subprocess_exec` + `asyncio.wait_for` with 30s timeout. Preserved error logging for non-zero return codes and general exceptions.
 
-### WR-01: Metrics port collision -- LifecycleWriterAgent and SignalAuditorAgent both use :9128
+### WR-04: `_run` in `SwarmOrchestratorComputeAgent` cannot propagate stop signal -- shutdown deadlock
 
-**Files modified:** `services/signal_auditor_agent.py`
-**Commit:** c85ee736
-**Applied fix:** Changed SignalAuditorAgent metrics_port from 9128 to 9134 (port was available; verified against all existing services). Updated both the constructor call and docstring references.
+**Files modified:** `services/swarm_orchestrator_agent.py`
+**Commit:** 8d62eb87
+**Applied fix:** Added `if not self.running: break` at the top of both `_bar_loop` and `_signal_loop` async iterators. When BaseAgent sets `_stop_event` on SIGTERM, `self.running` returns False, breaking both loops and allowing `_run` to return so `_teardown` can execute cleanly. **Status: fixed, requires human verification** (logic fix -- confirm that checking `self.running` at the top of each message loop is the correct shutdown signaling pattern).
 
-### WR-02: BarAuditorAgent._detect_gaps has duplicate gap request logic on the resolved path
+### WR-05: `setup_service_logging` call in ML agent `__init__` is overwritten by BaseAgent
 
-**Files modified:** `services/bar_auditor_agent.py`
-**Commit:** f5d1d808
-**Applied fix:** Removed the contradictory dedup/gap-request-append block from the `elif completeness >= 1.0` branch. When completeness reaches 100%, the code now only calls `_resolve_market_data_gap()` without also queuing a new BarGapRequest for the same gap. **Status: fixed, requires human verification** (logic bug -- confirm that removing the duplicate block preserves intended behavior).
+**Files modified:** `src/core/service_utils.py`
+**Commit:** 914c4118
+**Applied fix:** Made `setup_service_logging` idempotent using a module-level `_configured_log_file` sentinel. The first call wins -- subsequent calls are no-ops. This prevents BaseAgent's auto-derived log path (`m_l_data_quality_auditor_agent.log`) from overwriting the correct path set by the subclass (`ml_data_quality_agent.log`). Safe because each service runs in its own process with a single agent instance.
 
-### WR-03: BaseAgent._send_to_dlq references self._topics_consumed instead of self.topics_consumed
+### WR-06: RSI outlier threshold unreachable -- `_check_outliers` score is always 1.0
 
-**Files modified:** `src/core/agent/base.py`
-**Commit:** 76aa31a5
-**Applied fix:** Changed `self._topics_consumed[0] if hasattr(self, "_topics_consumed") and self._topics_consumed else "unknown"` to `self.topics_consumed[0] if self.topics_consumed else "unknown"`. The property `topics_consumed` is the correct public interface; the private attribute `_topics_consumed` is never set.
-
-### WR-06: ParityAuditorAgent.start_metrics_server called before super().__init__ completes metrics setup
-
-**Files modified:** `services/parity_auditor_agent.py`
-**Commit:** d9b6c00a
-**Applied fix:** Added `metrics_port=METRICS_PORT` (9133) to the `super().__init__()` call and removed the standalone `start_metrics_server()` call from `main()`. Also removed the now-unused `start_metrics_server` import. BaseAgent.start() will now handle metrics server startup consistently.
-
-### WR-07: Grafana alert references nonexistent metric signal_writer_buffer_dropped_total
-
-**Files modified:** `production/grafana/provisioning/alerting/alert-rules.yml`
-**Commit:** 42963ddf
-**Applied fix:** Changed metric name from `signal_writer_buffer_dropped_total` to `signal_writer_agent_buffer_overflow_total` to match the actual metric defined in `BaseWriterAgent` (pattern: `{agent_snake}_buffer_overflow_total`).
-
-### WR-08: provision_dlq_topics.sh does not create all DLQ topics defined in stream_keys.py
-
-**Files modified:** `production/scripts/provision_dlq_topics.sh`, `src/core/stream_keys.py`
-**Commit:** 0ba601fe
-**Applied fix:** Added 6 missing DLQ topics to the provisioning script (intelligence.signal.dlq, swarm.orchestrator.dlq, market.events.roll.dlq, intelligence.service_auditor.journal.dlq, ml.orchestrator.dlq, gap_fill.dlq). Removed the duplicate `topic_swarm_writer_dlq` function definition at line 392 of stream_keys.py, keeping the canonical one in the Swarm section at line 322.
+**Files modified:** `services/ml_data_quality_agent.py`
+**Commit:** 4b3750cd
+**Applied fix:** Replaced mathematically impossible condition `ABS(rsi - 50) > 120` with `ABS(rsi - 50) > 45` (catches RSI outside [5, 95] -- genuine outliers). Replaced `atr > 200` with `atr < 0` (structurally impossible negative ATR). Updated docstring to document the new threshold rationale. **Status: fixed, requires human verification** (logic fix -- confirm that RSI outside [5,95] and negative ATR are the desired outlier definitions).
 
 ## Skipped Issues
 
-### WR-04: BarAuditorAgent metrics label uses "agent" instead of "agent_id"
+### WR-03: `asyncpg` not imported at top level but used in type annotation
 
-**File:** `services/bar_auditor_agent.py:62-85`
-**Reason:** Advisory/non-blocking per reviewer's own assessment. These are independent auditor-specific metrics (not PERSISTENCE_BATCH_LATENCY or PERSISTENCE_CONSUMER_LAG), and the CLAUDE.md `agent_id` convention specifically applies to those persistence metrics. Migrating label names is a separate task.
-**Original issue:** BarAuditorAgent uses label key "agent" on module-level metrics while project convention uses "agent_id" for persistence metrics.
-
-### WR-05: LLMWriterService does not inherit from BaseAgent -- no crash metrics or stall detection
-
-**File:** `services/llm_writer_service.py`
-**Reason:** Substantial refactoring needed -- migrating LLMWriterService to extend BaseWriterAgent or BaseAgent requires significant code restructuring, not a targeted fix. The service works as-is; it just lacks Phase 067 observability coverage. This is a dedicated task.
-**Original issue:** LLMWriterService manages its own signal handlers, running flag, and shutdown logic without inheriting from BaseAgent, missing crash metrics, stall detection, and standard lifecycle.
+**File:** `services/swarm_orchestrator_agent.py:210`
+**Reason:** code context differs from review -- `from __future__ import annotations` is already present at line 9 of the file, which makes type annotations lazy and prevents the `NameError`. The fix was already applied in the current codebase.
+**Original issue:** `_seed_context_cache` has the annotation `pool: asyncpg.Pool` but `asyncpg` was not imported at top level, potentially causing `NameError`.
 
 ---
 
-_Fixed: 2026-04-14T07:59:39Z_
+_Fixed: 2026-04-14T00:00:00Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
