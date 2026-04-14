@@ -27,13 +27,21 @@ sys.path.insert(0, str(project_root))
 import structlog
 from scipy.stats import binomtest
 
-from src.core.service_utils import parse_iso_ts as _parse_ts
 from src.config.settings import Settings
+from src.core.agent.base import AGENT_CRASH_TOTAL
 from src.core.database_manager import DatabaseManager
-from src.core.kafka_utils import KafkaConsumerClient
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.service_utils import parse_iso_ts as _parse_ts
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import topic_intelligence_i8, topic_llm_calls, topic_llm_outcomes
+from src.core.stream_keys import (
+    topic_intelligence_i8,
+    topic_llm_calls,
+    topic_llm_outcomes,
+    topic_llm_writer_dlq,
+)
 from src.observability.metrics import (
+    DLQ_DEPTH,
+    DLQ_MESSAGES_TOTAL,
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
     counter,
@@ -329,6 +337,16 @@ class LLMWriterService:
         self._last_flush: float = time.monotonic()
         self._last_score_recompute: float = time.monotonic()
 
+        # Stall detection
+        self._last_message_ts: float | None = None
+        self._max_idle_seconds: int = 300  # 5 minutes
+
+        # DLQ producer (initialized in _setup_kafka_clients)
+        self._dlq_producer: KafkaProducerClient | None = None
+
+        # Crash detection metric label
+        self._crash_metric = AGENT_CRASH_TOTAL.labels(agent="llm_writer_service")
+
         try:
             _s = Settings()
             self._env_name: str = _s.env_name or ""
@@ -438,7 +456,10 @@ class LLMWriterService:
             self.db_manager = None
 
     async def _setup_kafka_clients(self) -> None:
-        """Create Kafka consumer subscribed to llm.calls, llm.outcomes, and intelligence.i8."""
+        """Create Kafka consumer subscribed to llm.calls, llm.outcomes, and intelligence.i8.
+
+        Also starts a DLQ producer for routing unparseable messages.
+        """
         calls_topic = topic_llm_calls(self._env_name)
         outcomes_topic = topic_llm_outcomes(self._env_name)
         i8_topic = topic_intelligence_i8(self._env_name)
@@ -457,6 +478,10 @@ class LLMWriterService:
             topics=[calls_topic, outcomes_topic, i8_topic],
             group=CONSUMER_GROUP,
         )
+
+        self._dlq_producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)
+        await self._dlq_producer.start()
+        self.logger.info("DLQ producer started", dlq_topic=topic_llm_writer_dlq(self._env_name))
 
     async def _maybe_flush(self, force: bool = False) -> None:
         """Flush buffered llm_calls INSERTs to TimescaleDB.
@@ -540,13 +565,17 @@ class LLMWriterService:
             parsed["setup_type"],  # $24 setup_type
         )
 
-    async def _process_calls_message(self, payload: dict) -> bool:
-        """Parse one llm.calls topic message, buffer INSERT params."""
+    async def _process_calls_message(self, payload: dict, source_topic: str = "") -> bool:
+        """Parse one llm.calls topic message, buffer INSERT params.
+
+        Routes unparseable messages to DLQ instead of silently dropping or crashing.
+        """
         try:
             parsed = _parse_llm_call_fields(payload)
             if parsed is None:
-                self.logger.warning("Malformed llm_call message — skipped")
+                self.logger.warning("Malformed llm_call message — routing to DLQ")
                 self.error_count_total.inc()
+                await self._send_to_dlq(payload, source_topic, "parse_failure")
                 return True
 
             params = self._parsed_to_insert_tuple(parsed)
@@ -564,18 +593,21 @@ class LLMWriterService:
             self.logger.error("Error processing llm_call message", error=str(e))
             self.error_count_total.inc()
             self._error_count += 1
+            await self._send_to_dlq(payload, source_topic, type(e).__name__)
             return False
 
-    async def _process_outcome_message(self, payload: dict) -> bool:
+    async def _process_outcome_message(self, payload: dict, source_topic: str = "") -> bool:
         """Parse one llm.outcomes topic message and execute immediate UPDATE.
 
         Outcomes are low-volume (one per signal exit) — no buffering needed.
+        Routes unparseable messages to DLQ instead of silently dropping or crashing.
         """
         try:
             parsed = _parse_outcome_fields(payload)
             if parsed is None:
-                self.logger.warning("Malformed outcome message — skipped")
+                self.logger.warning("Malformed outcome message — routing to DLQ")
                 self.error_count_total.inc()
+                await self._send_to_dlq(payload, source_topic, "parse_failure")
                 return True
 
             if self.db_manager:
@@ -607,6 +639,7 @@ class LLMWriterService:
             self.logger.error("Error processing outcome message", error=str(e))
             self.error_count_total.inc()
             self._error_count += 1
+            await self._send_to_dlq(payload, source_topic, type(e).__name__)
             return False
 
     async def _process_i8_message(self, payload: dict) -> None:
@@ -725,6 +758,59 @@ class LLMWriterService:
             self.error_count_total.inc()
             self._error_count += 1
 
+    async def _send_to_dlq(self, payload: dict, source_topic: str, error_type: str) -> None:
+        """Route an unparseable message to the LLM writer DLQ topic.
+
+        Increments DLQ_MESSAGES_TOTAL and DLQ_DEPTH metrics. Logs a warning.
+        Continues processing (never raises) — bad messages must not crash the service.
+        """
+        dlq_topic = topic_llm_writer_dlq(self._env_name)
+        try:
+            if self._dlq_producer:
+                await self._dlq_producer.publish(
+                    dlq_topic,
+                    {
+                        "original_topic": source_topic,
+                        "error_type": error_type,
+                        "payload": payload,
+                        "failed_at": datetime.now(tz=UTC).isoformat(),
+                    },
+                )
+            DLQ_MESSAGES_TOTAL.labels(
+                agent="llm_writer_service",
+                topic=dlq_topic,
+                error_type=error_type,
+            ).inc()
+            DLQ_DEPTH.labels(agent="llm_writer_service", topic=dlq_topic).inc()
+            self.logger.warning(
+                "Message routed to DLQ",
+                dlq_topic=dlq_topic,
+                source_topic=source_topic,
+                error_type=error_type,
+            )
+        except Exception as e:
+            self.logger.error("Failed to publish to DLQ", error=str(e), dlq_topic=dlq_topic)
+
+    async def _stall_watchdog(self) -> None:
+        """Warn if no messages have been consumed for _max_idle_seconds.
+
+        Checks every 60 seconds. Startup grace: does not warn until the first
+        message has been received. Only logs a warning — does not kill the process
+        (contrast with BaseAgent._stall_watchdog which calls sys.exit).
+        """
+        check_interval = 60
+        while not self.shutdown_requested:
+            await asyncio.sleep(check_interval)
+            if self._last_message_ts is None:
+                continue  # startup grace — no messages received yet
+            idle_secs = time.monotonic() - self._last_message_ts
+            if idle_secs >= self._max_idle_seconds:
+                self.logger.warning(
+                    "LLMWriterService stall detected — no messages consumed",
+                    idle_seconds=int(idle_secs),
+                    max_idle_seconds=self._max_idle_seconds,
+                )
+
     async def _process_loop(self) -> None:
         """Kafka consumer loop for llm.calls + llm.outcomes + intelligence.i8 — routes by topic."""
         if not self._kafka_consumer:
@@ -737,12 +823,14 @@ class LLMWriterService:
         async for kafka_topic, _key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
+            # Record timestamp for stall detection
+            self._last_message_ts = time.monotonic()
             try:
                 if kafka_topic == calls_topic:
-                    await self._process_calls_message(payload)
+                    await self._process_calls_message(payload, calls_topic)
                     await self._maybe_flush(force=False)
                 elif kafka_topic == outcomes_topic:
-                    await self._process_outcome_message(payload)
+                    await self._process_outcome_message(payload, outcomes_topic)
                 elif kafka_topic == i8_topic:
                     await self._process_i8_message(payload)
             except asyncio.CancelledError:
@@ -804,6 +892,8 @@ class LLMWriterService:
 
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
+        if self._dlq_producer:
+            await self._dlq_producer.stop()
         if self.db_manager:
             await self.db_manager.close()
 
@@ -815,7 +905,11 @@ class LLMWriterService:
         )
 
     async def start(self) -> None:
-        """Start all async loops and run until shutdown."""
+        """Start all async loops and run until shutdown.
+
+        Crash detection: AGENT_CRASH_TOTAL is incremented on any unhandled exception
+        from the main processing tasks so Prometheus alerting can page on crashes.
+        """
         self.logger.info("Starting LLM Writer Service", config=self.config["service"])
         try:
             await self._connect_database()
@@ -825,11 +919,13 @@ class LLMWriterService:
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._score_recompute_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
+                asyncio.create_task(self._stall_watchdog()),
             ]
             self.logger.info("LLM Writer Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             self.logger.error("Failed to start LLM writer", error=str(e))
+            self._crash_metric.inc()
             raise
         finally:
             await self._shutdown()
