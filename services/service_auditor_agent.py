@@ -185,15 +185,15 @@ class ServiceAuditorAgent(BaseAgent):
             await self._db_pool.close()
 
     async def _run(self) -> None:
+        # lag_task created by BaseAgent.start() at line 155
         prom_task = asyncio.create_task(self._prometheus_check_loop())
         sysd_task = asyncio.create_task(self._systemd_check_loop())
         hb_task = asyncio.create_task(self._heartbeat_loop())
         roll_task = asyncio.create_task(self._roll_consumer_loop())
-        lag_task = asyncio.create_task(self._report_consumer_lag())
         await self._stop_event.wait()
-        for t in (prom_task, sysd_task, hb_task, roll_task, lag_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task):
             t.cancel()
-        for t in (prom_task, sysd_task, hb_task, roll_task, lag_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task):
             try:
                 await t
             except asyncio.CancelledError:

@@ -211,26 +211,19 @@ class ParityAuditorAgent(BaseAgent):
 
         self.logger.info("parity_auditor_started", interval_secs=COMPARISON_INTERVAL_SECS)
 
-        lag_task = asyncio.create_task(self._report_consumer_lag())
-        try:
-            while not self._stop_event.is_set():
-                try:
-                    await self._compare_cycle()
-                except Exception as exc:
-                    self.logger.error("compare_cycle_error", error=str(exc))
-
-                # Wait for interval or stop event
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=COMPARISON_INTERVAL_SECS)
-                    break  # stop event was set
-                except TimeoutError:
-                    pass  # normal — continue loop
-        finally:
-            lag_task.cancel()
+        # lag_task created by BaseAgent.start() at line 155
+        while not self._stop_event.is_set():
             try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
+                await self._compare_cycle()
+            except Exception as exc:
+                self.logger.error("compare_cycle_error", error=str(exc))
+
+            # Wait for interval or stop event
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=COMPARISON_INTERVAL_SECS)
+                break  # stop event was set
+            except TimeoutError:
+                pass  # normal — continue loop
 
     async def _compare_cycle(self) -> None:
         """Run one comparison cycle: fetch, compare, store violations, emit metrics."""
