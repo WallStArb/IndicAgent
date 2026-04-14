@@ -34,7 +34,6 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_ml_orchestrator_dlq
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 logger = structlog.get_logger(__name__)
 
@@ -71,12 +70,6 @@ class MLOrchestratorComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         self._pool = await asyncpg.create_pool(self._settings.database_url)
-
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. One-shot orchestrator — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         if self._pool:

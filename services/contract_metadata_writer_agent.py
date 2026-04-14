@@ -379,19 +379,27 @@ class ContractMetadataWriterAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume roll events, handle each one."""
-        async for _topic, _key, payload in self._kafka_consumer.messages():
-            if not self.running:
-                break
+        lag_task = asyncio.create_task(self._report_consumer_lag())
+        try:
+            async for _topic, _key, payload in self._kafka_consumer.messages():
+                if not self.running:
+                    break
+                try:
+                    await self._handle_roll_event(payload)
+                except Exception as exc:
+                    self._roll_errors.inc()
+                    self.logger.error(
+                        "contract_metadata_writer.unhandled_error",
+                        error=str(exc),
+                        payload=payload,
+                    )
+                    await self._publish_to_dlq(payload, key=self._extract_dlq_key(payload))
+        finally:
+            lag_task.cancel()
             try:
-                await self._handle_roll_event(payload)
-            except Exception as exc:
-                self._roll_errors.inc()
-                self.logger.error(
-                    "contract_metadata_writer.unhandled_error",
-                    error=str(exc),
-                    payload=payload,
-                )
-                await self._publish_to_dlq(payload, key=self._extract_dlq_key(payload))
+                await lag_task
+            except asyncio.CancelledError:
+                pass
 
 
 # ---------------------------------------------------------------------------
