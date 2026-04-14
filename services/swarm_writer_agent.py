@@ -124,13 +124,8 @@ class SwarmWriterAgent(BaseWriterAgent):
             if rows is not None:
                 self._buffer_rows(rows)
             else:
-                # DLQ route
-                self.logger.warning("swarm_writer.malformed_payload", payload=str(payload)[:200])
-                if self._producer:
-                    await self._producer.publish(
-                        topic_swarm_writer_dlq(self._settings.env_name),
-                        {"error": "missing required fields", "raw": str(payload)[:500]},
-                    )
+                # Parse failed — route to DLQ for analysis
+                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             await self.maybe_flush()
 

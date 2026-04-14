@@ -25,7 +25,10 @@ from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts
-from src.core.stream_keys import topic_lifecycle_transitions
+from src.core.stream_keys import (
+    topic_lifecycle_transitions,
+    topic_lifecycle_writer_dlq,
+)
 from src.intelligence.trading.lifecycle_transitions import from_dict
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
@@ -106,6 +109,10 @@ class LifecycleWriterAgent(BaseWriterAgent):
     def _consumer_group(self) -> str:
         return CONSUMER_GROUP
 
+    def _dlq_topic(self) -> str | None:
+        """Route unparseable lifecycle payloads to DLQ."""
+        return topic_lifecycle_writer_dlq(self._settings.env_name)
+
     def _parse_payload(self, payload: dict) -> list | None:
         try:
             from_dict(payload)
@@ -164,11 +171,8 @@ class LifecycleWriterAgent(BaseWriterAgent):
             if rows is not None:
                 self._buffer_rows(rows)
             else:
-                # DLQ: log the unparseable payload
-                self.logger.warning(
-                    "lifecycle_writer.parse_failed",
-                    payload_keys=list(payload.keys()) if isinstance(payload, dict) else "non-dict",
-                )
+                # Parse failed — route to DLQ for analysis
+                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             self._consumer_lag.set(len(self._buffer))
             await self.maybe_flush()

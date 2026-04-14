@@ -40,6 +40,7 @@ from src.core.service_utils import (
 )
 from src.core.stream_keys import (
     topic_cross_asset,
+    topic_feature_writer_dlq,
     topic_intelligence_journal,
     topic_roll_events,
 )
@@ -295,6 +296,10 @@ class FeatureWriterAgent(BaseWriterAgent):
     def lag_threshold_messages(self) -> int:
         return 500  # persistence agent — tighter lag threshold
 
+    def _dlq_topic(self) -> str | None:
+        """Route unparseable intelligence payloads to DLQ."""
+        return topic_feature_writer_dlq(self._env_name)
+
     def _parse_payload(self, payload: dict) -> list | None:
         """Parse a BarIntelligenceRecord payload into insert param tuples."""
         try:
@@ -485,6 +490,8 @@ class FeatureWriterAgent(BaseWriterAgent):
                         self.events_consumed_total.inc()
                         self._total_events += 1
                     else:
+                        # Parse failed — route to DLQ for analysis
+                        await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
                         self.error_count_total.inc()
                     self.events_buffered_gauge.set(len(self._buffer))
                     await self.maybe_flush()

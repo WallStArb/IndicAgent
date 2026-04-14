@@ -58,6 +58,7 @@ from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7_signals,
     topic_intelligence_journal,
+    topic_intelligence_pipeline_dlq,
     topic_intelligence_pipeline_state,
     topic_intelligence_shadow,
     topic_market_bars,
@@ -865,6 +866,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         else:
                             bar = self._parse_bar(payload)
                             if bar is None:
+                                # Parse failed — route to DLQ for analysis
+                                await self._send_to_dlq(payload, Exception("Parse failed"))
                                 continue
                             await self._process_bar(bar)
 
@@ -883,6 +886,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             except Exception as exc:
                 self.logger.warning("process_loop.consumer_error", error=str(exc))
                 await asyncio.sleep(1)
+
+    def _dlq_topic(self) -> str | None:
+        """Route unparseable bar payloads to DLQ."""
+        return topic_intelligence_pipeline_dlq(self._settings.env_name)
 
     def _parse_bar(self, msg: dict) -> BarMessage | None:
         """Parse a Kafka message into BarMessage."""

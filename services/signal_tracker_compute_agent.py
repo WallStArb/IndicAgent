@@ -38,6 +38,7 @@ from src.core.stream_keys import (
     topic_lifecycle_transitions,
     topic_market_bars,
     topic_market_bars_htf,
+    topic_signal_tracker_dlq,
 )
 from src.intelligence.trading.lifecycle_tracker import (
     STALENESS_SCORE_THRESHOLD,
@@ -136,6 +137,10 @@ class SignalTrackerCompute(BaseAgent):
     def topics_produced(self) -> list[str]:
         return [topic_lifecycle_transitions(self._env_name)]
 
+    def _dlq_topic(self) -> str | None:
+        """Route unparseable payloads to DLQ."""
+        return topic_signal_tracker_dlq(self._env_name)
+
     async def _setup(self) -> None:
         """Bootstrap: load active signals from DB, start Kafka clients."""
         await self._bootstrap_active_signals()
@@ -205,6 +210,8 @@ class SignalTrackerCompute(BaseAgent):
                 key_str = key if isinstance(key, str) else (key.decode() if key else "")
                 parts = key_str.split(":")
                 if len(parts) != 2:
+                    # Malformed key — route to DLQ
+                    await self._send_to_dlq(payload, Exception(f"Malformed key: {key_str}"))
                     continue
                 symbol, timeframe = parts[0], parts[1]
 
@@ -226,6 +233,8 @@ class SignalTrackerCompute(BaseAgent):
                     error=str(exc),
                     key=key,
                 )
+                # Route failed payload to DLQ
+                await self._send_to_dlq(payload, exc)
 
     async def _signal_loop(self) -> None:
         """Consume i7.signal payloads and ingest new signals."""
@@ -245,6 +254,8 @@ class SignalTrackerCompute(BaseAgent):
                     error=str(exc),
                     key=key,
                 )
+                # Route failed payload to DLQ
+                await self._send_to_dlq(payload, exc)
 
     # ------------------------------------------------------------------
     # Symbol / timeframe filtering
