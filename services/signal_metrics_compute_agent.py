@@ -32,11 +32,9 @@ sys.path.insert(0, str(project_root))
 
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_signal_metrics
 from src.intelligence.metrics.compute import (
     WINDOWS,
@@ -44,7 +42,6 @@ from src.intelligence.metrics.compute import (
     compute_signal_metrics,
 )
 from src.intelligence.metrics.validator import validate_signal_row
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 from src.observability.otel import init_tracing
 
 _COMPUTE_CYCLES = Counter(
@@ -176,11 +173,6 @@ class SignalMetricsComputeAgent(BaseAgent):
             tick_sizes=len(self._tick_sizes),
         )
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Timer-triggered compute — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Stop producer and close DB pool."""

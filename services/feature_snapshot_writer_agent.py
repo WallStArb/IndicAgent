@@ -31,7 +31,6 @@ sys.path.insert(0, str(project_root))
 from pydantic import ValidationError
 
 from services.feature_writer_agent import _build_expiry_map, _record_to_insert_params
-from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
@@ -120,12 +119,6 @@ class FeatureSnapshotWriterAgent(BaseAgent):
         PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_snapshot_writer").observe(duration)
         PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_snapshot_writer").set(len(self._buffer))
         self._last_flush = datetime.now(UTC)
-
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag (buffer size proxy) until stop event."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_snapshot_writer").set(len(self._buffer))
-            await asyncio.sleep(15)
 
     async def _run(self) -> None:
         """Main consumer loop — reads intelligence.journal, writes to shadow table."""

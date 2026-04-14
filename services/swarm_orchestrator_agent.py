@@ -34,7 +34,6 @@ from src.core.stream_keys import (
 from src.intelligence.swarm.aggregator import SwarmAggregator
 from src.intelligence.swarm.context import SwarmContextCache
 from src.intelligence.swarm.safety import SafeSwarmWrapper
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 logger = structlog.get_logger(__name__)
 
@@ -87,11 +86,6 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         finally:
             await _db_pool.close()
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         if self._bar_consumer:

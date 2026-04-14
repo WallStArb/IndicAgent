@@ -38,7 +38,7 @@ sys.path.insert(0, str(project_root))
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import AssetClass
@@ -48,7 +48,6 @@ from src.core.stream_keys import (
     topic_roll_dlq,
     topic_roll_events,
 )
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 # ---------------------------------------------------------------------------
 # Module-level metrics — prevents duplicate registration across test runs
@@ -152,11 +151,6 @@ class ContractMetadataWriterAgent(BaseAgent):
             dry_run=self._dry_run,
         )
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Stop Kafka consumer/producer and close DB pool."""
