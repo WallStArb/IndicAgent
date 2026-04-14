@@ -5,16 +5,14 @@ Phase 68-03: End-to-end bar_id trace from provider to DB.
 
 from uuid import UUID, uuid4
 
-import pytest
-
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.intelligence.schemas import (
+    I1Indicators,
     I3Structure,
     I4Context,
     I5Patterns,
     I6Confluence,
     IntelligenceEvent,
-    I1Indicators,
     OHLCVBar,
     SMCContext,
 )

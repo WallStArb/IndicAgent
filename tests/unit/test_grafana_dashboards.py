@@ -1,7 +1,6 @@
 """Smoke tests for Grafana dashboard JSON files."""
 import json
 import pathlib
-import pytest
 
 
 def test_operations_json_parses_and_has_required_rows():

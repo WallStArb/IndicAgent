@@ -1,7 +1,8 @@
 """Tests for ServiceAuditorAgent webhook dispatch (Plan 067-01 Task 6)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture

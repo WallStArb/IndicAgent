@@ -4,8 +4,9 @@ All agents route unprocessable payloads to DLQ using this schema.
 Enables systematic analysis of data quality issues.
 """
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, field_serializer
-from datetime import datetime, UTC
 
 
 class DLQPayload(BaseModel):

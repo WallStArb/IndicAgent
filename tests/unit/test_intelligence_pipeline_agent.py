@@ -333,10 +333,10 @@ class TestHMMLabelSeparation:
 
     def test_hmm_regime_label_not_none_when_regime_present(self):
         """When hmm_regime is set in features, hmm_regime_label is also set."""
-        from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
-
         # Verify that the code does NOT set f["regime_type"] = f.get("hmm_regime", "ranging")
         import inspect
+
+        from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
         src = inspect.getsource(
             IntelligencePipelineComputeAgent._run_i7
             if hasattr(IntelligencePipelineComputeAgent, "_run_i7")
@@ -554,6 +554,7 @@ class TestCallSitesPassSymbol:
     def test_tod_adjustment_imports_symbol_kwarg(self):
         """Verify apply_tod_adjustment accepts symbol kwarg."""
         import inspect
+
         from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
         sig = inspect.signature(apply_tod_adjustment)
         assert "symbol" in sig.parameters
@@ -561,6 +562,7 @@ class TestCallSitesPassSymbol:
     def test_calibrator_imports_symbol_kwarg(self):
         """Verify apply_calibration accepts symbol kwarg."""
         import inspect
+
         from src.intelligence.pipeline.calibrator import apply_calibration
         sig = inspect.signature(apply_calibration)
         assert "symbol" in sig.parameters
@@ -568,6 +570,7 @@ class TestCallSitesPassSymbol:
     def test_pipeline_calls_tod_with_symbol(self):
         """Verify the pipeline source passes symbol= to apply_tod_adjustment."""
         import inspect
+
         from services import intelligence_pipeline_agent as m
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
         assert "apply_tod_adjustment" in src
@@ -576,6 +579,7 @@ class TestCallSitesPassSymbol:
     def test_pipeline_calls_calibrator_with_symbol(self):
         """Verify the pipeline source passes symbol= to apply_calibration."""
         import inspect
+
         from services import intelligence_pipeline_agent as m
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
         assert "apply_calibration" in src

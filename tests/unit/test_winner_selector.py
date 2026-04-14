@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from src.intelligence.pipeline.winner_selector import (
     _aggregate_fallback,
     _aggregate_via_cis,

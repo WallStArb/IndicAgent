@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 
 def _make_record(direction: int = 1, confidence: float = 0.75):
-    from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent, RankedSignal
+    from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent
     intel = MagicMock(spec=IntelligenceEvent)
     intel.symbol = "NQM6"
     intel.tf = "5m"

@@ -348,7 +348,7 @@ class TestLlmModelScoresSymbol:
         """_recompute_scores passes symbol from row as 5th param in upsert tuple."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from services.llm_writer_service import LLMWriterService, _UPSERT_SCORE_SQL
+        from services.llm_writer_service import _UPSERT_SCORE_SQL, LLMWriterService
         svc = LLMWriterService.__new__(LLMWriterService)
         svc.db_manager = AsyncMock()
         svc.score_recomputes_total = MagicMock()

@@ -873,3 +873,19 @@ Plans:
 - [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge
 - [ ] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
 - [ ] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
+
+
+### Phase 71: BaseAgent Infrastructure Alignment
+
+**Goal:** 6 targeted changes to eliminate boilerplate, fix bugs, and close observability gaps across the agent base class hierarchy. No new features, no new agents — purely refactoring the existing 4-class base hierarchy (BaseAgent, BaseProviderAgent, BaseWriterAgent, SwarmBaseAgent) so that adding a new agent requires zero tribal knowledge.
+**Design doc:** `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md`
+**Depends on:** Phase 68 (BaseWriterAgent must exist before Plan 04 override)
+**Plans:** 5 plans
+
+Plans:
+- [x] 071-01-PLAN.md — Settings singleton in BaseAgent + all agent renames (self._settings → self.settings)
+- [x] 071-02-PLAN.md — Auto init_tracing() in BaseAgent + remove __main__ calls
+- [x] 071-03-PLAN.md — Remove vestigial setup_service_logging() calls + duplicate lag task creation
+- [ ] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
+- [ ] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
+

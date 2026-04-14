@@ -5,7 +5,6 @@ Uses a concrete test subclass to verify the abstract base class contract.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.core.agent.base_writer import BaseWriterAgent
-
 
 # ---------------------------------------------------------------------------
 # Concrete test subclass — implements all abstract methods

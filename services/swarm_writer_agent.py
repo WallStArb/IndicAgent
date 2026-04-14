@@ -18,7 +18,6 @@ import structlog
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_swarm_results, topic_swarm_writer_dlq

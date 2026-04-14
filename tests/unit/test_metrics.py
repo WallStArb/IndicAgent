@@ -1,8 +1,8 @@
 """Tests for Prometheus metrics (Phase 67 Task 3)."""
 
 from src.observability.metrics import (
-    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL,
     BAR_AUDITOR_GAP_FILL_DLQ_DEPTH,
+    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL,
 )
 
 

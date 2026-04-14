@@ -35,7 +35,6 @@ sys.path.insert(0, str(project_root))
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.schemas.bar_message import BarMessage, SessionType

@@ -518,23 +518,45 @@ class LLMWriterAgent(BaseWriterAgent):
             asyncio.create_task(self._stall_watchdog()),
         ]
         self.logger.info("LLM Writer Agent started")
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for task, result in zip(tasks, results):
+            if isinstance(result, Exception):
+                self.logger.error(
+                    "background_task_failed",
+                    task=task.get_name(),
+                    error=str(result),
+                )
 
     async def _teardown(self) -> None:
         """Flush buffer and close all connections. Override of BaseWriterAgent._teardown()."""
-        # Final flush of llm_calls buffer (base class behaviour)
-        await super()._teardown()
+        try:
+            await super()._teardown()
+        except Exception:
+            self.logger.exception("error_in_base_teardown")
 
-        # Flush any remaining i8 updates
-        if self.db_manager:
-            await self._flush_i8()
+        try:
+            if self.db_manager:
+                await self._flush_i8()
+        except Exception:
+            self.logger.exception("error_flushing_i8")
 
-        if self._consumer:
-            await self._consumer.stop()
-        if self._dlq_producer:
-            await self._dlq_producer.stop()
-        if self.db_manager:
-            await self.db_manager.close()
+        try:
+            if self._consumer:
+                await self._consumer.stop()
+        except Exception:
+            self.logger.exception("error_stopping_consumer")
+
+        try:
+            if self._dlq_producer:
+                await self._dlq_producer.stop()
+        except Exception:
+            self.logger.exception("error_stopping_dlq_producer")
+
+        try:
+            if self.db_manager:
+                await self.db_manager.close()
+        except Exception:
+            self.logger.exception("error_closing_db_manager")
 
         self.logger.info(
             "LLM Writer Agent stopped",

@@ -131,8 +131,8 @@ async def test_wrapper_records_latency_ms():
 # ---------------------------------------------------------------------------
 
 def test_aggregator_returns_neutral_for_empty_contributors():
-    from src.intelligence.swarm.aggregator import SwarmAggregator
     from src.intelligence.schemas import AlphaMultiplier
+    from src.intelligence.swarm.aggregator import SwarmAggregator
 
     agg = SwarmAggregator()
     result = agg.aggregate(
@@ -149,8 +149,8 @@ def test_aggregator_returns_neutral_for_empty_contributors():
 
 
 def test_aggregator_confidence_weighted_path_a():
-    from src.intelligence.swarm.aggregator import SwarmAggregator
     from src.intelligence.schemas import AgentResult
+    from src.intelligence.swarm.aggregator import SwarmAggregator
 
     a1 = AgentResult(agent_id="a1", path="deterministic", multiplier=1.4, confidence=0.9)
     a2 = AgentResult(agent_id="a2", path="deterministic", multiplier=1.1, confidence=0.1)
@@ -170,8 +170,8 @@ def test_aggregator_confidence_weighted_path_a():
 
 def test_aggregator_production_multiplier_is_clamped():
     """production_multiplier must stay in [0.7, 1.3] regardless of computed value."""
-    from src.intelligence.swarm.aggregator import SwarmAggregator
     from src.intelligence.schemas import AgentResult
+    from src.intelligence.swarm.aggregator import SwarmAggregator
 
     # Extreme result that would push final above 1.3
     a1 = AgentResult(agent_id="extreme", path="deterministic", multiplier=2.0, confidence=1.0)
