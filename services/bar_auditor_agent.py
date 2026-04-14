@@ -99,8 +99,7 @@ class BarAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="bar_auditor_agent", metrics_port=9123, max_idle_seconds=300)
 
         self._kafka_producer: KafkaProducerClient | None = None
@@ -145,15 +144,15 @@ class BarAuditorAgent(BaseAgent):
     async def _setup(self) -> None:
         """Connect asyncpg pool, Kafka producer, and contract update consumer."""
         self._db_pool = await asyncpg.create_pool(
-            self._settings.database_url, min_size=1, max_size=3
+            self.settings.database_url, min_size=1, max_size=3
         )
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
         self._contract_consumer = KafkaConsumerClient(
             topic_contract_updates(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_auditor_contract_updates_consumer",
             auto_offset_reset="latest",
         )
@@ -206,7 +205,7 @@ class BarAuditorAgent(BaseAgent):
                 break
 
             await self._drain_contract_updates()
-            instruments = get_active_contracts(self._settings)
+            instruments = get_active_contracts(self.settings)
             if self._any_session_open(instruments):
                 await self._run_audit(instruments)
 
@@ -398,7 +397,7 @@ class BarAuditorAgent(BaseAgent):
         Catches all exceptions to prevent audit loop from crashing on transient failures.
         """
         if instruments is None:
-            instruments = get_active_contracts(self._settings)
+            instruments = get_active_contracts(self.settings)
         try:
             with self._audit_duration.time():
                 gap_requests = await self._detect_gaps(instruments)

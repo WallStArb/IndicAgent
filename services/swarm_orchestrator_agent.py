@@ -44,7 +44,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
 
     def __init__(self, settings: Settings, contributors: list | None = None) -> None:
         super().__init__(name="SwarmOrchestratorComputeAgent", max_idle_seconds=300)
-        self._settings = settings
+        self.settings = settings
         self._context_cache = SwarmContextCache()
         self._contributors = [SafeSwarmWrapper(c) for c in (contributors or [])]
         self._aggregator = SwarmAggregator()
@@ -53,11 +53,11 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         self._producer: KafkaProducerClient | None = None
 
     async def _setup(self) -> None:
-        env = self._settings.env_name
+        env = self.settings.env_name
         self._bar_consumer = KafkaConsumerClient(
             topic_market_bars(env),
             topic_market_bars_htf(env),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="swarm_orchestrator_bar_consumer",
             auto_offset_reset="latest",
         )
@@ -65,14 +65,14 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
 
         self._signal_consumer = KafkaConsumerClient(
             topic_intelligence_i7_signals(env),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="swarm_orchestrator_signal_consumer",
             auto_offset_reset="latest",
         )
         await self._signal_consumer.start()
 
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._producer.start()
         self.logger.info("swarm_orchestrator.started")
@@ -80,7 +80,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         # Seed context cache from historical intelligence_features (Phase 67 fix)
         import asyncpg as _asyncpg
         _db_pool = await _asyncpg.create_pool(
-            self._settings.database_url, min_size=1, max_size=2
+            self.settings.database_url, min_size=1, max_size=2
         )
         try:
             await self._seed_context_cache(_db_pool)
@@ -154,7 +154,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         )
         if ctx is None:
             await self._producer.publish(
-                topic_swarm_orchestrator_dlq(self._settings.env_name),
+                topic_swarm_orchestrator_dlq(self.settings.env_name),
                 {"error": "no_context", "symbol": symbol, "tf": tf},
             )
             return
@@ -166,7 +166,7 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
         path_a_results = list(await asyncio.gather(*[w.run(ctx) for w in path_a_wrappers]))
 
         # Fan-out each AgentResult to swarm results topic
-        env = self._settings.env_name
+        env = self.settings.env_name
         for result in path_a_results:
             await self._producer.publish(
                 topic_swarm_results(env),

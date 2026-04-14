@@ -81,7 +81,6 @@ class LifecycleWriterAgent(BaseWriterAgent):
             max_idle_seconds=300,
         )
 
-        self._settings = Settings()
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
         self._repo: SignalLedgerRepository | None = None
@@ -103,7 +102,7 @@ class LifecycleWriterAgent(BaseWriterAgent):
         self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(agent_id="lifecycle_writer_agent")
 
     def _topic_name(self) -> str:
-        return topic_lifecycle_transitions(self._settings.env_name)
+        return topic_lifecycle_transitions(self.settings.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -111,7 +110,7 @@ class LifecycleWriterAgent(BaseWriterAgent):
 
     def _dlq_topic(self) -> str | None:
         """Route unparseable lifecycle payloads to DLQ."""
-        return topic_lifecycle_writer_dlq(self._settings.env_name)
+        return topic_lifecycle_writer_dlq(self.settings.env_name)
 
     def _parse_payload(self, payload: dict) -> list | None:
         try:
@@ -144,14 +143,14 @@ class LifecycleWriterAgent(BaseWriterAgent):
         )
 
     async def _setup(self) -> None:
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
         topic = self._topic_name()
         self._consumer = KafkaConsumerClient(
             topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="earliest",
             enable_auto_commit=False,

@@ -119,8 +119,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="bar_aggregator_agent", metrics_port=9120, max_idle_seconds=300)
 
         self._bar_accumulator = BarAccumulator()
@@ -186,7 +185,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         """Create a fresh KafkaConsumerClient for market.bars."""
         return KafkaConsumerClient(
             topic_market_bars(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_aggregator_consumer",
             auto_offset_reset="latest",
         )
@@ -201,7 +200,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
                 self._kafka_producer = KafkaProducerClient(
-                    bootstrap_servers=self._settings.kafka_bootstrap_servers
+                    bootstrap_servers=self.settings.kafka_bootstrap_servers
                 )
                 await self._kafka_producer.start()
 
@@ -452,7 +451,7 @@ class BarAggregatorComputeAgent(BaseAgent):
             import aiokafka
 
             consumer = aiokafka.AIOKafkaConsumer(
-                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
                 group_id="bar_aggregator_consumer",
             )
             await consumer.start()

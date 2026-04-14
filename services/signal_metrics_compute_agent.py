@@ -118,8 +118,7 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
 
         self._db: DatabaseManager | None = None
@@ -161,11 +160,11 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect DB pool and Kafka producer."""
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._producer.start()
 
@@ -232,7 +231,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         _ROWS_PROCESSED.labels(agent=_AGENT_NAME).set(len(rows))
         self.logger.info("signal_metrics_compute.cycle rows=%d", len(rows))
 
-        topic = topic_signal_metrics(self._settings.env_name)
+        topic = topic_signal_metrics(self.settings.env_name)
         now_iso = datetime.now(UTC).isoformat()
 
         # Publish DQ failures for NEW invalid rows only (dedup by signal_id + reason_code)

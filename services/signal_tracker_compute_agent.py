@@ -92,7 +92,7 @@ class SignalTrackerCompute(BaseAgent):
     def __init__(self) -> None:
         super().__init__(name="SignalTrackerCompute", metrics_port=9127, max_idle_seconds=300)
         settings = Settings()
-        self._settings = settings
+        self.settings = settings
         self._env_name = settings.env_name or ""
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
 
@@ -634,7 +634,7 @@ class SignalTrackerCompute(BaseAgent):
 
         sd_notify(READY=1) is called ONLY after this method returns.
         """
-        db = DatabaseManager(self._settings.database_url)
+        db = DatabaseManager(self.settings.database_url)
         await db.initialize()
         try:
             for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):

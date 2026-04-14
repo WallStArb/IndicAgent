@@ -18,7 +18,7 @@ import abc
 import asyncio
 from asyncio import CancelledError
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import Instrument
@@ -55,12 +55,14 @@ class BaseProviderAgent(BaseAgent):
     - SLA:      provider_gaps_filled_total{provider, agent}
     """
 
-    def __init__(self) -> None:
-        # config-before-super pattern (Phase 52.2 convention — see bar_aggregator_agent.py)
-        self._settings = Settings()
+    def __init__(self, settings: Settings | None = None) -> None:
+        # Pass settings to BaseAgent to avoid duplicate creation
+        # BaseAgent will use get_settings() singleton if settings is None
+        _settings = settings or get_settings()
         super().__init__(
             name=self._agent_name(),
             metrics_port=self._agent_metrics_port(),
+            settings=_settings,
         )
 
         # Pre-cache labeled metric children — avoids per-bar dict lookup overhead
@@ -71,7 +73,7 @@ class BaseProviderAgent(BaseAgent):
         self._m_gaps_filled = PROVIDER_GAPS_FILLED_TOTAL.labels(provider=pname, agent=self.name)
 
         # Cache raw topic — constant for agent lifetime
-        self._raw_topic = topic_market_bars_raw(self._settings.env_name or "", pname)
+        self._raw_topic = topic_market_bars_raw(self.settings.env_name or "", pname)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._adapter: DataProviderAdapter | None = None
@@ -112,7 +114,7 @@ class BaseProviderAgent(BaseAgent):
     async def _setup(self) -> None:
         """Connect Kafka producer and the provider adapter, then qualify all instruments."""
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
 
@@ -295,11 +297,11 @@ class BaseProviderAgent(BaseAgent):
         Gap-fill bars are published to topic_market_bars_raw(env, provider)
         so MergerAgent routes them into the canonical stream.
         """
-        env = self._settings.env_name or ""
+        env = self.settings.env_name or ""
         group_id = f"{self._provider_name_str()}_provider_gap_consumer"
         gap_consumer = KafkaConsumerClient(
             topic_gap_requests(env),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=group_id,
             auto_offset_reset="earliest",
         )
@@ -383,4 +385,4 @@ class BaseProviderAgent(BaseAgent):
 
     def _get_instruments(self) -> list[Instrument]:
         """Return active instruments from settings."""
-        return get_active_contracts(self._settings)
+        return get_active_contracts(self.settings)

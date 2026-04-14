@@ -52,7 +52,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
     def __init__(self, settings: Settings) -> None:
         setup_service_logging("logs/ml_data_quality_agent.log")
         super().__init__("MLDataQualityAuditorAgent")
-        self._settings = settings
+        self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._producer = KafkaProducerClient(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -60,7 +60,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
 
     async def _run(self) -> None:
         """One-shot entry point: connect DB, run checks, emit metrics, exit."""
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
+        self._pool = await asyncpg.create_pool(self.settings.database_url)
         self.logger.info("ml_data_quality.starting")
         try:
             score = await self._compute_quality_score()
@@ -191,10 +191,10 @@ class MLDataQualityAuditorAgent(BaseAgent):
 
     async def _maybe_publish_alert(self, score: float) -> None:
         """Publish alert to Kafka if score below threshold."""
-        min_score = self._settings.DATA_QUALITY_MIN_SCORE
+        min_score = self.settings.DATA_QUALITY_MIN_SCORE
         if score < min_score:
             await self._producer.publish(
-                topic_ml_data_quality_alerts(self._settings.env_name),
+                topic_ml_data_quality_alerts(self.settings.env_name),
                 {
                     "score": round(score, 4),
                     "threshold": min_score,

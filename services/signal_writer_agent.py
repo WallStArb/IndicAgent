@@ -62,7 +62,6 @@ class SignalWriterAgent(BaseWriterAgent):
             max_idle_seconds=300,
         )
 
-        self._settings = Settings()
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
         self._repo: SignalLedgerRepository | None = None
@@ -84,7 +83,7 @@ class SignalWriterAgent(BaseWriterAgent):
         self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(agent_id="signal_writer_agent")
 
     def _topic_name(self) -> str:
-        return topic_intelligence_i7_signals(self._settings.env_name)
+        return topic_intelligence_i7_signals(self.settings.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -92,7 +91,7 @@ class SignalWriterAgent(BaseWriterAgent):
 
     def _dlq_topic(self) -> str | None:
         """Route unparseable signal payloads to DLQ."""
-        return topic_signal_writer_dlq(self._settings.env_name)
+        return topic_signal_writer_dlq(self.settings.env_name)
 
     def _parse_payload(self, payload: dict) -> list | None:
         rows = _payload_to_ledger_entries(payload)
@@ -107,14 +106,14 @@ class SignalWriterAgent(BaseWriterAgent):
         self.logger.info("signal_writer.flushed", count=len(batch))
 
     async def _setup(self) -> None:
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
         topic = self._topic_name()
         self._consumer = KafkaConsumerClient(
             topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="earliest",
             enable_auto_commit=False,

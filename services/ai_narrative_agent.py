@@ -27,7 +27,7 @@ class AINarrativeComputeAgent(BaseAgent):
 
     def __init__(self, settings: Settings) -> None:
         super().__init__("AINarrativeComputeAgent")
-        self._settings = settings
+        self.settings = settings
         chain = LLMProviderChain(call_type="narrative", settings=settings)
         self._orchestrator = NarrativeOrchestrator(chain=chain, max_tokens=200, timeout=30.0)
         # Kafka clients created in _setup() — AIOKafkaConsumer requires a running event loop.
@@ -36,12 +36,12 @@ class AINarrativeComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         self._consumer = KafkaConsumerClient(
-            topic_intelligence_journal(self._settings.env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            topic_intelligence_journal(self.settings.env_name),
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="ai_narrative_consumer",
         )
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._consumer.start()
         await self._consumer.skip_lag_if_needed(max_lag=100)
@@ -122,7 +122,7 @@ class AINarrativeComputeAgent(BaseAgent):
                 return
 
             intel = adapted.intelligence
-            topic = topic_narratives(self._settings.env_name)
+            topic = topic_narratives(self.settings.env_name)
             await self._producer.publish(
                 topic,
                 {

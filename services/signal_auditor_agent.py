@@ -115,8 +115,7 @@ class SignalAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="signal_auditor_agent", metrics_port=9134, max_idle_seconds=600)
 
         self._kafka_producer: KafkaProducerClient | None = None
@@ -148,10 +147,10 @@ class SignalAuditorAgent(BaseAgent):
 
     async def _setup(self) -> None:
         self._db_pool = await asyncpg.create_pool(
-            self._settings.database_url, min_size=1, max_size=3
+            self.settings.database_url, min_size=1, max_size=3
         )
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
         self.logger.info(
@@ -190,7 +189,7 @@ class SignalAuditorAgent(BaseAgent):
                 if not self.running:
                     break
 
-                instruments = get_active_contracts(self._settings)
+                instruments = get_active_contracts(self.settings)
                 if self._any_session_near_open(instruments):
                     await self._run_audit(instruments)
         finally:
@@ -207,7 +206,7 @@ class SignalAuditorAgent(BaseAgent):
     async def _run_audit(self, instruments: list | None = None) -> None:
         """Run a full audit cycle. Catches exceptions to keep the loop alive."""
         if instruments is None:
-            instruments = get_active_contracts(self._settings)
+            instruments = get_active_contracts(self.settings)
         try:
             with self._audit_duration.time():
                 gap_events = await self._check_coverage(instruments)

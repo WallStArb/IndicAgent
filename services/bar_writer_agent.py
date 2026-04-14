@@ -117,8 +117,7 @@ class BarWriterAgent(BaseWriterAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="bar_writer_agent", metrics_port=9121)
 
         self._kafka_consumer: KafkaConsumerClient | None = None
@@ -204,14 +203,14 @@ class BarWriterAgent(BaseWriterAgent):
 
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
-        self._db_pool = await asyncpg.create_pool(self._settings.database_url)
+        self._db_pool = await asyncpg.create_pool(self.settings.database_url)
         await self._load_contract_cache()
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_market_bars(self._env_name),
             topic_market_bars_htf(self._env_name),
             topic_contract_updates(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_writer_consumer",
             auto_offset_reset="latest",
             enable_auto_commit=False,

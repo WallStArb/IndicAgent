@@ -95,8 +95,7 @@ class ContractMetadataWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         self._dry_run: bool = os.environ.get("DRY_RUN", "false").lower() == "true"
 
         super().__init__(name="contract_metadata_writer_agent", metrics_port=9124)
@@ -130,20 +129,20 @@ class ContractMetadataWriterAgent(BaseAgent):
         """Connect DB pool, seed missing contracts, start Kafka consumer/producer."""
         # Hard-fail on DB unavailability per CONTEXT.md D-spec
         self._db_pool = await asyncpg.create_pool(
-            self._settings.database_url, min_size=1, max_size=3
+            self.settings.database_url, min_size=1, max_size=3
         )
         await self._seed_missing_contracts()
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_roll_events(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="contract_metadata_writer_consumer",
             auto_offset_reset="earliest",  # must not miss roll events
         )
         await self._kafka_consumer.start()
 
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
 
@@ -177,7 +176,7 @@ class ContractMetadataWriterAgent(BaseAgent):
 
         Uses a single multi-row INSERT instead of N sequential round-trips.
         """
-        instruments = get_active_contracts(self._settings)
+        instruments = get_active_contracts(self.settings)
         futures = [i for i in instruments if i.asset_class == AssetClass.FUTURES]
         if not futures:
             return
@@ -374,7 +373,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 base=event.symbol,
                 old_contract=event.old_contract,
                 new_contract=event.new_contract,
-                action=f"sudo systemctl restart indicagent-ibkr-provider on {self._settings.ibkr_host}",
+                action=f"sudo systemctl restart indicagent-ibkr-provider on {self.settings.ibkr_host}",
             )
 
     async def _run(self) -> None:
