@@ -29,12 +29,14 @@ import os
 import signal
 import sys
 import time
+from typing import Any
 
 import structlog
 
+from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS, start_metrics_server
-from src.observability.otel import get_tracer
+from src.observability.otel import get_tracer, init_tracing
 from prometheus_client import Counter as _Counter, Histogram as _Histogram
 
 # ---------------------------------------------------------------------------
@@ -66,6 +68,9 @@ AGENT_SETUP_LATENCY_SECONDS = _Histogram(
     buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
 )
 
+# Module-level flag to ensure init_tracing() is called only once per process
+_tracing_initialized: bool = False
+
 
 class BaseAgent(abc.ABC):
     """Abstract base for all pipeline agents.
@@ -83,6 +88,7 @@ class BaseAgent(abc.ABC):
         name: str,
         metrics_port: int | None = None,
         max_idle_seconds: int = 0,
+        settings: Settings | None = None,
     ) -> None:
         # Configure logging BEFORE creating logger using convention-over-configuration
         # Convert PascalCase agent names to snake_case for log files
@@ -102,6 +108,9 @@ class BaseAgent(abc.ABC):
         # in existing agents that use self.logger.
         # Logger is created AFTER setup_service_logging() when log_file is provided.
         self.logger: structlog.BoundLogger = structlog.get_logger().bind(agent=name)
+        # Settings singleton — all agents inherit configuration access
+        # Use provided settings if available (e.g., from BaseProviderAgent), otherwise get singleton
+        self.settings = settings if settings is not None else get_settings()
         # OTel tracer — no-op when init_tracing() has not been called; safe before init.
         self.tracer = get_tracer(name)
 
@@ -128,15 +137,23 @@ class BaseAgent(abc.ABC):
         Order (D-06):
         1. Register signal handlers.
         2. Start Prometheus metrics server if metrics_port is set.
-        3. Log agent.starting.
-        4. Call _setup() — connect Kafka, seed history, etc.
-        5. Launch lag reporter as background task.
-        6. Await _run(). On Exception: log agent.run_failed and re-raise.
-        7. finally: cancel lag task, await _teardown(), call stop().
+        3. Initialize OTel tracing (idempotent — first call wins).
+        4. Log agent.starting.
+        5. Call _setup() — connect Kafka, seed history, etc.
+        6. Launch lag reporter as background task.
+        7. Await _run(). On Exception: log agent.run_failed and re-raise.
+        8. finally: cancel lag task, await _teardown(), call stop().
         """
         self._register_signal_handlers()
         if self._metrics_port is not None:
             start_metrics_server(port=self._metrics_port)
+
+        # Initialize OTel tracing (idempotent — first call wins)
+        global _tracing_initialized
+        if not _tracing_initialized:
+            init_tracing(service_name=self.name)
+            _tracing_initialized = True
+
         self.logger.info("agent.starting", agent=self.name)
 
         # NEW: Track setup latency + success/failure
