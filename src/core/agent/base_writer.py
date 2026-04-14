@@ -117,14 +117,8 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """Route payload to DLQ if _dlq_topic() is configured.
 
         Call from _run() when _parse_payload() returns None.
+        Delegates to BaseAgent._send_to_dlq() which handles DLQ routing and metrics.
         """
-        dlq_topic = self._dlq_topic()
-        if dlq_topic is None:
-            # No DLQ configured — log and discard via BaseAgent._send_to_dlq()
-            await self._send_to_dlq(payload, error)
-            return
-
-        # DLQ topic configured — route via BaseAgent._send_to_dlq() override in subclass
         await self._send_to_dlq(payload, error)
 
     # -----------------------------------------------------------------------

@@ -341,6 +341,42 @@ groups:
           severity: high
           contact_point: discord-ops
 
+      - uid: dlq_depth_exceeded_uid
+        title: dlq_depth_exceeded
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: dlq_depth
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [1000]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Dead Letter Queue depth exceeded"
+          description: "Agent {{ $labels.agent }} has {{ $value }} messages in DLQ topic {{ $labels.topic }}. Data quality issue detected."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
   - orgId: 1
     name: IndicAgent MEDIUM Alerts
     folder: IndicAgent

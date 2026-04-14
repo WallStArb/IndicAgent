@@ -407,6 +407,23 @@ BAR_AUDITOR_GAP_FILL_DLQ_DEPTH = Counter(
 
 
 # ---------------------------------------------------------------------------
+# DLQ Metrics (Phase 067-07)
+# ---------------------------------------------------------------------------
+
+DLQ_DEPTH = Gauge(
+    "dlq_depth",
+    "Number of messages in Dead Letter Queue",
+    ["agent", "topic"],
+)
+
+DLQ_MESSAGES_TOTAL = Counter(
+    "dlq_messages_total",
+    "Total messages routed to Dead Letter Queue",
+    ["agent", "topic", "error_type"],
+)
+
+
+# ---------------------------------------------------------------------------
 # Regime gate suppression metrics (Phase 68-01)
 # ---------------------------------------------------------------------------
 
