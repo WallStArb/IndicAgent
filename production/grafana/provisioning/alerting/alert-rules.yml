@@ -90,7 +90,7 @@ groups:
           - refId: A
             datasourceUid: prometheus
             model:
-              expr: increase(signal_writer_buffer_dropped_total[5m])
+              expr: increase(signal_writer_agent_buffer_overflow_total[5m])
               intervalMs: 60000
               maxDataPoints: 43200
               refId: A
