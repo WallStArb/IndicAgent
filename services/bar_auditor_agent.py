@@ -343,34 +343,6 @@ class BarAuditorAgent(BaseAgent):
                         await self._resolve_market_data_gap(
                             conn, instrument.symbol, "1m", date_start_utc
                         )
-                        # Dedup: skip if already requested today (prevents infinite
-                        # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
-                        today_str = str(today)
-                        if self._requested_today_date != today_str:
-                            self._requested_today.clear()
-                            self._requested_today_date = today_str
-                        gap_key = (instrument.symbol, str(target_date))
-                        if gap_key in self._requested_today:
-                            continue
-
-                        self.logger.warning(
-                            "bar_auditor_agent.gap_detected",
-                            symbol=instrument.symbol,
-                            date=str(target_date),
-                            actual=actual,
-                            expected=expected,
-                            completeness=round(completeness, 3),
-                            threshold=round(threshold, 3),
-                        )
-                        gaps.append(
-                            BarGapRequest(
-                                symbol=instrument.symbol,
-                                tf="1m",
-                                start_ts=date_start_utc,
-                                end_ts=date_end_utc,
-                            )
-                        )
-                        self._requested_today.add(gap_key)
 
                     # HTF completeness — observe metrics, DO NOT issue gap requests.
                     # Single GROUP BY query replaces N separate COUNT(*) queries.
