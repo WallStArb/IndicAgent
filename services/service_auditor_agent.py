@@ -123,7 +123,7 @@ class ServiceAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         settings = Settings()
-        super().__init__(name="service_auditor_agent", metrics_port=9131)
+        super().__init__(name="service_auditor_agent", metrics_port=9131, max_idle_seconds=600)
         self._settings = settings
         self._env_name: str = getattr(settings, "env_prefix", "") or ""
         self._db_pool: asyncpg.Pool | None = None
