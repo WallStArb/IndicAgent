@@ -29,6 +29,7 @@ from src.core.kafka_utils import KafkaProducerClient
 from src.core.ml.training_data import TrainingDataQuery
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_ml_discovery_results
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +71,12 @@ class MLDiscoveryComputeAgent(BaseAgent):
             bootstrap_servers=settings.kafka_bootstrap_servers,
         )
         self._query: TrainingDataQuery | None = None
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. One-shot compute agent — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _run(self) -> None:
         """Main one-shot lifecycle: connect DB, run discovery for all symbols/tfs, exit."""

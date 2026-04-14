@@ -140,6 +140,12 @@ class SignalWriterAgent(BaseWriterAgent):
             self._consumer_lag.set(len(self._buffer))
             await self.maybe_flush()
 
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag (buffer size proxy) until stop event."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(len(self._buffer))
+            await asyncio.sleep(15)
+
     async def _teardown(self) -> None:
         await super()._teardown()
         if self._consumer:

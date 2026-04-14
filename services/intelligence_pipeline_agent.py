@@ -113,6 +113,7 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
+    PERSISTENCE_CONSUMER_LAG,
     PLUGIN_DURATION_MS,
     PLUGIN_ERRORS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
@@ -824,6 +825,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     error=str(result),
                     error_type=type(result).__name__,
                 )
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Drain output queue, close connections."""

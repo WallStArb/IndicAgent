@@ -38,6 +38,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_signal_metrics
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 from src.observability.otel import init_tracing
 
 _EVENTS_CONSUMED = Counter(
@@ -216,6 +217,12 @@ class SignalMetricsWriterAgent(BaseAgent):
             "signal_metrics_writer.setup_complete",
             topics_consumed=self.topics_consumed,
         )
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
+        while not self._stop_event.is_set():
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Stop consumer and close DB pool."""
