@@ -395,5 +395,4 @@ class SignalAuditorAgent(BaseAgent):
 
 
 if __name__ == "__main__":
-    init_tracing("signal_auditor_agent")
     asyncio.run(SignalAuditorAgent().start())

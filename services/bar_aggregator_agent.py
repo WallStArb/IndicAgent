@@ -33,7 +33,7 @@ import time
 
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings
+from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -542,8 +542,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     from src.core.service_utils import setup_service_logging
-    from src.observability.otel import init_tracing
 
     setup_service_logging("logs/bar_aggregator_agent.log")
-    init_tracing("bar_aggregator_agent")
     asyncio.run(main())

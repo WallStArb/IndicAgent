@@ -527,5 +527,4 @@ class BarAuditorAgent(BaseAgent):
 
 
 if __name__ == "__main__":
-    init_tracing("bar_auditor_agent")
     asyncio.run(BarAuditorAgent().start())

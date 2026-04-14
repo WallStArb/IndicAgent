@@ -50,8 +50,5 @@ class IBKRProviderAgent(BaseProviderAgent):
 if __name__ == "__main__":
     import asyncio
 
-    from src.observability.otel import init_tracing
-
-    init_tracing("ibkr_provider_agent")
     agent = IBKRProviderAgent()
     asyncio.run(agent.start())
