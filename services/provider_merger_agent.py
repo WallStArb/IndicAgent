@@ -72,18 +72,17 @@ class ProviderMergerAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name="provider_merger_agent", metrics_port=9130)
 
-        self._provider_raw_topics: list[str] = self._settings.provider_raw_topics
+        self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
             raise ValueError("provider_raw_topics must be non-empty")
         self._provider_routing_config: dict[str, str] = (
-            self._settings.provider_routing_config
+            self.settings.provider_routing_config
         )
         self._provider_silence_bars_threshold: int = (
-            self._settings.provider_silence_bars_threshold
+            self.settings.provider_silence_bars_threshold
         )
 
         # Failover state: symbol -> promoted provider (set on failover, cleared on recovery)
@@ -102,7 +101,7 @@ class ProviderMergerAgent(BaseAgent):
         # Instrument asset_class lookup: symbol -> asset_class string
         self._symbol_to_asset_class: dict[str, str] = {
             instr.symbol: instr.asset_class.value
-            for instr in self._settings.contracts
+            for instr in self.settings.contracts
         }
 
         # Pre-cache labeled metric children to avoid dict lookup on every bar
@@ -145,14 +144,14 @@ class ProviderMergerAgent(BaseAgent):
     async def _setup(self) -> None:
         """Connect Kafka producer and consumer."""
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
 
         raw_topics = self.topics_consumed
         self._kafka_consumer = KafkaConsumerClient(
             *raw_topics,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=self.consumer_group,
             auto_offset_reset="latest",
         )

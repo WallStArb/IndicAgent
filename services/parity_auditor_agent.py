@@ -191,7 +191,6 @@ class ParityAuditorAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__(name="ParityAuditorAgent", metrics_port=METRICS_PORT, max_idle_seconds=600)
 
-        self._settings = Settings()
         self._pool: asyncpg.Pool | None = None
         self._repo: ParityRepository | None = None
         self._producer: AIOKafkaProducer | None = None
@@ -204,10 +203,10 @@ class ParityAuditorAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main timer loop — runs comparison cycle every COMPARISON_INTERVAL_SECS."""
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
+        self._pool = await asyncpg.create_pool(self.settings.database_url)
         self._repo = ParityRepository(self._pool)
 
-        self._producer = AIOKafkaProducer(bootstrap_servers=self._settings.kafka_bootstrap_servers)
+        self._producer = AIOKafkaProducer(bootstrap_servers=self.settings.kafka_bootstrap_servers)
         await self._producer.start()
 
         self.logger.info("parity_auditor_started", interval_secs=COMPARISON_INTERVAL_SECS)
@@ -345,7 +344,7 @@ class ParityAuditorAgent(BaseAgent):
                 "threshold": CERTIFICATION_THRESHOLD,
                 "pairs": list(pair_stats.keys()),
             }
-            topic = topic_system_events(self._settings.env_name)
+            topic = topic_system_events(self.settings.env_name)
             await self._producer.send_and_wait(
                 topic,
                 key=b"parity_certification",

@@ -56,12 +56,11 @@ class SwarmWriterAgent(BaseWriterAgent):
 
     def __init__(self) -> None:
         super().__init__(name="SwarmWriterAgent")
-        self._settings = Settings()
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
 
     def _topic_name(self) -> str:
-        return topic_swarm_results(self._settings.env_name)
+        return topic_swarm_results(self.settings.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -95,13 +94,13 @@ class SwarmWriterAgent(BaseWriterAgent):
         self.logger.info("swarm_writer.batch_written", count=len(rows))
 
     def _dlq_topic(self) -> str | None:
-        return topic_swarm_writer_dlq(self._settings.env_name)
+        return topic_swarm_writer_dlq(self.settings.env_name)
 
     async def _setup(self) -> None:
-        env = self._settings.env_name
+        env = self.settings.env_name
         self._consumer = KafkaConsumerClient(
             topic_swarm_results(env),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="swarm_writer_consumer",
             auto_offset_reset="earliest",
             enable_auto_commit=False,
@@ -109,11 +108,11 @@ class SwarmWriterAgent(BaseWriterAgent):
         await self._consumer.start()
 
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._producer.start()
 
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
+        self._pool = await asyncpg.create_pool(self.settings.database_url)
         self.logger.info("swarm_writer_agent.started")
 
     async def _run(self) -> None:

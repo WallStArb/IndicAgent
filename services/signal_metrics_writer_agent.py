@@ -190,8 +190,7 @@ class SignalMetricsWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
-        self._settings = Settings()
-        self._env_name: str = self._settings.env_name or ""
+        self._env_name: str = self.settings.env_name or ""
         super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
 
         self._db: DatabaseManager | None = None
@@ -203,12 +202,12 @@ class SignalMetricsWriterAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect DB pool and Kafka consumer."""
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_signal_metrics(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=_CONSUMER_GROUP,
             auto_offset_reset="latest",
         )

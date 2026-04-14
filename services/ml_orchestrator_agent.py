@@ -62,14 +62,14 @@ class MLOrchestratorComputeAgent(BaseAgent):
     def __init__(self, settings: Settings) -> None:
         setup_service_logging("logs/ml_orchestrator_agent.log")
         super().__init__("MLOrchestratorComputeAgent")
-        self._settings = settings
+        self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._producer = KafkaProducerClient(
             bootstrap_servers=settings.kafka_bootstrap_servers,
         )
 
     async def _setup(self) -> None:
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
+        self._pool = await asyncpg.create_pool(self.settings.database_url)
 
     async def _teardown(self) -> None:
         if self._pool:
@@ -95,7 +95,7 @@ class MLOrchestratorComputeAgent(BaseAgent):
         except Exception as exc:
             self.logger.exception("ml_orchestrator.error", error=str(exc))
             await self._producer.publish(
-                topic_ml_orchestrator_dlq(self._settings.env_name),
+                topic_ml_orchestrator_dlq(self.settings.env_name),
                 {"error": str(exc)},
             )
 
@@ -137,7 +137,7 @@ class MLOrchestratorComputeAgent(BaseAgent):
         return state
 
     def _quality_gate(self, state: MLOrchestrationState) -> str:
-        min_score = self._settings.DATA_QUALITY_MIN_SCORE
+        min_score = self.settings.DATA_QUALITY_MIN_SCORE
         score = state.get("data_quality_score") or 0.0
         if score < min_score:
             self.logger.warning(

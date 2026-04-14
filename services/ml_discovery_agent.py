@@ -64,7 +64,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
     def __init__(self, settings: Settings) -> None:
         setup_service_logging("logs/ml_discovery_agent.log")
         super().__init__(name="MLDiscoveryComputeAgent")
-        self._settings = settings
+        self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._producer = KafkaProducerClient(
             bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -73,11 +73,11 @@ class MLDiscoveryComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main one-shot lifecycle: connect DB, run discovery for all symbols/tfs, exit."""
-        self._pool = await asyncpg.create_pool(self._settings.database_url)
+        self._pool = await asyncpg.create_pool(self.settings.database_url)
         self._query = TrainingDataQuery(self._pool)
         self.logger.info("ml_discovery.starting")
         try:
-            for symbol in self._settings.get_active_contracts():
+            for symbol in self.settings.get_active_contracts():
                 sym = symbol if isinstance(symbol, str) else symbol.symbol
                 for tf in ["1m", "5m", "15m"]:
                     await self._run_all_regimes(symbol=sym, tf=tf)
@@ -115,8 +115,8 @@ class MLDiscoveryComputeAgent(BaseAgent):
         """Run tsfresh + IC analysis for one (symbol, tf, regime) segment."""
         from datetime import timedelta
 
-        lookback = getattr(self._settings, "ML_DISCOVERY_LOOKBACK_DAYS", 90)
-        ic_threshold = getattr(self._settings, "ML_DISCOVERY_IC_THRESHOLD", 0.05)
+        lookback = getattr(self.settings, "ML_DISCOVERY_LOOKBACK_DAYS", 90)
+        ic_threshold = getattr(self.settings, "ML_DISCOVERY_IC_THRESHOLD", 0.05)
 
         end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=lookback)
@@ -214,7 +214,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
 
         # Publish summary to Kafka
         await self._producer.publish(
-            topic_ml_discovery_results(self._settings.env_name),
+            topic_ml_discovery_results(self.settings.env_name),
             {
                 "symbol": symbol,
                 "tf": tf,

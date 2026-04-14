@@ -139,7 +139,7 @@ class CrossAssetComputeAgent(BaseAgent):
         )
 
         # Store settings for alert publishing
-        self._settings = settings
+        self.settings = settings
 
     # -----------------------------------------------------------------------
     # BaseAgent lifecycle hooks

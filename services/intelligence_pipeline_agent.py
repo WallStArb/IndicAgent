@@ -416,7 +416,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        self._settings = Settings()
 
         # Override convention-based log path if LOG_FILE env var is set
         # Must call setup_service_logging BEFORE super().__init__() to override default
@@ -428,11 +427,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         super().__init__(
             name="intelligence_pipeline_agent",
-            metrics_port=self._settings.pipeline_metrics_port,
+            metrics_port=self.settings.pipeline_metrics_port,
             max_idle_seconds=300,
         )
 
-        self._contracts = get_active_contracts(self._settings)
+        self._contracts = get_active_contracts(self.settings)
         self._symbols = [c.symbol for c in self._contracts]
         self._timeframes = list(_STANDARD_TFS)
 
@@ -490,7 +489,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # adds context-switching overhead. 8-12 is optimal for numpy/pandas ops
         # that do release the GIL.
         cpu_count = os.cpu_count() or 24
-        _configured = self._settings.intelligence_thread_pool_workers
+        _configured = self.settings.intelligence_thread_pool_workers
         _workers = _configured if _configured > 0 else min(12, max(4, cpu_count // 2))
         self._executor = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.set(_workers)
@@ -506,8 +505,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_hmm_regime: int | None = None
 
         # I7 config — wired to Settings (not hardcoded)
-        self._regime_prob_min: float = self._settings.regime_prob_min
-        self._regime_dur_min: int = self._settings.regime_dur_min
+        self._regime_prob_min: float = self.settings.regime_prob_min
+        self._regime_dur_min: int = self.settings.regime_dur_min
 
         # Output buffer
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
@@ -609,25 +608,25 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         # 1. Connect DB
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
         # 2. Setup Kafka clients (must come before checkpoint restore + seed)
         # (moved to here so kafka_producer is available for BarHistorySeeder)
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
 
         topics = [
-            topic_market_bars(self._settings.env_name),
-            topic_market_bars_htf(self._settings.env_name),
-            topic_system_events(self._settings.env_name),
-            topic_cross_asset(self._settings.env_name),
+            topic_market_bars(self.settings.env_name),
+            topic_market_bars_htf(self.settings.env_name),
+            topic_system_events(self.settings.env_name),
+            topic_cross_asset(self.settings.env_name),
         ]
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=self._consumer_group,
             enable_auto_commit=False,
         )
@@ -664,7 +663,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _ensure_state_topic(self) -> None:
         """Create the compacted state checkpoint topic if it doesn't exist."""
-        state_topic = topic_intelligence_pipeline_state(self._settings.env_name)
+        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
         try:
             import subprocess
 
@@ -701,7 +700,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             from src.core.bar_history_seeder import BarHistorySeeder
 
             config = {"service": {"timeframes": list(self._timeframes)}}
-            seeder = BarHistorySeeder(self._settings, config, self._kafka_producer)
+            seeder = BarHistorySeeder(self.settings, config, self._kafka_producer)
             await seeder.seed(self._bar_history)
         except Exception as exc:
             self.logger.warning("bar_history.seed_failed", error=str(exc))
@@ -712,12 +711,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _restore_state_checkpoint(self) -> bool:
         """Consume compacted state topic and restore all five state fields."""
-        state_topic = topic_intelligence_pipeline_state(self._settings.env_name)
+        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
         consumer = None
         try:
             consumer = KafkaConsumerClient(
                 state_topic,
-                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
                 group_id=f"{self._consumer_group}_state_restore",
                 auto_offset_reset="earliest",
             )
@@ -856,8 +855,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _process_loop(self) -> None:
         """Consume all topics and route: bar → I1-I7 pipeline; non-bar → caches."""
-        _cross_asset_topic = topic_cross_asset(self._settings.env_name)
-        _system_topic = topic_system_events(self._settings.env_name)
+        _cross_asset_topic = topic_cross_asset(self.settings.env_name)
+        _system_topic = topic_system_events(self.settings.env_name)
         COMMIT_BATCH_SIZE = 100  # Batch commits to avoid per-message network latency
         msg_count = 0
         while self.running:
@@ -898,7 +897,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     def _dlq_topic(self) -> str | None:
         """Route unparseable bar payloads to DLQ."""
-        return topic_intelligence_pipeline_dlq(self._settings.env_name)
+        return topic_intelligence_pipeline_dlq(self.settings.env_name)
 
     def _parse_bar(self, msg: dict) -> BarMessage | None:
         """Parse a Kafka message into BarMessage."""
@@ -945,9 +944,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # 5. Enqueue IntelligenceEvent to output buffer
         msg_key = message_key(bar.symbol, bar.tf)
         output_topic = (
-            topic_intelligence_shadow(self._settings.env_name)
+            topic_intelligence_shadow(self.settings.env_name)
             if self._shadow_mode
-            else topic_intelligence(self._settings.env_name)
+            else topic_intelligence(self.settings.env_name)
         )
         self._enqueue(output_topic, msg_key, {"event": intel_event.model_dump_json()})
 
@@ -1539,7 +1538,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if winner:
             self._signals_selected.inc()
             self._enqueue(
-                topic_signals_aggregated(self._settings.env_name),
+                topic_signals_aggregated(self.settings.env_name),
                 message_key(symbol, tf),
                 winner,
             )
@@ -1571,7 +1570,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         encoded = StateSerializer.encode(state)
         checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
         self._enqueue(
-            topic_intelligence_pipeline_state(self._settings.env_name),
+            topic_intelligence_pipeline_state(self.settings.env_name),
             checkpoint_key,
             encoded,
         )
@@ -1594,7 +1593,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
                 self._signal_dlq_total.inc()
                 self._enqueue(
-                    topic_signal_dlq(self._settings.env_name),
+                    topic_signal_dlq(self.settings.env_name),
                     message_key(symbol, tf),
                     {
                         "symbol": symbol,
@@ -1615,7 +1614,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Assertion passed — publish all ranked signals to i7.signals
         self._enqueue(
-            topic_intelligence_i7_signals(self._settings.env_name),
+            topic_intelligence_i7_signals(self.settings.env_name),
             message_key(symbol, tf),
             {
                 "symbol": symbol,
@@ -1672,7 +1671,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
         self._enqueue(
-            topic_intelligence_journal(self._settings.env_name),
+            topic_intelligence_journal(self.settings.env_name),
             msg_key,
             record.model_dump(mode="json"),
         )

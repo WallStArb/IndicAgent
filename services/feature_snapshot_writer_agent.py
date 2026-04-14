@@ -65,9 +65,8 @@ class FeatureSnapshotWriterAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__(name="FeatureSnapshotWriterAgent")
 
-        self._settings = Settings()
-        self._env_name = self._settings.env_name.strip()
-        self._kafka_bootstrap = self._settings.kafka_bootstrap_servers
+        self._env_name = self.settings.env_name.strip()
+        self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         self._expiry_map: dict = {}
         self._buffer: list[tuple] = []
@@ -168,13 +167,13 @@ class FeatureSnapshotWriterAgent(BaseAgent):
 
         # Build expiry map (same as FeatureWriterAgent)
         try:
-            self._expiry_map = _build_expiry_map(self._settings)
+            self._expiry_map = _build_expiry_map(self.settings)
             self.logger.info("expiry_map_built", contracts=len(self._expiry_map))
         except Exception as exc:
             self.logger.warning("expiry_map_failed", error=str(exc))
 
         # DB connection -> shadow repository
-        self._db = DatabaseManager(self._settings.database_url)
+        self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
         self._repo = FeatureRepository(self._db, table_name=SHADOW_TABLE)
 

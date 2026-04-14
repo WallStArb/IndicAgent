@@ -124,7 +124,7 @@ class ServiceAuditorAgent(BaseAgent):
     def __init__(self) -> None:
         settings = Settings()
         super().__init__(name="service_auditor_agent", metrics_port=9131, max_idle_seconds=600)
-        self._settings = settings
+        self.settings = settings
         self._env_name: str = getattr(settings, "env_prefix", "") or ""
         self._db_pool: asyncpg.Pool | None = None
         self._http_session: aiohttp.ClientSession | None = None
@@ -148,16 +148,16 @@ class ServiceAuditorAgent(BaseAgent):
 
     async def _setup(self) -> None:
         self._db_pool = await asyncpg.create_pool(
-            self._settings.database_url, min_size=1, max_size=3
+            self.settings.database_url, min_size=1, max_size=3
         )
         self._http_session = aiohttp.ClientSession()
         self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._kafka_producer.start()
         self._roll_consumer = KafkaConsumerClient(
             topic_roll_events(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="service_auditor_roll_consumer",
             auto_offset_reset="latest",
         )
@@ -497,8 +497,8 @@ class ServiceAuditorAgent(BaseAgent):
 
     async def _notify_telegram(self, title: str, body: str) -> None:
         """POST CRITICAL alert to Telegram bot. No-op if token not configured."""
-        token = self._settings.telegram_bot_token
-        chat_id = self._settings.telegram_chat_id
+        token = self.settings.telegram_bot_token
+        chat_id = self.settings.telegram_chat_id
         if not token or not chat_id:
             return
         url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -511,7 +511,7 @@ class ServiceAuditorAgent(BaseAgent):
 
     async def _notify_discord(self, title: str, body: str, severity: str) -> None:
         """POST HIGH/MEDIUM alert to Discord webhook. No-op if URL not configured."""
-        url = self._settings.discord_webhook_url
+        url = self.settings.discord_webhook_url
         if not url:
             return
         content = f"**[{severity}]** {title}\n{body}"
