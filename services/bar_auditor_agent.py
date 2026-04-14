@@ -101,7 +101,7 @@ class BarAuditorAgent(BaseAgent):
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
         self._env_name: str = self._settings.env_name or ""
-        super().__init__(name="bar_auditor_agent", metrics_port=9123)
+        super().__init__(name="bar_auditor_agent", metrics_port=9123, max_idle_seconds=300)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
@@ -221,6 +221,7 @@ class BarAuditorAgent(BaseAgent):
             records = await self._contract_consumer.getmany(timeout_ms=0, max_records=100)
             count = sum(len(msgs) for msgs in records.values())
             if count > 0:
+                self._record_message_consumed()  # Track liveness for stall detection
                 invalidate_active_contracts_cache()
                 self.logger.info(
                     "bar_auditor_agent.contract_update_received",
