@@ -284,15 +284,81 @@ class BaseAgent(abc.ABC):
     async def _send_to_dlq(self, payload: dict, error: Exception) -> None:
         """Route unprocessable payload to DLQ. Default: log and discard.
 
-        Override when DLQ topics are provisioned:
-            await self._kafka_producer.produce(topic_dlq(...), payload)
+        If subclass overrides _dlq_topic() to return a topic name, routes to DLQ
+        with structured DLQPayload and emits metrics.
         """
-        self.logger.error(
-            "agent.dlq_discard",
+        from datetime import datetime, UTC
+
+        from src.core.schemas.dlq_payload import DLQPayload
+        from src.observability.metrics import DLQ_DEPTH, DLQ_MESSAGES_TOTAL
+
+        # Check if DLQ topic is configured
+        dlq_topic = self._dlq_topic() if hasattr(self, "_dlq_topic") else None
+
+        if dlq_topic is None:
+            # No DLQ configured — log and discard
+            self.logger.error(
+                "agent.dlq_discard",
+                agent=self.name,
+                error=str(error),
+                payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
+            )
+            return
+
+        # DLQ topic configured — route to DLQ
+        dlq_payload = DLQPayload(
             agent=self.name,
-            error=str(error),
-            payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
+            source_topic=self._topics_consumed[0] if hasattr(self, "_topics_consumed") and self._topics_consumed else "unknown",
+            error_type=type(error).__name__,
+            error_message=str(error),
+            payload=payload,
+            timestamp=datetime.now(UTC),
+            retry_count=0,
         )
+
+        try:
+            # Check if agent has a Kafka producer
+            if hasattr(self, "_kafka_producer") and self._kafka_producer is not None:
+                await self._kafka_producer.produce(dlq_topic, dlq_payload.model_dump())
+                # Emit metrics
+                DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
+                DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
+                self.logger.info(
+                    "agent.dlq_routed",
+                    agent=self.name,
+                    topic=dlq_topic,
+                    error_type=type(error).__name__,
+                )
+            elif hasattr(self, "_producer") and self._producer is not None:
+                # Some agents use self._producer instead of self._kafka_producer
+                await self._producer.produce(dlq_topic, dlq_payload.model_dump())
+                DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
+                DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
+                self.logger.info(
+                    "agent.dlq_routed",
+                    agent=self.name,
+                    topic=dlq_topic,
+                    error_type=type(error).__name__,
+                )
+            else:
+                # No producer available — log and discard
+                self.logger.warning(
+                    "agent.dlq_no_producer",
+                    agent=self.name,
+                    topic=dlq_topic,
+                    error=str(error),
+                )
+        except Exception as exc:
+            self.logger.error(
+                "agent.dlq_route_failed",
+                agent=self.name,
+                topic=dlq_topic,
+                error=str(exc),
+            )
+
+    def _dlq_topic(self) -> str | None:
+        """Override to return DLQ topic name. None = log-only (default)."""
+        return None
 
     async def _send_alert(self, severity: str, message: str, context: dict | None = None) -> None:
         """Send alert to AlertingAgent via Kafka.
