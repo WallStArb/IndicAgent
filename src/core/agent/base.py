@@ -308,7 +308,7 @@ class BaseAgent(abc.ABC):
         # DLQ topic configured — route to DLQ
         dlq_payload = DLQPayload(
             agent=self.name,
-            source_topic=self._topics_consumed[0] if hasattr(self, "_topics_consumed") and self._topics_consumed else "unknown",
+            source_topic=self.topics_consumed[0] if self.topics_consumed else "unknown",
             error_type=type(error).__name__,
             error_message=str(error),
             payload=payload,
