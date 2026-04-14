@@ -700,7 +700,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    from src.observability.otel import init_tracing
-
-    init_tracing(service_name="feature_writer_agent")
     asyncio.run(main())
