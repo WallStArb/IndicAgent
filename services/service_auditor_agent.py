@@ -189,10 +189,11 @@ class ServiceAuditorAgent(BaseAgent):
         sysd_task = asyncio.create_task(self._systemd_check_loop())
         hb_task = asyncio.create_task(self._heartbeat_loop())
         roll_task = asyncio.create_task(self._roll_consumer_loop())
+        lag_task = asyncio.create_task(self._report_consumer_lag())
         await self._stop_event.wait()
-        for t in (prom_task, sysd_task, hb_task, roll_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task, lag_task):
             t.cancel()
-        for t in (prom_task, sysd_task, hb_task, roll_task):
+        for t in (prom_task, sysd_task, hb_task, roll_task, lag_task):
             try:
                 await t
             except asyncio.CancelledError:

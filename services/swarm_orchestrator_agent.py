@@ -104,11 +104,13 @@ class SwarmOrchestratorComputeAgent(BaseAgent):
     async def _run(self) -> None:
         bar_task = asyncio.create_task(self._bar_loop())
         signal_task = asyncio.create_task(self._signal_loop())
+        lag_task = asyncio.create_task(self._report_consumer_lag())
         try:
-            await asyncio.gather(bar_task, signal_task)
+            await asyncio.gather(bar_task, signal_task, lag_task)
         except Exception:
             bar_task.cancel()
             signal_task.cancel()
+            lag_task.cancel()
             raise
 
     async def _bar_loop(self) -> None:

@@ -798,6 +798,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._process_loop()),
             asyncio.create_task(self._drain_output()),
             asyncio.create_task(self._health_monitor_loop()),
+            asyncio.create_task(self._report_consumer_lag()),
             # Refresh loops
             asyncio.create_task(self._run_refresh_loop(self._load_perf_weights, 3600)),
             asyncio.create_task(self._run_refresh_loop(self._refresh_drift_penalties, 14400)),
@@ -811,6 +812,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_process_loop",
             "_drain_output",
             "_health_monitor_loop",
+            "_report_consumer_lag",
             "_load_perf_weights",
             "_refresh_drift_penalties",
             "_load_cis_weights",

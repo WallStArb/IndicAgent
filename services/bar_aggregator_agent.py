@@ -255,6 +255,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         # Start background tasks
         health_task = asyncio.create_task(self._update_health_metrics())
         checker_task = asyncio.create_task(self._health_checker())
+        lag_task = asyncio.create_task(self._report_consumer_lag())
 
         try:
             htf_topic = topic_market_bars_htf(self._env_name)
@@ -383,12 +384,17 @@ class BarAggregatorComputeAgent(BaseAgent):
         finally:
             health_task.cancel()
             checker_task.cancel()
+            lag_task.cancel()
             try:
                 await health_task
             except asyncio.CancelledError:
                 pass
             try:
                 await checker_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await lag_task
             except asyncio.CancelledError:
                 pass
 

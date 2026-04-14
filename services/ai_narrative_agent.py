@@ -63,13 +63,21 @@ class AINarrativeComputeAgent(BaseAgent):
         """Main loop: consume records, generate narratives, publish."""
         self.logger.info("ai_narrative_agent.starting")
         assert self._consumer is not None, "_run called before _setup"
-        async for _topic, _key, payload in self._consumer.messages():
-            if self._stop_event.is_set():
-                break
+        lag_task = asyncio.create_task(self._report_consumer_lag())
+        try:
+            async for _topic, _key, payload in self._consumer.messages():
+                if self._stop_event.is_set():
+                    break
+                try:
+                    await self._process_bar(payload)
+                except Exception as exc:
+                    self.logger.exception("ai_narrative_agent.consume_error", error=str(exc))
+        finally:
+            lag_task.cancel()
             try:
-                await self._process_bar(payload)
-            except Exception as exc:
-                self.logger.exception("ai_narrative_agent.consume_error", error=str(exc))
+                await lag_task
+            except asyncio.CancelledError:
+                pass
 
     # Drop bars older than this — prevents wasting LLM tokens on replay/stale data.
     _STALENESS_LIMIT = timedelta(minutes=10)

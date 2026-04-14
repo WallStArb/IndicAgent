@@ -185,19 +185,27 @@ class CrossAssetComputeAgent(BaseAgent):
         intelligence_topic = topic_intelligence(self.env_name)
         self.logger.info("agent.running", topic=intelligence_topic)
 
-        async for _topic, _key, payload in self._consumer.messages():
-            if not self.running:
-                break
+        lag_task = asyncio.create_task(self._report_consumer_lag())
+        try:
+            async for _topic, _key, payload in self._consumer.messages():
+                if not self.running:
+                    break
+                try:
+                    await self._process_intelligence_message(payload)
+                    # Record message consumed for stall detection
+                    self._record_message_consumed()
+                except Exception as exc:
+                    self.logger.error(
+                        "Error processing intelligence message",
+                        error=str(exc),
+                        exc_info=True,
+                    )
+        finally:
+            lag_task.cancel()
             try:
-                await self._process_intelligence_message(payload)
-                # Record message consumed for stall detection
-                self._record_message_consumed()
-            except Exception as exc:
-                self.logger.error(
-                    "Error processing intelligence message",
-                    error=str(exc),
-                    exc_info=True,
-                )
+                await lag_task
+            except asyncio.CancelledError:
+                pass
 
     async def _report_consumer_lag(self) -> None:
         """Report consumer lag until stop event. Stream processor — no buffer accumulation."""

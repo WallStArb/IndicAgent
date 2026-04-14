@@ -343,76 +343,84 @@ class RollComputeAgent(BaseAgent):
     async def _run(self) -> None:
         """Main loop: consume bars, run RollMonitor, publish RollEvent on confirmed roll."""
         roll_topic = topic_roll_events(self.env_name)
-        async for _topic, _key, payload in self._kafka_consumer.messages():
-            if not self.running:
-                break
-            symbol = ""
-            try:
-                symbol = payload.get("symbol", "")
-                base_symbol = self._symbol_to_base.get(symbol, symbol)
-                volume = float(payload.get("volume", 0))
-                bar_ts_str = payload.get("timestamp", "")
+        lag_task = asyncio.create_task(self._report_consumer_lag())
+        try:
+            async for _topic, _key, payload in self._kafka_consumer.messages():
+                if not self.running:
+                    break
+                symbol = ""
+                try:
+                    symbol = payload.get("symbol", "")
+                    base_symbol = self._symbol_to_base.get(symbol, symbol)
+                    volume = float(payload.get("volume", 0))
+                    bar_ts_str = payload.get("timestamp", "")
 
-                self._events_consumed_lbl.inc()
-                self._roll_monitor.update_volume(base_symbol, volume)
+                    self._events_consumed_lbl.inc()
+                    self._roll_monitor.update_volume(base_symbol, volume)
 
-                bar_utc: datetime
-                if bar_ts_str:
-                    bar_utc = datetime.fromisoformat(bar_ts_str)
-                    if bar_utc.tzinfo is None:
-                        bar_utc = bar_utc.replace(tzinfo=UTC)
-                else:
-                    bar_utc = datetime.now(UTC)
+                    bar_utc: datetime
+                    if bar_ts_str:
+                        bar_utc = datetime.fromisoformat(bar_ts_str)
+                        if bar_utc.tzinfo is None:
+                            bar_utc = bar_utc.replace(tzinfo=UTC)
+                    else:
+                        bar_utc = datetime.now(UTC)
 
-                with self._detection_latency_lbl.time():
-                    rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
+                    with self._detection_latency_lbl.time():
+                        rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
 
-                if rolled:
-                    # Derive old/new contracts from roll chain
-                    old_contract = symbol
-                    new_contract = symbol
-                    try:
-                        chain = derive_roll_chain(base_symbol)
-                        if chain and len(chain) >= 2:
-                            old_contract = chain[-2]["symbol"]
-                            new_contract = chain[-1]["symbol"]
-                        elif chain:
-                            # roll_to field from chain head gives the next contract symbol
-                            new_contract = chain[0].get("roll_to", symbol)
-                    except Exception as chain_exc:
-                        self.logger.warning(
-                            "roll_chain_derivation_failed",
-                            base_symbol=base_symbol,
-                            error=str(chain_exc),
+                    if rolled:
+                        # Derive old/new contracts from roll chain
+                        old_contract = symbol
+                        new_contract = symbol
+                        try:
+                            chain = derive_roll_chain(base_symbol)
+                            if chain and len(chain) >= 2:
+                                old_contract = chain[-2]["symbol"]
+                                new_contract = chain[-1]["symbol"]
+                            elif chain:
+                                # roll_to field from chain head gives the next contract symbol
+                                new_contract = chain[0].get("roll_to", symbol)
+                        except Exception as chain_exc:
+                            self.logger.warning(
+                                "roll_chain_derivation_failed",
+                                base_symbol=base_symbol,
+                                error=str(chain_exc),
+                            )
+
+                        roll_event = RollEvent(
+                            symbol=base_symbol,
+                            old_contract=old_contract,
+                            new_contract=new_contract,
+                            roll_gap_price=0.0,   # price gap computed by downstream consumer
+                            roll_gap_pct=0.0,
+                            detection_ts=bar_utc,
+                            volume_zscore=self._roll_monitor._last_volume_zscore,
+                            confirmation_count=self._roll_monitor._last_confirmation_count,
                         )
-
-                    roll_event = RollEvent(
-                        symbol=base_symbol,
-                        old_contract=old_contract,
-                        new_contract=new_contract,
-                        roll_gap_price=0.0,   # price gap computed by downstream consumer
-                        roll_gap_pct=0.0,
-                        detection_ts=bar_utc,
-                        volume_zscore=self._roll_monitor._last_volume_zscore,
-                        confirmation_count=self._roll_monitor._last_confirmation_count,
-                    )
-                    await self._kafka_producer.publish(
-                        roll_topic,
-                        roll_event.model_dump(mode="json"),
-                        key=base_symbol,
-                    )
-                    self._rolls_detected_lbl.inc()
-                    self.logger.info(
-                        "roll_detected",
-                        symbol=base_symbol,
-                        old_contract=old_contract,
-                        new_contract=new_contract,
-                        volume_zscore=roll_event.volume_zscore,
-                        confirmation_count=roll_event.confirmation_count,
-                    )
-            except Exception as exc:
-                self._detection_errors_lbl.inc()
-                self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)
+                        await self._kafka_producer.publish(
+                            roll_topic,
+                            roll_event.model_dump(mode="json"),
+                            key=base_symbol,
+                        )
+                        self._rolls_detected_lbl.inc()
+                        self.logger.info(
+                            "roll_detected",
+                            symbol=base_symbol,
+                            old_contract=old_contract,
+                            new_contract=new_contract,
+                            volume_zscore=roll_event.volume_zscore,
+                            confirmation_count=roll_event.confirmation_count,
+                        )
+                except Exception as exc:
+                    self._detection_errors_lbl.inc()
+                    self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)
+        finally:
+            lag_task.cancel()
+            try:
+                await lag_task
+            except asyncio.CancelledError:
+                pass
 
 
 # ---------------------------------------------------------------------------
