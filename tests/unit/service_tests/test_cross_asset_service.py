@@ -1,6 +1,6 @@
 """Unit tests for services/cross_asset_service.py
 
-Uses CrossAssetService.__new__ to bypass __init__ (no Kafka/DB required).
+Uses CrossAssetComputeAgent.__new__ to bypass __init__ (no Kafka/DB required).
 Tests cover:
 - _extract_base_symbol with known futures symbols
 - Message routing fills correct deques
@@ -12,6 +12,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
@@ -30,12 +31,11 @@ _MIN_NEEDED = _WINDOW + _SHORT  # 25
 
 
 def _make_service():
-    """Construct CrossAssetService without __init__ (no Kafka/DB calls)."""
-    from services.cross_asset_service import CrossAssetService
+    """Construct CrossAssetComputeAgent without __init__ (no Kafka/DB calls)."""
+    from services.cross_asset_service import CrossAssetComputeAgent
 
-    svc = CrossAssetService.__new__(CrossAssetService)
-    svc.running = False
-    svc.shutdown_requested = False
+    svc = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
+    svc._stop_event = asyncio.Event()  # running property reads this
     svc.env_name = "development"
     svc._window_bars = _WINDOW
     svc._metrics_port = 9118
