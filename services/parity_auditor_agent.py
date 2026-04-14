@@ -35,7 +35,6 @@ import asyncpg
 import structlog
 from aiokafka import AIOKafkaProducer
 
-from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.schemas.parity import FieldViolation
 from src.core.stream_keys import topic_system_events
@@ -43,7 +42,6 @@ from src.observability.metrics import (
     PARITY_CYCLES_TOTAL,
     PARITY_MATCH_RATE,
     PARITY_VIOLATIONS_TOTAL,
-    PERSISTENCE_CONSUMER_LAG,
     SHADOW_AHEAD_ROWS_TOTAL,
 )
 from src.persistence.repository.parity_repository import ParityRepository
@@ -195,11 +193,6 @@ class ParityAuditorAgent(BaseAgent):
         self._repo: ParityRepository | None = None
         self._producer: AIOKafkaProducer | None = None
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Auditor — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _run(self) -> None:
         """Main timer loop — runs comparison cycle every COMPARISON_INTERVAL_SECS."""

@@ -21,7 +21,6 @@ from uuid import uuid4
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
@@ -32,7 +31,6 @@ from src.core.stream_keys import (
 )
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
-    PERSISTENCE_CONSUMER_LAG,
     counter,
 )
 from src.persistence.repository.signal_ledger_repository import (
@@ -80,7 +78,6 @@ class SignalWriterAgent(BaseWriterAgent):
             "Failed batch inserts",
         )
         self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="signal_writer_agent")
-        self._consumer_lag = PERSISTENCE_CONSUMER_LAG.labels(agent_id="signal_writer_agent")
 
     def _topic_name(self) -> str:
         return topic_intelligence_i7_signals(self.settings.env_name)
@@ -139,11 +136,6 @@ class SignalWriterAgent(BaseWriterAgent):
             self._consumer_lag.set(len(self._buffer))
             await self.maybe_flush()
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag (buffer size proxy) until stop event."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(len(self._buffer))
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         await super()._teardown()

@@ -33,12 +33,10 @@ sys.path.insert(0, str(project_root))
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_signal_audit
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
-from src.observability.otel import init_tracing
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -158,11 +156,6 @@ class SignalAuditorAgent(BaseAgent):
             topics_produced=self.topics_produced,
         )
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Auditor — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         if self._kafka_producer is not None:

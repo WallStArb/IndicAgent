@@ -753,15 +753,6 @@ class SignalTrackerCompute(BaseAgent):
         except Exception as exc:
             self.logger.error("bootstrap_failed_event_publish_error", error=str(exc))
 
-    # ------------------------------------------------------------------
-    # Consumer lag reporting
-    # ------------------------------------------------------------------
-
-    async def _report_consumer_lag(self) -> None:
-        """No-op — no partition offset API available on KafkaConsumerClient."""
-        while not self._stop_event.is_set():
-            await asyncio.sleep(15)
-
 
 async def main() -> None:
     agent = SignalTrackerCompute()

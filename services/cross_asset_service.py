@@ -40,7 +40,7 @@ from src.intelligence.cross_asset_features import (
     compute_eq_index_features,
     resolve_eq_index_base,
 )
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG, counter, gauge
+from src.observability.metrics import counter, gauge
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -200,11 +200,6 @@ class CrossAssetComputeAgent(BaseAgent):
                     exc_info=True,
                 )
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event. Stream processor — no buffer accumulation."""
-        while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
 
     async def _teardown(self) -> None:
         """Gracefully stop consumer, producer, and DB pool."""
