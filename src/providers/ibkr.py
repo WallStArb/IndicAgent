@@ -13,10 +13,18 @@ import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
-import nest_asyncio
-from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
+# Python 3.14 removed implicit event loop creation. eventkit (ib_insync dependency)
+# calls asyncio.get_event_loop() at module import time. Pre-create a loop to satisfy
+# the import; connect() will redirect main_event_loop to the real running loop.
+# nest_asyncio is intentionally NOT applied here: we use connectAsync() (async API)
+# exclusively, and nest_asyncio.apply() breaks Python 3.14's current_task() tracking,
+# causing asyncio.timeout() failures throughout the process.
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
-nest_asyncio.apply()
+from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
 
 from src.config.settings import Settings  # noqa: E402
 from src.core.bar_normalizer import (  # noqa: E402
@@ -227,6 +235,12 @@ class IBKRProvider:
 
     async def connect(self) -> bool:
         """Connect to TWS/Gateway. Returns True on success."""
+        # Python 3.14 compat: redirect eventkit's stored main_event_loop to the real
+        # running loop. The import-time pre-created loop is a dummy; TWS callbacks use
+        # main_event_loop.call_soon_threadsafe() — must point to this loop or bars drop.
+        import eventkit.util
+        eventkit.util.main_event_loop = asyncio.get_running_loop()
+
         # Check circuit breaker state first
         if _is_circuit_breaker_open():
             logger.warning(
@@ -652,7 +666,7 @@ class IBKRProvider:
         if timeframe not in _TF_TO_IB:
             raise ValueError(f"Unsupported timeframe '{timeframe}'")
 
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         # Separate queue for official bars to prevent crosstalk
         official_queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
 
@@ -669,8 +683,11 @@ class IBKRProvider:
                 continue
             what = "MIDPOINT" if sec_type == "CASH" else "TRADES"
 
-            # 1-day duration is the minimum for keepUpToDate
-            bars = self._ib.reqHistoricalData(
+            # 1-day duration is the minimum for keepUpToDate.
+            # reqHistoricalDataAsync is required here — nest_asyncio is not applied
+            # (removed for Python 3.14 compat), so the sync version would raise
+            # "event loop already running" when called from an async context.
+            bars = await self._ib.reqHistoricalDataAsync(
                 contract,
                 endDateTime="",
                 durationStr="1 D",
