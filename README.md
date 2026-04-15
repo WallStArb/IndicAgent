@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v2.1 · 121 plugins · 2746 tests · 60 instruments · <10ms end-to-end**
+**v2.2 · 121 plugins · 2835 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
@@ -188,23 +188,12 @@ Comprehensive validation runs at service startup to ensure system integrity befo
 
 **Error handling:** Raises `RuntimeError` with `sys.exit(1)` if any validation fails, preventing services from starting with misconfigured plugins.
 
-| Tier | Count | Role |
-|------|-------|------|
-| I1 | 27 | Raw technical indicators - RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, OFI, CVD, and 18 more |
-| I2 | 11 | Discrete events derived from I1 - crossovers, threshold crossings, volume surges, momentum acceleration |
-| I3 | 7 | Market structure - swing detection, S/R zones, Market Profile, Fibonacci, session levels |
-| I4 | 11 | Regime classification - GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, Volume Profile, Anchored VWAP, and more |
-| I5 | 15 | Pattern detection - RSI divergence, squeeze, chart patterns, trend confluence, key level reactions |
-| I6 SMC | 13 | Smart Money Concepts - BOS/CHoCH, FVG, order blocks, liquidity pools, ICT killzones, AMD cycles, BOCPD |
-| I6 confluence | 1 | Cross-timeframe SMC synthesis |
-| I7 setups | 36 | Trading setups - entry, stop, target logic; CIS-gated; includes OFI/CVD microstructure and cross-asset divergence |
-| Aggregation | 2 | CIS scorer + signal aggregator |
-
 → [DAG Execution](docs/concepts/dag-execution.md)
 
 ---
 
 ## Intelligence Pipeline: I1–I8
+
 
 The pipeline is organized as four layers. Each tier builds on the outputs of the tiers below it - no tier skips a level.
 
@@ -275,7 +264,7 @@ For every signal above confidence 0.7 (on 5m, 15m, 1h timeframes), the AI Narrat
 
 Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
 
-LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama local** (qwen3.5:9b, offline, AMD ROCm GPU). Every call - successful and failed - is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
+LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama local** (gemma4:e4b, offline, AMD ROCm GPU). Every call - successful and failed - is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
 
 ---
 
@@ -438,13 +427,13 @@ Every bar the live pipeline processes adds a row to `intelligence_features`. Eve
 |-------|------|------|
 | **Orchestrator** | Routes work, decides retrain / promote / escalate based on monitoring signals | Deterministic |
 | **Data Quality Agent** | Validates training data integrity before any model runs | Deterministic |
-| **Discovery Agent** | IC analysis (alphalens), tsfresh feature extraction, regime-conditional IC, cross-asset lag correlation | LLM-guided |
+| **Discovery Agent** | tsfresh feature extraction, Pearson IC analysis, regime-conditional IC, cross-asset lag correlation | LLM-guided |
 | **Training Agent** | LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate | Deterministic |
 | **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker | Event-driven |
 
 No model reaches production without `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()` - a dashboard alert presents the full model comparison; 4-hour timeout defaults to reject. Every HITL decision logged with approver, timestamp, and reasoning.
 
-**ML stack:** `langgraph` + `langchain` (agent orchestration, already in stack) · `langfuse` self-hosted (agent observability, OTEL bridge to Grafana) · `guardrails-ai` (LLM output validation against Pydantic schemas) · `scipy` + `alphalens-reloaded` (IC/ICIR analysis per feature per regime) · `tsfresh` (700+ statistical features extracted automatically from any time series) · `evidently` (KS/PSI/Wasserstein drift detection, self-hosted) · `polars` (Rust dataframes, 10–100× faster than pandas for feature matrix construction) · `lightgbm` (the model - tabular data champion) · `shap` (TreeSHAP explainability per signal) · `optuna` (Bayesian hyperparameter optimisation) · `statsmodels` (CUSUM, time-series statistics) · `mlflow` self-hosted (model registry, experiment tracking) · `river` (online/incremental learning between retrains).
+**ML stack:** `langgraph` + `langchain` (agent orchestration, already in stack) · `langfuse` self-hosted (agent observability, OTEL bridge to Grafana) · `guardrails-ai` (LLM output validation against Pydantic schemas) · `scipy` + `tsfresh` (IC analysis + 700+ statistical features extracted automatically from any time series) · `evidently` (KS/PSI/Wasserstein drift detection, self-hosted) · `polars` (Rust dataframes, 10–100× faster than pandas for feature matrix construction) · `lightgbm` (the model - tabular data champion) · `shap` (TreeSHAP explainability per signal) · `optuna` (Bayesian hyperparameter optimisation) · `statsmodels` (CUSUM, time-series statistics) · `mlflow` self-hosted (model registry, experiment tracking) · `river` (online/incremental learning between retrains).
 
 **Explicitly not added:** PyTorch/TensorFlow (tree ensembles dominate tabular benchmarks) · Feast (TimescaleDB is the feature store) · Weights & Biases (cloud/paid - MLflow is the open standard) · Ray/Dask (overkill for current data volume).
 
@@ -507,34 +496,33 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 
 | | |
 |---|---|
-| **Version** | v2.1 - Unified Intelligence Pipeline |
+| **Version** | v2.2 - Swarm Foundation |
 | **Instruments** | 60 - equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
 | **Plugins** | 121 across I1–I7 + 2 aggregation components |
-| **Tests** | 2746 passing (unit) |
+| **Tests** | 2835 passing (unit) |
 | **Latency** | <10ms bar-to-intelligence, feed-provider bound |
-| **Data in** | IBKR TWS: 100–500+ ticks/sec per instrument |
+| **Data in** | Real-time market data: 100–500+ ticks/sec per instrument |
 | **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
 | **Hot/Warm path** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
 | **Cold path** | TimescaleDB on PostgreSQL 17 (feature store, signal ledger, LLM audit) |
-| Services | 7 systemd services, `Restart=always` |
-| **Stack** | Python 3.13 · FastAPI · LangGraph · Next.js 16.1 / React 19.2 · Tailwind v4 · Prometheus · Grafana |
+| **Services** | 25 systemd services, `Restart=always` |
+| **Stack** | Python 3.14 · FastAPI · LangGraph · Next.js 16.1 / React 19.2 · Tailwind v4 · Prometheus · Grafana |
 
 ---
 
 ## Current Status
 
-**v2.1 - Unified Intelligence Pipeline (Phase 57).**
+**v2.2 - Swarm Foundation (in progress).**
 
 - **I1–I8 pipeline:** Fully operational. 121 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
-- **v2.1 phases complete:** Signal Integrity Foundation (Phases 48-53) · Unified Pipeline (Phase 57) - `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline, `SignalWriterAgent` handles I7 persistence.
-- **Intelligence Pipeline:** I1–I7 now run as a unified in-process pipeline (`intelligence_pipeline_agent`) - I6 feeds I7 directly without Kafka hop, async output buffer prevents blocking, state checkpointing to compacted topics.
-- **Signal Writer:** I7 signals persisted to `signal_ledger` with full attribution (`pre_quality_confidence`, `pre_calibration_confidence`). All ranked signals written per bar, not just winner. (`signal_writer_agent`)
+- **v2.1 complete:** Signal Integrity Foundation (Phases 48–53) · Unified Pipeline (Phase 57) — `IntelligencePipelineComputeAgent` merges I1–I7 into a single in-process pipeline; `SignalWriterAgent` handles I7 persistence.
+- **v2.2 in progress:** Swarm Foundation (Phase 56) — LLM layer extraction into standalone module, `SwarmOrchestratorAgent` + `SwarmWriterAgent` plumbing services live, safety wrappers, DB migration for swarm state.
 - **Cross-asset intelligence:** OFI/CVD microstructure (I1) + I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
 - **CIS pipeline:** Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`. Full audit trail per signal.
 - **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
 - **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
-- **AI Narratives:** OpenRouter (free models) / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
-- **Observability:** Prometheus + Grafana dashboards - pipeline throughput, latency, signal rates, LLM success rates, per-plugin errors.
+- **AI Narratives:** OpenRouter (free models) / Ollama gemma4:e4b (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
+- **Observability:** Prometheus + Grafana dashboards — pipeline throughput, latency, signal rates, LLM success rates, per-plugin errors.
 
 ---
 
@@ -552,4 +540,4 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 
 ---
 
-**v2.0 · 121 plugins · 2641 tests · 60 instruments**
+**v2.2 · 121 plugins · 2835 tests · 60 instruments**
