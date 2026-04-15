@@ -86,7 +86,6 @@ class CrossAssetComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         settings = Settings()
-        self.env_name: str = settings.env_name or ""
         self._window_bars: int = settings.cross_asset_window_bars
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
         self._database_url: str = settings.database_url

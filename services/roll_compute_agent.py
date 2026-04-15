@@ -291,7 +291,6 @@ class RollComputeAgent(BaseAgent):
         settings = Settings()
         metrics_port = 9122  # config-before-super pattern
         super().__init__(name="roll_compute_agent", metrics_port=metrics_port)
-        self.env_name: str = settings.env_name or ""
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
         self._roll_monitor = RollMonitor(settings)
         self._kafka_producer: KafkaProducerClient | None = None
