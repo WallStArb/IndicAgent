@@ -28,7 +28,7 @@ chain = LLMChain([
         api_key=settings.openrouter_api_key
     ),
     OllamaProvider(
-        model="qwen3.5:9b",
+        model="gemma4:e4b",
         base_url=settings.ollama_base_url
     ),
 ])
@@ -52,7 +52,7 @@ text = await chain.generate(
 **Ollama (Tier 2 - Offline):**
 - Endpoint: http://localhost:11434
 - Env vars: `OLLAMA_BASE_URL`, `OLLAMA_TIMEOUT_SEC`
-- Default model: `qwen3.5:9b`
+- Default model: `gemma4:e4b`
 - Runs entirely on-device, always available
 
 ---

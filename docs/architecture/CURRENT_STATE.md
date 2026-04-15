@@ -1,20 +1,25 @@
-# IndicAgent v2.1 — Current Architecture State
+# IndicAgent v2.2 — Current Architecture State
 
-**Version:** 2.1
-**Last Updated:** 2026-03-30
-**Status:** Production — All phases through 57.1 complete
+**Version:** 2.2
+**Last Updated:** 2026-04-14
+**Status:** v2.2 in progress — Swarm Foundation (Phase 56)
 
 > This is the single source of truth for the current production architecture. For design history and evolution, see `archive/`.
 
 ## Executive Summary
 
-IndicAgent v2.1 is a real-time market intelligence platform with a unified I1-I7 pipeline and separate persistence layer. The core philosophy is **agentic decomposition** — each node in the DAG is an autonomous, event-driven agent with clear boundaries.
+IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7 pipeline, separate persistence layer, and swarm foundation for multi-agent AI. The core philosophy is **agentic decomposition** — each node in the DAG is an autonomous, event-driven agent with clear boundaries.
 
 **Key v2.1 Changes from v2.0:**
 - `IntelligencePipelineComputeAgent` — Unified I1-I7 in-process pipeline (no I6→I7 Kafka hop)
 - `SignalWriterAgent` — Dedicated persistence agent for `signal_ledger`
 - `ProviderMergerAgent` — Multi-provider failover and routing
 - `BaseProviderAgent` abstraction — Adding new data sources is now a single subclass
+
+**Key v2.2 Changes from v2.1:**
+- `SwarmOrchestratorAgent` + `SwarmWriterAgent` — Swarm foundation plumbing services live
+- LLM layer extracted into standalone module
+- Safety wrappers and DB migration for swarm state
 
 ## Active Services
 
@@ -40,6 +45,9 @@ IndicAgent v2.1 is a real-time market intelligence platform with a unified I1-I7
 | AI Narrative | `ai_narrative_service.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
 | Cross Asset | `cross_asset_service.py` | `indicagent-cross-asset` | :9118 | Cross-asset spread dynamics |
 | Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
+| Swarm Orchestrator | `swarm_orchestrator_agent.py` | `indicagent-swarm-orchestrator` | — | Routes swarm tasks to specialist agents |
+| Swarm Writer | `swarm_writer_agent.py` | `indicagent-swarm-writer` | — | Persists swarm outputs to DB |
+| Lifecycle Writer | `lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | — | Signal lifecycle event persistence |
 | API | `src/api/main.py` | `indicagent-api` | :8000 | FastAPI + SSE |
 | Dashboard | `dashboard/` | `indicagent-dashboard` | :3000 | Next.js dev server |
 | Weight Updater | `src/intelligence/weight_updater.py` | `indicagent-weight-updater` | — (oneshot) | Daily CIS weight refresh |

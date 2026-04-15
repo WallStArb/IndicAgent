@@ -97,7 +97,7 @@ Tier 2 (Offline)   — Ollama (local)
                      or API access. Adds latency but guarantees narrative generation.
                      Endpoint: http://localhost:11434
                      Env: OLLAMA_BASE_URL, OLLAMA_TIMEOUT_SEC
-                     Default: qwen3.5:9b
+                     Default: gemma4:e4b
 ```
 
 ### Provider Chain Setup
@@ -108,7 +108,7 @@ from src.intelligence.llm_providers import LLMChain, OpenRouterProvider, OllamaP
 chain = LLMChain([
     OpenRouterProvider(model="meta-llama/llama-3.3-70b-instruct:free",
                        api_key=settings.openrouter_api_key),
-    OllamaProvider(model="qwen3.5:9b", base_url=settings.ollama_base_url),
+    OllamaProvider(model="gemma4:e4b", base_url=settings.ollama_base_url),
 ])
 text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
 ```
