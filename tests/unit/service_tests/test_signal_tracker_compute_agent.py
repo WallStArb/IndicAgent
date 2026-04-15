@@ -46,10 +46,8 @@ def _make_agent() -> SignalTrackerCompute:
     agent._active_signals_gauge = MagicMock()
 
     # Settings
-    agent._settings = MagicMock()
-    agent._settings.env_name = "dev"
-    agent._settings.kafka_bootstrap_servers = "localhost:19092"
-    agent._env_name = "dev"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.kafka_bootstrap_servers = "localhost:19092"
 
     return agent
 

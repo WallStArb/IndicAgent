@@ -23,7 +23,7 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_lookup_returns_matching_signals(self):
         """Lookup by (symbol, tf) tuple returns the correct signals."""
-        from services.signal_tracker_agent import SignalTrackerAgent
+        from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
@@ -36,7 +36,7 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_returns_empty_for_unknown_key(self):
         """Lookup for a key with no signals returns empty list — no KeyError."""
-        from services.signal_tracker_agent import SignalTrackerAgent
+        from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
@@ -46,7 +46,7 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_isolates_keys(self):
         """Signals for one (symbol, tf) key do not bleed into another."""
-        from services.signal_tracker_agent import SignalTrackerAgent
+        from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
@@ -73,15 +73,24 @@ class TestRemoveFromIndex:
     @pytest.mark.unit
     def test_remove_from_index_removes_correct_signal(self):
         """Only the signal with matching signal_id is removed; others preserved."""
-        from services.signal_tracker_agent import SignalTrackerAgent
+        from unittest.mock import MagicMock
+        from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
+        svc._active_symbols = set()
+        svc._signal_ids = {"aaa", "bbb"}
+        svc._mae = {}
+        svc._mfe = {}
+        svc._chandelier_state = {}
+        svc._staleness_consecutive = {}
+        svc._activated_at = {}
+        svc._active_signals_gauge = MagicMock()
         svc._active_index[("ES", "1m")] = [
             {"signal_id": "aaa", "symbol": "ES", "timeframe": "1m"},
             {"signal_id": "bbb", "symbol": "ES", "timeframe": "1m"},
         ]
-        svc._remove_from_index("aaa", "ES", "1m")
+        svc._remove_signal("aaa", "ES", "1m")
         remaining = svc._active_index[("ES", "1m")]
         assert len(remaining) == 1
         assert remaining[0]["signal_id"] == "bbb"
@@ -89,12 +98,21 @@ class TestRemoveFromIndex:
     @pytest.mark.unit
     def test_remove_from_index_on_empty_key_is_safe(self):
         """Calling _remove_from_index on a key with no signals does not raise."""
-        from services.signal_tracker_agent import SignalTrackerAgent
+        from unittest.mock import MagicMock
+        from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
+        svc._active_symbols = set()
+        svc._signal_ids = set()
+        svc._mae = {}
+        svc._mfe = {}
+        svc._chandelier_state = {}
+        svc._staleness_consecutive = {}
+        svc._activated_at = {}
+        svc._active_signals_gauge = MagicMock()
         # Should not raise even if key is absent
-        svc._remove_from_index("nonexistent", "ES", "1m")
+        svc._remove_signal("nonexistent", "ES", "1m")
         assert svc._active_index.get(("ES", "1m"), []) == []
 
 

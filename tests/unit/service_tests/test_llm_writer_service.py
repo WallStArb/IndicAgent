@@ -227,7 +227,7 @@ def test_process_i8_message_buffers_correctly():
         "generated_at": "2026-03-21T10:00:01+00:00",
     }
 
-    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+    asyncio.run(svc._process_i8_message(payload))
 
     assert len(svc._i8_buffer) == 1
     ts_dt, symbol, tf, i8_json = svc._i8_buffer[0]
@@ -254,7 +254,7 @@ def test_process_i8_message_missing_ts_logs_warning():
         "model": "qwen3.5:9b",
     }
 
-    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+    asyncio.run(svc._process_i8_message(payload))
 
     assert len(svc._i8_buffer) == 0, "Missing ts should not append to buffer"
 
@@ -277,7 +277,7 @@ def test_process_i8_message_uses_parse_ts():
         "model": "test",
     }
 
-    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+    asyncio.run(svc._process_i8_message(payload))
 
     assert len(svc._i8_buffer) == 1
     ts_dt = svc._i8_buffer[0][0]
@@ -315,7 +315,7 @@ def test_i8_buffer_flushed_on_shutdown():
     svc.i8_writes_total.inc = MagicMock()
     svc.i8_update_miss_total = MagicMock()
 
-    asyncio.get_event_loop().run_until_complete(svc._flush_i8())
+    asyncio.run(svc._flush_i8())
 
     mock_db.execute_batch.assert_called_once()
     call_args = mock_db.execute_batch.call_args

@@ -41,10 +41,9 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._pipeline_errors = MagicMock()
     agent._setup_last_fire = {}
     agent._signals_generated = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "dev"
-    agent._settings.intelligence_thread_pool_workers = 0
-    agent._settings.pipeline_metrics_port = 9125
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.intelligence_thread_pool_workers = 0
+    agent.settings.pipeline_metrics_port = 9125
     agent._bar_history = BarHistory(maxlen=200)
     agent._kalman_state = {}
     agent._cis_scorer = CISScorer()
@@ -66,6 +65,8 @@ def deterministic_plugin(output_dict: dict):
     """Plugin that always returns a copy of output_dict — no side effects."""
 
     class _Plugin:
+        supports_incremental = False
+
         def compute_full(self, frames):
             return dict(output_dict)
 
@@ -76,6 +77,8 @@ def signal_plugin(plugin_name: str, direction: int = 1):
     """I7 plugin that always returns a fixed signal dict."""
 
     class _Plugin:
+        supports_incremental = False
+
         def compute_full(self, frames):
             return {
                 "signal": {

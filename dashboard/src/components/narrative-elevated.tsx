@@ -4,14 +4,14 @@
 import { useState } from "react";
 import type { NarrativeData, SignalData } from "@/lib/types";
 import { stalenessRatio, tfToMinutes } from "@/lib/format";
+import { isHeroTier } from "@/lib/signal-tier";
 
 interface NarrativeElevatedProps {
   narrative: NarrativeData | null;
   signal: SignalData | null;
 }
 
-const FRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-const CONFIDENCE_THRESHOLD = 0.75;
+const FRESH_THRESHOLD_MS = 8 * 60 * 1000; // 8 minutes — enough for one full bar cycle
 
 export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps) {
   const [expanded, setExpanded] = useState(false);
@@ -19,9 +19,10 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
   if (!narrative || !signal) return null;
 
   const isFresh = Date.now() - narrative.receivedAt < FRESH_THRESHOLD_MS;
-  const isHighConfidence = signal.confidence >= CONFIDENCE_THRESHOLD;
+  // Show elevated narrative for any hero-tier signal (confidence >= 0.40 + valid cis_score)
+  const isHero = isHeroTier(signal.confidence, signal.cis_score);
 
-  if (!isFresh || !isHighConfidence) return null;
+  if (!isFresh || !isHero) return null;
 
   const isBullish = narrative.action_bias === "bullish";
   const accentColor = isBullish ? "var(--green)" : "var(--red)";

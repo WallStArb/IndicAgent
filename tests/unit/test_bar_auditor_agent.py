@@ -33,11 +33,11 @@ def agent():
     a = BarAuditorAgent.__new__(BarAuditorAgent)
     a.name = "bar_auditor_agent"
     a.logger = MagicMock()
-    a._settings = MagicMock()
-    a._env_name = ""
+    a.settings = MagicMock(env_name="")
     a._db_pool = AsyncMock()
     a._kafka_producer = AsyncMock()
     a._contract_consumer = None
+    a._record_message_consumed = MagicMock()
     a._requested_today: set[tuple[str, str]] = set()
     a._requested_today_date = ""
     a._canonical_completeness = MagicMock()

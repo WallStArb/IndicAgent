@@ -874,7 +874,14 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
           signal_id: String(payload.signal_id || ""),
           intelligence_snapshot: intelSnapshot,
-          cis_score: payload.cis_score !== undefined ? (parseFloat(String(payload.cis_score)) || null) : null,
+          cis_score: (() => {
+            // Pipeline stamps filtered_cis_score (not cis_score) — fall back to cis_score for REST-seeded compat.
+            // Not using _parseOptFloat: that drops 0.0, but CIS=0.0 is a valid neutral score and must be preserved.
+            const raw = payload.filtered_cis_score ?? payload.cis_score;
+            if (raw === undefined || raw === null) return null;
+            const n = parseFloat(String(raw));
+            return isNaN(n) ? null : n;
+          })(),
           was_selected: payload.was_selected !== undefined ? Number(payload.was_selected) > 0 : true,
         };
 

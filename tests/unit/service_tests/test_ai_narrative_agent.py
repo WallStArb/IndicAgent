@@ -17,8 +17,7 @@ def _make_agent():
     agent = AINarrativeComputeAgent.__new__(AINarrativeComputeAgent)
     agent._orchestrator = MagicMock()
     agent._producer = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "test"
+    agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     return agent
 
@@ -28,7 +27,7 @@ def _make_record(direction: int = 1, symbol: str = "ESM6"):
     intel = MagicMock(spec=IntelligenceEvent)
     intel.symbol = symbol
     intel.tf = "1m"
-    intel.ts = datetime(2026, 4, 9, 14, 30, tzinfo=UTC)
+    intel.ts = datetime.now(UTC)
 
     record = MagicMock(spec=BarIntelligenceRecord)
     record.intelligence = intel

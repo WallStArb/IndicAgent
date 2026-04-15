@@ -557,7 +557,7 @@ class TestFeatureWriterAgentLifecycle:
         self.agent._metrics_port = 9116
         self.agent.logger = MagicMock()
         self.agent.tracer = MagicMock()
-        self.agent._env_name = "development"
+        self.agent.settings = MagicMock(env_name="development")
 
     def test_topics_consumed_returns_list(self):
         """topics_consumed must return a non-empty list of topic strings."""
@@ -583,11 +583,11 @@ class TestFeatureWriterAgentLifecycle:
     @pytest.mark.asyncio
     async def test_lifecycle_methods_are_coroutines(self):
         """_setup, _run, and _teardown must all be awaitable coroutines."""
-        import asyncio
+        import inspect
 
-        assert asyncio.iscoroutinefunction(self.agent._setup)
-        assert asyncio.iscoroutinefunction(self.agent._run)
-        assert asyncio.iscoroutinefunction(self.agent._teardown)
+        assert inspect.iscoroutinefunction(self.agent._setup)
+        assert inspect.iscoroutinefunction(self.agent._run)
+        assert inspect.iscoroutinefunction(self.agent._teardown)
 
 
 def test_feature_writer_agent_inherits_base_writer_agent():

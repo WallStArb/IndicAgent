@@ -23,8 +23,9 @@ import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarra
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
 import { fmtTimeHMS } from "@/lib/format";
-import { LayoutGrid, Rows3, BarChart2 } from "lucide-react";
+import { LayoutGrid, Rows3, BarChart2, ScanLine } from "lucide-react";
 import Link from "next/link";
+import { isHeroTier } from "@/lib/signal-tier";
 
 const TF_STALENESS_MS: Record<string, number> = {
   "1m":  10 * 60_000,
@@ -460,20 +461,23 @@ function SymbolCard({
   const barIsStale = dataBarCloseMs !== null && now - dataBarCloseMs > tfPeriodMs;
 
 
+  const isHero = activeSignal ? isHeroTier(activeSignal.confidence, activeSignal.cis_score) : false;
+
   return (
     <div
       className="flex flex-col surface rounded overflow-hidden"
       style={{
-        boxShadow:
-          activeSignal && activeSignal.confidence > 0.75
+        boxShadow: activeSignal
+          ? isHero
             ? activeSignal.direction === "long"
               ? "0 0 0 1px var(--green-dim)"
               : "0 0 0 1px var(--red-dim)"
-            : undefined,
-        transition: "box-shadow 0.5s ease",
+            : "0 0 0 1px var(--border-bright)"
+          : undefined,
+        transition: "box-shadow 0.4s ease",
       }}
     >
-      {/* Header: name + symbol | TF pills + signal badge */}
+      {/* Header: name + symbol | TF pills + signal badge + drill button */}
       <div className="flex items-center justify-between px-3 pt-1.5 pb-1 bg-[var(--bg-elevated)]">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight truncate">
@@ -486,7 +490,7 @@ function SymbolCard({
             {contract}
           </span>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <TimeframeMatrix
             tfSignals={data.tfSignals}
             confluence={confluence}
@@ -495,21 +499,45 @@ function SymbolCard({
             compact
           />
           {hasSignal && (
-            <div className="flex items-center gap-1">
+            <button
+              onClick={() => setIsDrilling(true)}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-opacity hover:opacity-80"
+              style={{
+                backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
+                border: `1px solid ${isLong ? "#00dc8233" : "#ff475733"}`,
+              }}
+              title="Open signal detail"
+            >
               <span
-                className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded"
-                style={{
-                  backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
-                  color: isLong ? "var(--green)" : "var(--red)",
-                }}
+                className="text-[0.6rem] font-bold uppercase tracking-widest"
+                style={{ color: isLong ? "var(--green)" : "var(--red)" }}
               >
-                {isLong ? "LONG" : "SHORT"}
-                {confidence !== null && (
-                  <span className="ml-1 opacity-75">{Math.round(confidence * 100)}%</span>
-                )}
+                {isLong ? "L" : "S"}
               </span>
-            </div>
+              {confidence !== null && (
+                <span
+                  className="text-[0.6rem] font-data font-semibold"
+                  style={{ color: isLong ? "var(--green)" : "var(--red)", opacity: 0.9 }}
+                >
+                  {Math.round(confidence * 100)}%
+                </span>
+              )}
+              {isHero && (
+                <span className="text-[0.45rem] font-bold uppercase tracking-widest px-0.5 rounded"
+                  style={{ color: "var(--blue)", backgroundColor: "rgba(59,130,246,0.15)" }}>
+                  ★
+                </span>
+              )}
+            </button>
           )}
+          {/* Always-visible drill button */}
+          <button
+            onClick={() => setIsDrilling(true)}
+            title="Open intelligence detail"
+            className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors"
+          >
+            <ScanLine size={11} />
+          </button>
         </div>
       </div>
 

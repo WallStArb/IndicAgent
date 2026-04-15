@@ -12,8 +12,7 @@ class TestSignalMetricsComputeAgent:
         agent.logger = MagicMock()
         agent._stop_event = MagicMock()
         agent._stop_event.is_set.return_value = False
-        agent._settings = MagicMock()
-        agent._settings.env_name = ""
+        agent.settings = MagicMock(env_name="")
         agent._db = MagicMock()
         agent._producer = MagicMock()
         agent._interval_seconds = 900

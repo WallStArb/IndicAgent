@@ -70,8 +70,11 @@ class TestPipelineDeterminism:
             out = p.compute_full(frames)
             sequential_result.update(out)
 
-        assert set(parallel_result.keys()) == set(sequential_result.keys()), (
-            f"Key mismatch — parallel: {set(parallel_result.keys())}, "
+        # Exclude internal pipeline annotation keys from comparison
+        _INTERNAL_KEYS = {"_tier_key"}
+        parallel_keys = set(parallel_result.keys()) - _INTERNAL_KEYS
+        assert parallel_keys == set(sequential_result.keys()), (
+            f"Key mismatch — parallel: {parallel_keys}, "
             f"sequential: {set(sequential_result.keys())}"
         )
 

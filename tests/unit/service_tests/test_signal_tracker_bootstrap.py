@@ -13,8 +13,8 @@ from services.signal_tracker_compute_agent import SignalTrackerCompute
 async def test_bootstrap_succeeds_on_first_attempt():
     """Bootstrap loads 3 signals on first DB attempt."""
     agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()
@@ -112,8 +112,8 @@ async def test_bootstrap_succeeds_on_first_attempt():
 async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
     """Bootstrap retries 3 times when DB returns empty but ledger has rows."""
     agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()
@@ -197,8 +197,8 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
 async def test_bootstrap_succeeds_immediately_on_empty_ledger():
     """Bootstrap completes immediately when ledger is provably empty."""
     agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()
@@ -241,10 +241,8 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
 async def test_bootstrap_exhausted_publishes_health_event():
     """Bootstrap publishes health event after 3 failed attempts."""
     agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
-    agent._settings.env_name = "dev"
-    agent._env_name = "dev"  # Set directly since __init__ is bypassed
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()
@@ -294,8 +292,8 @@ async def test_sd_notify_called_after_bootstrap_not_before():
     # The actual implementation moves READY=1 to after bootstrap in _setup().
 
     agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
     agent._active_index = defaultdict(list)
     agent._active_symbols = set()

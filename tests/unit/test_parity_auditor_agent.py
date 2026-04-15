@@ -47,8 +47,7 @@ async def test_compare_cycle_primary_only_rows_skipped():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -86,8 +85,7 @@ async def test_compare_cycle_shadow_only_rows_increment_counter():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -133,8 +131,7 @@ async def test_compare_cycle_violations_stored():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -176,8 +173,7 @@ async def test_compare_cycle_emits_parity_match_rate():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -234,8 +230,7 @@ async def test_compare_cycle_certification_uses_fetch_clean_cycles():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -270,9 +265,8 @@ async def test_compare_cycle_publishes_certified_when_all_pairs_clean():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
-    agent._settings.kafka_bootstrap_servers = "localhost:9092"
+    agent.settings = MagicMock(env_name="development")
+    agent.settings.kafka_bootstrap_servers = "localhost:9092"
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 
@@ -322,8 +316,7 @@ async def test_compare_cycle_uses_10_minute_window():
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "development"
+    agent.settings = MagicMock(env_name="development")
     agent._producer = AsyncMock()
     agent._producer.send_and_wait = AsyncMock()
 

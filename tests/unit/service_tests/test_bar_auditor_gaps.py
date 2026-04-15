@@ -12,7 +12,7 @@ from services.bar_auditor_agent import BarAuditorAgent
 async def test_upsert_gap_on_incomplete_audit():
     """UPSERT a gap row when completeness < threshold."""
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
     conn.execute = AsyncMock()
@@ -33,7 +33,7 @@ async def test_upsert_gap_on_incomplete_audit():
 async def test_resolve_gap_on_complete_audit():
     """Mark an open gap as resolved when completeness reaches 100%."""
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=123)  # Existing gap ID
@@ -54,7 +54,7 @@ async def test_resolve_gap_on_complete_audit():
 async def test_resolve_gap_noop_when_no_open_gap():
     """No UPDATE when no open gap exists (fetchval returns None)."""
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
     conn.fetchval = AsyncMock(return_value=None)  # No open gap
@@ -84,7 +84,7 @@ async def test_dlq_published_on_retry_exhaustion():
     from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     agent._kafka_producer = AsyncMock()
     agent._kafka_producer.publish = AsyncMock()

@@ -57,13 +57,15 @@ def _make_agent():
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent._env_name = "dev"
+    agent.settings = MagicMock(env_name="dev")
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     agent._bar_accumulator = BarAccumulator()
     agent._health_metrics = HealthMetrics()
     agent._last_skip_reason = "parse_failed"
     agent._consumer_restart_requested = asyncio.Event()
+    agent._record_message_consumed = MagicMock()
+    agent._get_consumer_lag = AsyncMock(return_value=0)
     # Create mock metrics that have the expected interface
     agent._bars_processed = MagicMock()
     agent._bars_skipped = MagicMock()
@@ -282,13 +284,12 @@ async def test_setup_retries_on_kafka_connection_error():
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
-    agent._settings = MagicMock()
-    agent._settings.kafka_bootstrap_servers = "localhost:9092"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.kafka_bootstrap_servers = "localhost:9092"
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
     agent.name = "bar_aggregator_agent"
-    agent._env_name = "dev"
 
     mock_producer = AsyncMock()
     mock_producer.start = AsyncMock(
@@ -313,13 +314,12 @@ async def test_setup_raises_after_max_retries():
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
-    agent._settings = MagicMock()
-    agent._settings.kafka_bootstrap_servers = "localhost:9092"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.kafka_bootstrap_servers = "localhost:9092"
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
     agent.name = "bar_aggregator_agent"
-    agent._env_name = "dev"
 
     mock_producer = AsyncMock()
     mock_producer.start = AsyncMock(side_effect=KafkaConnectionError())
