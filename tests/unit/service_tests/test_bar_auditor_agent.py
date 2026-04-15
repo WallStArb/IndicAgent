@@ -31,7 +31,7 @@ class TestBarAuditorAgentInit:
         agent = BarAuditorAgent.__new__(BarAuditorAgent)
         agent.name = "bar_auditor_agent"
         agent._metrics_port = 9123
-        agent._env_name = "development"
+        agent.settings = MagicMock(env_name="development")
 
         assert agent.name == "bar_auditor_agent"
         assert agent._metrics_port == 9123
@@ -40,23 +40,19 @@ class TestBarAuditorAgentInit:
         """topics_consumed returns [contract_update topic] — subscribes to contract changes."""
         from services.bar_auditor_agent import BarAuditorAgent
 
-        with patch("services.bar_auditor_agent.Settings") as mock_settings:
-            mock_settings.return_value.env_name = "development"
-            mock_settings.return_value.database_url = "postgresql://localhost/test"
-            mock_settings.return_value.kafka_bootstrap_servers = "localhost:9092"
-            agent = BarAuditorAgent.__new__(BarAuditorAgent)
-            agent._env_name = "development"
-            # Inject the property via the class
-            topics = BarAuditorAgent.topics_consumed.fget(agent)
-            assert len(topics) == 1
-            assert "contract_update" in topics[0]
+        agent = BarAuditorAgent.__new__(BarAuditorAgent)
+        agent.settings = MagicMock(env_name="development")
+        # Inject the property via the class
+        topics = BarAuditorAgent.topics_consumed.fget(agent)
+        assert len(topics) == 1
+        assert "contract_update" in topics[0]
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
         from services.bar_auditor_agent import BarAuditorAgent
 
         agent = BarAuditorAgent.__new__(BarAuditorAgent)
-        agent._env_name = "development"
+        agent.settings = MagicMock(env_name="development")
 
         produced = BarAuditorAgent.topics_produced.fget(agent)
         assert produced == [topic_gap_requests("development")]
@@ -114,8 +110,7 @@ def _make_agent_stub(env_name="development"):
 
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
     agent.name = "bar_auditor_agent"
-    agent._env_name = env_name
-    agent._settings = MagicMock()
+    agent.settings = MagicMock(env_name=env_name)
     agent.logger = MagicMock()
     agent.logger.warning = MagicMock()
     agent.logger.info = MagicMock()

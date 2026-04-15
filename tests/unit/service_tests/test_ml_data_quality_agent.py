@@ -12,9 +12,8 @@ def _make_agent():
     agent._pool = MagicMock()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "test"
-    agent._settings.DATA_QUALITY_MIN_SCORE = 0.85
+    agent.settings = MagicMock(env_name="test")
+    agent.settings.DATA_QUALITY_MIN_SCORE = 0.85
     agent.logger = MagicMock()
     return agent
 

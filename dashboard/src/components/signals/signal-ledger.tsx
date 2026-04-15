@@ -6,7 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { getApiBase, fetchJson } from "@/lib/api";
 import type { LedgerSignal, SignalTier } from "@/lib/types";
 import { FilterState } from "./filter-bar";
-import { tierColor, tierOpacity } from "@/lib/signal-tier";
+import { tierColor, tierOpacity, CIS_SCORE_THRESHOLD } from "@/lib/signal-tier";
 import { fmtNum, fmtTimeHMS } from "@/lib/format";
 import { TrendingUp, TrendingDown, X } from "lucide-react";
 
@@ -363,16 +363,21 @@ function buildQueryParams(filters: FilterState): string {
   const params = new URLSearchParams();
   params.set("limit", "500");
 
-  if (filters.tier.length === 1 && filters.tier[0] === "hero") {
-    params.set("tier", "hero");
-  } else if (filters.tier.length === 1 && filters.tier[0] === "monitored") {
-    params.set("tier", "monitored");
+  // Single-tier: pass directly. Multi-tier or empty: fetch all and client-filter.
+  if (filters.tier.length === 1) {
+    params.set("tier", filters.tier[0]);
   } else {
     params.set("tier", "all");
   }
 
+  // Server-side filters (single values only — multi handled client-side)
   if (filters.symbol.length === 1) params.set("symbol", filters.symbol[0]);
   if (filters.timeframe.length === 1) params.set("timeframe", filters.timeframe[0]);
+
+  // Confidence floor and date range — sent for future API support; filtered client-side for now
+  if (filters.confidence_min > 0) params.set("confidence_min", String(filters.confidence_min));
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
 
   return params.toString();
 }
@@ -424,14 +429,14 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
       // CIS filter - only active when CIS score exists and meets threshold
       if (
         filters.cis_filter === "cis_only" &&
-        (s.cis_score == null || Math.abs(s.cis_score) <= 0.35)
+        (s.cis_score == null || Math.abs(s.cis_score) <= CIS_SCORE_THRESHOLD)
       )
         return false;
 
       // Fallback filter - only active when CIS score exists and exceeds threshold
       if (
         filters.cis_filter === "fallback_only" &&
-        (s.cis_score != null && Math.abs(s.cis_score) > 0.35)
+        (s.cis_score != null && Math.abs(s.cis_score) > CIS_SCORE_THRESHOLD)
       )
         return false;
 

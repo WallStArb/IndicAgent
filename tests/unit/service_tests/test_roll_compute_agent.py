@@ -51,7 +51,7 @@ def _make_agent():
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent.env_name = "dev"
+    agent.settings = MagicMock(env_name="dev")
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     agent._symbol_to_base = {"ESM6": "ES"}

@@ -36,7 +36,7 @@ def _make_service():
 
     svc = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
     svc._stop_event = asyncio.Event()  # running property reads this
-    svc.env_name = "development"
+    svc.settings = MagicMock(env_name="development")
     svc._window_bars = _WINDOW
     svc._metrics_port = 9118
     svc._kafka_bootstrap = "localhost:19092"

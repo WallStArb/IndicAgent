@@ -79,9 +79,8 @@ def agent():
     a = ContractMetadataWriterAgent.__new__(ContractMetadataWriterAgent)
     a.name = "contract_metadata_writer_agent"
     a.logger = MagicMock()
-    a._settings = MagicMock()
-    a._settings.kafka_bootstrap_servers = "localhost:19092"
-    a._env_name = ""
+    a.settings = MagicMock(env_name="")
+    a.settings.kafka_bootstrap_servers = "localhost:19092"
     a._dry_run = False
     a._db_pool = _make_pool_mock(old_row={"base_symbol": "ES", "exchange": "CME"})
     a._kafka_producer = AsyncMock()

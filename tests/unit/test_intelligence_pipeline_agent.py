@@ -40,8 +40,7 @@ def _make_agent():
     agent._state_checkpoint_fallback_total = MagicMock()
     agent._state_checkpoint_failures_total = MagicMock()
     agent._state_offset_reset_total = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "dev"
+    agent.settings = MagicMock(env_name="dev")
     agent._plugin_states = {}
     agent._kalman_state = {}
     agent._tod_priors = {}
@@ -355,14 +354,14 @@ class TestSettingsWiring:
         """_regime_prob_min and _regime_dur_min come from Settings."""
         agent = _make_agent()
         # Mock settings to return custom values
-        agent._settings.regime_prob_min = 0.55
-        agent._settings.regime_dur_min = 5
+        agent.settings.regime_prob_min = 0.55
+        agent.settings.regime_dur_min = 5
 
         # Simulate _setup() behavior — agent reads from settings
-        # In the actual code, _setup() reads self._settings.regime_prob_min
+        # In the actual code, _setup() reads self.settings.regime_prob_min
         # The hardcoded lines should be removed from __init__
-        assert agent._settings.regime_prob_min == 0.55
-        assert agent._settings.regime_dur_min == 5
+        assert agent.settings.regime_prob_min == 0.55
+        assert agent.settings.regime_dur_min == 5
 
 
 class TestAttributionVector:

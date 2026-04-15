@@ -56,12 +56,9 @@ async def test_seed_from_db_row_handles_none_jsonb_columns():
 @pytest.mark.asyncio
 async def test_setup_seeds_context_cache_from_db():
     """SwarmOrchestratorComputeAgent seeds context cache on startup."""
-    from src.config.settings import Settings
-    settings = Settings()
     agent = SwarmOrchestratorComputeAgent.__new__(SwarmOrchestratorComputeAgent)
-    agent._settings = settings
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="test")
+    agent.settings.database_url = "postgresql://test"
     agent._context_cache = SwarmContextCache()
     agent.logger = MagicMock()
 
@@ -91,10 +88,12 @@ async def test_setup_seeds_context_cache_from_db():
     mock_conn = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=mock_rows)
 
+    acquire_ctx = AsyncMock()
+    acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    acquire_ctx.__aexit__ = AsyncMock(return_value=False)
+
     mock_pool = AsyncMock()
-    mock_pool.acquire = MagicMock()
-    mock_pool.acquire.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_pool.acquire.__aexit__ = AsyncMock()
+    mock_pool.acquire = MagicMock(return_value=acquire_ctx)
     mock_pool.close = AsyncMock()
 
     await agent._seed_context_cache(mock_pool)
@@ -107,22 +106,21 @@ async def test_setup_seeds_context_cache_from_db():
 @pytest.mark.asyncio
 async def test_seed_context_cache_handles_empty_db():
     """_seed_context_cache handles empty DB gracefully."""
-    from src.config.settings import Settings
-    settings = Settings()
     agent = SwarmOrchestratorComputeAgent.__new__(SwarmOrchestratorComputeAgent)
-    agent._settings = settings
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="test")
+    agent.settings.database_url = "postgresql://test"
     agent._context_cache = SwarmContextCache()
     agent.logger = MagicMock()
 
     mock_conn = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=[])
 
+    acquire_ctx = AsyncMock()
+    acquire_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    acquire_ctx.__aexit__ = AsyncMock(return_value=False)
+
     mock_pool = AsyncMock()
-    mock_pool.acquire = MagicMock()
-    mock_pool.acquire.__aenter__ = AsyncMock(return_value=mock_conn)
-    mock_pool.acquire.__aexit__ = AsyncMock()
+    mock_pool.acquire = MagicMock(return_value=acquire_ctx)
     mock_pool.close = AsyncMock()
 
     await agent._seed_context_cache(mock_pool)
@@ -133,12 +131,9 @@ async def test_seed_context_cache_handles_empty_db():
 @pytest.mark.asyncio
 async def test_seed_context_cache_handles_db_error_gracefully():
     """_seed_context_cache handles DB errors without crashing."""
-    from src.config.settings import Settings
-    settings = Settings()
     agent = SwarmOrchestratorComputeAgent.__new__(SwarmOrchestratorComputeAgent)
-    agent._settings = settings
-    agent._settings = MagicMock()
-    agent._settings.database_url = "postgresql://test"
+    agent.settings = MagicMock(env_name="test")
+    agent.settings.database_url = "postgresql://test"
     agent._context_cache = SwarmContextCache()
     agent.logger = MagicMock()
 

@@ -21,7 +21,7 @@ def _make_agent():
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent._env_name = ""
+    agent.settings = MagicMock(env_name="")
     agent._db_pool = AsyncMock()
     agent._kafka_producer = AsyncMock()
     agent._service_states = {}

@@ -22,7 +22,7 @@ def agent(mock_settings):
 
     # Use __new__ to bypass __init__
     agent = object.__new__(ServiceAuditorAgent)
-    agent._settings = mock_settings
+    agent.settings = mock_settings
     agent.logger = MagicMock()
     agent._http_session = MagicMock()
     agent._http_session.post = AsyncMock()

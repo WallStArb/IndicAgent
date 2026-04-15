@@ -1,14 +1,16 @@
 // dashboard/src/lib/signal-tier.ts
 import type { SignalTier } from "@/lib/types";
 
+/** Data-derived breakeven confidence (signal_ledger outcome analysis). */
+export const HERO_CONFIDENCE_THRESHOLD = 0.40;
+
+/** CIS fire threshold — eliminates ~80% of fallback-path noise. */
+export const CIS_SCORE_THRESHOLD = 0.35;
+
 /**
  * Compute signal quality tier from DB/API fields.
  * Evaluation order: Hero → Monitored → Candidate.
  * NULL cis_score always → Monitored (never Hero).
- *
- * Thresholds:
- *   confidence >= 0.40  — data-derived breakeven (signal_ledger outcome analysis)
- *   abs(cis_score) > 0.35 — CIS fire threshold (eliminates 80% fallback-path noise)
  */
 export function computeSignalTier(
   wasSelected: boolean,
@@ -19,8 +21,8 @@ export function computeSignalTier(
     wasSelected &&
     confidence != null &&
     cisScore != null &&
-    confidence >= 0.40 &&
-    Math.abs(cisScore) > 0.35
+    confidence >= HERO_CONFIDENCE_THRESHOLD &&
+    Math.abs(cisScore) > CIS_SCORE_THRESHOLD
   ) {
     return "hero";
   }
@@ -37,9 +39,9 @@ export function isHeroTier(
   cisScore: number | null | undefined,
 ): boolean {
   return (
-    confidence >= 0.40 &&
+    confidence >= HERO_CONFIDENCE_THRESHOLD &&
     cisScore != null &&
-    Math.abs(cisScore) > 0.35
+    Math.abs(cisScore) > CIS_SCORE_THRESHOLD
   );
 }
 

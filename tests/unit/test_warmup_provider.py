@@ -69,7 +69,7 @@ class TestFeatureSnapshotRepository:
 
     def test_get_recent_features_builds_correct_query(self, db):
         repo = FeatureSnapshotRepository(db)
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             repo.get_recent_features("ES", "1m", 50, 3600)
         )
         db.execute_query.assert_awaited_once()
@@ -90,7 +90,7 @@ class TestFeatureSnapshotRepository:
 
     def test_get_ohlcv_fallback_builds_correct_query(self, db):
         repo = FeatureSnapshotRepository(db)
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             repo.get_ohlcv_fallback("ES", "5m", 30, 7200)
         )
         db.execute_query.assert_awaited_once()
@@ -123,7 +123,7 @@ class TestWarmupProviderSeed:
         return defaultdict(lambda: deque(maxlen=200))
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     # ------------------------------------------------------------------
     # No DB URL — skip gracefully

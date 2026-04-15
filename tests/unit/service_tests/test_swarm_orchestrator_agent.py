@@ -19,8 +19,7 @@ def _make_agent():
     agent._aggregator = SwarmAggregator()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "test"
+    agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     return agent
 

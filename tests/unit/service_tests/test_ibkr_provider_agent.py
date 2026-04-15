@@ -32,10 +32,10 @@ def test_create_adapter_returns_ibkr_adapter():
     from src.providers.ibkr_adapter import IBKRAdapter
 
     agent = IBKRProviderAgent.__new__(IBKRProviderAgent)
-    agent._settings = MagicMock()
-    agent._settings.ib_host = "192.168.1.157"
-    agent._settings.ib_port = 7497
-    agent._settings.ib_client_id = 35
+    agent.settings = MagicMock(env_name="")
+    agent.settings.ib_host = "192.168.1.157"
+    agent.settings.ib_port = 7497
+    agent.settings.ib_client_id = 35
 
     adapter = agent._create_adapter()
     assert isinstance(adapter, IBKRAdapter)

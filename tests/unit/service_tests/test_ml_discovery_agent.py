@@ -14,10 +14,9 @@ def _make_agent():
     agent._pool = MagicMock()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "test"
-    agent._settings.ML_DISCOVERY_LOOKBACK_DAYS = 90
-    agent._settings.ML_DISCOVERY_IC_THRESHOLD = 0.05
+    agent.settings = MagicMock(env_name="test")
+    agent.settings.ML_DISCOVERY_LOOKBACK_DAYS = 90
+    agent.settings.ML_DISCOVERY_IC_THRESHOLD = 0.05
     agent.logger = MagicMock()
     # _query is initialised in _run(); set it here for direct method tests
     agent._query = MagicMock()

@@ -132,9 +132,8 @@ def _make_concrete_agent():
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "dev"
-    agent._settings.kafka_bootstrap_servers = "localhost:9092"
+    agent.settings = MagicMock(env_name="dev")
+    agent.settings.kafka_bootstrap_servers = "localhost:9092"
 
     # Wire test metrics
     agent._m_bars_raw = _TEST_BARS_PRODUCED.labels(provider="test", agent="test_provider_agent")

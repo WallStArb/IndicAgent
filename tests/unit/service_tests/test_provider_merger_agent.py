@@ -81,7 +81,7 @@ def _make_agent(
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent._env_name = "dev"
+    agent.settings = MagicMock(env_name="dev")
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     # Failover state

@@ -9,10 +9,9 @@ from services.service_auditor_agent import ServiceAuditorAgent
 
 @pytest.mark.asyncio
 async def test_handle_roll_event_fires_on_roll_complete_only():
-    """Only roll_complete events trigger ibkr-provider restart; roll_imminent/roll_detected do not."""
+    """Only roll_complete events trigger ibkr-provider restart; others do not."""
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
-    agent._settings = MagicMock()
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
     agent._handled_rolls = set()
     agent.logger = MagicMock()
     agent._restart_ibkr_provider = AsyncMock()
@@ -46,8 +45,7 @@ async def test_handle_roll_event_fires_on_roll_complete_only():
 async def test_handle_roll_event_dedup_prevents_double_restart():
     """Same (symbol, new_expiry) roll only triggers restart once; deduped by in-memory set."""
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
-    agent._settings = MagicMock()
-    agent._env_name = "test"
+    agent.settings = MagicMock(env_name="test")
     agent._handled_rolls = set()
     agent.logger = MagicMock()
     agent._restart_ibkr_provider = AsyncMock()
@@ -74,7 +72,7 @@ async def test_handle_roll_event_dedup_prevents_double_restart():
 async def test_restart_ibkr_provider_increments_counter():
     """Successful restart increments SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL metric."""
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
-    agent._settings = MagicMock()
+    agent.settings = MagicMock(env_name="")
     agent.logger = MagicMock()
 
     from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
@@ -84,23 +82,26 @@ async def test_restart_ibkr_provider_increments_counter():
         0
     )
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 0
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         await agent._restart_ibkr_provider()
-        assert mock_run.call_count == 1
-        # Verify systemctl restart command
-        assert mock_run.call_args[0][0] == ["sudo", "systemctl", "restart", "indicagent-ibkr-provider"]
+        assert mock_exec.call_count == 1
         # Verify metric incremented
-        assert SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")._value.get() == 1
+        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+            service_name="indicagent-ibkr-provider"
+        )
+        assert metric._value.get() == 1
 
 
 @pytest.mark.asyncio
 async def test_restart_ibkr_provider_subprocess_failure_is_logged():
     """Subprocess failure does not raise; error is logged and metric not incremented."""
-    import subprocess
 
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
-    agent._settings = MagicMock()
+    agent.settings = MagicMock(env_name="")
     agent.logger = MagicMock()
 
     from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
@@ -110,12 +111,16 @@ async def test_restart_ibkr_provider_subprocess_failure_is_logged():
         0
     )
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.CalledProcessError(
-            1, ["sudo", "systemctl", "restart", "indicagent-ibkr-provider"]
-        )
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 1
+    mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         await agent._restart_ibkr_provider()
         # Verify error was logged
         assert agent.logger.error.called
         # Verify metric NOT incremented (failed restart)
-        assert SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")._value.get() == 0
+        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+            service_name="indicagent-ibkr-provider"
+        )
+        assert metric._value.get() == 0

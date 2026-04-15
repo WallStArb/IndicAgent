@@ -31,9 +31,7 @@ def agent():
     a = SignalAuditorAgent.__new__(SignalAuditorAgent)
     a.name = "signal_auditor_agent"
     a.logger = MagicMock()
-    a._settings = MagicMock()
-    a._settings.env_name = "dev"
-    a._env_name = "dev"
+    a.settings = MagicMock(env_name="dev")
     a._db_pool = AsyncMock()
     a._kafka_producer = AsyncMock()
     a._audits_run = MagicMock()
@@ -219,7 +217,7 @@ async def test_cis_distribution_sets_gauges(agent):
 
 def test_topics_produced(agent):
     """topics_produced returns the signal audit topic for the configured env."""
-    assert topic_signal_audit(agent._env_name) in agent.topics_produced
+    assert topic_signal_audit(agent.env_name) in agent.topics_produced
 
 
 def test_topics_consumed_is_empty(agent):

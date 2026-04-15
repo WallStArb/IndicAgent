@@ -379,7 +379,7 @@ def _timed_plugin_call(plugin, frames):
     on every bar for stateful plugins like BOCPD and HMMRegime.
     """
     t0 = time.perf_counter()
-    if plugin.supports_incremental and plugin._state:
+    if getattr(plugin, 'supports_incremental', False) and plugin._state:
         result = plugin.compute_next(frames)
     else:
         result = plugin.compute_full(frames)
