@@ -172,7 +172,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Topics:**
   - `narratives` (keyed `SYMBOL:TF`) — per-signal narrative
   - `narratives.group` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
-- **LLM Chain:** Ollama local Docker — qwen3.5:9b (per-signal narratives) + phi4-mini:3.8b (asset-group synthesis)
+- **LLM Chain:** Ollama local Docker — gemma4:e4b (per-signal narratives + group synthesis)
 - **Audit:** Every LLM call published to `llm.calls` → `indicagent-llm-writer` persists to `llm_calls` hypertable
 
 ---

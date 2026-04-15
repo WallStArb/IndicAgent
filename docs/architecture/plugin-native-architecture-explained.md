@@ -225,7 +225,7 @@ IBKR TWS → `IBKRProviderAgent` → Redpanda → `ProviderMergerAgent` → `mar
 | I7 | 36 plugins | Trading setups (TrendFollowing, MeanReversion, LiquiditySweep, etc.) |
 
 ### Layer 4: AI Intelligence (I8)
-LLM analysis per signal (Ollama qwen3.5:9b / OpenRouter) → narratives:*:* topics
+LLM analysis per signal (Ollama gemma4:e4b / OpenRouter) → narratives:*:* topics
 
 ---
 
@@ -427,7 +427,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 | Metric | Value |
 |--------|-------|
 | **Active plugins** | 121 + 2 aggregation (CISScorer, SignalAggregator) |
-| **Tests** | 2746 passing (unit) |
+| **Tests** | 2835 passing (unit) |
 | **Incremental speedup** | 141x measured |
 | **Tick ingestion** | 100-500+ ticks/sec during RTH |
 | **Per-plugin latency** | <1ms incremental calculation |
@@ -440,5 +440,5 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 - `DAG_TOPOLOGY.md` — Agent topology and data flow methodology
 - `PLUGIN_PROTOCOL.md` — Plugin interface (developer-facing)
-- `CURRENT_STATE.md` — Single source of truth for v2.1 architecture
+- `CURRENT_STATE.md` — Single source of truth for v2.2 architecture
 - `AGENT_STANDARD.md` — Role taxonomy and naming conventions
