@@ -148,7 +148,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 **Signal lifecycle is a different concern from signal generation.** Generation is real-time compute (ms latency, per-bar). Lifecycle is business object tracking (minutes to days, state accumulates). The signal tracker is the only service that violates the compute→Kafka→writer DAG pattern — it reads and writes signal_ledger in the same process. Fix plan: `docs/plans/2026-04-10-pipeline-health-fixes-design.md`.
 
 ### TimescaleDB Tables
-- `market_data_ohlcv` — raw OHLCV (backfill + live via BarWriterAgent; keep forever — ground truth).
+- `market_data_ohlcv` — raw OHLCV (backfill + live via BarWriterAgent; keep forever — ground truth). Primary time column is `timestamp` (not `ts`); columns: `timestamp`, `symbol`, `timeframe`, `open`, `high`, `low`, `close`, `volume`, `source`, `base`.
 - `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever). Column name is `ts` not `feature_ts`.
 - `signal_ledger` — ALL I7 signals per bar (not just winner) + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever). Phase 49.1: signal_generator_service writes every signal to the ledger regardless of regime eligibility — winner published to stream separately.
 - `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service` (keep forever)

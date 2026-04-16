@@ -698,7 +698,7 @@ class IBKRProvider:
                 keepUpToDate=True,
             )
 
-            def _on_official_bar(bars_list, has_new_bar, *, _symbol=symbol, _tf=timeframe):
+            def _on_official_bar(bars_list, has_new_bar=True, *, _symbol=symbol, _tf=timeframe):
                 if not has_new_bar or not bars_list:
                     return
                 bar = bars_list[-1]
