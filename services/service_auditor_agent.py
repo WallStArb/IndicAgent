@@ -562,9 +562,10 @@ class ServiceAuditorAgent(BaseAgent):
         await self._dispatch_webhook(
             "HIGH",
             f"Futures roll: {symbol} {old_contract} → {new_contract}",
-            "Restarting indicagent-ibkr-provider to subscribe to new front-month contract.",
+            "Restarting indicagent-ibkr-provider and indicagent-roll-compute to subscribe to new front-month contract.",
         )
         await self._restart_ibkr_provider()
+        await self._restart_roll_compute()
 
     async def _restart_ibkr_provider(self) -> None:
         """Restart indicagent-ibkr-provider via sudo systemctl.
@@ -598,6 +599,40 @@ class ServiceAuditorAgent(BaseAgent):
             self.logger.error(
                 "roll_automation.restart_failed",
                 service="indicagent-ibkr-provider",
+                error=str(exc),
+            )
+
+    async def _restart_roll_compute(self) -> None:
+        """Restart indicagent-roll-compute so _symbol_to_base picks up the new front-month contract.
+
+        Without this, the roll compute agent retains a stale symbol→base mapping and the
+        calendar detector cannot resolve the new front month's base symbol, silently
+        missing the next roll.
+        """
+        cmd = ["sudo", "systemctl", "restart", "indicagent-roll-compute"]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            if proc.returncode != 0:
+                self.logger.error(
+                    "roll_automation.restart_failed",
+                    service="indicagent-roll-compute",
+                    returncode=proc.returncode,
+                    stderr=stderr.decode() if stderr else "",
+                )
+                return
+            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+                service_name="indicagent-roll-compute"
+            ).inc()
+            self.logger.info("roll_automation.restart_complete", service="indicagent-roll-compute")
+        except Exception as exc:
+            self.logger.error(
+                "roll_automation.restart_failed",
+                service="indicagent-roll-compute",
                 error=str(exc),
             )
 
