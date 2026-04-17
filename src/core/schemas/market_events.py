@@ -5,7 +5,7 @@ BarGapRequest is the typed contract published by BarAuditorAgent to topic_gap_re
 ContractUpdateEvent is broadcast by ContractMetadataWriterAgent to topic_contract_updates.
 
 Design decisions (D-11, D-12, D-13):
-- All 8 RollEvent fields are required — partial roll data must not flow downstream.
+- All 8 required RollEvent fields plus detection_method (optional, default "volume").
 - volume_zscore and confirmation_count are ML features (D-13); captured at fire time.
 - roll_gap_pct is signed: positive = contango, negative = backwardation.
 - detection_ts is UTC timezone-aware datetime.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,7 @@ class RollEvent(BaseModel):
     detection_ts: datetime  # UTC
     volume_zscore: float  # confirmation strength — ML feature (D-13)
     confirmation_count: int  # number of bars confirming volume shift (D-13)
+    detection_method: Literal["volume", "calendar"] = "volume"
 
 
 class BarGapRequest(BaseModel):
