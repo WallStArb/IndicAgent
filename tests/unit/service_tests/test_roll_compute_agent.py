@@ -241,6 +241,105 @@ async def test_no_publish_when_no_roll():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_publishes_calendar_roll_event_when_scheduler_fires():
+    """When CalendarRollScheduler.check_calendar_roll returns True, agent publishes
+    a RollEvent with detection_method='calendar' and volume_zscore=0.0."""
+
+    agent = _make_agent()
+    agent._roll_monitor.update_volume = MagicMock()
+    agent._roll_monitor.check_roll = MagicMock(return_value=False)
+
+    # Inject a mock calendar scheduler that fires once
+    from unittest.mock import MagicMock as MM
+    calendar_scheduler = MM()
+    calendar_scheduler.check_calendar_roll = MagicMock(return_value=True)
+    agent._calendar_scheduler = calendar_scheduler
+
+    published = []
+
+    async def fake_publish(topic, msg, key=None):
+        published.append((topic, msg))
+
+    agent._kafka_producer.publish = AsyncMock(side_effect=fake_publish)
+
+    bar_ts = datetime(2026, 6, 16, 14, 30, tzinfo=UTC).isoformat()
+    payload = {
+        "symbol": "ESM6",
+        "volume": 50000.0,
+        "timestamp": bar_ts,
+        "open": 5200.0,
+        "high": 5210.0,
+        "low": 5195.0,
+        "close": 5205.0,
+        "timeframe": "1m",
+    }
+
+    agent._stop_event = asyncio.Event()
+
+    async def messages_then_stop():
+        yield ("dev.market.bars", "ESM6:1m", payload)
+        agent._stop_event.set()
+
+    agent._kafka_consumer.messages = messages_then_stop
+    await agent._run()
+
+    # One event published: the calendar roll
+    assert len(published) == 1
+    _topic, msg = published[0]
+    assert msg["detection_method"] == "calendar"
+    assert msg["volume_zscore"] == 0.0
+    assert msg["confirmation_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_volume_roll_event_has_detection_method_volume():
+    """Volume-detected roll event has detection_method='volume'."""
+
+    agent = _make_agent()
+    agent._roll_monitor.update_volume = MagicMock()
+    agent._roll_monitor.check_roll = MagicMock(return_value=True)
+    agent._roll_monitor._last_volume_zscore = -2.8
+    agent._roll_monitor._last_confirmation_count = 3
+
+    from unittest.mock import MagicMock as MM
+    calendar_scheduler = MM()
+    calendar_scheduler.check_calendar_roll = MagicMock(return_value=False)
+    agent._calendar_scheduler = calendar_scheduler
+
+    published = []
+
+    async def fake_publish(topic, msg, key=None):
+        published.append((topic, msg))
+
+    agent._kafka_producer.publish = AsyncMock(side_effect=fake_publish)
+
+    bar_ts = datetime(2026, 6, 14, 14, 30, tzinfo=UTC).isoformat()
+    payload = {
+        "symbol": "ESM6",
+        "volume": 1000.0,
+        "timestamp": bar_ts,
+        "open": 5200.0,
+        "high": 5210.0,
+        "low": 5195.0,
+        "close": 5205.0,
+        "timeframe": "1m",
+    }
+
+    agent._stop_event = asyncio.Event()
+
+    async def messages_then_stop():
+        yield ("dev.market.bars", "ESM6:1m", payload)
+        agent._stop_event.set()
+
+    agent._kafka_consumer.messages = messages_then_stop
+    await agent._run()
+
+    assert len(published) == 1
+    _topic, msg = published[0]
+    assert msg["detection_method"] == "volume"
+
+
 def test_golden_signals_are_counter_instances():
     """events_consumed_total and rolls_detected_total must be Counter instances."""
     from prometheus_client import Counter

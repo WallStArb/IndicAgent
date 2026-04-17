@@ -530,35 +530,38 @@ class ServiceAuditorAgent(BaseAgent):
                 self.logger.error("roll_consumer.error", error=str(exc))
 
     async def _handle_roll_event(self, payload: dict) -> None:
-        """Process a RollEvent. Only fires on roll_complete; deduped by (symbol, new_expiry)."""
-        event_type = payload.get("event_type")
-        if event_type != "roll_complete":
+        """Process a RollEvent. Deduped by (symbol, new_contract) — handles both
+        volume and calendar detection methods without double-restarting ibkr-provider."""
+        symbol = payload.get("symbol", "")
+        new_contract = payload.get("new_contract", "")
+        old_contract = payload.get("old_contract", "")
+
+        if not symbol or not new_contract:
             return
 
-        symbol = payload.get("symbol", "")
-        new_expiry = payload.get("new_expiry", "")
-        old_expiry = payload.get("old_expiry", "")
-        dedup_key = (symbol, new_expiry)
+        dedup_key = (symbol, new_contract)
 
-        # Size-based dedup to prevent unbounded growth (1000 rolls/day is far above typical volume)
+        # Size-based dedup to prevent unbounded growth
         if len(self._handled_rolls) > 1000:
             self._handled_rolls.clear()
 
         if dedup_key in self._handled_rolls:
-            self.logger.debug("roll_consumer.dedup_skip", symbol=symbol, new_expiry=new_expiry)
+            self.logger.debug("roll_consumer.dedup_skip", symbol=symbol, new_contract=new_contract)
             return
 
         self._handled_rolls.add(dedup_key)
+        detection_method = payload.get("detection_method", "volume")
         self.logger.info(
             "roll_automation.triggered",
             symbol=symbol,
-            old_expiry=old_expiry,
-            new_expiry=new_expiry,
+            old_contract=old_contract,
+            new_contract=new_contract,
+            detection_method=detection_method,
         )
 
         await self._dispatch_webhook(
             "HIGH",
-            f"Futures roll: {symbol} {old_expiry} → {new_expiry}",
+            f"Futures roll: {symbol} {old_contract} → {new_contract}",
             "Restarting indicagent-ibkr-provider to subscribe to new front-month contract.",
         )
         await self._restart_ibkr_provider()

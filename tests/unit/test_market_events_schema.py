@@ -82,8 +82,8 @@ def test_roll_event_parses_iso_string_detection_ts():
     assert event.detection_ts.minute == 0
 
 
-def test_roll_event_model_dump_returns_all_8_keys():
-    """RollEvent.model_dump() returns a dict with exactly the 8 expected keys."""
+def test_roll_event_model_dump_returns_all_9_keys():
+    """RollEvent.model_dump() returns a dict with exactly the 9 expected keys."""
     event = RollEvent.model_validate(VALID_ROLL_PAYLOAD)
     dumped = event.model_dump()
 
@@ -96,8 +96,29 @@ def test_roll_event_model_dump_returns_all_8_keys():
         "detection_ts",
         "volume_zscore",
         "confirmation_count",
+        "detection_method",
     }
     assert set(dumped.keys()) == expected_keys
+
+
+def test_roll_event_detection_method_defaults_to_volume():
+    """RollEvent without detection_method defaults to 'volume'."""
+    event = RollEvent.model_validate(VALID_ROLL_PAYLOAD)
+    assert event.detection_method == "volume"
+
+
+def test_roll_event_accepts_calendar_method():
+    """RollEvent accepts detection_method='calendar'."""
+    payload = {**VALID_ROLL_PAYLOAD, "detection_method": "calendar"}
+    event = RollEvent.model_validate(payload)
+    assert event.detection_method == "calendar"
+
+
+def test_roll_event_rejects_invalid_detection_method():
+    """RollEvent rejects unknown detection_method values."""
+    payload = {**VALID_ROLL_PAYLOAD, "detection_method": "magic"}
+    with pytest.raises(ValidationError):
+        RollEvent.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------

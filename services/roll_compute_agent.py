@@ -273,6 +273,64 @@ class RollMonitor:
 
 
 # ---------------------------------------------------------------------------
+# CalendarRollScheduler — deterministic calendar-based roll detection
+# ---------------------------------------------------------------------------
+
+
+class CalendarRollScheduler:
+    """Calendar-driven roll scheduler: fires once per cycle at roll_end date.
+
+    Independent of volume data — uses get_roll_window() from contracts.py to
+    determine the scheduled roll_end date (expiry - 3 days) for each base symbol.
+
+    Fires when today >= roll_end AND this cycle hasn't fired yet.
+    Keyed by base_symbol → roll_end_date to be idempotent within a cycle.
+
+    Serves as a safety-net fallback: if volume detection missed the roll,
+    calendar fires at the scheduled date regardless. If volume already fired,
+    ContractMetadataWriterAgent's idempotency check prevents double-execution.
+    """
+
+    def __init__(self) -> None:
+        # Maps base_symbol → roll_end date of the last fired cycle (O(1) lookup, bounded by symbol count)
+        self._fired: dict[str, date] = {}
+
+    def check_calendar_roll(self, base_symbol: str, utc_now: datetime) -> bool:
+        """Return True if calendar roll should fire for base_symbol at utc_now.
+
+        Fires when:
+        1. get_roll_window() returns a non-None window
+        2. today >= roll_end date
+        3. base_symbol has not already fired for this roll_end
+
+        Returns False when outside any roll window, symbol unknown, or already fired.
+        Side-effect: records base_symbol → roll_end in _fired on first True return.
+        """
+        try:
+            roll_window = get_roll_window(base_symbol, utc_now.date())
+        except ValueError:
+            return False
+
+        if roll_window is None:
+            return False
+
+        _roll_start, roll_end = roll_window
+
+        if utc_now.date() < roll_end:
+            return False
+
+        if self._fired.get(base_symbol) == roll_end:
+            return False
+
+        self._fired[base_symbol] = roll_end
+        return True
+
+    def get_last_fired_roll_end(self, base_symbol: str) -> date | None:
+        """Return the roll_end date of the last fired cycle for base_symbol, or None."""
+        return self._fired.get(base_symbol)
+
+
+# ---------------------------------------------------------------------------
 # RollComputeAgent — BaseAgent lifecycle, consumes market.bars, publishes RollEvent
 # ---------------------------------------------------------------------------
 
@@ -293,6 +351,7 @@ class RollComputeAgent(BaseAgent):
         super().__init__(name="roll_compute_agent", metrics_port=metrics_port)
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
         self._roll_monitor = RollMonitor(settings)
+        self._calendar_scheduler = CalendarRollScheduler()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._symbol_to_base: dict[str, str] = {
@@ -333,6 +392,26 @@ class RollComputeAgent(BaseAgent):
         if self._kafka_producer:
             await self._kafka_producer.stop()
 
+    def _resolve_contracts(self, base_symbol: str, fallback: str) -> tuple[str, str]:
+        """Return (old_contract, new_contract) from the roll chain.
+
+        Falls back to (fallback, fallback) if chain derivation fails or chain is empty.
+        Callers should treat old == new as an unresolved chain and skip publishing.
+        """
+        try:
+            chain = derive_roll_chain(base_symbol)
+            if chain and len(chain) >= 2:
+                return chain[-2]["symbol"], chain[-1]["symbol"]
+            if chain:
+                return fallback, chain[0].get("roll_to", fallback)
+        except Exception as exc:
+            self.logger.warning(
+                "roll_chain_derivation_failed",
+                base_symbol=base_symbol,
+                error=str(exc),
+            )
+        return fallback, fallback
+
     async def _run(self) -> None:
         """Main loop: consume bars, run RollMonitor, publish RollEvent on confirmed roll."""
         roll_topic = topic_roll_events(self.env_name)
@@ -361,48 +440,74 @@ class RollComputeAgent(BaseAgent):
                     rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
 
                 if rolled:
-                    # Derive old/new contracts from roll chain
-                    old_contract = symbol
-                    new_contract = symbol
-                    try:
-                        chain = derive_roll_chain(base_symbol)
-                        if chain and len(chain) >= 2:
-                            old_contract = chain[-2]["symbol"]
-                            new_contract = chain[-1]["symbol"]
-                        elif chain:
-                            # roll_to field from chain head gives the next contract symbol
-                            new_contract = chain[0].get("roll_to", symbol)
-                    except Exception as chain_exc:
+                    old_contract, new_contract = self._resolve_contracts(base_symbol, symbol)
+                    if old_contract == new_contract:
                         self.logger.warning(
-                            "roll_chain_derivation_failed",
+                            "roll_contracts_unresolved",
                             base_symbol=base_symbol,
-                            error=str(chain_exc),
+                            fallback=symbol,
+                        )
+                    else:
+                        roll_event = RollEvent(
+                            symbol=base_symbol,
+                            old_contract=old_contract,
+                            new_contract=new_contract,
+                            roll_gap_price=0.0,   # price gap computed by downstream consumer
+                            roll_gap_pct=0.0,
+                            detection_ts=bar_utc,
+                            volume_zscore=self._roll_monitor._last_volume_zscore,
+                            confirmation_count=self._roll_monitor._last_confirmation_count,
+                            detection_method="volume",
+                        )
+                        await self._kafka_producer.publish(
+                            roll_topic,
+                            roll_event.model_dump(mode="json"),
+                            key=base_symbol,
+                        )
+                        self._rolls_detected_lbl.inc()
+                        self.logger.info(
+                            "roll_detected",
+                            symbol=base_symbol,
+                            old_contract=old_contract,
+                            new_contract=new_contract,
+                            volume_zscore=roll_event.volume_zscore,
+                            confirmation_count=roll_event.confirmation_count,
+                            detection_method="volume",
                         )
 
-                    roll_event = RollEvent(
-                        symbol=base_symbol,
-                        old_contract=old_contract,
-                        new_contract=new_contract,
-                        roll_gap_price=0.0,   # price gap computed by downstream consumer
-                        roll_gap_pct=0.0,
-                        detection_ts=bar_utc,
-                        volume_zscore=self._roll_monitor._last_volume_zscore,
-                        confirmation_count=self._roll_monitor._last_confirmation_count,
-                    )
-                    await self._kafka_producer.publish(
-                        roll_topic,
-                        roll_event.model_dump(mode="json"),
-                        key=base_symbol,
-                    )
-                    self._rolls_detected_lbl.inc()
-                    self.logger.info(
-                        "roll_detected",
-                        symbol=base_symbol,
-                        old_contract=old_contract,
-                        new_contract=new_contract,
-                        volume_zscore=roll_event.volume_zscore,
-                        confirmation_count=roll_event.confirmation_count,
-                    )
+                # Calendar check — independent of volume; fires at scheduled roll_end date
+                if self._calendar_scheduler.check_calendar_roll(base_symbol, bar_utc):
+                    cal_old, cal_new = self._resolve_contracts(base_symbol, symbol)
+                    if cal_old == cal_new:
+                        self.logger.warning(
+                            "calendar_roll_contracts_unresolved",
+                            base_symbol=base_symbol,
+                            fallback=symbol,
+                        )
+                    else:
+                        cal_event = RollEvent(
+                            symbol=base_symbol,
+                            old_contract=cal_old,
+                            new_contract=cal_new,
+                            roll_gap_price=0.0,
+                            roll_gap_pct=0.0,
+                            detection_ts=bar_utc,
+                            volume_zscore=0.0,
+                            confirmation_count=0,
+                            detection_method="calendar",
+                        )
+                        await self._kafka_producer.publish(
+                            roll_topic,
+                            cal_event.model_dump(mode="json"),
+                            key=base_symbol,
+                        )
+                        self._rolls_detected_lbl.inc()
+                        self.logger.info(
+                            "calendar_roll_fired",
+                            symbol=base_symbol,
+                            old_contract=cal_old,
+                            new_contract=cal_new,
+                        )
             except Exception as exc:
                 self._detection_errors_lbl.inc()
                 self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)

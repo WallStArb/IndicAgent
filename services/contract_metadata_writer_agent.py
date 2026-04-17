@@ -98,6 +98,9 @@ class ContractMetadataWriterAgent(BaseAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
+        # Idempotency: tracks (base_symbol, new_contract) pairs already promoted
+        # First event triggers operational roll; subsequent events are recorded but not re-executed
+        self._processed_rolls: set[tuple[str, str]] = set()
 
         # Cache labeled metric children — avoids dict lookup on every event
         self._rolls_processed = _ROLLS_PROCESSED.labels(agent=self.name)
@@ -204,6 +207,28 @@ class ContractMetadataWriterAgent(BaseAgent):
                     base=row["base_symbol"],
                 )
 
+    async def _write_roll_event(
+        self,
+        conn: asyncpg.Connection,
+        event: "RollEvent",
+        is_authoritative: bool,
+    ) -> None:
+        """Write a detection event to roll_events for ML training."""
+        await conn.execute(
+            """INSERT INTO roll_events
+               (detected_at, base_symbol, old_contract, new_contract,
+                detection_method, volume_zscore, confirmation_count, is_authoritative)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+            event.detection_ts,
+            event.symbol,
+            event.old_contract,
+            event.new_contract,
+            event.detection_method,
+            event.volume_zscore if event.detection_method == "volume" else None,
+            event.confirmation_count if event.detection_method == "volume" else None,
+            is_authoritative,
+        )
+
     async def _publish_to_dlq(self, payload: dict, key: str = "unknown") -> None:
         """Route an unprocessable payload to the roll DLQ topic."""
         await self._kafka_producer.publish(
@@ -252,6 +277,21 @@ class ContractMetadataWriterAgent(BaseAgent):
                 new=event.new_contract,
             )
             await self._publish_to_dlq(payload, key=event.symbol)
+            return
+
+        roll_key = (event.symbol, event.new_contract)
+        is_duplicate = roll_key in self._processed_rolls
+
+        if is_duplicate:
+            # Record detection for ML training but skip operational promotion
+            async with self._db_pool.acquire() as conn:
+                await self._write_roll_event(conn, event, is_authoritative=False)
+            self.logger.info(
+                "contract_metadata_writer.duplicate_roll_recorded",
+                base=event.symbol,
+                new=event.new_contract,
+                detection_method=event.detection_method,
+            )
             return
 
         with self._processing_latency.time():
@@ -335,6 +375,10 @@ class ContractMetadataWriterAgent(BaseAgent):
                         event.detection_ts,
                         event.confirmation_count,
                     )
+                    await self._write_roll_event(conn, event, is_authoritative=True)
+
+            # Mark as processed — prevents duplicate promotion if second detector fires
+            self._processed_rolls.add(roll_key)
 
             # Step 4: Publish ContractUpdateEvent
             update_event = ContractUpdateEvent(
