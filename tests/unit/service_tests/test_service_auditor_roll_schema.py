@@ -91,3 +91,13 @@ async def test_handled_rolls_contains_symbol_and_new_contract():
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("volume"))
     assert ("ES", "ESM6") in agent._handled_rolls
+
+
+@pytest.mark.asyncio
+async def test_roll_restarts_both_ibkr_provider_and_roll_compute():
+    """A roll event restarts both ibkr-provider and roll-compute so symbol map stays fresh."""
+    agent = _make_agent()
+    agent._restart_roll_compute = AsyncMock()
+    await agent._handle_roll_event(_roll_payload("volume"))
+    assert agent._restart_ibkr_provider.call_count == 1
+    assert agent._restart_roll_compute.call_count == 1
