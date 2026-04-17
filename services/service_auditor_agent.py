@@ -34,7 +34,7 @@ from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
 _PROMETHEUS_URL = "http://localhost:9090/api/v1/query"
-_SVC_IBKR_PROVIDER = "indicagent-ibkr-provider"
+_SVC_DATA_PROVIDER = "indicagent-ibkr-provider"
 _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 
 
@@ -53,7 +53,7 @@ class ServiceSpec:
 
 
 SERVICE_REGISTRY: list[ServiceSpec] = [
-    ServiceSpec(_SVC_IBKR_PROVIDER, 9129, 0, 1, False),
+    ServiceSpec(_SVC_DATA_PROVIDER, 9129, 0, 1, False),
     ServiceSpec("indicagent-provider-merger", 9130, 500, 2, True),
     ServiceSpec("indicagent-bar-aggregator-compute", 9120, 500, 3, True),
     ServiceSpec("indicagent-bar-auditor", 9123, 200, 3, True),
@@ -564,10 +564,10 @@ class ServiceAuditorAgent(BaseAgent):
         await self._dispatch_webhook(
             "HIGH",
             f"Futures roll: {symbol} {old_contract} → {new_contract}",
-            f"Restarting {_SVC_IBKR_PROVIDER} and {_SVC_ROLL_COMPUTE} to subscribe to new front-month contract.",
+            f"Restarting {_SVC_DATA_PROVIDER} and {_SVC_ROLL_COMPUTE} to subscribe to new front-month contract.",
         )
         await asyncio.gather(
-            self._restart_roll_service(_SVC_IBKR_PROVIDER),
+            self._restart_roll_service(_SVC_DATA_PROVIDER),
             self._restart_roll_service(_SVC_ROLL_COMPUTE),
         )
 
