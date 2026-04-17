@@ -26,6 +26,7 @@ import asyncio
 import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -54,6 +55,16 @@ _DEFAULT_LOOKBACK_DAYS = 3
 _HTF_TIMEFRAME_MINUTES: dict[str, int] = {k: v for k, v in _TF_MINUTES.items() if k != "1d"}
 # Pre-computed for SQL ANY($N) — avoids list() allocation on every audit iteration.
 _HTF_TF_NAMES_LIST: list[str] = list(_HTF_TIMEFRAME_MINUTES.keys())
+# All timeframes queried in the bulk audit — 1m for gap detection + HTF for metrics.
+_ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
+
+
+class _AuditWindow(NamedTuple):
+    instrument: object
+    target_date: date
+    date_start_utc: datetime
+    date_end_utc: datetime
+    expected: int
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -102,16 +113,13 @@ class BarAuditorAgent(BaseAgent):
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
 
-        # Dedup: track (symbol, date_str) pairs already requested today.
+        # Dedup: track (symbol, session_start_iso) pairs already requested today.
         # Prevents the infinite retry loop when IBKR can't fully cover a gap
         # (e.g. CME overnight sessions where actual/expected < 95% permanently).
-        # Cleared at UTC midnight each audit cycle.
+        # Keyed on session UTC start (not calendar date) so overnight sessions that
+        # span two calendar dates are deduped correctly. Cleared at UTC midnight.
         self._requested_today: set[tuple[str, str]] = set()
         self._requested_today_date: str = ""  # YYYY-MM-DD of last clear
-
-        # Gap request dedup: (symbol, tf, date_str) — cleared every 24h
-        self._seen_gap_requests: set[tuple[str, str, str]] = set()
-        self._seen_gap_requests_date: str = ""
 
         # Cache labeled children — avoids .labels() lookup on every audit cycle
         self._audits_run = _AUDITS_RUN.labels(agent=self.name)
@@ -238,147 +246,136 @@ class BarAuditorAgent(BaseAgent):
     ) -> list[BarGapRequest]:
         """Detect missing bars across all active instruments for last N days.
 
-        For each instrument and each of the last lookback_days calendar dates:
-        - Compute session-aligned UTC window from session_window_for_date()
-        - Skip non-trading days (window returns (None, None))
-        - Query market_data_ohlcv for actual count within session window
-        - Derive per-session threshold: session.max_achievable_pct() * _COMPLETENESS_GATE
-        - If completeness < threshold, create BarGapRequest
-        - Observe HTF completeness metrics (5m/15m/1h/4h) — log warnings, NO gap requests
+        Builds all session windows in Python first, then issues a single bulk
+        UNNEST query to fetch bar counts for every (symbol, window, timeframe)
+        in one round trip — replacing the previous N×M per-window query loop.
 
         Returns:
-            list[BarGapRequest]: one request per (instrument, date) that needs gap fill
+            list[BarGapRequest]: one request per (instrument, session) that needs gap fill
         """
         today = date.today()
-        gaps: list[BarGapRequest] = []
+        today_str = str(today)
 
-        assert self._db_pool is not None
+        # Reset dedup set on UTC day rollover
+        if self._requested_today_date != today_str:
+            self._requested_today.clear()
+            self._requested_today_date = today_str
+
+        windows: list[_AuditWindow] = []
+        for instrument in instruments:
+            session = instrument.trading_session
+            for days_back in range(1, lookback_days + 1):
+                target_date = today - timedelta(days=days_back)
+                window = session.session_window_for_date(target_date)
+                if window[0] is None or window[1] is None:
+                    continue  # Non-trading day
+                date_start_utc, date_end_utc = window
+                total_minutes = int((date_end_utc - date_start_utc).total_seconds() / 60)
+                expected = max(0, total_minutes - session._break_minutes())
+                if expected == 0:
+                    continue
+                windows.append(
+                    _AuditWindow(instrument, target_date, date_start_utc, date_end_utc, expected)
+                )
+
+        if not windows:
+            return []
+
+        # Single bulk query — all windows × all timeframes in one round trip.
+        # UNNEST expands the parallel arrays into a derived table of (sym, win_start, win_end).
+        # TimescaleDB prunes chunks by the min/max of all win_start/win_end values.
+        syms = [w.instrument.symbol for w in windows]
+        starts = [w.date_start_utc for w in windows]
+        ends = [w.date_end_utc for w in windows]
+
+        assert self._db_pool is not None, "DB pool not initialized — call _setup()"
         async with self._db_pool.acquire() as conn:
-            for instrument in instruments:
-                session = instrument.trading_session
+            rows = await conn.fetch(
+                """
+                SELECT s.sym, s.win_start, ohlcv.timeframe, COUNT(*) AS cnt
+                FROM UNNEST($1::text[], $2::timestamptz[], $3::timestamptz[])
+                     AS s(sym, win_start, win_end)
+                JOIN market_data_ohlcv ohlcv
+                  ON ohlcv.symbol    = s.sym
+                 AND ohlcv.timestamp >= s.win_start
+                 AND ohlcv.timestamp <  s.win_end
+                 AND ohlcv.timeframe  = ANY($4)
+                GROUP BY s.sym, s.win_start, ohlcv.timeframe
+                """,
+                syms,
+                starts,
+                ends,
+                _ALL_AUDIT_TFS,
+            )
+
+            counts: dict[tuple[str, datetime, str], int] = {
+                (r["sym"], r["win_start"], r["timeframe"]): r["cnt"] for r in rows
+            }
+
+            gaps: list[BarGapRequest] = []
+            for w in windows:
+                sym = w.instrument.symbol
+                session = w.instrument.trading_session
                 threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
-                for days_back in range(1, lookback_days + 1):
-                    target_date = today - timedelta(days=days_back)
 
-                    # Session-aligned UTC window — also gates non-trading days
-                    window = session.session_window_for_date(target_date)
-                    if window[0] is None or window[1] is None:
-                        continue  # Non-trading day — skip
-                    date_start_utc, date_end_utc = window
+                actual = counts.get((sym, w.date_start_utc, "1m"), 0)
+                completeness = actual / w.expected
 
-                    # Derive expected bars from the window we already have,
-                    # avoiding a second session_window_for_date() call inside
-                    # expected_bars_for_date().
-                    total_minutes = int((date_end_utc - date_start_utc).total_seconds() / 60)
-                    expected = max(0, total_minutes - session._break_minutes())
-                    if expected == 0:
-                        continue
+                self._canonical_completeness.labels(
+                    agent=self.name, symbol=sym, tf="1m"
+                ).set(completeness)
 
-                    actual = await conn.fetchval(
-                        """
-                        SELECT COUNT(*)
-                        FROM market_data_ohlcv
-                        WHERE symbol = $1
-                          AND timeframe = '1m'
-                          AND timestamp >= $2
-                          AND timestamp < $3
-                        """,
-                        instrument.symbol,
-                        date_start_utc,
-                        date_end_utc,
+                if completeness < threshold:
+                    await self._upsert_market_data_gap(
+                        conn, sym, "1m", w.date_start_utc, w.expected, w.expected - actual,
                     )
-
-                    actual = actual or 0
-                    completeness = actual / expected
-
-                    self._canonical_completeness.labels(
-                        agent=self.name, symbol=instrument.symbol, tf="1m"
-                    ).set(completeness)
-
-                    if completeness < threshold:
-                        # UPSERT gap row to market_data_gaps table
-                        await self._upsert_market_data_gap(
-                            conn,
-                            instrument.symbol,
-                            "1m",
-                            date_start_utc,
-                            expected,
-                            expected - actual,
-                        )
-                        # Dedup: skip if already requested today (prevents infinite
-                        # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
-                        today_str = str(today)
-                        if self._requested_today_date != today_str:
-                            self._requested_today.clear()
-                            self._requested_today_date = today_str
-                        gap_key = (instrument.symbol, str(target_date))
-                        if gap_key in self._requested_today:
-                            continue
-
+                    # Dedup on session UTC start — not calendar date. Overnight sessions
+                    # (e.g. ES futures) span two calendar dates; the UTC start is unique.
+                    gap_key = (sym, w.date_start_utc.isoformat())
+                    if gap_key not in self._requested_today:
                         self.logger.warning(
                             "bar_auditor_agent.gap_detected",
-                            symbol=instrument.symbol,
-                            date=str(target_date),
+                            symbol=sym,
+                            date=str(w.target_date),
                             actual=actual,
-                            expected=expected,
+                            expected=w.expected,
                             completeness=round(completeness, 3),
                             threshold=round(threshold, 3),
                         )
                         gaps.append(
                             BarGapRequest(
-                                symbol=instrument.symbol,
+                                symbol=sym,
                                 tf="1m",
-                                start_ts=date_start_utc,
-                                end_ts=date_end_utc,
+                                start_ts=w.date_start_utc,
+                                end_ts=w.date_end_utc,
                             )
                         )
                         self._requested_today.add(gap_key)
 
-                    # Resolve gap if completeness reached 100%
-                    elif completeness >= 1.0:
-                        await self._resolve_market_data_gap(
-                            conn, instrument.symbol, "1m", date_start_utc
+                elif completeness >= 1.0:
+                    await self._resolve_market_data_gap(conn, sym, "1m", w.date_start_utc)
+
+                # HTF completeness metrics — log warnings only, no gap requests
+                for tf_name, tf_minutes in _HTF_TIMEFRAME_MINUTES.items():
+                    expected_htf = w.expected // tf_minutes
+                    if expected_htf == 0:
+                        continue
+                    actual_htf = counts.get((sym, w.date_start_utc, tf_name), 0)
+                    completeness_htf = actual_htf / expected_htf
+                    self._canonical_completeness.labels(
+                        agent=self.name, symbol=sym, tf=tf_name
+                    ).set(completeness_htf)
+                    if completeness_htf < threshold:
+                        self.logger.warning(
+                            "bar_auditor_agent.htf_gap_detected",
+                            symbol=sym,
+                            tf=tf_name,
+                            date=str(w.target_date),
+                            actual=actual_htf,
+                            expected=expected_htf,
+                            completeness=round(completeness_htf, 3),
+                            threshold=round(threshold, 3),
                         )
-
-                    # HTF completeness — observe metrics, DO NOT issue gap requests.
-                    # Single GROUP BY query replaces N separate COUNT(*) queries.
-                    htf_rows = await conn.fetch(
-                        """
-                        SELECT timeframe, COUNT(*) AS cnt
-                        FROM market_data_ohlcv
-                        WHERE symbol = $1
-                          AND timeframe = ANY($2)
-                          AND timestamp >= $3
-                          AND timestamp < $4
-                        GROUP BY timeframe
-                        """,
-                        instrument.symbol,
-                        _HTF_TF_NAMES_LIST,
-                        date_start_utc,
-                        date_end_utc,
-                    )
-                    htf_counts = {r["timeframe"]: r["cnt"] for r in htf_rows}
-
-                    for tf_name, tf_minutes in _HTF_TIMEFRAME_MINUTES.items():
-                        expected_htf = expected // tf_minutes
-                        if expected_htf == 0:
-                            continue
-                        actual_htf = htf_counts.get(tf_name, 0)
-                        completeness_htf = actual_htf / expected_htf
-                        self._canonical_completeness.labels(
-                            agent=self.name, symbol=instrument.symbol, tf=tf_name
-                        ).set(completeness_htf)
-                        if completeness_htf < threshold:
-                            self.logger.warning(
-                                "bar_auditor_agent.htf_gap_detected",
-                                symbol=instrument.symbol,
-                                tf=tf_name,
-                                date=str(target_date),
-                                actual=actual_htf,
-                                expected=expected_htf,
-                                completeness=round(completeness_htf, 3),
-                                threshold=round(threshold, 3),
-                            )
 
         return gaps
 
