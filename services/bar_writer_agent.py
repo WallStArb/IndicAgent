@@ -37,6 +37,7 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.kafka_utils import KafkaConsumerClient
+from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.schemas.market_events import ContractUpdateEvent
 from src.core.stream_keys import topic_contract_updates, topic_market_bars, topic_market_bars_htf
@@ -362,7 +363,7 @@ class BarWriterAgent(BaseWriterAgent):
                 low=float(payload.get("low", 0)),
                 close=float(payload.get("close", 0)),
                 volume=int(float(payload.get("volume", 0))),
-                source=payload.get("source", "ibkr_named"),
+                source=payload.get("source", SOURCE_UNKNOWN),
                 session_type=SessionType(payload.get("session_type", "rth")),
                 gap_preceding=bool(payload.get("gap_preceding", False)),
                 is_flat_bar=bool(payload.get("is_flat_bar", False)),

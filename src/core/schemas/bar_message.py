@@ -27,6 +27,7 @@ from src.core.bar_normalizer import (
     SOURCE_IBKR_GENERIC,
     SOURCE_IBKR_NAMED,
     SOURCE_IBKR_SEED,
+    SOURCE_UNKNOWN,
 )
 
 
@@ -64,6 +65,7 @@ class BarMessage(BaseModel):
                           "ibkr_seed"   — historical seed bar from backfill
                           "htf_derived" — aggregated from 1m bars by BarAccumulator
                           "ibkr"        — generic IBKR bar (IBKRAdapter / RTB fallback)
+                          "unknown"     — source missing from payload (provider-agnostic fallback)
         session_type  — Trading session at bar close time
         gap_preceding — True when a gap exists before this bar (missing bars)
         is_flat_bar   — True when bar has zero volume (flat fill from prev close);
@@ -82,7 +84,7 @@ class BarMessage(BaseModel):
     low: float
     close: float
     volume: int
-    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC]
+    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC, SOURCE_UNKNOWN]
     session_type: SessionType
     gap_preceding: bool = False
     is_flat_bar: bool = False

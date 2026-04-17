@@ -109,7 +109,7 @@ class DatabaseManager:
             return await conn.fetchrow(query, *args)
 
     async def upsert_instruments(self, contracts: list) -> int:
-        """Upsert instrument records from IBKRContract list into instruments table.
+        """Upsert instrument records from Instrument list into instruments table.
 
         Returns:
             Number of contracts upserted.

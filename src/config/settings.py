@@ -22,9 +22,6 @@ from src.core.models import AssetClass, Instrument
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
-# Deprecated alias — use Instrument directly
-IBKRContract = Instrument
-
 
 class Settings(BaseSettings):
     # General
