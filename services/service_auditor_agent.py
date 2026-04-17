@@ -564,21 +564,21 @@ class ServiceAuditorAgent(BaseAgent):
             f"Futures roll: {symbol} {old_contract} → {new_contract}",
             "Restarting indicagent-ibkr-provider and indicagent-roll-compute to subscribe to new front-month contract.",
         )
-        await self._restart_ibkr_provider()
-        await self._restart_roll_compute()
+        await asyncio.gather(
+            self._restart_roll_service("indicagent-ibkr-provider"),
+            self._restart_roll_service("indicagent-roll-compute"),
+        )
 
-    async def _restart_ibkr_provider(self) -> None:
-        """Restart indicagent-ibkr-provider via sudo systemctl.
+    async def _restart_roll_service(self, service_name: str) -> None:
+        """Restart a systemd service as part of roll automation via sudo systemctl restart.
 
-        Requires sudoers entry (one-time manual setup):
-            bg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart indicagent-ibkr-provider
-
-        Uses async subprocess to avoid blocking the event loop.
+        Distinct from _restart_service() which uses reset-failed + start for health recovery.
+        Roll restarts use a single restart command — the service is healthy, just needs
+        to re-read the updated contract_metadata after a front-month promotion.
         """
-        cmd = ["sudo", "systemctl", "restart", "indicagent-ibkr-provider"]
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
+                "sudo", "systemctl", "restart", service_name,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -586,55 +586,15 @@ class ServiceAuditorAgent(BaseAgent):
             if proc.returncode != 0:
                 self.logger.error(
                     "roll_automation.restart_failed",
-                    service="indicagent-ibkr-provider",
+                    service=service_name,
                     returncode=proc.returncode,
                     stderr=stderr.decode() if stderr else "",
                 )
                 return
-            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-                service_name="indicagent-ibkr-provider"
-            ).inc()
-            self.logger.info("roll_automation.restart_complete", service="indicagent-ibkr-provider")
+            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=service_name).inc()
+            self.logger.info("roll_automation.restart_complete", service=service_name)
         except Exception as exc:
-            self.logger.error(
-                "roll_automation.restart_failed",
-                service="indicagent-ibkr-provider",
-                error=str(exc),
-            )
-
-    async def _restart_roll_compute(self) -> None:
-        """Restart indicagent-roll-compute so _symbol_to_base picks up the new front-month contract.
-
-        Without this, the roll compute agent retains a stale symbol→base mapping and the
-        calendar detector cannot resolve the new front month's base symbol, silently
-        missing the next roll.
-        """
-        cmd = ["sudo", "systemctl", "restart", "indicagent-roll-compute"]
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            if proc.returncode != 0:
-                self.logger.error(
-                    "roll_automation.restart_failed",
-                    service="indicagent-roll-compute",
-                    returncode=proc.returncode,
-                    stderr=stderr.decode() if stderr else "",
-                )
-                return
-            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-                service_name="indicagent-roll-compute"
-            ).inc()
-            self.logger.info("roll_automation.restart_complete", service="indicagent-roll-compute")
-        except Exception as exc:
-            self.logger.error(
-                "roll_automation.restart_failed",
-                service="indicagent-roll-compute",
-                error=str(exc),
-            )
+            self.logger.error("roll_automation.restart_failed", service=service_name, error=str(exc))
 
     async def _dispatch_webhook(self, severity: str, title: str, body: str) -> None:
         """Route alert to correct contact point(s) based on severity.

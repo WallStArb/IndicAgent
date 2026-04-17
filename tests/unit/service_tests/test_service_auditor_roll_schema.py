@@ -23,7 +23,7 @@ def _make_agent():
     agent.settings = MagicMock(env_name="test")
     agent._handled_rolls = set()
     agent.logger = MagicMock()
-    agent._restart_ibkr_provider = AsyncMock()
+    agent._restart_roll_service = AsyncMock()
     agent._dispatch_webhook = AsyncMock()
     return agent
 
@@ -44,45 +44,45 @@ def _roll_payload(detection_method="volume", symbol="ES", old_contract="ESH6", n
 
 @pytest.mark.asyncio
 async def test_fires_on_volume_roll_event():
-    """Volume RollEvent triggers ibkr-provider restart (no event_type gate needed)."""
+    """Volume RollEvent triggers both service restarts (ibkr-provider + roll-compute)."""
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("volume"))
-    assert agent._restart_ibkr_provider.call_count == 1
+    assert agent._restart_roll_service.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_fires_on_calendar_roll_event():
-    """Calendar RollEvent also triggers ibkr-provider restart."""
+    """Calendar RollEvent also triggers both service restarts."""
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("calendar"))
-    assert agent._restart_ibkr_provider.call_count == 1
+    assert agent._restart_roll_service.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_dedup_prevents_double_restart_volume_then_calendar():
-    """Volume fires first, calendar fires second — restart happens only once."""
+    """Volume fires first, calendar fires second — restarts happen only once (2 calls total)."""
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("volume"))
     await agent._handle_roll_event(_roll_payload("calendar"))
-    assert agent._restart_ibkr_provider.call_count == 1
+    assert agent._restart_roll_service.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_dedup_prevents_double_restart_calendar_then_volume():
-    """Calendar fires first, volume fires second — restart happens only once."""
+    """Calendar fires first, volume fires second — restarts happen only once (2 calls total)."""
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("calendar"))
     await agent._handle_roll_event(_roll_payload("volume"))
-    assert agent._restart_ibkr_provider.call_count == 1
+    assert agent._restart_roll_service.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_dedup_key_is_symbol_and_new_contract():
-    """Different new_contract values are independent — each triggers a restart."""
+    """Different new_contract values are independent — each triggers both restarts (4 calls total)."""
     agent = _make_agent()
     await agent._handle_roll_event(_roll_payload("volume", new_contract="ESM6"))
     await agent._handle_roll_event(_roll_payload("volume", new_contract="ESU6"))
-    assert agent._restart_ibkr_provider.call_count == 2
+    assert agent._restart_roll_service.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,12 @@ async def test_handled_rolls_contains_symbol_and_new_contract():
 async def test_roll_restarts_both_ibkr_provider_and_roll_compute():
     """A roll event restarts both ibkr-provider and roll-compute so symbol map stays fresh."""
     agent = _make_agent()
-    agent._restart_roll_compute = AsyncMock()
+    restarted = []
+
+    async def fake_restart(service_name: str) -> None:
+        restarted.append(service_name)
+
+    agent._restart_roll_service = fake_restart
     await agent._handle_roll_event(_roll_payload("volume"))
-    assert agent._restart_ibkr_provider.call_count == 1
-    assert agent._restart_roll_compute.call_count == 1
+    assert "indicagent-ibkr-provider" in restarted
+    assert "indicagent-roll-compute" in restarted
