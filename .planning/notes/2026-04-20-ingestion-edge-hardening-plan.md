@@ -1,7 +1,8 @@
 ---
 created: 2026-04-20
+updated: 2026-04-20
 status: in-progress
-context: Session pause — context window hit 80%. Resume from this plan.
+context: Resume plan — Commit A landed as 757c9da0. Commits 1-3 still pending. Commit 4 deferred.
 ---
 
 # Ingestion-Edge Hardening Plan
@@ -10,22 +11,31 @@ Resume work on hardening the TWS → `base_provider_agent` → `market.bars` pip
 
 ## Current state
 
-### Done this session
+### Commit A — landed 2026-04-20 (`757c9da0`)
 
-1. **`services/service_auditor_agent.py`** — data-stoppage counter-persistence bug fix + market-hours gate via new `_any_active_session_open()` helper. Imports `get_active_contracts` + `SESSION_REGISTRY`. All 43 auditor tests pass.
-2. **`src/core/kafka_utils.py`** — `AIOKafkaProducer` now configured with `acks='all'`, `enable_idempotence=True`, `compression_type='lz4'`, `max_in_flight_requests_per_connection=5`. **Caveat before restarting services:** verify Redpanda idempotence support is enabled (`rpk cluster config get enable_idempotence`). Check existing consumer groups (feature_writer, signal_writer, bar_writer) are not disturbed by the producer-side change — they shouldn't be since acks/idempotence are producer-only concerns.
-3. **Audit todos filed:** `.planning/todos/pending/030-audit-kafka-to-db-writers-pipeline.md`, `031-audit-data-quality-loop.md`.
+Bundled the earlier-session ad-hoc work with this-session's producer-durability fix into a single baseline commit:
 
-### Uncommitted files
+- **`services/service_auditor_agent.py`** — data-stoppage counter-persistence bug fix + market-hours gate via `_any_active_session_open()`. Imports `get_active_contracts` + `SESSION_REGISTRY`. All 43 auditor tests pass.
+- **`src/core/kafka_utils.py`** — `AIOKafkaProducer` now configured with `acks='all'`, `enable_idempotence=True`, `compression_type='lz4'`, `max_in_flight_requests_per_connection=5`. **Redpanda idempotence confirmed enabled** via `rpk cluster config get enable_idempotence → true`.
+- **`src/providers/base_provider_agent.py`** — `_health_check_loop` added invoking `adapter.ping()` every 30s (interim; superseded by Commit 3).
+- **`src/providers/ibkr.py`** — `ping()` method wrapping `reqCurrentTimeAsync` as active liveness probe.
+- `_archived_*` services + test stubs deleted.
+- `CLAUDE.md` — server IP correction.
+- Filed `.planning/todos/pending/030-audit-kafka-to-db-writers-pipeline.md`, `031-audit-data-quality-loop.md`.
 
-```
-M  services/service_auditor_agent.py   (from earlier session)
-M  src/core/kafka_utils.py              (producer durability)
-```
+**Pre-existing ruff errors** (not introduced this session, discovered during staging):
+- `services/service_auditor_agent.py:645, 677` — E501 line length
+- `src/core/kafka_utils.py:204, 207` — E501 line length
+- `src/providers/ibkr.py:276` — UP041 `asyncio.TimeoutError` alias (will be fixed by Commit 1/H4)
 
-Plus the earlier-session changes to `CLAUDE.md`, `src/providers/base_provider_agent.py`, `src/providers/ibkr.py`, and the batch of `_archived_*` deletions.
+None block Commit A; fix during Commit 1 or as a separate cleanup.
 
-**Decision needed at resume:** commit producer-durability change on its own, or bundle with the rest of Commit 1 (ping narrow-catch + metric split + timestamp normalizer). Recommend: commit standalone so it can be rolled back independently if Redpanda compat turns out to be an issue.
+### Deployment note
+
+Commit A has NOT been deployed. Before `sudo systemctl restart indicagent-ibkr-provider`:
+- Baseline `bars_per_sec` via `curl -s localhost:9129/metrics | grep provider_bars_produced_total`.
+- Tail `logs/ibkr_provider_agent.log` for the first 10 minutes post-restart.
+- `_health_check_loop` will be replaced by Commit 3. If you deploy Commit A first, expect two concurrent reconnect mechanisms (agent-side ping + adapter-side `_connection_watchdog`) — functional but redundant. Deploying all four commits together avoids this transient.
 
 ## Remaining work — 4 commits
 
@@ -64,14 +74,21 @@ Approach: single coordination point is the adapter's `bar_queue._RECONNECT` sent
 - **M1** — `base_provider_agent.py:254`: change `delay = min(2 ** (attempt + 1), 10)` → `base = min(2 ** (attempt + 1), 30); delay = base * random.uniform(0.5, 1.5)`. Raise cap from 10 → 30s and add jitter. Import `random` at top.
 - **M2** — `base_provider_agent.py:216-246 _stream_loop`: reset `attempt = 0` after receiving N bars successfully (say first bar after the `async for` starts yielding). Cleanest: set `attempt = 0` inside the `async for` at the top of the loop body, before `_publish_bar`. That way every successful bar resets the backoff state.
 
-### Commit 4 — Kafka fire-and-batch
+### Commit 4 — Kafka fire-and-batch — **DEFERRED**
 
-**Files:** `src/core/kafka_utils.py`, callers of `KafkaProducerClient.publish`
+**Renaissance rationale for deferral:** current bar rate is ~55 bars/min (futures + ETFs + FX + crypto). `send_and_wait` per-publish is not the bottleneck at this scale — measured end-to-end bar→Kafka latency is <10ms. Switching to fire-and-batch:
+- Adds a `flush()` contract on shutdown (graceful-stop testing burden).
+- Requires per-caller audit for durability semantics (some callers, e.g. `signal_writer` finalizing a ledger row, assume "publish returns → broker has acked").
+- Saves milliseconds on a path that isn't tight.
 
-- **H2/M7** — `kafka_utils.py:98` change `await self._producer.send_and_wait(...)` → `await self._producer.send(...)` (returns future immediately after buffering, lets aiokafka batch internally). Add a `flush()` call in `stop()` before `producer.stop()`.
-- Tuning: add `linger_ms=5, batch_size=16384` to the `AIOKafkaProducer` constructor (low linger so latency-sensitive callers aren't hurt; batch_size is default).
-- **Caller audit required** — some callers may expect synchronous durability (e.g. signal_writer finalizing a ledger write before acknowledging). Grep for `KafkaProducerClient` and `producer.publish` usages; any caller that needs "after publish() returns, it's durable" should call `await producer.flush()` explicitly, OR we add a `publish_sync()` method that preserves the old semantics.
-- Run full test suite after this one — it's the most behavior-changing.
+Simons test: *don't optimize what you can't measure as the bottleneck*. Revisit when either (a) ingestion scales past ~1k bars/sec, or (b) backfill throughput becomes the critical path — at that point the `KafkaProducerClient.publish_batch(bars)` API (explicit batch, explicit flush) is cleaner than flipping a global default.
+
+**Files if resumed:** `src/core/kafka_utils.py`, callers of `KafkaProducerClient.publish`
+
+- **H2/M7** — `kafka_utils.py:111` change `send_and_wait` → `send` + add `flush()` in `stop()`.
+- Tuning: `linger_ms=5, batch_size=16384`.
+- **Caller audit required** — grep `KafkaProducerClient` and `producer.publish`. Any caller needing durability-after-return calls `await producer.flush()` explicitly, or we add a `publish_sync()` method.
+- Run full test suite.
 
 ## Risk / rollback
 
