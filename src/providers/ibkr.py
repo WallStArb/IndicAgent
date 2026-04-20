@@ -258,6 +258,28 @@ class IBKRProvider:
         )
         return self._ib is not None
 
+    async def ping(self) -> bool:
+        """Active health check — query IBKR server time.
+
+        Returns True if connection is alive, False otherwise.
+        Called every 30 seconds by provider agent to detect idle-but-dead connections.
+        """
+        if not self._ib or not self._ib.isConnected():
+            return False
+        try:
+            # reqCurrentTime is lightweight and fast
+            await asyncio.wait_for(
+                self._ib.reqCurrentTimeAsync(),
+                timeout=5.0
+            )
+            return True
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning(
+                "IBKR ping failed",
+                extra={"error": str(exc), "error_type": type(exc).__name__}
+            )
+            return False
+
     async def disconnect(self) -> None:
         """Disconnect from TWS."""
         if self._ib:
