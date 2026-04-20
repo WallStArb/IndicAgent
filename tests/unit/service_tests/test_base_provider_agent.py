@@ -24,9 +24,14 @@ _TEST_BARS_PRODUCED = Counter(
     "Bars produced (test)",
     ["provider", "agent"],
 )
-_TEST_RECONNECTS = Counter(
-    "test_bpa_reconnects_total",
-    "Reconnects (test)",
+_TEST_RECONNECTS_ATTEMPTED = Counter(
+    "test_bpa_reconnects_attempted_total",
+    "Reconnects attempted (test)",
+    ["provider", "agent"],
+)
+_TEST_RECONNECTS_SUCCEEDED = Counter(
+    "test_bpa_reconnects_succeeded_total",
+    "Reconnects succeeded (test)",
     ["provider", "agent"],
 )
 _TEST_CONNECTED = Gauge(
@@ -137,7 +142,12 @@ def _make_concrete_agent():
 
     # Wire test metrics
     agent._m_bars_raw = _TEST_BARS_PRODUCED.labels(provider="test", agent="test_provider_agent")
-    agent._m_reconnects = _TEST_RECONNECTS.labels(provider="test", agent="test_provider_agent")
+    agent._m_reconnects_attempted = _TEST_RECONNECTS_ATTEMPTED.labels(
+        provider="test", agent="test_provider_agent"
+    )
+    agent._m_reconnects_succeeded = _TEST_RECONNECTS_SUCCEEDED.labels(
+        provider="test", agent="test_provider_agent"
+    )
     agent._g_connected = _TEST_CONNECTED.labels(provider="test", agent="test_provider_agent")
     agent._m_gaps_filled = _TEST_GAPS_FILLED.labels(provider="test", agent="test_provider_agent")
     agent._raw_topic = "dev.market.bars.raw.test"

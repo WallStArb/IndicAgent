@@ -183,6 +183,18 @@ async def _connect_with_circuit_breaker(
         return None
 
 
+def _normalize_ib_bar_ts(raw_date) -> datetime:
+    """Normalize an ib_insync bar.date to a UTC-aware datetime.
+
+    ib_insync returns either a `datetime` (possibly naive) or an ISO-8601 string
+    depending on `formatDate` and bar size. Always produce a tz-aware UTC datetime.
+    """
+    ts = raw_date if isinstance(raw_date, datetime) else datetime.fromisoformat(str(raw_date))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts
+
+
 def _is_circuit_breaker_open() -> bool:
     """Check if IBKR circuit breaker is OPEN."""
     state = _ibkr_circuit_breaker.plugin_states["ibkr:connection"].state
@@ -273,7 +285,7 @@ class IBKRProvider:
                 timeout=5.0
             )
             return True
-        except (asyncio.TimeoutError, Exception) as exc:
+        except (TimeoutError, ConnectionError, OSError) as exc:
             logger.warning(
                 "IBKR ping failed",
                 extra={"error": str(exc), "error_type": type(exc).__name__}
@@ -366,13 +378,7 @@ class IBKRProvider:
                 formatDate=1,
             )
             for bar in ib_bars or []:
-                bar_ts = (
-                    bar.date
-                    if isinstance(bar.date, datetime)
-                    else datetime.fromisoformat(str(bar.date))
-                )
-                if bar_ts.tzinfo is None:
-                    bar_ts = bar_ts.replace(tzinfo=UTC)
+                bar_ts = _normalize_ib_bar_ts(bar.date)
                 all_bars.append(
                     OHLCVBar(
                         symbol=symbol,
@@ -726,13 +732,7 @@ class IBKRProvider:
                 bar = bars_list[-1]
                 try:
                     # Map IB bar to our OHLCVBar schema
-                    bar_ts = (
-                        bar.date
-                        if isinstance(bar.date, datetime)
-                        else datetime.fromisoformat(str(bar.date))
-                    )
-                    if bar_ts.tzinfo is None:
-                        bar_ts = bar_ts.replace(tzinfo=UTC)
+                    bar_ts = _normalize_ib_bar_ts(bar.date)
 
                     normalized = OHLCVBar(
                         symbol=_symbol,
