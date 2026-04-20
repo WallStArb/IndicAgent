@@ -294,9 +294,14 @@ PROVIDER_BARS_PRODUCED_TOTAL = Counter(
     "Total bars produced and published to raw topic per provider",
     ["provider", "agent"],
 )
-PROVIDER_RECONNECTS_TOTAL = Counter(
-    "provider_reconnects_total",
-    "Total reconnection attempts per provider",
+PROVIDER_RECONNECTS_ATTEMPTED_TOTAL = Counter(
+    "provider_reconnects_attempted_total",
+    "Total reconnection attempts started per provider",
+    ["provider", "agent"],
+)
+PROVIDER_RECONNECTS_SUCCEEDED_TOTAL = Counter(
+    "provider_reconnects_succeeded_total",
+    "Total reconnection attempts that successfully reestablished the connection",
     ["provider", "agent"],
 )
 PROVIDER_CONNECTED = Gauge(

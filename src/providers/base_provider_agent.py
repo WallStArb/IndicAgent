@@ -29,7 +29,8 @@ from src.observability.metrics import (
     PROVIDER_BARS_PRODUCED_TOTAL,
     PROVIDER_CONNECTED,
     PROVIDER_GAPS_FILLED_TOTAL,
-    PROVIDER_RECONNECTS_TOTAL,
+    PROVIDER_RECONNECTS_ATTEMPTED_TOTAL,
+    PROVIDER_RECONNECTS_SUCCEEDED_TOTAL,
 )
 from src.providers.base import DataProviderAdapter
 
@@ -50,7 +51,8 @@ class BaseProviderAgent(BaseAgent):
 
     Golden Signals (D-16):
     - Traffic:  provider_bars_produced_total{provider, agent}
-    - Errors:   provider_reconnects_total{provider, agent}
+    - Errors:   provider_reconnects_attempted_total{provider, agent}
+                provider_reconnects_succeeded_total{provider, agent}
     - Saturation: provider_connected{provider, agent} (gauge, 0/1)
     - SLA:      provider_gaps_filled_total{provider, agent}
     """
@@ -68,7 +70,12 @@ class BaseProviderAgent(BaseAgent):
         # Pre-cache labeled metric children — avoids per-bar dict lookup overhead
         pname = self._provider_name_str()
         self._m_bars_raw = PROVIDER_BARS_PRODUCED_TOTAL.labels(provider=pname, agent=self.name)
-        self._m_reconnects = PROVIDER_RECONNECTS_TOTAL.labels(provider=pname, agent=self.name)
+        self._m_reconnects_attempted = PROVIDER_RECONNECTS_ATTEMPTED_TOTAL.labels(
+            provider=pname, agent=self.name
+        )
+        self._m_reconnects_succeeded = PROVIDER_RECONNECTS_SUCCEEDED_TOTAL.labels(
+            provider=pname, agent=self.name
+        )
         self._g_connected = PROVIDER_CONNECTED.labels(provider=pname, agent=self.name)
         self._m_gaps_filled = PROVIDER_GAPS_FILLED_TOTAL.labels(provider=pname, agent=self.name)
 
@@ -252,7 +259,7 @@ class BaseProviderAgent(BaseAgent):
         Sequence: 2, 4, 8, 10, 10, 10, ...
         """
         delay = min(2 ** (attempt + 1), 10)
-        self._m_reconnects.inc()
+        self._m_reconnects_attempted.inc()
         self.logger.warning(
             "provider_agent.reconnecting",
             agent=self.name,
@@ -266,6 +273,7 @@ class BaseProviderAgent(BaseAgent):
             connected = await self._adapter.connect()
             if connected:
                 self._g_connected.set(1)
+                self._m_reconnects_succeeded.inc()
                 self.logger.info(
                     "provider_agent.reconnected",
                     agent=self.name,
