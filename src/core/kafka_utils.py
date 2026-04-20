@@ -58,9 +58,22 @@ class KafkaProducerClient:
         self._producer: AIOKafkaProducer | None = None
 
     async def start(self) -> None:
-        """Create and start the underlying AIOKafkaProducer."""
+        """Create and start the underlying AIOKafkaProducer.
+
+        Durability configuration:
+          acks='all'                 wait for replica acks, not just leader
+          enable_idempotence=True    exactly-once-per-partition producer semantics
+          compression_type='lz4'     ~60% bytes saved on JSON, negligible CPU
+          max_in_flight_requests=5   required ≤5 when idempotence is enabled
+        """
         logger.info("KafkaProducerClient starting", bootstrap_servers=self._bootstrap)
-        producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
+        producer = AIOKafkaProducer(
+            bootstrap_servers=self._bootstrap,
+            acks="all",
+            enable_idempotence=True,
+            compression_type="lz4",
+            max_in_flight_requests_per_connection=5,
+        )
         try:
             await producer.start()
         except Exception:

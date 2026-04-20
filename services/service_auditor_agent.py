@@ -25,9 +25,10 @@ from datetime import UTC, datetime, timedelta
 import aiohttp
 import asyncpg
 
-from src.config.settings import get_settings
+from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
 from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
@@ -205,16 +206,18 @@ class ServiceAuditorAgent(BaseAgent):
         while self.running:
             await asyncio.sleep(self._prometheus_check_interval)
             try:
-                health_set, lag_map = await asyncio.gather(
+                health_set, lag_map, data_flow = await asyncio.gather(
                     self._fetch_prometheus_health(),
                     self._fetch_prometheus_lag(),
+                    self._fetch_provider_data_flow(),
                 )
                 for spec in _SORTED_REGISTRY:
                     has_metrics = spec.unit in health_set
                     lag = lag_map.get(spec.unit, 0)
                     active = "active" if has_metrics else "unknown"
                     sub = "running" if has_metrics else "no_metrics"
-                    await self._evaluate_service(spec, active, sub, lag, has_metrics)
+                    bars_per_sec = data_flow.get(spec.unit, 0.0)
+                    await self._evaluate_service(spec, active, sub, lag, has_metrics, bars_per_sec)
             except Exception as exc:
                 self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
 
@@ -254,6 +257,7 @@ class ServiceAuditorAgent(BaseAgent):
         sub_state: str,
         lag_messages: int,
         has_metrics: bool,
+        bars_per_sec: float = 0.0,
     ) -> None:
         state = self._service_states[spec.unit]
         if state.escalated:
@@ -262,6 +266,44 @@ class ServiceAuditorAgent(BaseAgent):
         now = datetime.now(UTC)
         is_dead = active_state in ("failed", "inactive") or sub_state == "start-limit-hit"
         is_laggy = spec.lag_threshold_messages > 0 and lag_messages > spec.lag_threshold_messages
+
+        # -- DATA STOPPAGE DETECTION (IBKR provider only) --------------------
+        # Only meaningful when at least one active instrument's session is open;
+        # outside market hours bars_per_sec=0 is expected and must not trigger
+        # restart-thrashing.
+        if (
+            spec.unit == _SVC_DATA_PROVIDER
+            and bars_per_sec == 0.0
+            and has_metrics
+            and self._any_active_session_open(now)
+        ):
+            if not state.degraded_since:
+                state.degraded_since = now
+            state.degraded_check_count += 1
+            if state.degraded_check_count >= 2:  # 2 checks = 30 seconds
+                await self._emit_health_event(
+                    service=spec.unit,
+                    event_type="data_stoppage",
+                    previous_state=state.last_known_state,
+                    reason="bars/sec=0 for >30s during active session",
+                    lag_messages=None,
+                    restart_count=len(state.restart_times),
+                    duration_degraded_s=None,
+                )
+                await self._dispatch_webhook(
+                    "HIGH",
+                    f"Provider data stoppage: {spec.unit}",
+                    "No bars produced for 30+ seconds — restarting.",
+                )
+                state.last_known_state = "restarting"
+                await self._restart_service(spec)
+                return
+            # Preserve the counter across iterations — skip the healthy-reset
+            # tail below. Without this return, lines at the bottom of the
+            # function zero degraded_check_count every cycle and the
+            # >=2 gate is never reached.
+            return
+        # ------------------------------------------------------------------
 
         # -- RESTART ----------------------------------------------------------
         if is_dead:
@@ -396,6 +438,42 @@ class ServiceAuditorAgent(BaseAgent):
             unit = _AGENT_ID_TO_UNIT.get(r["metric"].get("agent_id", ""))
             if unit:
                 out[unit] = int(float(r["value"][1]))
+        return out
+
+    def _any_active_session_open(self, now: datetime) -> bool:
+        """True if any active instrument's trading session is open at `now`.
+
+        Gates data-stoppage detection so overnight/weekend/holiday quiet
+        periods do not trigger restart-thrashing. Fails open (returns True)
+        on settings lookup error so genuine stoppages still surface.
+        """
+        try:
+            instruments = get_active_contracts(self.settings)
+        except Exception as exc:
+            self.logger.warning(
+                "service_auditor.session_lookup_failed",
+                error=str(exc),
+            )
+            return True
+        for inst in instruments:
+            session = SESSION_REGISTRY.get(inst.session_id)
+            if session is not None and session.is_open(now):
+                return True
+        return False
+
+    async def _fetch_provider_data_flow(self) -> dict[str, float]:
+        """Check provider bars/second rate to detect data stoppage."""
+        # Query rate of bars produced over last 5 minutes
+        results = await self._query_prometheus(
+            'rate(provider_bars_produced_total[5m])'
+        )
+        out: dict[str, float] = {}
+        for r in results:
+            provider = r["metric"].get("provider", "")
+            if provider == "ibkr":
+                # Return bars/second as float
+                out[_SVC_DATA_PROVIDER] = float(r["value"][1])
+                break
         return out
 
     async def _query_prometheus(self, query: str) -> list[dict]:
