@@ -58,6 +58,11 @@ _HTF_TF_NAMES_LIST: list[str] = list(_HTF_TIMEFRAME_MINUTES.keys())
 # All timeframes queried in the bulk audit — 1m for gap detection + HTF for metrics.
 _ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
 
+# Retry schedule: after N-th attempt, wait this many seconds before re-emitting.
+# Index 0 = after 1st attempt (5 min), index 1 = after 2nd attempt (30 min).
+_RETRY_BACKOFFS_SECS: tuple[int, ...] = (300, 1800)
+MAX_GAP_RETRIES: int = 3
+
 
 class _AuditWindow(NamedTuple):
     instrument: object
@@ -112,14 +117,6 @@ class BarAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
-
-        # Dedup: track (symbol, session_start_iso) pairs already requested today.
-        # Prevents the infinite retry loop when IBKR can't fully cover a gap
-        # (e.g. CME overnight sessions where actual/expected < 95% permanently).
-        # Keyed on session UTC start (not calendar date) so overnight sessions that
-        # span two calendar dates are deduped correctly. Cleared at UTC midnight.
-        self._requested_today: set[tuple[str, str]] = set()
-        self._requested_today_date: str = ""  # YYYY-MM-DD of last clear
 
         # Cache labeled children — avoids .labels() lookup on every audit cycle
         self._audits_run = _AUDITS_RUN.labels(agent=self.name)
@@ -254,12 +251,6 @@ class BarAuditorAgent(BaseAgent):
             list[BarGapRequest]: one request per (instrument, session) that needs gap fill
         """
         today = date.today()
-        today_str = str(today)
-
-        # Reset dedup set on UTC day rollover
-        if self._requested_today_date != today_str:
-            self._requested_today.clear()
-            self._requested_today_date = today_str
 
         windows: list[_AuditWindow] = []
         for instrument in instruments:
@@ -329,10 +320,16 @@ class BarAuditorAgent(BaseAgent):
                     await self._upsert_market_data_gap(
                         conn, sym, "1m", w.date_start_utc, w.expected, w.expected - actual,
                     )
-                    # Dedup on session UTC start — not calendar date. Overnight sessions
-                    # (e.g. ES futures) span two calendar dates; the UTC start is unique.
-                    gap_key = (sym, w.date_start_utc.isoformat())
-                    if gap_key not in self._requested_today:
+                    req = BarGapRequest(
+                        symbol=sym,
+                        tf="1m",
+                        start_ts=w.date_start_utc,
+                        end_ts=w.date_end_utc,
+                    )
+                    should_emit = await self._check_gap_retry(
+                        conn, sym, "1m", w.date_start_utc, w.date_end_utc
+                    )
+                    if should_emit:
                         self.logger.warning(
                             "bar_auditor_agent.gap_detected",
                             symbol=sym,
@@ -342,15 +339,10 @@ class BarAuditorAgent(BaseAgent):
                             completeness=round(completeness, 3),
                             threshold=round(threshold, 3),
                         )
-                        gaps.append(
-                            BarGapRequest(
-                                symbol=sym,
-                                tf="1m",
-                                start_ts=w.date_start_utc,
-                                end_ts=w.date_end_utc,
-                            )
+                        gaps.append(req)
+                        await self._record_gap_request_sent(
+                            conn, sym, "1m", w.date_start_utc, req.request_id
                         )
-                        self._requested_today.add(gap_key)
 
                 elif completeness >= 1.0:
                     await self._resolve_market_data_gap(conn, sym, "1m", w.date_start_utc)
@@ -471,6 +463,91 @@ class BarAuditorAgent(BaseAgent):
             """,
             now,
             existing_id,
+        )
+
+    def _should_emit_gap_request(self, row: dict) -> bool:
+        """True if a new BarGapRequest should be emitted for this gap row.
+
+        Enforces exponential-backoff retry schedule defined by _RETRY_BACKOFFS_SECS.
+        Returns False (suppress) when MAX_GAP_RETRIES is reached — caller handles DLQ.
+        """
+        sent = row.get("gap_requests_sent", 0)
+        if sent >= MAX_GAP_RETRIES:
+            return False
+        last_sent_at = row.get("last_request_sent_at")
+        if last_sent_at is None:
+            return True  # never sent — always emit
+        backoff_idx = max(0, sent - 1)
+        backoff_secs = _RETRY_BACKOFFS_SECS[min(backoff_idx, len(_RETRY_BACKOFFS_SECS) - 1)]
+        elapsed = (datetime.now(UTC) - last_sent_at).total_seconds()
+        return elapsed >= backoff_secs
+
+    async def _check_gap_retry(
+        self,
+        conn: asyncpg.Connection,
+        symbol: str,
+        tf: str,
+        start_ts: datetime,
+        end_ts: datetime,
+    ) -> bool:
+        """Check DB retry state for a gap. Returns True if a new request should be emitted.
+
+        Fetches current retry state from market_data_gaps. If MAX_GAP_RETRIES reached,
+        publishes to DLQ instead of emitting. Caller is responsible for updating
+        gap_requests_sent + last_request_sent_at via _record_gap_request_sent().
+        """
+        row = await conn.fetchrow(
+            """
+            SELECT gap_requests_sent, last_request_sent_at, last_request_id, resolved_at
+            FROM market_data_gaps
+            WHERE symbol = $1 AND tf = $2 AND gap_start_ts = $3
+            """,
+            symbol,
+            tf,
+            start_ts,
+        )
+        if row is None:
+            return True  # gap row not yet written — will be upserted, then emit
+
+        if row["resolved_at"] is not None:
+            return False  # already resolved
+
+        if not self._should_emit_gap_request(dict(row)):
+            if row["gap_requests_sent"] >= MAX_GAP_RETRIES:
+                await self._publish_gap_fill_dlq(
+                    symbol=symbol,
+                    tf=tf,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    retry_count=row["gap_requests_sent"],
+                    error="max_retries_exceeded",
+                )
+            return False
+
+        return True
+
+    async def _record_gap_request_sent(
+        self,
+        conn: asyncpg.Connection,
+        symbol: str,
+        tf: str,
+        start_ts: datetime,
+        request_id: str,
+    ) -> None:
+        """Increment gap_requests_sent and update last_request_sent_at on the gap row."""
+        await conn.execute(
+            """
+            UPDATE market_data_gaps
+            SET gap_requests_sent    = gap_requests_sent + 1,
+                last_request_sent_at = $4,
+                last_request_id      = $5
+            WHERE symbol = $1 AND tf = $2 AND gap_start_ts = $3
+            """,
+            symbol,
+            tf,
+            start_ts,
+            datetime.now(UTC),
+            request_id,
         )
 
     async def _publish_gap_fill_dlq(

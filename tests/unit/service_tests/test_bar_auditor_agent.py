@@ -116,8 +116,6 @@ def _make_agent_stub(env_name="development"):
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
-    agent._requested_today: set = set()
-    agent._requested_today_date: str = ""
     return agent
 
 
@@ -144,9 +142,12 @@ class TestDetectGaps:
         # Mock the completeness gauge
         agent._canonical_completeness = MagicMock()
 
-        # Mock DB pool — returns count well below 95% of 1440
+        # Mock DB pool — bulk fetch returns no rows → counts={} → completeness=0
+        # fetchrow returns None → _check_gap_retry sees no existing row → emit=True
         mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=10)  # 10/1440 = 0.7% completeness
+        mock_conn.fetch = AsyncMock(return_value=[])
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+        mock_conn.execute = AsyncMock()
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock()
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
