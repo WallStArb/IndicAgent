@@ -236,6 +236,10 @@ class IBKRAdapter:
         # no bars arriving). Threshold > IBKR maintenance window (~15 min) so we
         # don't restart during a normal nightly pause, but catch indefinite silence.
         _NO_BAR_TIMEOUT_S = 1200  # 20 minutes
+        # Soft threshold: after this much silence, actively ping the broker to
+        # disambiguate "quiet market" from "dead subscription" without waiting
+        # the full 20-min hard timeout.
+        _PING_AFTER_SILENCE_S = 300  # 5 minutes
 
         async def _bar_flow_watchdog() -> None:
             """Reconnect when bars stop flowing despite TCP connection being alive.
@@ -243,13 +247,46 @@ class IBKRAdapter:
             keepUpToDate streams silently die after IBKR maintenance windows
             without triggering error 1100/1102. _connection_watchdog cannot
             detect this because is_connected() stays True. This watchdog
-            watches the wall-clock arrival time of bars and forces a restart when silence exceeds
-            _NO_BAR_TIMEOUT_S while the provider reports itself connected.
+            watches the wall-clock arrival time of bars and forces a restart
+            either when an active ping fails past the soft threshold, or when
+            silence exceeds _NO_BAR_TIMEOUT_S while the provider reports itself
+            connected.
             """
+            pinged_this_gap = False
             while True:
                 await asyncio.sleep(60)
                 silence_s = loop.time() - last_bar_wall[0]
-                if silence_s > _NO_BAR_TIMEOUT_S and self._provider.is_connected():
+                if silence_s < _PING_AFTER_SILENCE_S:
+                    pinged_this_gap = False
+                    continue
+
+                if not self._provider.is_connected():
+                    # _connection_watchdog handles the TCP-down case.
+                    continue
+
+                # Soft threshold crossed — actively ping once per silence gap
+                # to catch dead subscriptions that keep is_connected() True.
+                if not pinged_this_gap:
+                    pinged_this_gap = True
+                    try:
+                        alive = await self._provider.ping()
+                    except Exception as exc:
+                        logger.warning(
+                            "ibkr_adapter.ping_exception_forcing_restart silence=%ds err=%s",
+                            int(silence_s),
+                            exc,
+                        )
+                        await bar_queue.put(_RECONNECT)
+                        return
+                    if not alive:
+                        logger.warning(
+                            "ibkr_adapter.ping_failed_forcing_restart silence=%ds",
+                            int(silence_s),
+                        )
+                        await bar_queue.put(_RECONNECT)
+                        return
+
+                if silence_s > _NO_BAR_TIMEOUT_S:
                     logger.warning(
                         "ibkr_adapter.bar_flow_timeout_forcing_restart silence=%ds threshold=%ds",
                         int(silence_s),
