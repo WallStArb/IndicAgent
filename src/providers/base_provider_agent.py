@@ -257,7 +257,7 @@ class BaseProviderAgent(BaseAgent):
             attempt += 1
 
     async def _reconnect(self, attempt: int) -> None:
-        """Reconnect with jittered exponential backoff capped at ~30 seconds.
+        """Reconnect with jittered exponential backoff (base ≤30s, delay ≤45s).
 
         base = min(2 ** (attempt + 1), 30); delay = base * uniform(0.5, 1.5)
         Jitter avoids thundering-herd reconnect after a broker-wide blip.
