@@ -150,6 +150,7 @@ def _make_concrete_agent():
     )
     agent._g_connected = _TEST_CONNECTED.labels(provider="test", agent="test_provider_agent")
     agent._m_gaps_filled = _TEST_GAPS_FILLED.labels(provider="test", agent="test_provider_agent")
+    agent._gap_fetch_sem = asyncio.Semaphore(1)
     agent._raw_topic = "dev.market.bars.raw.test"
     agent._kafka_producer = AsyncMock()
     agent._adapter = MagicMock()

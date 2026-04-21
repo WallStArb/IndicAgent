@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from src.core.bar_normalizer import SOURCE_IBKR_GENERIC, SOURCE_IBKR_NAMED
 from src.core.models import Instrument
 from src.core.schemas.bar_message import BarMessage, SessionType
+from src.observability.metrics import PROVIDER_BARS_DROPPED_TOTAL
 from src.providers.base import OHLCVBar
 from src.providers.ibkr import IBKRProvider
 
@@ -54,9 +54,17 @@ class IBKRAdapter:
     def __init__(self, host: str, port: int, client_id: int) -> None:
         self._provider = IBKRProvider(host=host, port=port, client_id=client_id)
 
-        # Dedup guard: symbol → set of emitted ts ISO strings
-        self._seen_ts: dict[str, set[str]] = defaultdict(set)
-        self._seen_ts_order: dict[str, deque] = defaultdict(lambda: deque(maxlen=30))
+        # Dedup guard: last emitted bar timestamp per symbol.
+        # Bars are monotonically non-decreasing — keep only the most recent.
+        self._last_emitted_ts: dict[str, datetime] = {}
+
+        # Pre-cached drop counters (set on first stream_bars call, once symbols known)
+        self._m_dropped_queue_full = PROVIDER_BARS_DROPPED_TOTAL.labels(
+            provider=self.provider_name, agent="ibkr_provider_agent", reason="queue_full"
+        )
+        self._m_dropped_dup = PROVIDER_BARS_DROPPED_TOTAL.labels(
+            provider=self.provider_name, agent="ibkr_provider_agent", reason="duplicate"
+        )
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -92,20 +100,18 @@ class IBKRAdapter:
         symbols = [i.symbol for i in instruments]
         sym_to_instrument: dict[str, Instrument] = {i.symbol: i for i in instruments}
 
-        bar_queue: asyncio.Queue[BarMessage] = asyncio.Queue()
+        # Bounded: drops here surface via PROVIDER_BARS_DROPPED_TOTAL{reason="queue_full"}
+        # rather than blocking the ib_insync callback thread.
+        bar_queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
         loop = asyncio.get_running_loop()
 
         def _make_bar_msg(sym: str, bar: OHLCVBar) -> BarMessage | None:
             """Convert OHLCVBar → BarMessage with dedup guard. Returns None if duplicate."""
-            ts_str = bar.timestamp.isoformat()
-            seen = self._seen_ts[sym]
-            order = self._seen_ts_order[sym]
-            if ts_str in seen:
+            last_ts = self._last_emitted_ts.get(sym)
+            if last_ts is not None and bar.timestamp <= last_ts:
+                self._m_dropped_dup.inc()
                 return None
-            if len(order) == order.maxlen:
-                seen.discard(order[0])  # evict before deque drops it
-            seen.add(ts_str)
-            order.append(ts_str)
+            self._last_emitted_ts[sym] = bar.timestamp
             instrument = sym_to_instrument.get(sym)
             session_type = _SESSION_ID_TO_TYPE.get(
                 instrument.session_id if instrument else "futures_24_5",
@@ -130,18 +136,30 @@ class IBKRAdapter:
         # last_bar_wall[0] is updated via loop.time() each time a bar arrives.
         last_bar_wall: list[float] = [loop.time()]
 
+        def _enqueue_bar(msg: BarMessage) -> None:
+            """Non-blocking enqueue. Drops + increments counter on QueueFull."""
+            try:
+                bar_queue.put_nowait(msg)
+                last_bar_wall[0] = loop.time()
+            except asyncio.QueueFull:
+                self._m_dropped_queue_full.inc()
+                logger.warning(
+                    "ibkr_adapter.bar_queue_full_dropping symbol=%s ts=%s",
+                    msg.symbol,
+                    msg.ts.isoformat(),
+                )
+
         async def _official_bars_stream() -> None:
             """Primary live bar source: keepUpToDate official bars (non-crypto)."""
             try:
                 async for sym, bar in self._provider.stream_official_bars(symbols):
                     msg = _make_bar_msg(sym, bar)
                     if msg:
-                        last_bar_wall[0] = loop.time()
-                        await bar_queue.put(msg)
+                        _enqueue_bar(msg)
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
-                logger.warning("official_bars_stream error", exc_info=exc)
+                logger.error("official_bars_stream error", exc_info=exc)
 
         async def _crypto_rtb_stream() -> None:
             """Crypto live bars via reqRealTimeBars (TRADES, 5s).
@@ -187,7 +205,7 @@ class IBKRAdapter:
                         # Minute boundary crossed — emit accumulated bar
                         msg = _flush(sym, acc[sym]["minute_ts"])
                         if msg:
-                            await bar_queue.put(msg)
+                            _enqueue_bar(msg)
 
                     if sym not in acc:
                         acc[sym] = {

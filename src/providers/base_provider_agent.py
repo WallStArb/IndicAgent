@@ -87,6 +87,9 @@ class BaseProviderAgent(BaseAgent):
         self._instruments: list[Instrument] = []
         # Semaphore created at runtime (not class level) to stay within the event loop.
         self._qualify_sem: asyncio.Semaphore | None = None
+        # Gap-fetch pacing: 1 in-flight fetch at a time + 0.2s spacing between fetches
+        # → ≤5 req/s sustained, well under IBKR's historical-data pacing thresholds.
+        self._gap_fetch_sem = asyncio.Semaphore(1)
 
     # ------------------------------------------------------------------
     # Abstract interface — subclasses must implement all four
@@ -338,12 +341,16 @@ class BaseProviderAgent(BaseAgent):
                         end_ts=req.end_ts.isoformat(),
                     )
 
-                    bars = await self._adapter.fetch_historical(
-                        symbol=req.symbol,
-                        tf=req.tf,
-                        start=req.start_ts,
-                        end=req.end_ts,
-                    )
+                    # IBKR historical-data pacing guard: 5 req/s sustained.
+                    # Prevents Error 162 when multiple gap requests stack up.
+                    async with self._gap_fetch_sem:
+                        bars = await self._adapter.fetch_historical(
+                            symbol=req.symbol,
+                            tf=req.tf,
+                            start=req.start_ts,
+                            end=req.end_ts,
+                        )
+                        await asyncio.sleep(0.2)
 
                     for bar in bars:
                         await self._kafka_producer.publish(
