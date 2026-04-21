@@ -18,6 +18,9 @@ import abc
 import asyncio
 import random
 from asyncio import CancelledError
+from datetime import datetime
+
+import asyncpg
 
 from src.config.settings import Settings, get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
@@ -91,6 +94,7 @@ class BaseProviderAgent(BaseAgent):
         # Gap-fetch pacing: 1 in-flight fetch at a time + 0.2s spacing between fetches
         # → ≤5 req/s sustained, well under IBKR's historical-data pacing thresholds.
         self._gap_fetch_sem = asyncio.Semaphore(1)
+        self._db_pool: asyncpg.Pool | None = None
 
     # ------------------------------------------------------------------
     # Abstract interface — subclasses must implement all four
@@ -124,6 +128,8 @@ class BaseProviderAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect Kafka producer and the provider adapter, then qualify all instruments."""
+        self._db_pool = await asyncpg.create_pool(self.settings.database_url)
+
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
@@ -193,6 +199,8 @@ class BaseProviderAgent(BaseAgent):
             await self._kafka_producer.stop()
         if self._adapter is not None:
             await self._adapter.disconnect()
+        if self._db_pool is not None:
+            await self._db_pool.close()
         self._g_connected.set(0)
         self.logger.info(
             "provider_agent.teardown_complete",
@@ -203,6 +211,34 @@ class BaseProviderAgent(BaseAgent):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _gap_already_filled(
+        self,
+        symbol: str,
+        tf: str,
+        start_ts: datetime,
+        end_ts: datetime,
+        expected_bars: int,
+    ) -> bool:
+        """Return True if market_data_ohlcv already has >= expected_bars for this window.
+
+        Prevents redundant IBKR historical fetches on restart or duplicate gap requests.
+        """
+        if self._db_pool is None or expected_bars <= 0:
+            return False
+        async with self._db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM market_data_ohlcv
+                WHERE symbol = $1 AND timeframe = $2
+                  AND timestamp >= $3 AND timestamp < $4
+                """,
+                symbol,
+                tf,
+                start_ts,
+                end_ts,
+            )
+        return (count or 0) >= expected_bars
 
     async def _qualify_instrument(self, instrument: Instrument) -> bool:
         """Qualify a single instrument via the adapter, rate-limited to 5 concurrent."""
@@ -342,6 +378,19 @@ class BaseProviderAgent(BaseAgent):
                         start_ts=req.start_ts.isoformat(),
                         end_ts=req.end_ts.isoformat(),
                     )
+
+                    window_minutes = int((req.end_ts - req.start_ts).total_seconds() / 60)
+                    expected_bars = window_minutes  # 1 bar per minute for tf="1m"
+
+                    if await self._gap_already_filled(req.symbol, req.tf, req.start_ts, req.end_ts, expected_bars):
+                        self.logger.info(
+                            "provider_agent.gap_request_skipped_already_filled",
+                            agent=self.name,
+                            request_id=str(req.request_id),
+                            symbol=req.symbol,
+                            expected_bars=expected_bars,
+                        )
+                        continue
 
                     # IBKR historical-data pacing guard: 5 req/s sustained.
                     # Prevents Error 162 when multiple gap requests stack up.
