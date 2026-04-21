@@ -63,8 +63,8 @@ class KafkaProducerClient:
         Durability configuration:
           acks='all'                 wait for replica acks, not just leader
           enable_idempotence=True    exactly-once-per-partition producer semantics
+                                     (aiokafka internally caps in-flight ≤5)
           compression_type='lz4'     ~60% bytes saved on JSON, negligible CPU
-          max_in_flight_requests=5   required ≤5 when idempotence is enabled
         """
         logger.info("KafkaProducerClient starting", bootstrap_servers=self._bootstrap)
         producer = AIOKafkaProducer(
@@ -72,7 +72,6 @@ class KafkaProducerClient:
             acks="all",
             enable_idempotence=True,
             compression_type="lz4",
-            max_in_flight_requests_per_connection=5,
         )
         try:
             await producer.start()
