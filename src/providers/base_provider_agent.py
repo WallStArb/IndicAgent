@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import random
 from asyncio import CancelledError
 
 from src.config.settings import Settings, get_active_contracts, get_settings
@@ -176,11 +177,10 @@ class BaseProviderAgent(BaseAgent):
         """Launch stream + gap-fill loops, wait for stop event."""
         stream_task = asyncio.create_task(self._stream_loop())
         gap_task = asyncio.create_task(self._gap_requests_loop())
-        health_task = asyncio.create_task(self._health_check_loop())
 
         await self._stop_event.wait()
 
-        for task in (stream_task, gap_task, health_task):
+        for task in (stream_task, gap_task):
             task.cancel()
             try:
                 await task
@@ -232,6 +232,7 @@ class BaseProviderAgent(BaseAgent):
                 async for bar in self._adapter.stream_bars(self._instruments):
                     if self._stop_event.is_set():
                         return
+                    attempt = 0
                     await self._publish_bar(bar)
                 # Generator exited normally — treat as disconnect
                 self.logger.warning(
@@ -256,12 +257,13 @@ class BaseProviderAgent(BaseAgent):
             attempt += 1
 
     async def _reconnect(self, attempt: int) -> None:
-        """Reconnect with exponential backoff capped at 10 seconds.
+        """Reconnect with jittered exponential backoff capped at ~30 seconds.
 
-        Formula: min(2 ** (attempt + 1), 10)
-        Sequence: 2, 4, 8, 10, 10, 10, ...
+        base = min(2 ** (attempt + 1), 30); delay = base * uniform(0.5, 1.5)
+        Jitter avoids thundering-herd reconnect after a broker-wide blip.
         """
-        delay = min(2 ** (attempt + 1), 10)
+        base = min(2 ** (attempt + 1), 30)
+        delay = base * random.uniform(0.5, 1.5)
         self._m_reconnects_attempted.inc()
         self.logger.warning(
             "provider_agent.reconnecting",
@@ -395,39 +397,6 @@ class BaseProviderAgent(BaseAgent):
         )
         self._m_bars_raw.inc()
         self._record_message_consumed()
-
-    async def _health_check_loop(self) -> None:
-        """Active health check — ping adapter every 30s to detect dead connections.
-
-        Prevents the 10-hour idle connection failure we saw where the provider
-        sat disconnected without attempting reconnection. Triggers reconnect if ping fails.
-        """
-        while not self._stop_event.is_set():
-            await asyncio.sleep(30)  # Check every 30 seconds
-            if self._stop_event.is_set():
-                break
-
-            # Skip check if adapter doesn't support ping (not IBKR)
-            if not hasattr(self._adapter, "ping"):
-                continue
-
-            try:
-                is_healthy = await self._adapter.ping()
-                if not is_healthy:
-                    self.logger.warning(
-                        "provider_agent.health_check_failed",
-                        agent=self.name,
-                        provider=self._provider_name_str(),
-                    )
-                    # Trigger reconnect by breaking stream loop
-                    if hasattr(self._adapter, "disconnect"):
-                        await self._adapter.disconnect()
-            except Exception as exc:
-                self.logger.error(
-                    "provider_agent.health_check_exception",
-                    agent=self.name,
-                    error=str(exc),
-                )
 
     # ------------------------------------------------------------------
     # Helpers
