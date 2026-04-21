@@ -1,7 +1,7 @@
 """IBKRAdapter — DataProviderAdapter implementation wrapping IBKRProvider.
 
-Encapsulates all IBKR-specific logic (official bar streaming, crypto polling
-fallback, provider_meta['ibkr'] key lookup) so that BaseProviderAgent only
+Encapsulates all IBKR-specific logic (official bar streaming,
+provider_meta['ibkr'] key lookup) so that BaseProviderAgent only
 sees the provider-agnostic DataProviderAdapter interface.
 
 Swapping IBKR for another broker = one new adapter file. Everything downstream
@@ -28,7 +28,6 @@ from src.providers.ibkr import IBKRProvider
 # session_id is the trading calendar identifier; SessionType is the bar-level
 # session classification used downstream by the feature pipeline.
 _SESSION_ID_TO_TYPE: dict[str, SessionType] = {
-    "crypto_24_7": SessionType.CRYPTO,
     "fx_24_5": SessionType.FX,
     "nyse": SessionType.RTH,
     "futures_24_5": SessionType.RTH,
@@ -43,7 +42,6 @@ class IBKRAdapter:
     """DataProviderAdapter that wraps IBKRProvider and produces BarMessage directly.
 
     Uses IBKR's keepUpToDate official bars as the primary live bar source.
-    Crypto symbols fall back to 65s polling (keepUpToDate+AGGTRADES unsupported).
 
     provider_name = 'ibkr' — matches the key used in provider_meta lookups,
     topic keys, and Prometheus metric labels.
@@ -83,7 +81,7 @@ class IBKRAdapter:
         return self._provider.is_connected()
 
     # ------------------------------------------------------------------
-    # stream_bars — primary live bar source (official bars + crypto polling)
+    # stream_bars — primary live bar source
     # ------------------------------------------------------------------
 
     async def stream_bars(
@@ -91,11 +89,8 @@ class IBKRAdapter:
     ) -> AsyncIterator[BarMessage]:
         """Async iterator yielding completed 1m BarMessage instances.
 
-        Primary source: IBKRProvider.stream_official_bars() with keepUpToDate=True
-        (IBKR's audited historical stream, ~2-5s after bar close). Crypto symbols
-        (BTCUSD, ETHUSD) use reqRealTimeBars (TRADES, 5s) aggregated to 1m —
-        keepUpToDate+AGGTRADES = IBKR error 321, and the AGGTRADES historical
-        feed stops serving data on weekends.
+        Source: IBKRProvider.stream_official_bars() with keepUpToDate=True
+        (IBKR's audited historical stream, ~2-5s after bar close).
         """
         symbols = [i.symbol for i in instruments]
         sym_to_instrument: dict[str, Instrument] = {i.symbol: i for i in instruments}
@@ -150,7 +145,7 @@ class IBKRAdapter:
                 )
 
         async def _official_bars_stream() -> None:
-            """Primary live bar source: keepUpToDate official bars (non-crypto)."""
+            """Primary live bar source: keepUpToDate official bars."""
             try:
                 async for sym, bar in self._provider.stream_official_bars(symbols):
                     msg = _make_bar_msg(sym, bar)
@@ -160,70 +155,6 @@ class IBKRAdapter:
                 pass
             except Exception as exc:
                 logger.error("official_bars_stream error", exc_info=exc)
-
-        async def _crypto_rtb_stream() -> None:
-            """Crypto live bars via reqRealTimeBars (TRADES, 5s).
-
-            keepUpToDate+AGGTRADES = IBKR error 321, and AGGTRADES historical
-            feed stops serving data on weekends. RTBs with TRADES work 24/7.
-            Aggregates 5s bars into 1m OHLCV bars and emits on minute boundary.
-            """
-            crypto_symbols = [
-                sym for sym in symbols
-                if sym_to_instrument.get(sym)
-                and sym_to_instrument[sym].session_id == "crypto_24_7"
-            ]
-            if not crypto_symbols:
-                return
-
-            # Accumulator: symbol → {minute_ts, open, high, low, close, volume}
-            acc: dict[str, dict] = {}
-
-            def _flush(sym: str, minute_ts: datetime) -> BarMessage | None:
-                a = acc.pop(sym, None)
-                if not a:
-                    return None
-                bar = OHLCVBar(
-                    timestamp=a["minute_ts"],
-                    open=a["open"],
-                    high=a["high"],
-                    low=a["low"],
-                    close=a["close"],
-                    volume=a["volume"],
-                )
-                return _make_bar_msg(sym, bar)
-
-            try:
-                async for sym, rtb in self._provider.stream_real_time_bars(crypto_symbols):
-                    # ib_insync RealTimeBar.time is a datetime; older versions return int
-                    bar_dt = rtb.time if isinstance(rtb.time, datetime) else datetime.fromtimestamp(rtb.time, tz=UTC)
-                    if bar_dt.tzinfo is None:
-                        bar_dt = bar_dt.replace(tzinfo=UTC)
-                    minute_ts = bar_dt.replace(second=0, microsecond=0)
-
-                    if sym in acc and acc[sym]["minute_ts"] != minute_ts:
-                        # Minute boundary crossed — emit accumulated bar
-                        msg = _flush(sym, acc[sym]["minute_ts"])
-                        if msg:
-                            _enqueue_bar(msg)
-
-                    if sym not in acc:
-                        acc[sym] = {
-                            "minute_ts": minute_ts,
-                            "open": rtb.open,
-                            "high": rtb.high,
-                            "low": rtb.low,
-                            "close": rtb.close,
-                            "volume": rtb.volume,
-                        }
-                    else:
-                        a = acc[sym]
-                        a["high"] = max(a["high"], rtb.high)
-                        a["low"] = min(a["low"], rtb.low)
-                        a["close"] = rtb.close
-                        a["volume"] += rtb.volume
-            except asyncio.CancelledError:
-                pass
 
         # Watchdog: detect TWS disconnect so _stream_loop can reconnect.
         # After error 1100 (TWS lost), ib_insync restores the TCP connection
@@ -319,7 +250,6 @@ class IBKRAdapter:
                     disconnect_at = None
 
         official_task = asyncio.ensure_future(_official_bars_stream())
-        crypto_task = asyncio.ensure_future(_crypto_rtb_stream())
         watchdog_task = asyncio.ensure_future(_connection_watchdog())
         bar_flow_task = asyncio.ensure_future(_bar_flow_watchdog())
 
@@ -327,17 +257,19 @@ class IBKRAdapter:
             while True:
                 bar = await bar_queue.get()
                 if bar is _RECONNECT:
-                    raise ConnectionError("TWS reconnect detected — restarting streams to re-subscribe")
+                    raise ConnectionError(
+                        "TWS reconnect detected — restarting streams to re-subscribe"
+                    )
                 yield bar
         except asyncio.CancelledError:
             pass
         finally:
-            for task in (official_task, crypto_task, watchdog_task, bar_flow_task):
+            for task in (official_task, watchdog_task, bar_flow_task):
                 if task and not task.done():
                     task.cancel()
                     try:
                         await task
-                    except (asyncio.CancelledError, Exception):
+                    except asyncio.CancelledError:
                         pass
 
     # ------------------------------------------------------------------
