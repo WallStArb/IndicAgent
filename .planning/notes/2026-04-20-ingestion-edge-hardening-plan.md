@@ -1,8 +1,8 @@
 ---
 created: 2026-04-20
-updated: 2026-04-20
+updated: 2026-04-21
 status: in-progress
-context: Resume plan — Commit A landed as 757c9da0. Commits 1-3 still pending. Commit 4 deferred.
+context: Resume plan — Commits A, 1, 2 landed. Commit 3 (reconnect consolidation) pending. Commit 4 deferred. Nothing deployed yet.
 ---
 
 # Ingestion-Edge Hardening Plan
@@ -37,28 +37,17 @@ Commit A has NOT been deployed. Before `sudo systemctl restart indicagent-ibkr-p
 - Tail `logs/ibkr_provider_agent.log` for the first 10 minutes post-restart.
 - `_health_check_loop` will be replaced by Commit 3. If you deploy Commit A first, expect two concurrent reconnect mechanisms (agent-side ping + adapter-side `_connection_watchdog`) — functional but redundant. Deploying all four commits together avoids this transient.
 
-## Remaining work — 4 commits
+## Remaining work
 
-### Commit 1 — small-risk quick wins
+### Commit 1 — landed 2026-04-21 (`7f193f2d`) ✅
 
-**Files:** `src/providers/ibkr.py`, `src/providers/base_provider_agent.py`, `src/observability/metrics.py`
+H4 (narrow `ping()` except), L5 (split `PROVIDER_RECONNECTS_TOTAL` → `_ATTEMPTED` + `_SUCCEEDED`), M6 (extract `_normalize_ib_bar_ts`). 4 files, tests green.
 
-- **H4** — `ibkr.py:276` `ping()` broad except. Narrow to `(asyncio.TimeoutError, ConnectionError, OSError)`. Unexpected exceptions should propagate, not silently flag the connection unhealthy.
-- **L5** — `base_provider_agent.py:255` split `PROVIDER_RECONNECTS_TOTAL` into `_attempted` and `_succeeded`. Current single counter increments before the attempt, conflating "trying" with "reconnected." Add `PROVIDER_RECONNECTS_SUCCEEDED_TOTAL` in `src/observability/metrics.py` alongside the existing counter (or rename existing → `_attempted` and add `_succeeded`). Update Grafana queries in `production/grafana/` if any reference the old metric name.
-- **M6** — extract `_normalize_ib_bar_ts(raw_date) -> datetime` at module top of `ibkr.py`. Replace the two duplicated blocks at lines 369–375 (`fetch_historical_bars`) and 729–735 (`stream_official_bars`).
+### Commit 2 — landed 2026-04-21 (`26a57946`) ✅
 
-### Commit 2 — hardening pass
+M3 (dedup simplify: `_last_emitted_ts` dict), M4 (drop counters on 3 callbacks), M5 (bar_queue bounded at 10k with `_enqueue_bar` helper), M8 (gap-fetch pacing via `asyncio.Semaphore(1)` + 0.2s sleep), L1 (warning→error), L2 (tick callback try/except), L3 (rtb_queue uses `_tick_queue_size`). New metric `provider_bars_dropped_total{provider, agent, reason}`. 5 files, 64 provider tests green.
 
-**Files:** `src/providers/ibkr_adapter.py`, `src/providers/ibkr.py`, `src/providers/base_provider_agent.py`, `src/observability/metrics.py`
-
-- **M3** — `ibkr_adapter.py:57-59` replace `_seen_ts` + `_seen_ts_order` (set + deque(maxlen=30)) with a single `_last_emitted_ts: dict[str, datetime]` and check `if ts <= self._last_emitted_ts.get(sym): return None`. Deletes deque import.
-- **M4** — `ibkr.py:659` silent drop in `stream_real_time_bars._on_bar`: add a counter `PROVIDER_BARS_DROPPED_TOTAL{provider, agent, reason="rtb_queue_full"}` and log at warning. Same pattern needed at `ibkr.py:751` (silent drop in `_on_official_bar`) — reason="official_queue_error" or similar.
-- **M5** — `ibkr_adapter.py:95` `bar_queue` currently unbounded. Cap at `maxsize=10000`; use `put_nowait` with drop-counter (reuse metric from M4).
-- **M8** — `base_provider_agent.py:291 _gap_requests_loop`: add IBKR pacing guard. Simple approach: `asyncio.Semaphore(1)` + `asyncio.sleep(0.2)` between fetches (5 req/sec sustained) OR `AsyncLimiter` from aiolimiter (10 req / 10 sec). Protects against Error 162.
-- **L1** — `ibkr_adapter.py:144` change `logger.warning` → `logger.error` in `_official_bars_stream` exception path.
-- **L2** — `ibkr.py:608` wrap `_handle_pending_tickers` callback body in try/except with logger.exception.
-- **L3** — `ibkr.py:639` use `self._tick_queue_size` instead of hardcoded `10_000`.
-- **L4** — unify naming. Pick `provider_name_str` (method — the agent-side choice) or `provider_name` (attribute — the adapter-side choice). Whichever is less disruptive.
+**L4 deferred:** `provider_name` attribute vs `_provider_name_str()` method — 24 method call-sites vs 3 attribute refs. Cosmetic only, not worth the churn this pass.
 
 ### Commit 3 — reconnect consolidation (biggest change)
 
