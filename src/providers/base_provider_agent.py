@@ -28,6 +28,7 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import Instrument
 from src.core.schemas.bar_message import BarMessage
 from src.core.schemas.market_events import BarGapRequest
+from src.core.service_utils import TF_SECONDS
 from src.core.stream_keys import message_key, topic_gap_requests, topic_market_bars_raw
 from src.observability.metrics import (
     PROVIDER_BARS_PRODUCED_TOTAL,
@@ -379,10 +380,14 @@ class BaseProviderAgent(BaseAgent):
                         end_ts=req.end_ts.isoformat(),
                     )
 
-                    window_minutes = int((req.end_ts - req.start_ts).total_seconds() / 60)
-                    expected_bars = window_minutes  # 1 bar per minute for tf="1m"
+                    window_seconds = int((req.end_ts - req.start_ts).total_seconds())
+                    tf_seconds = TF_SECONDS.get(req.tf, 60)
+                    expected_bars = max(1, window_seconds // tf_seconds)
 
-                    if await self._gap_already_filled(req.symbol, req.tf, req.start_ts, req.end_ts, expected_bars):
+                    already_filled = await self._gap_already_filled(
+                        req.symbol, req.tf, req.start_ts, req.end_ts, expected_bars
+                    )
+                    if already_filled:
                         self.logger.info(
                             "provider_agent.gap_request_skipped_already_filled",
                             agent=self.name,
