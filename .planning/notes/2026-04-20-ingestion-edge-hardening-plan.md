@@ -1,8 +1,8 @@
 ---
 created: 2026-04-20
 updated: 2026-04-21
-status: in-progress
-context: Resume plan — Commits A, 1, 2 landed. Commit 3 (reconnect consolidation) pending. Commit 4 deferred. Nothing deployed yet.
+status: complete
+context: Commits A, 1, 2, 3 landed + deployed (10 commits pushed to origin/main 2026-04-21). Commit 4 deferred (not bottleneck). L4 deferred (cosmetic). Next work: todo 030 (Kafka → DB writers audit).
 ---
 
 # Ingestion-Edge Hardening Plan
@@ -49,19 +49,16 @@ M3 (dedup simplify: `_last_emitted_ts` dict), M4 (drop counters on 3 callbacks),
 
 **L4 deferred:** `provider_name` attribute vs `_provider_name_str()` method — 24 method call-sites vs 3 attribute refs. Cosmetic only, not worth the churn this pass.
 
-### Commit 3 — reconnect consolidation (biggest change)
+### Commit 3 — landed 2026-04-21 (`501619db`) ✅
 
-**Files:** `src/providers/base_provider_agent.py`, `src/providers/ibkr_adapter.py`, `src/providers/ibkr.py`
+Reconnect consolidation. H1 deleted `BaseProviderAgent._health_check_loop` and folded active-ping into adapter's `_bar_flow_watchdog` (5-min soft threshold → ping; fail → enqueue `_RECONNECT`; 20-min hard threshold unchanged). M1 added jittered backoff (base ≤30s, delay ≤45s). M2 resets `attempt=0` on every successful bar.
 
-Approach: single coordination point is the adapter's `bar_queue._RECONNECT` sentinel. All reconnect signals flow through it.
+Post-landing fixes (discovered during deploy):
+- `95b4304b` — dropped invalid `max_in_flight_requests_per_connection` kwarg (aiokafka rejects; idempotence internally caps ≤5).
+- `ea5c2666` — replaced briefly-added `lz4` dep with `cramjam` (aiokafka's actual LZ4 backend via `has_lz4()` → `cramjam is not None`).
+- `2decaaff` — docstring accuracy fix (CodeRabbit: jitter max ~45s, not 30s).
 
-- **H1** — delete `BaseProviderAgent._health_check_loop` (lines 384–415) and remove it from the gather in `_run()` (lines 169, 173). Move the active-ping idea into the adapter's `_bar_flow_watchdog`:
-  - When `silence_s > threshold_soft` (e.g. 5 min) and `is_connected()` returns True, call `ping()` to disambiguate "quiet market" from "dead subscription."
-  - If ping fails → enqueue `_RECONNECT` sentinel immediately.
-  - If ping succeeds but silence continues past `_NO_BAR_TIMEOUT_S` (20 min) → keep existing behavior (force restart).
-  - Now we have one reconnect path, active detection available, no race between `_health_check_loop` calling `disconnect()` and the adapter's own cleanup.
-- **M1** — `base_provider_agent.py:254`: change `delay = min(2 ** (attempt + 1), 10)` → `base = min(2 ** (attempt + 1), 30); delay = base * random.uniform(0.5, 1.5)`. Raise cap from 10 → 30s and add jitter. Import `random` at top.
-- **M2** — `base_provider_agent.py:216-246 _stream_loop`: reset `attempt = 0` after receiving N bars successfully (say first bar after the `async for` starts yielding). Cleanest: set `attempt = 0` inside the `async for` at the top of the loop body, before `_publish_bar`. That way every successful bar resets the backoff state.
+**Deployed:** all continuous services restarted cleanly; bars flowing; 26 services active. Failed oneshot timers (`ml-data-quality`, `ml-discovery`) have a pre-existing `producer.start()` bug unrelated to this work.
 
 ### Commit 4 — Kafka fire-and-batch — **DEFERRED**
 
