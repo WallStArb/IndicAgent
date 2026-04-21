@@ -36,11 +36,16 @@ import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
 from src.core.agent.base_writer import BaseWriterAgent
-from src.core.kafka_utils import KafkaConsumerClient
 from src.core.bar_normalizer import SOURCE_UNKNOWN
+from src.core.kafka_utils import KafkaConsumerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.schemas.market_events import ContractUpdateEvent
-from src.core.stream_keys import topic_contract_updates, topic_market_bars, topic_market_bars_htf
+from src.core.stream_keys import (
+    topic_bar_writer_dlq,
+    topic_contract_updates,
+    topic_market_bars,
+    topic_market_bars_htf,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -137,6 +142,9 @@ class BarWriterAgent(BaseWriterAgent):
 
     def _topic_name(self) -> str:
         return topic_market_bars(self.env_name)
+
+    def _dlq_topic(self) -> str | None:
+        return topic_bar_writer_dlq(self.env_name)
 
     @property
     def _consumer_group(self) -> str:
@@ -239,6 +247,8 @@ class BarWriterAgent(BaseWriterAgent):
                 rows = self._parse_payload(payload)
                 if rows is not None:
                     self._buffer_rows(rows)
+                else:
+                    await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
                 self._events_consumed_lbl.inc()
             except Exception as exc:
                 self.logger.warning(

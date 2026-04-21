@@ -87,18 +87,13 @@ VALUES (
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
 
-_UPSERT_ROLL_BOUNDARY_SQL = """
-INSERT INTO intelligence_features (ts, symbol, tf, i7)
-VALUES ($1::timestamptz, $2, $3, $4::jsonb)
-ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
-"""
-
-# Separate constant for cross-asset persistence — same JSONB merge semantics as roll
-# boundary, but a distinct name so the two code paths can evolve independently.
-_UPSERT_CROSS_ASSET_SQL = """
-INSERT INTO intelligence_features (ts, symbol, tf, i7)
-VALUES ($1::timestamptz, $2, $3, $4::jsonb)
-ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
+# Pure UPDATE — no-op if the main bar row doesn't exist yet.
+# Prevents roll boundary and cross-asset writes from creating sparse rows
+# with NULL mandatory columns before the main BarIntelligenceRecord arrives.
+_UPDATE_I7_MERGE_SQL = """
+UPDATE intelligence_features
+SET i7 = COALESCE(i7, '{}'::jsonb) || $4::jsonb
+WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
 
 # Roll detection runs against 1m bars; boundary markers are written to the 1m row.
@@ -573,7 +568,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         marker = {"roll_boundary": f"{old_symbol}->{new_symbol}"}
         try:
             await self.db_manager.execute_batch(
-                _UPSERT_ROLL_BOUNDARY_SQL,
+                _UPDATE_I7_MERGE_SQL,
                 [(detected_at, new_symbol, _ROLL_BOUNDARY_TF, marker)],
             )
 
@@ -592,10 +587,6 @@ class FeatureWriterAgent(BaseWriterAgent):
                     detected_at,
                     _ROLL_BOUNDARY_TF,
                 )
-
-            # Explicitly commit after roll boundary write
-            if self._consumer:
-                await self._consumer.commit()
 
             self.logger.info(
                 "roll_boundary_written",
@@ -622,6 +613,12 @@ class FeatureWriterAgent(BaseWriterAgent):
             tf = payload.get("tf", "")
             ts_raw = payload.get("ts", "")
             if not tf or not ts_raw or not payload.get("ready"):
+                self.logger.debug(
+                    "cross_asset_skip_incomplete",
+                    tf=tf,
+                    ts=ts_raw,
+                    ready=payload.get("ready"),
+                )
                 return
             ts_dt = parse_iso_ts(ts_raw)
             cross_asset_data = {
@@ -636,13 +633,10 @@ class FeatureWriterAgent(BaseWriterAgent):
                     "low_vol_flag": payload.get("low_vol_flag"),
                 }
             }
-            # Persist cross-asset snapshot for each EQ_INDEX group member symbol
+            # Persist cross-asset snapshot for each EQ_INDEX group member symbol.
+            # Pure UPDATE — no-op if the main bar row doesn't exist yet.
             params = [(ts_dt, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
-            await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)
-
-            # Explicitly commit after cross-asset write
-            if self._consumer:
-                await self._consumer.commit()
+            await self.db_manager.execute_batch(_UPDATE_I7_MERGE_SQL, params)
 
             self.logger.debug(
                 "cross_asset_persisted",
