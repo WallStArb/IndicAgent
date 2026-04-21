@@ -46,6 +46,7 @@ def agent():
     a._gap_requests_published = MagicMock()
     a._audit_duration = MagicMock()
     a._audit_errors = MagicMock()
+    a._post_roll_suppression = {}
     return a
 
 

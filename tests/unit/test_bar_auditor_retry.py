@@ -21,6 +21,7 @@ def agent():
         a._gap_requests_published = MagicMock()
         a._kafka_producer = AsyncMock()
         a._db_pool = None
+        a._post_roll_suppression = {}
         return a
 
 
@@ -80,3 +81,26 @@ async def test_dlq_published_at_max_retries(agent):
     result = await agent._check_gap_retry(conn, symbol, tf, start_ts, end_ts)
     assert result is False
     agent._publish_gap_fill_dlq.assert_awaited_once()
+
+
+def test_roll_suppressed_within_2h(agent):
+    """Gaps on old contract suppressed within 2h of roll detection."""
+    agent._post_roll_suppression = {"ESH6": datetime.now(UTC) - timedelta(hours=1)}
+    assert agent._is_roll_suppressed("ESH6") is True
+
+
+def test_roll_suppression_expires_after_2h(agent):
+    """Suppression expires after 2h."""
+    agent._post_roll_suppression = {"ESH6": datetime.now(UTC) - timedelta(hours=3)}
+    assert agent._is_roll_suppressed("ESH6") is False
+
+
+def test_roll_suppression_cleans_up_stale_entries(agent):
+    """_cleanup_roll_suppression removes entries older than 2h."""
+    agent._post_roll_suppression = {
+        "ESH6": datetime.now(UTC) - timedelta(hours=3),  # stale
+        "CLJ6": datetime.now(UTC) - timedelta(hours=1),  # active
+    }
+    agent._cleanup_roll_suppression()
+    assert "ESH6" not in agent._post_roll_suppression
+    assert "CLJ6" in agent._post_roll_suppression

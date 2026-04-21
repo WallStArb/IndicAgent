@@ -38,8 +38,13 @@ from src.config.settings import get_active_contracts, invalidate_active_contract
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.schemas.market_events import BarGapRequest
-from src.core.stream_keys import topic_contract_updates, topic_gap_fill_dlq, topic_gap_requests
+from src.core.schemas.market_events import BarGapRequest, RollEvent
+from src.core.stream_keys import (
+    topic_contract_updates,
+    topic_gap_fill_dlq,
+    topic_gap_requests,
+    topic_roll_events,
+)
 from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
 # ---------------------------------------------------------------------------
@@ -62,6 +67,7 @@ _ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
 # Index 0 = after 1st attempt (5 min), index 1 = after 2nd attempt (30 min).
 _RETRY_BACKOFFS_SECS: tuple[int, ...] = (300, 1800)
 MAX_GAP_RETRIES: int = 3
+_POST_ROLL_SUPPRESS_SECS: int = 7200  # 2 hours
 
 
 class _AuditWindow(NamedTuple):
@@ -117,6 +123,9 @@ class BarAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
+        # old_contract -> roll_detection_ts: suppress gap requests for 2h post-roll
+        self._post_roll_suppression: dict[str, datetime] = {}
+        self._roll_consumer: KafkaConsumerClient | None = None
 
         # Cache labeled children — avoids .labels() lookup on every audit cycle
         self._audits_run = _AUDITS_RUN.labels(agent=self.name)
@@ -135,8 +144,10 @@ class BarAuditorAgent(BaseAgent):
 
     @property
     def topics_consumed(self) -> list[str]:
-        """Subscribe to contract updates for cache invalidation."""
-        return [topic_contract_updates(self.env_name)]
+        return [
+            topic_contract_updates(self.env_name),
+            topic_roll_events(self.env_name),
+        ]
 
     @property
     def topics_produced(self) -> list[str]:
@@ -158,6 +169,13 @@ class BarAuditorAgent(BaseAgent):
             auto_offset_reset="latest",
         )
         await self._contract_consumer.start()
+        self._roll_consumer = KafkaConsumerClient(
+            topic_roll_events(self.env_name),
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            group_id="bar_auditor_roll_events_consumer",
+            auto_offset_reset="latest",
+        )
+        await self._roll_consumer.start()
         self.logger.info(
             "bar_auditor_agent.setup_complete",
             topics_produced=self.topics_produced,
@@ -166,9 +184,11 @@ class BarAuditorAgent(BaseAgent):
 
 
     async def _teardown(self) -> None:
-        """Stop producer, contract consumer, and close DB pool."""
+        """Stop producer, contract consumer, roll consumer, and close DB pool."""
         if self._contract_consumer is not None:
             await self._contract_consumer.stop()
+        if self._roll_consumer is not None:
+            await self._roll_consumer.stop()
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()
         if self._db_pool is not None:
@@ -182,6 +202,7 @@ class BarAuditorAgent(BaseAgent):
         """
         # Startup audit (D-12)
         await self._drain_contract_updates()
+        await self._drain_roll_events()
         await self._run_audit()
 
         while self.running:
@@ -201,6 +222,7 @@ class BarAuditorAgent(BaseAgent):
                 break
 
             await self._drain_contract_updates()
+            await self._drain_roll_events()
             instruments = get_active_contracts(self.settings)
             if self._any_session_open(instruments):
                 await self._run_audit(instruments)
@@ -306,6 +328,13 @@ class BarAuditorAgent(BaseAgent):
             gaps: list[BarGapRequest] = []
             for w in windows:
                 sym = w.instrument.symbol
+                if self._is_roll_suppressed(sym):
+                    self.logger.debug(
+                        "bar_auditor_agent.gap_suppressed_post_roll",
+                        symbol=sym,
+                        date=str(w.target_date),
+                    )
+                    continue
                 session = w.instrument.trading_session
                 threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
 
@@ -581,6 +610,47 @@ class BarAuditorAgent(BaseAgent):
             retry_count=retry_count,
             error=error,
         )
+
+    def _is_roll_suppressed(self, old_contract: str) -> bool:
+        """True if old_contract is within 2h post-roll suppression window."""
+        roll_time = self._post_roll_suppression.get(old_contract)
+        if roll_time is None:
+            return False
+        return (datetime.now(UTC) - roll_time).total_seconds() < _POST_ROLL_SUPPRESS_SECS
+
+    def _cleanup_roll_suppression(self) -> None:
+        """Remove stale suppression entries (> 2h old) to prevent unbounded growth."""
+        cutoff = datetime.now(UTC) - timedelta(seconds=_POST_ROLL_SUPPRESS_SECS)
+        stale = [k for k, v in self._post_roll_suppression.items() if v < cutoff]
+        for k in stale:
+            del self._post_roll_suppression[k]
+
+    async def _drain_roll_events(self) -> None:
+        """Drain topic_roll_events and register old contracts for suppression."""
+        if self._roll_consumer is None:
+            return
+        try:
+            records = await self._roll_consumer.getmany(timeout_ms=0, max_records=50)
+            for msgs in records.values():
+                for msg in msgs:
+                    try:
+                        import json
+                        raw = msg.value
+                        payload = json.loads(raw) if isinstance(raw, (bytes, str)) else raw
+                        event = RollEvent.model_validate(payload)
+                        self._post_roll_suppression[event.old_contract] = event.detection_ts
+                        self.logger.info(
+                            "bar_auditor_agent.roll_suppression_registered",
+                            old_contract=event.old_contract,
+                            new_contract=event.new_contract,
+                        )
+                    except Exception as exc:
+                        self.logger.debug(
+                            "bar_auditor_agent.roll_event_parse_error", error=str(exc)
+                        )
+        except Exception as exc:
+            self.logger.debug("bar_auditor_agent.roll_drain_error", error=str(exc))
+        self._cleanup_roll_suppression()
 
     def _any_session_open(self, instruments: list) -> bool:
         """True if any active instrument's trading session is currently open."""
