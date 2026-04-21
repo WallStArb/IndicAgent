@@ -37,7 +37,7 @@ from aiokafka import AIOKafkaProducer
 
 from src.core.agent.base import BaseAgent
 from src.core.schemas.parity import FieldViolation
-from src.core.stream_keys import topic_system_events
+from src.core.stream_keys import topic_alert_requests, topic_system_events
 from src.observability.metrics import (
     PARITY_CYCLES_TOTAL,
     PARITY_MATCH_RATE,
@@ -51,6 +51,7 @@ from src.persistence.repository.parity_repository import ParityRepository
 NUMERIC_TOLERANCE: float = 1e-9
 CERTIFICATION_THRESHOLD: int = 12  # 12 × 5 min = 60 consecutive clean minutes
 COMPARISON_INTERVAL_SECS: int = 300  # 5 minutes
+PARITY_ALERT_THRESHOLD: float = 0.95
 METRICS_PORT: int = 9133  # port :9133 (9119/9120 already taken by signal_writer/bar_aggregator)
 
 # Join keys — not comparison targets
@@ -194,6 +195,39 @@ class ParityAuditorAgent(BaseAgent):
         self._producer: AIOKafkaProducer | None = None
 
 
+    async def _maybe_alert_parity(self, symbol: str, tf: str, match_rate: float) -> None:
+        """Publish HIGH alert to topic_alert_requests when match_rate < PARITY_ALERT_THRESHOLD."""
+        if match_rate >= PARITY_ALERT_THRESHOLD:
+            return
+        if self._producer is None:
+            return
+        payload = {
+            "severity": "HIGH",
+            "source": "parity_auditor",
+            "symbol": symbol,
+            "tf": tf,
+            "match_rate": match_rate,
+            "threshold": PARITY_ALERT_THRESHOLD,
+            "message": (
+                f"Parity match rate {match_rate:.3f} below threshold"
+                f" {PARITY_ALERT_THRESHOLD} for ({symbol}, {tf})"
+            ),
+            "fired_at": datetime.now(UTC).isoformat(),
+        }
+        topic = topic_alert_requests(self.settings.env_name)
+        await self._producer.send_and_wait(
+            topic,
+            key=f"parity_alert:{symbol}:{tf}".encode(),
+            value=json.dumps(payload).encode(),
+        )
+        self.logger.warning(
+            "parity_match_rate_alert",
+            symbol=symbol,
+            tf=tf,
+            match_rate=match_rate,
+            threshold=PARITY_ALERT_THRESHOLD,
+        )
+
     async def _run(self) -> None:
         """Main timer loop — runs comparison cycle every COMPARISON_INTERVAL_SECS."""
         self._pool = await asyncpg.create_pool(self.settings.database_url)
@@ -278,6 +312,7 @@ class ParityAuditorAgent(BaseAgent):
             clean = stats["clean"]
             match_rate = clean / matched if matched > 0 else 1.0
             PARITY_MATCH_RATE.labels(symbol=sym, tf=tf).set(match_rate)
+            await self._maybe_alert_parity(sym, tf, match_rate)
             pair_violations = sum(1 for v in all_violations if v.symbol == sym and v.tf == tf)
             if pair_violations:
                 PARITY_VIOLATIONS_TOTAL.labels(symbol=sym, tf=tf).inc(pair_violations)
