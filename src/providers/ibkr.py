@@ -49,10 +49,23 @@ from src.observability.metrics import (  # noqa: E402
     CIRCUIT_BREAKER_OPEN_SECONDS,
     CIRCUIT_BREAKER_SUCCESSES_TOTAL,
     CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
+    PROVIDER_BARS_DROPPED_TOTAL,
 )
 from src.providers.base import OHLCVBar, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# Pre-labeled drop counters for ib_insync → asyncio bridge. Incrementing
+# from the ib_insync thread is safe (prometheus_client Counters are thread-safe).
+_M_DROPPED_RTB_QUEUE_FULL = PROVIDER_BARS_DROPPED_TOTAL.labels(
+    provider="ibkr", agent="ibkr_provider_agent", reason="rtb_queue_full"
+)
+_M_DROPPED_OFFICIAL_QUEUE_ERROR = PROVIDER_BARS_DROPPED_TOTAL.labels(
+    provider="ibkr", agent="ibkr_provider_agent", reason="official_queue_error"
+)
+_M_DROPPED_TICK_QUEUE_FULL = PROVIDER_BARS_DROPPED_TOTAL.labels(
+    provider="ibkr", agent="ibkr_provider_agent", reason="tick_queue_full"
+)
 
 # Map our timeframe strings to ib_insync barSizeSetting values
 _TF_TO_IB: dict[str, str] = {
@@ -591,15 +604,20 @@ class IBKRProvider:
         """ib_insync callback — runs on ib_insync's thread. Bridge to asyncio queue."""
         if not self._tick_queue or not self._loop:
             return
-        for ticker in tickers:
-            if ticker.contract.localSymbol not in self._qualified_contracts:
-                continue
-            tick = self._normalize_ticker(ticker)
-            if tick:
-                try:
-                    self._loop.call_soon_threadsafe(self._tick_queue.put_nowait, tick)
-                except Exception:
-                    pass  # drop on full queue — backpressure
+        try:
+            for ticker in tickers:
+                if ticker.contract.localSymbol not in self._qualified_contracts:
+                    continue
+                tick = self._normalize_ticker(ticker)
+                if tick:
+                    try:
+                        self._loop.call_soon_threadsafe(
+                            self._tick_queue.put_nowait, tick
+                        )
+                    except Exception:
+                        _M_DROPPED_TICK_QUEUE_FULL.inc()
+        except Exception:
+            logger.exception("ibkr._handle_pending_tickers callback error")
 
     async def stream_ticks(self, symbols: list[str]) -> AsyncIterator[Tick]:
         """Async iterator yielding normalized Ticks.
@@ -642,7 +660,7 @@ class IBKRProvider:
         Crypto (PAXOS) uses TRADES here; verify BTCUSD/ETHUSD on paper account.
         """
         self._loop = asyncio.get_event_loop()
-        self._rtb_queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
+        self._rtb_queue: asyncio.Queue = asyncio.Queue(maxsize=self._tick_queue_size)
 
         subscribed: list = []
         for symbol in symbols:
@@ -663,7 +681,10 @@ class IBKRProvider:
                         self._rtb_queue.put_nowait, (_symbol, bar)
                     )
                 except Exception:
-                    pass  # drop on full queue — backpressure
+                    _M_DROPPED_RTB_QUEUE_FULL.inc()
+                    logger.warning(
+                        "ibkr.rtb_queue_full_dropping symbol=%s", _symbol
+                    )
 
             bars.updateEvent += _on_bar
             subscribed.append((bars, _on_bar))
@@ -749,7 +770,10 @@ class IBKRProvider:
                         official_queue.put_nowait, (_symbol, normalized)
                     )
                 except Exception:
-                    pass
+                    _M_DROPPED_OFFICIAL_QUEUE_ERROR.inc()
+                    logger.warning(
+                        "ibkr.official_queue_error_dropping symbol=%s", _symbol
+                    )
 
             bars.updateEvent += _on_official_bar
             subscribed.append((bars, _on_official_bar))

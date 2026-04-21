@@ -314,6 +314,12 @@ PROVIDER_GAPS_FILLED_TOTAL = Counter(
     "Total gap-fill bars fetched and published per provider",
     ["provider", "agent"],
 )
+PROVIDER_BARS_DROPPED_TOTAL = Counter(
+    "provider_bars_dropped_total",
+    "Bars dropped at the provider edge, labeled by reason (queue full, "
+    "duplicate, callback error)",
+    ["provider", "agent", "reason"],
+)
 MERGER_BARS_ROUTED_TOTAL = Counter(
     "merger_bars_routed_total",
     "Total bars routed by MergerAgent to canonical market.bars topic",
