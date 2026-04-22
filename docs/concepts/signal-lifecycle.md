@@ -1,6 +1,6 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-22
 
 ## Overview
 
@@ -52,7 +52,12 @@ regime_suppressed ──► (virtual active) ──► closed (shadow, status ne
 
 ## Activation: Zone Entry
 
-The **Signal Tracker Agent** (`services/signal_tracker_agent.py`, systemd: `indicagent-signal-tracker`) reads 1m market bars via a dedicated consumer group (`signal_lifecycle`).
+The lifecycle pipeline is split into two services following the compute/writer DAG pattern:
+
+- **`SignalTrackerComputeAgent`** (`services/signal_tracker_compute_agent.py`, systemd: `indicagent-signal-tracker-compute`) — DB-ignorant compute; reads 1m market bars and I7 signals, evaluates lifecycle transitions, publishes `LifecycleTransition` events to `intelligence.lifecycle` topic.
+- **`LifecycleWriterAgent`** (`services/lifecycle_writer_agent.py`, systemd: `indicagent-lifecycle-writer`) — consumes `intelligence.lifecycle` topic and persists all transitions to `signal_ledger`.
+
+The compute agent reads market bars via consumer group (`signal_lifecycle`).
 
 For every pending signal, each new 1m bar checks whether price entered the entry zone:
 
@@ -142,7 +147,7 @@ zone_high       FLOAT
 
 ## Signal Generator Warmup
 
-After a service restart, `signal_generator_service` needs ~50 live 1m bars (≈50 minutes) to warm up `bar_history` before setup plugins fire. The consumer group is NOT rewound on restart — it picks up from the current stream position. No signals will fire during warmup; this is expected and normal.
+After a service restart, `IntelligencePipelineComputeAgent` needs ~50 live 1m bars (≈50 minutes) to warm up plugin state before setup plugins fire. The consumer group is NOT rewound on restart — it picks up from the current stream position. No signals will fire during warmup; this is expected and normal.
 
 ---
 
@@ -173,5 +178,5 @@ Every signal outcome tells you: given these market conditions at the time of ent
 - [Intelligence Tiers](intelligence-tiers.md) — I7 setup plugins and CISScorer
 - [Regime Classification](regime-classification.md) — regime gates that filter I7 signals
 - [Data Pipeline](data-pipeline.md) — how signals flow from stream to TimescaleDB
-- **Code:** `services/signal_tracker_agent.py`, `src/intelligence/trading/`
+- **Code:** `services/signal_tracker_compute_agent.py`, `services/lifecycle_writer_agent.py`, `src/intelligence/trading/`
 - **Migration:** `production/migrations/015_signal_lifecycle_fields.sql`

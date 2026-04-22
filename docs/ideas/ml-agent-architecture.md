@@ -3,7 +3,7 @@
 **Status:** design — prerequisites met, ready for roadmap planning
 **Priority:** high
 **Milestone:** v1.9+
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-04-21
 
 ---
 

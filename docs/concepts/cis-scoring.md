@@ -1,6 +1,6 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-22
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
@@ -106,13 +106,13 @@ The agreement floor prevents a single very-high-weight bucket from dominating. E
   Regime gate (HMM eligibility filter, slow-clock 5m/15m)
   Trend plugins     → HMM state 1/2 only
   Mean-reversion    → HMM state 0 only
-  Suppressed when:  hmm_regime_prob < 0.60 OR hmm_regime_duration < 5 bars
+  Suppressed when:  hmm_regime_prob < REGIME_PROB_MIN (default 0.30) OR hmm_regime_duration < REGIME_DUR_MIN (default 1 bar)
   Suppressed signals: written to signal_ledger as status='regime_suppressed'
   (shadow signals — tracked for counterfactual MAE/MFE, gate tuning data)
         │
         ▼
   Performance-weighted ranking (_build_all_ranked)
-  When setup_performance data exists (n≥30 resolved signals per setup):
+  When signal_metrics data exists (n≥30 resolved signals per setup):
     adjusted_rank = perf_multiplier ∈ [0.5, 1.5]  ← Sharpe-normalized
     tiebreak: SETUP_PRIORITY descending
   When no perf data yet:
@@ -152,7 +152,7 @@ The architecture supports **learned weights** loaded from a `cis_weights` databa
 
 ```
 signal fires (weight version N)
-  → signal_tracker_agent tracks outcome (stop / target / TTL)
+  → signal_tracker_compute_agent tracks outcome (stop / target / TTL)
   → outcome written to signal_ledger
   → weight-learning job reads outcomes, fits logistic regression per bucket
   → new weights written to cis_weights (version N+1)
@@ -166,18 +166,22 @@ Bootstrap weights get the system producing labeled data. Labeled data trains the
 Independent of CIS scoring, the aggregator applies a **Sharpe-normalized performance multiplier** to the setup ranking. This governs which plugin wins when multiple eligible signals exist.
 
 ```
-setup_performance table (updated nightly by weight-updater job):
-  win_rate, avg_pnl_r, sample_size, sharpe_ratio — rolling 30-day window
+signal_metrics table (computed by indicagent-signal-metrics-compute, persisted by indicagent-signal-metrics-writer):
+  setup_plugin, tf, symbol, regime_type, track, window_days, n, sharpe — rolling 30-day window
 
-perf_multiplier = 0.5 + (sharpe_rank / n_eligible_setups) → range [0.5, 1.5]
-adjusted_rank   = perf_multiplier  (lower = higher priority)
+perf_multiplier = 0.5 + ((n - 1 - rank) / n) → range [0.5, 1.5]
+  where rank is ascending Sharpe rank (best Sharpe → rank n-1 → highest multiplier → sorts first)
+adjusted_rank   = perf_multiplier  (lower = higher priority in ascending sort)
 
-Promotion gate: setup only receives a performance weight when sample_size ≥ 30
+Promotion gate: setup only receives a performance weight when n ≥ 30
   → below threshold: multiplier = 1.0 (neutral, no boost or suppression)
   → prevents overfitting on insufficient data
+
+Regime conditioning: weights are loaded for current HMM regime_type ('trending' / 'ranging' / 'all')
+  → symbol-specific weights take precedence; '*' wildcard is the fallback
 ```
 
-Weights are written to `{env}:setup_performance:weights` in Redis and read by `IntelligencePipelineComputeAgent` at startup and every 60 minutes. Floor of 0.5 ensures no setup is fully suppressed before sufficient evidence accumulates.
+`IntelligencePipelineComputeAgent` loads weights from `signal_metrics` at startup and refreshes every hour via direct DB query. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
 
 **The two systems compose cleanly:** CIS governs which *direction* has cross-tier confirmation; performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
 

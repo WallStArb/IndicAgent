@@ -16,7 +16,7 @@ Plugin protocol, registry pattern, incremental compute interface
 Directed acyclic graph — dependency ordering, topological sort, cycle prevention
 
 **[Data Pipeline](data-pipeline.md)**
-Hot/warm/cold data flow, Redis streams, consumer groups, TimescaleDB persistence
+Hot/warm/cold data flow, Redpanda topics, consumer groups, TimescaleDB persistence
 
 ---
 

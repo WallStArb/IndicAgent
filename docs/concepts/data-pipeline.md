@@ -1,6 +1,6 @@
 # Data Pipeline
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-22
 
 ## Overview
 
@@ -35,7 +35,7 @@ The `IBKRProviderAgent` (`indicagent-ibkr-provider`) connects to IBKR TWS at `19
 {env}.narratives                   # I8 per-signal AI narrative (keyed SYMBOL:TF)
 {env}.llm.calls                    # Every LLM call audit record
 {env}.llm.outcomes                 # Signal lifecycle exits with pnl_r/mae/mfe
-# Producer: indicant-signal-tracker publishes signal lifecycle outcomes (exit events)
+# Producer: indicagent-signal-tracker-compute publishes LifecycleTransition events
 ```
 
 Environment prefix is `{env}.` (e.g., `development.` in dev, empty string in production). **Always build topics via `src/core/stream_keys.py`** — never hardcode.
@@ -62,13 +62,18 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 |---------|-----------|-----------|
 | `indicagent-ibkr-provider` | IBKR TWS (5s real-time bars) | `market.bars.raw.ibkr` |
 | `indicagent-provider-merger` | `market.bars.raw.*` | `market.bars` (canonical 1m) |
-| `indicagent-bar-aggregator-compute` | `market.bars` | `market.bars.htf` (5m–1d) |
+| `indicagent-bar-aggregator` | `market.bars` | `market.bars.htf` (5m–1d) |
 | `indicagent-intelligence-pipeline` | `market.bars` + `market.bars.htf` | `intelligence` + `intelligence.i7.signals` |
 | `indicagent-signal-writer` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
-| `indicagent-signal-tracker` | `market.bars` | `signal_ledger` (lifecycle updates) |
-| `indicagent-ai-narrative` | `signals.aggregated` | `narratives` + `llm.calls` |
+| `indicagent-signal-tracker-compute` | `market.bars` + `intelligence.i7.signals` | `intelligence.lifecycle` (LifecycleTransition events) |
+| `indicagent-lifecycle-writer` | `intelligence.lifecycle` | `signal_ledger` (lifecycle updates) |
+| `indicagent-signal-metrics-compute` | `signal_ledger` (DB query) | `intelligence.signal_metrics` |
+| `indicagent-signal-metrics-writer` | `intelligence.signal_metrics` | `signal_metrics` table (TimescaleDB) |
+| `indicagent-ai-narrative` | `intelligence.journal` | `narratives` + `llm.calls` |
 | `indicagent-feature-writer` | `intelligence` | `intelligence_features` (TimescaleDB) |
 | `indicagent-llm-writer` | `llm.calls` + `llm.outcomes` | `llm_calls` hypertable + `llm_model_scores` |
+| `indicagent-swarm-orchestrator` | task requests | swarm agent task topics |
+| `indicagent-swarm-writer` | swarm output topics | swarm results (TimescaleDB) |
 
 ### Multi-Stream Reading
 
@@ -95,11 +100,11 @@ async for msg in self._consumer:
 | Table | Written By | Purpose |
 |-------|-----------|---------|
 | `market_data_ohlcv` | `historical_backfill.py` only | Raw OHLCV cold storage — never written by live pipeline |
-| `intelligence_features` | `feature_writer_service` | Full feature vectors per bar (tiered JSONB: bar/i1/i3/i4/i5/smc/i6) — ML training dataset |
-| `signal_ledger` | `indicant-signal-writer` (new rows) + `indicant-signal-tracker` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
-| `llm_calls` | `indicant-llm-writer` | Full LLM call audit — request, response, outcome back-filled on signal close |
-| `llm_model_scores` | `indicant-llm-writer` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value — drives model selection |
-| `setup_performance` | weight-updater (nightly) | Per-setup rolling 30d stats — drives I7 signal ranking; only rows with `sample_size >= 30` |
+| `intelligence_features` | `indicagent-feature-writer` | Full feature vectors per bar (tiered JSONB: bar/i1/i3/i4/i5/smc/i6) — ML training dataset |
+| `signal_ledger` | `indicagent-signal-writer` (new rows) + `indicagent-lifecycle-writer` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
+| `signal_metrics` | `indicagent-signal-metrics-writer` | Per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe, n) by regime — drives I7 signal ranking; only rows with `n >= 30` |
+| `llm_calls` | `indicagent-llm-writer` | Full LLM call audit — request, response, outcome back-filled on signal close |
+| `llm_model_scores` | `indicagent-llm-writer` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value — drives model selection |
 
 The live pipeline never writes to `market_data_ohlcv` directly. If TWS disconnects, gaps are filled with `historical_backfill.py --days 2`.
 
@@ -149,23 +154,31 @@ IBKR TWS
         └─► market.bars.raw.ibkr
               └─► ProviderMergerAgent
                     └─► market.bars (canonical 1m, hot)
-                          ├─► BarAggregatorComputeAgent
+                          ├─► BarAggregatorAgent
                           │     └─► market.bars.htf (5m–1d, hot)
                           │           └─► BarWriterAgent → market_data_ohlcv (cold)
                           └─► IntelligencePipelineComputeAgent (I1–I7 unified, warm)
                                   (also subscribes to market.bars.htf)
                                 ├─► intelligence (IntelligenceEvent, keyed SYMBOL:TF)
-                                │     ├─► indicant-feature-writer → intelligence_features (cold)
-                                │     └─► indicant-ai-narrative (I8, warm)
-                                │           ├─► narratives (keyed SYMBOL:TF, hot)
-                                │           └─► llm.calls
-                                │                 └─► indicant-llm-writer
-                                │                       ├─► llm_calls (cold, TimescaleDB)
-                                │                       └─► llm_model_scores (cold)
+                                │     ├─► indicagent-feature-writer → intelligence_features (cold)
+                                │     └─► intelligence.journal
+                                │           └─► indicagent-ai-narrative (I8, warm)
+                                │                 ├─► narratives (keyed SYMBOL:TF, hot)
+                                │                 └─► llm.calls
+                                │                       └─► indicagent-llm-writer
+                                │                             ├─► llm_calls (cold, TimescaleDB)
+                                │                             └─► llm_model_scores (cold)
                                 └─► intelligence.i7.signals
-                                      ├─► indicant-signal-writer → signal_ledger (cold — new rows)
-                                      └─► indicant-signal-tracker
-                                            └─► signal_ledger (cold — lifecycle updates)
+                                      ├─► indicagent-signal-writer → signal_ledger (cold — new rows)
+                                      └─► indicagent-signal-tracker-compute
+                                            └─► intelligence.lifecycle
+                                                  └─► indicagent-lifecycle-writer
+                                                        └─► signal_ledger (cold — lifecycle updates)
+
+signal_ledger (cold)
+  └─► indicagent-signal-metrics-compute → intelligence.signal_metrics
+        └─► indicagent-signal-metrics-writer → signal_metrics (cold)
+              └─► IntelligencePipelineComputeAgent (perf_weights, reloaded hourly)
 ```
 
 ---

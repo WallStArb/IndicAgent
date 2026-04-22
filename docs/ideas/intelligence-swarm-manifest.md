@@ -2,7 +2,7 @@
 
 **Status:** Active Reference — Core swarm architecture principles
 **Created:** 2026-03-07  
-**Updated:** 2026-04-08
+**Updated:** 2026-04-21
 **Related:** 
 - `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
 

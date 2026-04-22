@@ -1,6 +1,6 @@
 # Regime Classification
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-22
 
 ## Overview
 
@@ -108,7 +108,7 @@ The **Viterbi algorithm** decodes the most likely sequence of hidden states give
 **Critical use in I7:** The CISScorer applies a regime eligibility filter:
 - Trend-following plugins → only active when HMM state is 1 or 2
 - Mean-reversion plugins → only active when HMM state is 0
-- Gate is bypassed when `hmm_regime_prob < 0.55` (low confidence) or `hmm_regime_duration < 3` (regime too new)
+- Gate is bypassed when `hmm_regime_prob < REGIME_PROB_MIN` (settings-configurable, default 0.30) or `hmm_regime_duration < REGIME_DUR_MIN` (default 1 bar)
 
 ---
 
