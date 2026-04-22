@@ -873,6 +873,7 @@ Plans:
 - [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge
 - [ ] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
 - [ ] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
+- [ ] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars)
 
 
 ### Phase 71: BaseAgent Infrastructure Alignment
