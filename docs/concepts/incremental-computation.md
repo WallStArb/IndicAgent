@@ -1,6 +1,6 @@
 # Incremental Computation
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-04-22
 
 ## The Problem with Full Recomputation
 
@@ -10,7 +10,7 @@ Most technical indicators are defined as functions over a trailing window of bar
 New bar arrives → recompute RSI over last 14 bars → recompute MACD over last 26 bars → ...
 ```
 
-With 25 indicators, 24 contracts, and 4 timeframes, that's 25 × 24 × 4 = 2,400 full recomputations per bar. Each one reprocesses data that hasn't changed. At scale, this creates a processing backlog that grows faster than bars arrive.
+With 27 indicators, 55+ contracts, and 4 timeframes, that's 27 × 55 × 4 = ~5,940 full recomputations per bar. Each one reprocesses data that hasn't changed. At scale, this creates a processing backlog that grows faster than bars arrive.
 
 ---
 

@@ -1,6 +1,6 @@
 # DAG Execution
 
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-22
 
 ## What Is a DAG?
 
@@ -29,28 +29,28 @@ A DAG gives you a clean way to:
 
 ## IndicAgent's Plugin DAG
 
-The intelligence pipeline is a DAG of 121 plugins + 2 aggregation components across tiers I1–I7:
+The intelligence pipeline is a DAG of 123 plugins + 2 aggregation components across tiers I1–I7:
 
 ```
 Raw OHLCV Data
       │
       ├──► I1 Technical Indicators (27 plugins, no dependencies)
       │         │
-      │         ├──► I2 Composite Events (inlined in I1/I4, no separate plugins)
-      │         │
-      │         └──► I5 Patterns (14 plugins, read I1 features + I3 levels)
+      │         └──► I2 Composite Events (10 plugins, 2 waves — depend on I1)
+      │                   │
+      │                   └──► I3 Market Structure (8 plugins, read OHLCV + I1/I2)
+      │                               │
+      │                               └──► I4 Context / Regime (12 plugins, 2 waves — GARCH → Kalman)
+      │                                           │
+      │                                           └──► I5 Patterns (16 plugins, read I1–I4)
       │
-      ├──► I3 Market Structure (15 plugins, read OHLCV directly)
-      │         │
-      │         └──► I4 Context / Regime (11 plugins, read OHLCV + optional I3)
-      │
-      └──► I6 SMC (13 plugins, read I1–I5 features + OHLCV)
+      └──► I6 SMC (13 plugins, 2 waves, read I1–I5 + OHLCV)
                 │
                 └──► I6 Confluence (1 plugin, cross-TF synthesis across all tiers)
                           │
                           └──► I7 Trading Setups (36 plugins + 2 aggregation, read I2–I6)
                                     │
-                                    └──► I8 AI Narrative (Ollama, reads I7 signals)
+                                    └──► I8 AI Narrative (LLM chain, reads I7 via intelligence.journal)
 ```
 
 Edges flow only forward. No tier reads from a tier that comes after it.
@@ -85,14 +85,14 @@ Because the DAG enforces ordering, services run each tier's plugins in sequence:
 
 | Stage | Plugins | Runs When |
 |-------|---------|-----------|
-| I1 | RSI, MACD, ATR, SMA/EMA, Supertrend, etc. (27 plugins) | Every completed bar |
-| I2 | MACDEvents, RSIEvents, MomentumAccel, etc. (inlined in I1/I4) | After I1 completes |
-| I3 | SwingDetector, SupportResistance, SessionLevels, etc. (15 plugins) | Concurrent with I1 (reads OHLCV only) |
-| I4 | VolatilityRegime, GARCHVolatility, KalmanTrend, etc. (11 plugins) | After I3 completes |
-| I5 | RSIDivergence, BollingerSqueeze, chart patterns, etc. (15 plugins) | After I1 and I3 complete |
-| I6 SMC | BOS/CHoCH, FairValueGap, HMMRegime, ICTKillzones, etc. (13 plugins) | After I1–I5 complete |
+| I1 | RSI, MACD, ATR, OFI, CVD, etc. (27 plugins) | Every completed bar |
+| I2 | RSIEvents, MomentumAccel (Wave A), AccelerationRegime/ExhaustionScore (Wave B) — 10 total | After I1 completes |
+| I3 | MACDEvents, SwingDetector, SupportResistance, etc. (8 plugins) | After I1/I2 complete |
+| I4 | GARCH/VIXRegime/CrossAsset (Wave A), KalmanTrend (Wave B) — 12 total | After I3 completes |
+| I5 | MTFVolatility, RSIDivergence, BollingerSqueeze, chart patterns, etc. (16 plugins) | After I1–I4 complete |
+| I6 SMC | BOS/CHoCH/FVG/OB/HMM (Wave A), SupplyDemandZones/BreakerBlocks/MitigationBlocks (Wave B) — 13 total | After I1–I5 complete |
 | I6 Conf | CrossTimeframeConfluence (1 plugin) | After I6 SMC, reads multiple timeframes |
-| I7 | TrendFollowing, MeanReversion, LiquidityHunt, etc. (36 plugins + 2 agg) | In IntelligencePipelineComputeAgent, after I6 |
+| I7 | TrendFollowing, MeanReversion, ORB15/30, OFI/CVD setups, etc. (36 plugins + 2 agg) | In IntelligencePipelineComputeAgent, after I6 |
 
 Plugins within a stage that share no dependencies can execute concurrently. The DAG makes those safe-to-parallelize groups explicit.
 

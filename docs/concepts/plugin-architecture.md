@@ -1,7 +1,7 @@
 # Plugin Architecture
 
-**Current Plugin Count:** 121 plugins + 2 aggregation (see `plugin-protocol.md`)
-**Last Updated:** 2026-04-07
+**Current Plugin Count:** 123 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py`
+**Last Updated:** 2026-04-22
 
 ## Executive Summary
 
@@ -191,7 +191,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (121 Total + 2 Aggregation)
+## Registered Plugins (123 Total + 2 Aggregation)
 
 See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
 
@@ -224,12 +224,13 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | StochRSI | Momentum | `stochrsi_k`, `stochrsi_d` |
 | AC Oscillator | Momentum | `ac_osc` (Awesome Oscillator) |
 | HMA | Trend | `hma_value` (Hull Moving Average) |
+| OFI | Volume/Flow | `ofi_value`, `ofi_cumulative`, `ofi_normalized` (Order Flow Imbalance) |
+| CVD | Volume/Flow | `cvd_value`, `cvd_delta`, `cvd_slope` (Cumulative Volume Delta) |
 
-### I2 Composite Event Plugins (11) — detect state changes in I1 outputs
+### I2 Composite Event Plugins (10) — detect state changes in I1 outputs
 
 | Plugin | Outputs |
 |--------|---------|
-| MACD Events | `macd_cross_up`, `macd_cross_dn`, `macd_hist_flip` |
 | RSI Events | `rsi_ob`, `rsi_os`, `rsi_cross_mid` |
 | Stoch Events | `stoch_cross_up`, `stoch_cross_dn`, `stoch_ob`, `stoch_os` |
 | ADX Events | `adx_rising`, `adx_falling`, `adx_strong_trend` |
@@ -245,36 +246,42 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 
 | Plugin | Outputs |
 |--------|---------|
+| MACD Events | `macd_cross_up`, `macd_cross_dn`, `macd_hist_flip` |
 | Swing Detector | Swing highs/lows, HH/HL/LH/LL classification |
 | Support/Resistance | Pivot clustering, strength scoring, nearest S/R levels |
 | Trend Structure | Swing sequence scoring, structural integrity, price position |
 | Market Profile | POC, value area high/low, TPO distribution |
 | Session Levels | Prior session high/low/mid, overnight range |
-| Anchored VWAP | VWAP anchored to swing points or session opens |
 | Fibonacci Zones | Fib retracement and extension zones from swing range |
 | Swing Momentum | Momentum at swing highs/lows for divergence context |
 
-### I4 Context Plugins (9) — `supports_incremental = False`
+### I4 Context Plugins (12) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
 | Volatility Regime | ATR percentile, BB width, expansion/contraction |
 | Trend Regime | SMA-20/50 alignment, 5-state classification |
 | Momentum Context | Multi-oscillator direction scoring (RSI/MACD/Stoch/CCI) |
-| GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional vol forecast |
+| GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional vol forecast (Wave A) |
 | Hurst Exponent | `hurst_exponent`, `hurst_trend_quality`, `hurst_mr_quality` |
 | Shannon Entropy | `shannon_entropy`, `entropy_quality` |
-| Kalman Trend | `kalman_price_position`, `kalman_trend_slope`, 7 outputs |
+| Kalman Trend | `kalman_price_position`, `kalman_trend_slope`, 7 outputs; GARCH-adaptive R matrix (Wave B) |
 | Session Context | Active session (London/NY/Asia/overlap), killzone timing |
-| MTF Volatility | Multi-timeframe volatility alignment score |
+| Anchored VWAP | VWAP anchored to swing points or session opens (`ctx_AnchoredVWAP`) |
+| Volume Profile | Session + rolling volume distribution: POC, VAH, VAL, HVN/LVN (`ctx_VolumeProfile`) |
+| VIX Regime | VIX-based macro volatility regime; cross-asset fear gauge |
+| Cross-Asset Context | Cross-asset correlation and divergence signals |
 
-### I5 Pattern Plugins (14) — `supports_incremental = False`
+### I5 Pattern Plugins (16) — `supports_incremental = False`
 
 | Plugin | Category | Outputs |
 |--------|----------|---------|
+| MTF Volatility | Volatility | Multi-timeframe volatility spread and compression |
 | RSI Divergence | Divergence | Bullish/bearish divergence type and strength |
 | Bollinger Squeeze | Momentum | TTM-style BB-inside-KC squeeze detection |
 | Volume Divergence | Volume | OBV slope vs price slope via linear regression |
+| MACD Divergence | Divergence | Bullish/bearish MACD histogram divergence vs price |
+| CMF Divergence | Divergence | Chaikin Money Flow divergence vs price |
 | Confluence | Oscillator | RSI/MACD/Stoch/CCI scoring from -1 to +1 |
 | TrendConfluence | Trend | 6-signal trend aggregation score |
 | Double Top/Bottom | Chart | Double top and double bottom detection |
@@ -284,7 +291,6 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Flag/Pennant | Continuation | Flag and pennant continuation patterns |
 | Cup & Handle | Continuation | Cup & handle accumulation pattern |
 | Measured Move | Projection | AB=CD measured move projection |
-| Volume Profile | Volume | Volume at price, high-volume nodes, POC |
 | Key Level Reaction | Price Action | Reaction strength at S/R levels from I3 |
 
 ### I6 SMC / Smart Money Plugins (13) — `supports_incremental = False`
@@ -341,19 +347,25 @@ class Dag:
 
 ### Current Execution Model
 
-The DAG determines plugin execution order through topological sorting. Currently:
+The DAG determines plugin execution order through topological sorting. Tiers execute sequentially; within each tier, sub-waves allow safe parallelism where intra-tier dependencies allow it:
 
-1. **I1 indicators** compute first (no dependencies)
-2. **I2 composites** compute next (depend on I1 outputs)
-3. **I3 structure** computes on raw OHLCV (independent of I1)
-4. **I4 context** computes on raw OHLCV + optionally blends I3 results
-5. **I5 patterns** compute last (depend on I1 features via `frames["features"]`)
+1. **I1** — all 27 indicators (no dependencies)
+2. **I2** — 2 waves: Wave A (base events), Wave B (AccelerationRegime + ExhaustionScore consume Wave A outputs)
+3. **I3** — structure + MACDEvents (requires I1/I2)
+4. **I4** — 2 waves: Wave A (GARCH, VIXRegime, CrossAssetContext, etc.), Wave B (KalmanTrend consumes `garch_sigma`)
+5. **I5** — patterns (require I1–I4)
+6. **I6 SMC** — 2 waves: Wave A (base SMC), Wave B (SupplyDemandZones, BreakerBlocks, MitigationBlocks consume Wave A)
+7. **I6 Confluence** — reads all prior tiers across timeframes
+8. **I7** — all 36 setup plugins run after I6
 
 ```
-OHLCV Data ──┬── I1 Indicators (parallel) ──┬── I2 Composites
-             │                               └── I5 Patterns (reads features)
-             ├── I3 Structure ───── I4 Context (optional I3 blending)
-             └── I4 Context (self-contained mode)
+OHLCV Data ──► I1 (27) ──► I2 (10, 2 waves) ──► I3 (8) ──► I4 (12, 2 waves)
+                                                                    │
+                                                                    ▼
+                                              I5 (16) ──► I6 SMC (13, 2 waves)
+                                                                    │
+                                                                    ▼
+                                                         I6 Conf (1) ──► I7 (36 + 2 agg)
 ```
 
 ### Incremental Processing
@@ -405,24 +417,24 @@ Each plugin call is wrapped with error isolation. If a plugin raises an exceptio
 
 ### Intelligence Stream Architecture
 
-**Stream Naming Convention:**
-```
-{env_prefix}:{stream_type}:{SYMBOL}:{timeframe}
+**Topic naming:** `{env}.{domain}[.{sublayer}]` — dots only, never colons. Key is typically `SYMBOL:TF`.
 
-# Examples (built via src/core/stream_keys.py):
-market:ES:1m          # OHLCV bars
-indicators:ES:1m      # I1+I2 indicator features
-intelligence:ES:1m    # I3-I6 IntelligenceEvent (tiered JSONB)
-intelligence.i7.signals  # I7 winner signal
-narratives:ES:1m      # I8 AI narrative
-ticks:ES:live         # Raw tick data
+```
+# Examples (always built via src/core/stream_keys.py):
+development.market.bars            # Canonical 1m OHLCV bars
+development.market.bars.htf        # 5m–1d aggregated bars
+development.intelligence           # I1–I7 IntelligenceEvent (keyed SYMBOL:TF)
+development.intelligence.i7.signals  # All ranked I7 signals per bar
+development.intelligence.journal   # High-confidence signals → I8 narrative
+development.intelligence.lifecycle # LifecycleTransition events
+development.intelligence.signal_metrics  # Signal performance stats
+development.narratives             # I8 per-signal narrative (keyed SYMBOL:TF)
+development.llm.calls              # LLM call audit
 ```
 
-**Stream Lifecycle:**
-- **Environment Prefixing:** Via `INDICAGENT_ENV` variable
-- **Consumer Groups:** Multiple consumers for horizontal scaling
-- **Retention:** Configurable MAXLEN per stream
-- **Key Construction:** Always via `src/core/stream_keys.py` — never hardcoded
+- **Environment Prefixing:** Via `INDICAGENT_ENV` setting (empty string in production)
+- **Consumer Groups:** `<concept>_consumer` — idempotent on restart
+- **Key Construction:** Always via `src/core/stream_keys.py` — never hardcode topic strings
 
 ---
 
