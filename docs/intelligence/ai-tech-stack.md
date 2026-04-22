@@ -1,14 +1,13 @@
 # AI/ML Tech Stack — Consolidated Reference
 
 **Purpose:** Single reference for all AI/ML technology choices. What we use, why we chose it, how it fits together.
-**Last Updated:** 2026-03-24
-**Status:** Living document — reflects current v2.3 ML Foundation plans
+**Last Updated:** 2026-04-21
+**Status:** Living document — reflects current v2.4 state + v2.3 ML Foundation plans
 
 **Deep dives:**
-- Tool analysis: `ml-ai-palette.md` — Detailed strengths/weaknesses for each tool
-- Agent system: `ml-agent-architecture.md` — Multi-agent learning machine design
-- Validation: `renaissance-alpha-pipeline.md` — Shadow-first statistical gates
-- Platform stack: `tech-stack.md` — Full infrastructure decisions
+- Agent system: `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
+- Validation: `../ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
+- Platform stack: `../ideas/tech-stack.md` — Full infrastructure decisions
 
 ---
 
@@ -23,68 +22,100 @@
 - **Research/Production Separation** — LLMs offline-only, deterministic code in hot path
 - **Self-Hosted Everything** — No vendor lock-in, no cloud ML services
 
-**What this gives us:**
-- Validated alpha contributors (ML models, rules, heuristics) — all must earn the right
-- Automated governance — CI/CD promotes/demotes based on correlation, not committees
-- Explainable predictions — SHAP values per signal, full audit trail
-- Fast iteration — Weekly retraining, drift detection, continuous adaptation
-
 ---
 
 ## 2. What We Use (Organized by Layer)
 
-### 2.1 Models & Algorithms
+### 2.1 Observability (Active — All Installed)
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **LightGBM** | Production ML model | Dominates tabular benchmarks; fast; handles categoricals natively |
-| **Random Forest** | Feature discovery | `feature_importances_` tells us what matters; not production |
-| **scikit-learn** | Preprocessing, CV, feature selection | Already in stack for CISScorer |
-| **statsmodels** | Stationarity tests, CUSUM | Ensures features aren't spurious; time-series aware |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| **OpenTelemetry** | Distributed tracing | `opentelemetry-api/sdk/exporter-otlp-proto-http` v1.41.0 — wired into `BaseAgent` via `src/observability/otel.py`; every agent gets a tracer; exports to OTLP endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, default `localhost:4318`) |
+| **Prometheus** | Metrics collection | `prometheus-client` v0.25.0 — per-service exporters on ports :9113–:9130; registry helper in `src/observability/metrics.py` prevents duplicate registration |
+| **structlog** | Structured logging | v25.5.0 — all service logs → `logs/<service>.log` via `setup_service_logging()`; JSON-structured with `timestamp`, `service`, `symbol`, `timeframe`, `level` fields |
 
-**Key decision:** Gradient boosting (LightGBM) over deep learning (PyTorch/TF). Our data is tabular time-series features (RSI, ATR, regime), not images/text. Tree ensembles dominate tabular benchmarks.
+**OTel wiring:** `BaseAgent.__init__` calls `get_tracer(name)` and `init_tracing()` is called at `run()` time. Signal metrics agents (`signal_metrics_compute_agent`, `signal_metrics_writer_agent`) explicitly call `init_tracing()` at startup. OTel traces are no-op when no endpoint is configured — safe to deploy without a collector.
 
-### 2.2 Statistics & Validation
+### 2.2 LLM Stack (Active — I8 Narrative + Research)
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **scipy.stats** | Pearson r, p-values | Phase 2 validator foundation; correlation gates |
-| **alphalens-reloaded** | IC/ICIR analysis | Quant-standard metrics; prevents lookahead bugs |
-| **evidently** | Drift detection (KS/PSI/Wasserstein) | Automated degradation triggers |
-| **SHAP** | Per-signal attribution | "Why was this signal boosted?" — audit trail |
+**Provider chain** (`src/core/llm/`):
 
-**Key decision:** IC (Information Coefficient) over accuracy/AUC. Quant standard — measures predictive power per feature. Prevents overfitting to noise.
+| Component | Purpose | Notes |
+|-----------|---------|-------|
+| **OpenRouter** | Cloud LLM aggregation | Primary tier — 100+ models via single API; default model roster in `settings.openrouter_models`; env: `OPENROUTER_API_KEY`, `OPENROUTER_MODELS` |
+| **Ollama** | Local LLM inference | Offline fallback — always available; default model `gemma4:e4b`; env: `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+| **LangGraph** | Agent orchestration | `langgraph>=1.0.0` (v1.1.6 installed) — Supervisor + domain agents; state machines for ML swarm (Phase 56+) |
+| **LangFuse** | Agent observability | Configured in `Settings.LANGFUSE_HOST` (`localhost:3010`); NOT yet wired — no `langfuse` pip package installed. To be connected when swarm agents reach stable state. |
 
-### 2.3 Feature Engineering
+**Custom LLM middleware** (all in `src/core/llm/`, no pip deps):
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **tsfresh** | Auto feature extraction (700+ features) | "Let data speak" vs hand-engineering |
-| **polars** | Batch data processing | 10-100× faster than pandas; weekly retraining |
-| **NumPy** | Real-time inference | <5ms SLA for single-signal predictions |
+| Component | File | Purpose |
+|-----------|------|---------|
+| `LLMProviderChain` | `chain.py` | High-level facade: SemanticCache → RateLimiter → TokenBudget → LLMChain → GuardrailsValidator |
+| `SemanticCache` | `semantic_cache.py` | LRU + TTL cache for LLM responses; key = SHA-256(system + prompt[:200] + model); max 500 entries |
+| `RateLimiter` | `rate_limiter.py` | Per-provider RPM/TPM rate limiting; configurable via `settings.LLM_RATE_LIMITS` |
+| `TokenBudget` | `token_budget.py` | Daily token budget enforcement; routes to Ollama-only when cloud budget exceeded |
+| `GuardrailsValidator` | `guardrails.py` | Pydantic-based schema validation of LLM responses — custom impl, NOT the `guardrails-ai` pip package |
 
-**Key decision:** Polars for batch (feature matrix building), NumPy for real-time (per-bar inference). Don't mix them — choose one and stay there.
+**Key decision:** No `guardrails-ai` pip dependency — custom Pydantic validator in `src/core/llm/guardrails.py` gives the same output schema enforcement without the heavy dependency chain.
 
-### 2.4 Infrastructure & Orchestration
+### 2.3 Models & Algorithms (Planned — ML Foundation v2.3)
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **MLflow** (self-hosted) | Experiment tracking, model registry | Version every model; compare 20 runs; full reproducibility |
-| **optuna** | Bayesian hyperparameter optimization | Auto-tune; no manual grid search |
-| **LangGraph** | Agent orchestration | Supervisor + domain agents; state machines |
-| **LangFuse** (self-hosted) | Agent observability | Traces every agent step; LLM call tracking |
+These tools are **planned for Phase 64+ (ML Foundation)** — not yet installed.
 
-**Key decision:** Self-hosted over cloud SaaS. MLflow over Weights & Biases, LangFuse over LangSmith. Full data ownership, no vendor lock-in.
+| Tool | Purpose | Why | Status |
+|------|---------|-----|--------|
+| **LightGBM** `>=4.6.0` | Production ML model | Dominates tabular benchmarks; DART mode for correlated features; fast on 50k-200k rows | Planned Phase 64+ |
+| **XGBoost** `>=3.2.0` | Shadow challenger | Level-wise growth more stable for small per-regime N; run as A/B baseline | Planned Phase 64+ |
+| **scikit-learn** `>=1.5.0` | Preprocessing, CV | Already installed — isotonic regression, logistic regression in use for calibration | ✅ Installed |
+| **optuna** `>=4.3.0` | Bayesian hyperparameter search | TPE sampler + LightGBMTuner integration; run at model init, not every retrain | Planned Phase 64+ |
 
-### 2.5 LLM Stack (Research-Only)
+**Key decision:** LightGBM over PyTorch/TF. Our data is tabular time-series features — tree ensembles dominate tabular benchmarks. PyTorch only if we add unstructured data (news text, options surface).
 
-| Tool | Purpose | Why |
-|------|---------|-----|
-| **Ollama** | Local LLM inference | Offline fallback; qwen3.5:9b on iGPU |
-| **OpenRouter** | Cloud LLM aggregation | 100+ models; free tier available |
-| **guardrails-ai** | LLM output validation | Pydantic enforcement; prevents hallucinations |
+### 2.4 Statistics & Validation
 
-**Key decision:** LLMs are **research-only** (Beta pipeline). No LLM calls in production hot path. They discover patterns offline → compiled to deterministic code.
+| Tool | Purpose | Status |
+|------|---------|--------|
+| **scipy.stats** | Pearson r, p-values, ADF | ✅ Installed (v1.17.1) — promotion gate foundation |
+| **statsmodels** `>=0.14.4` | Stationarity tests, CUSUM, OLS | ✅ Installed — ADF stationarity + promotion gate p-values |
+| **SHAP** `>=0.51.0` | Per-signal feature attribution | Planned Phase 64+ — TreeExplainer for GBDT; top-5 SHAP features per signal to `signal_ledger` |
+| **alphalens-reloaded** | IC/ICIR analysis | Planned — quant-standard metrics; prevents lookahead bugs |
+| **evidently** | Drift detection (KS/PSI) | Planned — automated model degradation triggers |
+
+**Key decision:** IC (Information Coefficient) over accuracy/AUC. Quant standard — measures predictive power per feature.
+
+### 2.5 Feature Engineering
+
+| Tool | Purpose | Status |
+|------|---------|--------|
+| **NumPy** `>=2.4.0` | Real-time inference arrays | ✅ Installed — <5ms SLA for per-signal predictions |
+| **pandas** `>=3.0.0` | Batch data manipulation | ✅ Installed |
+| **tsfresh** `==0.21.1` | Auto feature extraction (700+ features) | ✅ Installed — ML discovery phase |
+| **polars** | Batch data processing | Planned — 10-100× faster than pandas for feature matrix building at scale |
+
+**Key decision:** NumPy for real-time inference (already in hot path), polars for batch training (weekly retraining at scale). NumPy arrays ARE tensors — no PyTorch overhead needed.
+
+### 2.6 Signal Analysis Libraries (Installed — Available for Use)
+
+These are installed in the venv but not yet wired into production code. Available for plugin development and research:
+
+| Tool | Version | Purpose | When to Use |
+|------|---------|---------|-------------|
+| **stumpy** | 1.14.1 | Matrix Profile — time-series motif discovery | Pattern matching in I5; anomaly detection; find recurring microstructure patterns |
+| **numba** | 0.65.0 | JIT compilation for NumPy-heavy loops | Hot-path plugins where vectorization isn't enough; compile inner loops that process all symbols |
+| **PyWavelets (pywt)** | 1.9.0 | Wavelet transforms for signal decomposition | Multi-resolution analysis; denoising price series; regime transition detection |
+| **empyrical-reloaded** | 0.5.12 | Performance metrics (Sharpe, Sortino, Calmar, max drawdown) | Signal performance reporting; setup_performance table stats; ML training evaluation |
+
+**stumpy** is particularly relevant for I5/I7 pattern plugins — matrix profiles find shape-based matches across historical bars without manual rule authoring.
+
+**empyrical-reloaded** is the natural fit for `setup_performance` stats and the ML scoring evaluation pipeline.
+
+### 2.7 Infrastructure & Orchestration
+
+| Tool | Purpose | Status |
+|------|---------|--------|
+| **MLflow** | Experiment tracking, model registry | Wired in `src/core/ml/registry.py` (lazy import); self-hosted at `localhost:5000`; configured via `MLFLOW_TRACKING_URI` — add `mlflow` to requirements.txt before Phase 64 |
+| **LangGraph** | ML swarm orchestration | ✅ Installed v1.1.6 — Supervisor + domain agents; Phase 56 Swarm Foundation |
 
 ---
 
@@ -94,49 +125,45 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MLAgent Orchestrator                      │
-│            (LangGraph Supervisor — Deterministic)              │
-│  Reads: drift scores, model status, discovery schedule       │
-│  Routes to: domain agents in sequence or parallel            │
+│                    ML Swarm (Phase 56+)                      │
+│         LangGraph Supervisor → DataQuality → Discovery       │
+│              → Training (LightGBM) → Monitoring             │
+│         LangFuse observability (planned)                     │
 └──────────────────┬──────────────────┬──────────────────────┘
                    │                  │
         ┌──────────┴───┐     ┌───────┴────────┐
-        │  Data Quality │     │   Discovery    │
-        │    Agent      │     │   Agent (LLM)  │
-        └───────────────┘     └────────────────┘
-                   │                  │
-        ┌──────────┴───────────────┴────────┐
-        │        Training Agent         │
-        │   (Deterministic — LightGBM)    │
-        └──────────┬──────────────────────┘
-                   │
-        ┌──────────┴──────────────┐
-        │    Monitoring Agent     │
-        │  (Drift — evidently)     │
-        └─────────────────────────┘
+        │   MLflow      │     │   evidently    │
+        │  (registry)   │     │  (drift, plan) │
+        └──────────────┘     └────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│             I8 LLM Layer (Active)                            │
+│  LLMProviderChain: SemanticCache → RateLimiter →            │
+│    TokenBudget → LLMChain (OpenRouter → Ollama) →           │
+│    GuardrailsValidator                                      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│           Observability Layer (Active)                       │
+│  OTel traces (BaseAgent) + Prometheus metrics per service    │
+│  + structlog JSON logs → logs/<service>.log                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Agent responsibilities:**
-- **Data Quality Agent** — Validates training data (no CIS nulls, no gaps)
-- **Discovery Agent (LLM)** — Finds patterns via tsfresh/alphalens
-- **Training Agent** — Builds LightGBM models per regime × setup × TF
-- **Monitoring Agent** — Drift detection → auto-retrain
-- **Narrative Agent (LLM)** — Explains what changed in plain English
-
-### 3.2 Data Flow
+### 3.2 Data Flow (ML Path)
 
 ```
-TimescaleDB (intelligence_features)
+TimescaleDB (intelligence_features + signal_ledger)
+    ↓ JOIN on (symbol, feature_ts, feature_tf)
+polars (feature matrix — planned)
     ↓
-Polars (feature matrix builder)
-    ↓
-LightGBM (train model)
+LightGBM (train per regime × setup × TF — planned)
     ↓
 MLflow (log run, register model)
     ↓
-Shadow Mode (write predictions to shadow_ml_predictions)
+Shadow Mode (shadow_ml_predictions table)
     ↓
-14-Day Correlation Gate (scipy.stats.pearsonr)
+14-Day Correlation Gate (scipy.stats.pearsonr + statsmodels ADF)
     ↓
 Production (if ρ > 0.4, p < 0.05, N ≥ 100)
     ↓
@@ -147,12 +174,12 @@ Signal Scoring (ml_win_prob → signal_ledger)
 
 ### 3.3 Shadow-First Lifecycle
 
-**Every alpha source** (ML model, rule-based heuristic, LLM-derived pattern) follows:
+Every alpha source (ML model, rule-based heuristic, LLM-derived pattern) follows:
 
 1. **Shadow Mode** — Write predictions to shadow table, no production impact
 2. **Correlation Analysis** — Daily job: `Pearson(predictions, realized_pnl_r)`
 3. **Promotion** — Auto-promote if ρ > 0.4, N ≥ 100, p < 0.05
-4. **Production** — Multipliers feed into SignalLifecycleService
+4. **Production** — Multipliers feed into signal scoring
 5. **Continuous Monitoring** — Daily correlation checks continue
 6. **Degradation** — Auto-disable if ρ < 0.2 for 7 consecutive days
 
@@ -162,10 +189,18 @@ Signal Scoring (ml_win_prob → signal_ledger)
 
 ## 4. Why These Choices
 
-### 4.1 LightGBM Over PyTorch/TF
+### 4.1 OpenTelemetry Over Custom Tracing
 
-**Our data:** Tabular time-series features (RSI, ATR, regime) — structured rows/columns
-**Their data:** Images, text, audio — unstructured, hierarchical
+OTel is the CNCF standard for distributed tracing. It gives us:
+- Vendor-neutral traces exportable to Jaeger, Tempo, or any OTLP collector
+- No-op behavior when no endpoint is configured — zero overhead in development
+- Standard span/trace context propagation across async boundaries
+
+### 4.2 Custom LLM Middleware Over guardrails-ai
+
+`guardrails-ai` is a heavy dependency with its own validator ecosystem. Our needs are simpler: validate that LLM JSON output matches a Pydantic schema. The custom `GuardrailsValidator` in `src/core/llm/guardrails.py` does this with zero external dependencies.
+
+### 4.3 LightGBM Over PyTorch/TF (Planned)
 
 | Aspect | LightGBM | PyTorch/TF |
 |--------|----------|------------|
@@ -176,133 +211,92 @@ Signal Scoring (ml_win_prob → signal_ledger)
 | Overfitting risk | Lower | Higher (noisy data) |
 | Compute | CPU sufficient | GPU required |
 
-**When we'd add PyTorch:** Unstructured data (news sentiment → NLP, options chain surface → CNN)
+**When we'd add PyTorch:** Unstructured data (news sentiment, options chain surface).
 
-### 4.2 What About "Tensors"? (NumPy vs PyTorch)
-
-**We DO use tensors** — just via **NumPy arrays**, not PyTorch:
-
-```python
-# Real-time inference (<5ms)
-import numpy as np
-
-features = np.array([rsi_14, atr_14, hmm_regime, ...])  # This IS a tensor
-multiplier = model.predict(features)  # LightGBM handles it
-```
-
-**Why NumPy over PyTorch tensors?**
-
-| Aspect | NumPy | PyTorch |
-|--------|-------|---------|
-| Already everywhere | ✅ LightGBM, scipy, sklearn all use it | ❌ Additional dependency |
-| CPU performance | ✅ Faster for CPU operations | ❌ Overhead unless GPU-bound |
-| Integration | ✅ Works with entire stack | ❌ Requires conversion |
-| Simplicity | ✅ Just arrays | ❌ Autograd, grads not needed |
-
-**When we'd use PyTorch tensors:**
-- GPU acceleration for real-time inference (if latency becomes critical)
-- Neural network training (if we add deep learning for unstructured data)
-- Automatic differentiation (if we need gradient-based optimization)
-
-**Bottom line:** NumPy arrays ARE tensors. No need for PyTorch overhead unless we're doing deep learning or GPU acceleration.
-
-### 4.2 Polars Over Pandas
-
-| Operation | Polars | Pandas |
-|------------|--------|--------|
-| Join 100K rows | 2 sec | 30 sec |
-| Groupby aggregation | 1 sec | 15 sec |
-| Memory | Lower | Higher |
-| Ecosystem | Smaller | Larger |
-
-**Use case:** Feature matrix building for weekly retraining (must complete in <30 min)
-
-### 4.3 Self-Hosted Over Cloud
+### 4.4 Self-Hosted Over Cloud
 
 | Tool | Self-Hosted | Cloud Alternative |
 |------|-------------|-------------------|
 | MLflow | MLflow (Docker) | Weights & Biases ($$) |
-| LangFuse | LangFuse (Docker) | LangSmith ($$$) |
+| LangFuse | LangFuse (Docker, planned) | LangSmith ($$$) |
 | Ollama | Local LLM | OpenAI API ($$) |
-
-**Renaissance principle:** No vendor lock-in on intelligence data. Full ownership.
 
 ---
 
 ## 5. What We Don't Use (And Why)
 
-| Technology | Why Not | Renaissance Principle |
-|------------|---------|----------------------|
-| **PyTorch/TensorFlow** | Overkill for tabular; gradient boosting wins | Simplest tool that works |
-| **Ray/Dask** | Overkill for current scale (<1M rows) | Add when triggered |
-| **Feast** | TimescaleDB IS our feature store | Consolidate before expanding |
-| **Temporal** | LangGraph sufficient; institutional-scale only | Add when trigger is real |
-| **Weights & Biases** | Cloud, paid; MLflow is open-source | No vendor lock-in |
-
-**When we'd reconsider:**
-- **PyTorch/TF** — Unstructured data added (news text, options images)
-- **Ray/Dask** — Data volume exceeds 10M rows or training time >4 hours
-- **Feast** — Multi-service sharing features (QualAgent + DerivAgent + TradeAgent)
-- **Temporal** — Multi-day workflows requiring state persistence across restarts
+| Technology | Why Not | When We'd Reconsider |
+|------------|---------|---------------------|
+| **PyTorch/TensorFlow** | Overkill for tabular; gradient boosting wins | Unstructured data added (news, options) |
+| **Ray/Dask** | Overkill for current scale (<1M rows) | Data volume >10M rows or training >4h |
+| **Feast** | TimescaleDB IS our feature store | Multi-service feature sharing (swarm agents) |
+| **Temporal** | LangGraph sufficient | Multi-day workflows requiring restart persistence |
+| **Weights & Biases** | Cloud, paid; MLflow is open-source | Never — self-hosted principle |
+| **guardrails-ai** | Custom Pydantic validator suffices | If we need Rail specs or complex multi-step validation |
+| **river** | Online learning overkill | N > 500k rows with strong non-stationarity |
 
 ---
 
 ## 6. Quick Reference (Tool List)
 
-**Models:**
-- LightGBM (production), Random Forest (discovery), scikit-learn (utilities)
+**Active — Observability:**
+- OpenTelemetry (traces), Prometheus (metrics), structlog (logs)
 
-**Statistics:**
-- scipy.stats (correlation), statsmodels (stationarity/CUSUM), alphalens-reloaded (IC/ICIR)
+**Active — LLM Stack:**
+- OpenRouter (cloud), Ollama (local), LangGraph (orchestration)
+- Custom: LLMProviderChain, SemanticCache, RateLimiter, TokenBudget, GuardrailsValidator
 
-**Features:**
-- tsfresh (auto-extraction), SHAP (attribution), polars (batch), NumPy (real-time)
+**Active — Statistics/ML Utilities:**
+- scipy.stats, statsmodels, scikit-learn, tsfresh, NumPy, pandas
 
-**Infrastructure:**
-- MLflow (experiments), optuna (tuning), LangGraph (orchestration), LangFuse (observability)
+**Installed — Available but not yet wired:**
+- stumpy (matrix profiles), numba (JIT), PyWavelets (wavelet transforms), empyrical-reloaded (performance metrics)
 
-**LLMs (research-only):**
-- Ollama (local), OpenRouter (cloud), guardrails-ai (validation)
+**Planned — ML Foundation (Phase 64+):**
+- LightGBM, XGBoost, SHAP, optuna, polars, alphalens-reloaded, evidently
 
-**Full analysis:** See `ml-ai-palette.md` for strengths/weaknesses, why chosen, when to reconsider.
+**Planned — Observability Wiring:**
+- LangFuse (self-hosted, configured but not yet imported)
+- MLflow (lazy import exists in registry.py — add to requirements.txt before Phase 64)
 
 ---
 
 ## 7. Integration Points
 
-### 7.1 Phase 2 (The Validator)
-- `scipy.stats.pearsonr` — Correlation coefficient, p-value
+### 7.1 Promotion Gate (Active)
+- `scipy.stats.pearsonr` — Correlation coefficient + p-value
+- `statsmodels.tsa.stattools.adfuller` — Stationarity check before training
 - `asyncpg` — Query shadow table, compute stats in SQL where possible
 - Daily cron job — Automated correlation checks
 
-### 7.2 Phase 54 (ML Scoring Model)
+### 7.2 ML Scoring Model (Phase 64+)
 - `polars.DataFrame` — Build feature matrix from `intelligence_features`
 - `lightgbm.train()` — Fit per-regime × per-setup × per-TF models
-- `shap.TreeExplainer` — Compute feature attributions
+- `shap.TreeExplainer` — Compute feature attributions; top-5 to `signal_ledger.ml_top_features`
+- `optuna` — Hyperparameter search at model init + major regime shifts
 - MLflow model registry — Version and track all trained models
 
-### 7.3 Beta Pipeline (Discovery)
+### 7.3 Discovery Pipeline (Phase 64+)
 - `tsfresh.extract_features()` — Auto-generate candidate features
-- `alphalens-reloaded` — Compute IC/ICIR per feature
-- `evidently.DriftDetector` — Catch distribution shifts before corruption
+- `alphalens-reloaded` — Compute IC/ICIR per feature candidate
+- `evidently.DriftDetector` — Catch distribution shifts before model corruption
+
+### 7.4 Plugin Research (Available Now)
+- `stumpy.stump()` — Matrix profile for bar pattern matching
+- `numba.njit` — JIT-compile NumPy inner loops in CPU-bound plugins
+- `pywt.wavedec()` — Wavelet decomposition for regime transition signals
+- `empyrical.sharpe_ratio()` / `empyrical.max_drawdown()` — Signal performance stats
 
 ---
 
 ## 8. Performance Boundaries
 
-**What scales where:**
-
 | Scale | Tool | Performance |
 |-------|------|-------------|
-| Single signal (<5ms) | NumPy + LightGBM | Real-time inference |
-| 100K rows (<5 min) | Polars + LightGBM | Weekly retraining |
-| 1M rows (<30 min) | Polars + LightGBM | Full historical backfill |
+| Single signal (<5ms) | NumPy + LightGBM (planned) | Real-time inference |
+| 100K rows (<5 min) | polars + LightGBM (planned) | Weekly retraining |
+| 1M rows (<30 min) | polars + LightGBM (planned) | Full historical backfill |
 | 10M rows | Consider Ray/Dask | Future multi-product scale |
-
-**When to optimize:**
-- Weekly retrain >30 min → Optimize feature extraction
-- Inference >5ms → Switch to C++/Rust (Rust modules)
-- Drift detection slow → Sample features, don't check all 85
 
 ---
 
@@ -310,12 +304,15 @@ multiplier = model.predict(features)  # LightGBM handles it
 
 | Date | Tool | Decision | Rationale |
 |------|------|----------|-----------|
-| 2026-03-24 | LightGBM | Chosen | Dominates tabular benchmarks |
+| 2026-04-21 | stumpy/numba/PyWavelets/empyrical | Installed, not yet wired | Available for plugin dev and research; no wiring risk |
+| 2026-04-21 | guardrails-ai | Replaced by custom impl | No pip dep needed; Pydantic validator suffices |
+| 2026-04-21 | LangFuse | Configured, not yet wired | Self-hosted plan stands; connect when swarm stable |
+| 2026-04-21 | OTel | Added to docs | Already active in BaseAgent + signal metrics agents |
+| 2026-03-24 | LightGBM | Chosen (planned) | Dominates tabular benchmarks |
 | 2026-03-24 | PyTorch/TF | Rejected | Overkill for our data type |
-| 2026-03-24 | polars | Chosen | 10-100× faster than pandas |
-| 2026-03-24 | MLflow | Chosen | Self-hosted; experiment tracking |
-| 2026-03-15 | optuna | Chosen | Bayesian optimization |
-| 2026-03-15 | alphalens-reloaded | Chosen | Quant-standard IC/ICIR |
+| 2026-03-24 | MLflow | Chosen | Self-hosted experiment tracking |
+| 2026-03-15 | optuna | Chosen (planned) | Bayesian optimization |
+| 2026-03-15 | alphalens-reloaded | Chosen (planned) | Quant-standard IC/ICIR |
 | 2026-03-15 | tsfresh | Chosen | Auto feature extraction |
 
 ---
@@ -323,19 +320,15 @@ multiplier = model.predict(features)  # LightGBM handles it
 ## 10. Related Documentation
 
 **Core architecture:**
-- `../architecture/principles.md` — Foundational principles (plugin-native, event-driven, hot path isolation)
-- `../architecture/plugin-native-architecture-explained.md` — How the plugin system works
-- `ai-intelligence-resources.md` — I8 LLM layer details
+- `ai-intelligence-architecture.md` — Full I1-I8 pipeline architecture
+- `ai-intelligence-resources.md` — LLM provider chain usage patterns
+- `../architecture/current-state.md` — Active services, data flow, performance
 
 **Deep dives:**
-- `../ideas/ml-ai-palette.md` — Tool analysis (strengths/weaknesses, why chosen)
 - `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
 - `../ideas/renaissance-alpha-pipeline.md` — Validation framework (shadow-first gates)
 - `../ideas/tech-stack.md` — Full platform stack (Redpanda, TimescaleDB, etc.)
-
-**Research:**
-- `../ideas/ml-classification-pattern-recognition.md` — Random Forest/KNN/SVM exploration
-- `../ideas/intelligence-stack-latency-reduction.md` — Performance optimization
+- `.planning/research/ML-SCORING.md` — LightGBM/XGBoost decision + training architecture
 
 ---
 
@@ -343,18 +336,19 @@ multiplier = model.predict(features)  # LightGBM handles it
 
 When adding/removing tools:
 
-1. Update section 2 (What We Use) with new tool
-2. Add decision to section 9 (Decision Log)
-3. Cross-reference detailed docs if exists
-4. Commit with message: `docs: add/remove/update [tool] in AI tech stack`
+1. Update section 2 with new tool + status (Active / Installed / Planned)
+2. Add decision to section 9 (Decision Log) with date and rationale
+3. Cross-reference `.planning/research/` if an analysis doc exists
+4. Commit with: `docs: add/remove/update [tool] in AI tech stack`
 
 **Before adding:**
-- Check `ml-ai-palette.md` — if analysis exists, reference it
-- Verify Renaissance alignment — simplest tool, proven, minimal
+- Verify it's not already covered by an installed library
+- Check Renaissance alignment — simplest tool, proven, minimal
 - Document "Why not [existing tool]?"
+- Mark status clearly: Active (wired), Installed (available), or Planned (not yet installed)
 
 ---
 
-**Version:** 1.0.0
-**Last Updated:** 2026-03-24
-**Milestone:** v2.3 ML Foundation
+**Version:** 2.0.0
+**Last Updated:** 2026-04-21
+**Milestone:** v2.4 Observability Hardening / v2.3 ML Foundation (planned)

@@ -1,10 +1,10 @@
 # Plugin Protocol
 
-**Version:** 2.1
-**Last Updated:** 2026-03-30
-**Status:** I1-I8 Complete — 121 Plugins Operational
+**Version:** 2.2
+**Last Updated:** 2026-04-21
+**Status:** I1-I8 Complete — 123 Plugins Operational
 
-> **Developer-facing.** For system-level DAG methodology, see `DAG_TOPOLOGY.md`. For implementation examples, see `src/intelligence/CLAUDE.md`.
+> **Developer-facing.** For system-level DAG methodology, see `dag-topology.md`. For implementation examples, see `src/intelligence/CLAUDE.md`.
 
 ## Overview
 
@@ -114,7 +114,7 @@ Plugins with `supports_incremental=True` implement O(1) updates via `compute_nex
 | Cumulative | OBV, VWAP | Running sum, add new bar |
 | Online Variance | Bollinger | Welford's algorithm |
 
-**Result:** ~141x speedup vs. full recomputation. 25 I1 indicators complete in <1ms per bar.
+**Result:** ~141x speedup vs. full recomputation. 27 I1 indicators complete in <1ms per bar.
 
 ## Plugin Lifecycle
 
@@ -179,15 +179,19 @@ State is NOT persisted across service restarts. Warmup re-seeds from historical 
 
 | Tier | Count | Incremental | Examples |
 |------|-------|-------------|----------|
-| I1 | 27 | ✅ Yes | RSI, MACD, ATR, ADX, BB, VWAP, Stoch, HMA |
-| I3 | 15 | ❌ No | FVG, Order Blocks, Breaker Blocks |
-| I4 | 11 | ❌ No | CTF, Regime, TOD, Kalman, HMM, BOCPD |
+| I1 | 27 | ✅ Yes | RSI, MACD, ATR, ADX, BB, VWAP, Stoch, HMA, OFI, CVD |
+| I2 | 10 | ✅ Yes | MACDEvents, RSIEvents, ADXEvents, VolumeEvents, AccelerationRegime, ExhaustionScore |
+| I3 | 8 | ❌ No | Swing, S/R, MarketProfile, SessionLevels, FibZones, SwingMomentum |
+| I4 | 12 | ❌ No | GARCH, Kalman, VIXRegime, CrossAssetContext, AnchoredVWAP, VolumeProfile |
+| I5 | 16 | ❌ No | RSIDivergence, BollingerSqueeze, chart patterns |
+| SMC | 13 | ❌ No | BOS/CHoCH, FVG, Order Blocks, HMMRegime, BOCPD |
+| I6 | 1 | ❌ No | CrossTimeframeConfluence |
 | I7 | 36 | ❌ No | TrendFollowing, MeanReversion, LiquiditySweep, CHoCH |
 
-**Total:** 121 plugins + 2 aggregation (CISScorer, SignalAggregator)
+**Total:** 123 plugins + 2 aggregation (CISScorer, SignalAggregator)
 
 ## See Also
 
-- `DAG_TOPOLOGY.md` — System-level DAG methodology and agent topology
+- `dag-topology.md` — System-level DAG methodology and agent topology
 - `plugin-native-architecture-explained.md` — Architectural principles
-- `CURRENT_STATE.md` — Active agent inventory
+- `current-state.md` — Active agent inventory

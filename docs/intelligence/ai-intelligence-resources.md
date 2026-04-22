@@ -1,8 +1,8 @@
 # AI Intelligence Resources & Implementation Guide
 
-**Version:** 3.0.0
-**Last Updated:** 2026-04-07
-**Status:** Operational — I1-I8 pipeline complete (121 plugins + 2 aggregation). LLM chain: OpenRouter (primary) → Ollama (offline fallback).
+**Version:** 3.1.0
+**Last Updated:** 2026-04-21
+**Status:** Operational — I1-I8 pipeline complete (123 plugins + 2 aggregation). LLM chain: OpenRouter (primary) → Ollama (offline fallback).
 
 ## Purpose
 
@@ -219,7 +219,7 @@ Per the Renaissance validation framework, LLMs are **research-only** in producti
 
 - **Current:** ~4.5 bars/sec (limited by sequential I2-I6 execution)
 - **Target:** 530 bars/sec (118x gap)
-- **Optimization:** Batch processing expected 10-50x improvement (see `docs/architecture/PIPELINE_OPTIMIZATION.md`)
+- **Optimization:** Batch processing expected 10-50x improvement (see `docs/architecture/pipeline-optimization.md`)
 
 ### GIL Constraint
 
@@ -255,8 +255,8 @@ Python's Global Interpreter Lock prevents threading from achieving true parallel
 
 - **AI Architecture:** `docs/intelligence/ai-intelligence-architecture.md` — Full pipeline architecture
 - **Tech Stack:** `docs/intelligence/ai-tech-stack.md` — ML/AI technology choices
-- **Optimization:** `docs/architecture/PIPELINE_OPTIMIZATION.md` — Performance strategy
-- **Current State:** `docs/architecture/CURRENT_STATE.md` — Active services and metrics
+- **Optimization:** `docs/architecture/pipeline-optimization.md` — Performance strategy
+- **Current State:** `docs/architecture/current-state.md` — Active services and metrics
 - **Plugin System:** `src/intelligence/CLAUDE.md` — Plugin protocol and tier details
 
 ---

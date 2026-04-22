@@ -120,10 +120,16 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 |---------|------|---------|
 | Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics |
 | IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation |
-| Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
+| Bar Aggregator | `indicagent-bar-aggregator` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer |
 | Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer |
-| Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome |
+| Signal Tracker | `indicagent-signal-tracker-compute` | Zone-aware lifecycle (DB-ignorant compute); publishes transitions to `LifecycleWriterAgent` |
+| Lifecycle Writer | `indicagent-lifecycle-writer` | Persists signal lifecycle transitions to `signal_ledger` |
+| ML Data Quality | `indicagent-ml-data-quality` (timer) | Audits `intelligence_features` for training data quality |
+| ML Discovery | `indicagent-ml-discovery` (timer) | Discovers ML training signal patterns |
+| ML Orchestrator | `indicagent-ml-orchestrator` (timer) | Orchestrates ML training pipeline |
+| Swarm Orchestrator | `indicagent-swarm-orchestrator` | Routes swarm tasks to specialist agents |
+| Swarm Writer | `indicagent-swarm-writer` | Persists swarm outputs to DB |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` |
 | API | `indicagent-api` | FastAPI + SSE on :8000 |
 
@@ -162,7 +168,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Plugin System
 
-121 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+128 plugins + 2 aggregation across tiers I1–I7 (I1=28, I2=11, I3=9, I4=13, I5=16, SMC=13, I6=1, I7=37). See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
@@ -225,7 +231,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `intelligence_pipeline_agent.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
-**Dashboard:** See `docs/dashboard/GOTCHAS.md` for SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection.
+**Dashboard:** See `docs/dashboard/gotchas.md` for SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection.
 
 ## Infrastructure
 

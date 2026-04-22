@@ -22,10 +22,10 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-ibkr-provider
 sudo systemctl restart indicagent-provider-merger
-sudo systemctl restart indicagent-bar-aggregator-compute
+sudo systemctl restart indicagent-bar-aggregator
 sudo systemctl restart indicagent-intelligence-pipeline
 sudo systemctl restart indicagent-signal-writer
-sudo systemctl restart indicagent-signal-tracker
+sudo systemctl restart indicagent-signal-tracker-compute
 sudo systemctl restart indicagent-feature-writer
 sudo systemctl restart indicagent-llm-writer
 sudo systemctl restart indicagent-ai-narrative
@@ -85,12 +85,12 @@ cd production && docker compose up -d prometheus grafana
 # Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
 # → when prompted to STOP, run:
-sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker \
+sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
   indicagent-feature-writer indicagent-ai-narrative
 # → press Enter, let fetch + replay complete
 # → when prompted to START, run:
 sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer \
-  indicagent-signal-writer indicagent-signal-tracker indicagent-ai-narrative
+  indicagent-signal-writer indicagent-signal-tracker-compute indicagent-ai-narrative
 
 # Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)

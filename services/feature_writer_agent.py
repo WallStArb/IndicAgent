@@ -337,12 +337,10 @@ class FeatureWriterAgent(BaseWriterAgent):
     async def _run(self) -> None:
         """Main feature writing loop."""
         self.logger.info("Feature Writer Agent started")
-        tasks = [
-            asyncio.create_task(self._process_loop()),
-            asyncio.create_task(self._periodic_flush_loop()),
-            asyncio.create_task(self._health_monitor_loop()),
-        ]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self._process_loop())
+            tg.create_task(self._periodic_flush_loop())
+            tg.create_task(self._health_monitor_loop())
 
     async def _teardown(self) -> None:
         """Flush buffer, close Kafka consumer and DB pool."""

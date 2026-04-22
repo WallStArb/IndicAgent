@@ -1,8 +1,8 @@
 # Plugin-Native Architecture
 
-**Version:** 2.1
-**Last Updated:** 2026-03-30
-**Status:** I1-I8 Complete — 121 Plugins Operational
+**Version:** 2.2
+**Last Updated:** 2026-04-21
+**Status:** I1-I8 Complete — 123 Plugins Operational
 
 > **What makes this architecture different:** Most trading systems are monolithic scripts or tightly-coupled microservices. IndicAgent is an empty container that becomes intelligent through plugins. The system has no hardcoded RSI, no hardcoded MACD, no hardcoded signals. Remove a plugin and that capability disappears. Add a plugin and it's immediately available across all timeframes, all symbols, with automatic dependency resolution.
 
@@ -173,7 +173,7 @@ Alternative → market.bars.raw.alt ┘
 
 **Problem:** Most systems fire signals on single indicators. RSI < 30 = buy. No validation, no confluence.
 
-**IndicAgent approach:** CIS (Confluence Intelligence Score) requires agreement from at least 3 of 6 evidence buckets.
+**IndicAgent approach:** CIS (Confluence Intelligence Score) is computed by the `CISScorer` aggregator after I6, before I7 setup plugins run. It requires agreement from at least 3 of 6 independent evidence buckets.
 
 | Bucket | What It Measures | Weight |
 |--------|-----------------|--------|
@@ -186,6 +186,8 @@ Alternative → market.bars.raw.alt ┘
 
 **Rule:** `|score| > 0.35` **AND** at least 3 of 6 buckets agree. Single dominant bucket cannot override.
 
+**Pipeline position:** `I5/SMC outputs → I6 CTF sub-scores → CISScorer → I7 setup plugins → SignalAggregator → ranked signal`
+
 **Why this matters:**
 - Signals fire only when multiple independent analysis methods agree
 - False positives reduced by ~60% vs single-indicator systems
@@ -193,16 +195,72 @@ Alternative → market.bars.raw.alt ┘
 
 ### 8. Self-Correcting Pipeline
 
-**Principle:** The pipeline monitors its own signal quality and self-adjusts.
+**Principle:** The pipeline monitors its own signal quality and self-adjusts at six independent layers. No layer requires manual intervention — the system learns, recalibrates, and discounts degraded setups autonomously.
 
-**KS Drift Monitor:** Kolmogorov-Smirnov test detects when feature distributions drift from historical baseline. Detected drift → penalty applied to CIS scoring.
+```
+Raw confidence (I7 plugin output)
+    → [1] Isotonic calibration    → calibrated_confidence
+    → [2] TOD multiplier          → time-adjusted confidence
+    → [3] perf_multiplier         → performance-weighted rank in all_ranked
+    → [4] KS drift penalty        → distribution-aware CIS bucket weights
+    → [5] CUSUM monitor           → feedback loop back into perf_multiplier
+    → [6] Shadow mode gate        → statistical proof before production eligibility
+```
 
-**CUSUM Monitor:** Cumulative Sum control charts track signal performance degradation. Detected degradation → `perf_multiplier` auto-adjusted.
+**[1] Isotonic Calibration**
 
-**What this provides:**
-- No manual recalibration required
-- System detects when a setup stops working and discounts it automatically
-- Full audit trail of every adjustment
+Raw I7 confidence values are systematically biased — plugins over- or under-estimate confidence depending on regime. Isotonic regression maps raw confidence to empirically calibrated values using historical outcome data from `signal_ledger`.
+
+- Applied per signal before sorting/ranking
+- Raw value stored as `pre_calibration_confidence`; output stored as `calibrated_confidence`
+- Refit periodically from resolved signal outcomes
+
+**[2] Time-of-Day (TOD) Multiplier**
+
+Signal quality is session- and regime-dependent. A trend setup at RTH open behaves differently than the same setup in the 2pm lull. The TOD multiplier encodes this empirically.
+
+- Multiplier is per cell: `(regime_type, timeframe, hour_et)` — 120 cells total
+- Computed from rolling historical win rates per cell
+- Applied after isotonic calibration; stored in signal record for audit
+
+**[3] Performance Multiplier (`perf_multiplier`)**
+
+The signal aggregator reads `setup_performance` (refreshed every 15 minutes) and applies a rank multiplier based on each setup's rolling 30-day stats (win rate, avg PnL_R, Sharpe).
+
+- Gate: setups with `sample_size < 30` use `perf_multiplier = 1.0` — no effect until proven
+- Outperforming setups rank higher in `all_ranked`; underperformers are demoted
+- `active` signal is always derived from `all_ranked` — never from the raw `signals` list
+
+**[4] KS Drift Monitor**
+
+Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts significantly (e.g., volatility regime shift changes the OFI distribution), its contribution to CIS bucket weights is penalized.
+
+- Detects silent distribution shifts that precede signal quality degradation
+- Penalty applied to CIS bucket weights, not to individual signal confidence
+- Provides early warning before CUSUM detects outcome-level degradation
+
+**[5] CUSUM Monitor**
+
+Cumulative Sum control charts track signal win-rate over time per setup. When a setup's cumulative performance crosses the degradation threshold, `perf_multiplier` is automatically reduced — closing the loop with layer [3].
+
+- Operates on resolved outcomes in `signal_ledger`
+- Degradation → `perf_multiplier` reduction → setup ranks lower → fires less
+- Recovery → `perf_multiplier` restored as outcomes improve
+- No manual intervention required at any point in the cycle
+
+**[6] Shadow Mode Gate**
+
+Every new feature or plugin runs in shadow mode before it can affect production signals. Shadow signals are generated, tracked through their full lifecycle, and scored — but never published to the live stream.
+
+- Promotion requires: `p < 0.05` (statistical significance) **AND** `N ≥ 100` resolved signals
+- `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met
+- Permanent record: shadow vs production performance tracked indefinitely in `signal_ledger`
+
+**What this stack provides:**
+- No manual recalibration — the system detects degradation and self-adjusts at every layer
+- Layered defense — a bad setup must survive calibration, TOD adjustment, and performance weighting before firing
+- Full audit trail — every multiplier, calibration value, and shadow outcome is logged
+- Statistical rigor — no setup reaches production without proven performance (p < 0.05, N ≥ 100)
 
 ---
 
@@ -214,14 +272,17 @@ IBKR TWS → `IBKRProviderAgent` → Redpanda → `ProviderMergerAgent` → `mar
 ### Layer 2: Mathematical Intelligence (I1-I4)
 | Tier | Count | Purpose |
 |------|-------|---------|
-| I1 | 27 plugins | Raw indicators (RSI, MACD, ATR, ADX, BB, VWAP, etc.) |
-| I3 | 15 plugins | Market structure (FVG, Order Blocks, Breaker Blocks) |
-| I4 | 11 plugins | Context/regime (CTF, Kalman, HMM, BOCPD, TOD) |
+| I1 | 27 plugins | Raw indicators (RSI, MACD, ATR, ADX, BB, VWAP, OFI, CVD, etc.) |
+| I2 | 10 plugins | Composite events (MACDEvents, RSIEvents, ExhaustionScore, AccelerationRegime) |
+| I3 | 8 plugins | Market structure (Swing, S/R, MarketProfile, SessionLevels, FibZones) |
+| I4 | 12 plugins | Context/regime (GARCH, Kalman, VIXRegime, CrossAssetContext, VolumeProfile) |
 
 ### Layer 3: Pattern Intelligence (I5-I7)
 | Tier | Count | Purpose |
 |------|-------|---------|
-| I6 | — | CIS scoring, isotonic calibration |
+| I5 | 16 plugins | Chart patterns, divergences, squeeze setups |
+| SMC | 13 plugins | Smart Money Concepts (BOS/CHoCH, FVG, Order Blocks, HMM, BOCPD) |
+| I6 | 1 plugin | CrossTimeframeConfluence (CIS scoring, isotonic calibration) |
 | I7 | 36 plugins | Trading setups (TrendFollowing, MeanReversion, LiquiditySweep, etc.) |
 
 ### Layer 4: AI Intelligence (I8)
@@ -255,9 +316,12 @@ LLM analysis per signal (Ollama gemma4:e4b / OpenRouter) → narratives:*:* topi
 3. BarAggregatorComputeAgent → market.bars.htf (5m-1d)
 4. IntelligencePipelineComputeAgent (I1→I7 unified in-process)
    • I1: 27 indicators → tiered outputs
-   • I3: 15 structure plugins → tiered outputs
-   • I4: 11 context plugins → tiered outputs
-   • I6: CIS scoring, isotonic calibration
+   • I2: 10 composite events → tiered outputs
+   • I3: 8 structure plugins → tiered outputs
+   • I4: 12 context plugins → tiered outputs
+   • I5: 16 pattern plugins → tiered outputs
+   • SMC: 13 plugins → tiered outputs
+   • I6: 1 plugin (CIS scoring, isotonic calibration)
    • I7: 36 setup plugins → ranked signals
 5. StreamMerger (Convergence Gate) → intelligence.journal (single atomic entry)
 6. Winner selection → intelligence.i7.signals
@@ -426,7 +490,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 | Metric | Value |
 |--------|-------|
-| **Active plugins** | 121 + 2 aggregation (CISScorer, SignalAggregator) |
+| **Active plugins** | 123 + 2 aggregation (CISScorer, SignalAggregator) |
 | **Tests** | 2835 passing (unit) |
 | **Incremental speedup** | 141x measured |
 | **Tick ingestion** | 100-500+ ticks/sec during RTH |
@@ -438,7 +502,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 ## See Also
 
-- `DAG_TOPOLOGY.md` — Agent topology and data flow methodology
-- `PLUGIN_PROTOCOL.md` — Plugin interface (developer-facing)
-- `CURRENT_STATE.md` — Single source of truth for v2.2 architecture
-- `AGENT_STANDARD.md` — Role taxonomy and naming conventions
+- `dag-topology.md` — Agent topology and data flow methodology
+- `plugin-protocol.md` — Plugin interface (developer-facing)
+- `current-state.md` — Single source of truth for v2.2 architecture
+- `agent-standard.md` — Role taxonomy and naming conventions

@@ -1,7 +1,7 @@
 # Pipeline Optimization Strategy
 
-**Last Updated:** 2026-04-07
-**Related:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/CURRENT_STATE.md`
+**Last Updated:** 2026-04-21
+**Related:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/current-state.md`
 
 ---
 
@@ -16,17 +16,17 @@ IndicAgent processes **~4.5 bars/sec** against a theoretical target of **530 bar
 ### Current Parallelization
 
 ```
-I1: [Plugin1, Plugin2, ... Plugin27] → asyncio.gather (parallel)
+I1: [Plugin1, Plugin2, ... Plugin28] → asyncio.gather (parallel)
  ↓
-I2: [Plugin1] → [Plugin2] → ... (sequential)
+I2: [Plugin1] → [Plugin2] → ... (sequential, 11 plugins)
  ↓
-I3: [Plugin1] → [Plugin2] → ... → [Plugin15] (sequential)
+I3: [Plugin1] → [Plugin2] → ... → [Plugin9] (sequential)
  ↓
-I4: [Plugin1] → [Plugin2] → ... → [Plugin11] (sequential)
+I4: [Plugin1] → [Plugin2] → ... → [Plugin13] (sequential)
  ↓
-I5-I6: (sequential)
+I5 (16) → SMC (13) → I6 (1): (sequential)
  ↓
-I7: [Plugin1, Plugin2, ... Plugin36] → asyncio.gather (parallel)
+I7: [Plugin1, Plugin2, ... Plugin37] → asyncio.gather (parallel)
 ```
 
 **Latency Impact:**
@@ -176,7 +176,7 @@ JIT-compile numpy operations for native speed.
 ## References
 
 - **Analysis:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md`
-- **Current State:** `docs/architecture/CURRENT_STATE.md`
+- **Current State:** `docs/architecture/current-state.md`
 - **Evolution:** `docs/architecture/renaissance-pipeline-evolution.md`
 
 ---

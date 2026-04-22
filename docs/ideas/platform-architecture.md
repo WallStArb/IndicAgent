@@ -3,7 +3,7 @@
 **Created:** 2026-03-04
 **Last Updated:** 2026-03-30
 **Status:** Vision — architecture ideation / ideas capture
-**Related:** `docs/architecture/CONCEPTS.md` (high-level patterns), `docs/ideas/ml-agent-architecture.md` (ML/AI), `docs/ideas/intelligence-swarm-manifest.md` (swarm), qualagent/derivagent/tradeagent/primeagent/aegisagent visions, `docs/ideas/renaissance-framing.md`
+**Related:** `docs/architecture/concepts.md` (high-level patterns), `docs/ideas/ml-agent-architecture.md` (ML/AI), `docs/ideas/intelligence-swarm-manifest.md` (swarm), qualagent/derivagent/tradeagent/primeagent/aegisagent visions, `docs/ideas/renaissance-framing.md`
 
 > **Living document.** The data flow section and canonical stream namespace are the source of truth for stream contracts across all products. Update these whenever a stream is added, renamed, or retired.
 

@@ -15,8 +15,8 @@ files:
 
 Six docs still reference pre-DAG-refactor service names (indicagent-data-provider,
 indicagent-feature-compute, indicagent-signal-generator, etc.) and wrong metrics ports.
-Discovered during audit that aligned CLAUDE.md, CURRENT_STATE.md, DAG_TOPOLOGY.md,
-OBSERVABILITY.md, cheatsheet.md, running-services.md, and README.md (all now correct).
+Discovered during audit that aligned CLAUDE.md, current-state.md, dag-topology.md,
+observability.md, cheatsheet.md, running-services.md, and README.md (all now correct).
 
 ## Solution
 
@@ -25,10 +25,10 @@ OBSERVABILITY.md, cheatsheet.md, running-services.md, and README.md (all now cor
 - `docs/concepts/intelligence-tiers.md` — I1–I7 tier model unchanged, old service names
 - `docs/architecture/layered-architecture.md` — layer model still valid, wrong ports (:9112, :9114)
 
-**Archive** (superseded by CURRENT_STATE.md + DAG_TOPOLOGY.md):
+**Archive** (superseded by current-state.md + dag-topology.md):
 - `docs/architecture/event-driven-indicator-system.md` — describes pre-DAG monolith
 - `docs/architecture/comprehensive-intelligence-architecture.md` — pre-v2.1 design spec
 - `docs/architecture/service-separation.md` — describes refactor goal that already shipped
 
 Authoritative references for correct current state: CLAUDE.md § Active Services,
-docs/architecture/CURRENT_STATE.md, docs/architecture/DAG_TOPOLOGY.md.
+docs/architecture/current-state.md, docs/architecture/dag-topology.md.

@@ -1,8 +1,8 @@
 # AI Intelligence Architecture
 
-**Version:** 3.2.0
-**Last Updated:** 2026-04-07
-**Status:** Operational — I1–I8 pipeline complete (121 plugins + 2 aggregation). Unified IntelligencePipelineComputeAgent with parallelized I1/I7 tiers. LLM stack: OpenRouter (primary) → Ollama local (offline fallback).
+**Version:** 3.3.0
+**Last Updated:** 2026-04-21
+**Status:** Operational — I1–I8 pipeline complete (123 plugins + 2 aggregation). Unified IntelligencePipelineComputeAgent with parallelized I1/I7 tiers. LLM stack: OpenRouter (primary) → Ollama local (offline fallback).
 
 ## Executive Summary
 
@@ -62,10 +62,11 @@ IndicAgent's intelligence pipeline transforms raw market data through seven anal
 - **I7 (36 plugins)** — Trading signals with confidence scores
 
 **Sequential (current bottleneck):**
-- **I2** — Volume analysis events
-- **I3 (15 plugins)** — Pattern detection (FVG, OB, BB, SMC)
-- **I4 (11 plugins)** — Context scoring, regime detection
-- **I5-I6** — Confluence, CIS scoring, calibration
+- **I2 (10 plugins)** — Composite events (crossovers, exhaustion, acceleration)
+- **I3 (8 plugins)** — Market structure (swing, S/R, market profile, session levels)
+- **I4 (12 plugins)** — Context scoring, regime detection (GARCH, Kalman, VIXRegime, etc.)
+- **I5 (16 plugins) + SMC (13 plugins)** — Patterns + Smart Money Concepts
+- **I6 (1 plugin)** — CrossTimeframeConfluence → CIS scoring, isotonic calibration
 
 **Why:** Python's GIL prevents ThreadPoolExecutor from achieving true parallelism. Only one thread executes Python bytecode at a time. CPU-bound work (plugin compute) cannot utilize multiple cores regardless of worker count.
 
@@ -74,7 +75,7 @@ IndicAgent's intelligence pipeline transforms raw market data through seven anal
 - I2-I6 (sequential): 160ms (73% of total)
 - I7 (parallel): 20ms
 
-**See:** `docs/architecture/PIPELINE_OPTIMIZATION.md` for optimization strategy (batch processing).
+**See:** `docs/architecture/pipeline-optimization.md` for optimization strategy (batch processing).
 
 ---
 
@@ -126,6 +127,28 @@ The I8 AI Narrative layer is the exception (generates human-readable explanation
 
 ---
 
+## Intelligence Swarm (Path B — Async, Out-of-Band)
+
+The swarm runs alongside the deterministic I1-I7 pipeline without ever blocking it. When an I7 signal fires, `SwarmOrchestratorComputeAgent` fans out to specialist agents that reason about the signal context and produce an `AlphaMultiplier` — applied downstream, after the fact.
+
+```
+I7 signal → SwarmOrchestratorComputeAgent
+                ├── Path A: deterministic contributors (parallel, <5ms each)
+                └── Path B: LLM reasoning agents (async, shadow-only until promoted)
+                          ↓
+                    SwarmAggregator → AlphaMultiplier [0.7–1.3 clamped]
+                          ↓
+                    SwarmWriterAgent → alpha_multiplier_shadow (DB)
+```
+
+Every agent implements `IAlphaContributor` (`src/core/agents/alpha_contributor.py`). Each receives a `SwarmContext` — a typed, immutable snapshot of I1/I4/I6 features at signal time, built from in-memory cache with no DB access. `SafeSwarmWrapper` enforces a hard timeout and exception isolation around every agent — a failing agent returns `multiplier=1.0, confidence=0.0` and is invisible to the aggregator.
+
+No swarm agent affects production signal confidence until `ρ > 0.4` AND `N ≥ 100` AND `p < 0.05` over a 14-day rolling window. All agents start `shadow_only=True`.
+
+**See:** `docs/intelligence/swarm-architecture.md` — full swarm architecture, data contract, agent registry, and validation gate.
+
+---
+
 ## Redpanda Topics
 
 All topic names are built via `src/core/stream_keys.py`.
@@ -173,16 +196,64 @@ from src.core.stream_keys import (
 
 ---
 
+## CIS & Signal Confidence Pipeline
+
+**Pipeline position:** `I5/SMC outputs → I6 CTF sub-scores → CISScorer → I7 setup plugins → SignalAggregator → ranked signal`
+
+CIS (Confluence Intelligence Score) is computed by `CISScorer` after I6 and before I7 setup plugins run. It requires agreement from at least 3 of 6 independent evidence buckets:
+
+| Bucket | Reads from | Weight |
+|--------|-----------|--------|
+| **Trend** | Kalman slope, trend regime, SMC trend, cross-TF alignment | 0.20 |
+| **Momentum** | RSI deviation, MACD histogram, ROC, momentum bias | 0.20 |
+| **Structure** | Swing pattern, BOS/CHoCH events | 0.15 |
+| **Pattern** | Double top/bottom, H&S, triangle completions | 0.05 |
+| **Institutional** | Order blocks, FVG activity, supply/demand zones | 0.25 |
+| **Regime** | HMM state probabilities, BOCPD changepoint, vol regime | 0.15 |
+
+**Rule:** `|score| > 0.35` AND at least 3 of 6 buckets agree on direction.
+
+### Six-Layer Self-Correction Stack
+
+Signal confidence flows through six autonomous correction layers before ranking:
+
+```
+Raw confidence (I7 plugin output)
+    → [1] Isotonic calibration    → calibrated_confidence
+    → [2] TOD multiplier          → time-adjusted confidence
+    → [3] perf_multiplier         → performance-weighted rank in all_ranked
+    → [4] KS drift penalty        → distribution-aware CIS bucket weights
+    → [5] CUSUM monitor           → feedback loop back into perf_multiplier
+    → [6] Shadow mode gate        → statistical proof before production eligibility
+```
+
+| Layer | Mechanism | What it corrects |
+|-------|-----------|-----------------|
+| **[1] Isotonic calibration** | Isotonic regression on `signal_ledger` outcomes | Systematic over/under-confidence per plugin/regime |
+| **[2] TOD multiplier** | Per-cell `(regime_type, tf, hour_et)` — 120 cells | Session-dependent signal quality variation |
+| **[3] perf_multiplier** | `setup_performance` table (refreshed 15 min); N<30 gate = no effect | Underperforming setups demoted in `all_ranked` |
+| **[4] KS drift** | Kolmogorov-Smirnov vs. historical baseline → CIS bucket weight penalty | Feature distribution shifts before they cause outcome degradation |
+| **[5] CUSUM** | Cumulative Sum control charts on win-rate → auto-adjusts `perf_multiplier` | Closes the loop with [3]; no manual intervention |
+| **[6] Shadow gate** | `p < 0.05` AND `N ≥ 100` resolved signals required | Prevents unproven features from reaching production |
+
+**Key invariant:** `active` signal is always derived from `all_ranked`, never from the raw `signals` list — otherwise `perf_multiplier` silently has no effect on winner selection.
+
+---
+
 ## Plugin System
 
-121 plugins across tiers I1-I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+123 plugins across tiers I1-I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 **Tier lists:** `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth.
 
 **Plugin counts:**
-- I1: 27 plugins (technical indicators)
-- I3: 15 plugins (pattern detection)
-- I4: 11 plugins (context scoring)
+- I1: 27 plugins (technical indicators + OFI/CVD microstructure)
+- I2: 10 plugins (composite events)
+- I3: 8 plugins (market structure)
+- I4: 12 plugins (context/regime)
+- I5: 16 plugins (patterns)
+- SMC: 13 plugins (Smart Money Concepts)
+- I6: 1 plugin (CrossTimeframeConfluence)
 - I7: 36 plugins (trading signals)
 
 **Key constraint:** Plugins must never know about other plugins directly. Cross-plugin communication goes through tier output schemas only.
@@ -191,10 +262,10 @@ from src.core.stream_keys import (
 
 ## Related Documentation
 
-- **Current State:** `docs/architecture/CURRENT_STATE.md` — Active services, data flow, performance
-- **Optimization:** `docs/architecture/PIPELINE_OPTIMIZATION.md` — Batch processing strategy, GIL constraints
-- **Evolution:** `docs/architecture/renaissance-pipeline-evolution.md` — Architecture principles and patterns
-- **Plugin Protocol:** `docs/architecture/PLUGIN_PROTOCOL.md` — How plugins work
+- **Current State:** `docs/architecture/current-state.md` — Active services, data flow, performance
+- **Optimization:** `docs/architecture/pipeline-optimization.md` — Batch processing strategy, GIL constraints
+- **Principles:** `docs/architecture/principles.md` — Renaissance architecture principles
+- **Plugin Protocol:** `docs/architecture/plugin-protocol.md` — How plugins work
 - **ML Tech Stack:** `docs/intelligence/ai-tech-stack.md` — ML/AI technology choices
 - **ML Resources:** `docs/intelligence/ai-intelligence-resources.md` — Implementation examples
 
