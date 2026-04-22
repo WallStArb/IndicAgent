@@ -358,6 +358,7 @@ class RollComputeAgent(BaseAgent):
             c.symbol: c.base or c.symbol
             for c in get_active_contracts(settings)
         }
+        self._unique_bases: frozenset[str] = frozenset(self._symbol_to_base.values())
 
         # Cache labeled metric objects — avoids per-bar registry lookup on hot path
         self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
@@ -412,9 +413,65 @@ class RollComputeAgent(BaseAgent):
             )
         return fallback, fallback
 
+    async def _publish_calendar_roll(
+        self,
+        base_symbol: str,
+        old_contract: str,
+        new_contract: str,
+        detection_ts: datetime,
+        roll_topic: str,
+        log_event: str = "calendar_roll_fired",
+    ) -> None:
+        cal_event = RollEvent(
+            symbol=base_symbol,
+            old_contract=old_contract,
+            new_contract=new_contract,
+            roll_gap_price=0.0,
+            roll_gap_pct=0.0,
+            detection_ts=detection_ts,
+            volume_zscore=0.0,
+            confirmation_count=0,
+            detection_method="calendar",
+        )
+        await self._kafka_producer.publish(
+            roll_topic,
+            cal_event.model_dump(mode="json"),
+            key=base_symbol,
+        )
+        self._rolls_detected_lbl.inc()
+        self.logger.info(log_event, symbol=base_symbol, old_contract=old_contract, new_contract=new_contract)
+
+    async def _startup_sweep(self, roll_topic: str) -> None:
+        """Fire any calendar rolls that were missed before this startup.
+
+        Runs once before the bar loop. Covers the case where a contract expired
+        while the service was down or restarting — no bars will ever arrive for
+        an expired contract, so bar-driven detection would never fire.
+        """
+        now = datetime.now(UTC)
+        tasks = []
+        for base_symbol in self._unique_bases:
+            if self._calendar_scheduler.check_calendar_roll(base_symbol, now):
+                cal_old, cal_new = self._resolve_contracts(base_symbol, base_symbol)
+                if cal_old == cal_new:
+                    self.logger.warning(
+                        "startup_sweep.calendar_roll_contracts_unresolved",
+                        base_symbol=base_symbol,
+                    )
+                    continue
+                tasks.append(
+                    self._publish_calendar_roll(
+                        base_symbol, cal_old, cal_new, now, roll_topic,
+                        "startup_sweep.calendar_roll_fired",
+                    )
+                )
+        if tasks:
+            await asyncio.gather(*tasks)
+
     async def _run(self) -> None:
         """Main loop: consume bars, run RollMonitor, publish RollEvent on confirmed roll."""
         roll_topic = topic_roll_events(self.env_name)
+        await self._startup_sweep(roll_topic)
         async for _topic, _key, payload in self._kafka_consumer.messages():
             if not self.running:
                 break
@@ -485,28 +542,8 @@ class RollComputeAgent(BaseAgent):
                             fallback=symbol,
                         )
                     else:
-                        cal_event = RollEvent(
-                            symbol=base_symbol,
-                            old_contract=cal_old,
-                            new_contract=cal_new,
-                            roll_gap_price=0.0,
-                            roll_gap_pct=0.0,
-                            detection_ts=bar_utc,
-                            volume_zscore=0.0,
-                            confirmation_count=0,
-                            detection_method="calendar",
-                        )
-                        await self._kafka_producer.publish(
-                            roll_topic,
-                            cal_event.model_dump(mode="json"),
-                            key=base_symbol,
-                        )
-                        self._rolls_detected_lbl.inc()
-                        self.logger.info(
-                            "calendar_roll_fired",
-                            symbol=base_symbol,
-                            old_contract=cal_old,
-                            new_contract=cal_new,
+                        await self._publish_calendar_roll(
+                            base_symbol, cal_old, cal_new, bar_utc, roll_topic
                         )
             except Exception as exc:
                 self._detection_errors_lbl.inc()

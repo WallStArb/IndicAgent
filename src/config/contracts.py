@@ -131,16 +131,22 @@ def get_expiry_date(base_symbol: str, expiry_month: int, expiry_year: int) -> da
         return first_friday + timedelta(weeks=2)
 
     if base_symbol in _ENERGY_METALS_SYMBOLS:
-        # Last business day of month PRIOR to expiry month
+        # CME rule: 3 business days prior to the 25th calendar day of the month
+        # preceding the delivery month. If the 25th is a weekend, count back from
+        # the prior Friday (i.e. find the business day on or before the 25th, then
+        # go back 3 more business days).
         prior_month = expiry_month - 1 if expiry_month > 1 else 12
         prior_year = expiry_year if expiry_month > 1 else expiry_year - 1
-        last_day = date(
-            prior_year, prior_month, cal_mod.monthrange(prior_year, prior_month)[1]
-        )
-        # Walk back to a weekday (Mon-Fri)
-        while last_day.weekday() >= 5:  # Sat=5, Sun=6
-            last_day -= timedelta(days=1)
-        return last_day
+        anchor = date(prior_year, prior_month, 25)
+        while anchor.weekday() >= 5:
+            anchor -= timedelta(days=1)
+        bdays = 0
+        d = anchor
+        while bdays < 3:
+            d -= timedelta(days=1)
+            if d.weekday() < 5:
+                bdays += 1
+        return d
 
     if base_symbol in _GRAIN_SYMBOLS:
         # Friday closest to 15th of expiry month
