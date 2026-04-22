@@ -55,7 +55,11 @@ def _make_agent():
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     agent._symbol_to_base = {"ESM6": "ES"}
+    agent._unique_bases = frozenset({"ES"})
     agent._roll_monitor = MagicMock(spec=RollMonitor)
+    # Default calendar scheduler that never fires — tests override as needed
+    agent._calendar_scheduler = MagicMock()
+    agent._calendar_scheduler.check_calendar_roll = MagicMock(return_value=False)
     # Wire module-level test metrics (no duplicate registration)
     # Metrics are module-level in production; bind test-named labels for __new__ fixture
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="roll_compute_agent")
@@ -250,10 +254,10 @@ async def test_publishes_calendar_roll_event_when_scheduler_fires():
     agent._roll_monitor.update_volume = MagicMock()
     agent._roll_monitor.check_roll = MagicMock(return_value=False)
 
-    # Inject a mock calendar scheduler that fires once
+    # Inject a mock calendar scheduler: False on startup sweep, True on bar loop
     from unittest.mock import MagicMock as MM
     calendar_scheduler = MM()
-    calendar_scheduler.check_calendar_roll = MagicMock(return_value=True)
+    calendar_scheduler.check_calendar_roll = MagicMock(side_effect=[False, True])
     agent._calendar_scheduler = calendar_scheduler
 
     published = []
