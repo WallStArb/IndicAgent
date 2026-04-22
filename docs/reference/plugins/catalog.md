@@ -29,16 +29,16 @@ Plugins are stateless workers. The DAG engine uses topological sort to ensure `I
 
 | Tier | Focus | Count | Key Features/Logic |
 | :--- | :--- | :--- | :--- |
-| **I1** | Raw Technical | 27 | Incremental (RSI, MA, MACD, ATR, Bollinger, VWAP, etc.) |
-| **I2** | Composites | 11 | Second-derivative events (Crosses, Accelerations) |
-| **I3** | Structure | 7 | Swing detection, Support/Resistance, Market Profile |
-| **I4** | Context/Regime | 13 | GARCH Vol, Kalman Trend, BOCPD, VIXRegime, CrossAsset |
-| **I5** | Patterns | 15 | Divergence, Squeeze, Chart Patterns (H&S, Double Top) |
+| **I1** | Raw Technical | 28 | Incremental (RSI, MA, MACD, ATR, Bollinger, VWAP, OFI, CVD, etc.) |
+| **I2** | Composites | 11 | Second-derivative events (Crosses, Accelerations, ExhaustionScore) |
+| **I3** | Structure | 9 | Swing detection, Support/Resistance, Market Profile, FibZones |
+| **I4** | Context/Regime | 13 | GARCH Vol, Kalman Trend, VIXRegime, CrossAsset, AnchoredVWAP, VP |
+| **I5** | Patterns | 16 | Divergence, Squeeze, Chart Patterns (H&S, Double Top) |
 | **SMC**| Smart Money | 13 | BOS/CHoCH, FVG, Order Blocks, Liquidity Sweeps, ICT |
 | **I6** | Confluence | 1 | CTF Scorer (cross-timeframe alignment) |
-| **I7** | Trading Setups | 36 | Trend/Reversal/Liquidity logic + Aggregator |
+| **I7** | Trading Setups | 37 | Trend/Reversal/Liquidity logic + Aggregator |
 | **Agg** | Aggregators | 2 | CISScorer, SignalAggregator |
-| **Total**| — | **125** | — |
+| **Total**| — | **130** | — |
 
 ---
 

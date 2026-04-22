@@ -1,8 +1,8 @@
 # DAG Topology & Methodology
 
-**Version:** 2.1
-**Last Updated:** 2026-03-30
-**Status:** Phase 57 Complete — Unified I1-I7 Pipeline
+**Version:** 2.4
+**Last Updated:** 2026-04-21
+**Status:** Phase 71 Complete — Full observability, DLQ, swarm foundation, signal metrics
 
 ## Overview
 
@@ -23,7 +23,7 @@ Each agent has exactly one role, expressed in its class name suffix:
 | `TrackerAgent` | Business object lifecycle. | Read/Write | `SignalTrackerAgent` |
 | `AuditorAgent` | Data integrity validation + self-healing. | Read | `BarAuditorAgent`, `ParityAuditorAgent` |
 
-All agents extend `BaseAgent` (`src/core/agent/base.py`). See `BASE_AGENT_PATTERNS.md` for lifecycle contract.
+All agents extend `BaseAgent` (`src/core/agent/base.py`). See `base-agent-patterns.md` for lifecycle contract.
 
 ---
 
@@ -276,6 +276,8 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 ## Service Inventory
 
+**Data layer:**
+
 | File | Class | Unit | Port |
 |------|-------|------|------|
 | `services/ibkr_provider_agent.py` | `IBKRProviderAgent` | `indicagent-ibkr-provider` | :9129 |
@@ -285,19 +287,45 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/bar_auditor_agent.py` | `BarAuditorAgent` | `indicagent-bar-auditor` | :9123 |
 | `services/roll_compute_agent.py` | `RollComputeAgent` | `indicagent-roll-compute` | :9122 |
 | `services/contract_metadata_writer_agent.py` | `ContractMetadataWriterAgent` | `indicagent-contract-metadata-writer` | :9124 |
+
+**Intelligence layer:**
+
+| File | Class | Unit | Port |
+|------|-------|------|------|
 | `services/intelligence_pipeline_agent.py` | `IntelligencePipelineComputeAgent` | `indicagent-intelligence-pipeline` | :9125 |
-| `services/signal_writer_agent.py` | `SignalWriterAgent` | `indicagent-signal-writer` | :9119 |
-| `services/signal_tracker_agent.py` | `SignalTrackerAgent` | `indicagent-signal-tracker` | :9115 |
-| `services/signal_metrics_compute_agent.py` | `SignalMetricsComputeAgent` | `indicagent-signal-metrics-compute` | :9126 |
-| `services/signal_metrics_writer_agent.py` | `SignalMetricsWriterAgent` | `indicagent-signal-metrics-writer` | :9127 |
-| `services/signal_auditor_agent.py` | `SignalAuditorAgent` | `indicagent-signal-auditor` | :9128 |
 | `services/feature_writer_agent.py` | `FeatureWriterAgent` | `indicagent-feature-writer` | :9116 |
 | `services/feature_snapshot_writer_agent.py` | `FeatureSnapshotWriterAgent` | `indicagent-feature-snapshot-writer` | :9132 |
-| `services/parity_auditor_agent.py` | `ParityAuditorAgent` | `indicagent-parity-auditor` | :9133 |
+| `services/signal_writer_agent.py` | `SignalWriterAgent` | `indicagent-signal-writer` | :9119 |
+| `services/signal_tracker_compute_agent.py` | `SignalTrackerCompute` | `indicagent-signal-tracker-compute` | :9115 |
+| `services/lifecycle_writer_agent.py` | `LifecycleWriterAgent` | `indicagent-lifecycle-writer` | — |
+| `services/signal_metrics_compute_agent.py` | `SignalMetricsComputeAgent` | `indicagent-signal-metrics-compute` | :9126 |
+| `services/signal_metrics_writer_agent.py` | `SignalMetricsWriterAgent` | `indicagent-signal-metrics-writer` | :9127 |
+| `services/ai_narrative_agent.py` | `AINarrativeService` | `indicagent-ai-narrative` | :9113 |
 | `services/llm_writer_service.py` | `LLMWriterService` | `indicagent-llm-writer` | :9117 |
-| `services/ai_narrative_service.py` | `AINarrativeService` | `indicagent-ai-narrative` | :9113 |
 | `services/cross_asset_service.py` | `CrossAssetService` | `indicagent-cross-asset` | :9118 |
+
+**Auditing & observability layer:**
+
+| File | Class | Unit | Port |
+|------|-------|------|------|
+| `services/parity_auditor_agent.py` | `ParityAuditorAgent` | `indicagent-parity-auditor` | :9133 |
+| `services/signal_auditor_agent.py` | `SignalAuditorAgent` | `indicagent-signal-auditor` | :9128 |
 | `services/service_auditor_agent.py` | `ServiceAuditorAgent` | `indicagent-service-auditor` | :9131 |
+
+**ML layer (timer-triggered):**
+
+| File | Class | Unit | Port |
+|------|-------|------|------|
+| `services/ml_data_quality_agent.py` | `MLDataQualityAuditorAgent` | `indicagent-ml-data-quality` (timer) | — |
+| `services/ml_discovery_agent.py` | `MLDiscoveryComputeAgent` | `indicagent-ml-discovery` (timer) | — |
+| `services/ml_orchestrator_agent.py` | `MLOrchestratorComputeAgent` | `indicagent-ml-orchestrator` (timer) | — |
+
+**Swarm layer:**
+
+| File | Class | Unit | Port |
+|------|-------|------|------|
+| `services/swarm_orchestrator_agent.py` | `SwarmOrchestratorComputeAgent` | `indicagent-swarm-orchestrator` | — |
+| `services/swarm_writer_agent.py` | `SwarmWriterAgent` | `indicagent-swarm-writer` | — |
 
 ---
 
@@ -319,7 +347,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 ## See Also
 
-- `PLUGIN_PROTOCOL.md` — Plugin interface and developer contract
-- `AGENT_STANDARD.md` — Role taxonomy and naming conventions
-- `BASE_AGENT_PATTERNS.md` — BaseAgent lifecycle contract
+- `plugin-protocol.md` — Plugin interface and developer contract
+- `agent-standard.md` — Role taxonomy and naming conventions
+- `base-agent-patterns.md` — BaseAgent lifecycle contract
 - `plugin-native-architecture-explained.md` — Architectural principles

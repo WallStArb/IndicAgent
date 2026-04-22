@@ -1,7 +1,7 @@
 # Observability Patterns — Metrics & Monitoring
 
-**Version:** 1.0
-**Last Updated:** 2026-03-30
+**Version:** 1.1
+**Last Updated:** 2026-04-21
 **Source:** `src/observability/metrics.py`
 
 ## Overview
@@ -266,12 +266,94 @@ groups:
           summary: "High batch latency on {{ $labels.agent_id }}"
 ```
 
+## Agent Liveness
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `agent_last_message_timestamp_seconds` | Gauge | agent | Unix timestamp of last successfully processed Kafka message — stall detection |
+
+## Agent Self-Observability (Phase 67)
+
+Metrics emitted by `BaseAgent` itself — not requiring concrete overrides. All agents inherit these automatically.
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `agent_crash_total` | Counter | agent | Uncaught exceptions in `BaseAgent._run()` |
+| `agent_setup_success_total` | Counter | agent | Successful `_setup()` completions |
+| `agent_setup_failure_total` | Counter | agent, error_type | Failed `_setup()` calls, classified by exception type |
+| `agent_setup_latency_seconds` | Histogram | agent | `_setup()` execution time — buckets: 0.1s to 10s |
+
+These are defined directly in `src/core/agent/base.py` (not in `src/observability/metrics.py`) to avoid circular imports.
+
+## LLM Infrastructure Metrics (Phase 56)
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `llm_call_duration_seconds` | Histogram | provider, call_type, status | LLM call latency per provider |
+| `llm_tokens_used_total` | Counter | provider, call_type | Total tokens consumed |
+| `llm_cache_hit_total` | Counter | call_type | Semantic cache hits (SemanticCache) |
+| `llm_guardrails_rejections_total` | Counter | call_type | Responses rejected by GuardrailsValidator schema check |
+| `llm_rate_limit_wait_seconds` | Histogram | provider | Time waiting for rate limit token bucket |
+
+## ML Observability Metrics (Phase 56)
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `feature_ic_score` | Gauge | feature_name, regime | Information coefficient per feature/regime (updated weekly by MLDiscoveryComputeAgent) |
+| `data_quality_score` | Gauge | — | Training data quality 0–1 (updated by MLDataQualityAuditorAgent) |
+| `ml_discovery_features_extracted` | Gauge | — | tsfresh features extracted in last discovery run |
+
+## LangGraph Workflow Metrics
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `langgraph_workflow_executions_total` | Counter | workflow_name, status | Total workflow executions |
+| `langgraph_workflow_duration_seconds` | Histogram | workflow_name, intelligence_tier | Workflow execution time |
+| `langgraph_node_executions_total` | Counter | workflow_name, node_name, status | Node-level execution counts |
+| `langgraph_node_duration_seconds` | Histogram | workflow_name, node_name | Per-node execution time |
+| `langgraph_agent_invocations_total` | Counter | agent_name, workflow_name, status | Agent invocations within workflows |
+| `langgraph_event_routing_total` | Counter | workflow_name, source_node, target_node, condition | Conditional edge routing |
+| `langgraph_workflow_state_size_bytes` | Gauge | workflow_name, symbol, timeframe | Workflow state size |
+| `langgraph_parallel_executions_active` | Gauge | workflow_name | Concurrent workflow executions |
+
+## DLQ Metrics (Phase 67)
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `dlq_depth` | Gauge | agent, topic | Current messages in Dead Letter Queue |
+| `dlq_messages_total` | Counter | agent, topic, error_type | Total messages routed to DLQ |
+| `bar_auditor_gap_fill_dlq_depth` | Counter | — | Gap-fill requests escalated to DLQ after retry exhaustion |
+| `service_auditor_service_restarts_total` | Counter | service_name | Systemd restarts triggered by ServiceAuditorAgent |
+
+## Regime Gate Metrics (Phase 68)
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `regime_gate_suppressions_total` | Counter | reason, plugin, tf | Signals suppressed by regime eligibility gate |
+
 ## OTel Tracing
 
-See `src/observability/otel.py` for distributed tracing integration. Tracer is available on all agents via `self.tracer` (see `BASE_AGENT_PATTERNS.md`).
+OTel is active. `opentelemetry-sdk` v1.41.0 is installed. Every agent gets `self.tracer` at init — tracing is a no-op when no OTLP endpoint is configured.
+
+```python
+from src.observability.otel import init_tracing, get_tracer
+
+# Called automatically by BaseAgent.start() — manual call only needed in non-agent entry points
+init_tracing(service_name="my-service")
+
+# Usage within any agent (self.tracer is already set by BaseAgent.__init__)
+with self.tracer.start_as_current_span("compute_i1"):
+    result = self._run_i1_plugins(bar)
+```
+
+**Configuration:**
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP HTTP endpoint (default: `http://localhost:4318`)
+- `OTEL_EXPORTER_OTLP_HEADERS` — Comma-separated `key=value` auth headers
+- `APP_VERSION` — Sets `service.version` resource attribute
+- `ENV` — Sets `deployment.environment` resource attribute
 
 ## See Also
 
-- `BASE_AGENT_PATTERNS.md` — Agent lifecycle and metric scaffolding
-- `AGENT_STANDARD.md` — Role taxonomy and naming conventions
-- `CURRENT_STATE.md` — Active agents and their metrics ports
+- `base-agent-patterns.md` — Agent lifecycle and metric scaffolding
+- `agent-standard.md` — Role taxonomy and naming conventions
+- `current-state.md` — Active agents and their metrics ports

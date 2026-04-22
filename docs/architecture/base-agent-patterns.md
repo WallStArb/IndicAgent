@@ -1,7 +1,7 @@
 # BaseAgent Patterns — Lifecycle Contract
 
-**Version:** 1.0
-**Last Updated:** 2026-03-30
+**Version:** 1.1
+**Last Updated:** 2026-04-21
 **Source:** `src/core/agent/base.py`
 
 ## Overview
@@ -139,9 +139,21 @@ def __init__(self, name: str, metrics_port: int | None = None):
 - Metrics server starts on `start()`
 - Default port range: `:9100-:9199`
 
-**Standard Metrics:**
-- `PERSISTENCE_BATCH_LATENCY` — Histogram of batch write times
-- `PERSISTENCE_CONSUMER_LAG` — Gauge of consumer lag (override `_report_consumer_lag()`)
+**Inherited agent lifecycle metrics (Phase 67 — automatic, no override needed):**
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `agent_crash_total` | Counter | agent | Uncaught exceptions in `_run()` |
+| `agent_setup_success_total` | Counter | agent | Successful `_setup()` completions |
+| `agent_setup_failure_total` | Counter | agent, error_type | Failed `_setup()` calls |
+| `agent_setup_latency_seconds` | Histogram | agent | `_setup()` wall-clock time |
+| `agent_last_message_timestamp_seconds` | Gauge | agent | Unix timestamp of last processed Kafka message (stall detection) |
+
+These are defined in `base.py` itself (not `src/observability/metrics.py`) to avoid circular imports. Concrete agents update `AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS` after each successful message via `AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.labels(agent=self.name).set(time.time())`.
+
+**Standard persistence metrics (require concrete override):**
+- `PERSISTENCE_BATCH_LATENCY` — Histogram of batch write times (label: `agent_id`)
+- `PERSISTENCE_CONSUMER_LAG` — Gauge of consumer lag (override `_report_consumer_lag()`; label: `agent_id`)
 
 ## Consumer Lag Reporting
 
@@ -267,6 +279,6 @@ class MyWriterAgent(BaseAgent):
 
 ## See Also
 
-- `AGENT_STANDARD.md` — Role taxonomy and naming conventions
-- `CURRENT_STATE.md` — Active agents and their roles
-- `OBSERVABILITY.md` — Metrics and monitoring patterns
+- `agent-standard.md` — Role taxonomy and naming conventions
+- `current-state.md` — Active agents and their roles
+- `observability.md` — Metrics and monitoring patterns

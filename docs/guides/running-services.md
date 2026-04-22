@@ -13,14 +13,14 @@ sudo systemctl status 'indicagent-*'
 # Individual service management
 sudo systemctl restart indicagent-ibkr-provider
 sudo systemctl restart indicagent-provider-merger
-sudo systemctl restart indicagent-bar-aggregator-compute
+sudo systemctl restart indicagent-bar-aggregator
 sudo systemctl restart indicagent-bar-writer
 sudo systemctl restart indicagent-bar-auditor
 sudo systemctl restart indicagent-roll-compute
 sudo systemctl restart indicagent-contract-metadata-writer
 sudo systemctl restart indicagent-intelligence-pipeline
 sudo systemctl restart indicagent-signal-writer
-sudo systemctl restart indicagent-signal-tracker
+sudo systemctl restart indicagent-signal-tracker-compute
 sudo systemctl restart indicagent-signal-metrics-compute
 sudo systemctl restart indicagent-signal-metrics-writer
 sudo systemctl restart indicagent-signal-auditor
@@ -44,14 +44,14 @@ journalctl -u indicagent-intelligence-pipeline -f
 |------|---------|------|
 | `indicagent-ibkr-provider` | IBKR dual streams (5s RTB + 1m aggregation) | 9129 |
 | `indicagent-provider-merger` | Routes `market.bars.raw.*` → `market.bars` | 9130 |
-| `indicagent-bar-aggregator-compute` | 1m → HTF (5m-1d) aggregation | 9120 |
+| `indicagent-bar-aggregator` | 1m → HTF (5m-1d) aggregation | 9120 |
 | `indicagent-bar-writer` | Writes `market_data_ohlcv` (batch) | 9121 |
 | `indicagent-bar-auditor` | Gap detection → `market.events.gap_requests` | 9123 |
 | `indicagent-roll-compute` | Calendar + volume z-score roll detection | 9122 |
 | `indicagent-contract-metadata-writer` | Roll events → front-month promotion in `contract_metadata` | 9124 |
 | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline | 9125 |
 | `indicagent-signal-writer` | Writes `signal_ledger` (batch) | 9119 |
-| `indicagent-signal-tracker` | Signal lifecycle (activation, MAE/MFE, outcome) | 9115 |
+| `indicagent-signal-tracker-compute` | Signal lifecycle (activation, MAE/MFE, outcome) | 9115 |
 | `indicagent-signal-metrics-compute` | Timer-triggered signal performance metrics | 9126 |
 | `indicagent-signal-metrics-writer` | Persists signal metrics to DB | 9127 |
 | `indicagent-signal-auditor` | Coverage validation + lag monitoring | 9128 |
@@ -108,4 +108,4 @@ curl http://localhost:8000/health    # API
 
 ---
 
-**See also:** [Cheatsheet](../../docs/cheatsheet.md) · [Current State](../architecture/CURRENT_STATE.md)
+**See also:** [Cheatsheet](../../docs/cheatsheet.md) · [Current State](../architecture/current-state.md)

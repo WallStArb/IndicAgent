@@ -1,7 +1,7 @@
 # Documentation Standards
 
-**Last Updated:** 2026-03-15
-**Status:** Current
+**Last Updated:** 2026-04-21
+**Status:** current
 
 Personal reference for consistent doc and code naming across the project.
 
@@ -11,10 +11,12 @@ Personal reference for consistent doc and code naming across the project.
 
 | Context | Convention | Example |
 |---------|-----------|---------|
-| Docs | kebab-case | `ai-intelligence-architecture.md` |
+| Docs | kebab-case | `layered-architecture.md`, `intelligence-bus.md` |
 | Standard root files | UPPERCASE | `README.md`, `CHANGELOG.md`, `CLAUDE.md` |
 | Directories | lowercase, hyphens | `docs/architecture/`, `docs/getting-started/` |
 | Plan docs | date-prefixed kebab | `2026-03-15-signal-lifecycle-redesign.md` |
+
+> **Note:** `docs/architecture/` files were historically UPPERCASE (`CURRENT_STATE.md`, etc.) — all renamed to kebab-case on 2026-04-21. If you encounter any stale UPPERCASE references in archived plan docs or `.planning/` context files, they can be ignored.
 
 ---
 
@@ -98,14 +100,17 @@ See also: `CLAUDE.md → Development Standards → Naming Conventions`
 Topics use **dots**, not colons (colons are invalid Kafka topic names):
 
 ```
-{env}.market.bars
-{env}.indicators
-{env}.intelligence
-{env}.intelligence.i7
-{env}.signals.aggregated
+{env}.market.bars                  # canonical 1m bars
+{env}.market.bars.htf              # HTF bars (5m-1d)
+{env}.intelligence.journal         # BarIntelligenceRecord (atomic per-bar output)
+{env}.intelligence.i7.signals      # all ranked I7 signals per bar
+{env}.lifecycle.transitions        # signal lifecycle state changes
+{env}.llm.calls                    # LLM audit log
+{env}.system.health.events         # service health transitions
+{env}.<domain>.<agent>.dlq         # dead letter queue per agent
 ```
 
-Always built via `src/core/stream_keys.py` — never construct topic strings manually with f-strings.
+Always built via `src/core/stream_keys.py` — never construct topic strings manually with f-strings. Full topic list: see `topic_*` functions in `stream_keys.py`.
 
 ### Database
 

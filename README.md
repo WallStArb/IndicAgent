@@ -41,7 +41,7 @@ CIS (Confluence Intelligence Score) requires cross-tier agreement from 3 of 6 ev
 ### Self-Correcting Pipeline
 KS drift detection + CUSUM performance monitoring automatically discount out-of-distribution signals. System self-adjusts without manual recalibration.
 
-**[High-Level Architecture Concepts](docs/architecture/CONCEPTS.md)** - Complete patterns: dynamic clustering, modularity, API-first, multi-agent orchestrator, Renaissance principles
+**[High-Level Architecture Concepts](docs/architecture/concepts.md)** - Complete patterns: dynamic clustering, modularity, API-first, multi-agent orchestrator, Renaissance principles
 
 IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals - regime-classified, institutionally contextualized, AI-narrated, and drift-corrected - in under 10ms. 121 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
 
@@ -272,6 +272,8 @@ LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model cat
 
 The Composite Intelligence Score is the decision engine. When 5–8 setup plugins fire simultaneously on the same bar, CIS adjudicates by aggregating evidence from the *entire* pipeline into a single directional score.
 
+**Pipeline position:** `I5/SMC outputs → I6 CTF sub-scores → CISScorer → I7 setup plugins → SignalAggregator → ranked signal`
+
 ### Six evidence buckets
 
 | Bucket | Reads from | Weight |
@@ -315,19 +317,45 @@ Logistic regression → new cis_weights (version N+1)
 
 ---
 
-## Drift Detection & Self-Correction
+## Self-Correcting Pipeline
 
-> *The pipeline monitors its own signal quality and self-adjusts while live.*
+> *The pipeline monitors its own signal quality and self-adjusts at six independent layers — no manual recalibration required.*
 
-This is one of the harder properties to build into a production intelligence system, and one of the most important. Signals that were valid under last month's market regime may be noise in this one. The platform detects this automatically - no manual recalibration required.
+Signals that were valid under last month's market regime may be noise in this one. The system detects this and responds autonomously at every stage of the signal lifecycle.
 
-### KS Drift Monitor
+```
+Raw confidence (I7 plugin output)
+    → [1] Isotonic calibration    → calibrated_confidence
+    → [2] TOD multiplier          → time-adjusted confidence
+    → [3] perf_multiplier         → performance-weighted rank in all_ranked
+    → [4] KS drift penalty        → distribution-aware CIS bucket weights
+    → [5] CUSUM monitor           → feedback loop back into perf_multiplier
+    → [6] Shadow mode gate        → statistical proof before production eligibility
+```
 
-A **Kolmogorov-Smirnov test** runs continuously against the feature distributions stored in the `drift_monitor` hypertable. When the current feature distribution for a given setup drifts significantly from its historical baseline, a penalty is applied **directly into CIS scoring** for that setup. The signal doesn't disappear - it gets discounted proportionally to how far out-of-distribution its feature context is.
+### [1] Isotonic Calibration
 
-### CUSUM Performance Monitor
+Raw I7 confidence values are systematically biased — plugins over- or under-estimate confidence depending on regime. Isotonic regression maps raw confidence to empirically calibrated values using historical outcome data from `signal_ledger`. Raw value stored as `pre_calibration_confidence`; output as `calibrated_confidence`.
 
-**Cumulative Sum (CUSUM)** control charts track whether signal performance is degrading over time. When the CUSUM statistic exceeds threshold, `perf_multiplier` - the performance weight applied to ranked signals - is **auto-adjusted without code changes and logged**. The system corrects for performance drift as it happens.
+### [2] Time-of-Day (TOD) Multiplier
+
+Signal quality is session- and regime-dependent. A trend setup at RTH open behaves differently than the same setup in the 2pm lull. Multiplier is per cell: `(regime_type, timeframe, hour_et)` — 120 cells total. Computed from rolling historical win rates, applied after isotonic calibration, stored per signal for audit.
+
+### [3] Performance Multiplier (`perf_multiplier`)
+
+The signal aggregator reads `setup_performance` (refreshed every 15 minutes) and applies a rank multiplier based on each setup's rolling 30-day stats (win rate, avg PnL_R, Sharpe). Gate: setups with `sample_size < 30` use `perf_multiplier = 1.0` — no effect until statistically proven. `active` signal is always derived from `all_ranked`, never from the raw `signals` list.
+
+### [4] KS Drift Monitor
+
+Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts significantly (e.g., a volatility regime shift changes the OFI distribution), its contribution to CIS bucket weights is penalized. Provides early warning *before* CUSUM detects outcome-level degradation. The signal doesn't disappear — it gets discounted proportionally to how far out-of-distribution its feature context is.
+
+### [5] CUSUM Performance Monitor
+
+Cumulative Sum control charts track signal win-rate over time per setup. When a setup's cumulative performance crosses the degradation threshold, `perf_multiplier` is automatically reduced — closing the loop with layer [3]. Recovery restores it as outcomes improve. No manual intervention required at any point.
+
+### [6] Shadow Mode Gate
+
+Every new feature or plugin runs in shadow mode before it can affect production signals. Shadow signals are generated, tracked through full lifecycle, and scored — but never published to the live stream. Promotion requires `p < 0.05` **and** `N ≥ 100` resolved signals. `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met. Permanent record of shadow vs production performance in `signal_ledger`.
 
 ### Drift API
 
@@ -335,7 +363,7 @@ A **Kolmogorov-Smirnov test** runs continuously against the feature distribution
 GET /api/drift    →  current KS + CUSUM state per symbol/timeframe, externally observable
 ```
 
-Drift state is not internal telemetry - it's a first-class API endpoint. Any external consumer can observe the pipeline's current confidence in its own signals.
+Drift state is a first-class API endpoint — any external consumer can observe the pipeline's current confidence in its own signals.
 
 ---
 
@@ -529,7 +557,7 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 ## Documentation
 
 **→ [Full Documentation](docs/README.md)**
-**→ [High-Level Architecture Concepts](docs/architecture/CONCEPTS.md)** - DAG, clustering, microservices, ML/AI layers
+**→ [High-Level Architecture Concepts](docs/architecture/concepts.md)** - DAG, clustering, microservices, ML/AI layers
 **→ [Roadmap](.planning/ROADMAP.md)**
 **→ [DAG Execution](docs/concepts/dag-execution.md)**
 **→ [CIS Scoring](docs/concepts/cis-scoring.md)**

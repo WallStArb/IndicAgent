@@ -1,17 +1,17 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (121 + 2 aggregation)
+## Plugin Tiers (128 + 2 aggregation)
 
 **Tier Flow:**
 ```
-I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → I6 (SMC/confluence) → I7 (signals)
+I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → SMC → I6 (confluence) → I7 (signals)
 ```
 
-**I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
+**I1** (28): Trend/Momentum/Volatility/Volume indicators + OFI + CVD — see `TIER_I1` in `register_plugins.py`
 **I2** (11): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
-**I3** (7): Structure (swing, S/R, MarketProfile, SessionLevels) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile)
-**I5** (15): Patterns (divergence, squeeze, chart patterns) · **I6** (14): SMC + confluence (BOS/CHoCH, FVG, OB, multi-TF alignment)
-**I7** (36): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
+**I3** (9): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
+**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (13): Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) · **I6** (1): CrossTimeframeConfluence
+**I7** (37): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 

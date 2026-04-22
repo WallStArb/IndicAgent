@@ -1,6 +1,6 @@
 # Plugin Architecture
 
-**Current Plugin Count:** 121 plugins + 2 aggregation (see `PLUGIN_PROTOCOL.md`)
+**Current Plugin Count:** 121 plugins + 2 aggregation (see `plugin-protocol.md`)
 **Last Updated:** 2026-04-07
 
 ## Executive Summary
@@ -449,7 +449,7 @@ ticks:ES:live         # Raw tick data
 
 ## Related Documentation
 
-- [High-Level Concepts](../architecture/CONCEPTS.md) — Core architectural patterns including DAG, microservices, and ML/AI layers
+- [High-Level Concepts](../architecture/concepts.md) — Core architectural patterns including DAG, microservices, and ML/AI layers
 - [Intelligence Tiers](intelligence-tiers.md) — complete tier-by-tier plugin reference
 - [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
 - [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type

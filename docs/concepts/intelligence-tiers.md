@@ -305,19 +305,18 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 
 | Tier | Plugins | Notes |
 |------|---------|-------|
-| I1 Technical Indicators | 27 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA — all incremental `compute_next()` |
+| I1 Technical Indicators | 28 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA, OFI, CVD — all incremental `compute_next()` |
 | I2 Composite Events | 11 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore, AccelerationRegime |
-| I3 Market Structure | 15 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum |
-| I4 Context / Regime | 11 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, MTFVolatility |
-| I5 Patterns | 15 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
-| I6 SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
+| I3 Market Structure | 9 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, FibonacciZones, SwingMomentum, + 2 others |
+| I4 Context / Regime | 13 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, MTFVolatility, AnchoredVWAP, VolumeProfile, VIXRegime, CrossAssetContext |
+| I5 Patterns | 16 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction, + 2 others |
+| SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
 | I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
-| I7 Trading Setups | 36 + 2 agg | 36 setup plugins (9 original + 5 CIS contributors + 3 new: GapAnalysis, CandlestickPatternSetup, SessionExtremes + 19 others) + CISScorer aggregator + SignalAggregator |
-| I8 AI Narrative | 1 service | `ai_narrative_service` — Ollama qwen3.5:9b (per-signal, conf>0.7, 5m/15m/1h) + phi4-mini:3.8b (group synthesis) |
+| I7 Trading Setups | 37 + 2 agg | 37 setup plugins + CISScorer aggregator + SignalAggregator |
+| I8 AI Narrative | 1 service | `ai_narrative_agent` — Ollama gemma4:e4b (per-signal, conf>0.7) + phi4-mini:3.8b (group synthesis) |
 
 ### **Totals**
-- **121 registered plugins + 2 aggregation components:** 27 I1 + 15 I3 + 11 I4 + 15 I5 + 13 SMC + 1 I6 Confluence + 36 I7
-- **1754 unit tests passing**, 106 ruff errors (E501 line-too-long)
+- **128 registered plugins + 2 aggregation components:** 28 I1 + 11 I2 + 9 I3 + 13 I4 + 16 I5 + 13 SMC + 1 I6 + 37 I7
 
 ---
 

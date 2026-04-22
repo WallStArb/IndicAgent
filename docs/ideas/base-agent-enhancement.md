@@ -263,7 +263,7 @@ except Exception:
 
 ### 7. DLQ Helper Stub
 
-Per `AGENT_STANDARD.md`, current DLQ behavior is: log error + discard. A base method makes this
+Per `agent-standard.md`, current DLQ behavior is: log error + discard. A base method makes this
 a single upgrade point when DLQ topics are provisioned:
 
 ```python

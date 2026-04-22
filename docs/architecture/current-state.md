@@ -1,8 +1,8 @@
-# IndicAgent v2.2 — Current Architecture State
+# IndicAgent v2.4 — Current Architecture State
 
-**Version:** 2.2
-**Last Updated:** 2026-04-14
-**Status:** v2.2 in progress — Swarm Foundation (Phase 56)
+**Version:** 2.4
+**Last Updated:** 2026-04-21
+**Status:** v2.4 Observability Hardening — Phase 71 complete; v2.3 ML Foundation deferred pending 30+ days clean signal data
 
 > This is the single source of truth for the current production architecture. For design history and evolution, see `archive/`.
 
@@ -10,16 +10,45 @@
 
 IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7 pipeline, separate persistence layer, and swarm foundation for multi-agent AI. The core philosophy is **agentic decomposition** — each node in the DAG is an autonomous, event-driven agent with clear boundaries.
 
-**Key v2.1 Changes from v2.0:**
-- `IntelligencePipelineComputeAgent` — Unified I1-I7 in-process pipeline (no I6→I7 Kafka hop)
-- `SignalWriterAgent` — Dedicated persistence agent for `signal_ledger`
-- `ProviderMergerAgent` — Multi-provider failover and routing
-- `BaseProviderAgent` abstraction — Adding new data sources is now a single subclass
+## Architecture Evolution
 
-**Key v2.2 Changes from v2.1:**
-- `SwarmOrchestratorAgent` + `SwarmWriterAgent` — Swarm foundation plumbing services live
-- LLM layer extracted into standalone module
-- Safety wrappers and DB migration for swarm state
+### v2.0 — Data Foundation
+Established core data-layer patterns:
+- Clock-driven bar emission — guaranteed 1-minute cadence from TWS
+- Zero-loss Kafka guarantee — `auto_offset_reset="earliest"` + explicit `commit()`
+- Multi-stream reconciliation — 5s real-time bars vs 1m audited comparison
+- `BarAccumulator` — stateless windowed HTF aggregation with session-break logic
+
+### v2.1 — Agentic DAG Refactor
+Introduced strict agent role separation:
+- `BaseAgent` unification — lifecycle, Prometheus Golden Signals, graceful SIGTERM drain for every service
+- Dedicated WriterAgents — DB-ignorant compute principle enforced across the board
+- `BaseProviderAgent` + adapter pattern — adding a data source = one subclass, nothing downstream changes
+- `ProviderMergerAgent` — multi-provider failover and routing abstraction
+
+### v2.2 — Unified Intelligence Pipeline
+Consolidated I1-I7 into a single in-process agent:
+- `IntelligencePipelineComputeAgent` — eliminated Kafka hops between tiers (I6→I7 is direct dependency)
+- State checkpointing to compacted topic — eliminates warmup on restart
+- I1 + I7 tiers parallelized via `asyncio.gather` + ThreadPoolExecutor — ~60% latency reduction
+- `SignalWriterAgent` — dedicated persistence agent for `signal_ledger`
+- Identified I2-I6 sequential bottleneck (73% of latency) — batch processing is the planned fix
+
+### v2.3 — Swarm Foundation + ML Infrastructure
+- `SwarmOrchestratorAgent` + `SwarmWriterAgent` — swarm plumbing services live (Phase 56)
+- LLM layer extracted into standalone `llm_providers.py` module
+- `BarIntelligenceRecord` — atomic per-bar record on `intelligence.journal` (Phase 44.3 / PIPE-06); single INSERT per bar replaces two-phase UPSERT
+- `RollComputeAgent` + `ContractMetadataWriterAgent` — automated futures roll detection and front-month promotion
+- `SignalTrackerComputeAgent` + `LifecycleWriterAgent` — signal lifecycle compute/writer split; tracker is now DB-ignorant
+- ML timer agents: `MLDataQualityAgent`, `MLDiscoveryAgent`, `MLOrchestratorAgent`
+
+### v2.4 — Observability Hardening (current)
+- `ServiceAuditorAgent` — pipeline health monitor and self-healer; publishes to `system.health.events`
+- `FeatureSnapshotWriterAgent` + `ParityAuditorAgent` — shadow dual-write with 60-cycle parity certification
+- `SignalAuditorAgent` + `SignalMetricsComputeAgent` + `SignalMetricsWriterAgent` — signal coverage + performance metric pipeline
+- `ContractMetadataWriterAgent` — `ContractUpdateEvent` cache invalidation for downstream agents
+- DLQ topics standardized across all payload-parsing agents (Plan 067-07)
+- `bar_id` UUID traceability end-to-end from bar ingestion through signal generation (Phase 68-03)
 
 ## Active Services
 
@@ -34,7 +63,8 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 | Contract Metadata Writer | `contract_metadata_writer_agent.py` | `indicagent-contract-metadata-writer` | :9124 | Consumes roll events → promotes front-month in `contract_metadata` |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
 | Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
-| Signal Tracker | `signal_tracker_agent.py` | `indicagent-signal-tracker` | :9115 | Signal lifecycle (activation, MAE/MFE, outcome) |
+| Signal Tracker | `signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | :9115 | Signal lifecycle compute (DB-ignorant); publishes transitions to LifecycleWriterAgent |
+| Lifecycle Writer | `lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | — | Persists signal lifecycle transitions to `signal_ledger` |
 | Signal Metrics Compute | `signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | :9126 | Timer-triggered signal performance metrics |
 | Signal Metrics Writer | `signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | :9127 | Persists signal metrics to DB |
 | Signal Auditor | `signal_auditor_agent.py` | `indicagent-signal-auditor` | :9128 | Coverage validation + lag monitoring |
@@ -47,7 +77,9 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 | Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
 | Swarm Orchestrator | `swarm_orchestrator_agent.py` | `indicagent-swarm-orchestrator` | — | Routes swarm tasks to specialist agents |
 | Swarm Writer | `swarm_writer_agent.py` | `indicagent-swarm-writer` | — | Persists swarm outputs to DB |
-| Lifecycle Writer | `lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | — | Signal lifecycle event persistence |
+| ML Data Quality | `ml_data_quality_agent.py` | `indicagent-ml-data-quality` (timer) | — | Audits `intelligence_features` for training data quality |
+| ML Discovery | `ml_discovery_agent.py` | `indicagent-ml-discovery` (timer) | — | Discovers ML training signal patterns |
+| ML Orchestrator | `ml_orchestrator_agent.py` | `indicagent-ml-orchestrator` (timer) | — | Orchestrates ML training pipeline |
 | API | `src/api/main.py` | `indicagent-api` | :8000 | FastAPI + SSE |
 | Dashboard | `dashboard/` | `indicagent-dashboard` | :3000 | Next.js dev server |
 | Weight Updater | `src/intelligence/weight_updater.py` | `indicagent-weight-updater` | — (oneshot) | Daily CIS weight refresh |
@@ -79,25 +111,28 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 │           (I1→I7 unified, IN-PROCESS)                                      │
 │                                                                             │
 │  ┌────────────────────────────────────────────────────────────────────┐   │
-│  │ I1: Technical Indicators (27 plugins)                              │   │
-│  │   → ATR, RSI, MACD, ADX, BB, VWAP, Stoch, etc.                    │   │
+│  │ I1: Technical Indicators (28 plugins)                              │   │
+│  │   → ATR, RSI, MACD, ADX, BB, VWAP, Stoch, OFI, CVD, etc.          │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I2: Volume Analysis                                                │   │
-│  │   → OFI, CVD, Volume Profile, Delta                                │   │
+│  │ I2: Composite Events (11 plugins)                                  │   │
+│  │   → MACDEvents, RSIEvents, ADXEvents, VolumeEvents, etc.           │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I3: Pattern Detection (15 plugins)                                 │   │
-│  │   → FVG, Order Blocks, Breaker Blocks                              │   │
+│  │ I3: Market Structure (9 plugins)                                   │   │
+│  │   → Swing, S/R, MarketProfile, SessionLevels, FibZones, etc.       │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I4: Context Scoring                                                │   │
-│  │   → CTF (Composite Technical Factor), Regime, TOD                  │   │
+│  │ I4: Context / Regime (13 plugins)                                  │   │
+│  │   → GARCH, Kalman, HurstExp, VIXRegime, CrossAsset, VWAP, VP       │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I5: Confluence                                                     │   │
-│  │   → Multi-TF alignment, structure confluence                       │   │
+│  │ I5: Pattern Recognition (16 plugins)                               │   │
+│  │   → RSIDivergence, BollingerSqueeze, chart patterns, etc.          │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I6: Scoring & Filtering                                            │   │
-│  │   → CIS scoring, isotonic calibration, regime gating               │   │
+│  │ SMC: Smart Money Concepts (13 plugins)                             │   │
+│  │   → BOS/CHoCH, FVG, OrderBlocks, HMMRegime, BOCPD, etc.            │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I7: Signal Generation (36 plugins)                                 │   │
+│  │ I6: CrossTimeframeConfluence (1 plugin)                            │   │
+│  │   → Multi-TF trend/structure/regime/SMC alignment scores           │   │
+│  ├────────────────────────────────────────────────────────────────────┤   │
+│  │ I7: Signal Generation (37 plugins)                                 │   │
 │  │   → Directional signals with confidence                            │   │
 │  └────────────────────────────────────────────────────────────────────┘   │
 │                              ↓                         ↓                   │
@@ -170,13 +205,14 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 
 | Tier | Plugins | Output |
 |------|---------|--------|
-| I1 | 27 | Technical indicators |
-| I2 | — | Volume analysis (inlined in I1/I4) |
-| I3 | 15 | Pattern detection (FVG, OB, BB) |
-| I4 | 11 | Context scoring, regime |
-| I5 | — | Confluence (inlined in I4) |
-| I6 | — | CIS scoring, calibration |
-| I7 | 36 | Trading signals |
+| I1 | 28 | Technical indicators + OFI + CVD |
+| I2 | 11 | Composite events (MACD, RSI, ADX, volume, etc.) |
+| I3 | 9 | Market structure (swing, S/R, profile, session, fib) |
+| I4 | 13 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
+| I5 | 16 | Pattern detection (divergence, squeeze, chart patterns) |
+| SMC | 13 | Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) |
+| I6 | 1 | CrossTimeframeConfluence |
+| I7 | 37 | Trading signals |
 | I8 | — | LLM narratives (separate service) |
 
 ## Key Principles
@@ -197,13 +233,13 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 |--------|-------|---------|
 | **Throughput** | ~4.5 bars/sec | Single symbol, all timeframes |
 | **Latency** | ~220ms/bar | End-to-end I1→I7 |
-| **Plugin Count** | 121 total | 27 I1, 15 I3, 11 I4, 36 I7 |
+| **Plugin Count** | 128 total | 28 I1, 11 I2, 9 I3, 13 I4, 16 I5, 13 SMC, 1 I6, 37 I7 (+2 aggregation) |
 
 ### Parallelization Architecture
 
 **Tier Parallelization:**
-- **I1 (27 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
-- **I7 (36 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
+- **I1 (28 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
+- **I7 (37 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
 - **I2-I6** — sequential execution (current bottleneck)
 
 **Latency Breakdown (Per Bar):**
@@ -236,7 +272,7 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 - **Trade-off:** High overhead (process spawn, IPC serialization)
 - **Status:** Not pursued unless batch processing insufficient
 
-**See:** `docs/architecture/PIPELINE_OPTIMIZATION.md` for detailed strategy and `docs/ideas/pipeline-throughput-bottleneck-analysis.md` for profiling analysis.
+**See:** `docs/architecture/pipeline-optimization.md` for detailed strategy and `docs/ideas/pipeline-throughput-bottleneck-analysis.md` for profiling analysis.
 
 ---
 
@@ -269,6 +305,6 @@ IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7
 
 ## See Also
 
-- `AGENT_STANDARD.md` — Role taxonomy and naming conventions
-- `BASE_AGENT_PATTERNS.md` — BaseAgent lifecycle contract
-- `OBSERVABILITY.md` — Metrics and monitoring patterns
+- `agent-standard.md` — Role taxonomy and naming conventions
+- `base-agent-patterns.md` — BaseAgent lifecycle contract
+- `observability.md` — Metrics and monitoring patterns

@@ -10,7 +10,7 @@ A Renaissance Agent is an **autonomous, event-driven compute node** within our p
 ## 2. Key Agentic Characteristics
 - **Autonomy:** Agents bake in self-management—they monitor their own health, lag, and resource saturation.
 - **Scale-in/Out Capability:** **[CURRENT STANDARD]** Agents run as systemd services on a single server; scaling is achieved by adjusting systemd instance counts manually based on Prometheus lag alerts. **[TARGET ARCHITECTURE]** Horizontal scaling via Kafka consumer group partitioning (multiple instances).
-- **Health Instrumentation:** **[CURRENT STANDARD]** Every Agent is instrumented with Prometheus metrics via `src/observability/metrics.py` — consumer lag, processing latency, throughput. **[TARGET ARCHITECTURE]** OpenTelemetry (OTel) is not in the current stack and must not be added until `opentelemetry-sdk` is in `requirements.txt`.
+- **Health Instrumentation:** Every Agent is instrumented with both Prometheus metrics (`src/observability/metrics.py`) and OpenTelemetry distributed tracing (`src/observability/otel.py`). OTel is installed (`opentelemetry-sdk` v1.41.0) and active in `BaseAgent` — every agent receives a `self.tracer` at init time. Traces are a no-op when no OTLP endpoint is configured, so they add zero overhead in development.
 
 ## 3. Scaling On-Demand (Lag-Based) **[CURRENT STANDARD]**
 
@@ -41,8 +41,8 @@ Renaissance Agents must handle failures without human intervention and ensure no
     3.  Close the repository connection *only after* the batch is finalized.
     4.  Signal the orchestrator that the agent is "Shutdown Complete."
 
-### Dead-Letter Queue (DLQ) Integration **[TARGET ARCHITECTURE — not yet implemented]**
-> **Current Standard:** DLQ topic infrastructure does not exist. Agents MUST catch unprocessable payloads, log a structured error via `structlog`, and discard. Do NOT attempt to publish to a DLQ topic that doesn't exist.
+### Dead-Letter Queue (DLQ) Integration **[PARTIALLY IMPLEMENTED]**
+> **Current Standard:** `BaseAgent._send_to_dlq()` is implemented — it logs and discards by default. DLQ Prometheus metrics exist (`dlq_depth`, `dlq_messages_total` in `src/observability/metrics.py`). Specific agents (BarAuditorAgent, SwarmOrchestratorAgent) actively route to DLQ topics. New agents MUST catch unprocessable payloads and call `self._send_to_dlq(payload, error)` — do not silently discard.
 >
 > **Target:** Once DLQ topics are provisioned:
 - Agents MUST NOT block on unprocessable payloads (e.g., malformed JSON).
@@ -85,7 +85,7 @@ Any agent that does not implement `_teardown()` and handle `SIGTERM` violates th
 | **Resilience** | Stop-on-Error | Structured error logging + DLQ (target) |
 | **Visibility** | Log files | Prometheus metrics + structlog (current); ProvenanceChain (target, not yet implemented) |
 
-## 6. Taxonomy & Domain Mapping
+## 7. Taxonomy & Domain Mapping
 
 The taxonomy covers the full DAG from data ingestion to quality control. Every agent suffix maps to a single, invariant responsibility. If you read the name, you know the node's role in the DAG without opening the file.
 
@@ -102,20 +102,58 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | **Training** | Model learning | `TrainingAgent` | `*_agent.py` | `FeatureTrainingAgent` | (future) |
 | **Swarm** | Multi-agent reasoning | `SwarmAgent` | `*_agent.py` | `SwarmIntelligenceAgent` | (future) |
 
-### Active Agent Inventory (Phase 57)
+### Active Agent Inventory (Phase 71)
+
+**Data layer:**
 
 | Agent Class | File | Systemd Unit | Role | Publishes To |
 | :--- | :--- | :--- | :--- | :--- |
 | `IBKRProviderAgent` | `services/ibkr_provider_agent.py` | `indicagent-ibkr-provider` | `ProviderAgent` | `market.bars.raw.ibkr` |
 | `ProviderMergerAgent` | `services/provider_merger_agent.py` | `indicagent-provider-merger` | `MergerAgent` | `market.bars` |
 | `BarAggregatorComputeAgent` | `services/bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | `ComputeAgent` | `market.bars.htf` |
-| `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | futures roll events |
+| `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | `market.events.roll` |
 | `BarAuditorAgent` | `services/bar_auditor_agent.py` | `indicagent-bar-auditor` | `AuditorAgent` | `market.events.gap_requests` |
 | `BarWriterAgent` | `services/bar_writer_agent.py` | `indicagent-bar-writer` | `WriterAgent` | `market_data_ohlcv` (DB) |
-| `IntelligencePipelineComputeAgent` | `services/intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | ComputeAgent | `intelligence.i7.signals`, `intelligence.journal` |
+| `ContractMetadataWriterAgent` | `services/contract_metadata_writer_agent.py` | `indicagent-contract-metadata-writer` | `WriterAgent` | `contract_metadata` (DB) |
+
+**Intelligence layer:**
+
+| Agent Class | File | Systemd Unit | Role | Publishes To |
+| :--- | :--- | :--- | :--- | :--- |
+| `IntelligencePipelineComputeAgent` | `services/intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | `ComputeAgent` | `intelligence.journal`, `intelligence.i7.signals` |
 | `FeatureWriterAgent` | `services/feature_writer_agent.py` | `indicagent-feature-writer` | `WriterAgent` | `intelligence_features` (DB) |
+| `FeatureSnapshotWriterAgent` | `services/feature_snapshot_writer_agent.py` | `indicagent-feature-snapshot-writer` | `WriterAgent` | `feature_snapshots_shadow` (DB) |
 | `SignalWriterAgent` | `services/signal_writer_agent.py` | `indicagent-signal-writer` | `WriterAgent` | `signal_ledger` (DB) |
-| `SignalTrackerAgent` | `services/signal_tracker_agent.py` | `indicagent-signal-tracker` | `TrackerAgent` | `signal_ledger` (DB) |
+| `SignalTrackerCompute` | `services/signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | `TrackerAgent` | lifecycle transitions (Kafka) |
+| `LifecycleWriterAgent` | `services/lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | `WriterAgent` | `signal_ledger` (DB) |
+| `SignalMetricsComputeAgent` | `services/signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | `ComputeAgent` | `intelligence.signal_metrics` |
+| `SignalMetricsWriterAgent` | `services/signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | `WriterAgent` | `signal_metrics` tables (DB) |
+| `AINarrativeService` | `services/ai_narrative_agent.py` | `indicagent-ai-narrative` | `ComputeAgent` | `narratives:*:*`, `llm.calls` |
+| `LLMWriterService` | `services/llm_writer_service.py` | `indicagent-llm-writer` | `WriterAgent` | `llm_calls` (DB) |
+| `CrossAssetService` | `services/cross_asset_service.py` | `indicagent-cross-asset` | `ComputeAgent` | cross-asset spreads |
+
+**Auditing & observability layer:**
+
+| Agent Class | File | Systemd Unit | Role | Publishes To |
+| :--- | :--- | :--- | :--- | :--- |
+| `ParityAuditorAgent` | `services/parity_auditor_agent.py` | `indicagent-parity-auditor` | `AuditorAgent` | Prometheus metrics |
+| `SignalAuditorAgent` | `services/signal_auditor_agent.py` | `indicagent-signal-auditor` | `AuditorAgent` | `topic_alert_requests` |
+| `ServiceAuditorAgent` | `services/service_auditor_agent.py` | `indicagent-service-auditor` | `AuditorAgent` | systemd restarts + Prometheus |
+
+**ML layer (timer-triggered):**
+
+| Agent Class | File | Systemd Unit | Role | Publishes To |
+| :--- | :--- | :--- | :--- | :--- |
+| `MLDataQualityAuditorAgent` | `services/ml_data_quality_agent.py` | `indicagent-ml-data-quality` (timer) | `AuditorAgent` | Prometheus metrics |
+| `MLDiscoveryComputeAgent` | `services/ml_discovery_agent.py` | `indicagent-ml-discovery` (timer) | `ComputeAgent` | discovery results |
+| `MLOrchestratorComputeAgent` | `services/ml_orchestrator_agent.py` | `indicagent-ml-orchestrator` (timer) | `ComputeAgent` | training pipeline |
+
+**Swarm layer:**
+
+| Agent Class | File | Systemd Unit | Role | Publishes To |
+| :--- | :--- | :--- | :--- | :--- |
+| `SwarmOrchestratorComputeAgent` | `services/swarm_orchestrator_agent.py` | `indicagent-swarm-orchestrator` | `ComputeAgent` | `swarm.alpha.*`, `swarm.world_state` |
+| `SwarmWriterAgent` | `services/swarm_writer_agent.py` | `indicagent-swarm-writer` | `WriterAgent` | swarm outputs (DB) |
 
 **Provider abstraction layer (Phase 54):**
 - `BaseProviderAgent` (`src/providers/base_provider_agent.py`) — abstract base for all providers. Handles instrument qualification, gap-fill loop via `market.events.gap_requests`, Kafka producer/consumer lifecycle, and Prometheus metrics. All provider agents extend this class.
@@ -130,7 +168,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 
 > **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` (e.g., `FeatureWriterAgent`). `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name is `SwarmSMCAgent`. `RollDetectionAgent` and `BarCompletenessAgent` in early v2.2 design docs used non-taxonomy suffixes — correct names are `RollComputeAgent` and `BarAuditorAgent`. `signal_lifecycle_service` was renamed to `SignalTrackerAgent` in Phase 52.4.
 
-## 7. The Unified Intelligence Bus Taxonomy **[TARGET ARCHITECTURE — topics not yet in stream_keys.py]**
+## 8. The Unified Intelligence Bus Taxonomy **[TARGET ARCHITECTURE — topics not yet in stream_keys.py]**
 
 > **Important:** None of these tiered topics currently exist in `src/core/stream_keys.py`. The current pipeline publishes `IntelligenceEvent` to `intelligence:{SYMBOL}:{TF}` (a single unified topic per symbol/tf). The per-tier topic split below is the target architecture. Do not reference these topic names in implementation plans until they are added to `stream_keys.py`.
 >
@@ -154,7 +192,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 3.  **Compute Efficiency:** By forcing tiers into these topics, we allow downstream agents to perform topic-based subscription filtering. If an agent only cares about `SMC` confluence, it ignores `i1` through `i5` topics entirely, saving massive CPU cycles on deserialization.
 
 ---
-**Status:** Global Standard v1.2 — Extended taxonomy with ProviderAgent + AuditorAgent
-**Last Updated:** 2026-03-28
+**Status:** Global Standard v1.3 — Section numbering fixed; inventory current through Phase 56
+**Last Updated:** 2026-04-21
 
 > **Reading this document:** Sections labelled **[CURRENT STANDARD]** describe what agents must do today. Sections labelled **[TARGET ARCHITECTURE]** describe where we are heading — do not implement until the prerequisite infrastructure exists.
