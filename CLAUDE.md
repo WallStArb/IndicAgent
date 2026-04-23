@@ -231,7 +231,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `intelligence_pipeline_agent.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
-**Dashboard:** See `docs/dashboard/gotchas.md` for SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection.
+**Dashboard:** SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection are documented inline in `dashboard/src/`.
 
 ## Infrastructure
 
