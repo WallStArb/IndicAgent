@@ -72,6 +72,11 @@ def _make_agent():
     agent._htf_bars_emitted = MagicMock()
     agent._processing_duration = MagicMock()
     agent._aggregation_errors = MagicMock()
+    # Phase 68-05: new hardening attributes required by _run() loop
+    agent._last_emitted = {}  # AGG-EMIT-ONCE guard
+    agent._dlq_producer = None  # AGG-DLQ (None = disabled in tests)
+    agent._dlq_topic = "dev.bar.aggregator.dlq"
+    agent._consumer_restart_needed = False
     # Wire module-level test metrics via cached label children (matches production pattern)
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
     agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")
@@ -278,7 +283,12 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 @pytest.mark.asyncio
 async def test_setup_retries_on_kafka_connection_error():
-    """_setup() must retry up to 3 times before propagating a KafkaConnectionError."""
+    """_setup() must retry up to 3 times before propagating a KafkaConnectionError.
+
+    _setup() now creates 2 producers per attempt (main + DLQ). The mock's side_effect
+    covers: attempt1=KCE (main fails), attempt2=KCE (main fails), attempt3 main=None,
+    attempt3 DLQ=None — 4 calls total on successful 3rd attempt.
+    """
     from aiokafka.errors import KafkaConnectionError
 
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
@@ -289,21 +299,29 @@ async def test_setup_retries_on_kafka_connection_error():
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
+    agent._dlq_producer = None
+    agent._lag_consumer = None
     agent.name = "bar_aggregator_agent"
 
     mock_producer = AsyncMock()
+    # attempt1: main KCE; attempt2: main KCE; attempt3: main OK, DLQ OK
     mock_producer.start = AsyncMock(
-        side_effect=[KafkaConnectionError(), KafkaConnectionError(), None]
+        side_effect=[KafkaConnectionError(), KafkaConnectionError(), None, None]
     )
+    mock_producer.stop = AsyncMock()
     mock_consumer = AsyncMock()
     mock_consumer.start = AsyncMock(return_value=None)
+    mock_lag_consumer = AsyncMock()
+    mock_lag_consumer.start = AsyncMock(return_value=None)
 
     with patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer), \
          patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer), \
+         patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer), \
          patch("asyncio.sleep", new_callable=AsyncMock):
         await agent._setup()
 
-    assert mock_producer.start.call_count == 3
+    # 2 failed starts (attempts 1+2 main) + 2 successes (attempt3 main + DLQ)
+    assert mock_producer.start.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -319,6 +337,8 @@ async def test_setup_raises_after_max_retries():
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
+    agent._dlq_producer = None
+    agent._lag_consumer = None
     agent.name = "bar_aggregator_agent"
 
     mock_producer = AsyncMock()
