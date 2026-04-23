@@ -16,7 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
-- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (68-01/03/04 done; 68-02 needs re-run + 68-05 pending; Phase 67 pending)
+- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 complete 2026-04-23; Phase 67 pending)
 - [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70 (planning 2026-04-13)
 
 ## Phases
@@ -261,7 +261,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 **Execution order: 63-06 → 68 → 67** (correctness before instrumentation — Renaissance principle)
 
-- [ ] **Phase 68: Pipeline Hardening & Institutional Foundation** ← EXECUTE FIRST
+- [x] **Phase 68: Pipeline Hardening & Institutional Foundation** — Complete 2026-04-23
   Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
   Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
@@ -581,7 +581,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 0/4 | In Progress | — |
-| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 3/5 | In Progress | —          |
+| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 0/? | Planning | — |
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 
