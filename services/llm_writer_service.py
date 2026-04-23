@@ -115,7 +115,6 @@ _SELECT_OUTCOME_ROWS_SQL = """
 SELECT model, regime, setup_type, call_type, symbol,
        COUNT(*) AS n_calls,
        COUNT(outcome) AS n_outcomes,
-       COUNT(outcome) AS n_outcomes,
        AVG(CASE WHEN win THEN 1.0 ELSE 0.0 END) AS win_rate,
        AVG(pnl_r) AS avg_pnl_r,
        AVG(latency_ms) AS avg_latency_ms
