@@ -866,11 +866,11 @@ Plans:
 **Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
 **Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
 **Depends on:** Phase 63 (runs BEFORE Phase 67 — migration numbers 062/063 reserved here; 067 renumbers to 064+)
-**Plans:** 4/5 complete (68-01 ✓, 68-03 ✓, 68-04 ✓, 68-05 ✓ — 68-02 needs re-run with audit additions)
+**Plans:** 5/5 complete (68-01 ✓, 68-02 ✓, 68-03 ✓, 68-04 ✓, 68-05 ✓)
 
 Plans:
 - [x] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
-- [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge (+ audit LOW-1–4 added 2026-04-23)
+- [x] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge (+ audit LOW-1–4 added 2026-04-23)
 - [x] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
 - [x] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
 - [x] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars) (+ audit LOW-5–6 added 2026-04-23)
