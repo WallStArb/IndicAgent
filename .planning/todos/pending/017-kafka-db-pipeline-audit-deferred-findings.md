@@ -3,7 +3,7 @@ created: 2026-04-23
 title: Kafka→DB pipeline audit — deferred findings (H5, M2, M3, M5, M6, LOWs)
 area: data-pipeline
 source-audit: 2026-04-22 Kafka→DB pipeline review
-phase-68-covers: H1, H2, H3, H4, H6 (68-02 acceptance criteria + 68-05), M1, M4, M7
+phase-68-covers: H1, H2, H3, H4, H6 (68-02 + 68-05), M1, M4, M7, LOW-1–LOW-4 (68-02 Task 2), LOW-5–LOW-6 (68-05 Tasks 2–3)
 files:
   - services/bar_aggregator_agent.py
   - services/bar_writer_agent.py
@@ -83,14 +83,12 @@ behind) against a threshold derived from retention window. Fire a Prometheus ale
 
 ## LOW — Backlog
 
+LOW-1 through LOW-6 folded into Phase 68 plans (68-02 Task 2 and 68-05 Tasks 2–3).
+
+Remaining three LOWs not addressed in Phase 68:
+
 | Service | Finding |
 |---------|---------|
-| bar_writer_agent.py | Contract cache reload has no retry on DB failure at startup |
-| feature_writer_service.py | `_build_expiry_map()` silently returns empty on Settings failure → all symbols get `days_to_expiry=0` |
 | feature_writer_service.py | Health monitor and BaseWriterAgent both report consumer lag on different intervals → jagged metric spikes |
-| signal_writer_agent.py | DLQ topic `signal.writer.dlq` missing `intelligence.` prefix (naming convention inconsistency) |
-| signal_writer_agent.py | `LedgerEntry` fields `num_agreeing` / `resolution_method` hardcoded instead of read from payload |
 | bar_accumulator.py | No TTL on partial bars — a delisted symbol's partial bar emits when trading resumes |
-| bar_accumulator.py | `_validate_accumulator()` only runs with `__debug__` (disabled in production with `python -O`) |
-| bar_aggregator_agent.py | Expensive per-call consumer lag check creates a new `AIOKafkaConsumer` instance every 15s |
 | Cross-cutting | `MAX_BUFFER_SIZE=10k` overflow drops oldest entries silently (WARNING log only, no backpressure to producer) |
