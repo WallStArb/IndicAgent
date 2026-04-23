@@ -132,7 +132,9 @@ class BarWriterAgent(BaseWriterAgent):
         self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
         self._persistence_batch_latency_lbl = _BATCH_LATENCY.labels(agent=self.name)
         self._write_errors_lbl = _WRITE_ERRORS.labels(agent=self.name)
-        self._conflict_skips_lbl = _CONFLICT_SKIPS.labels(agent=self.name)
+        # _conflict_skips_lbl intentionally omitted — ON CONFLICT DO NOTHING rows are
+        # not countable from asyncpg executemany return value; metric removed rather
+        # than reporting misleading 0s. See AUDIT-M7.
         self._persistence_consumer_lag_lbl = _CONSUMER_LAG.labels(agent=self.name)
         self._bars_written_lbl: dict[str, object] = {
             tf: _BARS_WRITTEN.labels(agent=self.name, tf=tf) for tf in _BAR_TFS
@@ -209,7 +211,29 @@ class BarWriterAgent(BaseWriterAgent):
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
         self._db_pool = await asyncpg.create_pool(self.settings.database_url)
-        await self._load_contract_cache()
+        # AUDIT-LOW-4: Retry contract cache load — transient DB failure at startup
+        # must not leave cache empty (would cause days_to_expiry=0 for all symbols).
+        _cache_attempts = 3
+        _cache_backoff = 5.0
+        for _attempt in range(_cache_attempts):
+            try:
+                await self._load_contract_cache()
+                break
+            except Exception as exc:
+                if _attempt == _cache_attempts - 1:
+                    self.logger.error(
+                        "bar_writer_agent.contract_cache_load_failed",
+                        attempts=_cache_attempts,
+                        error=str(exc),
+                    )
+                    raise
+                self.logger.warning(
+                    "bar_writer_agent.contract_cache_retry",
+                    attempt=_attempt + 1,
+                    backoff_seconds=_cache_backoff,
+                    error=str(exc),
+                )
+                await asyncio.sleep(_cache_backoff)
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_market_bars(self.env_name),
@@ -217,7 +241,7 @@ class BarWriterAgent(BaseWriterAgent):
             topic_contract_updates(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="bar_writer_consumer",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
             enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
