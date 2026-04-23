@@ -317,14 +317,13 @@ class FeatureWriterAgent(BaseWriterAgent):
             )
             raise RuntimeError("No database connection")
 
-        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(len(batch))
-
         with self._batch_latency.time():
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
 
         self.batch_writes_total.inc()
         self._total_batches += 1
         self.events_buffered_gauge.set(0)
+        # Single authoritative lag update after flush (not duplicated before + after)
         PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(0)
         self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
 
@@ -407,6 +406,13 @@ class FeatureWriterAgent(BaseWriterAgent):
         except Exception as e:
             self.logger.warning("Failed to build expiry map", error=str(e))
             self._expiry_map = {}
+
+        if not self._expiry_map:
+            self.logger.warning(
+                "expiry_map_empty",
+                reason="No futures contracts in settings or _build_expiry_map failed — "
+                "days_to_expiry=0 for all symbols until service restarts",
+            )
 
         # Build topics list
         topics = [

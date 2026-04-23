@@ -20,7 +20,7 @@ def test_writer_agent_dlq_topics():
     """Verify writer agent DLQ topic names follow convention."""
     assert topic_bar_writer_dlq("dev") == "dev.bar.writer.dlq"
     assert topic_feature_writer_dlq("dev") == "dev.feature.writer.dlq"
-    assert topic_signal_writer_dlq("dev") == "dev.signal.writer.dlq"
+    assert topic_signal_writer_dlq("dev") == "dev.intelligence.signal.writer.dlq"
     assert topic_lifecycle_writer_dlq("dev") == "dev.lifecycle.writer.dlq"
     assert topic_swarm_writer_dlq("dev") == "dev.swarm.writer.dlq"
 
