@@ -77,6 +77,8 @@ def _make_agent():
     agent._dlq_producer = None  # AGG-DLQ (None = disabled in tests)
     agent._dlq_topic = "dev.bar.aggregator.dlq"
     agent._consumer_restart_needed = False
+    agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
+    agent._bars_in_flight = MagicMock()  # Gauge (mocked to avoid duplicate registration)
     # Wire module-level test metrics via cached label children (matches production pattern)
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
     agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")

@@ -134,6 +134,8 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._consumer_restart_needed = False  # Flag for consumer restart
         # AGG-EMIT-ONCE: tracks last emitted period_ts per (symbol, tf) to suppress duplicates
         self._last_emitted: dict[tuple[str, str], datetime] = {}
+        # AGG-BACKPRESSURE: cap concurrent bar processing to prevent unbounded memory on burst
+        self._processing_semaphore = asyncio.Semaphore(200)
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
@@ -178,6 +180,11 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
         # Add label for aggregation latency metric
         self._aggregation_latency_lbl = self._aggregation_latency.labels(agent=self.name)
+        # AGG-BACKPRESSURE: gauge for semaphore utilization
+        self._bars_in_flight = Gauge(
+            "bar_aggregator_bars_in_flight",
+            "Approximate number of bars currently being processed (semaphore slots in use)",
+        )
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -320,76 +327,90 @@ class BarAggregatorComputeAgent(BaseAgent):
                         )
                         last_health_log = time.monotonic()
 
-                    # NEW: Timeout protection for each bar
+                    # AGG-BACKPRESSURE: cap concurrent in-flight bar processing.
+                    # Semaphore is saturated when all 200 slots are taken — pause
+                    # consumption 100ms to let the event loop drain pending work.
+                    if self._processing_semaphore.locked():
+                        self.logger.warning(
+                            "bar_aggregator.semaphore_saturated",
+                            semaphore_value=self._processing_semaphore._value,
+                        )
+                        await asyncio.sleep(0.1)
+
+                    # NEW: Timeout protection for each bar (wrapped in semaphore)
                     try:
-                        async with asyncio.timeout(5.0):  # Max 5 seconds per bar
-                            start_time = time.monotonic()
+                        async with self._processing_semaphore:
+                            self._bars_in_flight.set(200 - self._processing_semaphore._value)
+                            async with asyncio.timeout(5.0):  # Max 5 seconds per bar
+                                start_time = time.monotonic()
 
-                            # Parse and process bar
-                            bar = self._parse_bar(payload)
-                            if bar is None:
-                                self._bars_skipped.labels(
-                                    agent=self.name, reason=self._last_skip_reason
-                                ).inc()
-                                self._health_metrics.record_skip()
-                                # AGG-DLQ: route malformed payload to DLQ instead of silent drop
-                                if self._dlq_producer is not None:
-                                    try:
-                                        await self._dlq_producer.produce(
-                                            self._dlq_topic, payload
+                                # Parse and process bar
+                                bar = self._parse_bar(payload)
+                                if bar is None:
+                                    self._bars_skipped.labels(
+                                        agent=self.name, reason=self._last_skip_reason
+                                    ).inc()
+                                    self._health_metrics.record_skip()
+                                    # AGG-DLQ: route malformed payload to DLQ instead of silent drop
+                                    if self._dlq_producer is not None:
+                                        try:
+                                            await self._dlq_producer.produce(
+                                                self._dlq_topic, payload
+                                            )
+                                        except Exception as dlq_exc:
+                                            self.logger.error(
+                                                "bar_aggregator_agent.dlq_produce_failed",
+                                                error=str(dlq_exc),
+                                            )
+                                    continue
+
+                                # Track liveness for stall detection (Phase 067-06)
+                                self._record_message_consumed()
+
+                                self._health_metrics.record_bar(bar.ts)
+
+                                self._bars_processed.labels(agent=self.name).inc()
+
+                                with self._processing_duration.labels(agent=self.name).time():
+                                    completed_bars = self._bar_accumulator.update(bar)
+
+                                # Emit HTF bars with emit-once guard (AGG-EMIT-ONCE)
+                                for htf_bar in completed_bars:
+                                    emit_key = (htf_bar.symbol, htf_bar.tf)
+                                    if self._last_emitted.get(emit_key) == htf_bar.ts:
+                                        self.logger.warning(
+                                            "htf_duplicate_suppressed",
+                                            symbol=htf_bar.symbol,
+                                            tf=htf_bar.tf,
+                                            period_ts=htf_bar.ts.isoformat(),
                                         )
-                                    except Exception as dlq_exc:
-                                        self.logger.error(
-                                            "bar_aggregator_agent.dlq_produce_failed",
-                                            error=str(dlq_exc),
-                                        )
-                                continue
-
-                            # Track liveness for stall detection (Phase 067-06)
-                            self._record_message_consumed()
-
-                            self._health_metrics.record_bar(bar.ts)
-
-                            self._bars_processed.labels(agent=self.name).inc()
-
-                            with self._processing_duration.labels(agent=self.name).time():
-                                completed_bars = self._bar_accumulator.update(bar)
-
-                            # Emit HTF bars with emit-once guard (AGG-EMIT-ONCE)
-                            for htf_bar in completed_bars:
-                                emit_key = (htf_bar.symbol, htf_bar.tf)
-                                if self._last_emitted.get(emit_key) == htf_bar.ts:
-                                    self.logger.warning(
-                                        "htf_duplicate_suppressed",
+                                        continue
+                                    self._last_emitted[emit_key] = htf_bar.ts
+                                    await self._kafka_producer.publish(
+                                        htf_topic,
+                                        htf_bar.model_dump(mode="json"),
+                                        key=message_key(htf_bar.symbol, htf_bar.tf),
+                                    )
+                                    self._htf_bars_emitted.labels(
+                                        agent=self.name, tf=htf_bar.tf
+                                    ).inc()
+                                    self._health_metrics.record_htf_bar()
+                                    self.logger.debug(
+                                        "bar_aggregator_agent.htf_bar_published",
                                         symbol=htf_bar.symbol,
                                         tf=htf_bar.tf,
-                                        period_ts=htf_bar.ts.isoformat(),
+                                        ts=htf_bar.ts.isoformat(),
                                     )
-                                    continue
-                                self._last_emitted[emit_key] = htf_bar.ts
-                                await self._kafka_producer.publish(
-                                    htf_topic,
-                                    htf_bar.model_dump(mode="json"),
-                                    key=message_key(htf_bar.symbol, htf_bar.tf),
-                                )
-                                self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
-                                self._health_metrics.record_htf_bar()
-                                self.logger.debug(
-                                    "bar_aggregator_agent.htf_bar_published",
-                                    symbol=htf_bar.symbol,
-                                    tf=htf_bar.tf,
-                                    ts=htf_bar.ts.isoformat(),
-                                )
 
-                            # Check for slow processing
-                            duration = time.monotonic() - start_time
-                            if duration > 1.0:
-                                self.logger.warning(
-                                    "bar_aggregator.slow_bar_processing",
-                                    symbol=bar.symbol,
-                                    duration_s=duration,
-                                    htf_emitted=len(completed_bars),
-                                )
+                                # Check for slow processing
+                                duration = time.monotonic() - start_time
+                                if duration > 1.0:
+                                    self.logger.warning(
+                                        "bar_aggregator.slow_bar_processing",
+                                        symbol=bar.symbol,
+                                        duration_s=duration,
+                                        htf_emitted=len(completed_bars),
+                                    )
 
                     except TimeoutError:
                         # Handle timeout for slow bar processing
