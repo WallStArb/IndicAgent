@@ -857,8 +857,8 @@ Plans:
 
 
 Plans:
-- [ ] 067-01-PLAN.md — AlertingAgent: new Kafka-to-Telegram/Discord dispatcher service + TDD tests + systemd unit
-- [ ] 067-02-PLAN.md — Renaissance refactor: remove inline webhooks from service_auditor_agent, replace with BaseAgent._send_alert()
+- [x] 067-01-PLAN.md — AlertingAgent: new Kafka-to-Telegram/Discord dispatcher service + TDD tests + systemd unit
+- [x] 067-02-PLAN.md — Renaissance refactor: remove inline webhooks from service_auditor_agent, replace with BaseAgent._send_alert()
 
 
 ### Phase 68: Pipeline Hardening & Institutional Foundation
