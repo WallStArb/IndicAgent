@@ -1,35 +1,26 @@
 ---
 phase: 68-pipeline-hardening-institutional-foundation
-verified: 2026-04-23T18:00:00Z
-status: gaps_found
-score: 13/15 must-haves verified
+verified: 2026-04-23T19:30:00Z
+status: passed
+score: 15/15 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "_setup_last_fire is included in checkpoint state"
-    status: failed
-    reason: "_checkpoint_state() writes 5 keys to state dict (_plugin_states, _kalman_state, _tod_priors, _bar_history, _last_bar_offset) but NOT _setup_last_fire. The restore path at line 763 reads _setup_last_fire from state if present, but it is never written, so the data is lost on every restart."
-    artifacts:
-      - path: "services/intelligence_pipeline_agent.py"
-        issue: "_checkpoint_state() state dict (lines 1559-1565) missing '_setup_last_fire' key"
-    missing:
-      - "Add \"'_setup_last_fire': self._setup_last_fire\" to the state dict in _checkpoint_state()"
-  - truth: "Long bias in tiebreaks is configurable via WINNER_LONG_BIAS env var"
-    status: partial
-    reason: "select_winner() accepts long_bias kwarg (default True) and Settings.winner_long_bias field was added, but the call site at line 1504 of intelligence_pipeline_agent.py does not pass long_bias=self._settings.winner_long_bias — it uses the hardcoded default True. The setting exists but is not wired to the call site."
-    artifacts:
-      - path: "services/intelligence_pipeline_agent.py"
-        issue: "select_winner(ranked, cis_result) at line 1504 does not pass long_bias — WINNER_LONG_BIAS env var has no effect"
-    missing:
-      - "Change line 1504 to: select_winner(ranked, cis_result, long_bias=self._settings.winner_long_bias)"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 13/15
+  gaps_closed:
+    - "_setup_last_fire is included in checkpoint state (PIPE-CHECKPOINT)"
+    - "Long bias in tiebreaks is configurable via WINNER_LONG_BIAS env var (PIPE-LONG-BIAS)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 68: Pipeline Hardening & Institutional Foundation Verification Report
 
 **Phase Goal:** Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings thresholds, numeric label, long bias, confidence boost pre-calibration), add BaseWriterAgent consolidating shared buffer/flush/offset-commit/DLQ machinery across all 5 writer agents, add end-to-end bar_id trace from provider to lifecycle exit, full 5-point confidence attribution vector, and TRUNCATE signal_ledger for a clean slate after regime filtering was bypassed for all historical signals.
 
-**Verified:** 2026-04-23T18:00:00Z
-**Status:** gaps_found — 2 gaps in 68-01 (checkpoint and long_bias wiring)
-**Re-verification:** No — initial verification
+**Verified:** 2026-04-23T19:30:00Z
+**Status:** passed — all 15 must-haves verified
+**Re-verification:** Yes — after gap closure (PIPE-CHECKPOINT, PIPE-LONG-BIAS)
 
 ---
 
@@ -42,10 +33,10 @@ gaps:
 | 1 | Plugins with regime_type='mean_reversion' are suppressed when HMM regime is trending | VERIFIED | `getattr(plugin_inst, "regime_type", "any")` at line 1398; `apply_regime_gate` wired with `prob_min=self._regime_prob_min, dur_min=self._regime_dur_min` at line 1452 |
 | 2 | Settings.regime_prob_min and regime_dur_min values are passed to apply_regime_gate | VERIFIED | Line 1452: `prob_min=self._regime_prob_min, dur_min=self._regime_dur_min` confirmed |
 | 3 | sig['regime_type'] comes from plugin class attribute, not from HMM numeric value | VERIFIED | Line 1398 injects from `getattr(plugin_inst, "regime_type", "any")`; `_HMM_REGIME_LABEL` dict at line 193 handles hmm_regime_label separately; old `f["regime_type"] = f.get("hmm_regime")` is gone |
-| 4 | Long bias in tiebreaks is configurable via WINNER_LONG_BIAS env var | PARTIAL FAIL | `select_winner()` accepts `long_bias: bool = True` and Settings has `winner_long_bias` field, but call site at line 1504 does not pass `long_bias=self._settings.winner_long_bias` — WINNER_LONG_BIAS env var is silently ignored |
+| 4 | Long bias in tiebreaks is configurable via WINNER_LONG_BIAS env var | VERIFIED | Line 1505: `select_winner(ranked, cis_result, long_bias=self._settings.winner_long_bias)` — WINNER_LONG_BIAS env var is now wired to the call site |
 | 5 | Confidence boost per agreeing signal is removed; n_agreeing_signals captured instead | VERIFIED | No `_CONFIDENCE_BOOST_PER_AGREE` in winner_selector.py; `n_agreeing_signals` and `n_opposing_signals` set in both `_aggregate_via_cis` and `_aggregate_fallback` |
-| 6 | resolution_method is stamped on every ranked signal, not discarded | VERIFIED | Lines 1506-1508: `for sig in ranked: sig["resolution_method"] = resolution_method` |
-| 7 | _setup_last_fire is included in checkpoint state | FAIL | `_checkpoint_state()` (lines 1557-1572) state dict contains 5 keys but NOT `_setup_last_fire`. Restore logic at line 763 checks for it — it is read but never written |
+| 6 | resolution_method is stamped on every ranked signal, not discarded | VERIFIED | Lines 1508-1510: `for sig in ranked: sig["resolution_method"] = resolution_method` |
+| 7 | _setup_last_fire is included in checkpoint state | VERIFIED | Line 1567: `"_setup_last_fire": self._setup_last_fire` present in `_checkpoint_state()` state dict |
 | 8 | 5-point attribution vector: pre_quality, pre_regime, pre_tod, pre_calibration, calibrated | VERIFIED | Lines 1448 (`pre_regime_confidence`), 1464 (`pre_tod_confidence`), 1476 (`pre_calibration_confidence`); pre_quality captured in quality_gate; calibrated_confidence set by calibrator |
 | 9 | regime_gate_suppressions_total Prometheus counter increments for suppressed signals | VERIFIED | `REGIME_GATE_SUPPRESSIONS_TOTAL` Counter defined at metrics.py:441, imported at line 118, incremented at line 1458 with labels (reason, plugin, tf) |
 | 10 | All 5 writer agents inherit from BaseWriterAgent | VERIFIED | All 5: SignalWriterAgent, FeatureWriterAgent, BarWriterAgent, LifecycleWriterAgent, SwarmWriterAgent confirmed via grep |
@@ -55,7 +46,7 @@ gaps:
 | 14 | signal_ledger is truncated (0 rows) after migration | VERIFIED | `TRUNCATE TABLE signal_ledger` in 063_pipeline_hardening.sql confirmed |
 | 15 | Malformed bars in bar_aggregator_agent route to a DLQ topic, not silent drop | VERIFIED | `_dlq_producer` created in `_setup()`, routed to `topic_bar_aggregator_dlq()`, closed in `_teardown()`; DLQ routing on parse failure confirmed at line 283 |
 
-**Score: 13/15 truths verified**
+**Score: 15/15 truths verified**
 
 ### Deferred Items
 
@@ -67,7 +58,7 @@ None.
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `services/intelligence_pipeline_agent.py` | Fixed _run_i7 with regime type injection, attribution vector, checkpoint, metric | PARTIAL | All fixes present EXCEPT _setup_last_fire not written to checkpoint state |
+| `services/intelligence_pipeline_agent.py` | Fixed _run_i7 with regime type injection, attribution vector, checkpoint, metric | VERIFIED | All fixes confirmed including _setup_last_fire in checkpoint (line 1567) and long_bias wired to select_winner (line 1505) |
 | `src/intelligence/pipeline/winner_selector.py` | Removed confidence boost, added n_agreeing capture, long bias param | VERIFIED | long_bias param exists in select_winner(); no _CONFIDENCE_BOOST_PER_AGREE; n_agreeing/n_opposing set in both aggregate paths |
 | `src/config/settings.py` | winner_long_bias field | VERIFIED | Line 147: `winner_long_bias: bool = Field(default=True, validation_alias="WINNER_LONG_BIAS")` |
 | `src/observability/metrics.py` | REGIME_GATE_SUPPRESSIONS_TOTAL counter with labels | VERIFIED | Counter at line 441 with labelnames=[reason, plugin, tf] |
@@ -97,6 +88,7 @@ None.
 |------|----|-----|--------|---------|
 | intelligence_pipeline_agent.py | regime_gate.py | apply_regime_gate(prob_min=self._regime_prob_min, dur_min=self._regime_dur_min) | WIRED | Line 1452 confirmed |
 | intelligence_pipeline_agent.py | metrics.py | REGIME_GATE_SUPPRESSIONS_TOTAL.labels(...).inc() | WIRED | Import at line 118, call at line 1458 |
+| intelligence_pipeline_agent.py | winner_selector.py | select_winner(ranked, cis_result, long_bias=self._settings.winner_long_bias) | WIRED | Line 1505 confirmed — Settings.winner_long_bias now wired |
 | services/signal_writer_agent.py | src/core/agent/base_writer.py | class SignalWriterAgent(BaseWriterAgent) | WIRED | Confirmed |
 | src/core/agent/base_writer.py | src/core/agent/base.py | class BaseWriterAgent(BaseAgent, abc.ABC) | WIRED | Confirmed at line 54 |
 | src/providers/base_provider_agent.py | src/core/schemas/bar_message.py | bar_id auto-generated via default_factory=uuid4 | WIRED | Pydantic auto-generates on BarMessage construction; no explicit stamping needed |
@@ -120,10 +112,9 @@ Not applicable — phase 68 fixes pipeline logic rather than adding new renderin
 | bar_id in BarMessage | grep 'bar_id.*UUID.*Field.*default_factory' src/core/schemas/bar_message.py | line 91 | PASS |
 | TRUNCATE in migration 063 | grep -c 'TRUNCATE TABLE signal_ledger' production/migrations/063_pipeline_hardening.sql | 1 | PASS |
 | All 5 writers inherit BaseWriterAgent | grep -c 'class.*BaseWriterAgent' services/*.py | 5 | PASS |
-| _checkpoint_state writes _setup_last_fire | grep '"_setup_last_fire"' _checkpoint_state state dict | 0 matches | FAIL |
-| select_winner receives long_bias from Settings | grep 'long_bias=self._settings.winner_long_bias' services/intelligence_pipeline_agent.py | 0 matches | FAIL |
-| 44 pipeline+winner selector tests pass | pytest test_intelligence_pipeline_agent.py test_winner_selector.py -q | 44 passed | PASS |
-| 43 bar accumulator/aggregator tests pass | pytest -k "bar_accumulator or bar_aggregator" -q | 43 passed | PASS |
+| _checkpoint_state writes _setup_last_fire | grep '"_setup_last_fire"' services/intelligence_pipeline_agent.py | line 1567 | PASS |
+| select_winner receives long_bias from Settings | grep 'long_bias=self._settings.winner_long_bias' services/intelligence_pipeline_agent.py | line 1505 | PASS |
+| 51 pipeline+winner selector tests pass | pytest test_intelligence_pipeline_agent.py test_winner_selector.py (all locations) -q | 51 passed | PASS |
 
 ---
 
@@ -136,10 +127,10 @@ All Phase 68 requirement IDs (PIPE-*, WRITER-*, TRACE-*, AGG-*) are plan-interna
 | PIPE-REGIME-FILTER | 68-01 | VERIFIED | regime_type from plugin class attr; apply_regime_gate called with Settings params |
 | PIPE-SETTINGS-WIRE | 68-01 | VERIFIED | self._regime_prob_min/dur_min wired from Settings |
 | PIPE-LABEL-FIX | 68-01 | VERIFIED | _HMM_REGIME_LABEL dict separates hmm_regime_label from hmm_regime |
-| PIPE-LONG-BIAS | 68-01 | PARTIAL | winner_long_bias in Settings, long_bias param in select_winner, but call site does not pass it |
+| PIPE-LONG-BIAS | 68-01 | VERIFIED | select_winner(ranked, cis_result, long_bias=self._settings.winner_long_bias) at line 1505 |
 | PIPE-CONFIDENCE-BOOST | 68-01 | VERIFIED | _CONFIDENCE_BOOST_PER_AGREE removed from winner_selector.py |
 | PIPE-RESOLUTION-METHOD | 68-01 | VERIFIED | resolution_method stamped on all ranked signals |
-| PIPE-CHECKPOINT | 68-01 | FAILED | _setup_last_fire not written to checkpoint state dict |
+| PIPE-CHECKPOINT | 68-01 | VERIFIED | "_setup_last_fire": self._setup_last_fire at line 1567 in _checkpoint_state() state dict |
 | PIPE-ATTRIBUTION-VECTOR | 68-01 | VERIFIED | 5-point vector: pre_quality, pre_regime, pre_tod, pre_calibration, calibrated confirmed |
 | PIPE-REGIME-METRIC | 68-01 | VERIFIED | REGIME_GATE_SUPPRESSIONS_TOTAL Counter with labels defined and wired |
 | WRITER-BASE-CLASS | 68-02 | VERIFIED | BaseWriterAgent ABC with all abstract methods |
@@ -159,15 +150,15 @@ No blocking anti-patterns found in modified files. Stubs, hardcoded empties, and
 
 ## Gaps Summary
 
-Phase 68 is substantially complete. Two gaps in plan 68-01 prevent full certification:
+No gaps. Both previously identified gaps have been resolved:
 
-**Gap 1 — Checkpoint missing _setup_last_fire (PIPE-CHECKPOINT):** `_checkpoint_state()` writes plugin states, kalman state, tod priors, bar history, and last bar offset to the compacted state topic — but omits `_setup_last_fire`. The restore path at line 763 correctly reads it back if present, but since it is never written, the restore is always a no-op. After any service restart, `_setup_last_fire` resets to an empty dict, causing alpha decay to treat every signal as if it was never recently fired. Fix is a one-line addition to the state dict.
+**Gap 1 — PIPE-CHECKPOINT (resolved):** `_checkpoint_state()` now includes `"_setup_last_fire": self._setup_last_fire` at line 1567 of `services/intelligence_pipeline_agent.py`. The restore path at line 763 reads it correctly; the key is now both written and read.
 
-**Gap 2 — WINNER_LONG_BIAS setting not wired to call site (PIPE-LONG-BIAS):** `Settings.winner_long_bias` field was added and `select_winner()` was updated to accept `long_bias: bool = True`, but the call site in `_run_i7` (line 1504) passes no `long_bias` kwarg. The default `True` hardcodes the long bias regardless of the `WINNER_LONG_BIAS` environment variable. Fix is adding `long_bias=self._settings.winner_long_bias` to the `select_winner()` call.
+**Gap 2 — PIPE-LONG-BIAS (resolved):** The `select_winner()` call at line 1505 now passes `long_bias=self._settings.winner_long_bias`. The `WINNER_LONG_BIAS` environment variable is fully wired from `Settings` through to the tiebreak logic in `winner_selector.py`.
 
-Both gaps are confined to `services/intelligence_pipeline_agent.py` and are small, targeted fixes. All other plans (68-02 through 68-05) verified fully.
+All 15 must-haves verified. Phase 68 goal achieved. 51 unit tests pass with no regressions.
 
 ---
 
-_Verified: 2026-04-23T18:00:00Z_
+_Verified: 2026-04-23T19:30:00Z_
 _Verifier: Claude (gsd-verifier)_
