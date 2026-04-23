@@ -145,7 +145,7 @@ class TestAlertingAgentHTTPErrors:
     async def test_telegram_http_error_returns_false(self, agent):
         """HTTP error on telegram -> logged not raised, dispatch returns False."""
 
-        async def failing_post(*args, **kwargs):
+        def failing_post(*args, **kwargs):
             raise aiohttp.ClientError("Connection failed")
 
         agent._http_session.post = failing_post
@@ -169,7 +169,7 @@ class TestAlertingAgentHTTPErrors:
     async def test_discord_http_error_returns_false(self, agent):
         """HTTP error on discord -> logged not raised, dispatch returns False."""
 
-        async def failing_post(*args, **kwargs):
+        def failing_post(*args, **kwargs):
             raise aiohttp.ClientError("Connection failed")
 
         agent._http_session.post = failing_post

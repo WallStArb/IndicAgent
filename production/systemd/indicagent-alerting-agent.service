@@ -13,8 +13,6 @@ Environment=METRICS_PORT=9132
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/alerting_agent.py
 Restart=always
 RestartSec=10
-WatchdogSec=120
-NotifyAccess=main
 StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
