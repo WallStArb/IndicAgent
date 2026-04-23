@@ -322,7 +322,6 @@ class FeatureWriterAgent(BaseWriterAgent):
         with self._batch_latency.time():
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
 
-        PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer").observe(0)
         self.batch_writes_total.inc()
         self._total_batches += 1
         self.events_buffered_gauge.set(0)
