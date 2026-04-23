@@ -416,6 +416,19 @@ BAR_AUDITOR_GAP_FILL_DLQ_DEPTH = Counter(
     "Total gap-fill requests routed to DLQ after retry exhaustion",
 )
 
+ALERTING_DISPATCH_TOTAL = Counter(
+    "alerting_dispatch_total",
+    "Alerts dispatched by channel and status",
+    ["channel", "severity", "status"],
+)
+
+ALERTING_LATENCY_SECONDS = Histogram(
+    "alerting_latency_seconds",
+    "Alert dispatch latency in seconds",
+    ["channel"],
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
 
 # ---------------------------------------------------------------------------
 # DLQ Metrics (Phase 067-07)
