@@ -580,7 +580,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
-| 67. Observability, Alerting & Automation | v2.4 | 0/4 | In Progress | — |
+| 67. Observability, Alerting & Automation | v2.4 | 0/2 | In Progress | — |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 0/? | Planning | — |
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
@@ -853,11 +853,10 @@ Plans:
 **Requirements**: [OBS-GRAFANA-ALERTS, OBS-CONTACT-POINTS, OBS-GAP-TABLE, OBS-BAR-AUDITOR, OBS-ROLL-AUTO, OBS-WEBHOOK-DISPATCHER, OBS-BOOTSTRAP-RETRY, OBS-SWARM-SEED, OBS-DASHBOARDS]
 **Depends on:** Phase 68 (observability instruments a corrected pipeline — run AFTER Phase 68)
 
+
 Plans:
-- [ ] 67-01-PLAN.md — Foundation: Settings fields (telegram/discord), webhook dispatcher methods in service_auditor_agent, service_auditor_service_restarts_total counter, market_data_gaps migration (renumber to 064 — see phase_reorder memory)
-- [ ] 67-02-PLAN.md — Code fixes: signal_tracker_compute bootstrap retry (3× exponential backoff + sd_notify gate) + SwarmOrchestratorAgent context cache seeding (200 rows/tf on startup)
-- [ ] 67-03-PLAN.md — Grafana alerting + roll automation: alert-rules.yml, contact-points.yml/.example.yml, roll event consumer in service_auditor_agent, bar_auditor gap_fill_dlq topic + counter
-- [ ] 67-04-PLAN.md — Dashboard rebuild: operations.json (new), pipeline-health.json (rebuilt), signals-i8.json (rebuilt) — Golden Signals layout, current service names, live panel queries
+- [ ] 067-01-PLAN.md — AlertingAgent: new Kafka-to-Telegram/Discord dispatcher service + TDD tests + systemd unit
+- [ ] 067-02-PLAN.md — Renaissance refactor: remove inline webhooks from service_auditor_agent, replace with BaseAgent._send_alert()
 
 
 ### Phase 68: Pipeline Hardening & Institutional Foundation
