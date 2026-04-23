@@ -16,7 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
-- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 complete 2026-04-23; Phase 67 pending)
+- ✅ **v2.4 Observability Hardening** — Phases 67–68 (COMPLETE 2026-04-23)
 - [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70 (planning 2026-04-13)
 
 ## Phases
@@ -265,7 +265,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
   Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
-- [ ] **Phase 67: Observability, Alerting & Automation** ← EXECUTE SECOND
+- [x] **Phase 67: Observability, Alerting & Automation** ← COMPLETE 2026-04-23 (2/2 plans)
+  ✅ AlertingAgent (Plan 01) — centralized Kafka-to-Telegram/Discord dispatcher
+  ✅ Webhook removal (Plan 02) — service_auditor migrated to _send_alert(), SRP restored
   Grafana alert rules (Telegram/Discord), `market_data_gaps` table + `bar_auditor_agent` write path, roll automation in `service_auditor_agent`, 4 code fixes (bootstrap retry, cache seeding, webhook dispatcher, crash counter), 3 dashboard rebuilds.
   Design doc: `docs/plans/2026-04-12-observability-automation-design.md`
 
