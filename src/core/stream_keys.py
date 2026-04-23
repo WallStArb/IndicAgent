@@ -391,7 +391,7 @@ def topic_feature_writer_dlq(env_name: str) -> str:
 
 def topic_signal_writer_dlq(env_name: str) -> str:
     """Dead letter queue for SignalWriterAgent unparseable payloads."""
-    return f"{env_prefix(env_name)}signal.writer.dlq"
+    return f"{env_prefix(env_name)}intelligence.signal.writer.dlq"
 
 
 def topic_lifecycle_writer_dlq(env_name: str) -> str:
