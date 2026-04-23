@@ -63,7 +63,6 @@ def _make_agent():
     agent._bar_accumulator = BarAccumulator()
     agent._health_metrics = HealthMetrics()
     agent._last_skip_reason = "parse_failed"
-    agent._consumer_restart_requested = asyncio.Event()
     agent._record_message_consumed = MagicMock()
     agent._get_consumer_lag = AsyncMock(return_value=0)
     # Create mock metrics that have the expected interface
