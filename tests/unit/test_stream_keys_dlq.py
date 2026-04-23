@@ -1,6 +1,7 @@
 """Tests for DLQ stream keys."""
 
 from src.core.stream_keys import (
+    topic_bar_aggregator_dlq,
     topic_bar_audit_dlq,
     topic_bar_writer_dlq,
     topic_cross_asset_dlq,
@@ -48,3 +49,10 @@ def test_dlq_topics_no_env_prefix():
     assert topic_feature_writer_dlq("") == "feature.writer.dlq"
     assert topic_signal_audit_dlq("") == "signal.audit.dlq"
     assert topic_intelligence_pipeline_dlq("") == "intelligence.pipeline.dlq"
+
+
+def test_bar_aggregator_dlq_topic():
+    """Verify bar_aggregator DLQ topic follows naming convention."""
+    assert topic_bar_aggregator_dlq("dev") == "dev.bar.aggregator.dlq"
+    assert topic_bar_aggregator_dlq("") == "bar.aggregator.dlq"
+    assert topic_bar_aggregator_dlq("prod") == "prod.bar.aggregator.dlq"

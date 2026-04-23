@@ -153,13 +153,25 @@ class BarAccumulator:
             period_ts = _floor_to_period(curr_ts, tf_minutes)
             acc = self._accumulators.get(key)
 
+            # Reject out-of-order bars — clock skew or buffer reordering corrupts accumulator state
+            if acc is not None and curr_ts <= acc["last_ts"]:
+                logger.warning(
+                    "bar_accumulator_out_of_order",
+                    symbol=bar_1m.symbol,
+                    tf=tf,
+                    bar_ts=bar_1m.ts.isoformat(),
+                    last_ts=datetime.fromtimestamp(acc["last_ts"], UTC).isoformat(),
+                )
+                continue
+
             if acc is not None:
                 # Session break check with logging
                 if self._session.is_session_break(acc["last_ts"], curr_ts):
                     # Log session boundary (rate limited to prevent spam)
                     # Use bar timestamp instead of system call to avoid hot-path overhead
                     last_log = self._last_session_boundary_log.get(key, 0)
-                    if bar_1m.ts.timestamp() - last_log > 300:  # Log at most once per 5min per symbol
+                    # Log at most once per 5 minutes per symbol
+                    if bar_1m.ts.timestamp() - last_log > 300:
                         logger.info(
                             "bar_accumulator.session_boundary",
                             symbol=bar_1m.symbol,
@@ -184,8 +196,9 @@ class BarAccumulator:
                 # Start a new accumulator
                 self._accumulators[key] = self._new_accumulator(bar_1m, period_ts)
             else:
-                # Defensive check for corruption (debug mode only to avoid hot-path overhead)
-                if __debug__ and not self._is_accumulator_valid(acc):
+                # Defensive check for corruption — runs unconditionally in all modes.
+                # (python -O strips debug-only blocks; validation must not be gated on them.)
+                if not self._is_accumulator_valid(acc):
                     logger.warning(
                         "bar_accumulator.corrupted_state",
                         symbol=bar_1m.symbol,

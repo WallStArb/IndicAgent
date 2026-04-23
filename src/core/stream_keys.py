@@ -369,6 +369,16 @@ def topic_gap_fill_dlq(env_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def topic_bar_aggregator_dlq(env_name: str) -> str:
+    """Dead-letter queue for malformed bars in bar_aggregator_agent.
+
+    bar_aggregator_agent routes unparseable 1m bar payloads here instead of
+    silently dropping them. Enables investigation without data loss.
+    Pattern: DLQ per domain (AGG-DLQ).
+    """
+    return f"{env_prefix(env_name)}bar.aggregator.dlq"
+
+
 def topic_bar_writer_dlq(env_name: str) -> str:
     """Dead letter queue for BarWriterAgent unparseable payloads."""
     return f"{env_prefix(env_name)}bar.writer.dlq"
