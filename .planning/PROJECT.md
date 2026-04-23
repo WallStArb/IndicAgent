@@ -186,7 +186,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.2 Operational Excellence — Phase 58.1 complete)
+### Current State (v2.4 Observability Hardening — Phase 68 complete)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
@@ -274,4 +274,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 58.1: Contract Lifecycle Automation — ContractMetadataWriterAgent (seed + roll promotion + DLQ); BarAuditorAgent session-aligned gap detection (RTH windows, max_achievable_pct ceiling); build_contracts() base-symbol templates (no quarterly code edits); RollComputeAgent backtest script; graduation deferred to June roll (2026-04-02 ✅)
 
 ---
-*Last updated: 2026-04-02 — Phase 58.1 complete: contract lifecycle automation. ContractMetadataWriterAgent seeds contract_metadata on startup and promotes front-month on RollEvents. BarAuditorAgent upgraded to session-aligned gap detection (RTH windows, max_achievable_pct ceiling). build_contracts() defaults converted to base-symbol templates (no more manual quarterly code updates). RollComputeAgent graduation deferred to June roll (H6 bars absent; backtest script ready). All 2747 unit tests passing.*
+*Last updated: 2026-04-23 — Phase 68 complete: pipeline hardening & institutional foundation. Fixed 5 critical bugs (regime type bypass, Settings thresholds, HMM label, long bias wiring, confidence boost pre-calibration). BaseWriterAgent consolidated shared write-path machinery across 5 agents (buffer/flush/offset-commit/DLQ). End-to-end bar_id trace from BarMessage through IntelligenceEvent to signal_ledger. 5-point confidence attribution vector (pre_quality, pre_regime, pre_tod, pre_calibration, calibrated). TRUNCATE signal_ledger for clean slate after regime filter bypass. Symbol-keyed aggregate tables with '*' global sentinel. All 15 must-haves verified.*
