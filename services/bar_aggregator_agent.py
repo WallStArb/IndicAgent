@@ -35,10 +35,15 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.bar_normalizer import SOURCE_UNKNOWN
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.core.stream_keys import message_key, topic_market_bars, topic_market_bars_htf
+from src.core.stream_keys import (
+    message_key,
+    topic_bar_aggregator_dlq,
+    topic_market_bars,
+    topic_market_bars_htf,
+)
 
 
 class HealthMetrics:
@@ -121,9 +126,16 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
+        self._dlq_producer: KafkaProducerClient | None = None  # AGG-DLQ
+        self._dlq_topic: str = ""
+        self._lag_consumer = None  # AGG-AUDIT-LOW-6: cached lag check consumer
         self._health_metrics = HealthMetrics()
         self._last_skip_reason = "parse_failed"
         self._consumer_restart_needed = False  # Flag for consumer restart
+        # AGG-EMIT-ONCE: tracks last emitted period_ts per (symbol, tf) to suppress duplicates
+        self._last_emitted: dict[tuple[str, str], datetime] = {}
+        # AGG-BACKPRESSURE: cap concurrent bar processing to prevent unbounded memory on burst
+        self._processing_semaphore = asyncio.Semaphore(200)
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
@@ -168,6 +180,11 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
         # Add label for aggregation latency metric
         self._aggregation_latency_lbl = self._aggregation_latency.labels(agent=self.name)
+        # AGG-BACKPRESSURE: gauge for semaphore utilization
+        self._bars_in_flight = Gauge(
+            "bar_aggregator_bars_in_flight",
+            "Approximate number of bars currently being processed (semaphore slots in use)",
+        )
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -188,6 +205,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect Kafka producer and consumer with exponential-backoff retry."""
+        import aiokafka
         from aiokafka.errors import KafkaConnectionError as _KCE
 
         _MAX_ATTEMPTS = 4   # 1 initial + 3 retries
@@ -200,8 +218,23 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 await self._kafka_producer.start()
 
+                # AGG-DLQ: dedicated producer for dead-letter queue
+                self._dlq_topic = topic_bar_aggregator_dlq(self.env_name)
+                self._dlq_producer = KafkaProducerClient(
+                    bootstrap_servers=self.settings.kafka_bootstrap_servers
+                )
+                await self._dlq_producer.start()
+
                 self._kafka_consumer = self._make_consumer()
                 await self._kafka_consumer.start()
+
+                # AGG-AUDIT-LOW-6: cache the lag check consumer instead of creating per-call
+                self._lag_consumer = aiokafka.AIOKafkaConsumer(
+                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                    group_id="bar_aggregator_consumer",
+                )
+                await self._lag_consumer.start()
+
                 self.logger.info(
                     "bar_aggregator_agent.setup_complete",
                     topics_consumed=self.topics_consumed,
@@ -209,13 +242,21 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 return
             except _KCE as exc:
-                # Clean up partially-started producer before retry/raise
-                if self._kafka_producer is not None:
+                # Clean up partially-started producers before retry/raise
+                for client in (self._kafka_producer, self._dlq_producer):
+                    if client is not None:
+                        try:
+                            await client.stop()
+                        except Exception:
+                            pass
+                self._kafka_producer = None
+                self._dlq_producer = None
+                if self._lag_consumer is not None:
                     try:
-                        await self._kafka_producer.stop()
+                        await self._lag_consumer.stop()
                     except Exception:
                         pass
-                    self._kafka_producer = None
+                    self._lag_consumer = None
                 if attempt == _MAX_ATTEMPTS:
                     self.logger.error(
                         "bar_aggregator_agent.setup_failed",
@@ -239,6 +280,13 @@ class BarAggregatorComputeAgent(BaseAgent):
             await self._kafka_consumer.stop()
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()
+        if self._dlq_producer is not None:
+            await self._dlq_producer.stop()
+        if self._lag_consumer is not None:
+            try:
+                await self._lag_consumer.stop()
+            except Exception:
+                pass
 
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
@@ -279,55 +327,90 @@ class BarAggregatorComputeAgent(BaseAgent):
                         )
                         last_health_log = time.monotonic()
 
-                    # NEW: Timeout protection for each bar
+                    # AGG-BACKPRESSURE: cap concurrent in-flight bar processing.
+                    # Semaphore is saturated when all 200 slots are taken — pause
+                    # consumption 100ms to let the event loop drain pending work.
+                    if self._processing_semaphore.locked():
+                        self.logger.warning(
+                            "bar_aggregator.semaphore_saturated",
+                            semaphore_value=self._processing_semaphore._value,
+                        )
+                        await asyncio.sleep(0.1)
+
+                    # NEW: Timeout protection for each bar (wrapped in semaphore)
                     try:
-                        async with asyncio.timeout(5.0):  # Max 5 seconds per bar
-                            start_time = time.monotonic()
+                        async with self._processing_semaphore:
+                            self._bars_in_flight.set(200 - self._processing_semaphore._value)
+                            async with asyncio.timeout(5.0):  # Max 5 seconds per bar
+                                start_time = time.monotonic()
 
-                            # Parse and process bar
-                            bar = self._parse_bar(payload)
-                            if bar is None:
-                                self._bars_skipped.labels(
-                                    agent=self.name, reason=self._last_skip_reason
-                                ).inc()
-                                self._health_metrics.record_skip()
-                                continue
+                                # Parse and process bar
+                                bar = self._parse_bar(payload)
+                                if bar is None:
+                                    self._bars_skipped.labels(
+                                        agent=self.name, reason=self._last_skip_reason
+                                    ).inc()
+                                    self._health_metrics.record_skip()
+                                    # AGG-DLQ: route malformed payload to DLQ instead of silent drop
+                                    if self._dlq_producer is not None:
+                                        try:
+                                            await self._dlq_producer.produce(
+                                                self._dlq_topic, payload
+                                            )
+                                        except Exception as dlq_exc:
+                                            self.logger.error(
+                                                "bar_aggregator_agent.dlq_produce_failed",
+                                                error=str(dlq_exc),
+                                            )
+                                    continue
 
-                            # Track liveness for stall detection (Phase 067-06)
-                            self._record_message_consumed()
+                                # Track liveness for stall detection (Phase 067-06)
+                                self._record_message_consumed()
 
-                            self._health_metrics.record_bar(bar.ts)
+                                self._health_metrics.record_bar(bar.ts)
 
-                            self._bars_processed.labels(agent=self.name).inc()
+                                self._bars_processed.labels(agent=self.name).inc()
 
-                            with self._processing_duration.labels(agent=self.name).time():
-                                completed_bars = self._bar_accumulator.update(bar)
+                                with self._processing_duration.labels(agent=self.name).time():
+                                    completed_bars = self._bar_accumulator.update(bar)
 
-                            # Emit HTF bars
-                            for htf_bar in completed_bars:
-                                await self._kafka_producer.publish(
-                                    htf_topic,
-                                    htf_bar.model_dump(mode="json"),
-                                    key=message_key(htf_bar.symbol, htf_bar.tf),
-                                )
-                                self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
-                                self._health_metrics.record_htf_bar()
-                                self.logger.debug(
-                                    "bar_aggregator_agent.htf_bar_published",
-                                    symbol=htf_bar.symbol,
-                                    tf=htf_bar.tf,
-                                    ts=htf_bar.ts.isoformat(),
-                                )
+                                # Emit HTF bars with emit-once guard (AGG-EMIT-ONCE)
+                                for htf_bar in completed_bars:
+                                    emit_key = (htf_bar.symbol, htf_bar.tf)
+                                    if self._last_emitted.get(emit_key) == htf_bar.ts:
+                                        self.logger.warning(
+                                            "htf_duplicate_suppressed",
+                                            symbol=htf_bar.symbol,
+                                            tf=htf_bar.tf,
+                                            period_ts=htf_bar.ts.isoformat(),
+                                        )
+                                        continue
+                                    self._last_emitted[emit_key] = htf_bar.ts
+                                    await self._kafka_producer.publish(
+                                        htf_topic,
+                                        htf_bar.model_dump(mode="json"),
+                                        key=message_key(htf_bar.symbol, htf_bar.tf),
+                                    )
+                                    self._htf_bars_emitted.labels(
+                                        agent=self.name, tf=htf_bar.tf
+                                    ).inc()
+                                    self._health_metrics.record_htf_bar()
+                                    self.logger.debug(
+                                        "bar_aggregator_agent.htf_bar_published",
+                                        symbol=htf_bar.symbol,
+                                        tf=htf_bar.tf,
+                                        ts=htf_bar.ts.isoformat(),
+                                    )
 
-                            # Check for slow processing
-                            duration = time.monotonic() - start_time
-                            if duration > 1.0:
-                                self.logger.warning(
-                                    "bar_aggregator.slow_bar_processing",
-                                    symbol=bar.symbol,
-                                    duration_s=duration,
-                                    htf_emitted=len(completed_bars),
-                                )
+                                # Check for slow processing
+                                duration = time.monotonic() - start_time
+                                if duration > 1.0:
+                                    self.logger.warning(
+                                        "bar_aggregator.slow_bar_processing",
+                                        symbol=bar.symbol,
+                                        duration_s=duration,
+                                        htf_emitted=len(completed_bars),
+                                    )
 
                     except TimeoutError:
                         # Handle timeout for slow bar processing
@@ -430,31 +513,23 @@ class BarAggregatorComputeAgent(BaseAgent):
             self._consumer_restart_needed = True
 
     async def _get_consumer_lag(self) -> int:
-        """Get current consumer lag in seconds."""
+        """Get current consumer lag using cached _lag_consumer (AUDIT-LOW-6).
+
+        Reuses self._lag_consumer set in _setup() instead of creating a new
+        AIOKafkaConsumer per call — new instances waste connections and skew readings.
+        """
         try:
-            # This is expensive - only call for health summaries
-            import aiokafka
-
-            consumer = aiokafka.AIOKafkaConsumer(
-                bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                group_id="bar_aggregator_consumer",
-            )
-            await consumer.start()
-
             inner = getattr(self._kafka_consumer, "_consumer", None)
-            if inner is None:
-                await consumer.stop()
+            if inner is None or self._lag_consumer is None:
                 return 0
             partitions = inner.assignment()
             if not partitions:
-                await consumer.stop()
                 return 0
 
             tp = next(iter(partitions))
-            end_offsets = await consumer.end_offsets([tp])
+            end_offsets = await self._lag_consumer.end_offsets([tp])
             position = await inner.position(tp)
 
-            await consumer.stop()
             return end_offsets[tp] - position if end_offsets[tp] >= position else 0
         except Exception:
             return 0  # Assume healthy if lag check fails
