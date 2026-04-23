@@ -1501,7 +1501,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["bar_id"] = str(bar.bar_id)
 
         # Select winner — pass all ranked signals (select_winner filters active internally)
-        winner, _, resolution_method = select_winner(ranked, cis_result)
+        winner, _, resolution_method = select_winner(
+            ranked, cis_result, long_bias=self._settings.winner_long_bias
+        )
 
         # Stamp resolution_method on every ranked signal (not just the winner)
         for sig in ranked:
@@ -1562,6 +1564,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_tod_priors": self._tod_priors,
             "_bar_history": self._bar_history._data,
             "_last_bar_offset": self._last_bar_offset,
+            "_setup_last_fire": self._setup_last_fire,
         }
         encoded = StateSerializer.encode(state)
         checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
