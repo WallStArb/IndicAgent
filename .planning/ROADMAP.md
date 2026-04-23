@@ -16,7 +16,7 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
-- ✅ **v2.4 Observability Hardening** — Phases 67–68 (Phase 68 shipped 2026-04-13; Phase 67 pending)
+- 🔨 **v2.4 Observability Hardening** — Phases 67–68 (68-01/03/04 done; 68-02 needs re-run + 68-05 pending; Phase 67 pending)
 - [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70 (planning 2026-04-13)
 
 ## Phases
@@ -581,7 +581,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 0/4 | In Progress | — |
-| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 4/4 | Complete    | 2026-04-13 |
+| 68. Pipeline Hardening & Institutional Foundation | v2.4 | 3/5 | In Progress | —          |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 0/? | Planning | — |
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 
@@ -866,14 +866,14 @@ Plans:
 **Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
 **Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
 **Depends on:** Phase 63 (runs BEFORE Phase 67 — migration numbers 062/063 reserved here; 067 renumbers to 064+)
-**Plans:** 4/4 plans complete
+**Plans:** 3/5 complete (68-01 ✓, 68-03 ✓, 68-04 ✓ — 68-02 needs re-run with audit additions, 68-05 pending first run)
 
 Plans:
-- [ ] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
-- [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge
-- [ ] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
-- [ ] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
-- [ ] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars)
+- [x] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
+- [ ] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge (+ audit LOW-1–4 added 2026-04-23)
+- [x] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
+- [x] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
+- [ ] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars) (+ audit LOW-5–6 added 2026-04-23)
 
 
 ### Phase 71: BaseAgent Infrastructure Alignment
