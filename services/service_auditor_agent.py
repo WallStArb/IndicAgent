@@ -161,6 +161,8 @@ class ServiceAuditorAgent(BaseAgent):
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._kafka_producer.start()
+        # Wire _producer for BaseAgent._send_alert() to use
+        self._producer = self._kafka_producer
         self._roll_consumer = KafkaConsumerClient(
             topic_roll_events(self.env_name),
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
@@ -290,10 +292,10 @@ class ServiceAuditorAgent(BaseAgent):
                     restart_count=len(state.restart_times),
                     duration_degraded_s=None,
                 )
-                await self._dispatch_webhook(
+                await self._send_alert(
                     "HIGH",
                     f"Provider data stoppage: {spec.unit}",
-                    "No bars produced for 30+ seconds — restarting.",
+                    {"reason": "bars_per_sec=0 for 30s during active session"},
                 )
                 state.last_known_state = "restarting"
                 await self._restart_service(spec)
@@ -327,10 +329,10 @@ class ServiceAuditorAgent(BaseAgent):
                     {"service": spec.unit, "restart_count": len(state.restart_times)},
                     Exception("escalation threshold reached"),
                 )
-                await self._dispatch_webhook(
+                await self._send_alert(
                     "CRITICAL",
-                    f"Service escalated: {spec.unit}",
-                    f"{len(state.restart_times)} restarts in 10 min — stopped retrying.",
+                    f"Service escalated: {spec.unit} -- {len(state.restart_times)} restarts in 10 min",  # noqa: E501
+                    {"restart_count": len(state.restart_times)},
                 )
                 self.logger.error("service_auditor.escalated", service=spec.unit)
                 return
@@ -551,49 +553,6 @@ class ServiceAuditorAgent(BaseAgent):
             payload.get("service", "unknown"),
         )
 
-    async def _dispatch_webhook_http(self, url: str, payload: dict, log_name: str) -> bool:
-        """Generic webhook dispatcher with unified error handling.
-
-        Returns True on success, False on failure. Logs at appropriate level.
-        """
-        try:
-            assert self._http_session is not None
-            async with self._http_session.post(
-                url,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status in (200, 204):
-                    self.logger.info("webhook.success", service=log_name)
-                    return True
-                else:
-                    self.logger.warning("webhook.failed", status=resp.status, service=log_name)
-                    return False
-        except Exception as exc:
-            self.logger.error("webhook.error", service=log_name, error=str(exc))
-            return False
-
-    async def _notify_telegram(self, title: str, body: str) -> None:
-        """POST CRITICAL alert to Telegram bot. No-op if token not configured."""
-        token = self.settings.telegram_bot_token
-        chat_id = self.settings.telegram_chat_id
-        if not token or not chat_id:
-            return
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        text = f"*[CRITICAL]* {title}\n{body}"
-        await self._dispatch_webhook_http(
-            url,
-            {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            "telegram",
-        )
-
-    async def _notify_discord(self, title: str, body: str, severity: str) -> None:
-        """POST HIGH/MEDIUM alert to Discord webhook. No-op if URL not configured."""
-        url = self.settings.discord_webhook_url
-        if not url:
-            return
-        content = f"**[{severity}]** {title}\n{body}"
-        await self._dispatch_webhook_http(url, {"content": content}, "discord")
 
     # -- Roll automation -------------------------------------------------------
 
@@ -639,10 +598,10 @@ class ServiceAuditorAgent(BaseAgent):
             detection_method=detection_method,
         )
 
-        await self._dispatch_webhook(
+        await self._send_alert(
             "HIGH",
-            f"Futures roll: {symbol} {old_contract} → {new_contract}",
-            f"Restarting {_SVC_DATA_PROVIDER} and {_SVC_ROLL_COMPUTE} to subscribe to new front-month contract.",
+            f"Futures roll: {symbol} {old_contract} -> {new_contract}",
+            {"action": f"Restarting {_SVC_DATA_PROVIDER} and {_SVC_ROLL_COMPUTE}"},
         )
         await asyncio.gather(
             self._restart_roll_service(_SVC_DATA_PROVIDER),
@@ -674,22 +633,11 @@ class ServiceAuditorAgent(BaseAgent):
             SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=service_name).inc()
             self.logger.info("roll_automation.restart_complete", service=service_name)
         except Exception as exc:
-            self.logger.error("roll_automation.restart_failed", service=service_name, error=str(exc))
-
-    async def _dispatch_webhook(self, severity: str, title: str, body: str) -> None:
-        """Route alert to correct contact point(s) based on severity.
-
-        CRITICAL  -> Telegram only (immediate DM)
-        HIGH      -> Discord only (#indicagent-ops)
-        MEDIUM    -> Discord only (#indicagent-ops)
-        Other     -> no-op (log at debug)
-        """
-        if severity == "CRITICAL":
-            await self._notify_telegram(title, body)
-        elif severity in ("HIGH", "MEDIUM"):
-            await self._notify_discord(title, body, severity)
-        else:
-            self.logger.debug("dispatch_webhook.unknown_severity", severity=severity)
+            self.logger.error(  # noqa: E501
+                "roll_automation.restart_failed",
+                service=service_name,
+                error=str(exc),
+            )
 
 
 # ---------------------------------------------------------------------------
