@@ -221,6 +221,8 @@ class SignalMetricsWriterAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Consume events from intelligence.signal_metrics until stop event."""
+        if self._stop_event.is_set():
+            return
         # lag_task created by BaseAgent.start() at line 155
         async for _topic, _key, event in self._kafka_consumer.messages():
             if self._stop_event.is_set():
