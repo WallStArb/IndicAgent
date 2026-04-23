@@ -357,12 +357,11 @@ class BarWriterAgent(BaseWriterAgent):
                 return None
 
             ts_raw = payload.get("ts") or payload.get("timestamp")
-            if ts_raw:
-                ts = datetime.fromisoformat(str(ts_raw))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-            else:
-                ts = datetime.now(UTC)
+            if not ts_raw:
+                return None  # route to DLQ — never fabricate a timestamp
+            ts = datetime.fromisoformat(str(ts_raw))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
 
             return BarMessage(
                 ts=ts,
