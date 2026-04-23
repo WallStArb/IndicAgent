@@ -1,0 +1,25 @@
+[Unit]
+Description=IndicAgent Alerting Dispatcher — centralized Kafka-to-Telegram/Discord webhook dispatcher
+After=network-online.target redpanda.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9132
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/alerting_agent.py
+Restart=always
+RestartSec=10
+WatchdogSec=120
+NotifyAccess=main
+StartLimitIntervalSec=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-alerting-agent
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
