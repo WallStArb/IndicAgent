@@ -151,8 +151,17 @@ def main() -> None:
     rho_global = 0.0
     p_global = 1.0
     if len(valid) >= 10:
-        rho_global, p_global = pearsonr(valid["failure_prob"].values, valid["win"].values)
-        print(f"Global: rho={rho_global:.4f}, p={p_global:.6f}, N={len(valid)}")
+        if valid["failure_prob"].nunique() < 2 or valid["win"].nunique() < 2:
+            print("Global: constant data, cannot compute correlation\n")
+        else:
+            rho_global, p_global = pearsonr(
+                valid["failure_prob"].values, valid["win"].values,
+            )
+            print(f"Global: rho={rho_global:.4f}, p={p_global:.6f}, N={len(valid)}")
+            print(
+                f"Global gate (rho >= 0.2):"
+                f" {'PASS' if rho_global >= 0.2 else 'FAIL'}\n"
+            )
         print(f"Global gate (rho >= 0.2): {'PASS' if rho_global >= 0.2 else 'FAIL'}\n")
     else:
         print(f"Insufficient data for global stats (N={len(valid)})\n")

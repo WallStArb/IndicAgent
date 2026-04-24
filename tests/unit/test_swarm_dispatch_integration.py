@@ -179,8 +179,8 @@ async def test_enrichment_adds_lead_context():
 
 
 @pytest.mark.asyncio
-async def test_neutral_fallback_on_agent_error():
-    """Per D-11: SwarmBaseAgent returns neutral on exception."""
+async def test_neutral_result_recorded_on_error():
+    """Per D-11: neutral AgentResult (multiplier=1.0, confidence=0.0) recorded on error."""
     svc, agents = _make_service_with_mock_agents(1)
 
     # Agent raises exception
