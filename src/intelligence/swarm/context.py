@@ -68,6 +68,10 @@ class SwarmContext(BaseModel):
     price: float | None
     volume: float | None
 
+    # D-16: enrichment fields (set by SwarmDispatchService._enrich_context)
+    lead_context: SwarmContext | None = None
+    volume_profile: dict[str, Any] | None = None
+
 
 class SwarmContextCache:
     """asyncio-safe in-memory context cache (NOT thread-safe).
