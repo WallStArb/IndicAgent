@@ -5,6 +5,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils.common import crossover_detect, is_num
+from ..utils.gradient_utils import linear_ramp
 
 
 @dataclass
@@ -64,7 +65,9 @@ class MACompositePlugin:
         e9 = ma.get("ema_9")
         e21 = ma.get("ema_21")
         if is_num(e9) and is_num(e21):
-            out["ema_9_gt_21"] = 1 if e9 > e21 else 0
+            # Gradient: separation percentage mapped from [-1%, 1%] to [0, 1]
+            sep_pct = float((e9 - e21) / e21 * 100) if e21 else 0.0
+            out["ema_9_gt_21"] = linear_ramp(sep_pct, -1.0, 1.0)
             out["ema_9_21_distance_pct"] = float((e9 - e21) / e21) if e21 else 0.0
             # Crossover flag requires prev values if provided via frames
             prev = frames.get("prev_features") or {}
@@ -87,8 +90,10 @@ class MACompositePlugin:
         # Golden/Death cross (SMA50 vs SMA200) — I2 event
         s200 = ma.get("sma_200")
         if is_num(s50) and is_num(s200):
-            out["golden_cross_active"] = 1 if s50 > s200 else 0
-            out["death_cross_active"] = 1 if s50 < s200 else 0
+            # Gradient: golden/death cross as separation percentage
+            cross_sep_pct = float((s50 - s200) / s200 * 100) if s200 else 0.0
+            out["golden_cross_active"] = linear_ramp(cross_sep_pct, -2.0, 2.0)
+            out["death_cross_active"] = linear_ramp(-cross_sep_pct, -2.0, 2.0)
             # Track bars since last cross using prev_features
             prev = frames.get("prev_features") or {}
             ps50 = prev.get("sma_50")
@@ -101,7 +106,9 @@ class MACompositePlugin:
                 )
                 self._state["golden_cross_bars_ago"] = out["golden_cross_bars_ago"]
         if is_num(s20) and is_num(s50):
-            out["sma_20_gt_50"] = 1 if s20 > s50 else 0
+            # Gradient: SMA20 vs SMA50 separation percentage
+            swing_sep_pct = float((s20 - s50) / s50 * 100) if s50 else 0.0
+            out["sma_20_gt_50"] = linear_ramp(swing_sep_pct, -1.0, 1.0)
             prev = frames.get("prev_features") or {}
             ps20 = prev.get("sma_20")
             ps50 = prev.get("sma_50")
@@ -114,14 +121,17 @@ class MACompositePlugin:
             # Both SMAs must be numeric for price_above_sma200 to be valid
             s200 = ma.get("sma_200")
             if isinstance(s200, (int, float)):
-                out["price_above_sma200"] = 1 if px > s200 else 0
+                # Gradient: price vs SMA200 separation percentage
+                px_s200_sep_pct = float((px - s200) / s200 * 100) if s200 else 0.0
+                out["price_above_sma200"] = linear_ramp(px_s200_sep_pct, -2.0, 2.0)
             else:
                 out["price_above_sma200"] = None
             # Touch/bounce within X ATR
             atr = features.get(self.atr_key)
-            if is_num(atr) and atr > 0:
+            if is_num(atr) and atr > 0 and is_num(s50):
                 within = abs(px - s50) / atr
-                out["price_touch_sma_50"] = 1 if within <= 0.25 else 0
+                # Gradient: proximity score decays to 0 beyond 0.5 ATR distance
+                out["price_touch_sma_50"] = max(0.0, 1.0 - within / 0.5)
                 # Bounce heuristic: touched last bar and moved away this bar
                 prev = frames.get("prev_features") or {}
                 ppx = prev.get("price")
@@ -133,7 +143,9 @@ class MACompositePlugin:
 
         # Price vs SMA200
         if px is not None and is_num(s200):
-            out["price_above_sma200"] = 1 if px > s200 else 0
+            # Gradient: price vs SMA200 separation percentage
+            px_s200_sep_pct = float((px - s200) / s200 * 100) if s200 else 0.0
+            out["price_above_sma200"] = linear_ramp(px_s200_sep_pct, -2.0, 2.0)
         for p in (20, 50, 100, 200):
             key = f"sma_{p}"
             val = ma.get(key)
