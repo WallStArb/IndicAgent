@@ -47,7 +47,7 @@ LEAD INDEX CONTEXT (for correlation comparison):
 - Lead index ADX: {lead_adx}
 - Lead index HMM regime: {lead_hmm_regime}
 - Lead index CTF trend alignment: {lead_ctf_trend_alignment}
-- Lead index price vs signal price divergence: {price_divergence_pct}
+- Lead index trend regime divergence: {trend_regime_divergence}
 
 TASK: Determine if this asset has decorrelated from its lead index.
 Is the signal consistent with the broader market, or is the asset diverging?
@@ -113,7 +113,7 @@ def build_correlation_prompt(ctx: SwarmContext) -> str:
     lead_adx = "N/A"
     lead_hmm_regime = "N/A"
     lead_ctf_trend_alignment = "N/A"
-    price_divergence_pct = "N/A"
+    trend_regime_divergence = "N/A"
 
     if ctx.lead_context is not None:
         lc = ctx.lead_context
@@ -128,14 +128,14 @@ def build_correlation_prompt(ctx: SwarmContext) -> str:
         if isinstance(ctx.trend_regime, (int, float)) and isinstance(
             lc.trend_regime, (int, float),
         ):
-            price_divergence_pct = f"{ctx.trend_regime - lc.trend_regime:.3f}"
+            trend_regime_divergence = f"{ctx.trend_regime - lc.trend_regime:.3f}"
 
     return template.format(
         symbol=ctx.symbol,
         timeframe=ctx.timeframe,
         winner_plugin=ctx.winner_plugin or "unknown",
         winner_direction_label=_DIRECTION_LABELS.get(
-            ctx.winner_direction or 0, "UNKNOWN",
+            ctx.winner_direction, "UNKNOWN",
         ),
         winner_confidence=_fmt(ctx.winner_confidence, ".0%"),
         price=_fmt(ctx.price, ".2f"),
@@ -158,5 +158,5 @@ def build_correlation_prompt(ctx: SwarmContext) -> str:
         lead_adx=lead_adx,
         lead_hmm_regime=lead_hmm_regime,
         lead_ctf_trend_alignment=lead_ctf_trend_alignment,
-        price_divergence_pct=price_divergence_pct,
+        trend_regime_divergence=trend_regime_divergence,
     )

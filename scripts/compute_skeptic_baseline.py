@@ -72,10 +72,12 @@ async def compute_baseline(days: int = 90, symbol_filter: list[str] | None = Non
                 total=("n_signals", "sum"),
                 wins=("n_wins", "sum"),
                 losses=("n_losses", "sum"),
-                avg_pnl_r=("avg_pnl_r", "mean"),
+                pnl_weighted=("avg_pnl_r", lambda x: (x * df.loc[x.index, "n_signals"]).sum()),
             )
             .reset_index()
         )
+        seg["avg_pnl_r"] = seg["pnl_weighted"] / seg["total"]
+        seg = seg.drop(columns=["pnl_weighted"])
         seg["failure_rate"] = seg["losses"] / seg["total"]
         seg["win_rate"] = seg["wins"] / seg["total"]
 
