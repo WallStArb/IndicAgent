@@ -28,7 +28,7 @@ Excludes: Additional swarm agents (future phases), deterministic heuristic score
 - **D-06:** Never overwrite existing confidence values. Each SkepticAgent adjustment is a separate, auditable column: `skeptic_failure_prob`, `skeptic_confidence`, `skeptic_adjusted_confidence`. Follows the same pattern as CIS attribution (raw → calibrated → TOD → perf → skeptic). All intermediate values persisted.
 
 ### Trigger & Orchestration
-- **D-07:** Standalone Kafka consumer service consuming from `intelligence.i7.signals` topic. Event-driven, low latency, independent failure domain. Consistent with existing DAG pattern (pipeline → Kafka → writer agents).
+- **D-07:** Single `SwarmDispatchService` consuming from `intelligence.i7.signals`. All swarm agents run as pure compute classes inside one process — shared SwarmContextCache, ShadowRecorder, DB pool, LLMProviderChain, Kafka connections. Adding a new agent = adding a SwarmBaseAgent subclass, not deploying a new service. Independent failure domains maintained per-agent via neutral fallback on any exception.
 - **D-08:** SwarmContext seeded from DB on startup via `SwarmContextCache.seed_from_db_row()`, kept warm by consuming bar topics. Already built in Phase 56.
 - **D-09:** 5m+ TF filter only — process 5m, 15m, 1h, 4h, 1d. Skip 1m (too frequent, ~500+ signals/day). At 5m+ we get ~50-100 signals/day across 55 symbols. Manageable LLM cost (~$0.50-2.00/day).
 - **D-10:** Production impact from day one. SkepticAgent output flows into signal confidence. On failure/timeout: fallback to neutral (no adjustment). No shadow-only period — but all predictions tracked to `alpha_multiplier_shadow` for continuous validation.
@@ -39,11 +39,16 @@ Excludes: Additional swarm agents (future phases), deterministic heuristic score
 - **D-13:** Validation via correlation + segment analysis. JOIN `alpha_multiplier_shadow` → `signal_ledger` on `signal_id`. Compute Pearson(skeptic_failure_prob, actual_outcome) per segment. Output report with per-regime/TF/setup breakdown.
 - **D-14:** Graduation gate: per-segment Pearson ρ ≥ 0.3 AND p < 0.05 AND N ≥ 30. Segments that pass get promoted individually. Global threshold: overall ρ ≥ 0.2.
 
+### Service Architecture
+- **D-15:** Single SwarmDispatchService — all swarm agents deployed as compute-only SwarmBaseAgent subclasses inside one process. One bar consumer, one signal consumer, one DB pool, one ShadowRecorder, one LLMProviderChain, one SwarmContextCache. Agents are registered in an agent list and run via `asyncio.gather()`. This is the correct microservices DAG pattern — the service is the deployment unit, the agent is the compute unit.
+- **D-16:** SwarmContext schema extended with optional enrichment fields: `lead_context: SwarmContext | None = None` (for CorrelationAgent) and `volume_profile: dict[str, Any] | None = None` (for VolumeAgent). No `object.__setattr__` hacks — proper Pydantic fields with validation.
+
 ### Claude's Discretion
 - Exact prompt wording and system message
 - Signal_ledger migration column names (subject to existing conventions)
 - Systemd unit configuration details
 - Naive baseline script implementation details
+- Agent registration order (does not affect results since agents are independent)
 
 </decisions>
 
@@ -120,8 +125,9 @@ Excludes: Additional swarm agents (future phases), deterministic heuristic score
 
 - Deterministic heuristic scorer (Path A companion) — future phase after LLM predictions validate
 - Dashboard UI for skeptic accuracy visualization — future phase
-- Additional swarm agents (Regime Sentinel, Volatility Arbiter, etc.) — blocked on SkepticAgent validation
+- Additional swarm agents (Regime Sentinel, Volatility Arbiter, etc.) — adding to SwarmDispatchService is near-zero cost; blocked on validation of first 3 agents
 - Prompt A/B testing infrastructure (simultaneous versions) — single version first, add comparison later
+- Multi-agent ensemble reasoning (agents seeing prior agent results) — architecture supports it, defer until individual agents validate independently
 
 </deferred>
 
