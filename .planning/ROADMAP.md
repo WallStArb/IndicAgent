@@ -250,12 +250,14 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 65: Gradient Audit** — Scan all 129 plugins for binary scoring shortcuts, replace with continuous gradients (6-function gradient_utils.py + CI scanner gate); 5 plans (refreshed 2026-04-23)
 - [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra) + macro factors merged into CrossAssetComputeAgent (deferred until cross-TF validates); 3 plans (Plans 01+02 cross-TF, Plan 03 macro deferred)
   Design doc: `docs/ideas/i6-confluence-expansion.md`
-- [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. LLM-powered "devil's advocate" consuming `intelligence.i7.signals`, predicting failure probability, recording to `alpha_multiplier_shadow`. 3 plans.
+- [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. LLM-powered "devil's advocate" consuming `intelligence.i7.signals`, predicting failure probability, recording to `alpha_multiplier_shadow`. 5 plans.
 
   Plans:
   - [ ] 066-01-PLAN.md — SkepticAgent core: SwarmBaseAgent subclass + prompt registry + service wrapper + systemd unit
   - [ ] 066-02-PLAN.md — Validation framework: naive baseline script + Pearson correlation validation script
   - [ ] 066-03-PLAN.md — Unit tests: agent tests + validation tests
+  - [ ] 066-04-PLAN.md — CorrelationAgent (S1): cross-asset decorrelation detection + lead index context
+  - [ ] 066-05-PLAN.md — VolumeAgent (S2): volume profile fake-out detection + I4 VP field extraction
 
 </details>
 
@@ -565,7 +567,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
-| 66. SkepticAgent | v2.3 | 0/3 | Not Started | — |
+| 66. SkepticAgent | v2.3 | 0/5 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
