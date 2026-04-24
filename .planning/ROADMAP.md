@@ -563,7 +563,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
-| 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
+| 70. ML Scoring Model | v2.5 | 0/? | Deferred | — |
+| 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 
 ### Phase 52.5: Parity Auditor Agent
 

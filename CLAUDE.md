@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.34.0 | Status: v2.5 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
+Version: 5.35.0 | Status: v2.5 IN PROGRESS — Phases 69+71 complete; Phase 70 deferred (30+ day data gate).
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
