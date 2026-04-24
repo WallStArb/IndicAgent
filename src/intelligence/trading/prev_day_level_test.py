@@ -21,6 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -187,18 +188,18 @@ class PrevDayLevelTestPlugin:
 
         # ── Confidence ───────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
+        ranging_w = hmm_regime_weight(features, "ranging")
+        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence = 0.50
 
         if setup_variant == "fade":
-            if hmm_regime == 0.0:
-                confidence += 0.12  # ranging regime favours mean reversion
-            elif hmm_regime in (1.0, 2.0):
-                confidence -= 0.05  # trending regime works against fade
+            # Ranging regime favours mean-reversion fade; trending penalises
+            confidence += 0.12 * ranging_w
+            confidence -= 0.05 * trending_w
         else:  # continuation
-            if hmm_regime in (1.0, 2.0):
-                confidence += 0.12  # trending regime favours continuation
-            elif hmm_regime == 0.0:
-                confidence -= 0.05
+            # Trending regime favours continuation; ranging penalises
+            confidence += 0.12 * trending_w
+            confidence -= 0.05 * ranging_w
 
         # ── Regime context ───────────────────────────────────────────────────
         if hmm_regime == 1.0:

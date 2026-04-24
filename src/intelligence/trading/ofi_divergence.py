@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -138,10 +139,11 @@ class OFIDivergencePlugin:
         hmm_regime = features.get("hmm_regime")
         if hmm_regime is not None:
             r = float(hmm_regime)
-            if r == 0.0:
-                confidence += 0.06   # ranging — soft positive hint
-            elif r in (1.0, 2.0):
-                confidence -= 0.06   # trending — soft negative hint
+            # Continuous regime weighting (regime_type="any")
+            ranging_w = hmm_regime_weight(features, "ranging")
+            trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+            confidence += 0.06 * ranging_w   # ranging — soft positive hint
+            confidence -= 0.06 * trending_w  # trending — soft negative hint
 
         confidence = compose_confidence(confidence)
 

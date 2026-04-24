@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight, linear_ramp
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -95,16 +96,16 @@ class SupplyDemandSetupPlugin:
         risk = abs(entry - stop)
         t2 = entry + risk * 2.5 if direction == 1 else entry - risk * 2.5
 
-        # Confidence scoring
-        if freshness >= 0.9:
-            confidence = 0.58
-        elif freshness >= 0.5:
-            confidence = 0.46
-        else:
-            confidence = 0.35
+        # Confidence scoring — continuous base from freshness (replaces 3-step tiers)
+        confidence = 0.35 + 0.23 * linear_ramp(freshness, 0.40, 1.0)
 
         # Zone strength adjustment
         confidence += (strength - 0.5) * 0.20
+
+        # Continuous HMM regime weight (regime_type="any")
+        ranging_w = hmm_regime_weight(features, "ranging")
+        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+        confidence += 0.05 * ranging_w
 
         # Premium/discount alignment
         pip = float(features.get("price_in_premium", -1))
