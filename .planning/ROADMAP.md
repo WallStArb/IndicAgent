@@ -250,14 +250,13 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 65: Gradient Audit** — Scan all 129 plugins for binary scoring shortcuts, replace with continuous gradients (6-function gradient_utils.py + CI scanner gate); 5 plans (refreshed 2026-04-23)
 - [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra) + macro factors merged into CrossAssetComputeAgent (deferred until cross-TF validates); 3 plans (Plans 01+02 cross-TF, Plan 03 macro deferred)
   Design doc: `docs/ideas/i6-confluence-expansion.md`
-- [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. LLM-powered "devil's advocate" consuming `intelligence.i7.signals`, predicting failure probability, recording to `alpha_multiplier_shadow`. 5 plans.
+- [ ] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService running Skeptic, Correlation, and Volume agents as pure compute classes. LLM-powered signal analysis consuming `intelligence.i7.signals`, recording to `alpha_multiplier_shadow`. Consolidated architecture: 1 service, 3 agents, shared infrastructure. 4 plans.
 
   Plans:
-  - [ ] 066-01-PLAN.md — SkepticAgent core: SwarmBaseAgent subclass + prompt registry + service wrapper + systemd unit
-  - [ ] 066-02-PLAN.md — Validation framework: naive baseline script + Pearson correlation validation script
-  - [ ] 066-03-PLAN.md — Unit tests: agent tests + validation tests
-  - [ ] 066-04-PLAN.md — CorrelationAgent (S1): cross-asset decorrelation detection + lead index context
-  - [ ] 066-05-PLAN.md — VolumeAgent (S2): volume profile fake-out detection + I4 VP field extraction
+  - [ ] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
+  - [ ] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
+  - [ ] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
+  - [ ] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
 
 </details>
 
@@ -444,7 +443,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 |------|-------|---------|
 | **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
 | **Phase 70: ML Scoring Model** | LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). Shadow-first validation — no arbitrary data gate. | — |
-| **Phase 66: SkepticAgent** | First swarm agent built on Phase 56 infrastructure. `IAlphaContributor` that asks "what's wrong with this signal?" — predicts failure probability via LLM. Tracks predictions to `alpha_multiplier_shadow`. Gate: p < 0.05, n ≥ 30 before building next agent. | `docs/ideas/intelligence-swarm-manifest.md` |
+| **Phase 66: Swarm Intelligence Agents** | Single SwarmDispatchService with 3 LLM agents (Skeptic, Correlation, Volume). Per D-15: one process, shared infrastructure. Per D-16: SwarmContext enrichment with lead_context + volume_profile. Validation: Pearson rho >= 0.3, p < 0.05, N >= 30. | `docs/ideas/intelligence-swarm-manifest.md` |
 | **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
@@ -567,7 +566,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
-| 66. SkepticAgent | v2.3 | 0/5 | Not Started | — |
+| 66. Swarm Intelligence Agents | v2.3 | 0/4 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
