@@ -26,9 +26,16 @@ __all__ = [
     "z_score_to_score",
     "session_progress",
     "hmm_regime_weight",
+    "hmm_trending_weight",
     "freshness_decay",
     "streak_score",
 ]
+
+_HMM_KEY_MAP = {
+    "up": "hmm_prob_trending_up",
+    "down": "hmm_prob_trending_down",
+    "ranging": "hmm_prob_ranging",
+}
 
 
 def linear_ramp(
@@ -271,18 +278,28 @@ def hmm_regime_weight(features: dict, regime_direction: str) -> float:
     >>> hmm_regime_weight({}, "up")
     0.5
     """
-    key_map = {
-        "up": "hmm_prob_trending_up",
-        "down": "hmm_prob_trending_down",
-        "ranging": "hmm_prob_ranging",
-    }
-    key = key_map.get(regime_direction)
+    key = _HMM_KEY_MAP.get(regime_direction)
     if key is None:
         return 0.5
     value = features.get(key)
     if value is None or not isinstance(value, (int, float)):
         return 0.5
     return max(0.0, min(1.0, float(value)))
+
+
+def hmm_trending_weight(features: dict) -> float:
+    """Max trending probability across up and down regimes.
+
+    ``max(hmm_regime_weight(up), hmm_regime_weight(down))``.
+    For trend-following plugins that benefit from either direction.
+
+    Replaces ``max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))``
+    scattered across I7 plugins.
+    """
+    return max(
+        hmm_regime_weight(features, "up"),
+        hmm_regime_weight(features, "down"),
+    )
 
 
 def freshness_decay(touch_count: int, k: float = 0.5) -> float:

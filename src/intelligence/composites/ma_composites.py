@@ -68,7 +68,7 @@ class MACompositePlugin:
             # Gradient: separation percentage mapped from [-1%, 1%] to [0, 1]
             sep_pct = float((e9 - e21) / e21 * 100) if e21 else 0.0
             out["ema_9_gt_21"] = linear_ramp(sep_pct, -1.0, 1.0)
-            out["ema_9_21_distance_pct"] = float((e9 - e21) / e21) if e21 else 0.0
+            out["ema_9_21_distance_pct"] = sep_pct / 100.0 if e21 else 0.0
             # Crossover flag requires prev values if provided via frames
             prev = frames.get("prev_features") or {}
             pe9 = prev.get("ema_9")

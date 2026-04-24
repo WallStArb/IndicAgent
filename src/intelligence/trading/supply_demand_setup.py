@@ -104,7 +104,6 @@ class SupplyDemandSetupPlugin:
 
         # Continuous HMM regime weight (regime_type="any")
         ranging_w = hmm_regime_weight(features, "ranging")
-        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence += 0.05 * ranging_w
 
         # Premium/discount alignment
