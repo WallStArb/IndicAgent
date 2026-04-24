@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.utils.gradient_utils import freshness_decay
 
 
 @dataclass
@@ -141,10 +142,8 @@ class SupplyDemandZonesPlugin:
                 )
 
                 if np.any(price_in_zone):
-                    if zone.freshness == 1.0:
-                        zone.freshness = 0.5
                     zone.test_count += int(np.sum(price_in_zone))
-                    zone.freshness = max(0.1, zone.freshness - 0.15)
+                    zone.freshness = round(freshness_decay(zone.test_count, k=0.5), 4)
 
                     # Check if mitigated (close beyond distal edge)
                     if zone.zone_type == "demand":

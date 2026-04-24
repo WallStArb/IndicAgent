@@ -49,6 +49,10 @@ class ICTKillzonesPlugin:
             "killzone_name",
             "minutes_in_killzone",
             "minutes_until_next_killzone",
+            "kz_asia_progress",
+            "kz_london_progress",
+            "kz_ny_am_progress",
+            "kz_ny_pm_progress",
         }
     )
     min_lookback: int = 1
@@ -72,20 +76,30 @@ class ICTKillzonesPlugin:
         in_london = 0.0
         in_ny_am = 0.0
         in_ny_pm = 0.0
+        kz_asia_progress = 0.0
+        kz_london_progress = 0.0
+        kz_ny_am_progress = 0.0
+        kz_ny_pm_progress = 0.0
         active_name: str | None = None
         minutes_in: float = 0.0
 
         earliest_start: int | None = None
         for kz_name, (start, end) in _KZ_MAP.items():
             if start <= cur_min < end:
+                progress = (cur_min - start) / max(1, end - start)
+                progress = max(0.0, min(1.0, progress))
                 if kz_name == "asia":
                     in_asia = 1.0
+                    kz_asia_progress = progress
                 elif kz_name == "london":
                     in_london = 1.0
+                    kz_london_progress = progress
                 elif kz_name == "ny_am":
                     in_ny_am = 1.0
+                    kz_ny_am_progress = progress
                 elif kz_name == "ny_pm":
                     in_ny_pm = 1.0
+                    kz_ny_pm_progress = progress
                 # Primary zone = earliest-starting active zone
                 if earliest_start is None or start < earliest_start:
                     earliest_start = start
@@ -103,6 +117,10 @@ class ICTKillzonesPlugin:
             "killzone_name": active_name,
             "minutes_in_killzone": minutes_in,
             "minutes_until_next_killzone": minutes_until,
+            "kz_asia_progress": kz_asia_progress,
+            "kz_london_progress": kz_london_progress,
+            "kz_ny_am_progress": kz_ny_am_progress,
+            "kz_ny_pm_progress": kz_ny_pm_progress,
         }
 
 
