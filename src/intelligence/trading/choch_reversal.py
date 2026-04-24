@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -80,23 +81,29 @@ class CHoCHReversalPlugin:
         stop = tf.stop
         targets = [round(t.price, 2) for t in tf.targets]
 
-        # Confidence: 0.5 base + 0.2 if HMM regime aligns + 0.3 * abs(direction)
+        # Confidence: 0.5 base + continuous HMM regime alignment + 0.3 * abs(direction)
         raw_conf = 0.5
         regime_ctx = "neutral"
         supporting = ["choch_detected"]
 
-        if direction == 1 and hmm_regime == 1.0:
-            # HMM says trending up — bullish CHoCH aligns
-            raw_conf += 0.2
-            regime_ctx = "bullish"
+        # Continuous HMM regime alignment (regime_type="any")
+        up_w = hmm_regime_weight(features, "up")
+        down_w = hmm_regime_weight(features, "down")
+        if direction == 1:
+            # Bullish CHoCH aligned with trending-up probability
+            raw_conf += 0.2 * up_w
             supporting.append("hmm_regime_bullish")
-        elif direction == -1 and hmm_regime == 2.0:
-            # HMM says trending down — bearish CHoCH aligns
-            raw_conf += 0.2
-            regime_ctx = "bearish"
+        elif direction == -1:
+            # Bearish CHoCH aligned with trending-down probability
+            raw_conf += 0.2 * down_w
             supporting.append("hmm_regime_bearish")
-        elif hmm_regime == 0.0:
+
+        if hmm_regime == 0.0:
             regime_ctx = "ranging"
+        elif hmm_regime == 1.0:
+            regime_ctx = "bullish"
+        elif hmm_regime == 2.0:
+            regime_ctx = "bearish"
         elif direction == 1:
             regime_ctx = "bullish"
         else:
