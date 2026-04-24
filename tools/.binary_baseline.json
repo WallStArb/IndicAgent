@@ -1,0 +1,576 @@
+{
+  "count": 114,
+  "files_affected": 44,
+  "violations": [
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/fibonacci_zones.py",
+      "line": 79,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/macd_events.py",
+      "line": 61,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/macd_events.py",
+      "line": 64,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/macd_events.py",
+      "line": 81,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/market_profile.py",
+      "line": 90,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/market_profile.py",
+      "line": 91,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/market_profile.py",
+      "line": 92,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i3_structure/swing_detector.py",
+      "line": 72,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/bollinger_squeeze.py",
+      "line": 159,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/candlestick_patterns.py",
+      "line": 128,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/candlestick_patterns.py",
+      "line": 140,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/candlestick_patterns.py",
+      "line": 150,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/candlestick_patterns.py",
+      "line": 153,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/measured_move.py",
+      "line": 83,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/measured_move.py",
+      "line": 102,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/mtf_volatility.py",
+      "line": 38,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/mtf_volatility.py",
+      "line": 39,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/mtf_volatility.py",
+      "line": 53,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/i5_patterns/triangle_wedge.py",
+      "line": 104,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/bos_choch.py",
+      "line": 93,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/bos_choch.py",
+      "line": 126,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/breaker_blocks.py",
+      "line": 62,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/liquidity_pools.py",
+      "line": 140,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/mitigation_blocks.py",
+      "line": 61,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/mitigation_blocks.py",
+      "line": 86,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/order_blocks.py",
+      "line": 132,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/supply_demand_zones.py",
+      "line": 144,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/supply_demand_zones.py",
+      "line": 172,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/features/smc_context/supply_demand_zones.py",
+      "line": 174,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 67,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 75,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 90,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 91,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 104,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 110,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 117,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 124,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 132,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/ma_composites.py",
+      "line": 136,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/obv_momentum.py",
+      "line": 49,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/rsi_events.py",
+      "line": 65,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 56,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 58,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 59,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 68,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 69,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 72,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 73,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 80,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/composites/volume_events.py",
+      "line": 81,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/anchored_vwap.py",
+      "line": 134,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/anchored_vwap.py",
+      "line": 135,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/anchored_vwap.py",
+      "line": 136,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 127,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 128,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 129,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 130,
+      "pattern": "binary_assignment_0_if_else_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 132,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 133,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 143,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 155,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 212,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 213,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 216,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/session_context.py",
+      "line": 218,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/context/volume_profile.py",
+      "line": 238,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/choch_reversal.py",
+      "line": 3,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/choch_reversal.py",
+      "line": 26,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/choch_reversal.py",
+      "line": 98,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/cis_scorer.py",
+      "line": 182,
+      "pattern": "int_condition_as_score"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/cis_scorer.py",
+      "line": 377,
+      "pattern": "binary_assignment_1_if_else_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/cvd_divergence.py",
+      "line": 81,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 3,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 7,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 30,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 75,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 133,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/failed_breakout.py",
+      "line": 170,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/lifecycle_tracker.py",
+      "line": 32,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/liquidity_hunt.py",
+      "line": 150,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/liquidity_sweep_reclaim.py",
+      "line": 19,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/lvn_breakout.py",
+      "line": 34,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/ofi_continuation.py",
+      "line": 72,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/ofi_divergence.py",
+      "line": 141,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/ofi_divergence.py",
+      "line": 154,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/orb15.py",
+      "line": 211,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/orb30.py",
+      "line": 212,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/prev_day_level_test.py",
+      "line": 193,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/prev_day_level_test.py",
+      "line": 200,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/prev_day_level_test.py",
+      "line": 204,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/regime_transition.py",
+      "line": 25,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/supply_demand_setup.py",
+      "line": 62,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/supply_demand_setup.py",
+      "line": 65,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/supply_demand_setup.py",
+      "line": 128,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/supply_demand_setup.py",
+      "line": 162,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 445,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 453,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 461,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 496,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 504,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 580,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 608,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/trade_framer.py",
+      "line": 706,
+      "pattern": "equality_check_continuous_1"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/vwap_reclaim.py",
+      "line": 181,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/trading/vwap_reclaim.py",
+      "line": 217,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_alignment.py",
+      "line": 57,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_alignment.py",
+      "line": 83,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_smc.py",
+      "line": 33,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_smc.py",
+      "line": 79,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_smc.py",
+      "line": 113,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/confluence/confluence_smc.py",
+      "line": 125,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/setup_performance_updater.py",
+      "line": 81,
+      "pattern": "int_condition_as_score"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/swarm/aggregator.py",
+      "line": 26,
+      "pattern": "equality_check_continuous_0"
+    },
+    {
+      "file": "/home/bg/dev/indicagent/.claude/worktrees/agent-ae51c504/src/intelligence/weight_updater.py",
+      "line": 569,
+      "pattern": "binary_assignment_1_if_else_0"
+    }
+  ]
+}
