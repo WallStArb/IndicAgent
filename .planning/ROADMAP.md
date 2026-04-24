@@ -247,9 +247,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
-- [ ] **Phase 64: I6 Confluence Expansion** — Cross-TF plugins + macro context service (CrossTFMomentumDivergence, MacroContextComputeAgent, 4 additional cross-TF plugins); 3 plans
+- [ ] **Phase 65: Gradient Audit** — Scan all 129 plugins for binary scoring shortcuts, replace with continuous gradients (6-function gradient_utils.py + CI scanner gate); 5 plans (refreshed 2026-04-23)
+- [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra) + macro factors merged into CrossAssetComputeAgent (deferred until cross-TF validates); 3 plans (Plans 01+02 cross-TF, Plan 03 macro deferred)
   Design doc: `docs/ideas/i6-confluence-expansion.md`
-- [ ] **Phase 65: Gradient Audit** — Scan all 121 plugins for binary scoring shortcuts, replace with continuous gradients, shared gradient utility module; 5 plans
 - [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. `IAlphaContributor`: "what's wrong with this signal?" Tracks predictions to `alpha_multiplier_shadow`, validates p < 0.05 n ≥ 30 before next agent.
 
 </details>
@@ -325,8 +325,8 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 
 </details>
 
-<details open>
-<summary>🚧 v2.1 Phase Details (Phases 48-52) — IN PROGRESS</summary>
+<details>
+<summary>✅ v2.1 Phase Details (Phases 48-52) — SHIPPED 2026-03-28</summary>
 
 ### Phase 48: Tick Aggregation & I7 Quality ✅ COMPLETE
 
@@ -528,7 +528,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 40. DAG Refactor — Clean Foundation | v2.0 | 4/4 | Complete | 2026-03-19 |
 | 41. Intelligence Gap Fill | v2.0 | 3/3 | Complete | 2026-03-20 |
 | 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
-| 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
+| 43. Performance & Stability Emergency | v2.0 | 2/3 | Complete | 2026-03-22 |
 | 44. I7 DAG Refactor | v2.0 | 5/5 | Complete   | 2026-03-22 |
 | 45. I6 → I7 Confluence Wiring | v2.0 | 4/4 | Complete    | 2026-03-22 |
 | 46. I6 Confluence Expansion | v2.0 | 4/4 | Complete   | 2026-03-22 |
@@ -559,7 +559,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
-| 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
+| 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
@@ -745,33 +745,34 @@ Plans:
 - [x] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
 - [x] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
 
-### Phase 64: I6 Confluence Expansion — Cross-TF Plugins + Macro Context Service
+### Phase 64: I6 Confluence Expansion — Cross-TF Plugins + Macro Factors
 
-**Goal:** Expand I6 from single-plugin cross-timeframe confluence to multi-dimensional intelligence across three axes: time-scale (cross-TF), cross-asset (macro context), and market-structure (yield curve, credit, sectors). Build one plugin at a time; validate with p < 0.05 before building next.
+**Goal:** Expand I6 from single-plugin cross-timeframe confluence to multi-dimensional intelligence across two axes: cross-timeframe (in-process plugins) and cross-asset (macro factors in existing CrossAssetComputeAgent). Build one plugin at a time; validate with IC > 0.05 AND p < 0.01 before building next.
 
 **Architecture:** Hybrid approach matching existing patterns:
 - **Cross-TF plugins** — run in-process within `IntelligencePipelineComputeAgent`, reading `frames["intel_*"]` (already cached). Zero new Kafka topics, zero new services.
-- **Cross-asset/macro plugins** — new `MacroContextComputeAgent` service subscribes to `market.bars` for non-signal instruments (FX, rates, ETFs), computes macro metrics, publishes to `intelligence.macro_context` Kafka topic. Pipeline injects via `frames["macro"]`. Pure DAG: separate lifecycle, separate scaling, compute-once-per-bar (not per-symbol).
+- **Macro factors** — pure functions in `src/intelligence/macro/` computed by existing `CrossAssetComputeAgent` alongside EQ_INDEX features. Zero new services, zero new topics, zero new systemd units. Macro factors flow through existing `topic_cross_asset` → `frames["cross_asset"]`.
 
 **Design doc:** `docs/ideas/i6-confluence-expansion.md` (v2.0 — 21 ideas, 3-tier roadmap)
 **Architecture note:** `.planning/notes/i6-confluence-architecture.md`
+**Planning:** `.planning/phases/64-i6-confluence-expansion-cross-tf-plugins-macro-context-service/`
 
-**Depends on:** v2.2 completion, todo 030 (wave restructuring — DONE)
+**Depends on:** Phase 65 (gradient_utils.py must exist so new I6 plugins are gradient-native from day one; CI scanner catches binary patterns in new code)
 
 **Success Criteria:**
 1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
 2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
-3. MacroContextComputeAgent created — computes USD strength, yield curve, flight-to-quality, credit stress, sector rotation from bar history
-4. Pipeline receives macro context via `frames["macro"]` — pure injection, no coupling
+3. 4 additional cross-TF plugins after Plan 01 validation gate passes
+4. Macro factors (USD strength, yield curve, flight-to-quality) merged into CrossAssetComputeAgent
 5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
-6. First plugin validated: N≥30 signals, p<0.05 before building second
+6. First plugin validated: IC > 0.05, p < 0.01 (Bonferroni-corrected), N>=30 before building second
 
-**Plans:** 3 plans (Wave 1: Plan 01 + Plan 02 parallel, Wave 2: Plan 03 after validation gate)
+**Plans:** 3 plans (Wave 1: Plan 01, Wave 2: Plan 02 after validation, Wave 3: Plan 03 deferred)
 
 Plans:
-- [ ] 64-01-PLAN.md — IC fix (continuous pnl_r) + cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture
-- [ ] 64-02-PLAN.md — MacroContextComputeAgent + 3 macro factors (USD strength, yield curve, flight-to-quality) + topic_macro_context + systemd unit
-- [ ] 64-03-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (N>=30, p<0.05)
+- [ ] 64-01-PLAN.md — Cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture + validation script
+- [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (IC > 0.05, p < 0.01, N>=30)
+- [ ] 64-03-PLAN.md — Macro factors merged into CrossAssetComputeAgent (USD strength, yield curve, flight-to-quality) — DEFERRED until Plans 01+02 validate; zero new services/topics/systemd units
 
 ### Phase 56: Swarm Foundation
 
@@ -814,17 +815,17 @@ Plans:
 
 ### Phase 65: Gradient audit of existing plugins I1-I7 broader sweep
 
-**Goal:** Scan all 121 plugins (I1-I7) for binary scoring shortcuts and replace with continuous gradients. Create shared gradient utility module. Add automated verification.
+**Goal:** Scan all 129 plugins (I1-I7) for binary scoring shortcuts and replace with continuous gradients. 6-function gradient_utils.py (4 math primitives + 2 domain conveniences). CI scanner gate prevents regression. Replace-in-place for session flags (safe: I7 uses > 0.5 thresholds). Additive companions for detection flags (BOS, sweep, squeeze). HMM probability graduation for I7 confidence scoring.
 **Requirements**: [GRAD-UTILS, GRAD-SCANNER, GRAD-I4-SESSION, GRAD-I4-VWAP, GRAD-I4-TREND, GRAD-I4-VOL, GRAD-I2-MA, GRAD-I2-VOL, GRAD-I2-RSI, GRAD-I3-STRUCT, GRAD-SMC, GRAD-I5-PATTERNS, GRAD-I7-HMM, GRAD-I7-CONFIDENCE, GRAD-VERIFY, GRAD-CI]
-**Depends on:** Phase 64
-**Plans:** 1/3 plans executed
+**Depends on:** None (pure code refactor, no data dependency)
+**Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 65-01-PLAN.md — Shared gradient_utils.py library + binary pattern scanner
-- [ ] 65-02-PLAN.md — I4 SessionContext/AnchoredVWAP/TrendRegime/VolRegime + I2 composites to gradients
-- [ ] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
-- [ ] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement
-- [ ] 65-05-PLAN.md — Verification: scanner zero violations + CI test gate + full suite
+- [x] 65-01-PLAN.md — gradient_utils.py (6 core + 2 wrappers) + importable scanner module
+- [x] 65-02-PLAN.md — I4 replace-in-place (session/VWAP/trend/vol) + I2 replace-in-place (MA/volume/RSI)
+- [x] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
+- [x] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement (12 plugins; second_leg+vcp excluded)
+- [x] 65-05-PLAN.md — Verification: scanner zero violations + CI import gate + full suite
 
 
 ### Phase 67: Observability, Alerting & Automation
