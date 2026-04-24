@@ -29,6 +29,7 @@ from typing import Any
 
 from prometheus_client import Counter as _Counter
 from prometheus_client import Gauge as _Gauge
+from prometheus_client import Histogram as _Histogram
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
@@ -37,6 +38,7 @@ from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 # multiple instantiations in the same process (e.g., unit tests).
 _gauges: dict[str, _Gauge] = {}
 _counters: dict[str, _Counter] = {}
+_histograms: dict[str, _Histogram] = {}
 
 
 def _get_or_create_gauge(name: str, doc: str) -> _Gauge:
@@ -51,16 +53,24 @@ def _get_or_create_counter(name: str, doc: str) -> _Counter:
     return _counters[name]
 
 
+def _get_or_create_histogram(name: str, doc: str, buckets: list[float]) -> _Histogram:
+    if name not in _histograms:
+        _histograms[name] = _Histogram(name, doc, buckets=buckets)
+    return _histograms[name]
+
+
 class BaseWriterAgent(BaseAgent, abc.ABC):
     """Abstract base for writer agents that consume Kafka and write to DB.
 
-    Provides the shared buffer/flush/commit/overflow/teardown pattern.
-    Subclasses own their own _run() consumption loop (using self._consumer.messages()
-    or self._consumer.getmany()), and call self._buffer_rows() and self._maybe_flush()
-    to leverage the base class buffer management.
+    Provides the shared buffer/flush/commit/overflow/teardown pattern plus a
+    default _run() consume loop. Subclasses that need custom routing (e.g.
+    multi-topic dispatch) should override _run(); most can rely on the default.
+
+    Use _create_consumer() in _setup() to eliminate manual consumer wiring.
 
     Lifecycle:
-        _run() → consume loop calling _buffer_rows() / _maybe_flush()
+        _setup() → _create_consumer() + DB init
+        _run() → consume loop calling _buffer_rows() / maybe_flush()
         _teardown() → _do_flush() (final flush) → subclass cleanup
     """
 
@@ -91,6 +101,30 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             f"Rows dropped due to buffer overflow in {name}",
         )
 
+        # Write-path observability metrics
+        self._flush_latency = _get_or_create_histogram(
+            f"{agent_snake}_flush_latency_seconds",
+            f"DB batch write latency for {name}",
+            [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+        )
+        self._commit_latency = _get_or_create_histogram(
+            f"{agent_snake}_commit_latency_seconds",
+            f"Kafka offset commit latency for {name}",
+            [0.0001, 0.001, 0.005, 0.01, 0.05, 0.1],
+        )
+        self._parse_failures_total = _get_or_create_counter(
+            f"{agent_snake}_parse_failures_total",
+            f"Payload parse failures (routed to DLQ) in {name}",
+        )
+        self._flush_errors_total = _get_or_create_counter(
+            f"{agent_snake}_flush_errors_total",
+            f"Batch flush failures in {name}",
+        )
+        self._commit_errors_total = _get_or_create_counter(
+            f"{agent_snake}_commit_errors_total",
+            f"Offset commit failures in {name}",
+        )
+
     @abc.abstractmethod
     def _topic_name(self) -> str:
         """Kafka topic to consume from."""
@@ -115,6 +149,25 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """Override to return DLQ topic name. None = log-only (default)."""
         return None
 
+    def _create_consumer(self, topics: list[str] | None = None) -> Any:
+        """Create and start a KafkaConsumerClient assigned to self._consumer.
+
+        Subclasses call this in _setup() instead of manually constructing consumers.
+        Accepts optional extra topics for multi-topic consumers (e.g. bar_writer).
+        """
+        from src.core.kafka_utils import KafkaConsumerClient
+
+        topic_list = topics or [self._topic_name()]
+        consumer = KafkaConsumerClient(
+            *topic_list,
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            group_id=self._consumer_group,
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+        self._consumer = consumer
+        return consumer
+
     async def _maybe_route_to_dlq(self, payload: dict, error: Exception) -> None:
         """Route payload to DLQ if _dlq_topic() is configured.
 
@@ -132,8 +185,8 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
 
         Call from _run() after _parse_payload() returns a non-None list.
         Handles:
-        - Overflow: drops oldest entries when exceeding MAX_BUFFER_SIZE
-        - High watermark alerting at BUFFER_ALERT_PCT
+        - Overflow: drops oldest entries when exceeding MAX_BUFFER_SIZE (critical alert)
+        - High watermark alerting at BUFFER_ALERT_PCT (high severity)
         - Buffer depth gauge update
         """
         self._buffer.extend(rows)
@@ -142,12 +195,17 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             dropped = len(self._buffer) - self.MAX_BUFFER_SIZE
             self._buffer = self._buffer[-self.MAX_BUFFER_SIZE :]
             self._buffer_overflow_total.inc(dropped)
-            self.logger.warning("buffer_overflow", dropped=dropped, max_size=self.MAX_BUFFER_SIZE)
+            self.logger.error(
+                "buffer_overflow",
+                severity="critical",
+                dropped=dropped,
+                max_size=self.MAX_BUFFER_SIZE,
+            )
 
-        # Alert on high watermark
         if len(self._buffer) > self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE:
             self.logger.warning(
                 "buffer_high_watermark",
+                severity="high",
                 depth=len(self._buffer),
                 threshold=self.BUFFER_ALERT_PCT,
             )
@@ -189,13 +247,57 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             return
         batch = self._buffer[:]
         try:
+            t0 = time.monotonic()
             await self._flush_batch(batch)
+            self._flush_latency.observe(time.monotonic() - t0)
+
             self._buffer.clear()
             self._buffer_depth_gauge.set(0)
+
             if self._consumer and hasattr(self._consumer, "commit"):
+                t0 = time.monotonic()
                 await self._consumer.commit()
+                self._commit_latency.observe(time.monotonic() - t0)
         except Exception:
+            self._flush_errors_total.inc()
             self.logger.exception("flush_failed", batch_size=len(batch))
+
+    # -----------------------------------------------------------------------
+    # Default consume loop — subclasses can override for custom routing
+    # -----------------------------------------------------------------------
+
+    async def _run(self) -> None:
+        """Standard consume→parse→buffer→flush loop.
+
+        Works for any writer that consumes a single topic (or pre-subscribed
+        multi-topic) and follows the buffer/flush pattern. Override _run() in
+        subclasses that need custom routing (e.g. feature_writer's 3-loop,
+        llm_writer's multi-topic dispatch).
+        """
+        assert self._consumer is not None
+        async for _topic, _key, payload in self._consumer.messages():
+            if self._stop_event.is_set():
+                break
+            if not isinstance(payload, dict):
+                continue
+            self._record_message_consumed()
+            self._on_message_consumed(payload)
+
+            rows = self._parse_payload(payload)
+            if rows is not None:
+                self._buffer_rows(rows)
+            else:
+                self._parse_failures_total.inc()
+                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+
+            # Backpressure: if buffer is above alert threshold, pause briefly
+            if len(self._buffer) > self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE:
+                await asyncio.sleep(0.5)
+
+            await self.maybe_flush()
+
+    def _on_message_consumed(self, payload: dict) -> None:
+        """Hook called after each message is consumed. Override for custom counters."""
 
     # -----------------------------------------------------------------------
     # Teardown

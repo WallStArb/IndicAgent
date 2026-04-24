@@ -231,6 +231,10 @@ async def test_do_flush_calls_execute_batch():
     svc._total_batches = 0
     svc._error_count = 0
     svc._consumer = None  # no consumer -> no commit
+    svc._flush_latency = MagicMock()
+    svc._commit_latency = MagicMock()
+    svc._flush_errors_total = MagicMock()
+    svc._commit_errors_total = MagicMock()
 
     # Mock _batch_latency context manager
     mock_batch_latency = MagicMock()
@@ -286,6 +290,10 @@ async def test_do_flush_time_based_calls_execute_batch():
     svc._total_batches = 0
     svc._error_count = 0
     svc._consumer = None
+    svc._flush_latency = MagicMock()
+    svc._commit_latency = MagicMock()
+    svc._flush_errors_total = MagicMock()
+    svc._commit_errors_total = MagicMock()
 
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)
@@ -380,6 +388,10 @@ async def test_graceful_shutdown_flushes_and_closes():
     svc._total_events = 0
     svc._error_count = 0
     svc._consumer = AsyncMock()
+    svc._flush_latency = MagicMock()
+    svc._commit_latency = MagicMock()
+    svc._flush_errors_total = MagicMock()
+    svc._commit_errors_total = MagicMock()
 
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)

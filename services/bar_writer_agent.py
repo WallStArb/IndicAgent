@@ -235,18 +235,14 @@ class BarWriterAgent(BaseWriterAgent):
                 )
                 await asyncio.sleep(_cache_backoff)
 
-        self._kafka_consumer = KafkaConsumerClient(
-            topic_market_bars(self.env_name),
-            topic_market_bars_htf(self.env_name),
-            topic_contract_updates(self.env_name),
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id="bar_writer_consumer",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
+        self._kafka_consumer = self._create_consumer(
+            topics=[
+                topic_market_bars(self.env_name),
+                topic_market_bars_htf(self.env_name),
+                topic_contract_updates(self.env_name),
+            ]
         )
         await self._kafka_consumer.start()
-        # Wire up BaseWriterAgent._consumer so _do_flush() can commit offsets
-        self._consumer = self._kafka_consumer
         self._last_flush = time.monotonic()
         self.logger.info(
             "bar_writer_agent.setup_complete",

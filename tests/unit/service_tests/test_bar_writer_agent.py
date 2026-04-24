@@ -116,6 +116,13 @@ def _make_agent():
     agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(agent="bar_writer_agent")
     agent._buffer_depth_gauge = _TEST_BUFFER_DEPTH
     agent._buffer_overflow_total = _TEST_BUFFER_OVERFLOW
+
+    # Write-path observability metrics (Phase 69)
+    agent._flush_latency = MagicMock()
+    agent._commit_latency = MagicMock()
+    agent._parse_failures_total = MagicMock()
+    agent._flush_errors_total = MagicMock()
+    agent._commit_errors_total = MagicMock()
     return agent
 
 
