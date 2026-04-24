@@ -78,6 +78,11 @@ async def test_llm_writer_buffer_depth_gauge():
     # Add rows via _buffer_rows() — the only path that updates _buffer_depth_gauge
     agent._buffer_overflow_total = MagicMock()
     agent._buffer_overflow_total.inc = MagicMock()
+    agent._flush_latency = MagicMock()
+    agent._commit_latency = MagicMock()
+    agent._parse_failures_total = MagicMock()
+    agent._flush_errors_total = MagicMock()
+    agent._commit_errors_total = MagicMock()
     agent._buffer_rows([1, 2, 3])
     agent._buffer_depth_gauge.set.assert_called_with(3)
 

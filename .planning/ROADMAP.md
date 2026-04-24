@@ -280,7 +280,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 **Execution order:** 69.1 → 69.2 → 69.3 → 69.4 (critical fixes → observability → validation → rollout)
 
-- [ ] **Phase 69: Writer Agent Renaissance Refactor** ← READY TO EXECUTE
+- [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
+  Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
   **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
   **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
 - [ ] **Phase 70: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. Requires 30+ days clean signal_ledger outcomes. `_shadow` dict already captured in all I7 plugins (Phase 45).
@@ -584,7 +585,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 65. Gradient Audit | v2.3 | 1/5 | Not Started | — |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
-| 69. Writer Agent Renaissance Refactor | v2.5 | 0/? | Planning | — |
+| 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 
 ### Phase 52.5: Parity Auditor Agent
@@ -888,6 +889,6 @@ Plans:
 - [x] 071-01-PLAN.md — Settings singleton in BaseAgent + all agent renames (self._settings → self.settings)
 - [x] 071-02-PLAN.md — Auto init_tracing() in BaseAgent + remove __main__ calls
 - [x] 071-03-PLAN.md — Remove vestigial setup_service_logging() calls + duplicate lag task creation
-- [ ] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
-- [ ] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
+- [x] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
+- [x] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
 

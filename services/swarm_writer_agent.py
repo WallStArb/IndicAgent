@@ -19,7 +19,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.agent.base_writer import BaseWriterAgent
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_swarm_results, topic_swarm_writer_dlq
 
 logger = structlog.get_logger(__name__)
@@ -96,14 +96,7 @@ class SwarmWriterAgent(BaseWriterAgent):
         return topic_swarm_writer_dlq(self.settings.env_name)
 
     async def _setup(self) -> None:
-        env = self.settings.env_name
-        self._consumer = KafkaConsumerClient(
-            topic_swarm_results(env),
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id="swarm_writer_consumer",
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
+        self._create_consumer()
         await self._consumer.start()
 
         self._producer = KafkaProducerClient(
@@ -113,19 +106,6 @@ class SwarmWriterAgent(BaseWriterAgent):
 
         self._pool = await asyncpg.create_pool(self.settings.database_url)
         self.logger.info("swarm_writer_agent.started")
-
-    async def _run(self) -> None:
-        assert self._consumer is not None
-        async for _topic, _key, payload in self._consumer.messages():
-            self._record_message_consumed()
-            rows = self._parse_payload(payload)
-            if rows is not None:
-                self._buffer_rows(rows)
-            else:
-                # Parse failed — route to DLQ for analysis
-                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
-
-            await self.maybe_flush()
 
     async def _teardown(self) -> None:
         await super()._teardown()

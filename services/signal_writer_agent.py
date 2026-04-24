@@ -90,6 +90,9 @@ class SignalWriterAgent(BaseWriterAgent):
         """Route unparseable signal payloads to DLQ."""
         return topic_signal_writer_dlq(self.settings.env_name)
 
+    def _on_message_consumed(self, payload: dict) -> None:
+        self._events_consumed.inc()
+
     def _parse_payload(self, payload: dict) -> list | None:
         rows = _payload_to_ledger_entries(payload)
         return rows if rows else None
@@ -107,34 +110,10 @@ class SignalWriterAgent(BaseWriterAgent):
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
-        topic = self._topic_name()
-        self._consumer = KafkaConsumerClient(
-            topic,
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id=CONSUMER_GROUP,
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-        )
+        self._create_consumer()
         await self._consumer.start()
         self._last_flush = time.monotonic()
-        self.logger.info("signal_writer.started", topic=topic)
-
-    async def _run(self) -> None:
-        async for _topic, _key, payload in self._consumer.messages():
-            if not isinstance(payload, dict):
-                continue
-            self._record_message_consumed()
-            self._events_consumed.inc()
-
-            rows = self._parse_payload(payload)
-            if rows is not None:
-                self._buffer_rows(rows)
-            else:
-                # Parse failed — route to DLQ for analysis
-                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
-
-            await self.maybe_flush()
-
+        self.logger.info("signal_writer.started", topic=self._topic_name())
 
     async def _teardown(self) -> None:
         await super()._teardown()
@@ -202,8 +181,6 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
             )
         )
     return entries
-
-
 
 
 if __name__ == "__main__":

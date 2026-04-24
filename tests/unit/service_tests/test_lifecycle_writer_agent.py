@@ -44,6 +44,11 @@ def _make_agent():
     agent._consumer_lag = _TEST_LAG.labels(agent_id="test")
     agent._buffer_depth_gauge = _TEST_DEPTH
     agent._buffer_overflow_total = MagicMock()
+    agent._flush_latency = MagicMock()
+    agent._commit_latency = MagicMock()
+    agent._parse_failures_total = MagicMock()
+    agent._flush_errors_total = MagicMock()
+    agent._commit_errors_total = MagicMock()
     return agent
 
 

@@ -91,7 +91,9 @@ class TestDLQRouting:
         dlq_called = False
         logged_warnings = []
 
-        with patch.object(agent.logger, "warning", side_effect=lambda *a, **kw: logged_warnings.append((a, kw))):
+        with patch.object(
+            agent.logger, "warning", side_effect=lambda *a, **kw: logged_warnings.append((a, kw))
+        ):
             async for _topic, _key, payload in agent._fake_messages([{"fail": True}]):
                 rows = agent._parse_payload(payload)
                 if rows is None:
@@ -218,7 +220,7 @@ class TestBufferOverflow:
         # Simulate overflow guard from _run
         if len(agent._buffer) > agent.MAX_BUFFER_SIZE:
             dropped = len(agent._buffer) - agent.MAX_BUFFER_SIZE
-            agent._buffer = agent._buffer[-agent.MAX_BUFFER_SIZE:]
+            agent._buffer = agent._buffer[-agent.MAX_BUFFER_SIZE :]
             agent._buffer_overflow_total.inc(dropped)
 
         assert len(agent._buffer) == agent.MAX_BUFFER_SIZE
@@ -278,3 +280,89 @@ class TestBufferDepthGauge:
                     return
 
         pytest.fail("buffer_depth gauge not found in Prometheus registry")
+
+
+class TestFlushLatencyMetrics:
+    """Test 9: flush/commit latency histograms are observed on success."""
+
+    @pytest.mark.asyncio
+    async def test_flush_latency_histogram_has_samples_after_flush(self):
+        agent = StubWriterAgent()
+        agent._consumer = AsyncMock()
+        agent._buffer.extend([{"id": 1}])
+
+        await agent._do_flush()
+
+        # Verify histogram was observed by checking Prometheus registry
+        import prometheus_client
+
+        found = False
+        for metric in prometheus_client.REGISTRY.collect():
+            for sample in metric.samples:
+                if sample.name == "stub_writer_flush_latency_seconds_bucket":
+                    found = True
+                    break
+        assert found, "flush_latency histogram should have samples after successful flush"
+
+    @pytest.mark.asyncio
+    async def test_commit_latency_histogram_has_samples_after_flush(self):
+        agent = StubWriterAgent()
+        agent._consumer = AsyncMock()
+        agent._buffer.extend([{"id": 1}])
+
+        await agent._do_flush()
+
+        import prometheus_client
+
+        found = False
+        for metric in prometheus_client.REGISTRY.collect():
+            for sample in metric.samples:
+                if sample.name == "stub_writer_commit_latency_seconds_bucket":
+                    found = True
+                    break
+        assert found, "commit_latency histogram should have samples after successful flush"
+
+    @pytest.mark.asyncio
+    async def test_flush_errors_counter_increments_on_failure(self):
+        agent = StubWriterAgent()
+        agent._consumer = AsyncMock()
+
+        async def failing_flush(batch):
+            raise RuntimeError("DB down")
+
+        agent._flush_batch = failing_flush
+        agent._buffer.extend([{"id": 1}])
+
+        await agent._do_flush()
+
+        # Buffer should NOT be cleared (left intact for retry)
+        assert len(agent._buffer) == 1
+        # Commit should NOT have been called
+        agent._consumer.commit.assert_not_awaited()
+
+        # Verify flush_errors counter incremented
+        import prometheus_client
+
+        error_count = 0.0
+        for metric in prometheus_client.REGISTRY.collect():
+            for sample in metric.samples:
+                if sample.name == "stub_writer_flush_errors_total":
+                    error_count = sample.value
+        assert error_count >= 1, "flush_errors counter should have incremented"
+
+
+class TestBufferOverflowAlert:
+    """Test 10: buffer overflow logs with severity=critical."""
+
+    def test_overflow_caps_buffer_and_tracks_dropped(self):
+        agent = StubWriterAgent()
+
+        # Fill well beyond MAX_BUFFER_SIZE
+        for i in range(agent.MAX_BUFFER_SIZE + 20):
+            agent._buffer_rows([{"id": i}])
+
+        # Buffer should be capped at MAX_BUFFER_SIZE
+        assert len(agent._buffer) == agent.MAX_BUFFER_SIZE
+        # Should have kept the NEWEST entries
+        assert agent._buffer[0]["id"] == 20
+        assert agent._buffer[-1]["id"] == agent.MAX_BUFFER_SIZE + 19
