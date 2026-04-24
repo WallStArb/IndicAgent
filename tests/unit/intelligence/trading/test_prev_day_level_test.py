@@ -27,6 +27,9 @@ def _base_features(**kwargs):
         "prior_session_close": 5000.0,
         "hmm_regime": 0.0,
         "hmm_regime_prob": 0.70,
+        "hmm_prob_ranging": 0.70,
+        "hmm_prob_trending_up": 0.15,
+        "hmm_prob_trending_down": 0.15,
         # Structural features so frame_trade returns viable trade
         "swing_low": 4900.0,
         "swing_high": 5200.0,
@@ -39,9 +42,11 @@ def _base_features(**kwargs):
 
 # ─── Guard tests ────────────────────────────────────────────────────────────
 
+
 def test_no_signal_when_no_prior_session_data():
     """features with prior_session_high=None -> no_signal."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     close = np.full(25, 5050.0)
     features = _base_features(
@@ -57,10 +62,13 @@ def test_no_signal_when_no_prior_session_data():
 def test_no_signal_when_price_far_from_levels():
     """close more than 0.5xATR from all three levels -> no_signal."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     # ATR=10, proximity=5.0; close at 5020 -> dist from PDH(5050)=30, PDL(4950)=70, PDC(5000)=20
     close = np.full(25, 5020.0)
-    features = _base_features(atr_14=10.0, prior_session_high=5050.0, prior_session_low=4950.0, prior_session_close=5000.0)
+    features = _base_features(
+        atr_14=10.0, prior_session_high=5050.0, prior_session_low=4950.0, prior_session_close=5000.0
+    )
     result = plugin.compute_full(_make_frames(close, features))
     assert result.get("signal_type") == "none"
     assert result.get("direction") == 0
@@ -69,6 +77,7 @@ def test_no_signal_when_price_far_from_levels():
 def test_no_signal_when_insufficient_lookback():
     """len(df) < min_lookback -> returns empty dict."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     close = np.full(5, 5050.0)
     result = plugin.compute_full(_make_frames(close, _base_features()))
@@ -77,9 +86,11 @@ def test_no_signal_when_insufficient_lookback():
 
 # ─── Fade variant tests ─────────────────────────────────────────────────────
 
+
 def test_fires_fade_variant_near_pdh():
     """close within 0.5xATR of PDH + bearish bar (close < open) -> direction=-1, fade."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     # PDH=5050, ATR=10, proximity=5. close=5048 -> within 5 of PDH.
     # Bearish bar: open=5053, close=5048 (close < open)
@@ -106,6 +117,7 @@ def test_fires_fade_variant_near_pdh():
 def test_fires_fade_variant_near_pdl():
     """close within 0.5xATR of PDL + bullish bar (close > open) -> direction=1, fade."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     # PDL=4950, ATR=10, proximity=5. close=4952 -> within 5 of PDL.
     # Bullish bar: open=4947, close=4952 (close > open)
@@ -132,6 +144,7 @@ def test_fires_fade_variant_near_pdl():
 def test_fires_fade_variant_near_pdc():
     """close within 0.5xATR of PDC + reversal momentum -> fires with setup_variant='fade'."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     # PDC=5000, ATR=10, proximity=5. close=5003 (within 5 of PDC).
     # Push PDH and PDL far away so PDC is the nearest.
@@ -157,9 +170,11 @@ def test_fires_fade_variant_near_pdc():
 
 # ─── Confidence regime alignment tests ──────────────────────────────────────
 
+
 def test_fade_higher_confidence_in_ranging_regime():
     """Fade variant + hmm_regime=0.0 (ranging) has higher confidence than with hmm_regime=1.0."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     close = np.full(25, 5048.0)
     open_arr = np.full(25, 5053.0)
 
@@ -175,12 +190,19 @@ def test_fade_higher_confidence_in_ranging_regime():
         nearest_resistance=5100.0,
         nearest_support=4900.0,
     )
-    r_ranging = plugin_ranging.compute_full(_make_frames(close, features_ranging, open_arr=open_arr))
+    r_ranging = plugin_ranging.compute_full(
+        _make_frames(close, features_ranging, open_arr=open_arr)
+    )
 
     plugin_trending = PrevDayLevelTestPlugin()
     features_trending = dict(features_ranging)
     features_trending["hmm_regime"] = 1.0
-    r_trending = plugin_trending.compute_full(_make_frames(close, features_trending, open_arr=open_arr))
+    features_trending["hmm_prob_ranging"] = 0.1
+    features_trending["hmm_prob_trending_up"] = 0.8
+    features_trending["hmm_prob_trending_down"] = 0.1
+    r_trending = plugin_trending.compute_full(
+        _make_frames(close, features_trending, open_arr=open_arr)
+    )
 
     if r_ranging.get("direction") != 0 and r_trending.get("direction") != 0:
         assert r_ranging["confidence"] > r_trending["confidence"]
@@ -204,6 +226,9 @@ def test_continuation_higher_confidence_in_trend_regime():
         prior_session_low=4950.0,
         prior_session_close=5000.0,
         hmm_regime=1.0,
+        hmm_prob_ranging=0.1,
+        hmm_prob_trending_up=0.8,
+        hmm_prob_trending_down=0.1,
         swing_low=4900.0,
         swing_high=5200.0,
         nearest_resistance=5100.0,
@@ -212,24 +237,38 @@ def test_continuation_higher_confidence_in_trend_regime():
 
     plugin_trend = PrevDayLevelTestPlugin()
     plugin_trend.compute_full(_make_frames(close_breakout, features_trend, open_arr=open_arr_bo))
-    r_trend = plugin_trend.compute_full(_make_frames(close_pullback, features_trend, open_arr=open_arr_pb))
+    r_trend = plugin_trend.compute_full(
+        _make_frames(close_pullback, features_trend, open_arr=open_arr_pb)
+    )
 
     features_ranging = dict(features_trend)
     features_ranging["hmm_regime"] = 0.0
+    features_ranging["hmm_prob_ranging"] = 0.8
+    features_ranging["hmm_prob_trending_up"] = 0.1
+    features_ranging["hmm_prob_trending_down"] = 0.1
 
     plugin_ranging = PrevDayLevelTestPlugin()
-    plugin_ranging.compute_full(_make_frames(close_breakout, features_ranging, open_arr=open_arr_bo))
-    r_ranging = plugin_ranging.compute_full(_make_frames(close_pullback, features_ranging, open_arr=open_arr_pb))
+    plugin_ranging.compute_full(
+        _make_frames(close_breakout, features_ranging, open_arr=open_arr_bo)
+    )
+    r_ranging = plugin_ranging.compute_full(
+        _make_frames(close_pullback, features_ranging, open_arr=open_arr_pb)
+    )
 
-    if r_trend.get("setup_variant") == "continuation" and r_ranging.get("setup_variant") == "continuation":
+    if (
+        r_trend.get("setup_variant") == "continuation"
+        and r_ranging.get("setup_variant") == "continuation"
+    ):
         assert r_trend["confidence"] > r_ranging["confidence"]
 
 
 # ─── Continuation variant test ───────────────────────────────────────────────
 
+
 def test_fires_continuation_variant_after_breakout():
     """Price broke above PDH, then pulled back to within 0.5xATR above PDH -> continuation long."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
 
     # PDH=5050, ATR=10, proximity=5
@@ -251,7 +290,7 @@ def test_fires_continuation_variant_after_breakout():
 
     # Step 2: Pullback to re-test PDH from above — within proximity, still above PDH
     close_pb = np.full(25, 5052.0)  # PDH=5050, 2pts above -> within 5 proximity
-    open_pb = np.full(25, 5049.0)   # bullish (close > open)
+    open_pb = np.full(25, 5049.0)  # bullish (close > open)
     result = plugin.compute_full(_make_frames(close_pb, features, open_arr=open_pb))
 
     assert result.get("setup_variant") == "continuation"
@@ -261,9 +300,11 @@ def test_fires_continuation_variant_after_breakout():
 
 # ─── frame_trade viability test ───────────────────────────────────────────────
 
+
 def test_no_signal_when_frame_not_viable():
     """When frame_trade returns viable=False (no structural levels) -> no_signal."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     # PDH=5050, ATR=10, close=5048 (within proximity, bearish)
     close = np.full(25, 5048.0)
@@ -294,6 +335,7 @@ def test_no_signal_when_frame_not_viable():
 def test_plugin_instance_exists():
     """Module-level plugin instance must exist."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin, plugin
+
     assert isinstance(plugin, PrevDayLevelTestPlugin)
     assert plugin.name == "trad_PrevDayLevelTest"
     assert plugin.regime_type == "any"
@@ -302,6 +344,7 @@ def test_plugin_instance_exists():
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
     from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+
     plugin = PrevDayLevelTestPlugin()
     close = np.linspace(5000.0, 5010.0, 25)
     frames = _make_frames(close, _base_features())

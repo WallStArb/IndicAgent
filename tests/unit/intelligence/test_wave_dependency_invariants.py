@@ -64,4 +64,4 @@ class TestMTFVolatilityIndependence:
             "intel_1h": {"vol_expansion": 1.0},
         }
         result = plugin.compute_full(frames)
-        assert result["squeeze_within_expansion"] == 1.0
+        assert result["squeeze_within_expansion"] > 0.0  # Continuous gradient, not binary
