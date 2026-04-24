@@ -878,3 +878,13 @@ Plans:
 - [x] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
 - [x] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
 
+
+### Phase 72: Signal Transform Log — Unified alpha modifier architecture. Add signal_transform_log and transform_graduation tables. Every pipeline transform writes a row instead of mutating confidence in-place. Per-segment graduation protocol with 90-day expiry. Absorbs alpha_multiplier_shadow. 4-phase migration: dual-write then wire composition then absorb shadow table then deprecate old columns. Design spec: docs/plans/2026-04-24-signal-transform-log-design.md
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 71
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 72 to break down)
