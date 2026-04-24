@@ -44,6 +44,9 @@ class CandlestickPatternsPlugin:
             "belt_hold_bear",
             "kicker_bull",
             "kicker_bear",
+            # --- Gradient companions ---
+            "inside_bar_depth",
+            "outside_bar_expansion",
         }
     )
     min_lookback: int = 3
@@ -149,8 +152,23 @@ class CandlestickPatternsPlugin:
         # Inside bar: current bar inside prior bar
         inside_bar = 1.0 if (c_h < p_h and c_l > p_l) else 0.0
 
+        # Inside bar depth: how deeply contained within prior bar
+        inside_bar_depth = 0.0
+        if inside_bar == 1.0 and p_range > 0:
+            margin_top = p_h - c_h
+            margin_bot = c_l - p_l
+            inside_bar_depth = min(margin_top, margin_bot) / p_range
+            inside_bar_depth = max(0.0, min(1.0, inside_bar_depth))
+
         # Outside bar: current bar engulfs prior bar (high and low)
         outside_bar = 1.0 if (c_h > p_h and c_l < p_l) else 0.0
+
+        # Outside bar expansion: total expansion relative to prior range
+        outside_bar_expansion = 0.0
+        if outside_bar == 1.0 and p_range > 0:
+            expansion_top = c_h - p_h
+            expansion_bot = p_l - c_l
+            outside_bar_expansion = min(3.0, (expansion_top + expansion_bot) / p_range)
 
         # Doji: body < 10% of range
         doji_detected = 0.0
@@ -435,6 +453,8 @@ class CandlestickPatternsPlugin:
             "shooting_star_detected": shooting_star_detected,
             "inside_bar": inside_bar,
             "outside_bar": outside_bar,
+            "inside_bar_depth": round(inside_bar_depth, 4),
+            "outside_bar_expansion": round(outside_bar_expansion, 4),
             "doji_detected": doji_detected,
             # 10 new Tier 1 three-bar patterns
             "three_white_soldiers": three_white_soldiers,

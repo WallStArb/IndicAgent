@@ -5,6 +5,7 @@ from typing import Any
 
 from src.intelligence.plugins import InputSpec
 from src.intelligence.utils import clamp
+from src.intelligence.utils.gradient_utils import linear_ramp
 
 
 @dataclass
@@ -35,8 +36,9 @@ class MTFVolatilityPlugin:
         exp_15m = intel_15m.get("vol_expansion", 0.0) or 0.0
         exp_1h = intel_1h.get("vol_expansion", 0.0) or 0.0
 
-        mtf_exp_15m = 1.0 if float(exp_15m) > 0 else 0.0
-        mtf_exp_1h = 1.0 if float(exp_1h) > 0 else 0.0
+        # Continuous gradient: use upstream values directly instead of binary threshold
+        mtf_exp_15m = max(0.0, float(exp_15m))
+        mtf_exp_1h = max(0.0, float(exp_1h))
 
         # squeeze_within_expansion: current TF squeezing while higher TF expanding
         # Compute squeeze independently from I1 BB and Keltner bands — no dependency
@@ -46,11 +48,18 @@ class MTFVolatilityPlugin:
         kc_upper = features.get("keltner_upper")
         kc_lower = features.get("keltner_lower")
         if all(isinstance(v, (int, float)) for v in [bb_upper, bb_lower, kc_upper, kc_lower]):
+            bb_width = float(bb_upper) - float(bb_lower)
+            kc_width = float(kc_upper) - float(kc_lower)
             is_squeezing = float(bb_upper) < float(kc_upper) and float(bb_lower) > float(kc_lower)
+            squeeze_depth = max(0.0, (kc_width - bb_width) / kc_width) if kc_width > 0 else 0.0
         else:
             is_squeezing = False
-        higher_expanding = bool(mtf_exp_15m or mtf_exp_1h)
-        squeeze_within = 1.0 if (is_squeezing and higher_expanding) else 0.0
+            squeeze_depth = 0.0
+        higher_expansion_mag = max(mtf_exp_15m, mtf_exp_1h)
+        if is_squeezing and higher_expansion_mag > 0:
+            squeeze_within = linear_ramp(squeeze_depth * higher_expansion_mag, 0, 1.0)
+        else:
+            squeeze_within = 0.0
 
         # vol_divergence_score: weighted sum across TFs, clamped to [-1, 1]
         # Weights: 1m (current, from features), 15m, 1h
