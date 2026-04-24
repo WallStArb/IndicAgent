@@ -31,7 +31,11 @@ from src.core.stream_keys import (
     topic_market_bars_htf,
     topic_swarm_results,
 )
+from src.intelligence.swarm.agents.correlation_agent import (
+    CorrelationAgentComputeAgent,
+)
 from src.intelligence.swarm.agents.skeptic_agent import SkepticAgentComputeAgent
+from src.intelligence.swarm.agents.volume_agent import VolumeAgentComputeAgent
 from src.intelligence.swarm.context import SwarmContext, SwarmContextCache
 
 logger = structlog.get_logger(__name__)
@@ -81,7 +85,8 @@ class SwarmDispatchService(BaseAgent):
         # Agent registry -- pure compute, no infrastructure
         self._agents = [
             SkepticAgentComputeAgent(llm_chain=self._llm_chain),
-            # CorrelationAgent and VolumeAgent added in Plan 02
+            CorrelationAgentComputeAgent(llm_chain=self._llm_chain),
+            VolumeAgentComputeAgent(llm_chain=self._llm_chain),
         ]
 
         # Kafka (initialized in _setup)
