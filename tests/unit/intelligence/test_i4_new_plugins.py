@@ -49,7 +49,7 @@ class TestSessionContext:
         )
         result = SessionContextPlugin().compute_full({"main": df, "features": {}})
         assert result.get("session_london") == 0.0  # 2am ET, London starts 3am ET
-        assert result.get("in_london_killzone") == 1.0  # 2am ET in 02:00-05:00
+        assert result.get("in_london_killzone") >= 0.2  # 2am ET in killzone, continuous gradient
 
     def test_ny_session_at_1400_utc(self):
         from src.intelligence.context.session_context import SessionContextPlugin
@@ -86,7 +86,7 @@ class TestSessionContext:
             }
         )
         result = SessionContextPlugin().compute_full({"main": df, "features": {}})
-        assert result.get("session_ny") == 1.0
+        assert result.get("session_ny") >= 0.2  # Continuous bell-shaped gradient, >= floor
 
     def test_monday_flag(self):
         from src.intelligence.context.session_context import SessionContextPlugin
@@ -153,10 +153,18 @@ class TestMTFVolatility:
     def test_squeeze_within_expansion_detected(self):
         from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
-        features = {"squeeze_active": 1.0, "vol_expansion": -0.5}
+        features = {
+            "squeeze_active": 1.0,
+            "vol_expansion": -0.5,
+            # BB inside Keltner = squeeze (detected independently by plugin)
+            "bb_20_2_upper": 100.5,
+            "bb_20_2_lower": 99.5,
+            "keltner_upper": 101.0,
+            "keltner_lower": 99.0,
+        }
         intel_15m = {"vol_expansion": 0.8}
         result = MTFVolatilityPlugin().compute_full({"features": features, "intel_15m": intel_15m})
-        assert result.get("squeeze_within_expansion") == 1.0
+        assert result.get("squeeze_within_expansion") > 0.0  # Continuous gradient, not binary
 
     def test_no_squeeze_without_expansion(self):
         from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin

@@ -201,7 +201,8 @@ class TestAnchoredVWAP:
         if vwap is not None:
             assert 5000 <= vwap <= 5100
 
-    def test_above_flags_are_binary(self):
+    def test_above_flags_are_continuous(self):
+        """Above-VWAP flags are now continuous deviation-sigma scores in [0, 1]."""
         from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         close = np.linspace(5000, 5100, 50)
@@ -210,7 +211,7 @@ class TestAnchoredVWAP:
         for key in ("above_session_vwap", "above_swing_vwap", "above_weekly_vwap"):
             val = result.get(key)
             if val is not None:
-                assert val in (0.0, 1.0)
+                assert 0.0 <= val <= 1.0
 
     def test_alignment_score_in_range(self):
         from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
