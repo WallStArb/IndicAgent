@@ -247,6 +247,7 @@ class I3Structure(BaseModel):
     # SwingMomentumPlugin outputs
     swing_amplitude_ratio: float | None = None
     swing_amplitude_expanding: int | None = None
+    swing_amplitude_intensity: float | None = None  # continuous expansion intensity [0, 1]
     swing_velocity_bars: float | None = None
     swing_velocity_trend: Literal["accelerating", "decelerating", "stable"] | None = None
     struct_energy: float | None = None
