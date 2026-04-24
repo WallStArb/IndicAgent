@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import linear_ramp
 
 
 @dataclass
@@ -14,7 +15,7 @@ class TrendRegimePlugin:
 
     name: str = "ctx_TrendRegime"
     outputs: frozenset[str] = frozenset(
-        {"trend_regime", "trend_confidence", "ma_alignment", "price_vs_sma20_pct"}
+        {"trend_regime", "trend_regime_continuous", "trend_confidence", "ma_alignment", "price_vs_sma20_pct"}
     )
     min_lookback: int = 50
     supports_incremental: bool = False
@@ -79,10 +80,15 @@ class TrendRegimePlugin:
             structure_signal = td * ts  # [-1, +1] range
             blended = 0.5 * ma_norm + 0.5 * structure_signal
 
-            # Confidence: agreement between MA and structure
+            # Gradient confidence: scale agreement magnitude
+            # agreement = 1.0 when both point same way, 0.3 when opposed
             if ma_norm != 0 and structure_signal != 0:
                 same_sign = (ma_norm > 0) == (structure_signal > 0)
-                confidence = 1.0 if same_sign else 0.3
+                agreement_mag = abs(ma_norm) * abs(structure_signal)
+                if same_sign:
+                    confidence = 0.3 + 0.7 * linear_ramp(agreement_mag, 0.0, 1.0)
+                else:
+                    confidence = 0.3 * (1.0 - agreement_mag)
             elif ma_norm == 0 and structure_signal == 0:
                 confidence = 0.5  # Both neutral
             else:
@@ -108,6 +114,7 @@ class TrendRegimePlugin:
 
         return {
             "trend_regime": trend_regime,
+            "trend_regime_continuous": round(blended, 4),
             "trend_confidence": round(confidence, 4),
             "ma_alignment": ma_signal,
             "price_vs_sma20_pct": round(price_vs_sma20_pct, 4),
