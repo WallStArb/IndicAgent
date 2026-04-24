@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -113,6 +114,9 @@ class LiquidityHuntPlugin:
 
         # Confidence scoring
         confidence = 0.55
+        # Continuous HMM regime weight: trending regime boosts (regime_type="trend")
+        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+        confidence += 0.10 * trending_w
 
         if significance >= 1.00:
             confidence += 0.12
