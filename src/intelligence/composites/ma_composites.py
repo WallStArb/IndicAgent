@@ -118,14 +118,6 @@ class MACompositePlugin:
 
         # Dynamic S/R using SMA 50
         if px is not None and is_num(s200):
-            # Both SMAs must be numeric for price_above_sma200 to be valid
-            s200 = ma.get("sma_200")
-            if isinstance(s200, (int, float)):
-                # Gradient: price vs SMA200 separation percentage
-                px_s200_sep_pct = float((px - s200) / s200 * 100) if s200 else 0.0
-                out["price_above_sma200"] = linear_ramp(px_s200_sep_pct, -2.0, 2.0)
-            else:
-                out["price_above_sma200"] = None
             # Touch/bounce within X ATR
             atr = features.get(self.atr_key)
             if is_num(atr) and atr > 0 and is_num(s50):
