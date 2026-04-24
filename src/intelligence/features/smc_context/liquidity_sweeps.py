@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.utils.gradient_utils import linear_ramp
 
 from ._swing_utils import find_swing_highs, find_swing_lows
 
@@ -27,6 +28,8 @@ class LiquiditySweepsPlugin:
             "sweep_level",
             "sweep_depth_pct",
             "sweep_reclaimed",
+            "sweep_strength",
+            "reclaim_velocity",
         }
     )
     min_lookback: int = 60
@@ -56,6 +59,8 @@ class LiquiditySweepsPlugin:
                 "sweep_level": 0.0,
                 "sweep_depth_pct": 0.0,
                 "sweep_reclaimed": 0.0,
+                "sweep_strength": 0.0,
+                "reclaim_velocity": 0.0,
             }
 
         # Check recent bars for sweeps of swing levels
@@ -70,15 +75,23 @@ class LiquiditySweepsPlugin:
                     depth = (sl_price - float(low[i])) / sl_price * 100
                     # Check reclaim: next bars continue up
                     reclaimed = 0.0
+                    bars_to_reclaim = self.reclaim_bars  # default if not reclaimed
                     if i + self.reclaim_bars < len(df):
                         if all(close[i + k] > sl_price for k in range(1, self.reclaim_bars + 1)):
                             reclaimed = 1.0
+                    else:
+                        bars_to_reclaim = self.reclaim_bars
+                    # Gradient companions
+                    sweep_str = linear_ramp(depth, 0, 2.0)  # 0-2% depth maps to 0-1
+                    reclaim_vel = linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
                     sweeps.append(
                         {
                             "type": 1.0,
                             "level": sl_price,
                             "depth_pct": depth,
                             "reclaimed": reclaimed,
+                            "sweep_strength": round(sweep_str, 4),
+                            "reclaim_velocity": round(reclaim_vel, 4),
                             "bar_idx": i,
                         }
                     )
@@ -90,15 +103,20 @@ class LiquiditySweepsPlugin:
                 if high[i] > sh_price and close[i] < sh_price:
                     depth = (float(high[i]) - sh_price) / sh_price * 100
                     reclaimed = 0.0
+                    bars_to_reclaim = self.reclaim_bars
                     if i + self.reclaim_bars < len(df):
                         if all(close[i + k] < sh_price for k in range(1, self.reclaim_bars + 1)):
                             reclaimed = 1.0
+                    sweep_str = linear_ramp(depth, 0, 2.0)
+                    reclaim_vel = linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
                     sweeps.append(
                         {
                             "type": -1.0,
                             "level": sh_price,
                             "depth_pct": depth,
                             "reclaimed": reclaimed,
+                            "sweep_strength": round(sweep_str, 4),
+                            "reclaim_velocity": round(reclaim_vel, 4),
                             "bar_idx": i,
                         }
                     )
@@ -110,6 +128,8 @@ class LiquiditySweepsPlugin:
                 "sweep_level": 0.0,
                 "sweep_depth_pct": 0.0,
                 "sweep_reclaimed": 0.0,
+                "sweep_strength": 0.0,
+                "reclaim_velocity": 0.0,
             }
 
         # Return most recent sweep
@@ -120,6 +140,8 @@ class LiquiditySweepsPlugin:
             "sweep_level": latest["level"],
             "sweep_depth_pct": latest["depth_pct"],
             "sweep_reclaimed": latest["reclaimed"],
+            "sweep_strength": latest["sweep_strength"],
+            "reclaim_velocity": latest["reclaim_velocity"],
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

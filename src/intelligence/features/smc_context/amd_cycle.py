@@ -40,6 +40,7 @@ class AMDCyclePlugin:
             "amd_phase",
             "amd_manipulation_detected",
             "amd_distribution_direction",
+            "manip_strength",
         }
     )
     min_lookback: int = 2
@@ -64,6 +65,7 @@ class AMDCyclePlugin:
                 "amd_phase": "unknown",
                 "amd_manipulation_detected": 0.0,
                 "amd_distribution_direction": 0.0,
+                "manip_strength": 0.0,
             }
 
         # Determine phase
@@ -99,19 +101,23 @@ class AMDCyclePlugin:
 
         # Manipulation detection: breach overnight range then reverse
         manip_detected = 0.0
+        manip_strength = 0.0
         overnight = self._state.get(key_sym, {})
         on_high = overnight.get("high")
         on_low = overnight.get("low")
+        on_range = (on_high - on_low) if (on_high is not None and on_low is not None) else 0.0
 
         if phase == "manipulation" and on_high is not None and on_low is not None:
             # Sweep high then reverse down
             if high > on_high and close < on_high:
                 manip_detected = 1.0
+                manip_strength = (high - on_high) / on_range if on_range > 0 else 0.0
                 self._state["manipulation_done"] = True
                 self._state["manip_direction"] = -1.0  # bearish distribution expected
             # Sweep low then reverse up
             elif low < on_low and close > on_low:
                 manip_detected = 1.0
+                manip_strength = (on_low - low) / on_range if on_range > 0 else 0.0
                 self._state["manipulation_done"] = True
                 self._state["manip_direction"] = 1.0  # bullish distribution expected
 
@@ -121,6 +127,7 @@ class AMDCyclePlugin:
             "amd_phase": phase,
             "amd_manipulation_detected": manip_detected,
             "amd_distribution_direction": dist_direction,
+            "manip_strength": round(manip_strength, 4),
         }
 
 

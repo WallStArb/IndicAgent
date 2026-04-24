@@ -157,12 +157,12 @@ class I3Structure(BaseModel):
     - struct_SwingDetector (9 fields)
     - struct_SupportResistance (9 fields)
     - struct_TrendStructure (6 fields)
-    - struct_MarketProfile (9 fields)
+    - struct_MarketProfile (11 fields)
     - struct_SessionLevels (16 fields)
     - struct_FibonacciZones (12 fields)
     - struct_SwingMomentum (6 fields)
     - struct_MACDEvents (8 fields, migrated from I2Events — uses I3 support data)
-    Total: 75 fields
+    Total: 77 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -208,6 +208,9 @@ class I3Structure(BaseModel):
     price_below_va: float | None = None
     poc_dist_pct: float | None = None
     poc_dist_atr: float | None = None
+    # MarketProfile gradient companions
+    va_position_pct: float | None = None  # position within VA as percentage [0, 1]
+    va_distance_atr: float | None = None  # distance from VA boundary in ATR units
 
     # SessionLevelsPlugin outputs
     prior_session_high: float | None = None
@@ -419,13 +422,13 @@ class I5Patterns(BaseModel):
     - patt_HeadShoulders (5 fields)
     - TrendConfluence (4 fields)
     - patt_TriangleWedge (6 fields)
-    - patt_CandlestickPatterns (29 fields)
+    - patt_CandlestickPatterns (31 fields)
     - patt_FlagPennant (4 fields)
     - patt_CupHandle (3 fields)
     - patt_MeasuredMove (4 fields)
     - patt_KeyLevelReaction (2 fields)
     - patt_MTFVolatility (4 fields, migrated from I4Context)
-    Total: 89 fields
+    Total: 91 fields
 
     NOTE: VolumeProfile (18 fields) migrated to I4Context in Phase 34-02.
 
@@ -514,6 +517,9 @@ class I5Patterns(BaseModel):
     inside_bar: float | None = None
     outside_bar: float | None = None
     doji_detected: float | None = None
+    # CandlestickPatterns gradient companions
+    inside_bar_depth: float | None = None  # how contained: min margin / bar_range, [0, 1]
+    outside_bar_expansion: float | None = None  # expansion ratio vs prev range, [0, inf)
     # 10 new three-bar candlestick patterns (added 2026-03-08)
     three_white_soldiers: float | None = None
     three_black_crows: float | None = None
@@ -568,20 +574,20 @@ class SMCContext(BaseModel):
     """Smart Money Concepts outputs.
 
     Plugins:
-    - smc_BOSCHoCH (6 fields)
+    - smc_BOSCHoCH (8 fields)
     - smc_FairValueGap (6 fields)
     - smc_OrderBlocks (6 fields)
-    - smc_LiquiditySweeps (5 fields)
+    - smc_LiquiditySweeps (7 fields)
     - smc_BOCPDChangePoint (5 fields)
     - smc_HMMRegime (6 fields)
     - smc_LiquidityPools (13 fields)
     - smc_SupplyDemandZones (14 fields)
-    - smc_ICTKillzones (7 fields)
-    - smc_AMDCycle (3 fields)
+    - smc_ICTKillzones (11 fields)
+    - smc_AMDCycle (4 fields)
     - smc_BreakerBlocks (5 fields)
     - smc_MitigationBlocks (2 fields)
     - smc_PremiumDiscount (2 fields)
-    Total: 80 fields
+    Total: 89 fields
 
     NOTE: SMC has smc_trend_direction (not trend_direction) to avoid collision
     with I3Structure.trend_direction. Both I3 TrendStructure and SMC BOSCHoCH
@@ -597,6 +603,9 @@ class SMCContext(BaseModel):
     choch_detected: float | None = None  # 0.0/1.0 flag
     choch_direction: int | None = None  # -1/0/1
     smc_trend_direction: int | None = None  # renamed from trend_direction to avoid I3 collision
+    # BOSCHoCH gradient companions
+    bos_strength: float | None = None  # break distance / ATR, continuous [0, inf)
+    choch_strength: float | None = None  # break magnitude / ATR, continuous [0, inf)
 
     # FairValueGapPlugin outputs
     fvg_type: int | None = None  # -1/0/1
@@ -620,6 +629,9 @@ class SMCContext(BaseModel):
     sweep_level: float | None = None
     sweep_depth_pct: float | None = None
     sweep_reclaimed: float | None = None  # 0.0/1.0 flag
+    # LiquiditySweeps gradient companions
+    sweep_strength: float | None = None  # depth normalized [0, 1]
+    reclaim_velocity: float | None = None  # 1/bars_to_reclaim normalized [0, 1]
 
     # BOCPDChangePointPlugin outputs
     cp_probability: float | None = None
@@ -677,11 +689,18 @@ class SMCContext(BaseModel):
     killzone_name: str | None = None
     minutes_in_killzone: float | None = None
     minutes_until_next_killzone: float | None = None
+    # ICTKillzones gradient companions
+    kz_asia_progress: float | None = None  # progress fraction [0, 1]
+    kz_london_progress: float | None = None
+    kz_ny_am_progress: float | None = None
+    kz_ny_pm_progress: float | None = None
 
     # AMDCyclePlugin outputs
     amd_phase: str | None = None  # "accumulation"/"manipulation"/"distribution"/"unknown"
     amd_manipulation_detected: float | None = None
     amd_distribution_direction: float | None = None  # -1/0/1
+    # AMDCycle gradient companion
+    manip_strength: float | None = None  # spike z-score or impulse magnitude, [0, inf)
 
     # BreakerBlocksPlugin outputs
     breaker_block_active: float | None = None
