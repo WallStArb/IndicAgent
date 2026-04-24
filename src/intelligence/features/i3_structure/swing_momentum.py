@@ -21,6 +21,7 @@ import numpy as np
 
 from src.intelligence.plugins import InputSpec
 from src.intelligence.utils import clamp, is_num
+from src.intelligence.utils.gradient_utils import linear_ramp
 
 # Confirmation window: bar i is a swing high/low if it is the max/min across
 # [i-N … i+N] inclusive.
@@ -39,6 +40,7 @@ class SwingMomentumPlugin:
             {
                 "swing_amplitude_ratio",
                 "swing_amplitude_expanding",
+                "swing_amplitude_intensity",
                 "swing_velocity_bars",
                 "swing_velocity_trend",
                 "struct_energy",
@@ -96,6 +98,12 @@ class SwingMomentumPlugin:
             1 if (len(amplitudes) >= 3 and amplitudes[0] < amplitudes[1] < amplitudes[2]) else 0
         )
 
+        swing_amplitude_intensity = (
+            linear_ramp(amplitude_ratio, 1.0, 2.0)
+            if swing_amplitude_expanding == 1
+            else 0.0
+        )
+
         # --- Velocity outputs -----------------------------------------
         swing_velocity_bars = float(velocities[-1])
 
@@ -119,6 +127,7 @@ class SwingMomentumPlugin:
         return {
             "swing_amplitude_ratio": float(amplitude_ratio),
             "swing_amplitude_expanding": swing_amplitude_expanding,
+            "swing_amplitude_intensity": float(swing_amplitude_intensity),
             "swing_velocity_bars": swing_velocity_bars,
             "swing_velocity_trend": velocity_trend,
             "struct_energy": float(struct_energy),
