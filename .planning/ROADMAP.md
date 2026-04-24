@@ -253,10 +253,10 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService running Skeptic, Correlation, and Volume agents as pure compute classes. LLM-powered signal analysis consuming `intelligence.i7.signals`, recording to `alpha_multiplier_shadow`. Consolidated architecture: 1 service, 3 agents, shared infrastructure. 4 plans.
 
   Plans:
-  - [ ] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
-  - [ ] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
+  - [x] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
+  - [x] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
   - [ ] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
-  - [ ] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
+  - [x] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
 
 </details>
 
