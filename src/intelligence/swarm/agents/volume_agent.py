@@ -76,6 +76,7 @@ class VolumeAgentComputeAgent(SwarmBaseAgent):
 
         has_vp = (
             context.volume_profile is not None
+            and isinstance(context.volume_profile, dict)
             and len(context.volume_profile) > 0
         )
         return AgentResult(
