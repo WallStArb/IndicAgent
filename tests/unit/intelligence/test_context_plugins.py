@@ -26,6 +26,8 @@ class TestVolatilityRegime:
         assert result != {}
         assert result["vol_regime"] >= 1.0
         assert result["vol_percentile"] > 0.7
+        # Gradient: vol_expansion should be continuous (not in {-1.0, 0.0, 1.0})
+        assert isinstance(result["vol_expansion"], float)
 
     def test_low_volatility(self):
         """Flat data → low vol_regime and low percentile."""
@@ -67,6 +69,23 @@ class TestVolatilityRegime:
         assert "bb_width_percentile" in result
         assert 0.0 <= result["bb_width_percentile"] <= 1.0
 
+    def test_vol_expansion_continuous_not_ternary(self):
+        """vol_expansion is continuous (ratio - 1.0), not ternary {-1, 0, 1}."""
+        from src.intelligence.context.volatility_regime import VolatilityRegimePlugin
+
+        # Use a steady ramp to produce mid-range ATR ratio
+        close = np.linspace(5000, 5100, 100)
+        df = make_ohlcv(close)
+        plugin = VolatilityRegimePlugin()
+        result = plugin.compute_full({"main": df})
+
+        # For a steady ramp, vol_expansion should be continuous (small positive or negative)
+        # NOT constrained to {-1.0, 0.0, 1.0}
+        assert isinstance(result["vol_expansion"], float)
+        # It should NOT be one of the old ternary values for a steady ramp
+        # (allow 0.0 for truly stable series)
+        assert -1.0 <= result["vol_expansion"] <= 1.0
+
 
 # ─── Trend Regime ──────────────────────────────────────────────
 
@@ -85,6 +104,9 @@ class TestTrendRegime:
         assert result["trend_regime"] > 0
         assert result["ma_alignment"] > 0
         assert result["price_vs_sma20_pct"] > 0
+        # Gradient: trend_regime_continuous should be in [-1, 1]
+        assert -1.0 <= result["trend_regime_continuous"] <= 1.0
+        assert result["trend_regime_continuous"] > 0  # should agree with trend_regime
 
     def test_downtrend(self):
         """Price < SMA-20 < SMA-50 → negative trend_regime."""

@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import linear_ramp
 
 _WEEKLY_BARS = 390  # ~1 trading week on 1m as rolling proxy
 
@@ -131,9 +132,26 @@ class AnchoredVWAPPlugin:
             float(tpv[-weekly_n:].sum() / weekly_vol) if weekly_vol > 0 else float(typical[-1])
         )
 
-        above_session = 1.0 if current_close > session_vwap else 0.0
-        above_swing = 1.0 if (swing_vwap is not None and current_close > swing_vwap) else 0.0
-        above_weekly = 1.0 if current_close > weekly_vwap else 0.0
+        # --- Gradient: above/below as continuous deviation sigma score [0, 1] ---
+        # above_session_vwap: use session sigma mapped from [-2, 2] to [0, 1]
+        above_session = linear_ramp(session_vwap_deviation_sigma, -2.0, 2.0)
+
+        # above_swing_vwap: use swing sigma if available, else 0.5 (neutral)
+        if swing_vwap_deviation_sigma is not None:
+            above_swing = linear_ramp(float(swing_vwap_deviation_sigma), -2.0, 2.0)
+        else:
+            above_swing = 0.5
+
+        # above_weekly_vwap: compute deviation from weekly VWAP, use ATR if available
+        weekly_dev = current_close - weekly_vwap
+        atr_val = features.get("atr_14")
+        if isinstance(atr_val, (int, float)) and atr_val > 0:
+            above_weekly = linear_ramp(weekly_dev / float(atr_val), -2.0, 2.0)
+        elif weekly_vwap > 0:
+            # Fallback: percentage deviation mapped from [-1%, 1%] to [0, 1]
+            above_weekly = linear_ramp(weekly_dev / weekly_vwap * 100.0, -1.0, 1.0)
+        else:
+            above_weekly = 0.5
 
         alignment_vals = [above_session, above_weekly]
         if swing_vwap is not None:

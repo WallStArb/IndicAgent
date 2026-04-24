@@ -5,6 +5,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils.common import is_num
+from ..utils.gradient_utils import linear_ramp, streak_score, threshold_decay, z_score_to_score
 
 
 @dataclass
@@ -47,28 +48,38 @@ class VolumeEventsPlugin:
 
         out: dict[str, Any] = {}
 
-        # Volume spike / drying
+        # Volume spike / drying — gradient intensity
         vol_sma = features.get("volume_sma_20")
         vol_std = features.get("volume_std_20")
         if is_num(volume) and is_num(vol_sma) and vol_sma > 0:
             if is_num(vol_std) and vol_std > 0:
                 z = (volume - vol_sma) / vol_std
-                out["vol_spike"] = 1 if z > self._SPIKE_SIGMA else 0
+                # Gradient: continuous z-score intensity, saturated at sigma_scale=3.0
+                out["vol_spike"] = z_score_to_score(z, sigma_scale=3.0)
             else:
-                out["vol_spike"] = 1 if volume > vol_sma * (1 + self._SPIKE_SIGMA * 0.5) else 0
-            out["vol_drying"] = 1 if volume < vol_sma * self._DRY_RATIO else 0
+                # Fallback: ratio-based gradient
+                ratio = (volume - vol_sma) / vol_sma if vol_sma > 0 else 0.0
+                out["vol_spike"] = linear_ramp(ratio, 0.0, self._SPIKE_SIGMA * 0.5)
+            # Gradient: drying intensity — higher when volume is much lower than SMA
+            drying_gap = vol_sma * self._DRY_RATIO - volume
+            out["vol_drying"] = linear_ramp(drying_gap, 0.0, vol_sma * self._DRY_RATIO)
         else:
-            out["vol_spike"] = 0
-            out["vol_drying"] = 0
+            out["vol_spike"] = 0.0
+            out["vol_drying"] = 0.0
 
-        # BB band touches
+        # BB band touches — gradient proximity
         if is_num(bb_upper) and is_num(bb_lower):
             bb_width = bb_upper - bb_lower
-            touch_threshold = bb_width * self._BB_TOUCH_PCT
-            out["bb_upper_touch"] = 1 if abs(close - bb_upper) <= touch_threshold else 0
-            out["bb_lower_touch"] = 1 if abs(close - bb_lower) <= touch_threshold else 0
+            # Gradient: proximity to band decays over 15% of BB width
+            proximity_width = bb_width * 0.15
+            if proximity_width > 0:
+                out["bb_upper_touch"] = threshold_decay(float(close), float(bb_upper), proximity_width)
+                out["bb_lower_touch"] = threshold_decay(float(close), float(bb_lower), proximity_width)
+            else:
+                out["bb_upper_touch"] = 0.0
+                out["bb_lower_touch"] = 0.0
 
-            # Walking the band: 3+ closes above/below midline
+            # Walking the band: gradient streak score (saturates at 5 bars)
             above_mid = 1 if (is_num(bb_mid) and close > bb_mid) else 0
             below_mid = 1 if (is_num(bb_mid) and close < bb_mid) else 0
             self._state["above_mid_streak"] = (
@@ -77,13 +88,13 @@ class VolumeEventsPlugin:
             self._state["below_mid_streak"] = (
                 (self._state.get("below_mid_streak", 0) + 1) if below_mid else 0
             )
-            out["bb_walking_upper"] = 1 if self._state["above_mid_streak"] >= self._WALK_BARS else 0
-            out["bb_walking_lower"] = 1 if self._state["below_mid_streak"] >= self._WALK_BARS else 0
+            out["bb_walking_upper"] = streak_score(self._state["above_mid_streak"], saturation=5)
+            out["bb_walking_lower"] = streak_score(self._state["below_mid_streak"], saturation=5)
         else:
-            out["bb_upper_touch"] = 0
-            out["bb_lower_touch"] = 0
-            out["bb_walking_upper"] = 0
-            out["bb_walking_lower"] = 0
+            out["bb_upper_touch"] = 0.0
+            out["bb_lower_touch"] = 0.0
+            out["bb_walking_upper"] = 0.0
+            out["bb_walking_lower"] = 0.0
 
         return out
 
