@@ -100,7 +100,7 @@ def build_volume_prompt(ctx: SwarmContext) -> str:
         timeframe=ctx.timeframe,
         winner_plugin=ctx.winner_plugin or "unknown",
         winner_direction_label=_DIRECTION_LABELS.get(
-            ctx.winner_direction or 0, "UNKNOWN",
+            ctx.winner_direction, "UNKNOWN",
         ),
         winner_confidence=_fmt(ctx.winner_confidence, ".0%"),
         price=_fmt(ctx.price, ".2f"),

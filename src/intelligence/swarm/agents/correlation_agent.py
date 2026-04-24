@@ -136,6 +136,8 @@ def _validate_correlation_fields(data: dict) -> dict[str, Any] | None:
     risk_factors = data.get("risk_factors", [])
     if not isinstance(risk_factors, list):
         risk_factors = [str(risk_factors)]
+    else:
+        risk_factors = [str(rf) for rf in risk_factors]
 
     reasoning = data.get("reasoning", "")
     if not isinstance(reasoning, str):

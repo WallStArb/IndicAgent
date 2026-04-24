@@ -93,6 +93,7 @@ class SwarmDispatchService(BaseAgent):
         self._bar_consumer: KafkaConsumerClient | None = None
         self._signal_consumer: KafkaConsumerClient | None = None
         self._producer: KafkaProducerClient | None = None
+        self._pool: asyncpg.Pool | None = None
 
     async def _setup(self) -> None:
         env = self.settings.env_name
@@ -123,15 +124,15 @@ class SwarmDispatchService(BaseAgent):
         await self._producer.start()
 
         # DB pool + ShadowRecorder
-        pool = await asyncpg.create_pool(
+        self._pool = await asyncpg.create_pool(
             self.settings.database_url, min_size=2, max_size=5,
         )
         self._recorder = ShadowRecorder(
-            pool, batch_size=50, flush_interval_s=2.0,
+            self._pool, batch_size=50, flush_interval_s=2.0,
         )
 
         # Per D-08: seed context cache from DB
-        await self._seed_context_cache(pool)
+        await self._seed_context_cache(self._pool)
 
         agent_ids = [a.agent_id for a in self._agents]
         self.logger.info("swarm_dispatch.started", agents=agent_ids)
@@ -139,6 +140,8 @@ class SwarmDispatchService(BaseAgent):
     async def _teardown(self) -> None:
         if self._recorder:
             await self._recorder.flush()
+        if self._pool:
+            await self._pool.close()
         if self._bar_consumer:
             await self._bar_consumer.stop()
         if self._signal_consumer:
