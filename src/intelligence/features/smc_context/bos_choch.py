@@ -29,6 +29,8 @@ class BOSCHoCHPlugin:
             "choch_detected",
             "choch_direction",
             "smc_trend_direction",
+            "bos_strength",
+            "choch_strength",
         }
     )
     min_lookback: int = 60
@@ -43,9 +45,14 @@ class BOSCHoCHPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
+        features = frames.get("features") or {}
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
+
+        # ATR for strength normalization
+        atr_14 = features.get("atr_14")
+        has_atr = isinstance(atr_14, (int, float)) and float(atr_14) > 0
 
         swing_highs = find_swing_highs(high, self.neighbor)
         swing_lows = find_swing_lows(low, self.neighbor)
@@ -58,6 +65,8 @@ class BOSCHoCHPlugin:
                 "choch_detected": 0.0,
                 "choch_direction": 0.0,
                 "smc_trend_direction": 0.0,
+                "bos_strength": 0.0,
+                "choch_strength": 0.0,
             }
 
         # Determine prevailing trend from swing structure
@@ -72,6 +81,7 @@ class BOSCHoCHPlugin:
         bos_detected = 0.0
         bos_direction = 0.0
         bos_level = 0.0
+        bos_strength = 0.0
 
         # Check bars AFTER the most recent swing for breaks
         check_from = max(last_sh_idx, last_sl_idx) + 1
@@ -80,20 +90,28 @@ class BOSCHoCHPlugin:
                 bos_detected = 1.0
                 bos_direction = 1.0  # Bullish
                 bos_level = last_sh_price
+                # Gradient: break distance / ATR
+                if has_atr:
+                    bos_strength = max(0.0, (float(close[i]) - last_sh_price) / float(atr_14))
                 break
             if close[i] < last_sl_price:
                 bos_detected = 1.0
                 bos_direction = -1.0  # Bearish
                 bos_level = last_sl_price
+                # Gradient: break distance / ATR
+                if has_atr:
+                    bos_strength = max(0.0, (last_sl_price - float(close[i])) / float(atr_14))
                 break
 
         # CHoCH: BOS in opposite direction to prevailing trend
         choch_detected = 0.0
         choch_direction = 0.0
+        choch_strength = 0.0
         if bos_detected == 1.0 and trend != 0.0:
             if bos_direction != trend:
                 choch_detected = 1.0
                 choch_direction = bos_direction
+                choch_strength = bos_strength  # same break magnitude
 
         return {
             "bos_detected": bos_detected,
@@ -102,6 +120,8 @@ class BOSCHoCHPlugin:
             "choch_detected": choch_detected,
             "choch_direction": choch_direction,
             "smc_trend_direction": trend,
+            "bos_strength": bos_strength,
+            "choch_strength": choch_strength,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

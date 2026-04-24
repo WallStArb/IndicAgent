@@ -24,6 +24,8 @@ class MarketProfilePlugin:
             "price_below_va",
             "poc_dist_pct",
             "poc_dist_atr",
+            "va_position_pct",
+            "va_distance_atr",
         }
     )
     min_lookback: int = 30
@@ -97,6 +99,25 @@ class MarketProfilePlugin:
             else None
         )
 
+        # Gradient companions
+        va_width = va_high - va_low
+        if price_in_va and va_width > 0:
+            va_position_pct = (close - va_low) / va_width
+        elif price_above_va:
+            va_position_pct = 1.0
+        else:
+            va_position_pct = 0.0
+
+        if isinstance(atr_14, (int, float)) and float(atr_14) > 0:
+            if price_above_va:
+                va_distance_atr = round((close - va_high) / float(atr_14), 4)
+            elif price_below_va:
+                va_distance_atr = round((va_low - close) / float(atr_14), 4)
+            else:
+                va_distance_atr = 0.0
+        else:
+            va_distance_atr = None
+
         return {
             "poc_level": poc_level,
             "va_high": va_high,
@@ -107,6 +128,8 @@ class MarketProfilePlugin:
             "price_below_va": price_below_va,
             "poc_dist_pct": poc_dist_pct,
             "poc_dist_atr": poc_dist_atr,
+            "va_position_pct": round(va_position_pct, 4),
+            "va_distance_atr": va_distance_atr,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
