@@ -265,7 +265,7 @@ class I4Context(BaseModel):
 
     Plugins:
     - VolatilityRegime (5 fields)
-    - TrendRegime (4 fields)
+    - TrendRegime (5 fields)
     - MomentumContext (4 fields)
     - GARCHVolatility (4 fields)
     - KalmanTrend (7 fields)
@@ -290,6 +290,7 @@ class I4Context(BaseModel):
 
     # TrendRegimePlugin outputs
     trend_regime: float | None = None
+    trend_regime_continuous: float | None = None
     trend_confidence: float | None = None
     ma_alignment: float | None = None
     price_vs_sma20_pct: float | None = None
