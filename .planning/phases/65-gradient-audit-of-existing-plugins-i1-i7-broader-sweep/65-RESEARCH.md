@@ -795,4 +795,61 @@ ema_9_cross_21 = 1 if crossed_up else -1                        # crossover even
 - Compute impact: MEDIUM — theoretical estimates, not measured
 
 **Research date:** 2026-04-08
-**Valid until:** 2026-05-08 (stable codebase; valid until next plugin addition)
+**Audit refresh:** 2026-04-23
+**Valid until:** 2026-05-23 (stable codebase; valid until next plugin addition)
+
+---
+
+## Audit Refresh (2026-04-23)
+
+Full re-scan of all plugin files, schemas, and utilities after Phases 69 (writer renaissance) and 71 (base agent infrastructure) shipped.
+
+### Plugin Count Update
+
+| Tier | Apr 8 Count | Apr 23 Count | Delta |
+|------|-------------|--------------|-------|
+| I1 | 27 | 29 | +2 |
+| I2 | 10 | 10 | 0 |
+| I3 | 8 | 9 | +1 |
+| I4 | 12 | 12 | 0 |
+| I5 | 16 | 17 | +1 |
+| SMC | 13 | 14 | +1 |
+| I6 | 1 | 1 | 0 |
+| I7 | 36 | 37 | +1 |
+| **Total** | **123** | **129** | **+6** |
+
+### Drift Assessment
+
+**I2/I4 files: NO DRIFT.** All binary violations from original research confirmed present at same line numbers (±2 lines). No new fields added.
+
+**I3/SMC/I5 files: MINOR DRIFT.**
+- `candlestick_patterns.py`: **20 new pattern outputs** added since Apr 8. These need binary pattern auditing before Plan 03 executes.
+- `fibonacci_zones.py`: Now has `fib_cluster_strength` gradient companion (already partial).
+- `supply_demand_zones.py`: Now has `demand_strength` / `supply_strength` gradient companions (already partial).
+- `anchored_vwap.py` (I4): **7 new gradient fields** added (sigma values, bands, velocity) — these partially address the binary `above_*` fields. The binary flags still exist alongside.
+
+**I7 files: NO DRIFT in binary patterns.** All `hmm_regime ==` comparisons confirmed present. Some plugins already have partial gradient patterns:
+- `choch_reversal.py`: magnitude-based multi-TF boosts (lines 109-132)
+- `cross_asset_divergence.py`: linear gradient with spread_z magnitude (line 145)
+- `ofi_divergence.py`: tanh soft cap (line 115)
+- `supply_demand_setup.py`, `liquidity_sweep_reclaim.py`: magnitude-based CTF boosts
+
+**Infrastructure: NO DRIFT.**
+- HMM field names confirmed: `hmm_prob_ranging`, `hmm_prob_trending_up`, `hmm_prob_trending_down`
+- Schema classes confirmed: `I3Structure`, `I4Context`, `I5Patterns`, `SMCContext`, `I6Confluence`
+- `gradient_utils.py` does NOT exist yet — clean slate
+- `confidence_utils.py` unchanged: `CONF_FLOOR=0.10`, `CONF_CEIL=0.95`
+
+### Design Decisions (Renaissance Principles)
+
+After audit, these design decisions are locked for plan execution:
+
+1. **gradient_utils.py: 6 exports, not 8.** `z_score_to_score` and `streak_score` are thin wrappers over `linear_ramp` — keep them for readability but they're not primitives. The 6 exports: `linear_ramp`, `threshold_decay`, `sigmoid_score`, `session_progress`, `freshness_decay`, `hmm_regime_weight`.
+
+2. **SessionContext: REPLACE in-place, not additive.** Research confirmed I7 plugins use `> 0.5` threshold checks, not `== 1.0` equality. Replacing `0.0/1.0` with `0.0-1.0` range is safe — values outside window stay 0.0, values inside become 0.0-1.0. Simpler than adding companion fields. Exception: `is_monday`/`is_friday` remain binary (categorical).
+
+3. **I3/SMC detection flags: ADDITIVE.** BOS detected, sweep detected, squeeze fired — these are genuinely discrete events. Keep the flag, add a `_strength` companion. I7 plugins use these for direction gating, not scoring.
+
+4. **I7 hmm_regime: REPLACE in confidence scoring only.** `hmm_regime == X` in confidence += lines → `hmm_regime_weight(features, direction)`. Eligibility gates (return None if wrong regime) stay binary — these are hard filters, not scores.
+
+5. **Scanner: importable module + CLI.** `tools/scan_binary_patterns.py` is both importable (for CI test) and runnable as script. No subprocess in CI test.

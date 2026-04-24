@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.35.0 | Status: v2.5 IN PROGRESS — Phases 69+71 complete; Phase 70 deferred (30+ day data gate).
+Version: 5.36.0 | Status: v2.5 PARTIAL — Phases 69+71 shipped; Phase 70 deferred (30+ day data gate, ~May 10). Next: v2.3 ML Foundation when data gate lifts.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
