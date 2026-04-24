@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
@@ -127,10 +128,9 @@ class MomentumBreakoutPlugin:
         regime_aligns = (direction == 1 and trend_regime > 0) or (
             direction == -1 and trend_regime < 0
         )
-        if abs(trend_regime) < 0.3:
-            regime_score = 0.5
-        elif regime_aligns:
-            regime_score = 1.0
+        # Continuous regime score from HMM probabilities (replaces 3-step)
+        if regime_aligns:
+            regime_score = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         else:
             regime_score = 0.1
 
