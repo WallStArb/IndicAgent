@@ -5,6 +5,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils.common import is_num, threshold_cross
+from ..utils.gradient_utils import linear_ramp
 
 
 @dataclass
