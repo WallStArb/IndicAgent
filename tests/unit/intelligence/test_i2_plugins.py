@@ -3,31 +3,41 @@
 
 class TestMACompositeExtended:
     def test_golden_cross_active_when_sma50_gt_sma200(self):
-        """When sma_50 > sma_200 in features, golden_cross_active = 1."""
+        """When sma_50 > sma_200, golden_cross_active > 0 (gradient)."""
         from src.intelligence.composites.ma_composites import MACompositePlugin
 
         features = {"sma_50": 5100.0, "sma_200": 5000.0, "close": 5150.0}
         p = MACompositePlugin()
         result = p.compute_full({"features": features})
-        assert result.get("golden_cross_active") == 1
+        assert result.get("golden_cross_active") > 0.0
+        assert 0.0 <= result.get("golden_cross_active") <= 1.0
 
     def test_death_cross_active_when_sma50_lt_sma200(self):
-        """When sma_50 < sma_200 in features, death_cross_active = 1."""
+        """When sma_50 < sma_200, death_cross_active > 0 (gradient)."""
         from src.intelligence.composites.ma_composites import MACompositePlugin
 
         features = {"sma_50": 4900.0, "sma_200": 5000.0, "close": 4850.0}
         p = MACompositePlugin()
         result = p.compute_full({"features": features})
-        assert result.get("death_cross_active") == 1
-        assert result.get("golden_cross_active") == 0
+        assert result.get("death_cross_active") > 0.0
+        assert result.get("golden_cross_active") < 0.5
 
-    def test_price_above_sma200(self):
-        """When price > sma_200, price_above_sma200 = 1. If SMA200 missing, returns None."""
+    def test_price_above_sma200_gradient(self):
+        """When price > sma_200, price_above_sma200 > 0.5 (gradient)."""
         from src.intelligence.composites.ma_composites import MACompositePlugin
 
         features = {"sma_200": 5000.0, "close": 5100.0}
         result = MACompositePlugin().compute_full({"features": features})
-        assert result.get("price_above_sma200") == 1
+        assert result.get("price_above_sma200") > 0.5
+
+    def test_ema_9_gt_21_gradient_midrange(self):
+        """When EMAs are close, ema_9_gt_21 is between 0 and 1."""
+        from src.intelligence.composites.ma_composites import MACompositePlugin
+
+        features = {"ema_9": 100.3, "ema_21": 100.0, "close": 101.0}
+        p = MACompositePlugin()
+        result = p.compute_full({"features": features})
+        assert 0.0 < result.get("ema_9_gt_21") < 1.0
 
     def test_empty_returns_empty(self):
         """Empty features dict returns empty dict."""
@@ -213,7 +223,8 @@ class TestADXEvents:
 
 
 class TestVolumeEvents:
-    def test_vol_spike_detected(self):
+    def test_vol_spike_high_z_gradient(self):
+        """High z-score (8.0) should saturate vol_spike near 1.0."""
         from src.intelligence.composites.volume_events import VolumeEventsPlugin
 
         features = {
@@ -223,7 +234,77 @@ class TestVolumeEvents:
             "close": 5100.0,
         }
         result = VolumeEventsPlugin().compute_full({"features": features})
-        assert result.get("vol_spike") == 1
+        assert result.get("vol_spike") > 0.9  # z=8, sigma_scale=3 → saturated
+
+    def test_vol_spike_mid_range_gradient(self):
+        """Mid-range z-score (2.5) should produce non-binary gradient."""
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+
+        features = {
+            "volume": 2500.0,  # z = (2500-1000)/500 = 3.0
+            "volume_sma_20": 1000.0,
+            "volume_std_20": 500.0,
+            "close": 5100.0,
+        }
+        result = VolumeEventsPlugin().compute_full({"features": features})
+        assert 0.0 < result.get("vol_spike") <= 1.0
+
+    def test_vol_spike_zero_z_is_zero(self):
+        """z=0 should produce vol_spike = 0.0."""
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+
+        features = {
+            "volume": 1000.0,  # z = 0
+            "volume_sma_20": 1000.0,
+            "volume_std_20": 500.0,
+            "close": 5100.0,
+        }
+        result = VolumeEventsPlugin().compute_full({"features": features})
+        assert result.get("vol_spike") == 0.0
+
+    def test_vol_drying_gradient(self):
+        """Volume well below SMA*0.5 should produce high drying score."""
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+
+        features = {
+            "volume": 200.0,
+            "volume_sma_20": 1000.0,
+            "close": 5100.0,
+        }
+        result = VolumeEventsPlugin().compute_full({"features": features})
+        assert result.get("vol_drying") > 0.5
+
+    def test_bb_touch_gradient(self):
+        """BB touch should be proximity-based gradient."""
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+
+        features = {
+            "close": 102.0,
+            "bb_20_2_upper": 102.0,
+            "bb_20_2_lower": 98.0,
+            "bb_20_2_mid": 100.0,
+        }
+        result = VolumeEventsPlugin().compute_full({"features": features})
+        # At the upper band exactly → should be near 1.0
+        assert result.get("bb_upper_touch") > 0.9
+
+    def test_bb_walking_gradient(self):
+        """BB walking should use streak score (saturates at 5)."""
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+
+        p = VolumeEventsPlugin()
+        features = {
+            "close": 102.0,
+            "bb_20_2_upper": 103.0,
+            "bb_20_2_lower": 97.0,
+            "bb_20_2_mid": 100.0,
+        }
+        # Simulate 3 consecutive bars above midline
+        p.compute_full({"features": {**features, "close": 101.0}})
+        p.compute_full({"features": {**features, "close": 101.5}})
+        result = p.compute_full({"features": features})
+        # After 3 bars: streak_score(3, saturation=5) = 0.6
+        assert 0.0 < result.get("bb_walking_upper") < 1.0
 
     def test_empty_returns_empty(self):
         from src.intelligence.composites.volume_events import VolumeEventsPlugin

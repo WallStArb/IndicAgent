@@ -80,16 +80,12 @@ class VolatilityRegimePlugin:
         bw_window = bb_width[-self.lookback :] if len(bb_width) >= self.lookback else bb_width
         bb_width_percentile = float(np.sum(bw_window <= bb_width_pct) / len(bw_window))
 
-        # Expansion / contraction: compare current ATR vs lagged ATR
+        # Expansion / contraction: continuous ratio deviation from 1.0
+        # Positive = expanding volatility, negative = contracting
         if len(atr_series) > self.expansion_lag:
             lagged_atr = atr_series[-(self.expansion_lag + 1)]
             ratio = current_atr / lagged_atr if lagged_atr > 0 else 1.0
-            if ratio > 1.05:
-                vol_expansion = 1.0
-            elif ratio < 0.95:
-                vol_expansion = -1.0
-            else:
-                vol_expansion = 0.0
+            vol_expansion = ratio - 1.0  # continuous: 0 = stable, >0 = expanding, <0 = contracting
         else:
             vol_expansion = 0.0
 
