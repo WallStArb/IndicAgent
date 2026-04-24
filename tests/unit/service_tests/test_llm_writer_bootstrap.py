@@ -71,6 +71,9 @@ async def test_llm_writer_buffer_depth_gauge():
     # Initialize BaseWriterAgent buffer attributes
     agent._buffer = []
     agent._buffer_depth_gauge = MagicMock()
+    agent._high_watermark_triggered = False
+    agent._overflow_threshold = agent.MAX_BUFFER_SIZE
+    agent._alert_threshold = agent.BUFFER_ALERT_PCT * agent.MAX_BUFFER_SIZE
 
     # Verify initial buffer depth is 0
     assert len(agent._buffer) == 0
