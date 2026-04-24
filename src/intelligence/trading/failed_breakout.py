@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -129,14 +130,16 @@ class FailedBreakoutPlugin:
 
         # ── Confidence ──────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
+        ranging_w = hmm_regime_weight(features, "ranging")
+        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence = 0.55
+        # Continuous regime scaling: ranging boosts (mean-reversion aligned),
+        # trending penalises. Probability-scaled, no step function.
+        confidence += 0.15 * ranging_w
+        confidence -= 0.10 * trending_w
         if hmm_regime == 0.0:
-            # Ranging regime — mean-reversion aligned
-            confidence += 0.15
             regime_ctx = "ranging"
         elif hmm_regime in (1.0, 2.0):
-            # Trending regime — less aligned with reversal
-            confidence -= 0.10
             regime_ctx = "bearish" if hmm_regime == 2.0 else "bullish"
         else:
             regime_ctx = "neutral"

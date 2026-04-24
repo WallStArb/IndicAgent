@@ -19,6 +19,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -202,9 +203,10 @@ class ORB15Plugin:
 
         # ── Confidence ───────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
+        trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
         confidence = 0.50
-        if hmm_regime in (1.0, 2.0):
-            confidence += 0.10  # trending regime aligns with ORB continuation
+        # Continuous trending probability scales the ORB continuation boost
+        confidence += 0.10 * trending_w
         confidence += gap_boost
 
         regime_ctx = "bullish" if direction == 1 else "bearish"

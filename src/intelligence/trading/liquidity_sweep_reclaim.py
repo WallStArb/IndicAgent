@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight, linear_ramp
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
@@ -82,8 +83,12 @@ class LiquiditySweepReclaimPlugin:
             t2 = entry - atr * 3.0
         targets = [round(t1, 2), round(t2, 2)]
 
-        # Confidence scoring
-        confidence = 0.55
+        # Confidence scoring — base derived from sweep depth (continuous)
+        sweep_depth_atr = float(features.get("sweep_depth_pct", 0.0))
+        confidence = 0.40 + 0.20 * linear_ramp(sweep_depth_atr, 0.0, 2.0)
+        # Continuous HMM regime weight: ranging regime boosts mean-reversion setup
+        ranging_w = hmm_regime_weight(features, "ranging")
+        confidence += 0.10 * ranging_w
         supporting = ["sweep_reclaimed"]
 
         fvg_type = features.get("fvg_type", 0.0)

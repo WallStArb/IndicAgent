@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
@@ -135,12 +136,15 @@ class SqueezeExpansionPlugin:
         # Momentum clarity (0.2): abs(momentum_bias), capped at 1.0
         momentum_score = min(1.0, abs(momentum_bias))
 
-        # Regime clarity (0.2): not conflicting with direction
+        # Regime clarity (0.2): continuous HMM trending probability
         if trend_regime != 0.0:
             regime_agrees = (trend_regime > 0 and direction == 1) or (
                 trend_regime < 0 and direction == -1
             )
-            regime_score = 0.8 if regime_agrees else 0.2
+            if regime_agrees:
+                regime_score = 0.2 + 0.6 * max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+            else:
+                regime_score = 0.2
         else:
             regime_score = 0.5
 
