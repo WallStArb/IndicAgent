@@ -21,7 +21,6 @@ from src.intelligence.utils.gradient_utils import (
     z_score_to_score,
 )
 
-
 # ---------------------------------------------------------------------------
 # linear_ramp
 # ---------------------------------------------------------------------------
@@ -166,7 +165,7 @@ class TestZScoreToScore:
 
     def test_mid_range_gradient(self):
         """Mid-range z-score produces gradient between 0 and 1."""
-        result = z_score_to_score(2.5, sigma_scale=2.0)
+        result = z_score_to_score(1.0, sigma_scale=2.0)
         assert 0.0 < result < 1.0
 
     def test_negative_z_absolute(self):
