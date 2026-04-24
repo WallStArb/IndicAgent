@@ -16,8 +16,8 @@
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ⏸ **v2.3 ML Foundation** — Phases 64, 65, 66 (deferred until 30+ days clean signal data; Phase 56 complete 2026-04-11)
-- ✅ **v2.4 Observability Hardening** — Phases 67–68 (COMPLETE 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70 (planning 2026-04-13)
+- ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71 (Phase 69+71 complete; Phase 70 deferred)
 
 ## Phases
 
@@ -255,7 +255,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔨 v2.4 Observability Hardening (Phases 68→67) — ACTIVE</summary>
+<summary>✅ v2.4 Observability Hardening (Phases 67–68) — SHIPPED 2026-04-23</summary>
 
 **Milestone Goal:** Fix critical pipeline correctness bugs first (regime filtering bypass, write-path reliability, clean slate), then instrument the corrected system with observability. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps.
 
@@ -274,50 +274,27 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69, 70) — PLANNING</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69, 70, 71) — Phase 70 deferred</summary>
 
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 70 adds statistically validated ML scoring layer (LightGBM) once 30+ days of clean signal data is available.
-
-**Execution order:** 69.1 → 69.2 → 69.3 → 69.4 (critical fixes → observability → validation → rollout)
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
   Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
   **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
   **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
+- [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
+  Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
+  **Design doc:** `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md`
+  **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
 - [ ] **Phase 70: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. Requires 30+ days clean signal_ledger outcomes. `_shadow` dict already captured in all I7 plugins (Phase 45).
-  
-  **Wave 1: Critical Fixes** (Day 1)
-  - Plan 01: Base class creates consumer (eliminate dual patterns)
-  - Plan 02: Move consume loop to base class (eliminate duplication)
-  - Plan 03: Buffer overflow critical alert + backpressure
-  - Plan 04: Offset commit integration tests (prove correctness)
-  
-  **Wave 2: Observability** (Day 2)
-  - Plan 05: Flush latency histogram instrumentation
-  - Plan 06: Background flush flag (prepare for optimization)
-  - Plan 07: Batch size auto-tuning foundation
-  - Plan 08: Writer health dashboard (Grafana)
-  
-  **Wave 3: Validation & Rollout** (Days 3-4)
-  - Plan 09: Comprehensive test coverage (unit + integration + load)
-  - Plan 10: Canary deployment (lifecycle_writer first)
-  - Plan 11: Full rollout + 48h monitoring
 
-**Success Criteria:**
+**Success Criteria (Phases 69+71):**
 - ✅ Single consumer creation pattern across all 6 writers
 - ✅ 5/6 writers use base class `_run()` loop (feature_writer exception)
 - ✅ Buffer overflow triggers critical alert (pager + backpressure)
-- ✅ Integration tests verify offset commits
-- ✅ No throughput regression (> 1000 msg/sec)
-- ✅ No data loss in load test (1000 msg/sec, 10K messages)
-
-**Renaissance Compliance:**
-- Simplicity: One pattern for consumer creation
-- Modularity: Base class owns consume loop
-- Data Quality: Critical alerts on buffer overflow
-- Instrument Everything: Offset commit tests + flush metrics
-- Earn the Right: Batch tuning based on data
-- Let the System Run: Auto-tuning ready (disabled by default)
+- ✅ Settings singleton in BaseAgent — zero tribal knowledge for new agents
+- ✅ Auto init_tracing() — no manual __main__ calls
+- ✅ Default lag reporting in base classes — 15 overrides removed
 
 </details>
 
@@ -696,7 +673,7 @@ Plans:
 - [x] 63-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
 - [x] 63-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
 - [x] 63-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
-- [ ] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill
+- [x] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill — COMPLETE 2026-04-09
 
 ### Phase 63.1: Data Integrity — Aggregator Resilience + HTF Backfill
 

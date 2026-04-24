@@ -46,7 +46,7 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 .venv/bin/python -m src.providers.ibkr --test-connection
 
 # Verify bars are flowing
-journalctl -u indicagent-ibkr-provider --since "1 minute ago" | grep "1m bar emitted"
+grep "1m bar emitted" logs/ibkr_provider_agent.log | tail -5
 
 # Check Kafka output
 docker exec redpanda rpk topic consume market.bars.raw.ibkr --from-end
@@ -57,7 +57,7 @@ docker exec redpanda rpk topic consume market.bars.raw.ibkr --from-end
 - **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:
   ```bash
   sudo systemctl restart indicagent-ibkr-provider
-  # Verify: journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"
+  # Verify: grep "KafkaProducerClient started" logs/ibkr_provider_agent.log | tail -3
   ```
 - **`bars_processed` freeze**: TWS daemon gets stuck — IBKR paper account returns stale RTH bars regardless of `endDateTime` format. `seen_bar_timestamps` dedup caches all timestamps from initial poll; counter sticks at N×61 forever. **Restart does NOT fix it.** Root fix: build 1m OHLCV bars from live tick stream (`development.market.ticks`) instead of polling historical API.
 - **Qualify errors**: Some futures need `tradingClass` in `provider_meta` — add if IBKR returns ambiguous contract details.

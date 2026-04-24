@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.33.0 | Status: v2.2 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
+Version: 5.34.0 | Status: v2.5 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.

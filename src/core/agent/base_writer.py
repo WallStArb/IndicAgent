@@ -89,6 +89,11 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         self._buffer: list[Any] = []
         self._last_flush: float = 0.0
         self._consumer: Any = None  # Set in subclass _setup() — MUST be assigned for offset commits
+        self._high_watermark_triggered: bool = False
+
+        # Precomputed thresholds (constants for lifetime — avoid per-message float math)
+        self._overflow_threshold: int = self.MAX_BUFFER_SIZE
+        self._alert_threshold: float = self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE
 
         # Metrics — safe registration via module-level cache (test safety)
         agent_snake = name.lower().replace(" ", "_")
@@ -190,27 +195,34 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         - Buffer depth gauge update
         """
         self._buffer.extend(rows)
+        buf_len = len(self._buffer)
 
-        if len(self._buffer) > self.MAX_BUFFER_SIZE:
-            dropped = len(self._buffer) - self.MAX_BUFFER_SIZE
-            self._buffer = self._buffer[-self.MAX_BUFFER_SIZE :]
+        if buf_len > self._overflow_threshold:
+            dropped = buf_len - self._overflow_threshold
+            self._buffer = self._buffer[-self._overflow_threshold :]
+            buf_len = self._overflow_threshold
             self._buffer_overflow_total.inc(dropped)
             self.logger.error(
                 "buffer_overflow",
                 severity="critical",
                 dropped=dropped,
-                max_size=self.MAX_BUFFER_SIZE,
+                max_size=self._overflow_threshold,
             )
 
-        if len(self._buffer) > self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE:
-            self.logger.warning(
-                "buffer_high_watermark",
-                severity="high",
-                depth=len(self._buffer),
-                threshold=self.BUFFER_ALERT_PCT,
-            )
+        # One-shot high-watermark: log only on threshold crossing, not every message
+        if buf_len > self._alert_threshold:
+            if not self._high_watermark_triggered:
+                self._high_watermark_triggered = True
+                self.logger.warning(
+                    "buffer_high_watermark",
+                    severity="high",
+                    depth=buf_len,
+                    threshold=self.BUFFER_ALERT_PCT,
+                )
+        else:
+            self._high_watermark_triggered = False
 
-        self._buffer_depth_gauge.set(len(self._buffer))
+        self._buffer_depth_gauge.set(buf_len)
 
     def _should_flush(self) -> bool:
         """Check if buffer should be flushed based on size or time interval."""
@@ -291,7 +303,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             # Backpressure: if buffer is above alert threshold, pause briefly
-            if len(self._buffer) > self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE:
+            if len(self._buffer) > self._alert_threshold:
                 await asyncio.sleep(0.5)
 
             await self.maybe_flush()
