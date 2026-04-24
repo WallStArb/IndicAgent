@@ -99,6 +99,8 @@ class TestCandlestickPatterns:
             "inside_bar",
             "outside_bar",
             "doji_detected",
+            "inside_bar_depth",
+            "outside_bar_expansion",
         }
         assert expected.issubset(result.keys())
 
@@ -108,6 +110,153 @@ class TestCandlestickPatterns:
         )
 
         assert CandlestickPatternsPlugin().compute_full({}) == {}
+
+    def test_inside_bar_depth_gradient(self):
+        import pandas as pd
+
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
+
+        # Current bar moderately inside prior bar
+        # prior: h=5020, l=5000 (range=20)
+        # current: h=5016, l=5004 (inside, margins: top=4, bot=4)
+        # depth = min(4, 4) / 20 = 0.2
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5010.0, 5010.0],
+                "high": [5008.0, 5020.0, 5016.0],
+                "low": [5001.0, 5000.0, 5004.0],
+                "close": [5006.0, 5015.0, 5012.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
+        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        assert result["inside_bar"] == 1.0
+        assert 0.0 < result["inside_bar_depth"] < 1.0
+        assert abs(result["inside_bar_depth"] - 0.2) < 0.01
+
+    def test_inside_bar_depth_zero_when_no_inside_bar(self):
+        import pandas as pd
+
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
+
+        # No inside bar (current bar wider than prior)
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5005.0, 5005.0],
+                "high": [5008.0, 5010.0, 5020.0],
+                "low": [5001.0, 4995.0, 4990.0],
+                "close": [5006.0, 5000.0, 5015.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
+        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        assert result["inside_bar"] == 0.0
+        assert result["inside_bar_depth"] == 0.0
+
+    def test_outside_bar_expansion_gradient(self):
+        import pandas as pd
+
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
+
+        # Current bar engulfs prior bar with moderate expansion
+        # prior: h=5010, l=5000 (range=10)
+        # current: h=5018, l=4994 (expansion: top=8, bot=6)
+        # expansion = (8 + 6) / 10 = 1.4
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5005.0, 5005.0],
+                "high": [5008.0, 5010.0, 5018.0],
+                "low": [5001.0, 5000.0, 4994.0],
+                "close": [5006.0, 5008.0, 5012.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
+        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        assert result["outside_bar"] == 1.0
+        assert result["outside_bar_expansion"] > 0.0
+        assert abs(result["outside_bar_expansion"] - 1.4) < 0.01
+
+    def test_outside_bar_expansion_zero_when_no_outside_bar(self):
+        import pandas as pd
+
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
+
+        # No outside bar
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5005.0, 5005.0],
+                "high": [5008.0, 5010.0, 5008.0],
+                "low": [5001.0, 5000.0, 5002.0],
+                "close": [5006.0, 5008.0, 5006.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
+        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        assert result["outside_bar"] == 0.0
+        assert result["outside_bar_expansion"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# MTFVolatility gradient tests
+# ---------------------------------------------------------------------------
+
+
+class TestMTFVolatilityGradient:
+    def test_expansion_continuous_values(self):
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+
+        close = np.linspace(5000, 5100, 10)
+        df = make_ohlcv(close)
+        intel_15m = {"vol_expansion": 0.5}
+        intel_1h = {"vol_expansion": 0.3}
+        result = MTFVolatilityPlugin().compute_full(
+            {"main": df, "features": {}, "intel_15m": intel_15m, "intel_1h": intel_1h}
+        )
+        # Should output continuous values, not binary 0/1
+        assert 0.0 < result["mtf_vol_expansion_15m"] <= 1.0
+        assert 0.0 < result["mtf_vol_expansion_1h"] <= 1.0
+        assert abs(result["mtf_vol_expansion_15m"] - 0.5) < 0.01
+        assert abs(result["mtf_vol_expansion_1h"] - 0.3) < 0.01
+
+    def test_expansion_zero_when_contracting(self):
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+
+        close = np.linspace(5000, 5100, 10)
+        df = make_ohlcv(close)
+        intel_15m = {"vol_expansion": -0.5}
+        intel_1h = {"vol_expansion": -0.3}
+        result = MTFVolatilityPlugin().compute_full(
+            {"main": df, "features": {}, "intel_15m": intel_15m, "intel_1h": intel_1h}
+        )
+        assert result["mtf_vol_expansion_15m"] == 0.0
+        assert result["mtf_vol_expansion_1h"] == 0.0
+
+    def test_squeeze_within_continuous(self):
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
+
+        close = np.linspace(5000, 5100, 10)
+        df = make_ohlcv(close)
+        features = {
+            "bb_20_2_upper": 5015.0,
+            "bb_20_2_lower": 5005.0,  # BB width = 10
+            "keltner_upper": 5020.0,
+            "keltner_lower": 5000.0,  # KC width = 20
+        }
+        intel_15m = {"vol_expansion": 0.6}
+        result = MTFVolatilityPlugin().compute_full(
+            {"main": df, "features": features, "intel_15m": intel_15m, "intel_1h": {}}
+        )
+        # squeeze_within_expansion should be continuous > 0 when squeezing and expanding
+        assert result["squeeze_within_expansion"] > 0.0
+        assert result["squeeze_within_expansion"] <= 1.0
 
 
 # ---------------------------------------------------------------------------
