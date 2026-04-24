@@ -61,8 +61,9 @@ class VolumeEventsPlugin:
                 ratio = (volume - vol_sma) / vol_sma if vol_sma > 0 else 0.0
                 out["vol_spike"] = linear_ramp(ratio, 0.0, self._SPIKE_SIGMA * 0.5)
             # Gradient: drying intensity — higher when volume is much lower than SMA
-            drying_gap = vol_sma * self._DRY_RATIO - volume
-            out["vol_drying"] = linear_ramp(drying_gap, 0.0, vol_sma * self._DRY_RATIO)
+            dry_threshold = vol_sma * self._DRY_RATIO
+            drying_gap = dry_threshold - volume
+            out["vol_drying"] = linear_ramp(drying_gap, 0.0, dry_threshold)
         else:
             out["vol_spike"] = 0.0
             out["vol_drying"] = 0.0

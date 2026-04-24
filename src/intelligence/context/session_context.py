@@ -14,7 +14,7 @@ from src.core.models import (
 )
 
 from ..plugins import InputSpec
-from ..utils.gradient_utils import linear_ramp, session_progress, threshold_decay
+from ..utils.gradient_utils import linear_ramp, threshold_decay
 
 # --- Legacy ET session windows (local wall-clock, preserved for backward compat) ---
 
@@ -45,13 +45,6 @@ def _time_to_frac(et_dt: datetime) -> float:
 def _window_to_frac(start: tuple[int, int], end: tuple[int, int]) -> tuple[float, float]:
     """Convert (hour, minute) window to fractional 24h bounds."""
     return (start[0] * 60 + start[1]) / 1440.0, (end[0] * 60 + end[1]) / 1440.0
-
-
-def _in_window(et_dt: datetime, start: tuple[int, int], end: tuple[int, int]) -> bool:
-    t = (et_dt.hour, et_dt.minute)
-    if start <= end:
-        return start <= t < end
-    return t >= start or t < end
 
 
 def _window_progress(et_dt: datetime, start: tuple[int, int], end: tuple[int, int]) -> float:
