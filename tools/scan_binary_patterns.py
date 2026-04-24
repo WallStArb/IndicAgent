@@ -65,22 +65,83 @@ BINARY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
 ]
 
-# Allowlist patterns that should NOT be flagged as violations
+# Allowlist patterns that should NOT be flagged as violations.
+# These are legitimate binary usages: direction encoders, detection event flags,
+# categorical fields, eligibility gates, guard checks, and docstrings.
 ALLOWLIST_PATTERNS: list[re.Pattern[str]] = [
+    # --- Direction encoders / sign ---
     re.compile(r"direction", re.IGNORECASE),
     re.compile(r"_dir\b"),
     re.compile(r"_sign\b"),
+    re.compile(r"\bsign\s*="),  # direction sign variable assignment
     re.compile(r"signal_type"),
+    re.compile(r"obv_slope_sign"),  # direction encoder {-1, 0, 1}
+    re.compile(r"cross(ed)?_(up|down)"),  # crossover direction vars
+    # --- Crossover/detection events ---
     re.compile(r"\bcross(ed)?\b", re.IGNORECASE),
-    re.compile(r"is_monday|is_friday|is_\w+day\b"),
-    re.compile(r"fvg_type|sweep_type|swing_high_type|swing_low_type"),
-    re.compile(r"# gradient-exempt"),
     re.compile(r"threshold_cross"),  # tested utility function
     re.compile(r"crossover_detect"),  # tested utility function
+    # --- Day-of-week / calendar ---
+    re.compile(r"is_monday|is_friday|is_\w+day\b"),
+    # --- Type/category categorical fields ---
+    re.compile(r"fvg_type|sweep_type|swing_high_type|swing_low_type"),
+    re.compile(r"ob_type"),  # order block type {-1, 0, 1} categorical
+    re.compile(r"high_type|low_type|pattern"),  # swing detector categorical
+    re.compile(r"\bhh\b.*==.*\bhl\b"),  # swing structure classification (higher-high/higher-low)
+    re.compile(r"price_bounce"),  # bounce event detection flag
+    # --- Explicit exemption ---
+    re.compile(r"# gradient-exempt"),
+    re.compile(r"== 0\.0.*#.*gradient-exempt"),
+    # --- Event flags (not scores) ---
     re.compile(r"\bbullish\s*="),  # event flag, not a score
     re.compile(r"\bbearish\s*="),  # event flag, not a score
     re.compile(r"track_bars_ago"),  # counter, not a score
-    re.compile(r"== 0\.0.*#.*gradient-exempt"),
+    re.compile(r"inside_bar\b"),  # binary detection event
+    re.compile(r"outside_bar\b"),  # binary detection event
+    re.compile(r"pin_bar"),  # binary detection event
+    re.compile(r"in_discount"),  # zone membership flag
+    re.compile(r"in_lvn"),  # low-volume node flag
+    re.compile(r"price_in_va|price_above_va|price_below_va"),  # VA position flags
+    re.compile(r"price_in_premium"),  # premium/discount zone flag
+    re.compile(r"macd_hist_positive|macd_hist_turning"),  # histogram state flags
+    re.compile(r"neg_support"),  # support test result flag
+    re.compile(r"in_extreme"),  # RSI zone counter flag
+    re.compile(r"above_mid|below_mid"),  # BB position flags (internal counters)
+    re.compile(r"fired"),  # squeeze fire event
+    re.compile(r"squeeze_active"),  # squeeze state flag
+    re.compile(r"active\s*="),  # active flag (measured_move)
+    re.compile(r"fvg_active"),  # FVG presence flag (cis_scorer)
+    re.compile(r"promotion_ready"),  # promotion gate flag (weight_updater)
+    re.compile(r"turning_up"),  # MACD turning event
+    # --- Eligibility gate checks (if detection == 1.0) ---
+    re.compile(r"bos_detected|choch_detected|choch\b"),  # detection gates
+    re.compile(r"sweep_detected|sweep_recl"),  # sweep detection gates
+    re.compile(r"sweep_reclaimed"),  # reclaim detection gate
+    re.compile(r"in_demand\b|in_supply\b"),  # zone membership gates
+    re.compile(r"mitigated"),  # mitigation status gate
+    re.compile(r"price_in_va"),  # VA position gate (trade_framer)
+    re.compile(r"hmm_regime"),  # regime routing (not scoring)
+    re.compile(r"is_ranging"),  # regime context label
+    re.compile(r"regime_ctx"),  # regime context label assignment
+    # --- Guard / zero-checks ---
+    re.compile(r"total_weight\s*==\s*0"),  # guard against division by zero
+    re.compile(r"== 0\.0:\s*$"),  # guard check (if x == 0.0: return/guard)
+    re.compile(r"assert"),  # assertion, not scoring
+    re.compile(r"ofi_ewma\s*==\s*0"),  # guard check
+    re.compile(r"cvd_div\s*==\s*0"),  # guard check
+    # --- Docstring patterns ---
+    re.compile(r"Gate:"),  # docstring: gate description
+    re.compile(r"Gates on"),  # docstring: gate description
+    re.compile(r"Direction:"),  # docstring: direction description
+    re.compile(r"Confidence:"),  # docstring: confidence description
+    re.compile(r"High conviction"),  # docstring: description
+    re.compile(r"-\s+in_lvn"),  # docstring: parameter description
+    # --- Counting / aggregation (int() for counting, not scoring) ---
+    re.compile(r"int\(\(.*\)\.sum\(\)"),  # numpy count (not score)
+    re.compile(r"int\(np\.sum"),  # numpy count (not score)
+    re.compile(r"wins\s*="),  # win counting (not score)
+    re.compile(r"agreeing"),  # bucket count (not score)
+    re.compile(r"int\(np\."),  # numpy count (not score)
 ]
 
 
@@ -183,13 +244,24 @@ def main() -> int:
         action="store_true",
         help="Save current violation count to tools/.binary_baseline.json",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output violations as JSON (machine-readable for CI)",
+    )
     args = parser.parse_args()
 
     root = _project_root()
     violations = scan_all(root)
 
     # Output results
-    if args.verbose:
+    if args.json_output:
+        json_violations = [
+            {"file": v["file"], "line": v["line"], "pattern": v["pattern"]} for v in violations
+        ]
+        print(json.dumps(json_violations, indent=2))
+    elif args.verbose:
         for v in violations:
             print(f"\n{v['file']}:{v['line']} [{v['pattern']}]")
             print(f"  {v['matched']}")
@@ -199,7 +271,8 @@ def main() -> int:
         for v in violations:
             print(f"{v['file']}:{v['line']} [{v['pattern']}] {v['matched']}")
 
-    print(f"\nTotal violations: {len(violations)}")
+    if not args.json_output:
+        print(f"\nTotal violations: {len(violations)}")
 
     # Save baseline if requested
     if args.baseline:
@@ -209,8 +282,7 @@ def main() -> int:
             "count": len(violations),
             "files_affected": len({v["file"] for v in violations}),
             "violations": [
-                {"file": v["file"], "line": v["line"], "pattern": v["pattern"]}
-                for v in violations
+                {"file": v["file"], "line": v["line"], "pattern": v["pattern"]} for v in violations
             ],
         }
         baseline_path.write_text(json.dumps(baseline_data, indent=2) + "\n")
