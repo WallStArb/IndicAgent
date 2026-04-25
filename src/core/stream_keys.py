@@ -285,6 +285,15 @@ def topic_lifecycle_transitions(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.transitions"
 
 
+def topic_transform_graduation(env_name: str) -> str:
+    """Kafka topic for transform graduation evaluation results.
+
+    Published by GraduationComputeAgent on each evaluation event.
+    Consumed by GraduationWriterAgent for upsert into transform_graduation table.
+    """
+    return f"{env_prefix(env_name)}intelligence.transform.graduation"
+
+
 # ---------------------------------------------------------------------------
 # Swarm topics (Phase 56)
 # ---------------------------------------------------------------------------
@@ -427,6 +436,11 @@ def topic_cross_asset_dlq(env_name: str) -> str:
 def topic_llm_writer_dlq(env_name: str) -> str:
     """Dead letter queue for LLMWriterAgent unparseable payloads."""
     return f"{env_prefix(env_name)}llm.writer.dlq"
+
+
+def topic_transform_graduation_dlq(env_name: str) -> str:
+    """Dead letter queue for GraduationWriterAgent unparseable payloads."""
+    return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:
