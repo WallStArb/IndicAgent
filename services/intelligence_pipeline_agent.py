@@ -44,6 +44,7 @@ from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.ml.transform_recorder import TransformRecorder
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
     TF_SECONDS,
@@ -644,7 +645,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
             await self._seed_bar_history_from_db()
 
-        # 5. Load DB caches (I7 setup, same as SignalGeneratorAgent)
+        # 5. Construct TransformRecorder (shared across all pipeline runs)
+        self._transform_recorder = TransformRecorder(
+            pool=self._db.pool, batch_size=100, flush_interval_s=2.0
+        )
+
+        # 6. Load DB caches (I7 setup, same as SignalGeneratorAgent)
         await self._load_perf_weights()
         await self._refresh_drift_penalties()
         await self._load_cis_weights()
@@ -841,6 +847,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
             await self._kafka_producer.stop()
+        if hasattr(self, "_transform_recorder"):
+            await self._transform_recorder.flush()
         if hasattr(self, "_db"):
             await self._db.close()
         self.logger.info("agent.teardown_complete")
@@ -1441,15 +1449,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
-        quality_gated = apply_quality_gate(raw_signals, features)
+        quality_gated = await apply_quality_gate(
+            raw_signals, features, tf=tf, recorder=self._transform_recorder
+        )
 
         # Attribution capture: AFTER quality gate, BEFORE regime gate
         for sig in quality_gated:
             sig["pre_regime_confidence"] = sig.get("confidence", 0.0)
 
-        regime_gated = apply_regime_gate(
+        regime_gated = await apply_regime_gate(
             quality_gated, features,
             prob_min=self._regime_prob_min, dur_min=self._regime_dur_min,
+            tf=tf, recorder=self._transform_recorder,
         )
 
         # Regime suppression metric
@@ -1463,20 +1474,27 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for sig in regime_gated:
             sig["pre_tod_confidence"] = sig.get("confidence", 0.0)
 
-        tod_adjusted = apply_tod_adjustment(
+        tod_adjusted = await apply_tod_adjustment(
             regime_gated,
             self._tod_priors,
             tf,
             hour_et,
             symbol=symbol,
+            recorder=self._transform_recorder,
         )
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
-        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf, symbol=symbol)
-        ranked = rank_signals(calibrated, self._perf_weights, tf, symbol=symbol)
+        calibrated = await apply_calibration(
+            tod_adjusted, self._calibration_curves, tf,
+            symbol=symbol, recorder=self._transform_recorder,
+        )
+        ranked = await rank_signals(
+            calibrated, self._perf_weights, tf,
+            symbol=symbol, recorder=self._transform_recorder,
+        )
 
         # Annotate each ranked signal with ledger metadata before publishing
         num_signals = len(ranked)

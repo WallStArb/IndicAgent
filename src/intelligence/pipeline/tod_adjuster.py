@@ -6,6 +6,11 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.ml.transform_recorder import TransformRecorder
+
 # TOD session priors — mirrored from signal_generator_service.py
 # Key: (regime_type, hour_et) → prior win-rate ratio (>1.0 = favourable, <1.0 = avoid)
 _TOD_SESSION_PRIORS: dict[tuple[str, int], float] = {
@@ -26,12 +31,13 @@ _TOD_ALPHA: float = 20.0  # Bayesian prior weight (virtual observations)
 _TOD_CLAMP: tuple[float, float] = (0.7, 1.3)  # Hard multiplier bounds
 
 
-def apply_tod_adjustment(
+async def apply_tod_adjustment(
     signals: list[dict],
     tod_table: dict[tuple[str, str, int, str], float],
     tf: str,
     hour_et: int,
     symbol: str = "*",
+    recorder: TransformRecorder | None = None,
 ) -> list[dict]:
     """Apply TOD multiplier to all signals.
 
@@ -51,6 +57,9 @@ def apply_tod_adjustment(
         Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
         Falls back to global '*' sentinel when no symbol-specific row exists.
         Default '*' preserves backward compatibility with call sites that omit it.
+    recorder:
+        Optional TransformRecorder. When provided, emits one tod record per signal.
+        When None, behavior is unchanged.
 
     Lookup hierarchy:
         1. (regime_type, tf, hour_et, symbol)  -- symbol-specific
@@ -85,6 +94,18 @@ def apply_tod_adjustment(
 
         s["confidence"] = round(before * tod_multiplier, 4)
         s["tod_multiplier"] = tod_multiplier
+
+        if recorder is not None and s.get("signal_id"):
+            seg = f"{s.get('regime_type', 'any')}.{tf}.{hour_et}"
+            await recorder.record(
+                signal_id=s["signal_id"],
+                transform_id="tod",
+                dag_order=3,
+                multiplier=tod_multiplier,
+                segment_key=seg,
+                metadata={"tod_multiplier": tod_multiplier, "hour_et": hour_et},
+            )
+
         result.append(s)
 
     return result
