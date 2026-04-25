@@ -64,19 +64,23 @@ WHERE signal_id::text = $1
 """
 
 _SEED_COUNTERS_QUERY = """
-SELECT transform_id, transform_version, segment_key, evaluated_at
-FROM transform_graduation
-"""
-
-_COUNT_NEW_EXITS_QUERY = """
-SELECT COUNT(DISTINCT stl.signal_id)
-FROM signal_transform_log stl
-JOIN signal_ledger sl ON stl.signal_id::text = sl.signal_id::text
-WHERE stl.transform_id = $1
-  AND stl.transform_version = $2
-  AND stl.segment_key = $3
-  AND sl.exit_at >= $4
-  AND sl.outcome IS NOT NULL
+SELECT
+    tg.transform_id,
+    tg.transform_version,
+    tg.segment_key,
+    COUNT(DISTINCT stl.signal_id) AS new_exits
+FROM transform_graduation tg
+LEFT JOIN LATERAL (
+    SELECT stl.signal_id
+    FROM signal_transform_log stl
+    JOIN signal_ledger sl ON stl.signal_id::text = sl.signal_id::text
+    WHERE stl.transform_id = tg.transform_id
+      AND stl.transform_version = tg.transform_version
+      AND stl.segment_key = tg.segment_key
+      AND sl.exit_at >= tg.evaluated_at
+      AND sl.outcome IS NOT NULL
+) stl ON TRUE
+GROUP BY tg.transform_id, tg.transform_version, tg.segment_key
 """
 
 
@@ -169,17 +173,7 @@ class GraduationComputeAgent(BaseAgent):
 
         for row in rows:
             key = (row["transform_id"], row["transform_version"], row["segment_key"])
-            evaluated_at: datetime = row["evaluated_at"]
-
-            async with self._pool.acquire() as conn:
-                n = await conn.fetchval(
-                    _COUNT_NEW_EXITS_QUERY,
-                    row["transform_id"],
-                    row["transform_version"],
-                    row["segment_key"],
-                    evaluated_at,
-                )
-            self._counters[key] = int(n or 0)
+            self._counters[key] = int(row["new_exits"] or 0)
 
         self.logger.info(
             "graduation_compute.counters_seeded",
@@ -231,18 +225,20 @@ class GraduationComputeAgent(BaseAgent):
             self._counters[key] += 1
 
             if self._counters[key] >= EVAL_RESOLUTION_THRESHOLD:
-                await self._evaluate_segment(*key)
-                self._counters[key] = 0
+                success = await self._evaluate_segment(*key)
+                if success:
+                    self._counters[key] = 0
 
     async def _evaluate_segment(
         self,
         transform_id: str,
         transform_version: str,
         segment_key: str,
-    ) -> None:
+    ) -> bool:
         """Run Renaissance graduation evaluation for one (transform, version, segment).
 
         Fetches rolling 90d data, calls evaluate_all(), publishes result to Kafka.
+        Returns True on success (counter should reset), False on any failure.
         On failure: logs, increments error counter, routes error payload to DLQ.
         """
         assert self._pool is not None
@@ -262,7 +258,7 @@ class GraduationComputeAgent(BaseAgent):
                     transform_id=transform_id,
                     segment_key=segment_key,
                 )
-                return
+                return True
 
             df = pd.DataFrame([dict(r) for r in rows])
             result = evaluate_all(
@@ -286,6 +282,7 @@ class GraduationComputeAgent(BaseAgent):
                 n=result["n"],
                 is_graduated=result["is_graduated"],
             )
+            return True
 
         except Exception as exc:
             self._evaluation_errors.inc()
@@ -315,6 +312,7 @@ class GraduationComputeAgent(BaseAgent):
                         "graduation_compute.dlq_publish_failed",
                         error=str(dlq_exc),
                     )
+            return False
 
     async def _teardown(self) -> None:
         """Close Kafka clients and DB pool."""

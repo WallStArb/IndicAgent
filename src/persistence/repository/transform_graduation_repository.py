@@ -44,7 +44,7 @@ def _row_to_tuple(row: dict[str, Any]) -> tuple:
         row["transform_id"],
         row["transform_version"],
         row["segment_key"],
-        int(row["n"]),
+        int(row["n"]) if row.get("n") is not None else 0,
         row.get("spearman_rho"),
         row.get("spearman_p"),
         row.get("calibration_max_error"),

@@ -327,7 +327,7 @@ def evaluate_all(
         "mde": mde,
         "val_rho": _nan_to_none(val_rho),
         "overfitting_risk": bool(wf.get("overfitting", False)),
-        "sharpe_delta": sharpe_delta,
+        "sharpe_delta": _nan_to_none(sharpe_delta),
         "is_graduated": is_graduated,
         "evaluated_at": evaluated_at,
         "expires_at": expires_at,

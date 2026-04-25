@@ -848,7 +848,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if hasattr(self, "_kafka_producer"):
             await self._kafka_producer.stop()
         if hasattr(self, "_transform_recorder"):
-            await self._transform_recorder.flush()
+            try:
+                await self._transform_recorder.flush()
+            except Exception as exc:
+                self.logger.warning("teardown.transform_recorder_flush_failed", error=str(exc))
         if hasattr(self, "_db"):
             await self._db.close()
         self.logger.info("agent.teardown_complete")
@@ -1464,7 +1467,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
 
         # Regime suppression metric
-        for sig in quality_gated:
+        for sig in regime_gated:
             if not sig.get("regime_eligible", True):
                 REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
                     reason="regime_type", plugin=sig.get("setup_plugin", ""), tf=tf,

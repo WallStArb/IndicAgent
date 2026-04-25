@@ -96,7 +96,7 @@ async def apply_tod_adjustment(
         s["tod_multiplier"] = tod_multiplier
 
         if recorder is not None and s.get("signal_id"):
-            seg = f"{s.get('regime_type', 'any')}.{tf}.{hour_et}"
+            seg = f"{regime_type}.{tf}.{hour_et}"
             await recorder.record(
                 signal_id=s["signal_id"],
                 transform_id="tod",
