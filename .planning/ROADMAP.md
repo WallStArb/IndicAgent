@@ -879,12 +879,22 @@ Plans:
 - [x] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
 
 
+
+
 ### Phase 72: Signal Transform Log — Unified alpha modifier architecture. Add signal_transform_log and transform_graduation tables. Every pipeline transform writes a row instead of mutating confidence in-place. Per-segment graduation protocol with 90-day expiry. Absorbs alpha_multiplier_shadow. 4-phase migration: dual-write then wire composition then absorb shadow table then deprecate old columns. Design spec: docs/plans/2026-04-24-signal-transform-log-design.md
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Phase 1 dual-write infrastructure: ship the signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, new Kafka topics, and one-line recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior is unchanged; the log is write-only and graduation runs in shadow.
+**Requirements**: P72-DB, P72-GRAD-MOD, P72-TOPICS, P72-RECORDER, P72-CLI-REFACTOR, P72-MATH-WIRE, P72-SWARM-WIRE, P72-WRITER-AGENT, P72-COMPUTE-AGENT
 **Depends on:** Phase 71
-**Plans:** 0 plans
+**Plans:** 9/9 plans complete
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 72 to break down)
+- [x] 72-01-PLAN.md — DB migrations 069 (signal_transform_log hypertable) + 070 (transform_graduation)
+- [x] 72-02-PLAN.md — graduation.py validation module + unit tests (positive multiplier sign convention)
+- [x] 72-03-PLAN.md — Kafka topics: topic_transform_graduation + DLQ in stream_keys.py + kafka_init_topics.py
+- [x] 72-04-PLAN.md — TransformRecorder batch writer + unit tests (mirrors ShadowRecorder pattern)
+- [x] 72-05-PLAN.md — Refactor scripts/validate_skeptic.py into thin CLI wrapper over graduation.py
+- [x] 72-06-PLAN.md — Wire TransformRecorder into 5 math pipeline files + intelligence_pipeline_agent threading
+- [x] 72-07-PLAN.md — Wire TransformRecorder into swarm_dispatch_service (3 swarm transforms, dual-write alongside ShadowRecorder)
+- [x] 72-08-PLAN.md — GraduationWriterAgent service + repository + systemd unit
+- [x] 72-09-PLAN.md — GraduationComputeAgent service (event-driven evaluator) + systemd unit
