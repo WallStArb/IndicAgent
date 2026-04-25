@@ -6,10 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.intelligence.swarm.graduation import (
-    EVAL_EXPIRY_DAYS,
     GATE_SPEARMAN_RHO,
     compute_expected_shortfall,
     compute_segment_power,
@@ -77,7 +75,6 @@ def test_compute_spearman_insufficient_n():
 def test_compute_expected_shortfall_pass():
     """Bottom decile of multiplier with avg pnl_r = -1.0 must pass cvar gate."""
     # Build df where lowest-multiplier rows have pnl_r = -1.0
-    rng = np.random.default_rng(42)
     n = 100
     # Bottom 10% multiplier (index 0..9): pnl_r = -1.0 exactly
     # Rest: pnl_r = +0.5
