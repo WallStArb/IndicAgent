@@ -252,3 +252,32 @@ def test_topic_gap_fill_dlq_with_env():
     from src.core.stream_keys import topic_gap_fill_dlq
 
     assert topic_gap_fill_dlq("dev") == "dev.gap_fill.dlq"
+
+
+# ---------------------------------------------------------------------------
+# Phase 72: Transform graduation topic stream keys
+# ---------------------------------------------------------------------------
+
+
+def test_topic_transform_graduation_with_env():
+    from src.core.stream_keys import topic_transform_graduation
+
+    assert topic_transform_graduation("dev") == "dev.intelligence.transform.graduation"
+
+
+def test_topic_transform_graduation_no_env():
+    from src.core.stream_keys import topic_transform_graduation
+
+    assert topic_transform_graduation("") == "intelligence.transform.graduation"
+
+
+def test_topic_transform_graduation_dlq_with_env():
+    from src.core.stream_keys import topic_transform_graduation_dlq
+
+    assert topic_transform_graduation_dlq("dev") == "dev.intelligence.transform.graduation.dlq"
+
+
+def test_topic_transform_graduation_dlq_no_env():
+    from src.core.stream_keys import topic_transform_graduation_dlq
+
+    assert topic_transform_graduation_dlq("") == "intelligence.transform.graduation.dlq"
