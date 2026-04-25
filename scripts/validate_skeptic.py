@@ -1,7 +1,11 @@
-"""validate_skeptic.py -- statistical validation of swarm agent predictions.
+"""validate_skeptic.py -- CLI wrapper for swarm agent graduation validation.
 
-Per D-13: Pearson correlation per segment between failure_probability and actual outcome.
-Per D-14: Graduation gate: rho >= 0.3 AND p < 0.05 AND N >= 30.
+Validation dimensions (per src.intelligence.swarm.graduation):
+  - Spearman rank correlation: multiplier vs pnl_r (positive correlation)
+  - Calibration: predicted failure rate vs actual failure rate per decile
+  - CVaR: expected shortfall of bottom-decile multiplier trades
+  - Walk-forward: temporal train/validation split
+  - Value-add: Sharpe ratio improvement from high-confidence filter
 
 Usage:
     python scripts/validate_skeptic.py --agent skeptic_v1 [--days 90] [--symbol-filter ESM6]
@@ -11,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -18,11 +23,15 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import asyncpg
-import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr
 
 from src.config.settings import Settings
+from src.intelligence.swarm.graduation import (
+    GATE_CALIBRATION_MAX_ERROR,
+    GATE_CVAR_BOTTOM_DECILE,
+    GATE_SPEARMAN_RHO,
+    evaluate_all,
+)
 
 
 async def fetch_validation_data(
@@ -55,10 +64,9 @@ async def fetch_validation_data(
                 s.symbol,
                 s.tf,
                 s.hmm_regime,
-                s.predicted_multiplier,
+                s.predicted_multiplier AS multiplier,
                 s.confidence,
-                s.features->>'failure_probability' as failure_prob,
-                s.features->>'prompt_version' as prompt_version,
+                s.ts,
                 l.outcome,
                 l.pnl_r,
                 l.regime_type_at_fire,
@@ -71,45 +79,13 @@ async def fetch_validation_data(
         df = pd.DataFrame([dict(r) for r in rows])
 
         if not df.empty:
-            df["failure_prob"] = pd.to_numeric(df["failure_prob"], errors="coerce")
+            df["multiplier"] = pd.to_numeric(df["multiplier"], errors="coerce")
             df["pnl_r"] = pd.to_numeric(df["pnl_r"], errors="coerce")
-            df["win"] = (df["pnl_r"] > 0).astype(int)
 
         return df
 
     finally:
         await conn.close()
-
-
-def compute_segment_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute Pearson correlation per segment."""
-    segments = []
-
-    for (tf, hmm_regime), group in df.groupby(["tf", "hmm_regime"]):
-        valid = group.dropna(subset=["failure_prob", "win"])
-        n = len(valid)
-        if n < 10:
-            continue
-
-        try:
-            rho, p_val = pearsonr(valid["failure_prob"].values, valid["win"].values)
-        except Exception:
-            rho, p_val = float("nan"), float("nan")
-
-        segments.append(
-            {
-                "tf": tf,
-                "hmm_regime": hmm_regime,
-                "n": n,
-                "rho": round(rho, 4) if not np.isnan(rho) else None,
-                "p_value": round(p_val, 6) if not np.isnan(p_val) else None,
-                "passes_gate": n >= 30 and not np.isnan(rho) and rho >= 0.3 and p_val < 0.05,
-                "avg_failure_prob": round(valid["failure_prob"].mean(), 4),
-                "actual_win_rate": round(valid["win"].mean(), 4),
-            }
-        )
-
-    return pd.DataFrame(segments)
 
 
 def main() -> None:
@@ -145,40 +121,17 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print(f"\nValidation: {args.agent} | {len(df)} predictions matched to outcomes\n")
+    print(
+        f"\nValidation: {args.agent} | {len(df)} predictions matched to outcomes"
+        f"\nGates: rho>={GATE_SPEARMAN_RHO}, calib_err<{GATE_CALIBRATION_MAX_ERROR},"
+        f" cvar<={GATE_CVAR_BOTTOM_DECILE}\n"
+    )
 
-    valid = df.dropna(subset=["failure_prob", "win"])
-    rho_global = 0.0
-    p_global = 1.0
-    if len(valid) >= 10:
-        if valid["failure_prob"].nunique() < 2 or valid["win"].nunique() < 2:
-            print("Global: constant data, cannot compute correlation\n")
-        else:
-            rho_global, p_global = pearsonr(
-                valid["failure_prob"].values, valid["win"].values,
-            )
-            print(f"Global: rho={rho_global:.4f}, p={p_global:.6f}, N={len(valid)}")
-            print(
-                f"Global gate (rho >= 0.2):"
-                f" {'PASS' if rho_global >= 0.2 else 'FAIL'}\n"
-            )
-        print(f"Global gate (rho >= 0.2): {'PASS' if rho_global >= 0.2 else 'FAIL'}\n")
-    else:
-        print(f"Insufficient data for global stats (N={len(valid)})\n")
-
-    seg_df = compute_segment_stats(df)
-    if seg_df.empty:
-        print("No segments with sufficient data.")
-        sys.exit(1)
-
-    print(seg_df.to_string(index=False))
-    n_passing = seg_df["passes_gate"].sum()
-    n_total = len(seg_df)
-    print(f"\nGraduation gate: {n_passing}/{n_total} segments pass (rho>=0.3, p<0.05, N>=30)")
-
-    overall_pass = rho_global >= 0.2 if len(valid) >= 10 else False
-    if not overall_pass:
-        sys.exit(1)
+    result = evaluate_all(
+        df, transform_id=args.agent, transform_version="v1", segment_key="__global__"
+    )
+    print(json.dumps(result, indent=2, default=str))
+    sys.exit(0 if result["is_graduated"] else 1)
 
 
 if __name__ == "__main__":
