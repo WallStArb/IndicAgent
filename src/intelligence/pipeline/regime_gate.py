@@ -6,15 +6,22 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.intelligence.trading.aggregator import _REGIME_MAP
 
+if TYPE_CHECKING:
+    from src.core.ml.transform_recorder import TransformRecorder
 
-def apply_regime_gate(
+
+async def apply_regime_gate(
     signals: list[dict],
     regime_data: dict | None,
     *,
     prob_min: float = 0.30,
     dur_min: int = 1,
+    tf: str | None = None,
+    recorder: TransformRecorder | None = None,
 ) -> list[dict]:
     """Apply regime gating to all signals.
 
@@ -33,6 +40,12 @@ def apply_regime_gate(
         Minimum number of bars the regime must have been stable.
         Default 1 is a safety floor (D-02, SHADOW-01).
         Set via REGIME_DUR_MIN env var in Settings.
+    tf:
+        Current timeframe string. Unused directly but accepted for interface
+        consistency with other pipeline stages.
+    recorder:
+        Optional TransformRecorder. When provided, emits one regime_gate record
+        per signal. When None, behavior is unchanged.
 
     Returns
     -------
@@ -48,6 +61,22 @@ def apply_regime_gate(
             s = dict(sig)
             s["regime_eligible"] = True
             s["suppression_reason"] = None
+
+            if recorder is not None and s.get("signal_id"):
+                seg = str(s.get("regime_type", "any"))
+                await recorder.record(
+                    signal_id=s["signal_id"],
+                    transform_id="regime_gate",
+                    dag_order=2,
+                    multiplier=1.0,
+                    segment_key=seg,
+                    metadata={
+                        "hmm_regime": None,
+                        "hmm_regime_prob": None,
+                        "suppression_reason": None,
+                    },
+                )
+
             result.append(s)
         return result
 
@@ -75,6 +104,22 @@ def apply_regime_gate(
 
         s["regime_eligible"] = regime_eligible
         s["suppression_reason"] = suppression_reason
+
+        if recorder is not None and s.get("signal_id"):
+            seg = str(s.get("regime_type", "any"))
+            await recorder.record(
+                signal_id=s["signal_id"],
+                transform_id="regime_gate",
+                dag_order=2,
+                multiplier=1.0 if regime_eligible else 0.0,
+                segment_key=seg,
+                metadata={
+                    "hmm_regime": hmm_regime,
+                    "hmm_regime_prob": hmm_regime_prob,
+                    "suppression_reason": suppression_reason,
+                },
+            )
+
         result.append(s)
 
     return result

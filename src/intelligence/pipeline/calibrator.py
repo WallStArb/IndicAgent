@@ -6,14 +6,20 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
+if TYPE_CHECKING:
+    from src.core.ml.transform_recorder import TransformRecorder
 
-def apply_calibration(
+
+async def apply_calibration(
     signals: list[dict],
     cal_curves: dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]],
     tf: str,
     symbol: str = "*",
+    recorder: TransformRecorder | None = None,
 ) -> list[dict]:
     """Apply isotonic calibration curves to all signals.
 
@@ -30,6 +36,9 @@ def apply_calibration(
     symbol:
         Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
         Falls back to global '*' sentinel. Default '*' for backward compatibility.
+    recorder:
+        Optional TransformRecorder. When provided, emits one isotonic record per
+        signal (only when raw_confidence > 0). When None, behavior is unchanged.
 
     Lookup hierarchy:
         1. (plugin_name, tf, symbol)  -- symbol-specific
@@ -63,6 +72,22 @@ def apply_calibration(
 
         s["confidence"] = calibrated
         s["calibrated_confidence"] = calibrated
+
+        if recorder is not None and s.get("signal_id"):
+            raw = float(s.get("raw_confidence", raw_confidence) or raw_confidence or 0.0)
+            new_conf = float(calibrated)
+            if raw > 0:
+                ratio = new_conf / raw
+                seg = f"{plugin_name}.{tf}"
+                await recorder.record(
+                    signal_id=s["signal_id"],
+                    transform_id="isotonic",
+                    dag_order=4,
+                    multiplier=ratio,
+                    segment_key=seg,
+                    metadata={"raw_confidence": raw, "calibrated_confidence": new_conf},
+                )
+
         result.append(s)
 
     return result
