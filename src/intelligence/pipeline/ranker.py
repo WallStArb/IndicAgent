@@ -6,14 +6,20 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.intelligence.trading.aggregator import SETUP_PRIORITY
 
+if TYPE_CHECKING:
+    from src.core.ml.transform_recorder import TransformRecorder
 
-def rank_signals(
+
+async def rank_signals(
     signals: list[dict],
     perf_weights: dict[tuple[str, str, str], float],
     tf: str,
     symbol: str = "*",
+    recorder: TransformRecorder | None = None,
 ) -> list[dict]:
     """Compute adjusted_rank for all signals.
 
@@ -31,6 +37,9 @@ def rank_signals(
     symbol:
         Instrument symbol for per-symbol lookup (e.g. "ES", "NQ").
         Falls back to global '*' sentinel. Default '*' for backward compatibility.
+    recorder:
+        Optional TransformRecorder. When provided, emits one perf_weight record
+        per signal. When None, behavior is unchanged.
 
     Lookup hierarchy:
         1. (plugin_name, tf, symbol)  -- symbol-specific
@@ -58,6 +67,18 @@ def rank_signals(
 
         s["adjusted_rank"] = adjusted_rank
         s["perf_multiplier"] = perf_multiplier
+
+        if recorder is not None and s.get("signal_id"):
+            seg = f"{plugin_name}.{tf}"
+            await recorder.record(
+                signal_id=s["signal_id"],
+                transform_id="perf_weight",
+                dag_order=5,
+                multiplier=perf_multiplier,
+                segment_key=seg,
+                metadata={"perf_multiplier": perf_multiplier, "sample_size": 0},
+            )
+
         result.append(s)
 
     return result
