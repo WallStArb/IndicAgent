@@ -1,4 +1,4 @@
-"""Tests for SwarmDispatchService: enrichment, TF filter, agent registry, cache seeding."""
+"""Tests for SwarmDispatchComputeAgent: enrichment, TF filter, agent registry, cache seeding."""
 import types
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -7,10 +7,10 @@ from src.intelligence.swarm.context import SwarmContext, SwarmContextCache
 
 
 def _make_service():
-    """Create SwarmDispatchService using __new__ pattern (bypass __init__)."""
-    from services.swarm_dispatch_service import SwarmDispatchService
+    """Create SwarmDispatchComputeAgent using __new__ pattern (bypass __init__)."""
+    from services.swarm_dispatch_service import SwarmDispatchComputeAgent
 
-    svc = SwarmDispatchService.__new__(SwarmDispatchService)
+    svc = SwarmDispatchComputeAgent.__new__(SwarmDispatchComputeAgent)
     svc.settings = MagicMock(env_name="test")
     svc._context_cache = MagicMock()
     svc._recorder = MagicMock()

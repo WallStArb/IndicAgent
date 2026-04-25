@@ -1,6 +1,6 @@
 """swarm_dispatch_service.py -- single service dispatching all swarm agents.
 
-Per D-15: ONE SwarmDispatchService owns all infrastructure.
+Per D-15: ONE SwarmDispatchComputeAgent owns all infrastructure.
 Agents are pure compute classes registered in self._agents.
 Per D-09: Filters to 5m+ TF only.
 Per D-08: SwarmContext seeded from DB on startup.
@@ -71,7 +71,7 @@ def _safe(obj: Any, attr: str) -> Any:
     return getattr(obj, attr, None)
 
 
-class SwarmDispatchService(BaseAgent):
+class SwarmDispatchComputeAgent(BaseAgent):
     """Single service dispatching all swarm agents.
 
     Per D-15: one bar consumer, one signal consumer, one DB pool,
@@ -80,7 +80,7 @@ class SwarmDispatchService(BaseAgent):
     """
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__(name="SwarmDispatchService", max_idle_seconds=300)
+        super().__init__(name="SwarmDispatchComputeAgent", max_idle_seconds=300)
         self.settings = settings
 
         # Shared infrastructure
@@ -486,7 +486,7 @@ class SwarmDispatchService(BaseAgent):
 
 def main() -> None:
     settings = Settings()
-    service = SwarmDispatchService(settings)
+    service = SwarmDispatchComputeAgent(settings)
     asyncio.run(service.start())
 
 

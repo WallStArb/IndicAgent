@@ -1,4 +1,4 @@
-"""Integration tests for multi-agent dispatch in SwarmDispatchService.
+"""Integration tests for multi-agent dispatch in SwarmDispatchComputeAgent.
 
 Tests: concurrent agent execution, shared cache, context enrichment,
 TF filtering, independent result recording, neutral fallback.
@@ -34,10 +34,10 @@ def _make_context(**overrides):
 
 
 def _make_service_with_mock_agents(n_agents: int = 3):
-    """Create SwarmDispatchService with mock agents."""
-    from services.swarm_dispatch_service import SwarmDispatchService
+    """Create SwarmDispatchComputeAgent with mock agents."""
+    from services.swarm_dispatch_service import SwarmDispatchComputeAgent
 
-    svc = SwarmDispatchService.__new__(SwarmDispatchService)
+    svc = SwarmDispatchComputeAgent.__new__(SwarmDispatchComputeAgent)
     svc.settings = MagicMock(env_name="test")
     svc._context_cache = MagicMock()
     svc._recorder = MagicMock()

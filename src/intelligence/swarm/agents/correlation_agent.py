@@ -36,7 +36,7 @@ _JSON_BLOCK_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 class CorrelationAgentComputeAgent(SwarmBaseAgent):
     """Cross-asset correlation agent -- detects decorrelation from lead index.
 
-    Per D-16: reads context.lead_context (set by SwarmDispatchService._enrich_context).
+    Per D-16: reads context.lead_context (set by SwarmDispatchComputeAgent._enrich_context).
     """
 
     agent_id = "correlation_v1"

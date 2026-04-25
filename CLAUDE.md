@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.36.0 | Status: v2.5 PARTIAL — Phases 69+71 shipped; Phase 70 deferred (30+ day data gate, ~May 10). Next: v2.3 ML Foundation when data gate lifts.
+Version: 5.36.0 | Status: v2.3 PARTIAL — Phases 65+66 shipped; Phase 64 (I6 Confluence) remaining. v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: Phase 64 I6 Confluence Expansion.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.

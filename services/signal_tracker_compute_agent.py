@@ -147,7 +147,7 @@ class SignalTrackerCompute(BaseAgent):
             topic_market_bars(self.env_name),
             topic_market_bars_htf(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="signal_tracker_compute",
+            group_id="signal_tracker_compute_consumer",
             auto_offset_reset="latest",
         )
         await self._bar_consumer.start()
@@ -156,7 +156,7 @@ class SignalTrackerCompute(BaseAgent):
         self._signal_consumer = KafkaConsumerClient(
             topic_intelligence_i7_signals(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="signal_tracker_compute_signals",
+            group_id="signal_tracker_compute_signals_consumer",
             auto_offset_reset="latest",
         )
         await self._signal_consumer.start()
@@ -737,7 +737,10 @@ class SignalTrackerCompute(BaseAgent):
             "details": {
                 "ledger_count": ledger_count,
                 "attempts": self._BOOTSTRAP_MAX_ATTEMPTS,
-                "reason": f"DB returned 0 rows after {self._BOOTSTRAP_MAX_ATTEMPTS} retry attempts with exponential backoff",
+                "reason": (
+                    f"DB returned 0 rows after {self._BOOTSTRAP_MAX_ATTEMPTS}"
+                    " retry attempts with exponential backoff"
+                ),
             },
         }
 

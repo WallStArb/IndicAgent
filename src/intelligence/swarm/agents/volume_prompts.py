@@ -90,7 +90,7 @@ def build_volume_prompt(ctx: SwarmContext) -> str:
     """Build the volume prompt from SwarmContext.
 
     Per D-16: reads ctx.volume_profile (dict set by
-    SwarmDispatchService._enrich_context).
+    SwarmDispatchComputeAgent._enrich_context).
     """
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     vp = ctx.volume_profile or {}
