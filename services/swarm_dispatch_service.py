@@ -25,6 +25,7 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
 from src.core.ml.shadow import ShadowRecorder
+from src.core.ml.transform_recorder import TransformRecorder
 from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_market_bars,
@@ -41,6 +42,13 @@ from src.intelligence.swarm.context import SwarmContext, SwarmContextCache
 logger = structlog.get_logger(__name__)
 
 _ELIGIBLE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
+
+# Locked mapping: swarm agent_id → (transform_id, dag_order) for signal_transform_log
+_SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
+    "skeptic_v1":     ("swarm_skeptic",     6),
+    "correlation_v1": ("swarm_correlation", 7),
+    "volume_v1":      ("swarm_volume",      8),
+}
 
 # Lead index mapping: symbol base -> lead index base
 _LEAD_INDEX_MAP: dict[str, str] = {
@@ -81,6 +89,7 @@ class SwarmDispatchService(BaseAgent):
         )
         self._context_cache = SwarmContextCache()
         self._recorder: ShadowRecorder | None = None
+        self._transform_recorder: TransformRecorder | None = None
 
         # Agent registry -- pure compute, no infrastructure
         self._agents = [
@@ -130,6 +139,9 @@ class SwarmDispatchService(BaseAgent):
         self._recorder = ShadowRecorder(
             self._pool, batch_size=50, flush_interval_s=2.0,
         )
+        self._transform_recorder = TransformRecorder(
+            self._pool, batch_size=50, flush_interval_s=2.0,
+        )
 
         # Per D-08: seed context cache from DB
         await self._seed_context_cache(self._pool)
@@ -140,6 +152,8 @@ class SwarmDispatchService(BaseAgent):
     async def _teardown(self) -> None:
         if self._recorder:
             await self._recorder.flush()
+        if self._transform_recorder:
+            await self._transform_recorder.flush()
         if self._pool:
             await self._pool.close()
         if self._bar_consumer:
@@ -219,20 +233,9 @@ class SwarmDispatchService(BaseAgent):
             *[agent.compute(enriched) for agent in self._agents]
         )
 
-        # Record each result via shared ShadowRecorder
+        # Record each result via shared ShadowRecorder + TransformRecorder
         for result in results:
-            if self._recorder:
-                await self._recorder.record(
-                    signal_id=signal_id,
-                    agent_id=result.agent_id,
-                    multiplier=result.multiplier,
-                    confidence=result.confidence,
-                    symbol=enriched.symbol,
-                    tf=enriched.timeframe,
-                    regime=enriched.hmm_regime,
-                    path=result.path,
-                    features=result.metadata,
-                )
+            await self._record_swarm_result(signal_id, enriched, result)
 
             # Publish to swarm results topic
             assert self._producer is not None
@@ -270,6 +273,46 @@ class SwarmDispatchService(BaseAgent):
                     tf=tf,
                     multiplier=result.multiplier,
                 )
+
+    async def _record_swarm_result(
+        self,
+        signal_id: Any,
+        enriched: SwarmContext,
+        result: Any,
+    ) -> None:
+        """Dual-write: ShadowRecorder (alpha_multiplier_shadow) + TransformRecorder."""
+        # 1. ShadowRecorder write (existing alpha_multiplier_shadow path — unchanged)
+        if self._recorder:
+            await self._recorder.record(
+                signal_id=signal_id,
+                agent_id=result.agent_id,
+                multiplier=result.multiplier,
+                confidence=result.confidence,
+                symbol=enriched.symbol,
+                tf=enriched.timeframe,
+                regime=enriched.hmm_regime,
+                path=result.path,
+                features=result.metadata,
+            )
+
+        # 2. TransformRecorder dual-write (Phase 1 bridge — swarm half of registry)
+        mapping = _SWARM_AGENT_TO_TRANSFORM.get(result.agent_id)
+        if mapping is not None and self._transform_recorder is not None:
+            transform_id, dag_order = mapping
+            seg = f"{enriched.hmm_regime}.{enriched.timeframe}"
+            await self._transform_recorder.record(
+                signal_id=signal_id,
+                transform_id=transform_id,
+                dag_order=dag_order,
+                multiplier=result.multiplier,
+                segment_key=seg,
+                metadata=result.metadata,
+            )
+        elif mapping is None:
+            self.logger.warning(
+                "swarm_dispatch.unmapped_agent_for_transform_log",
+                agent_id=result.agent_id,
+            )
 
     def _enrich_context(self, ctx: SwarmContext) -> SwarmContext:
         """Enrich SwarmContext with agent-specific data.
