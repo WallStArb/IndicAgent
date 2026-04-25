@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -12,7 +12,7 @@ from src.core.ml.transform_recorder import TransformRecorder
 
 
 def _make_pool():
-    """Return mock pool whose acquire() async-context yields a mock conn with AsyncMock executemany."""
+    """Mock pool: acquire() yields a conn with AsyncMock executemany."""
     conn = MagicMock()
     conn.executemany = AsyncMock()
     pool = MagicMock()
@@ -23,22 +23,24 @@ def _make_pool():
     return pool, conn
 
 
+@pytest.mark.asyncio
 async def test_record_buffers_until_batch_size():
     """99 calls → 0 flushes; 100th call triggers 1 executemany."""
     pool, conn = _make_pool()
     rec = TransformRecorder(pool=pool, batch_size=100)
-    for i in range(99):
+    for _ in range(99):
         await rec.record(signal_id=str(uuid4()), transform_id="t", dag_order=0, multiplier=1.0)
     assert conn.executemany.await_count == 0
     await rec.record(signal_id=str(uuid4()), transform_id="t", dag_order=0, multiplier=1.0)
     assert conn.executemany.await_count == 1
 
 
+@pytest.mark.asyncio
 async def test_flush_drains_pending():
     """pending=[1,2,3], call flush() → executemany called with 3-tuple batch, _pending now empty."""
     pool, conn = _make_pool()
     rec = TransformRecorder(pool=pool, batch_size=100)
-    for i in range(3):
+    for _ in range(3):
         await rec.record(signal_id=str(uuid4()), transform_id="t", dag_order=0, multiplier=1.0)
     assert len(rec._pending) == 3
     await rec.flush()
@@ -49,6 +51,7 @@ async def test_flush_drains_pending():
     assert rec._pending == []
 
 
+@pytest.mark.asyncio
 async def test_record_with_metadata_serializes_json():
     """metadata={"k": "v"} → row[7] is the JSON string '{"k": "v"}'."""
     pool, conn = _make_pool()
@@ -66,6 +69,7 @@ async def test_record_with_metadata_serializes_json():
     assert json.loads(row[7]) == {"k": "v"}
 
 
+@pytest.mark.asyncio
 async def test_record_with_no_metadata_passes_none():
     """metadata=None → row[7] is None."""
     pool, conn = _make_pool()
@@ -77,6 +81,7 @@ async def test_record_with_no_metadata_passes_none():
     assert row[7] is None
 
 
+@pytest.mark.asyncio
 async def test_record_coerces_signal_id_to_str():
     """Pass UUID → row[1] is its str(uuid) form."""
     pool, conn = _make_pool()
@@ -90,6 +95,7 @@ async def test_record_coerces_signal_id_to_str():
     assert isinstance(row[1], str)
 
 
+@pytest.mark.asyncio
 async def test_flush_swallows_executemany_exceptions():
     """mock conn raises → flush completes, pending cleared, no re-raise."""
     pool, conn = _make_pool()
@@ -101,6 +107,7 @@ async def test_flush_swallows_executemany_exceptions():
     assert rec._pending == []
 
 
+@pytest.mark.asyncio
 async def test_default_segment_key_is_global():
     """Omit segment_key → row[5] == '__global__'."""
     pool, conn = _make_pool()
@@ -112,6 +119,7 @@ async def test_default_segment_key_is_global():
     assert row[5] == "__global__"
 
 
+@pytest.mark.asyncio
 async def test_default_transform_version_is_v1():
     """Omit transform_version → row[3] == 'v1'."""
     pool, conn = _make_pool()
@@ -123,6 +131,7 @@ async def test_default_transform_version_is_v1():
     assert row[3] == "v1"
 
 
+@pytest.mark.asyncio
 async def test_default_is_shadow_true():
     """Omit is_shadow → row[8] is True."""
     pool, conn = _make_pool()
@@ -134,6 +143,7 @@ async def test_default_is_shadow_true():
     assert row[8] is True
 
 
+@pytest.mark.asyncio
 async def test_record_with_explicit_values():
     """Explicit segment_key, transform_version, is_shadow land in correct row positions."""
     pool, conn = _make_pool()
