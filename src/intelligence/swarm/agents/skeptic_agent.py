@@ -1,7 +1,7 @@
 """skeptic_agent.py -- SkepticAgentComputeAgent (SwarmBaseAgent subclass).
 
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
-No Kafka, no DB, no infrastructure -- all owned by SwarmDispatchService.
+No Kafka, no DB, no infrastructure -- all owned by SwarmDispatchComputeAgent.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ _JSON_BLOCK_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 class SkepticAgentComputeAgent(SwarmBaseAgent):
     """Devil's advocate swarm agent -- predicts signal failure probability.
 
-    Per D-15: pure compute class. SwarmDispatchService owns infrastructure.
+    Per D-15: pure compute class. SwarmDispatchComputeAgent owns infrastructure.
     Per D-11: SwarmBaseAgent.compute() handles timeout + exception isolation.
     """
 

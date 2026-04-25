@@ -15,9 +15,10 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
-- [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (Phase 56 complete 2026-04-11; ready to execute)
+- [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 ready to execute)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71 (Phase 69+71 complete; Phase 70 ready to execute)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72 (69+71+72 complete; Phase 70 ready to execute)
+- [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
 
@@ -241,21 +242,21 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.3 ML Foundation (Phases 64, 65, 66) — READY</summary>
+<summary>🔄 v2.3 ML Foundation (Phases 64, 65, 66) — Phase 64 remaining</summary>
 
 **Milestone Goal:** Intelligence pipeline expansion (cross-TF confluence, gradient scoring), and the first swarm agent (SkepticAgent) on Phase 56 infrastructure.
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
-- [ ] **Phase 65: Gradient Audit** — Scan all 129 plugins for binary scoring shortcuts, replace with continuous gradients (6-function gradient_utils.py + CI scanner gate); 5 plans (refreshed 2026-04-23)
+- [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra) + macro factors merged into CrossAssetComputeAgent (deferred until cross-TF validates); 3 plans (Plans 01+02 cross-TF, Plan 03 macro deferred)
   Design doc: `docs/ideas/i6-confluence-expansion.md`
-- [ ] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService running Skeptic, Correlation, and Volume agents as pure compute classes. LLM-powered signal analysis consuming `intelligence.i7.signals`, recording to `alpha_multiplier_shadow`. Consolidated architecture: 1 service, 3 agents, shared infrastructure. 4 plans.
+- [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
   Plans:
   - [x] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
   - [x] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
-  - [ ] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
+  - [x] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
   - [x] 066-04-PLAN.md — Integration tests: multi-agent dispatch, shared cache, context enrichment
 
 </details>
@@ -477,7 +478,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 ready (Phases 64-66; Phase 56 complete). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (Phases 69+71 complete; Phase 70 ready).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (65+66 complete 2026-04-24; Phase 64 remaining). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; Phase 70 ready ~May 10 data gate).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -566,12 +567,13 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
 | 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
 | 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
-| 66. Swarm Intelligence Agents | v2.3 | 0/4 | Not Started | — |
+| 66. Swarm Intelligence Agents | v2.3 | 4/4 | Complete | 2026-04-24 |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
+| 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
 
 ### Phase 52.5: Parity Auditor Agent
 

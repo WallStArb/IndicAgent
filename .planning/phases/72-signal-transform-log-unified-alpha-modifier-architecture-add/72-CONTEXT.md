@@ -220,8 +220,8 @@ Follows BaseWriterAgent pattern: consume → parse → buffer → batch upsert t
 
 ### Systemd unit files (LOCKED)
 
-**graduation-compute.service:** `services/graduation-compute.service`
-**graduation-writer.service:** `services/graduation-writer.service`
+**graduation-compute.service:** `services/indicagent-graduation-compute.service`
+**graduation-writer.service:** `services/indicagent-graduation-writer.service`
 
 Follow the same pattern as existing always-on service units. Both need `PYTHONUNBUFFERED=1` and standard `indicagent` environment.
 

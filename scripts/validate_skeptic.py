@@ -116,7 +116,7 @@ def main() -> None:
     if df.empty:
         print(f"No validation data found for agent '{args.agent}'.")
         print(
-            "Ensure: (1) SwarmDispatchService is running,"
+            "Ensure: (1) SwarmDispatchComputeAgent is running,"
             " (2) signals have resolved in signal_ledger"
         )
         sys.exit(1)

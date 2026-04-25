@@ -1,6 +1,6 @@
 """volume_agent.py -- VolumeAgentComputeAgent (SwarmBaseAgent subclass).
 
-Per D-16: reads context.volume_profile (dict set by SwarmDispatchService._enrich_context).
+Per D-16: reads context.volume_profile (dict set by SwarmDispatchComputeAgent._enrich_context).
 Pure compute class -- no infrastructure code.
 """
 from __future__ import annotations
