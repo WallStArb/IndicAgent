@@ -900,3 +900,13 @@ Plans:
 - [x] 72-07-PLAN.md — Wire TransformRecorder into swarm_dispatch_service (3 swarm transforms, dual-write alongside ShadowRecorder)
 - [x] 72-08-PLAN.md — GraduationWriterAgent service + repository + systemd unit
 - [x] 72-09-PLAN.md — GraduationComputeAgent service (event-driven evaluator) + systemd unit
+
+### Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator
+
+**Goal:** Add state checkpointing to BarAggregatorComputeAgent following the IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to a compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
+**Requirements**: None (Level 0 discovery — existing patterns)
+**Depends on:** Phase 53.2 (BarAggregatorComputeAgent exists)
+**Plans:** 1 plan
+
+Plans:
+- [ ] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
