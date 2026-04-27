@@ -135,10 +135,11 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Pending Todos
 
-**8 pending todos** (see `.planning/todos/pending/`)
+**9 pending todos** (see `.planning/todos/pending/`)
 
 Recent additions:
 
+- 2026-04-27: Align shadow infrastructure across I7 plugins and swarm agents — 3 independent shadow concepts, dead code, naming collisions, no promotion path
 - 2026-04-27: Add FeatureValidationService as new phase — automated IC/p-value gate superseding Phase 64-04 Task 3 human-verify checkpoint
 
 Recent additions:
