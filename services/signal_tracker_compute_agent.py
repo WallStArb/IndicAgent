@@ -517,7 +517,7 @@ class SignalTrackerCompute(BaseAgent):
         if transition.new_status == SignalStatus.ACTIVE:
             t_type = TransitionType.ACTIVATION
             data = {
-                "signal_id": transition.signal_id,
+                "signal_id": str(transition.signal_id),
                 "activated_at": bar_time,
                 "activation_price": transition.activation_price,
                 "zone_entry_pct": transition.zone_entry_pct,
@@ -526,7 +526,7 @@ class SignalTrackerCompute(BaseAgent):
         elif transition.exit_reason:
             t_type = TransitionType.EXIT
             data = {
-                "signal_id": transition.signal_id,
+                "signal_id": str(transition.signal_id),
                 "status": transition.new_status,
                 "exit_at": bar_time,
                 "exit_price": transition.exit_price,
@@ -542,12 +542,12 @@ class SignalTrackerCompute(BaseAgent):
         else:
             t_type = TransitionType.MAE_MFE_UPDATE
             data = {
-                "signal_id": transition.signal_id,
+                "signal_id": str(transition.signal_id),
             }
 
         return LifecycleTransition(
             transition_type=t_type,
-            signal_id=transition.signal_id,
+            signal_id=str(transition.signal_id),
             symbol=symbol,
             timeframe=timeframe,
             bar_ts=bar_time,

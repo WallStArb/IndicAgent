@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 
 class TransitionType(StrEnum):
@@ -45,15 +46,33 @@ class LifecycleTransition:
     data: dict = field(default_factory=dict)
 
 
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert non-serializable types (UUID, datetime) for JSON."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    try:
+        from uuid import UUID
+
+        if isinstance(obj, UUID):
+            return str(obj)
+    except ImportError:
+        pass
+    return obj
+
+
 def to_dict(t: LifecycleTransition) -> dict:
     """Serialize a LifecycleTransition to a JSON-friendly dict."""
     return {
         "transition_type": t.transition_type.value,
-        "signal_id": t.signal_id,
+        "signal_id": str(t.signal_id),
         "symbol": t.symbol,
         "timeframe": t.timeframe,
         "bar_ts": t.bar_ts.isoformat(),
-        "data": t.data,
+        "data": _json_safe(t.data),
     }
 
 
