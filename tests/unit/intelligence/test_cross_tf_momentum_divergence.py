@@ -9,7 +9,6 @@ Tests cover:
 """
 
 import pytest
-import numpy as np
 
 from src.intelligence.confluence.cross_tf_momentum_divergence import (
     CrossTFMomentumDivergencePlugin,

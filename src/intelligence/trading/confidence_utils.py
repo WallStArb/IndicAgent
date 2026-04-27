@@ -136,7 +136,9 @@ def capture_signal_features(
     # Cross-TF momentum divergence fields (Plan 64-01, D-13, D-14)
     # Captured as-is: divergence is float | None, regime is str | None
     ctf_mom_div = features.get("ctf_momentum_divergence")
-    shadow["ctf_momentum_divergence"] = float(ctf_mom_div) if isinstance(ctf_mom_div, (int, float)) else None
+    shadow["ctf_momentum_divergence"] = (
+        float(ctf_mom_div) if isinstance(ctf_mom_div, (int, float)) else None
+    )
     shadow["ctf_momentum_regime"] = features.get("ctf_momentum_regime")  # str | None
 
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)

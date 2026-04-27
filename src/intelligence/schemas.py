@@ -773,7 +773,8 @@ class I6Confluence(BaseModel):
     # Cross-TF momentum divergence (Plan 64-01, D-06)
     # CrossTFMomentumDivergencePlugin outputs
     ctf_momentum_divergence: float | None = None  # [-1, +1] HTF-LTF momentum divergence
-    ctf_momentum_regime: str | None = None  # aligned_htf_bull/aligned_htf_bear/pullback/bounce/mixed
+    # Regime: aligned_htf_bull/aligned_htf_bear/pullback/bounce/mixed
+    ctf_momentum_regime: str | None = None
 
 
 class IntelligenceEvent(BaseModel):
