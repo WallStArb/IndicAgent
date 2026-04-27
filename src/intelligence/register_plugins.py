@@ -79,6 +79,7 @@ from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
 from .composites.stochastic_events import plugin as stoch_events_plugin
 from .composites.volume_events import plugin as volume_events_plugin
+from .confluence.cross_tf_momentum_divergence import plugin as ctf_momentum_div_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.anchored_vwap import plugin as anchored_vwap_plugin
 from .context.cross_asset_context import plugin as cross_asset_ctx_plugin
@@ -162,7 +163,7 @@ def validate_schema_coverage() -> None:
                  supply_demand_zones_plugin, ict_killzones_plugin, amd_cycle_plugin,
                  breaker_blocks_plugin, mitigation_blocks_plugin,
                  premium_discount_plugin], SMCContext),
-        ("I6", [ctf_plugin], I6Confluence),
+        ("I6", [ctf_plugin, ctf_momentum_div_plugin], I6Confluence),
     ]
 
     gaps: list[str] = []
@@ -268,6 +269,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(premium_discount_plugin)
 
     registry.register_pattern(ctf_plugin)
+    registry.register_pattern(ctf_momentum_div_plugin)
 
     # I5 Chart Patterns
     registry.register_pattern(mtf_vol_plugin)
@@ -434,6 +436,7 @@ TIER_SMC: list[str] = [
 
 TIER_I6: list[str] = [
     ctf_plugin.name,
+    ctf_momentum_div_plugin.name,
 ]
 
 # ---------------------------------------------------------------------------
