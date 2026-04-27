@@ -32,15 +32,18 @@ sys.path.insert(0, str(project_root))
 import time
 
 from prometheus_client import Counter, Gauge, Histogram
+import msgpack as _msgpack
 
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.state_serializer import StateSerializer
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.stream_keys import (
     message_key,
     topic_bar_aggregator_dlq,
+    topic_bar_aggregator_state,  # Phase 74: state checkpointing
     topic_market_bars,
     topic_market_bars_htf,
 )
@@ -185,6 +188,19 @@ class BarAggregatorComputeAgent(BaseAgent):
             "bar_aggregator_bars_in_flight",
             "Approximate number of bars currently being processed (semaphore slots in use)",
         )
+        # Phase 74: State checkpoint versioning — increment when BarAccumulator state structure breaks
+        _AGENT_VERSION = "1"
+
+        self._state_checkpoint_restored_total = Counter(
+            "bar_aggregator_state_checkpoint_restored_total",
+            "State checkpoint successful restores",
+        )
+        self._state_checkpoint_failures_total = Counter(
+            "bar_aggregator_state_checkpoint_failures_total",
+            "State checkpoint encode/decode failures",
+        )
+        # Degradation detection: track recent checkpoint failure timestamps
+        self._checkpoint_failure_timestamps: list[float] = []
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -235,6 +251,11 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 await self._lag_consumer.start()
 
+                # Restore state from checkpoint topic
+                restored = await self._restore_state_checkpoint()
+                if not restored:
+                    self.logger.info("bar_aggregator.state.checkpoint_miss — starting fresh")
+
                 self.logger.info(
                     "bar_aggregator_agent.setup_complete",
                     topics_consumed=self.topics_consumed,
@@ -273,6 +294,122 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 await asyncio.sleep(delay)
 
+    def _track_checkpoint_failure(self) -> bool:
+        """Track checkpoint failures in sliding window. Return True if degraded.
+
+        Degradation threshold: 3 failures within 60 seconds → stop processing.
+        This prevents silent data loss when checkpointing is broken.
+        """
+        now = time.monotonic()
+        # Add current failure
+        self._checkpoint_failure_timestamps.append(now)
+        # Prune old failures (outside 60s window)
+        self._checkpoint_failure_timestamps = [
+            ts for ts in self._checkpoint_failure_timestamps
+            if now - ts < 60.0
+        ]
+        # Check if degraded
+        if len(self._checkpoint_failure_timestamps) >= 3:
+            self.logger.error(
+                "bar_aggregator.checkpoint_degraded",
+                failures=len(self._checkpoint_failure_timestamps),
+                window_60s=True,
+            )
+            return True  # Degraded — stop processing
+        return False  # OK to continue
+
+    async def _restore_state_checkpoint(self) -> bool:
+        """Consume compacted state topic and restore BarAccumulator state."""
+        state_topic = topic_bar_aggregator_state(self.settings.env_name)
+        consumer = None
+        try:
+            consumer = KafkaConsumerClient(
+                state_topic,
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                group_id="bar_aggregator_state_restore",
+                auto_offset_reset="earliest",
+            )
+            await consumer.start()
+
+            result: list[bool] = [False]
+
+            async def _drain() -> None:
+                async for _topic, key_str, payload in consumer.messages():
+                    if not key_str:
+                        continue
+                    # Phase 74: Skip keys that don't match current version
+                    if not key_str.startswith(f"{_AGENT_VERSION}:"):
+                        self.logger.warning("state.version_mismatch", key=key_str)
+                        continue
+                    try:
+                        if isinstance(payload, dict):
+                            raw = _msgpack.packb(payload, use_bin_type=True)
+                            state = StateSerializer.decode(raw)
+                        else:
+                            state = StateSerializer.decode(payload)
+                    except Exception:
+                        self.logger.warning("state.decode_failed", key=key_str)
+                        continue
+
+                    # Parse key: "{version}:{symbol}:{tf}"
+                    parts = key_str.split(":")
+                    if len(parts) != 3:
+                        self.logger.warning("state.invalid_key_format", key=key_str)
+                        continue
+                    version, symbol, tf = parts
+                    if version != _AGENT_VERSION:
+                        self.logger.warning("state.version_mismatch", key=key_str, version=version, expected=_AGENT_VERSION)
+                        continue
+
+                    # Restore BarAccumulator state
+                    if "_accumulators" in state:
+                        for k, v in state["_accumulators"].items():
+                            self._bar_accumulator._accumulators[k] = v
+                    if "_last_session_boundary_log" in state:
+                        for k, v in state["_last_session_boundary_log"].items():
+                            self._bar_accumulator._last_session_boundary_log[k] = v
+                    result[0] = True
+
+            try:
+                await asyncio.wait_for(_drain(), timeout=5.0)
+            except TimeoutError:
+                pass  # normal — drained all available messages
+
+            restored_any = result[0]
+            if restored_any:
+                self._state_checkpoint_restored_total.inc()
+                self.logger.info(
+                    "bar_aggregator.state.restored",
+                    accumulators=len(self._bar_accumulator._accumulators),
+                )
+
+            return restored_any
+
+        except Exception as exc:
+            self.logger.warning("bar_aggregator.state.restore_failed", error=str(exc))
+            self._state_checkpoint_failures_total.inc()
+            return False
+        finally:
+            if consumer is not None:
+                try:
+                    await consumer.stop()
+                except Exception:
+                    pass
+
+    async def _checkpoint_state(self, bar: BarMessage) -> None:
+        """Encode BarAccumulator state and enqueue to compacted state topic."""
+        # Extract serializable state from BarAccumulator
+        state = {
+            "_accumulators": self._bar_accumulator._accumulators,
+            "_last_session_boundary_log": self._bar_accumulator._last_session_boundary_log,
+        }
+        encoded = StateSerializer.encode(state)
+        checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"  # Versioned for future-proofing
+        await self._kafka_producer.publish(
+            topic_bar_aggregator_state(self.settings.env_name),
+            checkpoint_key,
+            encoded,
+        )
 
     async def _teardown(self) -> None:
         """Drain and close Kafka connections."""
@@ -401,6 +538,26 @@ class BarAggregatorComputeAgent(BaseAgent):
                                         tf=htf_bar.tf,
                                         ts=htf_bar.ts.isoformat(),
                                     )
+
+                                # State checkpoint with degradation detection
+                                # CRITICAL: Checkpoint failures are tracked — 3 failures in 60s stops processing
+                                # This prevents silent data loss (M3) and stale state corruption (H5)
+                                try:
+                                    await self._checkpoint_state(bar)
+                                    # Clear failure timestamps on successful checkpoint
+                                    self._checkpoint_failure_timestamps.clear()
+                                except Exception as exc:
+                                    self.logger.warning("bar_aggregator.checkpoint_failed", error=str(exc))
+                                    self._state_checkpoint_failures_total.inc()
+                                    # Check if degraded (3 failures in 60s)
+                                    if self._track_checkpoint_failure():
+                                        # Degraded — stop processing to prevent data loss/corruption
+                                        self.logger.critical(
+                                            "bar_aggregator.stop_processing_degraded",
+                                            reason="checkpoint_failed_repeatedly",
+                                            failure_count=len(self._checkpoint_failure_timestamps),
+                                        )
+                                        raise  # Stop the agent — systemd will restart
 
                                 # Check for slow processing
                                 duration = time.monotonic() - start_time
