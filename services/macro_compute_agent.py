@@ -32,7 +32,8 @@ from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import message_key, topic_macro_signals, topic_market_bars
-from src.intelligence.macro.constants import MACRO_RATE_FUTURES
+from src.intelligence.macro.constants import MACRO_FLIGHT_TO_QUALITY, MACRO_RATE_FUTURES
+from src.intelligence.macro.flight_to_quality import compute_flight_to_quality
 from src.intelligence.macro.yield_curve import compute_yield_curve_slope
 from src.observability.metrics import AGENT_CRASH_TOTAL, PERSISTENCE_CONSUMER_LAG, counter, gauge, start_metrics_server
 
@@ -175,6 +176,27 @@ class MacroComputeAgent(BaseAgent):
                         yield_curve_slope=macro_result["yield_curve_slope"],
                     )
 
+                # Also compute flight-to-quality (if TLT+SPY data available)
+                if all(symbol in self._bar_windows for symbol in ["SPY", "TLT"]):
+                    # Check we have enough data for both symbols
+                    if all(len(self._bar_windows[s]) >= self._window_bars for s in ["SPY", "TLT"]):
+                        ftq_result = compute_flight_to_quality(
+                            dict(self._bar_windows),
+                            lookback=self._window_bars,
+                        )
+
+                        # Publish FTQ to same macro_signals topic
+                        await self._publish_macro_signal(ftq_result, bar)
+
+                        # FTQ shares macro_features table with yield curve
+                        await self._persist_to_db(ftq_result, bar)
+
+                        logger.debug(
+                            "macro.ftq_computed",
+                            ftq_score=ftq_result["ftq_score"],
+                            ftq_regime=ftq_result["ftq_regime"],
+                        )
+
                 # Report consumer lag
                 self._report_consumer_lag()
 
@@ -230,7 +252,11 @@ class MacroComputeAgent(BaseAgent):
         self._macro_published.inc()
 
     async def _persist_to_db(self, macro_result: dict, bar: dict) -> None:
-        """Persist macro result to TimescaleDB."""
+        """Persist macro result to TimescaleDB.
+
+        Handles both yield curve and flight-to-quality results based on
+        which fields are present in macro_result dict.
+        """
         if not self._db_manager:
             logger.warning("macro.db_not_ready")
             return
@@ -249,19 +275,37 @@ class MacroComputeAgent(BaseAgent):
 
         try:
             async with self._db_manager.pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO macro_features
-                    (ts, symbol, timeframe, yield_curve_slope, yield_curve_regime)
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (ts, symbol, timeframe) DO NOTHING
-                    """,
-                    ts,
-                    bar["symbol"],
-                    bar["tf"],
-                    macro_result["yield_curve_slope"],
-                    macro_result["yield_curve_regime"],
-                )
+                # Detect result type by fields present
+                if "yield_curve_slope" in macro_result:
+                    # Yield curve signal
+                    await conn.execute(
+                        """
+                        INSERT INTO macro_features
+                        (ts, symbol, timeframe, yield_curve_slope, yield_curve_regime)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (ts, symbol, timeframe) DO NOTHING
+                        """,
+                        ts,
+                        bar["symbol"],
+                        bar["tf"],
+                        macro_result["yield_curve_slope"],
+                        macro_result["yield_curve_regime"],
+                    )
+                elif "ftq_score" in macro_result:
+                    # FTQ signal
+                    await conn.execute(
+                        """
+                        INSERT INTO macro_features
+                        (ts, symbol, timeframe, ftq_score, ftq_regime)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (ts, symbol, timeframe) DO NOTHING
+                        """,
+                        ts,
+                        bar["symbol"],
+                        bar["tf"],
+                        macro_result["ftq_score"],
+                        macro_result["ftq_regime"],
+                    )
         except asyncpg.PostgresError as e:
             logger.error("macro.db_error", error=str(e))
 
