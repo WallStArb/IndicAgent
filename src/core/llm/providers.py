@@ -1,12 +1,18 @@
-"""LLM provider abstraction — OpenRouter (primary), Ollama (local fallback).
+"""LLM provider abstraction — OpenRouter (primary), Ollama Cloud, Ollama (local fallback).
 
 Usage:
     chain = LLMChain([
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
-        OllamaProvider("gemma4:e4b"),
+        OllamaCloudProvider("minimax-m2.7", api_key="fe982..."),  # Cloud models
+        OllamaProvider("gemma4:e4b"),  # Local models
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
     # chain.last_provider_id tells you which provider succeeded
+
+Cloud models (free tier with OLLAMA_API_KEY):
+    - minimax-m2.7: Coding, agentic workflows, productivity (best)
+    - nemotron-3-super: 120B MoE, complex reasoning
+    - gemini-3-flash-preview: Speed, general tasks
 """
 
 from __future__ import annotations
@@ -335,6 +341,73 @@ class OllamaProvider:
                 result = json.loads(resp.read())
             raw = result.get("message", {}).get("content", "").strip()
             return _strip_thinking_tags(raw) or None
+
+        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
+
+
+class OllamaCloudProvider:
+    """Calls Ollama Cloud API directly at https://ollama.com/api.
+
+    Uses Bearer token authentication (OLLAMA_API_KEY). Bypasses local proxy
+    authentication requirements. Supports free-tier cloud models like:
+    - minimax-m2.7 (coding, productivity)
+    - nemotron-3-super (reasoning, agents)
+    - gemini-3-flash-preview (speed, general)
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str = "https://ollama.com/api",
+        timeout: float | None = None,
+    ) -> None:
+        if not api_key:
+            raise ValueError("OllamaCloudProvider requires api_key (set OLLAMA_API_KEY in .env)")
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout = timeout or _default_llm_timeout()
+        self.provider_id = f"ollama-cloud:{model}"
+
+    async def generate(
+        self,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+    ) -> str | None:
+        def _call() -> str | None:
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system,
+                "stream": False,
+                "options": {"num_predict": max_tokens},
+            }
+            data = json.dumps(payload).encode()
+            req = urllib.request.Request(
+                f"{self.base_url}/generate",
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    result = json.loads(resp.read())
+                raw = result.get("response", "").strip()
+                return _strip_thinking_tags(raw) or None
+            except urllib.error.HTTPError as exc:
+                # Check for subscription requirement
+                if exc.code == 401:
+                    logger.warning(
+                        "ollama_cloud_unauthorized",
+                        model=self.model,
+                        error="Subscription required or invalid API key",
+                    )
+                raise
 
         return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
