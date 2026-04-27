@@ -8,10 +8,11 @@ Rounding: 4 decimal places for consistent ML feature representation.
 
 capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
 signal["_shadow"] for ML training — zero confidence modification.
-Shadow dict has 15 keys: 2 metadata (profile, existing_confidence) + 6 I6 confluence
+Shadow dict has 17 keys: 2 metadata (profile, existing_confidence) + 6 I6 confluence
 (ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement,
-ctf_fvg_alignment, ctf_ob_alignment) + 4 I4 macro context (vix_level, vix_z,
-eq_spread_z, eq_pairs_confirming) + 3 exhaustion fields.
+ctf_fvg_alignment, ctf_ob_alignment) + 2 momentum divergence (ctf_momentum_divergence,
+ctf_momentum_regime) + 4 I4 macro context (vix_level, vix_z, eq_spread_z,
+eq_pairs_confirming) + 3 exhaustion fields.
 ConfluenceWeightProfile holds placeholder weights (all 0.0) for each plugin family.
 Phase 49 fills non-zero values once XGBoost/logistic training produces learned weights.
 """
@@ -113,7 +114,8 @@ def capture_signal_features(
         existing_confidence: The plugin's current confidence value (unchanged by this call).
 
     Returns:
-        Shadow dict with 15 keys: 4 I4 macro context + 7 I6 confluence + 3 exhaustion fields.
+        Shadow dict with 17 keys: 4 I4 macro context + 8 I6 confluence (incl. momentum divergence)
+        + 3 exhaustion fields + 2 metadata.
     """
     shadow: dict[str, Any] = {
         "profile": profile_name,
@@ -131,6 +133,14 @@ def capture_signal_features(
         "eq_spread_z": features.get("eq_spread_z"),  # float | None
         "eq_pairs_confirming": features.get("eq_pairs_confirming"),  # float | None
     }
+    # Cross-TF momentum divergence fields (Plan 64-01, D-13, D-14)
+    # Captured as-is: divergence is float | None, regime is str | None
+    ctf_mom_div = features.get("ctf_momentum_divergence")
+    shadow["ctf_momentum_divergence"] = (
+        float(ctf_mom_div) if isinstance(ctf_mom_div, (int, float)) else None
+    )
+    shadow["ctf_momentum_regime"] = features.get("ctf_momentum_regime")  # str | None
+
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
     if profile_name != "exempt_exhaustion":
         shadow["exhaustion_score"] = float(features.get("exhaustion_score", 0.0))
