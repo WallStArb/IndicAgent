@@ -452,15 +452,13 @@ Plans:
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
-Re-prioritized 2026-03-19 after v2.0 roadmap defined.
+Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 
 ### Tier 1 — v2.3 candidates (ML Foundation)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
 | **Phase 70: ML Scoring Model** | LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). Shadow-first validation — no arbitrary data gate. | — |
-| **Phase 66: Swarm Intelligence Agents** | Single SwarmDispatchService with 3 LLM agents (Skeptic, Correlation, Volume). Per D-15: one process, shared infrastructure. Per D-16: SwarmContext enrichment with lead_context + volume_profile. Validation: Pearson rho >= 0.3, p < 0.05, N >= 30. | `docs/ideas/intelligence-swarm-manifest.md` |
 | **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
@@ -470,12 +468,9 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Intelligence Confluence Patterns | Unsupervised discovery: enumerate concurrent I5/I6/I7 signals, track confluence signatures, surface statistically significant patterns for human labeling, feed back to I7 setups. Needs 30 days baseline data. Schema: `confluence_patterns` table + ConfluenceExplorationPlugin + writer service. | `docs/ideas/intelligence-confluence-patterns.md` |
-| Latency & Persistence Audit | Hot/cold path decoupling: Fire-and-Forget Kafka in hot path, PersistenceCoordinator async batch in cold path, zero-copy headers for provenance. Blocked on Phase 52 completion. | `docs/ideas/latency-and-persistence-audit-design.md` |
-| Intelligence Stack Latency | Parallel plugin workers within tiers (2-7× speedup potential). Thread-safety audit required. | `docs/ideas/intelligence-stack-latency-reduction.md` |
+| Intelligence Confluence Patterns (Unsupervised Discovery) | Remaining scope beyond Phase 64's structured cross-TF plugins: unsupervised enumeration of concurrent I5/I6/I7 signals, statistical pattern mining, human labeling loop. Needs 30 days baseline data. Schema: `confluence_patterns` table + ConfluenceExplorationPlugin + writer service. | `docs/ideas/intelligence-confluence-patterns.md` |
+| I2-I6 Tier Parallelization | I1/I7 already parallelized via asyncio.gather; I2-I6 remain sequential (current bottleneck). GIL prevents threading — options: multiprocessing, subprocess isolation, or async-native plugin protocol. Requires thread-safety audit first. | `docs/ideas/intelligence-stack-latency-reduction.md` |
 | API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
-| Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
-| Plugin pipeline thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
 | Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
 | ML Mixture-of-Experts | Soft blending across regime-specific models (once hard routing proves stable). | — |
 | Online learning | Incremental model updates between weekly retraining cycles. | — |
