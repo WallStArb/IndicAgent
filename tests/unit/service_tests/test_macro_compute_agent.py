@@ -1,0 +1,440 @@
+"""Unit tests for MacroComputeAgent.
+
+Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
+Tests _parse_bar, _publish_macro_signal, and _persist_to_db methods.
+"""
+
+from __future__ import annotations
+
+import json
+from collections import defaultdict, deque
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
+import pytest
+from prometheus_client import Counter
+
+# Module-level test metrics to avoid duplicate registration during test runs
+_TEST_BARS_PROCESSED = Counter(
+    "test_mca_bars_processed_total",
+    "Bars processed (test)",
+)
+_TEST_MACRO_PUBLISHED = Counter(
+    "test_mca_macro_published_total",
+    "Macro signals published (test)",
+)
+
+
+def _make_agent():
+    """Build a minimal MacroComputeAgent bypassing __init__.
+
+    Manually sets all instance attributes that _parse_bar, _publish_macro_signal,
+    and _persist_to_db reference, per the ServiceClass.__new__ pattern in CLAUDE.md.
+    """
+    from services.macro_compute_agent import MacroComputeAgent
+
+    agent = MacroComputeAgent.__new__(MacroComputeAgent)
+    agent._settings = MagicMock()
+    agent._settings.env_name = "development"
+    agent._settings.macro_window_bars = 10
+    agent._window_bars = 10
+    agent._kafka_bootstrap = "localhost:19092"
+    agent._database_url = "postgresql://postgres@localhost/indicagent"
+    agent._bar_windows = defaultdict(lambda: deque(maxlen=11))
+    agent._consumer = None
+    agent._producer = None
+    agent._db_manager = None
+    agent._bars_processed = _TEST_BARS_PROCESSED
+    agent._macro_published = _TEST_MACRO_PUBLISHED
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# _parse_bar tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseBar:
+    """Tests for MacroComputeAgent._parse_bar()."""
+
+    def test_parse_bar_valid_complete(self):
+        """_parse_bar() returns dict for valid complete JSON."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "ts": "2026-04-27T12:00:00Z",
+            "symbol": "ZT",
+            "tf": "1m",
+            "open": 98.5,
+            "high": 98.7,
+            "low": 98.4,
+            "close": 98.6,
+            "volume": 1000,
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is not None
+        assert result["symbol"] == "ZT"
+        assert result["tf"] == "1m"
+        assert result["close"] == 98.6
+        assert result["ts"] == "2026-04-27T12:00:00Z"
+
+    def test_parse_bar_minimal_required_fields(self):
+        """_parse_bar() accepts bar with only required fields (ts, symbol, tf, close)."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "ts": "2026-04-27T12:00:00Z",
+            "symbol": "ZB",
+            "tf": "1m",
+            "close": 120.5,
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is not None
+        assert result["symbol"] == "ZB"
+        assert result["close"] == 120.5
+
+    def test_parse_bar_missing_ts_returns_none(self):
+        """_parse_bar() returns None when 'ts' field missing."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "symbol": "ZT",
+            "tf": "1m",
+            "close": 98.6,
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is None
+
+    def test_parse_bar_missing_symbol_returns_none(self):
+        """_parse_bar() returns None when 'symbol' field missing."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "ts": "2026-04-27T12:00:00Z",
+            "tf": "1m",
+            "close": 98.6,
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is None
+
+    def test_parse_bar_missing_tf_returns_none(self):
+        """_parse_bar() returns None when 'tf' field missing."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "ts": "2026-04-27T12:00:00Z",
+            "symbol": "ZT",
+            "close": 98.6,
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is None
+
+    def test_parse_bar_missing_close_returns_none(self):
+        """_parse_bar() returns None when 'close' field missing."""
+        agent = _make_agent()
+        msg_value = json.dumps({
+            "ts": "2026-04-27T12:00:00Z",
+            "symbol": "ZT",
+            "tf": "1m",
+        }).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is None
+
+    def test_parse_bar_invalid_json_returns_none(self):
+        """_parse_bar() returns None for invalid JSON bytes."""
+        agent = _make_agent()
+        msg_value = b"not json at all"
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is None
+
+    def test_parse_bar_empty_bytes_returns_none(self):
+        """_parse_bar() returns None for empty bytes."""
+        agent = _make_agent()
+        result = agent._parse_bar(b"")
+
+        assert result is None
+
+    def test_parse_bar_none_value_returns_none(self):
+        """_parse_bar() returns None for None input."""
+        agent = _make_agent()
+        result = agent._parse_bar(None)
+
+        assert result is None
+
+    def test_parse_bar_preserves_all_fields(self):
+        """_parse_bar() preserves all OHLCV fields in returned dict."""
+        agent = _make_agent()
+        bar_data = {
+            "ts": "2026-04-27T15:30:00Z",
+            "symbol": "TLT",
+            "tf": "5m",
+            "open": 92.1,
+            "high": 92.5,
+            "low": 91.9,
+            "close": 92.3,
+            "volume": 5000,
+        }
+        msg_value = json.dumps(bar_data).encode()
+
+        result = agent._parse_bar(msg_value)
+
+        assert result is not None
+        for key, value in bar_data.items():
+            assert result[key] == value
+
+
+# ---------------------------------------------------------------------------
+# _publish_macro_signal tests
+# ---------------------------------------------------------------------------
+
+
+class TestPublishMacroSignal:
+    """Tests for MacroComputeAgent._publish_macro_signal()."""
+
+    @pytest.mark.asyncio
+    async def test_publish_yield_curve_calls_producer(self):
+        """_publish_macro_signal() calls producer.publish for yield curve result."""
+        agent = _make_agent()
+        mock_producer = AsyncMock()
+        agent._producer = mock_producer
+
+        macro_result = {
+            "yield_curve_slope": 0.75,
+            "yield_curve_regime": "steepening",
+        }
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._publish_macro_signal(macro_result, bar)
+
+        mock_producer.publish.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_uses_correct_topic(self):
+        """_publish_macro_signal() publishes to topic_macro_signals topic."""
+        agent = _make_agent()
+        mock_producer = AsyncMock()
+        agent._producer = mock_producer
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._publish_macro_signal(macro_result, bar)
+
+        call_kwargs = mock_producer.publish.call_args[1]
+        assert "macro_signals" in call_kwargs["topic"]
+
+    @pytest.mark.asyncio
+    async def test_publish_payload_contains_macro_fields(self):
+        """_publish_macro_signal() payload contains yield curve fields."""
+        agent = _make_agent()
+        mock_producer = AsyncMock()
+        agent._producer = mock_producer
+
+        macro_result = {
+            "yield_curve_slope": 1.25,
+            "yield_curve_regime": "steepening",
+        }
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._publish_macro_signal(macro_result, bar)
+
+        call_kwargs = mock_producer.publish.call_args[1]
+        payload = call_kwargs["msg"]
+        assert payload["yield_curve_slope"] == 1.25
+        assert payload["yield_curve_regime"] == "steepening"
+        assert payload["symbol"] == "ZT"
+        assert payload["ts"] == "2026-04-27T12:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_publish_ftq_payload_contains_ftq_fields(self):
+        """_publish_macro_signal() payload contains FTQ fields for FTQ results."""
+        agent = _make_agent()
+        mock_producer = AsyncMock()
+        agent._producer = mock_producer
+
+        macro_result = {
+            "ftq_score": -0.5,
+            "ftq_regime": "risk_off",
+        }
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "FTQ", "tf": "1m"}
+
+        await agent._publish_macro_signal(macro_result, bar)
+
+        call_kwargs = mock_producer.publish.call_args[1]
+        payload = call_kwargs["msg"]
+        assert payload["ftq_score"] == -0.5
+        assert payload["ftq_regime"] == "risk_off"
+
+    @pytest.mark.asyncio
+    async def test_publish_no_producer_no_error(self):
+        """_publish_macro_signal() returns silently when producer is None."""
+        agent = _make_agent()
+        agent._producer = None  # Not initialized
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        # Should not raise
+        await agent._publish_macro_signal(macro_result, bar)
+
+    @pytest.mark.asyncio
+    async def test_publish_uses_symbol_tf_message_key(self):
+        """_publish_macro_signal() uses message_key(symbol, tf) as Kafka key."""
+        agent = _make_agent()
+        mock_producer = AsyncMock()
+        agent._producer = mock_producer
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._publish_macro_signal(macro_result, bar)
+
+        call_kwargs = mock_producer.publish.call_args[1]
+        # message_key("ZT", "1m") returns "ZT:1m"
+        assert call_kwargs["key"] == "ZT:1m"
+
+
+# ---------------------------------------------------------------------------
+# _persist_to_db tests
+# ---------------------------------------------------------------------------
+
+
+class TestPersistToDb:
+    """Tests for MacroComputeAgent._persist_to_db()."""
+
+    def _make_mock_pool_conn(self):
+        """Create mock asyncpg connection accessed via pool.acquire() context manager."""
+        mock_conn = AsyncMock()
+        mock_acquire = AsyncMock()
+        mock_acquire.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire.__aexit__ = AsyncMock(return_value=False)
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=mock_acquire)
+        return mock_pool, mock_conn
+
+    @pytest.mark.asyncio
+    async def test_persist_yield_curve_executes_insert(self):
+        """_persist_to_db() executes INSERT for yield curve result."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        macro_result = {"yield_curve_slope": 0.75, "yield_curve_regime": "steepening"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        mock_conn.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_persist_yield_curve_inserts_into_macro_features(self):
+        """_persist_to_db() inserts into macro_features table for yield curve."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        macro_result = {"yield_curve_slope": 1.0, "yield_curve_regime": "steepening"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        call_args = mock_conn.execute.call_args[0]
+        sql = call_args[0]
+        assert "macro_features" in sql
+        assert "yield_curve_slope" in sql
+
+    @pytest.mark.asyncio
+    async def test_persist_ftq_inserts_ftq_columns(self):
+        """_persist_to_db() inserts FTQ columns for FTQ result."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        macro_result = {"ftq_score": -0.5, "ftq_regime": "risk_off"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "FTQ", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        mock_conn.execute.assert_called_once()
+        call_args = mock_conn.execute.call_args[0]
+        sql = call_args[0]
+        assert "macro_features" in sql
+        assert "ftq_score" in sql
+
+    @pytest.mark.asyncio
+    async def test_persist_ts_string_parsed_to_datetime(self):
+        """_persist_to_db() converts ISO-8601 ts string to datetime object for asyncpg."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        call_args = mock_conn.execute.call_args[0]
+        ts_param = call_args[1]  # First positional parameter after SQL
+        assert isinstance(ts_param, datetime)
+        assert ts_param.tzinfo is not None  # Must be timezone-aware
+
+    @pytest.mark.asyncio
+    async def test_persist_no_db_manager_no_error(self):
+        """_persist_to_db() returns silently when db_manager is None."""
+        agent = _make_agent()
+        agent._db_manager = None
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        # Should not raise
+        await agent._persist_to_db(macro_result, bar)
+
+    @pytest.mark.asyncio
+    async def test_persist_uses_upsert_on_conflict(self):
+        """_persist_to_db() uses ON CONFLICT DO UPDATE (upsert semantics)."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        call_args = mock_conn.execute.call_args[0]
+        sql = call_args[0]
+        assert "ON CONFLICT" in sql
+        assert "DO UPDATE" in sql
+
+    @pytest.mark.asyncio
+    async def test_persist_datetime_ts_used_directly(self):
+        """_persist_to_db() uses datetime ts directly without re-parsing."""
+        agent = _make_agent()
+        mock_pool, mock_conn = self._make_mock_pool_conn()
+        agent._db_manager = MagicMock()
+        agent._db_manager.pool = mock_pool
+
+        ts = datetime(2026, 4, 27, 12, 0, 0, tzinfo=UTC)
+        macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
+        bar = {"ts": ts, "symbol": "ZT", "tf": "1m"}
+
+        await agent._persist_to_db(macro_result, bar)
+
+        call_args = mock_conn.execute.call_args[0]
+        ts_param = call_args[1]
+        assert isinstance(ts_param, datetime)

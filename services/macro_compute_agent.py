@@ -253,8 +253,8 @@ class MacroComputeAgent(BaseAgent):
         key = message_key(bar["symbol"], bar["tf"])
         await self._producer.publish(
             topic=topic_macro_signals(self._settings.env_name),
-            key=key,
             msg=payload,
+            key=key,
         )
         self._macro_published.inc()
 
