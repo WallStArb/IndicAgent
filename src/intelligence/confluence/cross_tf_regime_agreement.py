@@ -1,0 +1,139 @@
+"""Cross-TF Regime Agreement Plugin.
+
+Detects HMM regime agreement across timeframes.
+Uses I4 hmm_regime to classify trending vs ranging agreement.
+
+Gradient scoring (per D-06 and CONTEXT.md):
+- Uses np.tanh() for soft saturation (NOT binary step functions)
+- Trending regimes (hmm_regime 1/2) score +1, ranging (0) score -1
+- Agreement = tanh(avg_regime * 2.0) for sharpened gradient
+
+Outputs:
+    ctf_hmm_regime_agreement: float [-1, +1]
+        - Positive: All timeframes trending
+        - Negative: All timeframes ranging
+        - Near 0: Mixed regimes
+    ctf_hmm_regime_label: str
+        - all_trending: All TFs in trending regime (hmm_regime 1 or 2)
+        - all_ranging: All TFs in ranging regime (hmm_regime 0)
+        - mostly_trending: Majority trending
+        - mostly_ranging: Majority ranging
+        - mixed: Split decision
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+
+from ..plugins import InputSpec
+
+
+@dataclass
+class CrossTFRegimeAgreementPlugin:
+    """Cross-TF HMM regime agreement detector.
+
+    Follows the CrossTimeframeConfluencePlugin pattern: reads cached I4
+    context from frames dict and computes regime agreement across TFs using
+    np.tanh() gradient scoring (not binary step functions).
+
+    Per D-06: outputs ctf_hmm_regime_agreement [-1, +1] and ctf_hmm_regime_label (categorical)
+    NOTE: Named ctf_hmm_regime_* to avoid conflict with existing ctf_regime_agreement
+    float field (CrossTimeframeConfluencePlugin) in I6Confluence schema.
+    """
+
+    name: str = "i6_CrossTFRegimeAgreement"
+    outputs: frozenset[str] = frozenset(
+        {
+            "ctf_hmm_regime_agreement",
+            "ctf_hmm_regime_label",
+        }
+    )
+    min_lookback: int = 1
+    supports_incremental: bool = False
+    capability_tags: frozenset[str] = frozenset({"confluence"})
+    inputs: list[InputSpec] = field(default_factory=list)
+    _state: dict = field(default_factory=dict)
+
+    # All timeframes to check regime agreement across
+    _ALL_TFS: tuple[str, ...] = ("5m", "15m", "1h", "4h")
+
+    # Majority thresholds for regime classification
+    _MAJORITY_THRESHOLD: float = 0.3
+
+    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Compute HMM regime agreement across timeframes.
+
+        Reads frames["intel_i4"] (I4 context: hmm_regime) per timeframe.
+        Trending regime (hmm_regime 1 or 2) = +1, ranging (hmm_regime 0) = -1.
+        Computes agreement as mean score normalized via tanh.
+
+        Args:
+            frames: Dict with cached I1-I5 intelligence per TF.
+                    Expected keys: "intel_i4" (maps tf->dict with hmm_regime field)
+
+        Returns:
+            dict with:
+                ctf_hmm_regime_agreement: float [-1, +1] (tanh-normalized regime agreement)
+                ctf_hmm_regime_label: str (one of 5 categorical labels)
+        """
+        i4_context = frames.get("intel_i4", {})
+
+        regime_scores: dict[str, float] = {}
+
+        for tf in self._ALL_TFS:
+            if tf not in i4_context:
+                continue
+
+            i4_tf = i4_context[tf]
+            if not isinstance(i4_tf, dict):
+                continue
+
+            hmm_regime = i4_tf.get("hmm_regime")
+            if not isinstance(hmm_regime, (int, float)):
+                continue
+
+            # Trending (1 or 2) = +1.0, ranging (0) = -1.0
+            if hmm_regime in (1, 2):
+                regime_scores[tf] = 1.0
+            elif hmm_regime == 0:
+                regime_scores[tf] = -1.0
+            else:
+                regime_scores[tf] = 0.0
+
+        if not regime_scores:
+            return {
+                "ctf_hmm_regime_agreement": 0.0,
+                "ctf_hmm_regime_label": "mixed",
+            }
+
+        # Average regime score
+        avg_regime = float(np.mean(list(regime_scores.values())))
+
+        # Agreement: normalized via tanh with sharpening factor (D-17: gradient-first)
+        agreement = float(np.tanh(avg_regime * 2.0))
+
+        # Regime classification — 5 categorical labels
+        if all(v > 0 for v in regime_scores.values()):
+            label = "all_trending"
+        elif all(v < 0 for v in regime_scores.values()):
+            label = "all_ranging"
+        elif avg_regime > self._MAJORITY_THRESHOLD:
+            label = "mostly_trending"
+        elif avg_regime < -self._MAJORITY_THRESHOLD:
+            label = "mostly_ranging"
+        else:
+            label = "mixed"
+
+        return {
+            "ctf_hmm_regime_agreement": round(agreement, 4),
+            "ctf_hmm_regime_label": label,
+        }
+
+    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+        return self.compute_full(windows)
+
+
+plugin = CrossTFRegimeAgreementPlugin()
