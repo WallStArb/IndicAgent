@@ -97,6 +97,7 @@ def agent():
     latency_mock.time = MagicMock(return_value=latency_ctx)
     a._processing_latency = latency_mock
     a._last_roll_ts = MagicMock()
+    a._processed_rolls: set = set()
     return a
 
 
@@ -196,8 +197,8 @@ async def test_handle_roll_event_valid(agent):
 
     await agent._handle_roll_event(payload)
 
-    # Two execute calls: UPDATE old + UPSERT new
-    assert conn.execute.call_count == 2
+    # Three execute calls: UPDATE old + UPSERT new + INSERT into roll_events
+    assert conn.execute.call_count == 3
     # ContractUpdateEvent published to contract_updates topic
     agent._kafka_producer.publish.assert_called_once()
     publish_call = agent._kafka_producer.publish.call_args
@@ -226,7 +227,10 @@ async def test_handle_roll_event_idempotent(agent):
     await agent._handle_roll_event(payload)
     await agent._handle_roll_event(payload)
 
-    assert agent._rolls_processed.inc.call_count == 2
+    # Second call is detected as duplicate, returns early after writing roll event
+    assert agent._rolls_processed.inc.call_count == 1
+    # Total execute calls: first (UPDATE + INSERT + roll_events) + second (roll_events duplicate) = 4
+    assert conn.execute.call_count == 4
     agent._roll_errors.inc.assert_not_called()
 
 

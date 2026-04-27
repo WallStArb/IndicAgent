@@ -21,4 +21,5 @@ def test_llm_writer_records_batch_latency():
 
 def test_llm_writer_records_consumer_lag():
     src = pathlib.Path("services/llm_writer_service.py").read_text()
-    assert "PERSISTENCE_CONSUMER_LAG" in src
+    # Consumer lag is tracked via inherited _consumer_lag_gauge from BaseAgent
+    assert "_consumer_lag_gauge" in src or "PERSISTENCE_CONSUMER_LAG" in src

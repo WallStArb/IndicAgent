@@ -83,9 +83,7 @@ class TestFeatureSnapshotRepository:
     def test_get_recent_features_returns_empty_on_error(self, db):
         db.execute_query = AsyncMock(side_effect=Exception("connection refused"))
         repo = FeatureSnapshotRepository(db)
-        result = asyncio.get_event_loop().run_until_complete(
-            repo.get_recent_features("ES", "1m", 50, 3600)
-        )
+        result = asyncio.run(repo.get_recent_features("ES", "1m", 50, 3600))
         assert result == []
 
     def test_get_ohlcv_fallback_builds_correct_query(self, db):
@@ -101,9 +99,7 @@ class TestFeatureSnapshotRepository:
     def test_get_ohlcv_fallback_returns_empty_on_error(self, db):
         db.execute_query = AsyncMock(side_effect=RuntimeError("timeout"))
         repo = FeatureSnapshotRepository(db)
-        result = asyncio.get_event_loop().run_until_complete(
-            repo.get_ohlcv_fallback("ES", "1m", 50, 3600)
-        )
+        result = asyncio.run(repo.get_ohlcv_fallback("ES", "1m", 50, 3600))
         assert result == []
 
 

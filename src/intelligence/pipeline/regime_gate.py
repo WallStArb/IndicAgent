@@ -111,7 +111,7 @@ async def apply_regime_gate(
                 signal_id=s["signal_id"],
                 transform_id="regime_gate",
                 dag_order=2,
-                multiplier=1.0 if regime_eligible else 0.0,
+                multiplier=float(regime_eligible),
                 segment_key=seg,
                 metadata={
                     "hmm_regime": hmm_regime,
