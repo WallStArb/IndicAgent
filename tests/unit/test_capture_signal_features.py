@@ -46,7 +46,7 @@ def test_capture_signal_features_all_fields_present() -> None:
     assert shadow["exhaustion_side"] == "bull"
     assert shadow["exhaustion_bars"] == 2.0
 
-    # Full key set (8 confluence/meta + 4 I4 macro context + 3 exhaustion = 15 keys)
+    # Full key set (8 confluence/meta + 4 I4 macro context + 3 exhaustion + 2 cross-TF momentum = 17 keys)
     expected_keys = {
         "profile",
         "existing_confidence",
@@ -63,6 +63,8 @@ def test_capture_signal_features_all_fields_present() -> None:
         "vix_z",
         "eq_spread_z",
         "eq_pairs_confirming",
+        "ctf_momentum_divergence",
+        "ctf_momentum_regime",
     }
     assert set(shadow.keys()) == expected_keys
 
@@ -209,13 +211,13 @@ def test_new_fields_preserve_none_not_zero() -> None:
     assert shadow["eq_spread_z"] is None  # absent -> None
 
 
-def test_shadow_key_count_non_exempt_is_15() -> None:
-    """Non-exempt profile: 8 confluence/meta + 4 I4 macro context + 3 exhaustion = 15 keys."""
+def test_shadow_key_count_non_exempt_is_17() -> None:
+    """Non-exempt profile: 8 confluence/meta + 4 I4 macro context + 3 exhaustion + 2 cross-TF momentum = 17 keys."""
     shadow = capture_signal_features({}, 1, "trend", 0.7)
-    assert len(shadow) == 15
+    assert len(shadow) == 17
 
 
-def test_shadow_key_count_exempt_is_15() -> None:
-    """exempt_exhaustion profile also has 15 keys (exhaustion fields are None, not absent)."""
+def test_shadow_key_count_exempt_is_17() -> None:
+    """exempt_exhaustion profile also has 17 keys (exhaustion fields are None, not absent)."""
     shadow = capture_signal_features({}, 1, "exempt_exhaustion", 0.7)
-    assert len(shadow) == 15
+    assert len(shadow) == 17
