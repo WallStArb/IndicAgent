@@ -247,3 +247,73 @@ With MacroComputeAgent infrastructure complete:
 ✅ Infrastructure verified (Kafka topics, DB migration, systemd unit)
 ✅ Integration points verified
 ✅ Ready for Tasks 5-6 (backtest + deployment) OR Plan 64-03B/C (additional macro factors)
+
+---
+
+# Phase 64 Plan 03A-REVISED: MacroComputeAgent Stub Fix + Unit Tests
+
+**Executed:** 2026-04-27
+
+## One-liner
+
+Fixed 3 runtime bugs in MacroComputeAgent (wrong AGENT_CRASH_TOTAL import, wrong label key, wrong publish kwarg) and added 23 unit tests covering _parse_bar, _publish_macro_signal, _persist_to_db.
+
+## Tasks Completed
+
+| # | Task | Commit | Files |
+|---|------|--------|-------|
+| 1 | Verify MacroComputeAgent methods + fix 3 bugs | b2c2fc79 | services/macro_compute_agent.py |
+| 2 | Create 23 unit tests for MacroComputeAgent methods | e19d7f8c | tests/unit/service_tests/test_macro_compute_agent.py |
+
+## Checkpoint Pending (Task 3)
+
+Manual integration testing required:
+- Verify `services/indicagent-macro-compute.service` exists
+- Verify `macro_features` table exists in TimescaleDB: `docker exec timescaledb psql -U postgres -d indicagent -c "\dt macro_features"`
+- Verify `topic_macro_signals` exists in Redpanda: `docker exec redpanda rpk topic list | grep macro_signals`
+- Test service startup: `timeout 5 python services/macro_compute_agent.py || true` then `tail -20 logs/macro_compute_agent.log`
+- Confirm logs show `macro_compute_agent.setup` with no errors
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Wrong import for AGENT_CRASH_TOTAL**
+- **Found during:** Task 1 (import verification)
+- **Issue:** `AGENT_CRASH_TOTAL` was imported from `src.observability.metrics` but is defined in `src.core.agent.base`
+- **Fix:** Changed import to `from src.core.agent.base import AGENT_CRASH_TOTAL`
+- **Files modified:** services/macro_compute_agent.py
+- **Commit:** b2c2fc79
+
+**2. [Rule 1 - Bug] Wrong Prometheus label key on AGENT_CRASH_TOTAL**
+- **Found during:** Task 1 (label verification)
+- **Issue:** `AGENT_CRASH_TOTAL.labels(agent_id=...)` but metric defined with label `"agent"` (not `"agent_id"`)
+- **Fix:** Changed to `AGENT_CRASH_TOTAL.labels(agent=self.agent_id)`
+- **Files modified:** services/macro_compute_agent.py
+- **Commit:** b2c2fc79
+
+**3. [Rule 1 - Bug] Wrong keyword argument in KafkaProducerClient.publish call**
+- **Found during:** Task 1 (API verification against kafka_utils.py)
+- **Issue:** `_publish_macro_signal` called `publish(..., value=payload)` but `KafkaProducerClient.publish` signature uses `msg` not `value`; this would raise `TypeError` at runtime
+- **Fix:** Changed to `publish(topic=..., msg=payload, key=key)`
+- **Files modified:** services/macro_compute_agent.py
+- **Commit:** b2c2fc79
+
+## Test Coverage
+
+23 tests total, all passing:
+
+| Class | Tests | Coverage |
+|-------|-------|---------|
+| TestParseBar | 10 | Valid JSON, minimal fields, 4 missing-field cases, invalid JSON, empty bytes, None input, field preservation |
+| TestPublishMacroSignal | 6 | Producer called, correct topic, payload fields, FTQ payload, graceful no-producer, message key |
+| TestPersistToDb | 7 | INSERT executes, macro_features table, FTQ columns, ts string to datetime, graceful no-db-manager, ON CONFLICT upsert, datetime ts direct use |
+
+## Self-Check (REVISED): PASSED
+
+✅ services/macro_compute_agent.py: exists, imports cleanly
+✅ tests/unit/service_tests/test_macro_compute_agent.py: exists
+✅ Commit b2c2fc79 exists (fix: import/label/publish bugs)
+✅ Commit e19d7f8c exists (test: 23 unit tests)
+✅ 23/23 tests pass: confirmed with pytest -v
+✅ No TODO or bare pass statements: grep count = 0
