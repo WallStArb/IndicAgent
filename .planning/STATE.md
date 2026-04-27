@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
 status: unknown
-last_updated: "2026-04-27T01:42:17.926Z"
+last_updated: "2026-04-27T17:07:26.730Z"
 progress:
   total_phases: 23
   completed_phases: 3
-  total_plans: 20
-  completed_plans: 15
-  percent: 75
+  total_plans: 26
+  completed_plans: 24
+  percent: 92
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase --phase — 72
+**Current focus:** Phase --phase — 64
 
 ## Current Position
 
-Phase: 72
-Plan: Not started
+Phase: --phase (64) — EXECUTING
+Plan: 1 of --name
 
   - AlertingAgent (Kafka→Telegram/Discord dispatcher) + Renaissance refactor (SRP restored)
 
@@ -124,7 +124,11 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Pending Todos
 
-**31 pending todos** (see `.planning/todos/pending/`)
+**8 pending todos** (see `.planning/todos/pending/`)
+
+Recent additions:
+
+- 2026-04-27: Add FeatureValidationService as new phase — automated IC/p-value gate superseding Phase 64-04 Task 3 human-verify checkpoint
 
 Recent additions:
 
