@@ -770,6 +770,11 @@ class I6Confluence(BaseModel):
     i6_ob_tf_4h: float | None = None
     i6_ob_tf_1d: float | None = None
 
+    # Cross-TF momentum divergence (Plan 64-01, D-06)
+    # CrossTFMomentumDivergencePlugin outputs
+    ctf_momentum_divergence: float | None = None  # [-1, +1] HTF-LTF momentum divergence
+    ctf_momentum_regime: str | None = None  # aligned_htf_bull/aligned_htf_bear/pullback/bounce/mixed
+
 
 class IntelligenceEvent(BaseModel):
     """Canonical typed intelligence event published to intelligence:SYMBOL:TF Redis stream.
