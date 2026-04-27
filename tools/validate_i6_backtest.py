@@ -86,11 +86,13 @@ def validate_backtest_results(
             p_value=1.0,
             passed=False,
             regime_results={},
+            decision="KILL (field missing from backtest output)",
         )
 
     valid_df = df[[field_name, "pnl_r", "hmm_regime"]].dropna()
 
     if len(valid_df) < min_n:
+        reason = "insufficient pnl_r outcomes" if df["pnl_r"].isna().all() else f"n={len(valid_df)} < {min_n}"
         return ValidationResults(
             field_name=field_name,
             n=len(valid_df),
@@ -98,6 +100,7 @@ def validate_backtest_results(
             p_value=1.0,
             passed=False,
             regime_results={},
+            decision=f"KILL ({reason})",
         )
 
     # Compute overall IC
