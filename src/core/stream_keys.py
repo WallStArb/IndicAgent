@@ -55,6 +55,17 @@ def topic_market_bars_htf(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.bars.htf"
 
 
+def topic_bar_aggregator_state(env_name: str) -> str:
+    """Kafka compacted topic for BarAggregatorComputeAgent state checkpoints.
+
+    Key format: {version}:{symbol}:{tf} (e.g., '1:ESM6:5m')
+    Value: msgpack-encoded BarAccumulator state dict (_accumulators, _last_session_boundary_log)
+    Topic config: cleanup.policy=compact, min.cleanable.dirty.ratio=0.1,
+                  segment.ms=3600000 — set on topic creation, not in code.
+    """
+    return f"{env_prefix(env_name)}bar.aggregator.state"
+
+
 def topic_roll_events(env_name: str) -> str:
     """Kafka topic for typed RollEvent messages from RollComputeAgent."""
     return f"{env_prefix(env_name)}market.events.roll"
