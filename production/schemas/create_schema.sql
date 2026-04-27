@@ -73,11 +73,26 @@ CREATE TABLE IF NOT EXISTS instruments (
 );
 
 -- Uniques to support upsert patterns
-ALTER TABLE IF EXISTS market_data_ohlcv
-  ADD CONSTRAINT IF NOT EXISTS uq_ohlcv_ts_symbol_tf UNIQUE (timestamp, symbol, timeframe);
+-- ADD CONSTRAINT IF NOT EXISTS is invalid syntax in PostgreSQL — use DO block instead.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_ohlcv_ts_symbol_tf'
+  ) THEN
+    ALTER TABLE market_data_ohlcv
+      ADD CONSTRAINT uq_ohlcv_ts_symbol_tf UNIQUE (timestamp, symbol, timeframe);
+  END IF;
+END $$;
 
-ALTER TABLE IF EXISTS technical_indicators
-  ADD CONSTRAINT IF NOT EXISTS uq_ind_ts_symbol_tf_name UNIQUE (timestamp, symbol, timeframe, indicator_name);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_ind_ts_symbol_tf_name'
+  ) THEN
+    ALTER TABLE technical_indicators
+      ADD CONSTRAINT uq_ind_ts_symbol_tf_name UNIQUE (timestamp, symbol, timeframe, indicator_name);
+  END IF;
+END $$;
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timeframe_timestamp 

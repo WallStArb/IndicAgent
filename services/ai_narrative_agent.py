@@ -127,12 +127,21 @@ class AINarrativeComputeAgent(BaseAgent):
 class _IntelAdapter:
     """Lightweight adapter for the intelligence sub-dict."""
 
-    __slots__ = ("symbol", "tf", "ts")
+    __slots__ = ("symbol", "tf", "ts", "bar_close", "i4_hmm_regime", "i4_hmm_regime_prob", "i6_ctf_trend", "i6_ctf_regime")
 
     def __init__(self, d: dict) -> None:
         self.symbol = d.get("symbol", "")
         self.tf = d.get("tf", "")
         self.ts = d.get("ts", "")
+        # Extract nested fields directly (eliminates adapter object churn)
+        bar = d.get("bar", {}) if isinstance(d.get("bar"), dict) else {}
+        self.bar_close = bar.get("c", 0.0)
+        i4 = d.get("i4", {}) if isinstance(d.get("i4"), dict) else {}
+        self.i4_hmm_regime = i4.get("hmm_regime")
+        self.i4_hmm_regime_prob = i4.get("hmm_regime_prob")
+        i6 = d.get("i6", {}) if isinstance(d.get("i6"), dict) else {}
+        self.i6_ctf_trend = i6.get("ctf_trend_alignment")
+        self.i6_ctf_regime = i6.get("ctf_regime_agreement")
 
 
 class _RecordAdapter:

@@ -4,7 +4,6 @@ Instruments API Routes
 Serves instrument/contract configuration from the database.
 """
 
-import json
 from typing import Any
 
 import structlog
@@ -31,7 +30,7 @@ async def list_instruments(
         {
             "symbol": r["symbol"],
             "is_active": r["is_active"],
-            **(r["contract_details"] if isinstance(r["contract_details"], dict) else json.loads(r["contract_details"])),
+            **r["contract_details"],
         }
         for r in rows
     ]
@@ -50,5 +49,4 @@ async def get_instrument(
     if not rows:
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
     r = rows[0]
-    cd = r["contract_details"]
-    return {"symbol": r["symbol"], "is_active": r["is_active"], **(cd if isinstance(cd, dict) else json.loads(cd))}
+    return {"symbol": r["symbol"], "is_active": r["is_active"], **r["contract_details"]}

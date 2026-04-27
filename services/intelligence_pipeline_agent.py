@@ -1523,7 +1523,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Select winner — pass all ranked signals (select_winner filters active internally)
         winner, _, resolution_method = select_winner(
-            ranked, cis_result, long_bias=self._settings.winner_long_bias
+            ranked, cis_result, long_bias=self.settings.winner_long_bias
         )
 
         # Stamp resolution_method on every ranked signal (not just the winner)

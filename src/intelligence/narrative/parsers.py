@@ -26,7 +26,7 @@ def parse_bar_intelligence_record(record: BarIntelligenceRecord) -> dict[str, An
     return {
         "symbol": intel.symbol,
         "timeframe": intel.tf,
-        "ts": intel.ts.isoformat(),
+        "ts": intel.ts if isinstance(intel.ts, str) else intel.ts.isoformat(),
         "direction": direction,
         "confidence": record.winner_confidence or 0.0,
         "plugin": record.winner_plugin or "unknown",

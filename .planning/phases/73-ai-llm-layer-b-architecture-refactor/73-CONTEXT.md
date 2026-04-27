@@ -72,11 +72,48 @@ Phase does NOT include Approach C (independent `src/ai/` package extraction) —
 - All agents have `shadow_only=True` by default
 - `graduation_loop` (every 15 min) auto-flips when Spearman gates pass (ρ ≥ 0.15, n ≥ 30, p < 0.05)
 
+### Architectural Decisions (Locked Post-Research)
+
+**ShadowRecorder persistence: Kafka-first (DAG-correct)**
+- `ShadowRecorder.record(AgentOutput)` publishes to `intelligence.shadow_recordings` Kafka topic
+- Existing `swarm_writer_agent` (or renamed `shadow_writer_agent`) consumes and persists to `signal_transform_log`
+- Hot path (dispatch loop) NEVER writes to DB directly — this is a hard constraint from Renaissance DAG principles
+- `stream_keys.py` needs `topic_shadow_recordings()` function
+
+**graduation_loop DB access: pragmatic direct read (acceptable)**
+- `graduation_loop` is a background task running every 15 minutes — NOT on the bar dispatch hot path
+- Direct `asyncpg` query to `signal_transform_log` inside `BaseGroupService._graduation_loop()` is acceptable
+- This is a deliberate exception to the DAG rule, consistent with how graduation was always conceived
+
+**Shadow promotion: build the full mechanism, no prod flips yet**
+- All agents MUST start and remain at `shadow_only=True`
+- Build `graduation_loop`, `evaluate_all()`, signal_transform_log recording fully and correctly
+- The loop will run, evaluate, log findings — but won't promote until Spearman gates pass with real data
+- Zero code change needed when prod data accumulates: system self-activates automatically
+- This is the Renaissance approach: instrument everything, let the system run
+
+**`ShadowRecorder` Kafka topic naming:** `intelligence.shadow_recordings` (dots only, via `topic_shadow_recordings()` in `stream_keys.py`)
+
+**New stream_keys.py functions needed (from research):**
+- `topic_swarm_alpha()` — AlphaSwarmComputeAgent aggregate topic (AlphaMultiplier output)
+- `topic_swarm_graduation()` — graduation flip events published by graduation_loop
+- `topic_shadow_recordings()` — ShadowRecorder publishes here; writer consumes
+
+**AgentResult → AgentOutput migration is atomic:**
+- `SwarmAggregator.aggregate()` must be updated in the same plan as the schema migration
+- `AlphaMultiplier.contributors` type changes from `dict[str, AgentResult]` → `dict[str, AgentOutput]`
+- `swarm_writer_agent.py` updated in the same wave — zero intermediate broken state
+
+**Latency baseline first:**
+- Before hardcoding `latency_budget_ms`, a profiling task must measure actual gemma4:e4b latency on target hardware
+- Default 5000ms is a safe starting ceiling; tuned to 2× measured P95 after profiling
+- Alpha agents target 3000ms, narrative 60000ms — these are confirmed after measurement
+
 ### Claude's Discretion
-- Exact test coverage scope (unit tests for new base classes, integration tests for group service dispatch)
 - Order of migration steps within execution (can be sequenced for minimal service disruption)
 - Whether to update CLAUDE.md service table with renamed services
 - Systemd unit file name for renamed alpha swarm agent
+- Whether to update `swarm_writer_agent.py` in-place or rename to `shadow_writer_agent.py`
 
 </decisions>
 
