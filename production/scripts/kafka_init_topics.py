@@ -63,6 +63,8 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     ("narratives.group",           1, _BUFFER_MS, "delete"),
     # --- Cross-asset (consumed in real-time by pipeline) ---
     ("cross_asset",                1, _BUFFER_MS, "delete"),
+    # --- Macro factors (persisted by macro_compute_agent → macro_features) ---
+    ("macro_signals",              1, _BUFFER_MS, "delete"),
     # --- Lifecycle (persisted by lifecycle_writer) ---
     ("lifecycle.transitions",      1, _BUFFER_MS, "delete"),
     # --- Swarm (persisted by swarm_writer) ---
