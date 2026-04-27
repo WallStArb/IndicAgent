@@ -913,3 +913,30 @@ class AlphaMultiplier(BaseModel):
     def is_production_ready(self) -> bool:
         """Returns True only when all contributors are production-ready (not shadow-only)."""
         return not self.shadow_only
+
+class MacroSignals(BaseModel):
+    """Macro factor signals from MacroComputeAgent.
+
+    Published to topic_macro_signals.
+    Consumed by IntelligencePipelineComputeAgent (frames["cross_asset"]).
+    Written to macro_features hypertable by DataWriterAgent.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ts: datetime
+    symbol: str
+    timeframe: str
+
+    # Yield curve slope factor (Plan 64-03A)
+    yield_curve_slope: float | None = None
+    yield_curve_regime: str | None = None
+
+    # Flight-to-quality factor (Plan 64-03B)
+    # ftq_score: float | None = None
+    # ftq_regime: str | None = None
+
+    # USD strength factor (Plan 64-03C)
+    # usd_strength_score: float | None = None
+    # usd_strength_regime: str | None = None
+
