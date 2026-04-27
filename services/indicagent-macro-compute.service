@@ -10,6 +10,7 @@ User=indicant
 Group=indicant
 WorkingDirectory=/home/indicant/indicagent
 Environment="PATH=/home/indicant/indicagent/.venv/bin:/usr/bin:/bin"
+Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/home/indicant/indicagent/.env
 ExecStart=/home/indicant/indicagent/.venv/bin/python services/macro_compute_agent.py
 Restart=always
