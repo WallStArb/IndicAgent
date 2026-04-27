@@ -141,6 +141,32 @@ def capture_signal_features(
     )
     shadow["ctf_momentum_regime"] = features.get("ctf_momentum_regime")  # str | None
 
+    # Cross-TF S/R confluence (Plan 64-02, D-13, D-14)
+    ctf_sr = features.get("ctf_sr_confluence")
+    shadow["ctf_sr_confluence"] = float(ctf_sr) if isinstance(ctf_sr, (int, float)) else None
+    shadow["ctf_sr_regime"] = features.get("ctf_sr_regime")  # str | None
+
+    # Cross-TF HMM regime agreement (Plan 64-02, D-13, D-14)
+    ctf_hmm = features.get("ctf_hmm_regime_agreement")
+    shadow["ctf_hmm_regime_agreement"] = (
+        float(ctf_hmm) if isinstance(ctf_hmm, (int, float)) else None
+    )
+    shadow["ctf_hmm_regime_label"] = features.get("ctf_hmm_regime_label")  # str | None
+
+    # Cross-TF volatility divergence (Plan 64-02, D-13, D-14)
+    ctf_vol = features.get("ctf_volatility_divergence")
+    shadow["ctf_volatility_divergence"] = (
+        float(ctf_vol) if isinstance(ctf_vol, (int, float)) else None
+    )
+    shadow["ctf_volatility_regime"] = features.get("ctf_volatility_regime")  # str | None
+
+    # Cross-TF order flow alignment (Plan 64-02, D-13, D-14)
+    ctf_ofa = features.get("ctf_orderflow_alignment")
+    shadow["ctf_orderflow_alignment"] = (
+        float(ctf_ofa) if isinstance(ctf_ofa, (int, float)) else None
+    )
+    shadow["ctf_orderflow_regime"] = features.get("ctf_orderflow_regime")  # str | None
+
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
     if profile_name != "exempt_exhaustion":
         shadow["exhaustion_score"] = float(features.get("exhaustion_score", 0.0))
