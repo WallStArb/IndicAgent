@@ -37,7 +37,8 @@ from src.core.stream_keys import message_key, topic_macro_signals, topic_market_
 from src.intelligence.macro.constants import MACRO_RATE_FUTURES
 from src.intelligence.macro.flight_to_quality import compute_flight_to_quality
 from src.intelligence.macro.yield_curve import compute_yield_curve_slope
-from src.observability.metrics import AGENT_CRASH_TOTAL, counter
+from src.core.agent.base import AGENT_CRASH_TOTAL
+from src.observability.metrics import counter
 
 
 logger = structlog.get_logger(__name__)
@@ -213,7 +214,7 @@ class MacroComputeAgent(BaseAgent):
             raise
         except Exception as e:
             logger.exception("macro_compute_agent.error", error=str(e))
-            AGENT_CRASH_TOTAL.labels(agent_id=self.agent_id).inc()
+            AGENT_CRASH_TOTAL.labels(agent=self.agent_id).inc()
             raise
 
     # -----------------------------------------------------------------------
@@ -252,8 +253,8 @@ class MacroComputeAgent(BaseAgent):
         key = message_key(bar["symbol"], bar["tf"])
         await self._producer.publish(
             topic=topic_macro_signals(self._settings.env_name),
+            msg=payload,
             key=key,
-            value=payload,
         )
         self._macro_published.inc()
 
