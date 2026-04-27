@@ -776,6 +776,30 @@ class I6Confluence(BaseModel):
     # Regime: aligned_htf_bull/aligned_htf_bear/pullback/bounce/mixed
     ctf_momentum_regime: str | None = None
 
+    # Plan 64-02: 4 additional cross-TF plugins (D-01)
+
+    # CrossTFSRConfluence: HTF/LTF S/R level alignment via pivot proximity decay
+    ctf_sr_confluence: float | None = None  # [-1, +1] HTF-LTF S/R alignment
+    # Regime: aligned_both_resistance/aligned_both_support/aligned_htf_only/aligned_ltf_only/no_confluence
+    ctf_sr_regime: str | None = None
+
+    # CrossTFRegimeAgreement: HMM regime agreement across TFs
+    # NOTE: named ctf_hmm_regime_* to avoid conflict with ctf_regime_agreement
+    # (CrossTimeframeConfluencePlugin) which scores regime consensus differently
+    ctf_hmm_regime_agreement: float | None = None  # [-1, +1] HMM regime agreement (+trending/-ranging)
+    # Label: all_trending/all_ranging/mostly_trending/mostly_ranging/mixed
+    ctf_hmm_regime_label: str | None = None
+
+    # SqueezeExpansionDivergence: ATR + entropy volatility divergence HTF-LTF
+    ctf_volatility_divergence: float | None = None  # [-1, +1] HTF-LTF volatility divergence
+    # Regime: both_squeezing/both_expanding/squeeze_htf_expand_ltf/squeeze_ltf_expand_htf/mixed
+    ctf_volatility_regime: str | None = None
+
+    # CrossTFOrderFlowAlignment: OFI/CVD buying/selling pressure alignment
+    ctf_orderflow_alignment: float | None = None  # [-1, +1] OFI/CVD alignment
+    # Regime: aligned_bull/aligned_bear/mostly_bull/mostly_bear/divergent/missing_data
+    ctf_orderflow_regime: str | None = None
+
 
 class IntelligenceEvent(BaseModel):
     """Canonical typed intelligence event published to intelligence:SYMBOL:TF Redis stream.
