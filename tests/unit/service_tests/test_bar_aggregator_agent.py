@@ -78,6 +78,7 @@ def _make_agent():
     agent._consumer_restart_needed = False
     agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
     agent._bars_in_flight = MagicMock()  # Gauge (mocked to avoid duplicate registration)
+    agent._state_checkpoint_failures_total = MagicMock()
     # Wire module-level test metrics via cached label children (matches production pattern)
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
     agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")
@@ -314,6 +315,9 @@ async def test_setup_retries_on_kafka_connection_error():
     mock_consumer.start = AsyncMock(return_value=None)
     mock_lag_consumer = AsyncMock()
     mock_lag_consumer.start = AsyncMock(return_value=None)
+
+    # Mock _restore_state_checkpoint to avoid creating another KafkaConsumerClient
+    agent._restore_state_checkpoint = AsyncMock(return_value=True)
 
     with patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer), \
          patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer), \

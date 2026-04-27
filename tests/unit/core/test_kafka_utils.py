@@ -18,7 +18,12 @@ async def test_producer_client_start_and_stop() -> None:
     with patch("src.core.kafka_utils.AIOKafkaProducer", return_value=mock_producer) as mock_cls:
         client = KafkaProducerClient(bootstrap_servers="localhost:19092")
         await client.start()
-        mock_cls.assert_called_once_with(bootstrap_servers="localhost:19092")
+        mock_cls.assert_called_once_with(
+            bootstrap_servers="localhost:19092",
+            acks="all",
+            enable_idempotence=True,
+            compression_type="lz4",
+        )
         mock_producer.start.assert_awaited_once()
 
         await client.stop()

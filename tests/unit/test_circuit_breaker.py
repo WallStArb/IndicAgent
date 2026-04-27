@@ -17,13 +17,16 @@ def test_health_metrics_unhealthy_no_bars():
 
 def test_health_metrics_unhealthy_consuming_not_emitting():
     """Test health check when consuming but not emitting."""
+    import time
+
     from services.bar_aggregator_agent import HealthMetrics
 
     metrics = HealthMetrics()
 
-    # Simulate 101 bars processed but 0 HTF emitted (threshold is > 100)
+    # Simulate 101 bars processed but HTF emission stale for >420s
     for _ in range(101):
         metrics.record_bar(datetime.now(UTC))
+    metrics._last_htf_emit_ts = time.monotonic() - 500
 
     healthy, reason = metrics.is_healthy()
     assert not healthy

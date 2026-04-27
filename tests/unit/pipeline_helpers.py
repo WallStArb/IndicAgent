@@ -53,6 +53,9 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._calibration_curves = {}
     agent._perf_weights = {}
     agent._output_queue = asyncio.Queue(maxsize=500)
+    agent._transform_recorder = MagicMock()
+    agent._regime_prob_min = 0.7
+    agent._regime_dur_min = 12
     cpu_count = os.cpu_count() or 24
     agent._executor = ThreadPoolExecutor(
         max_workers=cpu_count * 2,
@@ -81,13 +84,11 @@ def signal_plugin(plugin_name: str, direction: int = 1):
 
         def compute_full(self, frames):
             return {
-                "signal": {
-                    "direction": direction,
-                    "confidence": 0.75,
-                    "setup_plugin": plugin_name,
-                    "stop_distance_atr": 1.0,
-                    "entry_price": 100.0,
-                }
+                "direction": direction,
+                "confidence": 0.75,
+                "setup_plugin": plugin_name,
+                "stop_distance_atr": 1.0,
+                "entry_price": 100.0,
             }
 
     return _Plugin()

@@ -47,6 +47,12 @@ def agent():
     a._audit_duration = MagicMock()
     a._audit_errors = MagicMock()
     a._post_roll_suppression = {}
+    # Helper methods called inside _detect_gaps (conn is the mock; these do real work via conn)
+    a._upsert_market_data_gap = AsyncMock()
+    a._resolve_market_data_gap = AsyncMock()
+    a._check_gap_retry = AsyncMock(return_value=True)
+    a._record_gap_request_sent = AsyncMock()
+    a._publish_gap_fill_dlq = AsyncMock()
     return a
 
 
@@ -65,18 +71,29 @@ def _make_conn_mock(
 ):
     """Build an asyncpg connection mock with configurable 1m and HTF responses.
 
-    fetchval_return: value returned by fetchval (used for 1m COUNT query).
-    htf_counts: dict of {timeframe: count} for the batched HTF fetch query.
-        Returns rows as dicts with "timeframe" and "cnt" keys.
+    The implementation uses a single bulk UNNEST query returning rows with
+    keys: sym, win_start, timeframe, cnt.  The side_effect captures the
+    actual (syms, starts) call args so win_start values match exactly.
+
+    fetchval_return: count to return for 1m bars per window.
+    htf_counts: dict of {timeframe: count} for HTF timeframes.
     """
     mock_conn = AsyncMock()
     mock_conn.fetchval = AsyncMock(return_value=fetchval_return)
-    if htf_counts is not None:
-        mock_conn.fetch = AsyncMock(
-            return_value=[{"timeframe": tf, "cnt": cnt} for tf, cnt in htf_counts.items()]
-        )
-    else:
-        mock_conn.fetch = AsyncMock(return_value=[])
+    mock_conn.execute = AsyncMock()
+    # fetchrow returning None → new gap, emit it (drives _check_gap_retry)
+    mock_conn.fetchrow = AsyncMock(return_value=None)
+
+    async def _fetch_side_effect(query, syms, starts, ends, tfs, *args, **kwargs):
+        rows = []
+        for sym, start in zip(syms, starts):
+            rows.append({"sym": sym, "win_start": start, "timeframe": "1m", "cnt": fetchval_return})
+            if htf_counts:
+                for tf, cnt in htf_counts.items():
+                    rows.append({"sym": sym, "win_start": start, "timeframe": tf, "cnt": cnt})
+        return rows
+
+    mock_conn.fetch = AsyncMock(side_effect=_fetch_side_effect)
     return mock_conn
 
 

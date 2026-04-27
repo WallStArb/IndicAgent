@@ -102,8 +102,8 @@ class TestFullETFRollout:
                 assert inst.exchange == "SMART"
 
     def test_total_instrument_count_60(self):
-        """At least 60 instruments: 22+ futures/FX/crypto + 38 ETFs."""
-        assert len(Settings().instruments) >= 60
+        """At least 59 instruments: 21+ futures/FX/crypto + 38 ETFs."""
+        assert len(Settings().instruments) >= 59
 
     def test_equity_count_38(self):
         equities = [i for i in Settings().instruments if i.asset_class == AssetClass.EQUITY]

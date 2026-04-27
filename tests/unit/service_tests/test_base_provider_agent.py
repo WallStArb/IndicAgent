@@ -154,6 +154,9 @@ def _make_concrete_agent():
     agent._raw_topic = "dev.market.bars.raw.test"
     agent._kafka_producer = AsyncMock()
     agent._adapter = MagicMock()
+    agent._db_pool = None
+    agent._last_msg_ts_gauge = MagicMock()
+    agent._record_message_consumed = MagicMock()
     return agent, _TestAgent
 
 
@@ -210,16 +213,16 @@ async def test_gap_loop_calls_adapter_fetch_historical():
         source="bar_auditor",
     )
 
-    mock_consumer = AsyncMock()
+    mock_consumer = MagicMock()
 
-    async def _mock_messages():
+    async def _mock_messages_gen():
         yield ("dev.market.events.gap_requests", "ESM6:1m", req.model_dump())
         # Stop after one message
         agent._stop_event.set()
 
-    mock_consumer.messages = _mock_messages
     mock_consumer.start = AsyncMock()
     mock_consumer.stop = AsyncMock()
+    mock_consumer.messages = MagicMock(return_value=_mock_messages_gen())
 
     with patch(
         "src.providers.base_provider_agent.KafkaConsumerClient",
@@ -286,13 +289,13 @@ async def test_gap_fills_published_to_raw_topic():
 
     agent._kafka_producer.publish = _capture_publish
 
-    mock_consumer = AsyncMock()
+    mock_consumer = MagicMock()
 
-    async def _mock_messages():
+    async def _mock_messages_gen():
         yield ("dev.market.events.gap_requests", "ESM6:1m", req.model_dump())
         agent._stop_event.set()
 
-    mock_consumer.messages = _mock_messages
+    mock_consumer.messages = MagicMock(return_value=_mock_messages_gen())
     mock_consumer.start = AsyncMock()
     mock_consumer.stop = AsyncMock()
 
