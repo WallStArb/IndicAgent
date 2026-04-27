@@ -6,12 +6,10 @@ enabling scientific validation before production deployment (Renaissance discipl
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
-from datetime import datetime, UTC
-from typing import Any
-
 import argparse
+import asyncio
+from datetime import UTC, datetime
+
 import asyncpg
 import pandas as pd
 from tqdm import tqdm
@@ -86,21 +84,24 @@ async def _backtest_async(
             WHERE ts BETWEEN $1 AND $2
         """
         params = [start_date, end_date]
+        param_idx = 3
 
         if symbols:
-            query += " AND symbol = ANY($3)"
+            query += f" AND symbol = ANY(${param_idx})"
             params.append(symbols)
+            param_idx += 1
 
         if timeframes:
-            query += " AND tf = ANY($4)"
+            query += f" AND tf = ANY(${param_idx})"
             params.append(timeframes)
+            param_idx += 1
 
         query += " ORDER BY ts, symbol, tf"
 
         rows = await conn.fetch(query, *params)
 
         if not rows:
-            print(f"WARNING: No data found in intelligence_features for date range")
+            print("WARNING: No data found in intelligence_features for date range")
             return pd.DataFrame()
 
         # Load outcomes from signal_ledger
@@ -115,14 +116,17 @@ async def _backtest_async(
               AND sl.feature_ts BETWEEN $1 AND $2
         """
         outcomes_params = [start_date, end_date]
+        outcomes_param_idx = 3
 
         if symbols:
-            outcomes_query += " AND sl.symbol = ANY($3)"
+            outcomes_query += f" AND sl.symbol = ANY(${outcomes_param_idx})"
             outcomes_params.append(symbols)
+            outcomes_param_idx += 1
 
         if timeframes:
-            outcomes_query += " AND sl.feature_tf = ANY($4)"
+            outcomes_query += f" AND sl.feature_tf = ANY(${outcomes_param_idx})"
             outcomes_params.append(timeframes)
+            outcomes_param_idx += 1
 
         outcome_rows = await conn.fetch(outcomes_query, *outcomes_params)
 

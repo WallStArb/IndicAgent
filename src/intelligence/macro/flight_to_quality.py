@@ -58,9 +58,6 @@ def compute_flight_to_quality(
             "ftq_regime": "neutral",
         }
 
-    # Use the minimum of lookback and available bars (minus 1 for returns)
-    min_required = min(lookback, spy_len, tlt_len)
-
     # Extract recent closes (average over lookback for stability)
     # We'll compute returns between consecutive bars
     spy_returns = []

@@ -17,11 +17,13 @@ Last Updated: 2026-04-26
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
+import asyncpg
 import structlog
 
 project_root = Path(__file__).parent.parent
@@ -72,7 +74,7 @@ class MacroComputeAgent(BaseAgent):
         self._producer: KafkaProducerClient | None = None
         self._db_manager: DatabaseManager | None = None
 
-        # Metrics
+        # Metrics — no per-symbol labels (counter registered without labelnames)
         self._bars_processed = counter(
             "macro_bars_processed",
             "Bars processed by macro_compute_agent",
@@ -148,14 +150,17 @@ class MacroComputeAgent(BaseAgent):
                 # Update rolling window
                 symbol = bar["symbol"]
                 self._bar_windows[symbol].append(bar)
-                self._bars_processed.labels(symbol=symbol).inc()
+                self._bars_processed.inc()
                 self._last_message_ts = asyncio.get_event_loop().time()
 
-                # Only compute macro if we have enough data
-                # AND symbol is a macro instrument
+                # Only compute yield curve when BOTH ZT and ZB have full windows
+                # Triggering on any single rate future produced zero-default writes
                 if (
                     symbol in MACRO_RATE_FUTURES
-                    and len(self._bar_windows[symbol]) >= self._window_bars
+                    and all(
+                        len(self._bar_windows.get(s, [])) >= self._window_bars
+                        for s in ["ZT", "ZB"]
+                    )
                 ):
 
                     # Compute yield curve slope
@@ -203,9 +208,6 @@ class MacroComputeAgent(BaseAgent):
                                 ftq_regime=ftq_result["ftq_regime"],
                             )
 
-                # Report consumer lag
-                self._report_consumer_lag()
-
         except asyncio.CancelledError:
             logger.info("macro_compute_agent.shutdown")
             raise
@@ -223,8 +225,6 @@ class MacroComputeAgent(BaseAgent):
 
         Expected format: JSON with ts, symbol, tf, open, high, low, close, volume
         """
-        import json
-
         try:
             bar = json.loads(msg_value)
             # Validate required fields
@@ -266,8 +266,6 @@ class MacroComputeAgent(BaseAgent):
         if not self._db_manager:
             logger.warning("macro.db_not_ready")
             return
-
-        import asyncpg
 
         # Parse timestamp to datetime object for asyncpg
         if isinstance(bar["ts"], str):

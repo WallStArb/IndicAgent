@@ -1,18 +1,28 @@
 """Yield curve slope macro factor.
 
-Computes yield curve slope from rate futures prices (ZT, ZN, ZB, ZF).
+Computes yield curve slope from rate futures prices (ZT, ZB).
 Rate futures trade inverse to yields: price up = yield down.
+
+Proxy formula: yield = -log(price / 100). Slope = ZT_proxy - ZB_proxy.
+
+Sign convention (proxy-based, not true yield spread):
+    Positive slope: ZB has more price appreciation than ZT (long rates fell more).
+    Negative slope: ZT has more price appreciation than ZB (short rates fell more or
+                    long rates rose).
+
+Regime labels reflect the proxy formula behaviour. For precise inversion detection,
+use DV01-adjusted actual yields.
 
 Outputs:
     yield_curve_slope: float [-1, +1]
-        - Positive: Curve steepening (short rates down more than long)
-        - Negative: Curve flattening (short rates up more than long)
-        - Near 0: Curve stable
+        - Positive: ZB price appreciation > ZT (long rates falling faster)
+        - Negative: ZT price appreciation > ZB (short rates falling faster)
+        - Near 0: Rates moving together
     yield_curve_regime: str
-        - steepening: Bullish steepening
-        - flattening: Bearish flattening
-        - inverted: Yield curve inverted
-        - normal: Normal yield curve
+        - steepening: slope > 0.10 (long rates diverging down from short)
+        - flattening: slope < -0.10 (short rates diverging down from long)
+        - inverted: ZB proxy > ZT proxy (ZB less above par than ZT — spread compression)
+        - normal: Stable typical spread
 """
 
 from __future__ import annotations
@@ -43,8 +53,8 @@ def compute_yield_curve_slope(
         4. Normalize slope via tanh for gradient in [-1, +1]
         5. Classify regime based on slope magnitude + ZT-ZB relationship
     """
-    # Check if we have enough data
-    min_required = min(lookback, len(bars.get("ZT", [])), len(bars.get("ZN", [])), len(bars.get("ZB", [])))
+    # ZN excluded from min_required — not used in slope computation (only ZT and ZB)
+    min_required = min(lookback, len(bars.get("ZT", [])), len(bars.get("ZB", [])))
     
     if min_required < lookback:
         return {
@@ -52,20 +62,16 @@ def compute_yield_curve_slope(
             "yield_curve_regime": "normal",
         }
 
-    # Extract recent closes (average over lookback for stability)
+    # range(1, ...) avoids -0 == 0 trap: deque[-0] returns the OLDEST element, not newest
     slopes = []
-    for i in range(min_required):
+    for i in range(1, min_required + 1):
         try:
             zt_close = bars["ZT"][-i]["close"]
-            zn_close = bars["ZN"][-i]["close"]
             zb_close = bars["ZB"][-i]["close"]
 
-            # Yield proxy: price down = yield up
-            # Use -log(price / 100) to convert to yield basis points
             zt_yield = -np.log(zt_close / 100.0)
             zb_yield = -np.log(zb_close / 100.0)
 
-            # Slope: short-term yield minus long-term yield
             slope = zt_yield - zb_yield
             slopes.append(slope)
         except (IndexError, KeyError, TypeError):
@@ -80,25 +86,25 @@ def compute_yield_curve_slope(
     # Average slope
     avg_slope = np.mean(slopes)
 
-    # Normalize via tanh: 0.01 = 1% steepening -> tanh(0.01 * 100) ≈ 0.76
-    slope_normalized = np.tanh(avg_slope * 100.0)  # [-1, +1]
+    # Multiplier 10 preserves gradient for typical proxy spreads (0.05–0.20 range)
+    # At 100 the output saturates to ±1 for all realistic rate future prices
+    slope_normalized = np.tanh(avg_slope * 10.0)  # [-1, +1]
 
-    # Compute current yields for regime classification
+    # Use [-1] (most recent) — [0] on a deque is the OLDEST element
     try:
-        zt_close_latest = bars["ZT"][0]["close"]
-        zb_close_latest = bars["ZB"][0]["close"]
-        zt_yield_latest = -np.log(zt_close_latest / 100.0)
-        zb_yield_latest = -np.log(zb_close_latest / 100.0)
+        zt_yield_latest = -np.log(bars["ZT"][-1]["close"] / 100.0)
+        zb_yield_latest = -np.log(bars["ZB"][-1]["close"] / 100.0)
     except (IndexError, KeyError, TypeError):
         zt_yield_latest = 0.0
         zb_yield_latest = 0.0
 
     # Regime classification
-    if zb_yield_latest > zt_yield_latest:  # Inverted (long yield > short yield)
+    # "inverted" fires when ZB proxy > ZT proxy (ZB less above par — spread compression)
+    if zb_yield_latest > zt_yield_latest:
         regime = "inverted"
-    elif avg_slope > 0.005:  # >0.5% steepening
+    elif avg_slope > 0.10:
         regime = "steepening"
-    elif avg_slope < -0.005:  # >0.5% flattening
+    elif avg_slope < -0.10:
         regime = "flattening"
     else:
         regime = "normal"

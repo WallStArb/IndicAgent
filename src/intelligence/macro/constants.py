@@ -14,7 +14,7 @@ MACRO_RATE_FUTURES = frozenset({
     "ZF",  # 5-Year US Treasury Note futures
 })
 
-# FX pairs for USD strength (Plan 64-03B)
+# FX pairs for USD strength (Plan 64-03C — deferred)
 MACRO_FX_PAIRS = frozenset({
     "EURUSD",  # Euro/US Dollar
     "GBPUSD",  # British Pound/US Dollar
@@ -22,7 +22,7 @@ MACRO_FX_PAIRS = frozenset({
     "USDCHF",  # US Dollar/Swiss Franc
 })
 
-# Flight-to-quality instruments (Plan 64-03C)
+# Flight-to-quality instruments (Plan 64-03B)
 MACRO_FLIGHT_TO_QUALITY = frozenset({
     "TLT",  # iShares 20+ Year Treasury Bond ETF
     "SPY",  # SPDR S&P 500 ETF Trust
