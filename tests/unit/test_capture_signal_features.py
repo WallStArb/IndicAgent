@@ -46,7 +46,8 @@ def test_capture_signal_features_all_fields_present() -> None:
     assert shadow["exhaustion_side"] == "bull"
     assert shadow["exhaustion_bars"] == 2.0
 
-    # Full key set (8 confluence/meta + 4 I4 macro context + 3 exhaustion + 2 cross-TF momentum = 17 keys)
+    # Full key set: 8 confluence/meta + 4 I4 macro + 3 exhaustion + 2 CTF momentum
+    # + 2 CTF S/R + 2 CTF HMM regime + 2 CTF volatility + 2 CTF orderflow = 25 keys
     expected_keys = {
         "profile",
         "existing_confidence",
@@ -65,6 +66,14 @@ def test_capture_signal_features_all_fields_present() -> None:
         "eq_pairs_confirming",
         "ctf_momentum_divergence",
         "ctf_momentum_regime",
+        "ctf_sr_confluence",
+        "ctf_sr_regime",
+        "ctf_hmm_regime_agreement",
+        "ctf_hmm_regime_label",
+        "ctf_volatility_divergence",
+        "ctf_volatility_regime",
+        "ctf_orderflow_alignment",
+        "ctf_orderflow_regime",
     }
     assert set(shadow.keys()) == expected_keys
 
@@ -211,13 +220,13 @@ def test_new_fields_preserve_none_not_zero() -> None:
     assert shadow["eq_spread_z"] is None  # absent -> None
 
 
-def test_shadow_key_count_non_exempt_is_17() -> None:
-    """Non-exempt profile: 8 confluence/meta + 4 I4 macro context + 3 exhaustion + 2 cross-TF momentum = 17 keys."""
+def test_shadow_key_count_non_exempt_is_25() -> None:
+    """Non-exempt profile: 8 confluence/meta + 4 I4 macro + 3 exhaustion + 10 cross-TF = 25 keys."""
     shadow = capture_signal_features({}, 1, "trend", 0.7)
-    assert len(shadow) == 17
+    assert len(shadow) == 25
 
 
-def test_shadow_key_count_exempt_is_17() -> None:
-    """exempt_exhaustion profile also has 17 keys (exhaustion fields are None, not absent)."""
+def test_shadow_key_count_exempt_is_25() -> None:
+    """exempt_exhaustion profile also has 25 keys (exhaustion fields are None, not absent)."""
     shadow = capture_signal_features({}, 1, "exempt_exhaustion", 0.7)
-    assert len(shadow) == 17
+    assert len(shadow) == 25
