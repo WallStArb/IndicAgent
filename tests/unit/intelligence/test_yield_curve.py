@@ -17,21 +17,30 @@ class TestYieldCurveSlope:
         """Verify yield curve slope computed correctly with sufficient bars."""
         # Create mock bars data (price up = yield down)
         bars = {
-            "ZT": deque([
-                {"close": 108.0, "ts": "2026-01-01T10:00:00Z"},
-                {"close": 108.5, "ts": "2026-01-01T10:01:00Z"},
-                {"close": 109.0, "ts": "2026-01-01T10:02:00Z"},
-            ], maxlen=100),
-            "ZN": deque([
-                {"close": 110.0, "ts": "2026-01-01T10:00:00Z"},
-                {"close": 110.5, "ts": "2026-01-01T10:01:00Z"},
-                {"close": 111.0, "ts": "2026-01-01T10:02:00Z"},
-            ], maxlen=100),
-            "ZB": deque([
-                {"close": 115.0, "ts": "2026-01-01T10:00:00Z"},
-                {"close": 115.5, "ts": "2026-01-01T10:01:00Z"},
-                {"close": 116.0, "ts": "2026-01-01T10:02:00Z"},
-            ], maxlen=100),
+            "ZT": deque(
+                [
+                    {"close": 108.0, "ts": "2026-01-01T10:00:00Z"},
+                    {"close": 108.5, "ts": "2026-01-01T10:01:00Z"},
+                    {"close": 109.0, "ts": "2026-01-01T10:02:00Z"},
+                ],
+                maxlen=100,
+            ),
+            "ZN": deque(
+                [
+                    {"close": 110.0, "ts": "2026-01-01T10:00:00Z"},
+                    {"close": 110.5, "ts": "2026-01-01T10:01:00Z"},
+                    {"close": 111.0, "ts": "2026-01-01T10:02:00Z"},
+                ],
+                maxlen=100,
+            ),
+            "ZB": deque(
+                [
+                    {"close": 115.0, "ts": "2026-01-01T10:00:00Z"},
+                    {"close": 115.5, "ts": "2026-01-01T10:01:00Z"},
+                    {"close": 116.0, "ts": "2026-01-01T10:02:00Z"},
+                ],
+                maxlen=100,
+            ),
         }
 
         result = compute_yield_curve_slope(bars, lookback=3)
@@ -46,9 +55,7 @@ class TestYieldCurveSlope:
         assert -1.0 <= result["yield_curve_slope"] <= 1.0
 
         # Verify regime is one of expected values
-        assert result["yield_curve_regime"] in {
-            "steepening", "flattening", "inverted", "normal"
-        }
+        assert result["yield_curve_regime"] in {"steepening", "flattening", "inverted", "normal"}
 
     def test_yield_curve_steepening_regime(self):
         """Verify steepening regime when ZT up (short rates down) more than ZB."""
@@ -67,9 +74,13 @@ class TestYieldCurveSlope:
     def test_yield_curve_flattening_regime(self):
         """Verify flattening regime when ZT down (short rates up) more than ZB."""
         bars = {
-            "ZT": deque([{"close": 106.0}] * 10, maxlen=100),  # Short rates up significantly (price lower)
+            "ZT": deque(
+                [{"close": 106.0}] * 10, maxlen=100
+            ),  # Short rates up significantly (price lower)
             "ZN": deque([{"close": 110.0}] * 10, maxlen=100),
-            "ZB": deque([{"close": 105.0}] * 10, maxlen=100),  # Long rates down EVEN MORE (price even lower)
+            "ZB": deque(
+                [{"close": 105.0}] * 10, maxlen=100
+            ),  # Long rates down EVEN MORE (price even lower)
         }
 
         result = compute_yield_curve_slope(bars, lookback=10)
@@ -81,9 +92,13 @@ class TestYieldCurveSlope:
     def test_yield_curve_inverted_regime(self):
         """Verify inverted regime when ZB yield > ZT yield (curve inversion)."""
         bars = {
-            "ZT": deque([{"close": 110.0}] * 10, maxlen=100),  # Short-term yield lower (price higher)
+            "ZT": deque(
+                [{"close": 110.0}] * 10, maxlen=100
+            ),  # Short-term yield lower (price higher)
             "ZN": deque([{"close": 110.0}] * 10, maxlen=100),
-            "ZB": deque([{"close": 105.0}] * 10, maxlen=100),  # Long-term yield HIGHER (price lower)
+            "ZB": deque(
+                [{"close": 105.0}] * 10, maxlen=100
+            ),  # Long-term yield HIGHER (price lower)
         }
 
         result = compute_yield_curve_slope(bars, lookback=10)
