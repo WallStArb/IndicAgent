@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Macro Factors Service — Yield curve, flight-to-quality, USD strength
-Documentation=https://github.com/your-repo/indicagent
+Documentation=https://github.com/brandonio/indicagent
 After=network.target redpanda.service timescaledb.service
 Wants=timescaledb.service
 
@@ -8,10 +8,10 @@ Wants=timescaledb.service
 Type=simple
 User=indicant
 Group=indicant
-WorkingDirectory=/home/bg/dev/indicagent
-Environment="PATH=/home/bg/dev/indicagent/.venv/bin"
-EnvironmentFile=-/home/bg/dev/indicagent/.env
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/macro_compute_agent.py
+WorkingDirectory=/home/indicant/indicagent
+Environment="PATH=/home/indicant/indicagent/.venv/bin:/usr/bin:/bin"
+EnvironmentFile=-/home/indicant/indicagent/.env
+ExecStart=/home/indicant/indicagent/.venv/bin/python services/macro_compute_agent.py
 Restart=always
 RestartSec=10
 
