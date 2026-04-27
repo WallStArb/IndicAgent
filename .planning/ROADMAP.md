@@ -249,7 +249,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
-- [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra) + macro factors merged into CrossAssetComputeAgent (deferred until cross-TF validates); 3 plans (Plans 01+02 cross-TF, Plan 03 macro deferred)
+- [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF confluence plugins (in-process, zero new infra); Plans 01+02 ready to execute (no validation gate — shadow mode); Plan 03 macro: 03A+03B complete, 03C deferred (FX data)
   Design doc: `docs/ideas/i6-confluence-expansion.md`
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
@@ -789,17 +789,19 @@ Plans:
 **Success Criteria:**
 1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
 2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
-3. 4 additional cross-TF plugins after Plan 01 validation gate passes
-4. Macro factors (USD strength, yield curve, flight-to-quality) merged into CrossAssetComputeAgent
+3. 4 additional cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
+4. Macro factors (USD strength, yield curve, flight-to-quality) — yield curve + FTQ delivered; USD strength deferred
 5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
-6. First plugin validated: IC > 0.05, p < 0.01 (Bonferroni-corrected), N>=30 before building second
+6. All plugins run in shadow mode; validation occurs when approaching production
 
 **Plans:** 11/11 plans complete
 
 Plans:
-- [x] 64-01-PLAN.md — Cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture + validation script
-- [x] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (IC > 0.05, p < 0.01, N>=30)
-- [ ] 64-03-PLAN.md — Macro factors merged into CrossAssetComputeAgent (USD strength, yield curve, flight-to-quality) — DEFERRED until Plans 01+02 validate; zero new services/topics/systemd units
+- [ ] 64-01-PLAN.md — CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture
+- [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
+- [x] 64-03A-PLAN.md — Yield curve macro factor (MacroComputeAgent, yield_curve.py) — COMPLETE
+- [x] 64-03B-PLAN.md — Flight-to-quality macro factor (FTQ via TLT+SPY) — COMPLETE
+- [x] 64-03C-PLAN.md — USD strength macro factor — DEFERRED (requires FX data + 03A/03B validation)
 
 ### Phase 56: Swarm Foundation
 
