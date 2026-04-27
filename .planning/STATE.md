@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: unknown
+status: ready_to_plan
 last_updated: "2026-04-27T17:07:26.730Z"
 progress:
   total_phases: 23
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 26
   completed_plans: 24
-  percent: 92
+  percent: 17
 ---
 
 # Project State
@@ -19,16 +19,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase --phase — 64
+**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor (next unstarted)
 
 ## Current Position
 
-Phase: --phase (64) — EXECUTING
-Plan: 1 of --name
+Phase: 65
+Plan: Not started
 
   - AlertingAgent (Kafka→Telegram/Discord dispatcher) + Renaissance refactor (SRP restored)
 
-Previous: Phase 68 — COMPLETE (2026-04-23) — 15/15 must-haves verified
+Previous: Phase 64 — COMPLETE (2026-04-27) — 11/11 plans, 103 unit tests, 5 cross-TF I6 plugins + MacroComputeAgent + backtest infra. v2.3 ML Foundation milestone complete.
 
 ## v2.1 Milestone Goal
 
@@ -73,6 +73,14 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 **Phase 52:** Infrastructure hardening — Docker restart policies, automated gap-fill, log rotation, deploy scripts.
 
 ## Accumulated Context
+
+### Decisions (Phase 64)
+
+- TIER_I6 now has 6 plugins: original CrossTimeframeConfluence + 5 new cross-TF gradient plugins
+- Backtest Task 3 (run live backtests + validate IC) superseded by FeatureValidationService — tracked in todo 008
+- MacroComputeAgent standalone service (not merged into CrossAssetComputeAgent) — clean SRP separation
+- All cross-TF plugins use np.tanh() continuous gradient scoring, NOT binary flags — verified by CI scanner (Phase 65 gate)
+- Phase 64 VERIFICATION.md had pre-GAPCLOSURE stale FAILs — not debt; all resolved by GAPCLOSURE executions
 
 ### Roadmap Evolution
 
