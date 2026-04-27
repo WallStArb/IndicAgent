@@ -104,8 +104,8 @@ class MacroComputeAgent(BaseAgent):
 
         # Initialize Kafka consumer for market_bars
         self._consumer = KafkaConsumerClient(
+            topic_market_bars(self._settings.env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            topic=topic_market_bars(self._settings.env_name),
             group_id="macro_consumer",
             auto_offset_reset="latest",
         )
