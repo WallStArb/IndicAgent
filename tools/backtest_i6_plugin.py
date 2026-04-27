@@ -68,18 +68,21 @@ async def _backtest_async(
     settings = Settings()
     conn = await asyncpg.connect(settings.database_url)
 
+    import json
+
     try:
-        # Query intelligence_features for I1-I5 inputs
+        # Query intelligence_features for I1-I5 inputs.
+        # Column names are i2/i3/i4/i5 (JSONB), hmm_regime is inside smc JSONB.
         query = """
             SELECT
                 ts,
                 symbol,
                 tf,
-                i2_events,
-                i3_patterns,
-                i4_context,
-                i5_patterns,
-                hmm_regime
+                i2,
+                i3,
+                i4,
+                i5,
+                (smc->>'hmm_regime')::double precision AS hmm_regime
             FROM intelligence_features
             WHERE ts BETWEEN $1 AND $2
         """
@@ -130,11 +133,21 @@ async def _backtest_async(
 
         outcome_rows = await conn.fetch(outcomes_query, *outcomes_params)
 
-        # Build outcome lookup dict
+        # Build outcome lookup dict: (feature_ts, feature_tf, symbol) -> pnl_r
         outcomes = {}
         for row in outcome_rows:
             key = (row["feature_ts"], row["feature_tf"], row["symbol"])
             outcomes[key] = row["pnl_r"]
+
+        # Group rows by (ts, symbol) to build multi-TF intel dicts.
+        # Cross-TF plugins need all timeframes at a given (ts, symbol) simultaneously.
+        from collections import defaultdict
+
+        # ts_symbol_groups: (ts, symbol) -> list of rows
+        ts_symbol_groups: dict[tuple, list] = defaultdict(list)
+        for row in rows:
+            key = (row["ts"], row["symbol"])
+            ts_symbol_groups[key].append(row)
 
         # Instantiate plugin (handle both class and instance)
         try:
@@ -145,19 +158,48 @@ async def _backtest_async(
 
         results = []
 
-        # Process each bar with progress bar
-        for row in tqdm(rows, desc="Backtesting", unit="bars"):
+        # Process each (ts, symbol) group — builds multi-TF frames dict
+        for (ts, symbol), group_rows in tqdm(
+            ts_symbol_groups.items(), desc="Backtesting", unit="bar_groups"
+        ):
             try:
-                # Build frames dict
+                # Build multi-TF intel dicts: {tf: i2_data, ...}
+                intel_i2: dict[str, Any] = {}
+                intel_i3: dict[str, Any] = {}
+                intel_i4: dict[str, Any] = {}
+                intel_i5: dict[str, Any] = {}
+                hmm_regime_val: float | None = None
+
+                for row in group_rows:
+                    tf = row["tf"]
+                    # asyncpg returns JSONB as Python dicts directly — no json.loads needed
+                    i2_data = row["i2"] or {}
+                    i3_data = row["i3"] or {}
+                    i4_data = row["i4"] or {}
+                    i5_data = row["i5"] or {}
+
+                    intel_i2[tf] = i2_data
+                    intel_i3[tf] = i3_data
+                    intel_i4[tf] = i4_data
+                    intel_i5[tf] = i5_data
+
+                    if hmm_regime_val is None and row["hmm_regime"] is not None:
+                        hmm_regime_val = float(row["hmm_regime"])
+
+                # Use the first timeframe in the group as the primary TF
+                primary_row = group_rows[0]
+                primary_tf = primary_row["tf"]
+
+                # Build frames dict for cross-TF plugin
                 frames = {
-                    "ts": row["ts"],
-                    "symbol": row["symbol"],
-                    "timeframe": row["tf"],
-                    "features": {},  # Could populate from I1 if needed
-                    "intel_i2": row.get("i2_events", {}),
-                    "intel_i3": row.get("i3_patterns", {}),
-                    "intel_i4": row.get("i4_context", {}),
-                    "intel_i5": row.get("i5_patterns", {}),
+                    "ts": ts,
+                    "symbol": symbol,
+                    "timeframe": primary_tf,
+                    "features": {},
+                    "intel_i2": intel_i2,
+                    "intel_i3": intel_i3,
+                    "intel_i4": intel_i4,
+                    "intel_i5": intel_i5,
                 }
 
                 # Call plugin compute_full
@@ -166,27 +208,28 @@ async def _backtest_async(
                 if not outputs:
                     continue
 
-                # Build result row
-                result_row = {
-                    "ts": row["ts"],
-                    "symbol": row["symbol"],
-                    "tf": row["tf"],
-                    "hmm_regime": row.get("hmm_regime"),
-                }
+                # Emit one result row per TF in this group (with shared cross-TF outputs)
+                for row in group_rows:
+                    result_row = {
+                        "ts": ts,
+                        "symbol": symbol,
+                        "tf": row["tf"],
+                        "hmm_regime": hmm_regime_val,
+                    }
 
-                # Add plugin outputs
-                for key, value in outputs.items():
-                    result_row[key] = value
+                    # Add plugin outputs (same cross-TF value for all TFs in the group)
+                    for key, value in outputs.items():
+                        result_row[key] = value
 
-                # Look up pnl_r from signal_ledger
-                pnl_key = (row["ts"], row["tf"], row["symbol"])
-                result_row["pnl_r"] = outcomes.get(pnl_key)
+                    # Look up pnl_r from signal_ledger
+                    pnl_key = (ts, row["tf"], symbol)
+                    result_row["pnl_r"] = outcomes.get(pnl_key)
 
-                results.append(result_row)
+                    results.append(result_row)
 
             except Exception as e:
-                # Log error and skip this bar
-                print(f"ERROR processing bar {row['ts']} {row['symbol']} {row['tf']}: {e}")
+                # Log error and skip this bar group
+                print(f"ERROR processing ({ts}, {symbol}): {e}")
                 continue
 
         # Convert to DataFrame
