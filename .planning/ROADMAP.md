@@ -17,7 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 ready to execute)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72 (69+71+72 complete; Phase 70 ready to execute)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74 (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -281,9 +281,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69, 70, 71) — Phase 70 deferred</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-74) — Phase 70 deferred, Phase 73 planned but not executed, Phase 74 not started</summary>
 
-**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
+**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
   Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
@@ -293,15 +293,31 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
   **Design doc:** `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md`
   **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
-- [ ] **Phase 70: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
+- [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
+  Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
+  **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
+  **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
+- [ ] **Phase 73: AI LLM Layer B+ Architecture Refactor** — PLANNED 2026-04-26, NOT EXECUTED
+  Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent` service, renames `swarm_dispatch_service` → `alpha_swarm_agent`, and enforces import boundary discipline.
+  **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
+- [ ] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — NOT STARTED
+  Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
+  **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
+- [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
+  LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
 
-**Success Criteria (Phases 69+71):**
+**Success Criteria (Phases 69+71+72):**
 - ✅ Single consumer creation pattern across all 6 writers
 - ✅ 5/6 writers use base class `_run()` loop (feature_writer exception)
 - ✅ Buffer overflow triggers critical alert (pager + backpressure)
 - ✅ Settings singleton in BaseAgent — zero tribal knowledge for new agents
 - ✅ Auto init_tracing() — no manual __main__ calls
 - ✅ Default lag reporting in base classes — 15 overrides removed
+- ✅ Signal transform log dual-write infrastructure shipped
+
+**Pending (Phases 73+74):**
+- ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 planned but not executed)
+- ⏸ State checkpointing for BarAggregatorComputeAgent (Phase 74 not started)
 
 </details>
 
@@ -478,7 +494,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (65+66 complete 2026-04-24; Phase 64 remaining). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; Phase 70 ready ~May 10 data gate).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (65+66 complete 2026-04-24; Phase 64 remaining). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -574,6 +590,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
+| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
+| 74. BarNormalizerAgent - State Checkpointing | v2.5 | 0/1 | Not Started | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
