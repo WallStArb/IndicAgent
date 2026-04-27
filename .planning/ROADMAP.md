@@ -581,7 +581,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63.4. Signal Quality: ATR Caps + Backfill Gap Fix | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 56. Swarm Foundation | v2.3 | 11/11 | Complete | 2026-04-11 |
-| 64. I6 Confluence Expansion | v2.3 | 0/3 | Not Started | — |
+| 64. I6 Confluence Expansion | v2.3 | 11/11 | Complete    | 2026-04-27 |
 | 65. Gradient Audit | v2.3 | 5/5 | Complete    | 2026-04-24 |
 | 66. Swarm Intelligence Agents | v2.3 | 4/4 | Complete | 2026-04-24 |
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
@@ -794,11 +794,11 @@ Plans:
 5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
 6. First plugin validated: IC > 0.05, p < 0.01 (Bonferroni-corrected), N>=30 before building second
 
-**Plans:** 3 plans (Wave 1: Plan 01, Wave 2: Plan 02 after validation, Wave 3: Plan 03 deferred)
+**Plans:** 11/11 plans complete
 
 Plans:
-- [ ] 64-01-PLAN.md — Cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture + validation script
-- [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (IC > 0.05, p < 0.01, N>=30)
+- [x] 64-01-PLAN.md — Cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture + validation script
+- [x] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (IC > 0.05, p < 0.01, N>=30)
 - [ ] 64-03-PLAN.md — Macro factors merged into CrossAssetComputeAgent (USD strength, yield curve, flight-to-quality) — DEFERRED until Plans 01+02 validate; zero new services/topics/systemd units
 
 ### Phase 56: Swarm Foundation
