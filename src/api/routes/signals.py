@@ -29,6 +29,9 @@ _TERMINAL_STATUSES: frozenset[str] = frozenset(
     {SignalStatus.PENDING.value, SignalStatus.ACTIVE.value}
 )
 
+# Default time window for "recent" signals query
+_RECENT_SIGNAL_WINDOW_DAYS = 90
+
 
 @lru_cache(maxsize=1)
 def _get_settings() -> Settings:
@@ -299,7 +302,8 @@ async def get_recent_signals(
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
-            WHERE ($1::text IS NULL OR sl.symbol = $1)
+            WHERE sl.timestamp >= NOW() - INTERVAL '{_RECENT_SIGNAL_WINDOW_DAYS} days'
+              AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
               AND (NOT $5::boolean OR (sl.confidence >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
@@ -308,11 +312,11 @@ async def get_recent_signals(
         """
         rows = await db_manager.fetch(
             main_query,
-            resolved_symbol,  # $1
-            timeframe,  # $2
-            limit,  # $3
-            require_selected,  # $4
-            require_hero_gate,  # $5
+            resolved_symbol,
+            timeframe,
+            limit,
+            require_selected,
+            require_hero_gate,
         )
 
         signals = [

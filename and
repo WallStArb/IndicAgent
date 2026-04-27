@@ -1,0 +1,44 @@
+cd dev/indicagent
+claude --dangerously-skip-permissions
+clear
+sudo apt update
+sudo apt upgrade
+sudo reboot
+sudo apt update
+sudo apt upgrade
+sudo apt update
+cd dev/indicagent
+chelper
+history -w && history -c
+claude --dangerously-skip-permissions
+cd dev/indicagent
+claude --dangerously-skip-permissions
+cd dev/indicagent
+claude --dangerously-skip-permissions
+cd dev/indicagent
+claude --dangerously-skip-permissions
+clear
+claude --dangerously-skip-permissions
+claude --dangerously-skip-permissions
+clear
+claude --dangerously-skip-permissions
+cd dev/indicagent
+claude --dangerously-skip-permissions
+history -w 
+sudo apt update && sudo apt full-upgrade -y 
+sudo apt upgrade 
+sudo apt update && sudo apt full-upgrade -y
+sudo apt autoremove --purge
+sudo apt update && sudo apt full-upgrade -y
+lsb_release -a
+cd dev/indicagent
+claude --dangerously-skip-permissions
+ollama launch claude --model kimi-k2.6:cloud
+docker exec ollama launch claude --model kimi-k2.6:cloud
+docker ollama launch claude --model kimi-k2.6:cloud
+docker run ollama launch claude --model kimi-k2.6:cloud
+claude --dangerously-skip-permissions
+claude --dangerously-skip-permissions
+clear
+clear
+history -w and history -c

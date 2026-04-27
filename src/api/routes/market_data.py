@@ -40,7 +40,7 @@ async def get_market_data(
             SELECT timestamp, open, high, low, close, volume, source
             FROM market_data_ohlcv
             WHERE symbol = $1 AND timeframe = $2
-            ORDER BY timestamp DESC
+            ORDER BY timestamp ASC
             LIMIT $3
         """
 
@@ -51,21 +51,18 @@ async def get_market_data(
                 status_code=404, detail=f"No market data found for {symbol} {timeframe}"
             )
 
-        bars = []
-        for row in rows:
-            bars.append(
-                {
-                    "timestamp": row[0].isoformat(),
-                    "open": float(row[1]),
-                    "high": float(row[2]),
-                    "low": float(row[3]),
-                    "close": float(row[4]),
-                    "volume": int(row[5]),
-                    "source": row[6],
-                }
-            )
-
-        bars.reverse()
+        bars = [
+            {
+                "timestamp": row["timestamp"].isoformat(),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+                "source": row["source"],
+            }
+            for row in rows
+        ]
 
         return {
             "symbol": symbol,
@@ -106,18 +103,17 @@ async def get_active_symbols(
 
         rows = await db_manager.fetch(query)
 
-        symbols = []
-        for row in rows:
-            symbols.append(
-                {
-                    "symbol": row[0],
-                    "total_bars": row[1],
-                    "timeframes_count": row[2],
-                    "first_data": row[3].isoformat() if row[3] else None,
-                    "last_data": row[4].isoformat() if row[4] else None,
-                    "available_timeframes": row[5] if row[5] else [],
-                }
-            )
+        symbols = [
+            {
+                "symbol": row["symbol"],
+                "total_bars": row["total_bars"],
+                "timeframes_count": row["timeframes"],
+                "first_data": row["first_data"].isoformat() if row["first_data"] else None,
+                "last_data": row["last_data"].isoformat() if row["last_data"] else None,
+                "available_timeframes": row["available_timeframes"] or [],
+            }
+            for row in rows
+        ]
 
         return {"symbols": symbols, "total_symbols": len(symbols)}
 
