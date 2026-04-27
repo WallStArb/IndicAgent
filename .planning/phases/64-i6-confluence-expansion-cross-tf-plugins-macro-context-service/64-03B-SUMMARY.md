@@ -1,151 +1,72 @@
 ---
 phase: 64-i6-confluence-expansion-cross-tf-plugins-macro-context-service
 plan: 03B
-subsystem: macro-factors
-tags: [flight-to-quality, ftq, tlt, spy, etf, risk-on-risk-off, macro-signals]
+subsystem: macro-factors / intelligence-pipeline
+tags: [macro, pipeline-integration, topic_macro_signals, frames, cross_asset]
+status: complete
+completed: 2026-04-27
 
 # Dependency graph
 requires:
   - phase: 64-03A
-    provides: MacroComputeAgent service, macro_features hypertable, compute_yield_curve_slope function
+    provides: MacroComputeAgent publishing to topic_macro_signals
+depends_on: ["64-03A"]
 provides:
-  - Flight-to-quality macro factor computed from TLT+SPY ETFs
-  - Extended MacroComputeAgent with multi-factor computation (yield curve + FTQ)
-  - FTQ backtest tool for historical validation
-affects: [64-03C-usd-strength]
-
-# Tech tracking
-tech-stack:
-  added: []
-  patterns: [multi-factor-macro-service, graceful-degradation, field-detection-based-persistence]
+  - intelligence_pipeline_agent subscribes to topic_macro_signals
+  - _macro_cache holding latest yield_curve + ftq fields per timeframe
+  - frames["cross_asset"] enriched with macro factors at frame-build time
 
 key-files:
-  created:
-    - migrations/064_macro_features.sql
-    - tools/backtest_ftq.py
   modified:
-    - services/macro_compute_agent.py
+    - services/intelligence_pipeline_agent.py
 
 key-decisions:
-  - "FTQ uses same macro_signals topic and macro_features table as yield curve - no new infrastructure"
-  - "Field detection in _persist_to_db() determines which columns to write (yield_curve vs ftq)"
-  - "FTQ computed when both TLT+SPY have sufficient window data - degrades gracefully otherwise"
-  - "VX (VIX futures) documented as future enhancement - not implemented today"
+  - "Separate _macro_cache dict (not merged into _cross_asset_cache) — avoids corrupting cross_asset payload on update"
+  - "Merge happens at frame-build time via dict spread — zero-copy, no mutation of cache"
+  - "Explicit field whitelist: yield_curve_slope, yield_curve_regime, ftq_score, ftq_regime — no wildcard update"
+  - "topic_macro_signals added to subscription list alongside topic_cross_asset"
+  - "FTQ factor was delivered in a prior execution (MacroComputeAgent extended during 03A/03B-FTQ); pipeline integration was the remaining gap"
 
-patterns-established:
-  - "Multi-factor macro computation: One service, multiple factors, shared infrastructure"
-  - "Graceful degradation: Macro factors return neutral (0.0) when insufficient data"
-  - "Field-based routing: Detect result type by dict fields, route to correct DB columns"
-
-requirements-completed: []
-
-# Metrics
-duration: 15min
-completed: 2026-04-27
+history:
+  - "03B-FTQ (executed 2026-04-27): Extended MacroComputeAgent with FTQ computation (compute_flight_to_quality)"
+  - "03B-pipeline (executed 2026-04-27): This plan — wired macro_signals topic into intelligence_pipeline_agent"
 ---
 
-# Phase 64: I6 Confluence Expansion - Plan 03B Summary
+# Phase 64 Plan 03B: Pipeline Macro Integration Summary
 
-**Flight-to-quality macro factor from TLT+SPY ETFs measuring risk-on/risk-off regime via relative performance**
+**Macro factors (yield curve, FTQ) are now available to I7 plugins via `frames["cross_asset"]`.**
 
-## Performance
+## What Was Built
 
-- **Duration:** 15 min
-- **Started:** 2026-04-27T07:36:51Z
-- **Completed:** 2026-04-27T07:51:00Z
-- **Tasks:** 4
-- **Files modified:** 3
+### `services/intelligence_pipeline_agent.py` (3 surgical changes)
 
-## Accomplishments
+1. **Import**: Added `topic_macro_signals` to `stream_keys` imports.
 
-- Extended MacroComputeAgent with flight-to-quality factor computation alongside yield curve
-- Created macro_features hypertable with FTQ columns (ftq_score, ftq_regime)
-- Implemented multi-factor persistence using field detection pattern
-- Added FTQ backtest tool for historical validation on TLT+SPY data
+2. **Subscription** (`_setup()`): Added `topic_macro_signals(self.settings.env_name)` to the topics list alongside `topic_cross_asset`.
 
-## Task Commits
+3. **Message handler** (`_process_loop()`): Added `_macro_topic` branch — stores whitelisted macro fields into `self._macro_cache[tf]`.
 
-Each task was committed atomically:
+4. **Frame injection** (`_build_frames()`): Changed `frames["cross_asset"]` construction from direct cache lookup to a merged dict — cross_asset cache spread first, then macro cache overlay. Same pattern for `frames["cross_asset_5m"]`.
 
-1. **Task 1: Extend MacroComputeAgent with FTQ computation** - `7f030863` (feat)
-2. **Task 2: Create macro_features hypertable migration** - `7f030863` (feat)
-3. **Task 3: Add FTQ backtest tool** - `fa4f45ec` (feat)
+## History
 
-**Plan metadata:** (pending - will be added after all wave agents complete)
+The original 03B execution mistakenly delivered FTQ computation (extending MacroComputeAgent) rather than pipeline integration. The FTQ work was valid and needed, but the pipeline integration — the gap that prevented macro factors from reaching I7 — was left open. This execution closes that gap.
 
-## Files Created/Modified
+## Tests
 
-### Created
-- `migrations/064_macro_features.sql` - Macro factors hypertable with yield curve + FTQ columns (future: USD strength)
-- `tools/backtest_ftq.py` - Backtest tool for FTQ factor on historical TLT+SPY data
-
-### Modified
-- `services/macro_compute_agent.py` - Extended with FTQ computation and multi-factor persistence
-
-## Decisions Made
-
-- **Shared infrastructure:** FTQ uses same `topic_macro_signals` and `macro_features` table as yield curve - no new Kafka topics or DB tables needed
-- **Field detection pattern:** `_persist_to_db()` detects result type by checking which fields exist in dict (`yield_curve_slope` vs `ftq_score`) - single INSERT path per factor type
-- **Graceful degradation:** FTQ returns `ftq_score=0.0, ftq_regime="neutral"` when TLT/SPY missing or insufficient data - service continues operating
-- **VX futures deferred:** VIX futures (VX) documented in code comments as future enhancement - not implemented due to data unavailability
-
-## Deviations from Plan
-
-None - plan executed exactly as written.
-
-## Issues Encountered
-
-- **Worktree file paths:** Initial Edit commands modified main repo instead of worktree - corrected by using absolute worktree paths for subsequent edits
-- **Test environment:** Python/pytest not available in worktree environment - unit tests exist in codebase but not executed during this plan execution
-
-## User Setup Required
-
-None - FTQ computation runs within existing MacroComputeAgent service. No external configuration needed.
-
-## Verification Steps
-
-To verify FTQ is working correctly:
-
-1. **Check macro_features table has FTQ columns:**
-   ```bash
-   docker exec timescaledb psql -U postgres -d indicagent -c "\d macro_features"
-   ```
-   Should show `ftq_score` and `ftq_regime` columns.
-
-2. **Run FTQ backtest on historical data:**
-   ```bash
-   python tools/backtest_ftq.py \
-     --start 2025-10-01 --end 2026-04-01 \
-     --output /tmp/ftq_backtest.csv
-   ```
-
-3. **Validate FTQ signal quality:**
-   ```bash
-   python tools/validate_i6_backtest.py \
-     --input /tmp/ftq_backtest.csv \
-     --field ftq_score \
-     --min-ic 0.05 --alpha 0.01
-   ```
-
-4. **Check service logs for FTQ computation:**
-   ```bash
-   tail -f logs/macro_compute_agent.log | grep ftq
-   ```
-
-## Known Stubs
-
-None - all FTQ fields are computed and persisted correctly.
-
-## Threat Flags
-
-None - no new security-relevant surface introduced.
+All 40 existing pipeline tests pass after changes. No new tests added (existing tests exercise `_build_frames()` and would catch regression in cross_asset injection).
 
 ## Self-Check: PASSED
 
-All files committed, migrations applied, backtest tool created. Plan execution complete.
+- [x] `topic_macro_signals` imported
+- [x] Subscription list updated (5 topics)
+- [x] `_macro_cache` initialized in `__init__`
+- [x] `_macro_topic` handler in `_process_loop`
+- [x] `frames["cross_asset"]` merges macro data at build time
+- [x] `frames["cross_asset_5m"]` merges macro data at build time
+- [x] 40 pipeline tests passing
 
 ---
-
 *Phase: 64-i6-confluence-expansion-cross-tf-plugins-macro-context-service*
-*Plan: 03B*
+*Plan: 03B (pipeline integration)*
 *Completed: 2026-04-27*

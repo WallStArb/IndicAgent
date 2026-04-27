@@ -62,6 +62,7 @@ from src.core.stream_keys import (
     topic_intelligence_pipeline_dlq,
     topic_intelligence_pipeline_state,
     topic_intelligence_shadow,
+    topic_macro_signals,
     topic_market_bars,
     topic_market_bars_htf,
     topic_signal_dlq,
@@ -478,6 +479,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._setup_cooldown: dict = {}  # (symbol, tf, plugin, direction) -> datetime
         self._setup_last_fire: dict = {}  # (symbol, tf, plugin, direction) -> {bars_since}
         self._cross_asset_cache: dict = {}
+        self._macro_cache: dict = {}
         self._htf_intel_cache: dict = {}
         self._live_quotes: dict = {}
         self._df_cache: dict = {}
@@ -625,6 +627,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             topic_market_bars_htf(self.settings.env_name),
             topic_system_events(self.settings.env_name),
             topic_cross_asset(self.settings.env_name),
+            topic_macro_signals(self.settings.env_name),
         ]
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -863,6 +866,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def _process_loop(self) -> None:
         """Consume all topics and route: bar → I1-I7 pipeline; non-bar → caches."""
         _cross_asset_topic = topic_cross_asset(self.settings.env_name)
+        _macro_topic = topic_macro_signals(self.settings.env_name)
         _system_topic = topic_system_events(self.settings.env_name)
         COMMIT_BATCH_SIZE = 100  # Batch commits to avoid per-message network latency
         msg_count = 0
@@ -876,6 +880,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
                             self._cross_asset_cache[tf] = payload
+                        elif _topic == _macro_topic:
+                            tf = payload.get("timeframe", payload.get("tf", "1m"))
+                            self._macro_cache[tf] = {
+                                k: payload[k]
+                                for k in (
+                                    "yield_curve_slope",
+                                    "yield_curve_regime",
+                                    "ftq_score",
+                                    "ftq_regime",
+                                )
+                                if k in payload
+                            }
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         else:
@@ -1018,10 +1034,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Inject prev I1 features
         frames["prev_features"] = self._prev_i1_features.get(key, {})
 
-        # Cross-asset
+        # Cross-asset (merge macro factors in so I7 plugins see a unified context)
         if resolve_eq_index_base(symbol) is not None:
-            frames["cross_asset"] = self._cross_asset_cache.get(tf, {"ready": False})
-            frames["cross_asset_5m"] = self._cross_asset_cache.get("5m", {"ready": False})
+            cross_asset = {**self._cross_asset_cache.get(tf, {"ready": False})}
+            cross_asset.update(self._macro_cache.get(tf, {}))
+            frames["cross_asset"] = cross_asset
+            cross_asset_5m = {**self._cross_asset_cache.get("5m", {"ready": False})}
+            cross_asset_5m.update(self._macro_cache.get("5m", {}))
+            frames["cross_asset_5m"] = cross_asset_5m
 
         # VIX context
         if self._vix_symbol:

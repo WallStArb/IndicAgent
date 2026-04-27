@@ -26,7 +26,8 @@ key-files:
 
 key-decisions:
   - "DEFERRED: USD strength factor not implemented until prerequisites validate"
-  - "No FX data purchased until yield curve AND flight-to-quality both prove IC > 0.05"
+  - "FX data is ALREADY AVAILABLE: EURUSD/GBPUSD/USDJPY/USDCHF defined as AssetClass.FX non-futures in settings.py (lines 395-438); get_active_contracts() includes them. No data purchase needed."
+  - "Sole gate: yield_curve AND ftq both validate IC > 0.05, p < 0.01, N >= 30 (~May 10)"
   - "If either prerequisite fails, entire macro direction abandoned"
 
 patterns-established: []

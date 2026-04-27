@@ -3,10 +3,17 @@ phase: 64-i6-confluence-expansion-cross-tf-plugins-macro-context-service
 plan: 03C
 type: execute
 wave: 3
-depends_on: []
+depends_on: ["64-03A", "64-03B"]
+deferred: true
+deferred_reason: |
+  Gated on prerequisite IC validation only (NOT FX data — EURUSD/GBPUSD/USDJPY/USDCHF are already defined
+  in settings.py as AssetClass.FX non-futures instruments, so get_active_contracts() returns them).
+  Unblock: yield_curve (Plan 03A) AND ftq_score (Plan 03B) both validate IC > 0.05, p < 0.01, N >= 30.
+  If either fails, abandon macro direction. Target: ~May 10 data gate.
 files_modified:
   - src/intelligence/macro/usd_strength.py
   - services/macro_compute_agent.py
+  - production/migrations/076_macro_features_usd.sql
   - tests/unit/intelligence/test_usd_strength.py
 autonomous: true
 requirements: []

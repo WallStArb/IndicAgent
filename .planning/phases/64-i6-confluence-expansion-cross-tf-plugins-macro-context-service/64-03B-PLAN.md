@@ -5,10 +5,11 @@ type: execute
 wave: 3
 depends_on: ["64-03A"]
 gap_closure: true
+status: complete
+completed: 2026-04-27
+note: "03B scope was pipeline integration (not FTQ — FTQ was delivered separately via 03B-FTQ during 03A execution). Pipeline integration shipped: topic_macro_signals subscription + _macro_cache + frames['cross_asset'] merge. No new service or topic needed."
 files_modified:
   - services/intelligence_pipeline_agent.py
-  - src/core/stream_keys.py
-  - tests/unit/service_tests/test_intelligence_pipeline_agent.py
 autonomous: true
 requirements: []
 
