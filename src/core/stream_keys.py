@@ -454,6 +454,19 @@ def topic_transform_graduation_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
+
+
+def topic_macro_signals(env_name: str) -> str:
+    """Kafka topic for macro factor signals.
+
+    Published by: MacroComputeAgent
+    Consumed by: IntelligencePipelineComputeAgent (frames["cross_asset"])
+    DataWriterAgent writes to: macro_features hypertable
+
+    Topic naming: <env>.macro_signals (dots only, no colons)
+    """
+    return f"{env_prefix(env_name)}macro_signals"
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
