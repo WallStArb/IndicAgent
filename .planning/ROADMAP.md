@@ -790,7 +790,7 @@ Plans:
 1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
 2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
 3. 4 additional cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
-4. Macro factors (USD strength, yield curve, flight-to-quality) — yield curve + FTQ delivered; USD strength deferred
+4. Macro factors (USD strength, yield curve, flight-to-quality) — yield curve + FTQ delivered; USD strength ready to execute (FX pairs exist)
 5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
 6. All plugins run in shadow mode; validation occurs when approaching production
 
@@ -801,7 +801,7 @@ Plans:
 - [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
 - [x] 64-03A-PLAN.md — Yield curve macro factor (MacroComputeAgent, yield_curve.py) — COMPLETE
 - [x] 64-03B-PLAN.md — Flight-to-quality macro factor (FTQ via TLT+SPY) — COMPLETE
-- [x] 64-03C-PLAN.md — USD strength macro factor — DEFERRED (requires FX data + 03A/03B validation)
+- [ ] 64-03C-PLAN.md — USD strength macro factor (FX pairs exist: EURUSD, GBPUSD, USDJPY, USDCHF)
 
 ### Phase 56: Swarm Foundation
 

@@ -1,11 +1,9 @@
 ---
 phase: 64-i6-confluence-expansion-cross-tf-plugins-macro-context-service
 plan: 03C
-type: deferred
-wave: 4
-depends_on: ["64-03A", "64-03B"]
-deferred: true
-deferred_reason: "Requires FX pair data (EURUSD, GBPUSD, USDJPY, USDCHF) not currently tracked. Do not invest in data feeds for unproven macro approach. Prerequisite: Both yield curve (03A) AND flight-to-quality (03B) must validate with IC > 0.05 before adding FX pairs. If either fails, entire macro direction is abandoned and FX data is NOT purchased."
+type: execute
+wave: 3
+depends_on: []
 files_modified:
   - src/intelligence/macro/usd_strength.py
   - services/macro_compute_agent.py
@@ -16,12 +14,9 @@ requirements: []
 must_haves:
   truths:
     - "USD strength factor computed from FX pairs (EURUSD, GBPUSD, USDJPY, USDCHF)"
-    - "FX pairs data sources added to IBKR TWS or alternative provider"
     - "USD strength extends MacroComputeAgent with new factor computation"
     - "USD strength output published to existing topic_macro_signals"
-    - "USD strength backtested on 6 months historical data (Plan 00 tool)"
-    - "Prerequisites: Plan 03A (yield curve) AND 03B (FTQ) must both validate with IC > 0.05"
-    - "If prerequisite fails: USD strength NOT built, FX data NOT purchased"
+    - "Unit tests pass for USD strength computation"
   artifacts:
     - path: "src/intelligence/macro/usd_strength.py"
       provides: "USD strength macro factor (DXY-like composite from FX pairs)"
@@ -42,23 +37,15 @@ must_haves:
 ---
 
 <objective>
-USD strength macro factor — DEFERRED until FX data available AND prerequisite validation passes.
+USD strength macro factor — third macro factor for MacroComputeAgent.
 
-Purpose: Third macro factor measuring USD strength from FX pairs (EURUSD, GBPUSD, USDJPY, USDCHF). Composite DXY-like signal: inverse EURUSD + inverse GBPUSD + USDJPY change + USDCHF change, normalized via tanh.
+Purpose: USD strength from FX pairs (EURUSD, GBPUSD, USDJPY, USDCHF). Composite DXY-like signal: inverse EURUSD + inverse GBPUSD + USDJPY change + USDCHF change, normalized via tanh.
 
-Prerequisites:
-1. FX pair data sources added (EURUSD, GBPUSD, USDJPY, USDCHF tracked)
-2. Plan 03A (yield curve) validates: IC > 0.05, p < 0.01
-3. Plan 03B (flight-to-quality) validates: IC > 0.05, p < 0.01
+FX pairs are already tracked via IDEALPRO (EURUSD, GBPUSD, USDJPY, USDCHF defined in settings.py).
 
-If EITHER 03A or 03B fails validation:
-- DO NOT add FX pairs to data feed
-- DO NOT build USD strength factor
-- ABANDON macro factor direction entirely
+All macro factors run in shadow mode for data collection; validation occurs when approaching production.
 
-Rationale: Don't invest in data feeds for unproven signal class. Renaissance discipline: prove signal value before purchasing data.
-
-Output: USD strength factor validated on historical data (IC > 0.05) OR abandoned if prerequisites fail.
+Output: USD strength factor published to topic_macro_signals, captured to macro_features hypertable.
 </objective>
 
 <execution_context>

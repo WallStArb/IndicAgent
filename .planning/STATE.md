@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: ready_to_plan
-last_updated: "2026-04-27T17:07:26.730Z"
+status: ready_to_execute
+last_updated: "2026-04-27T20:05:00Z"
 progress:
   total_phases: 23
   completed_phases: 4
   total_plans: 26
-  completed_plans: 24
-  percent: 17
+  completed_plans: 21
+  percent: 15
 ---
 
 # Project State
@@ -19,16 +19,19 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor (next unstarted)
+**Current focus:** Phase 64 — I6 Confluence Expansion (cross-TF plugins + USD strength macro factor)
 
 ## Current Position
 
-Phase: 65
-Plan: Not started
+Phase: 64
+Plans ready to execute: 64-01 (CrossTFMomentumDivergence), 64-02 (4 additional cross-TF plugins), 64-03C (USD strength)
 
-  - AlertingAgent (Kafka→Telegram/Discord dispatcher) + Renaissance refactor (SRP restored)
+Plans already complete:
+- 64-00: Backtest infrastructure (tools/backtest_i6_plugin.py, validate_i6_backtest.py)
+- 64-03A: Yield curve macro factor (MacroComputeAgent, yield_curve.py)
+- 64-03B: Flight-to-quality macro factor (FTQ via TLT+SPY)
 
-Previous: Phase 64 — COMPLETE (2026-04-27) — 11/11 plans, 103 unit tests, 5 cross-TF I6 plugins + MacroComputeAgent + backtest infra. v2.3 ML Foundation milestone complete.
+Previous: Phase 65 — COMPLETE (2026-04-24) — Gradient Audit, gradient_utils.py delivered
 
 ## v2.1 Milestone Goal
 
