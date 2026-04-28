@@ -5,6 +5,9 @@ type: execute
 wave: 3
 depends_on: ["64-00"]
 gap_closure: true
+reviews_revision: true
+review_cycle: 2
+review_finding: "MEDIUM — yield curve published/persisted under triggering rate future symbol (ZT/ZN/ZB/ZF) instead of canonical 'YC'. FTQ uses canonical 'FTQ' — the asymmetry breaks queryability and downstream analytics."
 files_modified:
   - services/macro_compute_agent.py
   - tests/unit/service_tests/test_macro_compute_agent.py
@@ -20,6 +23,8 @@ must_haves:
     - "Service can publish macro signals to topic_macro_signals"
     - "Service can persist macro results to macro_features hypertable"
     - "Unit tests pass for all 3 previously stub methods"
+    - "Yield curve published/persisted under canonical symbol 'YC' (not ZT/ZN/ZB/ZF)"
+    - "Pattern mirrors FTQ: yc_bar = {**bar, 'symbol': 'YC'} before publish/persist"
   artifacts:
     - path: "services/macro_compute_agent.py"
       provides: "Functional macro factors service"
@@ -385,6 +390,117 @@ Manual verification by human
 - [ ] Service starts without errors
 - [ ] Logs show successful setup
 - [ ] Human confirms "approved" or reports issues
+</acceptance_criteria>
+</task>
+
+<task type="auto">
+<title>Canonicalize yield curve symbol to "YC" (mirror FTQ pattern)</title>
+<dependencies>Verify MacroComputeAgent current state</dependencies>
+<read_first>
+- services/macro_compute_agent.py (find yield curve publish/persist calls, verify current symbol usage)
+</read_first>
+<action>
+Cycle 2 review finding (MEDIUM): Yield curve is published/persisted under the triggering rate future's
+symbol (ZT, ZN, ZB, or ZF — whichever bar arrived most recently). FTQ correctly uses canonical "FTQ".
+The asymmetry makes yield curve data non-queryable by a known symbol and creates up to 4 redundant DB rows
+per timestamp (one per rate future). Fix: mirror the FTQ pattern exactly.
+
+Find the yield curve publish and persist calls in services/macro_compute_agent.py. The FTQ pattern at
+approximately line 190 looks like:
+```python
+ftq_bar = {**bar, "symbol": "FTQ"}
+```
+
+Add the equivalent for yield curve, immediately before the yield curve publish/persist calls:
+```python
+yc_bar = {**bar, "symbol": "YC"}
+```
+
+Then use `yc_bar` instead of `bar` for all yield curve publish and persist calls. For example:
+- BEFORE: `await self._publish_macro_signal(yc_result, bar)`
+- AFTER:  `await self._publish_macro_signal(yc_result, yc_bar)`
+
+And for DB persistence:
+- BEFORE: `await self._persist_to_db(yc_result, bar)`
+- AFTER:  `await self._persist_to_db(yc_result, yc_bar)`
+
+Verify the exact function/variable names by reading the file first. The pattern to establish:
+- All YC data stored in macro_features with symbol = "YC"
+- All YC data published to topic_macro_signals with symbol = "YC"
+- FTQ continues to use "FTQ" (already correct)
+- No more rate-future symbols (ZT/ZN/ZB/ZF) in the macro_features table for YC rows
+</action>
+<verify>
+grep -n "yc_bar" /home/bg/dev/indicagent/services/macro_compute_agent.py
+# Should show: yc_bar = {**bar, "symbol": "YC"} and its usage in publish/persist calls
+
+grep -n '"symbol": "YC"' /home/bg/dev/indicagent/services/macro_compute_agent.py
+# Must appear at least once (the yc_bar definition)
+</verify>
+<acceptance_criteria>
+- `yc_bar = {**bar, "symbol": "YC"}` appears in macro_compute_agent.py
+- yield curve publish call uses yc_bar (not raw bar)
+- yield curve persist call uses yc_bar (not raw bar)
+- grep '"symbol": "YC"' services/macro_compute_agent.py returns at least 1 line
+- FTQ pattern unchanged: ftq_bar["symbol"] == "FTQ" still present
+</acceptance_criteria>
+</task>
+
+<task type="auto" tdd="true">
+<title>Add unit test: yield curve persisted under canonical "YC" symbol</title>
+<dependencies>Canonicalize yield curve symbol to "YC" (mirror FTQ pattern)</dependencies>
+<read_first>
+- tests/unit/service_tests/test_macro_compute_agent.py (existing test file)
+- services/macro_compute_agent.py (verify yc_bar = {**bar, "symbol": "YC"} is in place)
+</read_first>
+<action>
+Add to tests/unit/service_tests/test_macro_compute_agent.py:
+
+```python
+@pytest.mark.asyncio
+async def test_yield_curve_persisted_under_yc_symbol(self):
+    """Yield curve must be persisted under canonical 'YC' symbol, not ZT/ZN/ZB/ZF.
+
+    Regression for Cycle 2 MEDIUM finding: YC was stored under the triggering bar's
+    rate future symbol, making it non-queryable and creating redundant rows.
+    Fix: yc_bar = {**bar, "symbol": "YC"} before persist/publish — mirrors FTQ pattern.
+    """
+    agent = MacroComputeAgent()
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_pool = MagicMock()
+    mock_pool.acquire = MagicMock(return_value=mock_conn)
+    agent._db_manager = MagicMock()
+    agent._db_manager.pool = mock_pool
+
+    yc_result = {
+        "yield_curve_slope": 0.85,
+        "yield_curve_regime": "steepening",
+    }
+    # Triggering bar is a rate future (ZT)
+    triggering_bar = {
+        "ts": "2026-04-27T12:00:00Z",
+        "symbol": "ZT",
+        "tf": "5m",
+    }
+
+    await agent._persist_to_db(yc_result, {**triggering_bar, "symbol": "YC"})
+
+    # Verify the INSERT used "YC" not "ZT"
+    mock_conn.execute.assert_called_once()
+    sql_or_args = str(mock_conn.execute.call_args)
+    assert "YC" in sql_or_args, "YC must appear in the DB call (canonical symbol)"
+    assert "ZT" not in sql_or_args, "Rate future symbol must NOT appear in the DB call"
+```
+</action>
+<verify>
+.venv/bin/pytest tests/unit/service_tests/test_macro_compute_agent.py -k "test_yield_curve_persisted_under_yc_symbol" -v
+</verify>
+<acceptance_criteria>
+- test_yield_curve_persisted_under_yc_symbol test exists
+- Test passes (.venv/bin/pytest -k test_yield_curve_persisted_under_yc_symbol exits 0)
+- No rate future symbols (ZT/ZN/ZB/ZF) appear in the persist/publish calls for YC data
 </acceptance_criteria>
 </task>
 
