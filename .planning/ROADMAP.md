@@ -297,9 +297,18 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
   **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
   **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
-- [ ] **Phase 73: AI LLM Layer B+ Architecture Refactor** — PLANNED 2026-04-26, NOT EXECUTED
-  Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent` service, renames `swarm_dispatch_service` → `alpha_swarm_agent`, and enforces import boundary discipline.
+- [ ] **Phase 73: AI LLM Layer B+ Architecture Refactor** — REPLANNED 2026-04-28 (7 plans, 4 waves, 51 decisions)
+  Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
   **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
+
+  Plans:
+  - [ ] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49)
+  - [ ] 73-02-PLAN.md — Build src/core/ai/ infrastructure: 5 modules + TDD tests (D-18-22, D-30-31, D-42-45, D-51)
+  - [ ] 73-03-PLAN.md — 6 LLM chain fixes: rate limiter, guardrails, auto-audit, real tokens, cache key (D-04-07, D-11-15, D-17)
+  - [ ] 73-04-PLAN.md — Move agents to mandate-based groups + narrative TF gate (D-23-27, D-34, D-35)
+  - [ ] 73-05-PLAN.md — Rename dispatch->alpha_swarm + refactor services to BaseGroupService (D-10, D-32, D-33, D-50)
+  - [ ] 73-06-PLAN.md — Unified signal_lineage: hypertable, LineageRecorder, LineageWriterAgent (D-01-07 lineage, D-46-48)
+  - [ ] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51)
 - [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
@@ -323,7 +332,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Signal transform log dual-write infrastructure shipped
 
 **Pending (Phase 73):**
-- ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 planned but not executed)
+- ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 replanned 2026-04-28, 7 plans, not yet executed)
 - ✅ State checkpointing for BarAggregatorComputeAgent (Phase 74 complete, 2026-04-26)
 - ✅ Signal lifecycle labeling fix + activation gate (Phase 76 complete, 2026-04-28)
 
@@ -593,7 +602,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
-| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
+| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Planned (Replanned 2026-04-28) | 2026-04-28 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
 | 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |
