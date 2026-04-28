@@ -596,7 +596,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 0/1 | Not Started | — |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
-| 77. OTel Observability Unification | v2.5 | 0/? | Not Started | — |
+| 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -966,11 +966,18 @@ Plans:
 - [x] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05) — completed 2026-04-28
 - [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
 
+
 ### Phase 77: OTel Observability Unification
 
 **Goal:** Replace the ad-hoc monitoring stack (24 per-process HTTP metrics servers, manual service registries, dead OTel infrastructure) with industry-standard OTel Collector stack. One OTLP push pipeline for metrics/traces/logs, dynamic systemd service discovery replacing manual ServiceSpec registry, Alertmanager declarative rules replacing Python alerting, and hot-path distributed tracing activation. Net result: -24 threads, -21 ports, zero manual registry maintenance, unified observability across all three pillars.
 
 **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
-**Requirements**: None (Level 0 — infrastructure modernization, design doc serves as spec)
+**Requirements**: None (Level 0 -- infrastructure modernization, design doc serves as spec)
 **Depends on:** Phase 71 (BaseAgent init_tracing), Phase 52.7 (Tempo deployed), Phase 52.8 (Kafka trace propagation), Phase 68 (BaseWriterAgent)
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 077-01-PLAN.md -- Deploy OTel Collector + Loki Docker containers, Prometheus scrape target, Grafana Loki datasource
+- [ ] 077-02-PLAN.md -- OTel SDK wrapper classes (OTelCounter/Gauge/Histogram), MeterProvider+TracerProvider init, BaseAgent migration off HTTP server
+- [ ] 077-03-PLAN.md -- Log bridge (OTLPLogHandler), service_auditor systemd discovery refactor, Prometheus config collapse
+- [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
