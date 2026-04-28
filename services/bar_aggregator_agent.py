@@ -24,7 +24,6 @@ import time
 from datetime import UTC, datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-import msgpack as _msgpack
 from prometheus_client import Counter, Gauge, Histogram
 from pydantic import ValidationError
 
@@ -33,7 +32,6 @@ from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.core.state_serializer import StateSerializer
 from src.core.stream_keys import (
     message_key,
     topic_bar_aggregator_dlq,
@@ -331,17 +329,9 @@ class BarAggregatorComputeAgent(BaseAgent):
                 async for _topic, key_str, payload in consumer.messages():
                     if not key_str:
                         continue
-                    try:
-                        if isinstance(payload, dict):
-                            raw = _msgpack.packb(payload, use_bin_type=True)
-                            state = StateSerializer.decode(raw)
-                        else:
-                            state = StateSerializer.decode(payload)
-                    except Exception:
-                        self.logger.warning("state.decode_failed", key=key_str)
+                    if not isinstance(payload, dict):
                         continue
 
-                    # Parse key: "{version}:{symbol}:{tf}"
                     parts = key_str.split(":")
                     if len(parts) != 3:
                         self.logger.warning("state.invalid_key_format", key=key_str)
@@ -351,12 +341,11 @@ class BarAggregatorComputeAgent(BaseAgent):
                         self.logger.warning("state.version_mismatch", key=key_str, version=version, expected=self._AGENT_VERSION)
                         continue
 
-                    # Restore BarAccumulator state
-                    if "_accumulators" in state:
-                        for k, v in state["_accumulators"].items():
+                    if "_accumulators" in payload:
+                        for k, v in payload["_accumulators"].items():
                             self._bar_accumulator._accumulators[k] = v
-                    if "_last_session_boundary_log" in state:
-                        for k, v in state["_last_session_boundary_log"].items():
+                    if "_last_session_boundary_log" in payload:
+                        for k, v in payload["_last_session_boundary_log"].items():
                             self._bar_accumulator._last_session_boundary_log[k] = v
                     result[0] = True
 
@@ -388,17 +377,15 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _checkpoint_state(self, bar: BarMessage) -> None:
         """Encode BarAccumulator state and enqueue to compacted state topic."""
-        # Extract serializable state from BarAccumulator
         state = {
             "_accumulators": self._bar_accumulator._accumulators,
             "_last_session_boundary_log": self._bar_accumulator._last_session_boundary_log,
         }
-        encoded = StateSerializer.encode(state)
         checkpoint_key = f"{self._AGENT_VERSION}:{bar.symbol}:{bar.tf}"
         await self._kafka_producer.publish(
             topic_bar_aggregator_state(self.settings.env_name),
+            state,
             checkpoint_key,
-            encoded,
         )
 
     async def _teardown(self) -> None:
