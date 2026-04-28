@@ -15,7 +15,7 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
-- [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 ~90% done — 03C + validation gated at ~May 10; MacroComputeAgent needs prod deploy)
+- [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 core complete 2026-04-28 — 03C USD strength + Plan 04 validation deferred ~May 10 data gate; MacroComputeAgent needs prod deploy)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74 (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
@@ -249,7 +249,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
-- [ ] **Phase 64: I6 Confluence Expansion** — 5 cross-TF plugins complete (Plans 00-02+gapclosures); macro: 03A (yield curve) + 03B (FTQ) + 03B-pipeline integration complete; 03C (USD strength) deferred ~May 10 (gate: YC+FTQ IC > 0.05 — FX data already in settings.py). MacroComputeAgent service not yet deployed on prod — deploy to begin accumulating macro_features data. Plan 04 validation deferred to ~May 10; cross-TF backtest via historical DB is infeasible (ctf_* fields only exist from 2026-04-27), valid path is FeatureValidationService (todo 008).
+- [x] **Phase 64: I6 Confluence Expansion** — CORE COMPLETE 2026-04-28. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. All 4 BLOCKER code review findings resolved (frame key access, field names, SR pivots, Settings init). 3395/3395 unit tests pass. Deferred to ~May 10: 03C USD strength (gate: YC+FTQ IC > 0.05), Plan 04 backtest validation (ctf_* fields only exist from 2026-04-27). MacroComputeAgent service not yet deployed to prod — deploy to accumulate macro_features data.
   Design doc: `docs/ideas/i6-confluence-expansion.md`
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
@@ -489,7 +489,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (65+66 complete 2026-04-24; Phase 64 remaining). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
