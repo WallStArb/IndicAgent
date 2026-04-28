@@ -1,13 +1,15 @@
 ---
 phase: 64
-reviewers: [coderabbit]
-reviewed_at: 2026-04-27T07:30:00Z
+reviewers: [coderabbit, gemini]
+reviewed_at: 2026-04-28T00:09:06Z
 plans_reviewed: [64-00-PLAN.md, 64-01-PLAN.md, 64-02-PLAN.md, 64-03A-PLAN.md, 64-03B-PLAN.md, 64-03C-PLAN.md, 64-04-PLAN.md]
 ---
 
 # Cross-AI Plan Review — Phase 64
 
 ## CodeRabbit Review
+
+*(Original review: 2026-04-27T07:30:00Z)*
 
 **Summary:**
 CodeRabbit conducted an extensive review of the Phase 64 implementation, analyzing code changes, plan documents, systemd unit files, and test infrastructure. The review identified 20 issues across multiple severity levels, ranging from critical look-ahead bugs in backtesting logic to documentation inconsistencies and hardcoded deployment paths. Key strengths include comprehensive plan coverage and test infrastructure, while concerns focus on data integrity issues (macro signal conflicts), async/await misuse, and validation gate reliability.
@@ -81,68 +83,97 @@ The combination of data integrity issues (look-ahead bias, signal conflicts), ru
 
 ## Gemini Review
 
-**Status:** FAILED - Tool access error
+*(Review: 2026-04-28T00:09:06Z — Gemini CLI prompt-only mode, plan content provided inline)*
 
-Gemini CLI attempted to invoke file system tools (`list_directory`, `glob`, `grep_search`) to locate detailed plan documents but these tools are not available in prompt-only mode. The review failed to complete.
+### 1. Summary
 
-**Error Output:**
-```
-I will search for the detailed plan documents in the `.planning/phases` and `docs/plans` directories...
-call:default_api:list_directory{dir_path:.planning/phases}
-I will use the `glob` tool to find any files related to "Phase 64"...
-call:default_api:glob{pattern:**/*64*}
-I will attempt to list the files using a shell command...
-I will use `grep_search` to search for "Phase 64"...
-```
+The Phase 64 plans represent a significant architectural maturation for IndicAgent, transitioning from binary signal confluences to continuous gradient modeling ([-1, +1]) and introducing a dedicated **MacroComputeAgent**. The segmentation of macro factors into a standalone service aligns perfectly with the "Segment relentlessly" mandate. However, while the design of the plugins and agents is sound, the validation infrastructure (Plan 00/04) contains a fundamental contradiction regarding backtest feasibility, and several high-severity logic bugs identified in prior reviews (look-ahead bias and data loss) remain insufficiently addressed in the current plan descriptions.
 
-**Resolution:** Gemini CLI requires full file system access for multi-file reviews. Consider providing all plan content directly in the prompt or using a different invocation method.
+### 2. Strengths
 
----
+- **Gradient Standardization:** Moving to continuous gradients ([-1, +1]) via `gradient_utils.py` significantly improves the signal-to-noise ratio for downstream I7/I8 consumers compared to legacy binary triggers.
+- **Architectural Segmentation:** Creating a standalone `MacroComputeAgent` (Decision D-07) prevents `CrossAssetComputeAgent` from becoming a "God Class" and allows for independent scaling and failure isolation.
+- **Rigorous Validation Gates:** The requirement for both IC > 0.05 and Bonferroni-corrected p < 0.05 (Decision D-25) is an institutional-grade standard that prevents "p-hacking" of indicators.
+- **Graceful Degradation:** Plans 01 and 03A explicitly account for missing Kafka frames or rate future data, ensuring the pipeline doesn't stall if specific instruments are illiquid.
 
-## Ollama Review
+### 3. Concerns
 
-**Status:** FAILED - Service unavailable
+**HIGH Severity:**
 
-Ollama local model server at `http://localhost:11434` did not respond within timeout. The service may not be running or no models are loaded.
+- **Backtest Contradiction (Plan 00 vs. Plan 04):** Plan 00 intends to validate I6 plugins on 6+ months of data. However, Plan 04 states that historical backtesting of `ctf_*` fields is "ARCHITECTURALLY INFEASIBLE" because the fields are NULL in the DB. This suggests a misunderstanding of "Replay Backtesting." A proper replay should *re-calculate* the values from historical I1-I5 inputs, not just query existing rows. If the infrastructure cannot perform a true replay, the "Validation Gate" is a hollow promise.
+- **Look-ahead Bias in `backtest_i6_plugin.py`:** Prior reviews flagged that the window slicing includes future data. The current plan does not explicitly detail the implementation of a "Point-in-Time" (PIT) join or a strict `ts <= current_bar_ts` filter, which is critical for I6 validation.
+- **Macro Data Loss (The `ON CONFLICT` Bug):** In Plan 03A, the `macro_features` hypertable persistence likely uses a `(timestamp, symbol)` unique constraint. If multiple macro factors (Yield Curve, FTQ, USD Strength) are published at the same timestamp, `ON CONFLICT DO NOTHING` will drop all but the first factor. This effectively blinds the system to multi-factor macro confluence.
 
-**Error Output:**
-```
-Ollama review failed
-```
+**MEDIUM Severity:**
 
-**Resolution:** Start Ollama service with `ollama serve` and ensure a model is pulled (e.g., `ollama pull llama3`), or skip this reviewer.
+- **FTQ Symbol Attribution:** As noted by CodeRabbit, publishing macro factors like FTQ (Flight-to-Quality) under a "random bar symbol" makes retrieval by downstream I7 agents non-deterministic. The plan lacks a definition for a canonical `GLOBAL` or `MACRO` symbol in the `macro_features` table.
+- **Phase 65 Dependency (Plan 01):** Plan 01 relies on `gradient_utils.py` which is delivered by Phase 65. If Phase 65 is delayed, Plan 01-02 (the core of this phase) will block. There is no mention of a local shim or fallback.
+
+**LOW Severity:**
+
+- **Field Name Inconsistency:** Discrepancy between `ctf_squeeze_divergence` and `ctf_squeeze_expansion` persists in documentation vs. schema. This will cause runtime `KeyError` exceptions in the `_shadow` dict capture.
+
+### 4. Suggestions
+
+- **Fix Persistence Logic:** Replace `ON CONFLICT DO NOTHING` with `ON CONFLICT (ts, symbol) DO UPDATE SET ...` in the `MacroComputeAgent` to ensure that if multiple macro factors arrive for the same timestamp, they are merged into the same row.
+- **Define "Replay" Methodology:** Explicitly update Plan 00 to state that `backtest_i6_plugin.py` will instantiate the plugin class and call `compute_full()` using historical I1-I5 features as inputs, rather than attempting to read `ctf_*` columns from the DB.
+- **Canonical Macro Symbol:** Implement a reserved symbol (e.g., `_MACRO_`) for all non-asset-specific factors (FTQ, Yield Curve). Update `IntelligencePipelineComputeAgent` to look for this specific symbol when hydrating `frames['cross_asset']`.
+- **PIT (Point-in-Time) Validation:** Add a unit test to the backtest infrastructure that specifically checks for look-ahead by "zeroing out" all data with `ts > T` and verifying that the output at `T` remains unchanged.
+
+### 5. Risk Assessment
+
+**Risk Level: MEDIUM-HIGH**
+
+**Justification:**
+While the architectural direction is excellent, the **Validation Risk** is high. If Plan 04's claim that historical backtesting is infeasible stands, the project is effectively deploying 5+ new confluence plugins into production with *zero* historical performance verification (Decision D-13 "shadow mode" notwithstanding). Furthermore, the unresolved "Look-ahead" and "Data Loss" bugs from the CodeRabbit findings suggest that the execution of these plans might introduce subtle, hard-to-debug alpha decay rather than clear system failures. Success is gated on fixing the "Replay" logic and ensuring the `macro_features` persistence is additive rather than exclusive.
 
 ---
 
 ## Consensus Summary
 
-**Reviewers completing successfully:** 1 of 3 (coderabbit only)
-- ✅ CodeRabbit
-- ❌ Gemini (tool access error)
-- ❌ Ollama (service unavailable)
+**Reviewers completing successfully:** 2 of 2
+- ✅ CodeRabbit (2026-04-27)
+- ✅ Gemini (2026-04-28)
 
 ### Agreed Strengths
 
-(Only one reviewer completed — no consensus possible)
+Both reviewers identified the same strengths:
+- **Gradient-first discipline:** Continuous gradients ([-1,+1]) via `gradient_utils.py` is the right approach for I6 outputs
+- **Rigorous validation gates:** IC > 0.05 + Bonferroni-corrected p < 0.05 is institutional-grade rigor
+- **Architectural segmentation:** Standalone `MacroComputeAgent` provides correct separation of concerns
+- **Graceful degradation:** Plans account for missing instruments / unavailable data
+- **Schema extension strategy:** Incremental I6Confluence extension is correct
 
 ### Agreed Concerns
 
-(Only one reviewer completed — no consensus possible)
+Both reviewers flagged the same HIGH-severity issues:
+
+1. **Look-ahead bias in backtest infrastructure** — Window slice includes future data, invalidating IC/p-value results. CodeRabbit identified the exact line; Gemini identified the deeper pattern (need PIT join or strict `ts <= current_bar_ts` filter).
+
+2. **Macro signal data loss (`ON CONFLICT DO NOTHING`)** — Multiple macro factors (yield_curve, FTQ, USD strength) publishing at the same timestamp will silently drop all but the first. Both reviewers recommend `DO UPDATE SET` with column-specific merging.
+
+3. **Validation gate reliability** — Gemini raised the deeper architectural concern: Plan 04's finding that historical backtest is infeasible for `ctf_*` fields (fields are NULL pre-2026-04-27) means the validation gate intended to gatekeep Plan 02 is itself unverifiable. The forward-only path via FeatureValidationService is correct but means deploying 5+ plugins with zero historical validation.
+
+Both reviewers flagged the same MEDIUM concerns:
+- **FTQ canonical symbol** — Needs a reserved symbol (e.g., `_MACRO_` or `FTQ`) not a random bar's symbol
+- **Phase 65 dependency** — Plan 01 must declare `depends_on: ["65"]`
 
 ### Divergent Views
 
-(Only one reviewer completed — no divergence possible)
+- **CodeRabbit** focused on specific code-level bugs (exact line numbers, specific SQL statements, async/await misuse). More tactical.
+- **Gemini** focused on the deeper architectural contradiction: Plan 00 promises historical validation, Plan 04 admits it's infeasible for `ctf_*` fields — but argues the infrastructure should perform a true *replay* (calling `compute_full()` on historical I1-I5 inputs) rather than querying pre-existing `ctf_*` column values. This is a valid architectural insight that the plan documents do not fully address.
 
 ### Next Steps
 
-1. **Address HIGH-severity issues** before any plan execution, especially look-ahead bugs in backtesting.
-2. **Re-run review** after fixes to validate corrections.
-3. **Consider alternative reviewers** if Gemini/Ollama cannot be configured for tool access.
-4. **Validation gate verification:** After fixing look-ahead bugs, manually verify backtest produces sensible IC/p-values before trusting automation.
+1. **Address macro signal data loss** — Fix `ON CONFLICT DO NOTHING` → `DO UPDATE SET` before MacroComputeAgent prod deploy (gating item).
+2. **Verify backtest look-ahead fix** — Confirm `backtest_i6_plugin.py` uses strict `ts <= current_bar_ts` (PIT join) after CodeRabbit's fix suggestions are applied.
+3. **Clarify replay architecture** — Update Plan 00 to explicitly state whether backtest re-calculates from I1-I5 inputs (true replay) or reads existing `ctf_*` columns (not possible for pre-2026-04-27 data).
+4. **Deploy MacroComputeAgent to prod** — Outstanding item per ROADMAP; needed to begin accumulating `macro_features` data for the ~May 10 validation gate.
+5. **Canonical macro symbol** — Define `_MACRO_` or similar in `constants.py` before Plan 03C execution.
 
 ---
 
-*Review generated: 2026-04-27T07:30:00Z*
+*Review updated: 2026-04-28T00:09:06Z*
 *Phase: 64 - I6 Confluence Expansion*
-*Plans reviewed: 7 documents (00-04 plus gap closure)*
-*Tool versions: CodeRabbit (current), Gemini CLI (prompt-only mode failed), Ollama (service down)*
+*Plans reviewed: 7 documents (00-04 plus gap closure plans)*
+*Tool versions: CodeRabbit (2026-04-27), Gemini CLI (2026-04-28, prompt-only mode with inline plan content)*
