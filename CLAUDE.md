@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.37.0 | Status: v2.3 PARTIAL — Phases 64 core+65+66 shipped; Phase 64 03C+04 deferred (~May 10 data gate). v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate for Phase 64 03C+04 and Phase 70.
+Version: 5.37.0 | Status: v2.3 PARTIAL — Phase 64 core complete (2026-04-28); 03C+04 deferred (~May 10 data gate). v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate for Phase 64 03C+04 and Phase 70.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -168,7 +168,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Plugin System
 
-128 plugins + 2 aggregation across tiers I1–I7 (I1=28, I2=11, I3=9, I4=13, I5=16, SMC=13, I6=1, I7=37). See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+128 plugins + 2 aggregation across tiers I1–I7 (I1=27, I2=10, I3=8, I4=12, I5=16, SMC=13, I6=6, I7=36). See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name

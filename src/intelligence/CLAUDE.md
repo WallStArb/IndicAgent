@@ -7,11 +7,11 @@
 I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → SMC → I6 (confluence) → I7 (signals)
 ```
 
-**I1** (28): Trend/Momentum/Volatility/Volume indicators + OFI + CVD — see `TIER_I1` in `register_plugins.py`
-**I2** (11): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
-**I3** (9): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
-**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (13): Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) · **I6** (1): CrossTimeframeConfluence
-**I7** (37): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
+**I1** (27): Trend/Momentum/Volatility/Volume indicators + OFI + CVD — see `TIER_I1` in `register_plugins.py`
+**I2** (10): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
+**I3** (8): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (12): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
+**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (13): Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) · **I6** (6): CrossTimeframeConfluence + 5 Phase 64 confluence plugins (momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment)
+**I7** (36): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -49,18 +49,19 @@ All live in `src/intelligence/trading/`:
 7. Restart service: `sudo systemctl restart indicagent-intelligence-pipeline`
 8. Verify output: `docker exec redpanda rpk topic consume intelligence --from-end`
 
-## LLM Provider Chain (`llm_providers.py`)
+## LLM Provider Chain (`src/core/llm/chain.py`)
 
 **AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (gemma4:e4b on AMD ROCm iGPU).
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
 | 1 | `OpenRouterProvider` | free models | Primary |
-| 2 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
+| 2 | `OllamaCloudProvider` | cloud models via `OLLAMA_API_KEY` | Optional middle tier |
+| 3 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
 
-- `LLMChain` tries in order, returns first non-None. `chain.last_provider_id` = which succeeded.
+- `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `openrouter_api_key` (empty string → chain skips, falls back to Ollama).
+- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), `ollama_api_key` (enables cloud tier), and the Ollama local settings used for the fallback.
 
 **LLM audit streams**: every call → `llm.calls` (Kafka); every signal exit → `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
