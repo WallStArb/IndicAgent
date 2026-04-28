@@ -916,6 +916,21 @@ Plans:
 - [x] 72-08-PLAN.md — GraduationWriterAgent service + repository + systemd unit
 - [x] 72-09-PLAN.md — GraduationComputeAgent service (event-driven evaluator) + systemd unit
 
+### Phase 75: Shadow Governance System — Automated Promotion/Demotion
+
+**Goal:** Replace the three conflated "shadow" concepts with a clean, automated system. Deliver: (1) `shadow_registry` DB table as single source of truth for component shadow state with per-component gate parameters; (2) `ShadowAuditorAgent` timer that auto-promotes and auto-demotes I7 plugins and swarm agents based on statistical gates (N≥min_n, bootstrap CI lower > min_ev_r, demotion consecutive count); (3) auto-enrollment at pipeline startup — all TIER_I7 plugins and swarm agents enroll unless `SHADOW_SKIP = True`; (4) unified `_is_shadow()` cache in pipeline (no code change needed to promote); (5) rename `signal["_shadow"]` → `signal["features_snapshot"]` across all 37 I7 plugins; (6) extract `_bootstrap_ci_lower` to `src/core/stats_utils.py`; (7) remove hardcoded `SHADOW_PLUGINS` tuple and "human action required" log warning from `weight_updater.py`.
+**Design doc:** `docs/superpowers/specs/2026-04-28-shadow-governance-design.md`
+**Requirements**: [SHADOW-REGISTRY, SHADOW-AUDITOR, SHADOW-AUTO-ENROLL, SHADOW-CACHE, SHADOW-RENAME, SHADOW-STATS-UTILS, SHADOW-CLEANUP]
+**Depends on:** Phase 72 (signal_transform_log exists — ShadowAuditorAgent follows same timer pattern)
+**Plans:** TBD
+
+Plans:
+- [ ] 75-01-PLAN.md — DB migration 076: shadow_registry + shadow_transition_log tables
+- [ ] 75-02-PLAN.md — src/core/stats_utils.py + ShadowAuditorAgent timer service (promotion + demotion logic)
+- [ ] 75-03-PLAN.md — Auto-enrollment in register_all_plugins() + SwarmOrchestratorAgent + _is_shadow() pipeline cache
+- [ ] 75-04-PLAN.md — Rename signal["_shadow"] → signal["features_snapshot"] across all 37 I7 plugins + confidence_utils.py docstring + remove IS_SHADOW/shadow_only class attrs
+
+
 ### Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator
 
 **Goal:** Add state checkpointing to BarAggregatorComputeAgent following the IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to a compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
