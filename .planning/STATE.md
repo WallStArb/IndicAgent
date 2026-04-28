@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: unknown
-last_updated: "2026-04-28T17:59:22.310Z"
+status: executing
+last_updated: "2026-04-28T18:30:44.735Z"
 progress:
   total_phases: 25
   completed_phases: 2
   total_plans: 19
-  completed_plans: 12
-  percent: 63
+  completed_plans: 15
+  percent: 79
 ---
 
 # Project State
@@ -19,12 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 64 — I6 Confluence Expansion (cross-TF plugins + USD strength macro factor)
+**Current focus:** Phase 076 (Signal Lifecycle Labeling Fix & Activation Gate)
 
 ## Current Position
 
-Phase: 64
-Plans ready to execute: 64-01 (CrossTFMomentumDivergence), 64-02 (4 additional cross-TF plugins), 64-03C (USD strength)
+Phase: 076-signal-lifecycle-labeling-activation-gate — EXECUTING
+Plan: 03 of 3
+Plans ready to execute: 076-01 (lifecycle_tracker.py D-01 fix), 076-02 (signal_tracker_compute_agent.py D-02 fix)
 
 Plans already complete:
 
@@ -140,6 +141,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 Recent additions:
 
+- 2026-04-28: Phase 076 Plan 03 complete — SQL migration backfills 2,744 corrupted signal_ledger rows, adds labeling integrity CHECK constraint (commit 0db4fb75)
 - 2026-04-27: Align shadow infrastructure across I7 plugins and swarm agents — 3 independent shadow concepts, dead code, naming collisions, no promotion path
 - 2026-04-27: Add FeatureValidationService as new phase — automated IC/p-value gate superseding Phase 64-04 Task 3 human-verify checkpoint
 

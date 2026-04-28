@@ -959,4 +959,4 @@ Plans:
 Plans:
 - [ ] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06)
 - [ ] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05)
-- [ ] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04)
+- [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
