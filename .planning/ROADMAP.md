@@ -308,6 +308,10 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 - [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
   LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
+- [ ] **Phase 77: OTel Observability Unification** — NOT STARTED
+  Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
+  **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
+  **Planning:** `.planning/phases/077-otel-observability-unification/`
 
 **Success Criteria (Phases 69+71+72):**
 - ✅ Single consumer creation pattern across all 6 writers
@@ -591,7 +595,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 0/1 | Not Started | — |
-| 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 0/3 | Planned | — |
+| 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
+| 77. OTel Observability Unification | v2.5 | 0/? | Not Started | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -960,3 +965,12 @@ Plans:
 - [x] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06) — completed 2026-04-28
 - [x] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05) — completed 2026-04-28
 - [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
+
+### Phase 77: OTel Observability Unification
+
+**Goal:** Replace the ad-hoc monitoring stack (24 per-process HTTP metrics servers, manual service registries, dead OTel infrastructure) with industry-standard OTel Collector stack. One OTLP push pipeline for metrics/traces/logs, dynamic systemd service discovery replacing manual ServiceSpec registry, Alertmanager declarative rules replacing Python alerting, and hot-path distributed tracing activation. Net result: -24 threads, -21 ports, zero manual registry maintenance, unified observability across all three pillars.
+
+**Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
+**Requirements**: None (Level 0 — infrastructure modernization, design doc serves as spec)
+**Depends on:** Phase 71 (BaseAgent init_tracing), Phase 52.7 (Tempo deployed), Phase 52.8 (Kafka trace propagation), Phase 68 (BaseWriterAgent)
+**Plans:** TBD
