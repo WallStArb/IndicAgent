@@ -303,6 +303,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — NOT STARTED
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
+- [ ] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — PLANNED 2026-04-28
+  Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
+  **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 - [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
   LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
 
@@ -587,6 +590,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 0/1 | Not Started | — |
+| 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 0/3 | Planned | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -940,3 +944,18 @@ Plans:
 
 Plans:
 - [ ] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
+
+### Phase 76: Signal Lifecycle Labeling Fix & Activation Gate
+
+**Goal:** Fix the data labeling bug where 2,744 signals have `activated_at IS NOT NULL` but `outcome = 'never_activated'`. Add temporal guards against impossible activations, bootstrap TTL sweep to prevent 29k pending signal accumulation causing 6-min restart cycles, backfill correction for corrupted rows, and an activation probability pre-filter to stop tracking hopeless signals.
+
+**Does NOT include:** ML activation model (Phase 70), shadow outcome infrastructure changes, or any changes to signal generation (I7 plugins).
+
+**Requirements**: None (Level 0 -- bug fix and data integrity phase)
+**Depends on:** None (standalone bug fix)
+**Plans:** 3 plans
+
+Plans:
+- [ ] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06)
+- [ ] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05)
+- [ ] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04)
