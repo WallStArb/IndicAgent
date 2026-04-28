@@ -17,7 +17,6 @@ Last Updated: 2026-04-26
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime
@@ -30,16 +29,19 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import AGENT_CRASH_TOTAL, BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import message_key, topic_macro_signals, topic_market_bars
-from src.intelligence.macro.constants import MACRO_RATE_FUTURES
+from src.intelligence.macro.constants import (
+    MACRO_ACTIVE_SYMBOLS,
+    MACRO_FTQ_INSTRUMENTS,
+    MACRO_RATE_FUTURES,
+    MACRO_YC_ANCHOR_PAIR,
+)
 from src.intelligence.macro.flight_to_quality import compute_flight_to_quality
 from src.intelligence.macro.yield_curve import compute_yield_curve_slope
-from src.core.agent.base import AGENT_CRASH_TOTAL
 from src.observability.metrics import counter
-
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +60,14 @@ class MacroComputeAgent(BaseAgent):
     agent_id: str = "macro_compute_agent"
 
     def __init__(self) -> None:
+        import os
+
+        _log_file = os.environ.get("LOG_FILE")
+        if _log_file:
+            from src.core.service_utils import setup_service_logging
+
+            setup_service_logging(_log_file)
+
         settings = Settings()
         self._settings = settings
         self._window_bars: int = settings.macro_window_bars
@@ -141,73 +151,50 @@ class MacroComputeAgent(BaseAgent):
             raise RuntimeError("Consumer not initialized in _setup")
 
         try:
-            async for msg in self._consumer.messages():
-                # Parse bar message
-                bar = self._parse_bar(msg.value)
-
-                if bar is None:
+            async for _topic, _key, bar in self._consumer.messages():
+                symbol = bar.get("symbol")
+                if symbol not in MACRO_ACTIVE_SYMBOLS:
                     continue
 
-                # Update rolling window
-                symbol = bar["symbol"]
                 self._bar_windows[symbol].append(bar)
                 self._bars_processed.inc()
-                self._last_message_ts = asyncio.get_event_loop().time()
+                self._record_message_consumed()
 
-                # Only compute yield curve when BOTH ZT and ZB have full windows
+                # Yield curve — only when both anchor instruments have full windows
                 # Triggering on any single rate future produced zero-default writes
-                if (
-                    symbol in MACRO_RATE_FUTURES
-                    and all(
-                        len(self._bar_windows.get(s, [])) >= self._window_bars
-                        for s in ["ZT", "ZB"]
-                    )
+                if symbol in MACRO_RATE_FUTURES and all(
+                    len(self._bar_windows.get(s, [])) >= self._window_bars
+                    for s in MACRO_YC_ANCHOR_PAIR
                 ):
-
-                    # Compute yield curve slope
                     macro_result = compute_yield_curve_slope(
-                        dict(self._bar_windows),
+                        self._bar_windows,
                         lookback=self._window_bars,
                     )
-
-                    # Publish to macro_signals topic
                     await self._publish_macro_signal(macro_result, bar)
-
-                    # Persist to macro_features table
                     await self._persist_to_db(macro_result, bar)
-
                     logger.debug(
                         "macro.computed",
                         symbol=symbol,
                         yield_curve_slope=macro_result["yield_curve_slope"],
                     )
 
-                # Also compute flight-to-quality (if TLT+SPY data available)
-                # FIXED: Only compute on SPY/TLT bars, not every incoming bar
-                if bar["symbol"] in ["SPY", "TLT"]:
-                    if all(symbol in self._bar_windows for symbol in ["SPY", "TLT"]):
-                        # Check we have enough data for both symbols
-                        if all(len(self._bar_windows[s]) >= self._window_bars for s in ["SPY", "TLT"]):
-                            ftq_result = compute_flight_to_quality(
-                                dict(self._bar_windows),
-                                lookback=self._window_bars,
-                            )
-
-                            # FIXED: Publish under canonical "FTQ" symbol, not incoming bar symbol
-                            ftq_bar = {
-                                **bar,
-                                "symbol": "FTQ",  # Canonical symbol for FTQ signals
-                            }
-                            await self._publish_macro_signal(ftq_result, ftq_bar)
-
-                            # FTQ shares macro_features table with yield curve
-                            await self._persist_to_db(ftq_result, ftq_bar)
-
-                            logger.debug(
-                                "macro.ftq_computed",
-                                ftq_score=ftq_result["ftq_score"],
-                                ftq_regime=ftq_result["ftq_regime"],
-                            )
+                # FTQ — only on SPY/TLT bars once both have full windows
+                if symbol in MACRO_FTQ_INSTRUMENTS and all(
+                    len(self._bar_windows.get(s, [])) >= self._window_bars
+                    for s in MACRO_FTQ_INSTRUMENTS
+                ):
+                    ftq_result = compute_flight_to_quality(
+                        self._bar_windows,
+                        lookback=self._window_bars,
+                    )
+                    ftq_bar = {**bar, "symbol": "FTQ"}
+                    await self._publish_macro_signal(ftq_result, ftq_bar)
+                    await self._persist_to_db(ftq_result, ftq_bar)
+                    logger.debug(
+                        "macro.ftq_computed",
+                        ftq_score=ftq_result["ftq_score"],
+                        ftq_regime=ftq_result["ftq_regime"],
+                    )
 
         except asyncio.CancelledError:
             logger.info("macro_compute_agent.shutdown")
@@ -220,22 +207,6 @@ class MacroComputeAgent(BaseAgent):
     # -----------------------------------------------------------------------
     # Helper methods
     # -----------------------------------------------------------------------
-
-    def _parse_bar(self, msg_value: bytes) -> dict | None:
-        """Parse Kafka bar message.
-
-        Expected format: JSON with ts, symbol, tf, open, high, low, close, volume
-        """
-        try:
-            bar = json.loads(msg_value)
-            # Validate required fields
-            if not all(k in bar for k in ["ts", "symbol", "tf", "close"]):
-                logger.warning("macro.invalid_bar", missing_fields="required")
-                return None
-            return bar
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.warning("macro.parse_error", error=str(e))
-            return None
 
     async def _publish_macro_signal(self, macro_result: dict, bar: dict) -> None:
         """Publish macro signal to Kafka."""

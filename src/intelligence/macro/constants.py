@@ -29,5 +29,14 @@ MACRO_FLIGHT_TO_QUALITY = frozenset({
     "VX",   # CBOE Volatility Index futures
 })
 
+# Yield curve anchor pair — short end (ZT) + long end (ZB) used for slope computation
+MACRO_YC_ANCHOR_PAIR = frozenset({"ZT", "ZB"})
+
+# FTQ instruments actually consumed by compute_flight_to_quality (SPY + TLT only — VX unused)
+MACRO_FTQ_INSTRUMENTS = frozenset({"TLT", "SPY"})
+
+# All macro instruments consumed by this service (excludes FX — deferred to Plan 64-03C)
+MACRO_ACTIVE_SYMBOLS = MACRO_RATE_FUTURES | MACRO_FTQ_INSTRUMENTS
+
 # All macro instruments (union of all factors)
 MACRO_ALL_SYMBOLS = MACRO_RATE_FUTURES | MACRO_FX_PAIRS | MACRO_FLIGHT_TO_QUALITY
