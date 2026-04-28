@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.36.0 | Status: v2.3 PARTIAL — Phases 65+66 shipped; Phase 64 (I6 Confluence) remaining. v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: Phase 64 I6 Confluence Expansion.
+Version: 5.37.0 | Status: v2.3 PARTIAL — Phases 64 core+65+66 shipped; Phase 64 03C+04 deferred (~May 10 data gate). v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate for Phase 64 03C+04 and Phase 70.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
