@@ -582,3 +582,92 @@ class TestCallSitesPassSymbol:
         from services import intelligence_pipeline_agent as m
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
         assert "apply_calibration" in src
+
+
+class TestMacroCacheMergeSemantics:
+    """Regression: macro cache must merge YC and FTQ, not overwrite.
+
+    Bug: self._macro_cache[tf] = {...} was a full replacement.
+    After FTQ arrived, YC fields (yield_curve_slope, yield_curve_regime) were silently discarded.
+    Fix: setdefault(tf, {}).update(...) merges new keys without wiping existing ones.
+    """
+
+    def _simulate_macro_update(self, cache: dict, payload: dict) -> None:
+        """Mirror the fixed handler in intelligence_pipeline_agent._process_loop."""
+        tf = payload.get("timeframe", payload.get("tf", "1m"))
+        cache.setdefault(tf, {}).update(
+            {
+                k: payload[k]
+                for k in ("yield_curve_slope", "yield_curve_regime", "ftq_score", "ftq_regime")
+                if k in payload
+            }
+        )
+
+    def test_yc_survives_subsequent_ftq_message(self):
+        """YC fields must not be wiped when a subsequent FTQ message arrives."""
+        cache: dict = {}
+
+        # Step 1: yield curve message arrives
+        self._simulate_macro_update(cache, {
+            "timeframe": "5m",
+            "yield_curve_slope": 0.75,
+            "yield_curve_regime": "steepening",
+        })
+
+        # Step 2: FTQ message arrives for the same tf — must merge, not overwrite
+        self._simulate_macro_update(cache, {
+            "timeframe": "5m",
+            "ftq_score": -0.42,
+            "ftq_regime": "risk_off",
+        })
+
+        assert "5m" in cache
+        assert cache["5m"]["yield_curve_slope"] == 0.75, "YC slope lost after FTQ"
+        assert cache["5m"]["yield_curve_regime"] == "steepening", "YC regime lost after FTQ"
+        assert cache["5m"]["ftq_score"] == -0.42
+        assert cache["5m"]["ftq_regime"] == "risk_off"
+
+    def test_ftq_survives_subsequent_yc_message(self):
+        """FTQ fields must not be wiped when a subsequent YC message arrives."""
+        cache: dict = {}
+
+        self._simulate_macro_update(cache, {
+            "timeframe": "1h",
+            "ftq_score": 0.3,
+            "ftq_regime": "risk_on",
+        })
+        self._simulate_macro_update(cache, {
+            "timeframe": "1h",
+            "yield_curve_slope": -0.1,
+            "yield_curve_regime": "flattening",
+        })
+
+        assert cache["1h"]["ftq_score"] == 0.3, "FTQ score lost after YC update"
+        assert cache["1h"]["ftq_regime"] == "risk_on", "FTQ regime lost after YC update"
+        assert cache["1h"]["yield_curve_slope"] == -0.1
+        assert cache["1h"]["yield_curve_regime"] == "flattening"
+
+    def test_multiple_tf_entries_independent(self):
+        """Different timeframes must have independent cache entries."""
+        cache: dict = {}
+
+        self._simulate_macro_update(cache, {"timeframe": "5m", "yield_curve_slope": 0.5})
+        self._simulate_macro_update(cache, {"timeframe": "1h", "ftq_score": -0.2})
+
+        assert "5m" in cache and "1h" in cache
+        assert "ftq_score" not in cache["5m"]
+        assert "yield_curve_slope" not in cache["1h"]
+
+    def test_setdefault_update_used_not_direct_assignment(self):
+        """Source code must use setdefault().update(), not direct cache[tf] = {...}."""
+        import inspect
+
+        from services import intelligence_pipeline_agent as m
+
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._process_loop)
+        assert "_macro_cache.setdefault" in src, (
+            "Macro cache must use setdefault().update() to merge YC+FTQ — not direct assignment"
+        )
+        assert "_macro_cache[tf] = {" not in src, (
+            "Direct assignment _macro_cache[tf] = {...} must be eliminated"
+        )
