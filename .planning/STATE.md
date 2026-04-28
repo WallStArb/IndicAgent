@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
 status: unknown
-last_updated: "2026-04-28T23:09:31.367Z"
+last_updated: "2026-04-28T23:18:46.061Z"
 progress:
   total_phases: 26
   completed_phases: 3
