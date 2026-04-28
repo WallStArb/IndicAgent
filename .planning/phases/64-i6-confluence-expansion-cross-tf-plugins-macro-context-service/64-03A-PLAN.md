@@ -30,6 +30,10 @@ must_haves:
     - "Yield curve signal backtested on 6 months historical data (Plan 00 tool)"
     - "Yield curve degrades gracefully when rate futures absent"
     - "Backtest validation: IC > 0.05 AND p < 0.01 before shadow deployment"
+    - "REVIEW FIX: ON CONFLICT uses DO UPDATE SET per-column (not DO NOTHING) — no macro signal data loss"
+    - "REVIEW FIX: FTQ published under canonical 'FTQ' symbol (not incoming bar symbol)"
+    - "REVIEW FIX: Backtest uses asyncpg pool context manager (no bare connect, no connection leak)"
+    - "REVIEW FIX: Systemd unit uses User=bg consistent with all other indicagent services (not indicant)"
   artifacts:
     - path: "src/intelligence/macro/yield_curve.py"
       provides: "Yield curve slope macro factor"
@@ -514,40 +518,39 @@ Create services/indicagent-macro-compute.service:
 
 ```ini
 [Unit]
-Description=IndicAgent Macro Factors Service — Yield curve, flight-to-quality, USD strength
-Documentation=https://github.com/your-repo/indicagent
-After=network.target redpanda.service timescaledb.service
-Wants=timescaledb.service
+Description=IndicAgent Macro Compute Agent — yield curve and flight-to-quality factors
+Requires=indicagent-redpanda-ready.service
+After=network-online.target indicagent-redpanda-ready.service
+Wants=indicagent-ibkr-provider.service
+StartLimitIntervalSec=300
+StartLimitBurst=0
 
 [Service]
 Type=simple
-User=indicagent
-Group=indicagent
+User=bg
 WorkingDirectory=/home/bg/dev/indicagent
-Environment="PATH=/home/bg/dev/indicagent/.venv/bin"
-EnvironmentFile=-/home/bg/dev/indicagent/.env
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=LOG_FILE=logs/macro_compute_agent.log
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/macro_compute_agent.py
 Restart=always
 RestartSec=10
-
-# Logs go to file (setup_service_logging), NOT journald
 StandardOutput=null
 StandardError=journal
-
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
+SyslogIdentifier=indicagent-macro-compute
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 Key points:
-- No WatchdogSec (agents don't implement sd_notify)
+- No WatchdogSec (agents don't implement sd_notify — CLAUDE.md rule)
 - Logs to logs/macro_compute_agent.log (NOT journald)
 - Restart=always for service resilience
-- Wants timescaledb (DB dependency)
-```
+- User=bg (not indicagent/indicant — CodeRabbit review clarification: all services run as bg on this single-dev server, consistent with every other indicagent service)
+- Hardcoded /home/bg paths: intentional on this server; all other services use same pattern (see indicagent-intelligence-pipeline.service)
+- REVIEW NOTE: CodeRabbit flagged User=indicant and hardcoded paths. Actual convention is User=bg with hardcoded paths matching all other services. No action needed.
 
 Enable service:
 ```bash
@@ -558,13 +561,15 @@ sudo systemctl enable indicagent-macro-compute.service
 ```
 </description>
 <acceptance_criteria>
-- [ ] systemd unit file created
+- [ ] systemd unit file created at services/indicagent-macro-compute.service
 - [ ] No WatchdogSec (correct — no sd_notify)
 - [ ] Logs to file (StandardOutput=null)
 - [ ] Restart=always
-- [ ] Wants timescaledb.service
+- [ ] User=bg (consistent with all other indicagent services)
 - [ ] Installed in /etc/systemd/system/
 - [ ] systemctl daemon-reload successful
+- [ ] REVIEW FIX VERIFIED: grep "User=bg" services/indicagent-macro-compute.service shows bg not indicant
+- [ ] REVIEW NOTE: Hardcoded /home/bg paths are standard for this single-dev server — matches intelligence-pipeline, ibkr-provider, all other services
 </acceptance_criteria>
 </task>
 
@@ -667,12 +672,16 @@ psql -U postgres -d indicagent -f migrations/NNN_macro_features.sql
 <dependencies>create macro_features hypertable migration</dependencies>
 <work_estimate>1 hour</work_estimate>
 <description>
-Create tools/backtest_yield_curve.py:
+<!-- REVIEW FIX: Original plan had bare asyncpg.connect without try/finally — DB connection leak.
+     CodeRabbit identified this in Plan 04. Actual implementation (tools/backtest_macro_factors.py)
+     uses asyncpg.create_pool as an async context manager to prevent leaks. -->
+
+Create tools/backtest_macro_factors.py (NOTE: actual implementation covers both yield curve and FTQ):
 
 ```python
 """Backtest yield curve factor on historical rate futures data."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import asyncpg
 import pandas as pd
 from src.intelligence.macro.yield_curve import compute_yield_curve_slope
@@ -681,35 +690,45 @@ async def backtest_yield_curve(
     start_date: datetime,
     end_date: datetime,
 ) -> pd.DataFrame:
-    """Backtest yield curve on historical ZT/ZN/ZB/ZF data."""
+    """Backtest yield curve on historical ZT/ZN/ZB/ZF data.
     
-    # Load rate futures bars from market_data_ohlcv
-    conn = await asyncpg.connect(settings.database_url)
+    REVIEW FIX: Uses asyncpg connection pool (async context manager) instead of
+    bare asyncpg.connect() to prevent connection leaks on exceptions.
+    """
+    settings = Settings()
     
-    rows = await conn.fetch("""
-        SELECT ts, symbol, tf, open, high, low, close, volume
-        FROM market_data_ohlcv
-        WHERE ts BETWEEN $1 AND $2
-          AND symbol IN ('ZT', 'ZN', 'ZB', 'ZF')
-        ORDER BY ts, symbol
-    """, start_date, end_date)
-    
-    await conn.close()
+    # REVIEW FIX: Use pool + acquire context manager (no connection leak)
+    async with asyncpg.create_pool(settings.database_url, min_size=1, max_size=3) as pool:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT timestamp AS ts, symbol, timeframe AS tf, open, high, low, close, volume
+                FROM market_data_ohlcv
+                WHERE timestamp BETWEEN $1 AND $2
+                  AND symbol IN ('ZT', 'ZN', 'ZB', 'ZF')
+                ORDER BY timestamp, symbol
+            """, start_date, end_date)
     
     # Group by timestamp, build windows per symbol
     df = pd.DataFrame(rows, columns=["ts", "symbol", "tf", "open", "high", "low", "close", "volume"])
     
-    # Sliding window backtest (similar to plugin backtest)
+    # REVIEW FIX: Rolling window (no look-ahead bias) — use per-symbol deques
+    from collections import deque
+    timestamps = sorted(df["ts"].unique())
+    symbol_deques = {sym: deque(maxlen=11) for sym in ["ZT", "ZN", "ZB", "ZF"]}
+    
     results = []
-    for ts, group in df.groupby("ts"):
-        # Build bars dict
-        bars = {}
-        for symbol, subgrp in group.groupby("symbol"):
-            bars[symbol] = deque(subgrp.to_dict("records"), maxlen=100)
+    for ts in timestamps:
+        ts_bars = df[df["ts"] == ts]
+        for _, row in ts_bars.iterrows():
+            sym = row["symbol"]
+            if sym in symbol_deques:
+                symbol_deques[sym].append(row.to_dict())
         
-        # Compute yield curve
-        yc_result = compute_yield_curve_slope(bars, lookback=10)
+        # Only compute when enough history accumulated (no look-ahead)
+        if not all(len(symbol_deques[sym]) >= 10 for sym in ["ZT", "ZB"]):
+            continue
         
+        yc_result = compute_yield_curve_slope(symbol_deques, lookback=10)
         results.append({
             "ts": ts,
             "yield_curve_slope": yc_result["yield_curve_slope"],
@@ -740,12 +759,14 @@ python tools/validate_i6_backtest.py \
 - **IC < 0.02:** Kill yield curve factor, don't invest in FX data for USD strength
 </description>
 <acceptance_criteria>
-- [ ] backtest_yield_curve.py created
-- [ ] Loads ZT/ZN/ZB/ZF bars from market_data_ohlcv
-- [ ] Computes yield_curve_slope using sliding window
+- [ ] tools/backtest_macro_factors.py created (covers yield curve AND FTQ)
+- [ ] Loads ZT/ZN/ZB/ZF bars from market_data_ohlcv using column name "timestamp" (not "ts")
+- [ ] Uses async pool context manager (no bare asyncpg.connect) — REVIEW FIX for connection leak
+- [ ] Rolling window uses per-symbol deques — no look-ahead bias — REVIEW FIX verified
 - [ ] Outputs CSV with ts, yield_curve_slope, yield_curve_regime
 - [ ] Validation tool computes IC/p-value
 - [ ] Feature selection applied (keep/tweak/kill)
+- [ ] REVIEW FIX VERIFIED: grep "async with asyncpg.create_pool\|async with pool.acquire" tools/backtest_macro_factors.py returns results
 </acceptance_criteria>
 </task>
 
