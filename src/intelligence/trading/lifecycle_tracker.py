@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from src.intelligence.trading.signal_outcome import SignalOutcome
+from src.observability.metrics import counter as _counter
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 # Quick-stop threshold: signals stopped within 2 bars classified as stopped_at_entry
@@ -36,6 +38,16 @@ STALENESS_SIGMA_SCALE = 3.0              # sigma ratio at which sigma_component 
 STALENESS_SIGMA_COMPONENT_THRESHOLD = 0.5  # sigma_component level that triggers "both" reason label
 STALENESS_SCORE_THRESHOLD = 0.5          # composite score above which a bar counts as "stale"
 STALENESS_CONSECUTIVE_THRESHOLD = 3     # consecutive stale bars before condition_expired
+
+
+# ---------------------------------------------------------------------------
+# Labeling Violation Metric (D-06)
+# ---------------------------------------------------------------------------
+
+_LABELING_VIOLATIONS = _counter(
+    "signal_tracker_labeling_violations_total",
+    "Count of signals with activated_at set but status=PENDING at TTL time",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +174,9 @@ def evaluate_signal(
     # Staleness state (injected from service)
     staleness_consecutive_bars: int = 0,
     staleness_score: float = 0.0,
+    # D-01: Temporal guard parameters
+    signal_timestamp: datetime | None = None,
+    bar_time: datetime | None = None,
 ) -> Transition | None:
     """Evaluate whether a signal should transition state.
 
@@ -203,7 +218,18 @@ def evaluate_signal(
         pnl_ticks = (exit_price - entry) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
         pnl_dollars = round(pnl_ticks * point_value, 2)
-        if status == SignalStatus.PENDING:
+        # D-02: Check activated_at as source of truth, not just in-memory status.
+        # After tracker restart, in-memory status resets to PENDING even though
+        # activated_at was persisted to DB. Use activated_at to determine real state.
+        activated_at = signal.get("activated_at")
+        was_activated = (
+            status == SignalStatus.ACTIVE
+            or (activated_at is not None and status == SignalStatus.PENDING)
+        )
+        # D-06: Detect and count labeling violations
+        if activated_at is not None and status == SignalStatus.PENDING:
+            _LABELING_VIOLATIONS.inc()
+        if not was_activated:
             outcome = SignalOutcome.NEVER_ACTIVATED
         elif current_mfe > 0:
             outcome = SignalOutcome.TTL_EXPIRED_AHEAD
@@ -223,7 +249,10 @@ def evaluate_signal(
         )
 
     if status == SignalStatus.PENDING:
-        return _check_zone_activation(sid, direction, zone_low, zone_high, high, low, bars)
+        return _check_zone_activation(
+            sid, direction, zone_low, zone_high, high, low, bars,
+            signal_timestamp=signal_timestamp, bar_time=bar_time
+        )
 
     if status == SignalStatus.ACTIVE:
         # --- Chandelier trailing stop check (before standard stop/target) ---
@@ -336,8 +365,17 @@ def _check_zone_activation(
     high: float,
     low: float,
     bars_elapsed: int,
+    signal_timestamp: Any = None,
+    bar_time: Any = None,
 ) -> Transition | None:
     """Zone-aware activation: bar range must overlap the entry zone."""
+    # D-01: Temporal guard -- never activate on a bar from before the signal was fired
+    if signal_timestamp is not None and bar_time is not None:
+        sig_ts = signal_timestamp if isinstance(signal_timestamp, datetime) else None
+        bar_ts = bar_time if isinstance(bar_time, datetime) else None
+        if sig_ts is not None and bar_ts is not None and bar_ts < sig_ts:
+            return None
+
     bar_overlaps_zone = low <= zone_high and high >= zone_low
 
     if not bar_overlaps_zone:
