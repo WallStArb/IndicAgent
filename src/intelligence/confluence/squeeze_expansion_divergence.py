@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from math import tanh
 
 from ..plugins import InputSpec
 
@@ -84,42 +84,29 @@ class SqueezeExpansionDivergencePlugin:
                 ctf_volatility_divergence: float [-1, +1] (tanh-normalized HTF-LTF divergence)
                 ctf_volatility_regime: str (one of 5 categorical labels)
         """
-        # Collect available cross-TF intelligence
-        other_intel: dict[str, dict[str, Any]] = {}
-        for key, val in frames.items():
-            if key.startswith("intel_") and isinstance(val, dict):
-                other_intel[key[6:]] = val  # "intel_5m" → "5m"
-
         vol_scores: dict[str, float] = {}
 
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            intel = other_intel.get(tf)
+            intel = frames.get(f"intel_{tf}")
             if not intel:
                 continue
 
-            atr = intel.get("atr_14")  # I1 ATR field (not "atr")
-            entropy = intel.get("shannon_entropy")  # I4 ShannonEntropy field
+            atr = intel.get("atr_14")
+            entropy = intel.get("shannon_entropy")
 
-            # Need at least one valid volatility indicator
-            if not isinstance(atr, (int, float)) and not isinstance(entropy, (int, float)):
+            atr_valid = isinstance(atr, (int, float)) and float(atr) > 0
+            entropy_valid = isinstance(entropy, (int, float)) and float(entropy) > 0
+            if not atr_valid and not entropy_valid:
                 continue
 
-            # Normalize ATR: below 0.02 = squeeze zone, above = expansion zone
-            # Use tanh(atr/0.02 - 1) to map [0, inf] to [-tanh(1), +1] range
-            atr_score = 0.0
-            if isinstance(atr, (int, float)) and float(atr) > 0:
-                atr_score = float(np.tanh(float(atr) / 0.02 - 1.0))
+            # ATR ref 0.02 (2% typical daily range): below = squeeze, above = expansion
+            atr_score = tanh(float(atr) / 0.02 - 1.0) if atr_valid else 0.0
+            # Entropy ref 0.7 nats (typical mixed market): below = low-entropy squeeze
+            entropy_score = tanh(float(entropy) / 0.7 - 1.0) if entropy_valid else 0.0
 
-            # Normalize entropy: below 0.7 = low-entropy squeeze, above = expansion
-            # Use tanh(entropy/0.7 - 1) to map [0, inf] to [-tanh(1), +1] range
-            entropy_score = 0.0
-            if isinstance(entropy, (int, float)) and float(entropy) > 0:
-                entropy_score = float(np.tanh(float(entropy) / 0.7 - 1.0))
-
-            # Weighted combination: equal weight ATR and entropy
-            if isinstance(atr, (int, float)) and isinstance(entropy, (int, float)):
+            if atr_valid and entropy_valid:
                 vol_score = (atr_score + entropy_score) / 2.0
-            elif isinstance(atr, (int, float)):
+            elif atr_valid:
                 vol_score = atr_score
             else:
                 vol_score = entropy_score
@@ -142,13 +129,11 @@ class SqueezeExpansionDivergencePlugin:
                 "ctf_volatility_regime": "mixed",
             }
 
-        htf_avg = float(np.mean(htf_scores))
-        ltf_avg = float(np.mean(ltf_scores))
+        htf_avg = sum(htf_scores) / len(htf_scores)
+        ltf_avg = sum(ltf_scores) / len(ltf_scores)
 
-        # Divergence = HTF_vol - LTF_vol
-        # Positive: HTF expanding, LTF squeezing (coiling into HTF expansion)
-        # Negative: HTF squeezing, LTF expanding (exhaustion / early reversal)
-        divergence = float(np.tanh(htf_avg - ltf_avg))
+        # Positive: HTF expanding, LTF squeezing (coiling). Negative: HTF squeezing, LTF expanding (exhaustion).
+        divergence = tanh(htf_avg - ltf_avg)
 
         # Regime classification — 5 categorical labels
         t = self._VOL_THRESHOLD

@@ -4,14 +4,11 @@
 Computes macro factors (yield curve, flight-to-quality, USD strength)
 from cross-asset bar data and publishes to macro_signals topic.
 
-Service lifecycle follows BaseAgent canonical pattern (Phase 071):
+Service lifecycle follows BaseAgent canonical pattern:
   - __init__: configure settings, logging, metrics
   - _setup(): Kafka, DB, tracing
   - _run(): main loop — consume, compute, publish
   - _teardown(): graceful shutdown
-
-Version: 1.0.0
-Last Updated: 2026-04-26
 """
 
 from __future__ import annotations
@@ -95,8 +92,6 @@ class MacroComputeAgent(BaseAgent):
             "Macro signal payloads published to macro_signals topic",
         )
 
-        # Initialize BaseAgent with metrics port and shared settings instance
-        # Pass settings= so BaseAgent.settings == self._settings (single instance, no drift)
         super().__init__(
             name="MacroComputeAgent",
             metrics_port=settings.macro_metrics_port,
@@ -241,9 +236,8 @@ class MacroComputeAgent(BaseAgent):
             logger.warning("macro.db_not_ready")
             return
 
-        # Parse timestamp to datetime object for asyncpg
         if isinstance(bar["ts"], str):
-            ts = datetime.fromisoformat(bar["ts"].replace("Z", "+00:00"))
+            ts = datetime.fromisoformat(bar["ts"])
         else:
             ts = bar["ts"]
 
@@ -255,7 +249,6 @@ class MacroComputeAgent(BaseAgent):
             async with self._db_manager.pool.acquire() as conn:
                 # Detect result type by fields present
                 if "yield_curve_slope" in macro_result:
-                    # FIXED: Use upsert to update only yield curve columns on conflict
                     await conn.execute(
                         """
                         INSERT INTO macro_features
@@ -273,7 +266,6 @@ class MacroComputeAgent(BaseAgent):
                         macro_result["yield_curve_regime"],
                     )
                 elif "ftq_score" in macro_result:
-                    # FIXED: Use upsert to update only FTQ columns on conflict
                     await conn.execute(
                         """
                         INSERT INTO macro_features

@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from math import tanh
 
 from ..plugins import InputSpec
 
@@ -78,16 +78,10 @@ class CrossTFRegimeAgreementPlugin:
                 ctf_hmm_regime_agreement: float [-1, +1] (tanh-normalized regime agreement)
                 ctf_hmm_regime_label: str (one of 5 categorical labels)
         """
-        # Collect available cross-TF intelligence
-        other_intel: dict[str, dict[str, Any]] = {}
-        for key, val in frames.items():
-            if key.startswith("intel_") and isinstance(val, dict):
-                other_intel[key[6:]] = val  # "intel_5m" → "5m"
-
         regime_scores: dict[str, float] = {}
 
         for tf in self._ALL_TFS:
-            intel = other_intel.get(tf)
+            intel = frames.get(f"intel_{tf}")
             if not intel:
                 continue
 
@@ -109,11 +103,8 @@ class CrossTFRegimeAgreementPlugin:
                 "ctf_hmm_regime_label": "mixed",
             }
 
-        # Average regime score
-        avg_regime = float(np.mean(list(regime_scores.values())))
-
-        # Agreement: normalized via tanh with sharpening factor (D-17: gradient-first)
-        agreement = float(np.tanh(avg_regime * 2.0))
+        avg_regime = sum(regime_scores.values()) / len(regime_scores)
+        agreement = tanh(avg_regime * 2.0)
 
         # Regime classification — 5 categorical labels
         if all(v > 0 for v in regime_scores.values()):
