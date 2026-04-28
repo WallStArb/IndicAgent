@@ -20,26 +20,20 @@ Status: Phase 053.2 Plan 02
 from __future__ import annotations
 
 import asyncio
-import sys
-from datetime import UTC, datetime
-from pathlib import Path
-
-from pydantic import ValidationError
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 import time
+from datetime import UTC, datetime
 
-from prometheus_client import Counter, Gauge, Histogram
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import msgpack as _msgpack
+from prometheus_client import Counter, Gauge, Histogram
+from pydantic import ValidationError
 
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.state_serializer import StateSerializer
 from src.core.schemas.bar_message import BarMessage, SessionType
+from src.core.state_serializer import StateSerializer
 from src.core.stream_keys import (
     message_key,
     topic_bar_aggregator_dlq,
@@ -188,8 +182,8 @@ class BarAggregatorComputeAgent(BaseAgent):
             "bar_aggregator_bars_in_flight",
             "Approximate number of bars currently being processed (semaphore slots in use)",
         )
-        # Phase 74: State checkpoint versioning — increment when BarAccumulator state structure breaks
-        _AGENT_VERSION = "1"
+        # Increment when BarAccumulator state structure breaks
+        self._AGENT_VERSION = "1"
 
         self._state_checkpoint_restored_total = Counter(
             "bar_aggregator_state_checkpoint_restored_total",
@@ -337,10 +331,6 @@ class BarAggregatorComputeAgent(BaseAgent):
                 async for _topic, key_str, payload in consumer.messages():
                     if not key_str:
                         continue
-                    # Phase 74: Skip keys that don't match current version
-                    if not key_str.startswith(f"{_AGENT_VERSION}:"):
-                        self.logger.warning("state.version_mismatch", key=key_str)
-                        continue
                     try:
                         if isinstance(payload, dict):
                             raw = _msgpack.packb(payload, use_bin_type=True)
@@ -357,8 +347,8 @@ class BarAggregatorComputeAgent(BaseAgent):
                         self.logger.warning("state.invalid_key_format", key=key_str)
                         continue
                     version, symbol, tf = parts
-                    if version != _AGENT_VERSION:
-                        self.logger.warning("state.version_mismatch", key=key_str, version=version, expected=_AGENT_VERSION)
+                    if version != self._AGENT_VERSION:
+                        self.logger.warning("state.version_mismatch", key=key_str, version=version, expected=self._AGENT_VERSION)
                         continue
 
                     # Restore BarAccumulator state
@@ -404,7 +394,7 @@ class BarAggregatorComputeAgent(BaseAgent):
             "_last_session_boundary_log": self._bar_accumulator._last_session_boundary_log,
         }
         encoded = StateSerializer.encode(state)
-        checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"  # Versioned for future-proofing
+        checkpoint_key = f"{self._AGENT_VERSION}:{bar.symbol}:{bar.tf}"
         await self._kafka_producer.publish(
             topic_bar_aggregator_state(self.settings.env_name),
             checkpoint_key,
@@ -539,12 +529,8 @@ class BarAggregatorComputeAgent(BaseAgent):
                                         ts=htf_bar.ts.isoformat(),
                                     )
 
-                                # State checkpoint with degradation detection
-                                # CRITICAL: Checkpoint failures are tracked — 3 failures in 60s stops processing
-                                # This prevents silent data loss (M3) and stale state corruption (H5)
                                 try:
                                     await self._checkpoint_state(bar)
-                                    # Clear failure timestamps on successful checkpoint
                                     self._checkpoint_failure_timestamps.clear()
                                 except Exception as exc:
                                     self.logger.warning("bar_aggregator.checkpoint_failed", error=str(exc))
