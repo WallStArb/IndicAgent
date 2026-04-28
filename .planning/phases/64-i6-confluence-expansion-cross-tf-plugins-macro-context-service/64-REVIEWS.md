@@ -3,9 +3,16 @@ phase: 64
 reviewers: [coderabbit, gemini]
 reviewed_at: 2026-04-28T00:09:06Z
 plans_reviewed: [64-00-PLAN.md, 64-01-PLAN.md, 64-02-PLAN.md, 64-03A-PLAN.md, 64-03B-PLAN.md, 64-03C-PLAN.md, 64-04-PLAN.md]
+cycle_2_reviewed_at: 2026-04-28T00:31:26Z
+cycle_2_reviewers: [gemini, claude-analysis]
+cycle_2_plans_reviewed: [64-00-PLAN.md, 64-01-GAPCLOSURE-PLAN.md, 64-02-GAPCLOSURE-PLAN.md, 64-03A-REVISED-PLAN.md, 64-03B-PLAN.md, 64-03-GAPCLOSURE-PLAN.md, 64-04-PLAN.md]
 ---
 
 # Cross-AI Plan Review — Phase 64
+
+---
+
+# CYCLE 1 REVIEWS (2026-04-27 / 2026-04-28)
 
 ## CodeRabbit Review
 
@@ -81,7 +88,7 @@ The combination of data integrity issues (look-ahead bias, signal conflicts), ru
 
 ---
 
-## Gemini Review
+## Gemini Review (Cycle 1)
 
 *(Review: 2026-04-28T00:09:06Z — Gemini CLI prompt-only mode, plan content provided inline)*
 
@@ -129,7 +136,7 @@ While the architectural direction is excellent, the **Validation Risk** is high.
 
 ---
 
-## Consensus Summary
+## Cycle 1 Consensus Summary
 
 **Reviewers completing successfully:** 2 of 2
 - ✅ CodeRabbit (2026-04-27)
@@ -173,7 +180,158 @@ Both reviewers flagged the same MEDIUM concerns:
 
 ---
 
-*Review updated: 2026-04-28T00:09:06Z*
+*Cycle 1 review updated: 2026-04-28T00:09:06Z*
 *Phase: 64 - I6 Confluence Expansion*
 *Plans reviewed: 7 documents (00-04 plus gap closure plans)*
 *Tool versions: CodeRabbit (2026-04-27), Gemini CLI (2026-04-28, prompt-only mode with inline plan content)*
+
+---
+---
+
+# CYCLE 2 REVIEWS (2026-04-28) — Convergence Verification
+
+**Cycle 2 Focus:** Verify whether the 3 HIGH concerns from Cycle 1 are genuinely fixed in code, and identify any new concerns from the replanning.
+
+**Code Evidence Verified Before Review:**
+- `tools/backtest_i6_plugin.py`: Groups rows by `(ts, symbol)`, calls `compute_full()` on each group independently — no sliding window, no future data
+- `services/macro_compute_agent.py` lines 262-265: `ON CONFLICT (ts, symbol, timeframe) DO UPDATE SET yield_curve_slope = EXCLUDED.yield_curve_slope, yield_curve_regime = EXCLUDED.yield_curve_regime`
+- `services/macro_compute_agent.py` lines 280-283: `ON CONFLICT (ts, symbol, timeframe) DO UPDATE SET ftq_score = EXCLUDED.ftq_score, ftq_regime = EXCLUDED.ftq_regime`
+- `services/macro_compute_agent.py` line 190: `ftq_bar = {**bar, "symbol": "FTQ"}` — FTQ canonical symbol confirmed before persistence
+- `tools/validate_i6_backtest.py`: Bonferroni-corrected `alpha=0.01`, `IC > 0.05`, `N >= 30`, automated `VALIDATED/TWEAK/KILL` decision
+
+---
+
+## Gemini Review (Cycle 2)
+
+*(Review: 2026-04-28T00:31:26Z — Gemini CLI with inline code evidence provided)*
+
+### 1. Summary
+
+Cycle 2 shows significant progress in structural integrity. The **HIGH** severity concerns regarding look-ahead bias and database data loss are **FULLY RESOLVED** through verified code changes in the backtest tool and macro agent. However, a **new HIGH-severity concern** has been identified in the `IntelligencePipelineComputeAgent` where macro factors overwrite each other in the real-time cache, leading to data loss in the I7 signal generation stage. Additionally, architectural fragmentation in macro symbol naming (yield curve stored under rate future symbols like ZT/ZN) prevents the canonical row-merging intended by the database schema.
+
+### 2. Resolved Concerns (Cycle 1 HIGHs → FULLY RESOLVED)
+
+- **Look-ahead bias in backtest** — **FULLY RESOLVED.**
+  - *Evidence:* `tools/backtest_i6_plugin.py` now groups data by `(ts, symbol)` and processes each snapshot independently. No sliding windows are used in the core loop, ensuring `compute_full()` only sees data available at that specific timestamp.
+
+- **Macro signal data loss (DB)** — **FULLY RESOLVED.**
+  - *Evidence:* `services/macro_compute_agent.py` (lines 262-283) uses `ON CONFLICT (ts, symbol, timeframe) DO UPDATE SET` for per-column upserts. This ensures that yield curve and FTQ data can coexist in the same record without wiping each other out.
+
+- **FTQ canonical symbol** — **FULLY RESOLVED.**
+  - *Evidence:* `services/macro_compute_agent.py` (line 190) explicitly overrides the symbol to `"FTQ"` before publication and persistence, ensuring a consistent identity for FTQ signals.
+
+### 3. Remaining & New Concerns
+
+**HIGH: Macro Cache Overwrite in Intelligence Pipeline** *(NEW — identified in Cycle 2)*
+
+- **Concern:** In `services/intelligence_pipeline_agent.py` (lines 883-894), macro signals are handled with a direct dict assignment: `self._macro_cache[tf] = {k: payload[k] for k in (...) if k in payload}`. Because Yield Curve (YC) and Flight-to-Quality (FTQ) are published as separate messages on different triggers, receiving an FTQ message **overwrites** the YC data in the cache (and vice-versa). I7 plugins will only ever see whichever macro factor arrived most recently — the other is silently discarded.
+- **Code evidence:** `self._macro_cache[tf] = {...}` (assignment, not update). When YC arrives: cache = `{yield_curve_slope: X, yield_curve_regime: Y}`. When FTQ arrives next: cache = `{ftq_score: A, ftq_regime: B}` — YC data gone.
+- **Impact:** I7 plugins that should see both yield curve slope AND FTQ score in `frames["cross_asset"]` will only see the most recent macro factor. Combined macro signals (e.g., "yield curve steepening AND risk-off") are impossible. This is a silent data loss in the hot path.
+- **Fix Required:** Change assignment to an update: `self._macro_cache.setdefault(tf, {}).update({k: payload[k] for k in (...) if k in payload})`.
+
+**MEDIUM: Yield Curve Symbol Fragmentation** *(NEW — identified in Cycle 2)*
+
+- **Concern:** `macro_compute_agent.py` (lines 173-174, 268) persists Yield Curve data using the triggering rate future's symbol (`ZT`, `ZN`, `ZB`, or `ZF` — whichever arrived most recently) instead of a canonical symbol like `"YC"`.
+- **Impact:**
+  1. **Redundancy:** Up to 4 rows per timestamp are stored for the same yield curve computation — one per rate future.
+  2. **No Row Merging:** The `ON CONFLICT (ts, symbol, timeframe)` key is per-symbol. YC under `ZT` and FTQ under `FTQ` never conflict, so they correctly coexist — but downstream queries for "macro data at ts X" must know to look for yield curve under ZT/ZN/ZB/ZF rather than a predictable canonical symbol.
+  3. **Inconsistency with FTQ:** FTQ uses canonical `"FTQ"` symbol; YC does not. The asymmetry will confuse future developers and analytics queries.
+- **Fix Required:** Add `yc_bar = {**bar, "symbol": "YC"}` and use `yc_bar` for persistence/publish, mirroring the FTQ pattern at line 190.
+
+**MEDIUM: Missing Macro Feature Warmup on Restart** *(Carried from Cycle 1 analysis)*
+
+- **Concern:** `IntelligencePipelineComputeAgent` (via `BarHistorySeeder`) does not query `macro_features` on startup to seed `_macro_cache`.
+- **Impact:** On agent restart, the macro cache remains empty until new macro trigger bars arrive. During this "macro cold start" period, I7 plugins see `yield_curve_slope=None` and `ftq_score=None` — producing degraded signals for an unknown duration (minutes to hours depending on market activity).
+- **Recommendation:** Add macro seed query in pipeline startup: `SELECT DISTINCT ON (tf) * FROM macro_features ORDER BY tf, ts DESC` to hydrate `_macro_cache` on boot.
+
+**LOW: Redundant Yield Curve Computations** *(NEW — identified in Cycle 2)*
+
+- **Concern:** `MacroComputeAgent` triggers a full YC recomputation whenever *any* rate future bar arrives (if anchor windows are ready). With 4 rate futures (ZT/ZN/ZB/ZF), this causes up to 4 identical computations per timeframe step.
+- **Recommendation:** Implement a `(ts, tf)` gate to deduplicate: track `_last_yc_ts` per tf and only recompute when the new bar's `ts > _last_yc_ts`.
+
+### 4. Risk Assessment
+
+**Risk Level: MEDIUM** *(down from HIGH in Cycle 1)*
+
+**Justification:** The three cycle 1 HIGHs are genuinely fixed in code. However, the new HIGH concern (macro cache overwrite in the pipeline) means that the MacroComputeAgent — though correctly persisting to DB — will have its real-time outputs silently dropped in the pipeline hot path. Since MacroComputeAgent is not yet deployed to prod, this bug can be fixed before any data is lost. The deferred validation path (~May 10) is **SOUND** — the automated D-25 gate correctly implements Bonferroni-corrected significance testing with no human checkpoint.
+
+**Overall Status: PROCEED WITH GAP CLOSURE** — fix the macro cache overwrite (`setdefault().update()`) and canonicalize the yield curve symbol (`"YC"`) before MacroComputeAgent prod deploy.
+
+---
+
+## Claude Analysis (Cycle 2)
+
+*(In-session code verification: 2026-04-28T00:31:26Z)*
+
+### Code Verification Results
+
+**Cycle 1 HIGH #1 — Look-ahead bias: FULLY RESOLVED**
+- `backtest_i6_plugin.py` processes data in `(ts, symbol)` groups. No `iloc[i - window : i + window]` slicing. Each group calls `compute_full(frames)` where `frames` only contains I1-I5 data available at that exact timestamp. Independent group processing guarantees no temporal leakage.
+
+**Cycle 1 HIGH #2 — ON CONFLICT DO NOTHING: FULLY RESOLVED**
+- Verified in code: two separate `DO UPDATE SET` blocks (lines 263-265 for YC, 281-283 for FTQ). Column-specific upserts confirmed. FTQ and YC can coexist in DB records.
+
+**Cycle 1 HIGH #3 — FTQ canonical symbol: FULLY RESOLVED**
+- `ftq_bar = {**bar, "symbol": "FTQ"}` at line 190, then `_persist_to_db(ftq_result, ftq_bar)` at line 192. Symbol is definitively "FTQ" for all FTQ writes.
+
+**New HIGH — Macro cache overwrite: CONFIRMED**
+- `self._macro_cache[tf] = {k: payload[k] for k in ("yield_curve_slope", "yield_curve_regime", "ftq_score", "ftq_regime") if k in payload}` — this is a full replacement, not a merge. Since YC and FTQ are published independently, the cache holds only the most recent one. The fix is one line: `self._macro_cache.setdefault(tf, {}).update(...)`.
+
+**Yield curve symbol fragmentation: CONFIRMED**
+- YC is published/persisted using `bar["symbol"]` (line 219 for publish, 268 for DB). The triggering bar's symbol is a rate future (ZT/ZN/ZB/ZF). FTQ uses canonical "FTQ" — the asymmetry is real and should be fixed for consistency and queryability.
+
+**Validation gate integrity: SOUND**
+- `validate_i6_backtest.py` implements exactly: `passed = bool(ic > 0.05 and p_value < 0.01 and len(valid_df) >= 30)`. Automated `VALIDATED/TWEAK/KILL` decision. No human checkpoint. Regime-segmented statistics computed per D-26. Implementation matches the D-25 specification fully.
+
+**Deferred validation path: SOUND**
+- `ctf_*` fields are NULL pre-2026-04-27 — the plan correctly acknowledges forward-only validation via FeatureValidationService (~May 10 data gate). Macro factors (YC/FTQ) computed from rate futures/ETFs that have historical data — macro backtest IS valid and correctly deferred to May 10.
+
+---
+
+## Cycle 2 Consensus Summary
+
+**Reviewers:** 2 of 2 (Gemini CLI + Claude in-session code analysis)
+
+### Cycle 1 HIGH Resolution Status
+
+| Concern | Cycle 1 Status | Cycle 2 Status | Evidence |
+|---|---|---|---|
+| Look-ahead bias in backtest | HIGH | FULLY RESOLVED | Group-based processing, no sliding window |
+| ON CONFLICT DO NOTHING | HIGH | FULLY RESOLVED | DO UPDATE SET per-column confirmed in code |
+| FTQ canonical symbol | HIGH | FULLY RESOLVED | `ftq_bar["symbol"] = "FTQ"` confirmed at line 190 |
+
+### New Concerns Introduced in Cycle 2
+
+| Concern | Severity | Location |
+|---|---|---|
+| Macro cache overwrite (assignment not update) | HIGH | `intelligence_pipeline_agent.py` line 885 |
+| Yield curve stored under ZT/ZN symbol (not "YC") | MEDIUM | `macro_compute_agent.py` line 268 |
+| No macro feature warmup on restart | MEDIUM | `intelligence_pipeline_agent.py` startup |
+| Redundant YC computation (up to 4× per tf step) | LOW | `macro_compute_agent.py` bar loop |
+
+### Agreed Fix Priority
+
+1. **IMMEDIATE (before prod deploy):** Fix `_macro_cache[tf] = ...` → `_macro_cache.setdefault(tf, {}).update(...)` in `intelligence_pipeline_agent.py`. One-line fix, prevents silent macro data loss in hot path.
+2. **BEFORE PROD DEPLOY:** Canonicalize yield curve symbol to `"YC"` (mirror FTQ pattern). Two-line change in `macro_compute_agent.py`.
+3. **BEFORE MAY 10 GATE:** Add macro warmup seed query on pipeline restart to eliminate cold-start degradation.
+4. **OPTIONAL:** Add `_last_yc_ts` gate to deduplicate redundant YC computations.
+
+### Divergent Views
+
+- **Gemini** framed the yield curve symbol issue as preventing the intended "single canonical macro row" merging design. The DB ON CONFLICT key is `(ts, symbol, timeframe)` — so YC under "ZT" and FTQ under "FTQ" are different rows by design, not the same row. The issue is queryability and consistency, not DB correctness.
+- **Claude analysis** confirmed Gemini's cache overwrite finding and added that the fix is strictly one line (`setdefault().update()`), making it extremely low-risk to address before prod deploy.
+
+### Overall Phase Status
+
+**Cycle 2 Risk Level: MEDIUM**
+
+The three Cycle 1 HIGHs are genuinely resolved in code. One new HIGH (macro cache overwrite) is introduced by the replanning — but it affects only the real-time pipeline hot path, not the DB persistence (which is correct). Since MacroComputeAgent is not yet deployed to prod, there is a clean window to fix before any data is lost. The deferred validation path (~May 10) is architecturally sound.
+
+**Recommended path:** Apply the one-line macro cache fix + YC symbol canonicalization, then proceed with MacroComputeAgent prod deploy to begin accumulating macro_features data for the May 10 validation gate.
+
+---
+
+*Cycle 2 review: 2026-04-28T00:31:26Z*
+*Phase: 64 - I6 Confluence Expansion*
+*Cycle 2 plans reviewed: 64-00, 64-01-GAPCLOSURE, 64-02-GAPCLOSURE, 64-03A-REVISED, 64-03B, 64-03-GAPCLOSURE, 64-04*
+*Reviewers: Gemini CLI (2026-04-28, with inline code evidence), Claude in-session code analysis*
