@@ -17,7 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 core complete 2026-04-28 — 03C USD strength + Plan 04 validation deferred ~May 10 data gate; MacroComputeAgent needs prod deploy)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74 (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74 (69+71+72+74 complete; 73 planned but not executed; Phase 70 deferred ~May 10)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -281,7 +281,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-74) — Phase 70 deferred, Phase 73 planned but not executed, Phase 74 not started</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-74) — Phase 70 deferred, Phase 73 planned but not executed, Phase 74 complete</summary>
 
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
 
@@ -300,7 +300,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 73: AI LLM Layer B+ Architecture Refactor** — PLANNED 2026-04-26, NOT EXECUTED
   Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent` service, renames `swarm_dispatch_service` → `alpha_swarm_agent`, and enforces import boundary discipline.
   **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
-- [ ] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — NOT STARTED
+- [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
@@ -322,9 +322,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Default lag reporting in base classes — 15 overrides removed
 - ✅ Signal transform log dual-write infrastructure shipped
 
-**Pending (Phases 73+74):**
+**Pending (Phase 73):**
 - ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 planned but not executed)
-- ⏸ State checkpointing for BarAggregatorComputeAgent (Phase 74 not started)
+- ✅ State checkpointing for BarAggregatorComputeAgent (Phase 74 complete, 2026-04-26)
 - ✅ Signal lifecycle labeling fix + activation gate (Phase 76 complete, 2026-04-28)
 
 </details>
@@ -497,7 +497,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72 complete; 73 planned but not executed; Phase 70 deferred ~May 10; Phase 74 not started).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72+74 complete; 73 planned but not executed; Phase 70 deferred ~May 10).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -594,7 +594,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 9/9 | Planned (Not Executed) | 2026-04-26 |
-| 74. BarNormalizerAgent - State Checkpointing | v2.5 | 0/1 | Not Started | — |
+| 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
 | 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |
 
@@ -949,7 +949,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
+- [x] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
 
 ### Phase 76: Signal Lifecycle Labeling Fix & Activation Gate
 
