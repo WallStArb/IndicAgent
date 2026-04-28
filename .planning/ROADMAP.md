@@ -321,6 +321,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Pending (Phases 73+74):**
 - ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 planned but not executed)
 - ⏸ State checkpointing for BarAggregatorComputeAgent (Phase 74 not started)
+- ⏸ Signal lifecycle labeling fix + activation gate (Phase 76 planned, 3 plans ready)
 
 </details>
 
