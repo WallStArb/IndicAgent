@@ -752,3 +752,127 @@ class TestConditionExpired:
         assert t2 is None
 
 
+# ============================================================
+# Temporal Guard Tests (D-01)
+# ============================================================
+
+from datetime import UTC, datetime  # noqa: E402
+
+
+def _pending_with_zone(
+    direction=1, entry=5100.0, stop=5085.0, zone_low=5095.0, zone_high=5102.0
+) -> dict:
+    """Pending signal with zone bounds."""
+    return {
+        "signal_id": "test-id",
+        "status": "pending",
+        "direction": direction,
+        "entry_price": entry,
+        "stop_loss": stop,
+        "targets": [5115.0, 5130.0, 5145.0] if direction == 1 else [5085.0, 5070.0, 5055.0],
+        "ttl_bars": 10,
+        "bars_elapsed": 0,
+        "point_value": 50.0,
+        "entry_zone_low": zone_low,
+        "entry_zone_high": zone_high,
+    }
+
+
+@pytest.mark.unit
+class TestTemporalGuard:
+    """D-01: Signals cannot be activated on bars from before they were fired."""
+
+    def test_no_activation_when_bar_time_before_signal_timestamp(self):
+        """Bar time is before signal timestamp -> no activation even if zone overlaps."""
+        sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
+        signal_ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)
+        bar_ts = datetime(2026, 4, 28, 12, 3, tzinfo=UTC)  # 2 min BEFORE signal
+        t = evaluate_signal(
+            sig, high=5098.0, low=5093.0, close=5096.0,
+            signal_timestamp=signal_ts, bar_time=bar_ts,
+        )
+        assert t is None  # temporal guard prevents activation
+
+    def test_activation_when_bar_time_after_signal_timestamp(self):
+        """Bar time is after signal timestamp -> normal activation when zone overlaps."""
+        sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
+        signal_ts = datetime(2026, 4, 28, 12, 0, tzinfo=UTC)
+        bar_ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)  # 5 min AFTER signal
+        t = evaluate_signal(
+            sig, high=5098.0, low=5093.0, close=5096.0,
+            signal_timestamp=signal_ts, bar_time=bar_ts,
+        )
+        assert t is not None
+        assert t.new_status == "active"
+
+    def test_activation_when_bar_time_equals_signal_timestamp(self):
+        """Bar time exactly equals signal timestamp -> activation proceeds."""
+        sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
+        ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)
+        t = evaluate_signal(
+            sig, high=5098.0, low=5093.0, close=5096.0,
+            signal_timestamp=ts, bar_time=ts,
+        )
+        assert t is not None
+        assert t.new_status == "active"
+
+    def test_no_guard_when_timestamps_not_provided(self):
+        """Backward compat: no timestamps passed -> activation proceeds normally."""
+        sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
+        t = evaluate_signal(sig, high=5098.0, low=5093.0, close=5096.0)
+        assert t is not None
+        assert t.new_status == "active"
+
+    def test_temporal_guard_does_not_affect_ttl_expiry(self):
+        """Temporal guard only applies to activation, not TTL."""
+        sig = _pending_with_zone()
+        sig["bars_elapsed"] = 10  # hit TTL
+        signal_ts = datetime(2026, 4, 28, 12, 0, tzinfo=UTC)
+        bar_ts = datetime(2026, 4, 28, 11, 55, tzinfo=UTC)  # before signal
+        t = evaluate_signal(
+            sig, high=5080.0, low=5075.0, close=5078.0,
+            signal_timestamp=signal_ts, bar_time=bar_ts,
+        )
+        assert t is not None
+        assert t.new_status == "expired"
+        assert t.exit_reason == "ttl_expired"
+
+
+@pytest.mark.unit
+class TestTTLOutcomeWithActivatedAt:
+    """D-02: TTL outcome uses activated_at as source of truth."""
+
+    def test_pending_with_activated_at_gets_ttl_expired_ahead(self):
+        """Signal is PENDING in memory but has activated_at -> treat as activated."""
+        sig = _pending_with_zone()
+        sig["bars_elapsed"] = 10
+        sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
+        t = evaluate_signal(
+            sig, high=5108.0, low=5095.0, close=5105.0,
+            current_mfe=0.3,
+        )
+        assert t is not None
+        assert t.outcome == "ttl_expired_ahead"
+
+    def test_pending_with_activated_at_gets_ttl_expired_behind(self):
+        """Signal is PENDING in memory but has activated_at, mfe <= 0 -> behind."""
+        sig = _pending_with_zone()
+        sig["bars_elapsed"] = 10
+        sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
+        t = evaluate_signal(
+            sig, high=5090.0, low=5080.0, close=5085.0,
+            current_mfe=0.0,
+        )
+        assert t is not None
+        assert t.outcome == "ttl_expired_behind"
+
+    def test_pending_without_activated_at_still_never_activated(self):
+        """Signal is PENDING and no activated_at -> never_activated (existing behavior)."""
+        sig = _pending_with_zone()
+        sig["bars_elapsed"] = 10
+        # No activated_at set
+        t = evaluate_signal(sig, high=5080.0, low=5075.0, close=5078.0)
+        assert t is not None
+        assert t.outcome == "never_activated"
+
+
