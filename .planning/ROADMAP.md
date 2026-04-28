@@ -922,7 +922,7 @@ Plans:
 **Design doc:** `docs/superpowers/specs/2026-04-28-shadow-governance-design.md`
 **Requirements**: [SHADOW-REGISTRY, SHADOW-AUDITOR, SHADOW-AUTO-ENROLL, SHADOW-CACHE, SHADOW-RENAME, SHADOW-STATS-UTILS, SHADOW-CLEANUP]
 **Depends on:** Phase 72 (signal_transform_log exists — ShadowAuditorAgent follows same timer pattern)
-**Plans:** TBD
+**Plans:** 4 plans
 
 Plans:
 - [ ] 75-01-PLAN.md — DB migration 076: shadow_registry + shadow_transition_log tables
