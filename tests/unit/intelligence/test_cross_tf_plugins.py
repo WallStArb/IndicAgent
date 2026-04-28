@@ -55,18 +55,11 @@ class TestCrossTFSRConfluencePlugin:
     def test_gradient_range(self, p: CrossTFSRConfluencePlugin) -> None:
         """Output must be in [-1, +1]."""
         frames = {
-            "intel_i4": {
-                "1h": {"pivot_r1": 100.5, "pivot_s1": 99.5, "atr": 0.5},
-                "4h": {"pivot_r1": 101.0, "pivot_s1": 99.0, "atr": 1.0},
-                "5m": {"pivot_r1": 100.1, "pivot_s1": 99.9, "atr": 0.1},
-                "15m": {"pivot_r1": 100.2, "pivot_s1": 99.8, "atr": 0.2},
-            },
-            "intel_ohlcv": {
-                "1h": {"close": 100.4},
-                "4h": {"close": 100.4},
-                "5m": {"close": 100.4},
-                "15m": {"close": 100.4},
-            },
+            "features": {"close": 100.4},
+            "intel_1h": {"nearest_resistance": 100.5, "nearest_support": 99.5, "atr_14": 0.5},
+            "intel_4h": {"nearest_resistance": 101.0, "nearest_support": 99.0, "atr_14": 1.0},
+            "intel_5m": {"nearest_resistance": 100.1, "nearest_support": 99.9, "atr_14": 0.1},
+            "intel_15m": {"nearest_resistance": 100.2, "nearest_support": 99.8, "atr_14": 0.2},
         }
         result = p.compute_full(frames)
         assert -1.0 <= result["ctf_sr_confluence"] <= 1.0
@@ -74,18 +67,11 @@ class TestCrossTFSRConfluencePlugin:
     def test_near_resistance_positive(self, p: CrossTFSRConfluencePlugin) -> None:
         """Price near resistance on all TFs -> positive confluence."""
         frames = {
-            "intel_i4": {
-                "1h": {"pivot_r1": 100.2, "pivot_s1": 98.0, "atr": 1.0},
-                "4h": {"pivot_r1": 100.3, "pivot_s1": 97.0, "atr": 1.5},
-                "5m": {"pivot_r1": 100.1, "pivot_s1": 99.0, "atr": 0.5},
-                "15m": {"pivot_r1": 100.15, "pivot_s1": 99.5, "atr": 0.5},
-            },
-            "intel_ohlcv": {
-                "1h": {"close": 100.1},
-                "4h": {"close": 100.1},
-                "5m": {"close": 100.1},
-                "15m": {"close": 100.1},
-            },
+            "features": {"close": 100.1},
+            "intel_1h": {"nearest_resistance": 100.2, "nearest_support": 98.0, "atr_14": 1.0},
+            "intel_4h": {"nearest_resistance": 100.3, "nearest_support": 97.0, "atr_14": 1.5},
+            "intel_5m": {"nearest_resistance": 100.15, "nearest_support": 99.0, "atr_14": 0.5},
+            "intel_15m": {"nearest_resistance": 100.2, "nearest_support": 99.5, "atr_14": 0.5},
         }
         result = p.compute_full(frames)
         assert result["ctf_sr_confluence"] > 0
@@ -124,12 +110,10 @@ class TestCrossTFRegimeAgreementPlugin:
     def test_all_trending_positive(self, p: CrossTFRegimeAgreementPlugin) -> None:
         """All TFs in trending regime -> positive agreement, all_trending label."""
         frames = {
-            "intel_i4": {
-                "5m": {"hmm_regime": 1},
-                "15m": {"hmm_regime": 1},
-                "1h": {"hmm_regime": 2},
-                "4h": {"hmm_regime": 1},
-            }
+            "intel_5m": {"hmm_regime": 1},
+            "intel_15m": {"hmm_regime": 1},
+            "intel_1h": {"hmm_regime": 2},
+            "intel_4h": {"hmm_regime": 1},
         }
         result = p.compute_full(frames)
         assert result["ctf_hmm_regime_agreement"] > 0
@@ -138,23 +122,21 @@ class TestCrossTFRegimeAgreementPlugin:
     def test_all_ranging_negative(self, p: CrossTFRegimeAgreementPlugin) -> None:
         """All TFs ranging -> negative agreement, all_ranging label."""
         frames = {
-            "intel_i4": {
-                "5m": {"hmm_regime": 0},
-                "15m": {"hmm_regime": 0},
-                "1h": {"hmm_regime": 0},
-                "4h": {"hmm_regime": 0},
-            }
+            "intel_5m": {"hmm_regime": 0},
+            "intel_15m": {"hmm_regime": 0},
+            "intel_1h": {"hmm_regime": 0},
+            "intel_4h": {"hmm_regime": 0},
         }
         result = p.compute_full(frames)
         assert result["ctf_hmm_regime_agreement"] < 0
         assert result["ctf_hmm_regime_label"] == "all_ranging"
 
     def test_gradient_range(self, p: CrossTFRegimeAgreementPlugin) -> None:
-        for regime_set in [
+        for regimes in [
             {"5m": 1, "15m": 2, "1h": 0, "4h": 1},
             {"5m": 0, "15m": 0, "1h": 1, "4h": 2},
         ]:
-            frames = {"intel_i4": {tf: {"hmm_regime": r} for tf, r in regime_set.items()}}
+            frames = {f"intel_{tf}": {"hmm_regime": r} for tf, r in regimes.items()}
             result = p.compute_full(frames)
             assert -1.0 <= result["ctf_hmm_regime_agreement"] <= 1.0
 
@@ -186,12 +168,10 @@ class TestSqueezeExpansionDivergencePlugin:
 
     def test_gradient_range(self, p: SqueezeExpansionDivergencePlugin) -> None:
         frames = {
-            "intel_i4": {
-                "1h": {"atr": 0.03, "shannon_entropy": 0.8},
-                "4h": {"atr": 0.04, "shannon_entropy": 0.9},
-                "5m": {"atr": 0.005, "shannon_entropy": 0.2},
-                "15m": {"atr": 0.008, "shannon_entropy": 0.3},
-            }
+            "intel_1h": {"atr_14": 0.03, "shannon_entropy": 0.8},
+            "intel_4h": {"atr_14": 0.04, "shannon_entropy": 0.9},
+            "intel_5m": {"atr_14": 0.005, "shannon_entropy": 0.2},
+            "intel_15m": {"atr_14": 0.008, "shannon_entropy": 0.3},
         }
         result = p.compute_full(frames)
         assert -1.0 <= result["ctf_volatility_divergence"] <= 1.0
@@ -199,12 +179,10 @@ class TestSqueezeExpansionDivergencePlugin:
     def test_htf_expanding_ltf_squeezing_positive(self, p: SqueezeExpansionDivergencePlugin) -> None:
         """HTF high vol, LTF low vol -> positive divergence (coiling signal)."""
         frames = {
-            "intel_i4": {
-                "1h": {"atr": 0.05, "shannon_entropy": 1.0},
-                "4h": {"atr": 0.06, "shannon_entropy": 1.1},
-                "5m": {"atr": 0.001, "shannon_entropy": 0.1},
-                "15m": {"atr": 0.002, "shannon_entropy": 0.15},
-            }
+            "intel_1h": {"atr_14": 0.05, "shannon_entropy": 1.0},
+            "intel_4h": {"atr_14": 0.06, "shannon_entropy": 1.1},
+            "intel_5m": {"atr_14": 0.001, "shannon_entropy": 0.1},
+            "intel_15m": {"atr_14": 0.002, "shannon_entropy": 0.15},
         }
         result = p.compute_full(frames)
         assert result["ctf_volatility_divergence"] > 0
@@ -231,7 +209,6 @@ class TestCrossTFOrderFlowAlignmentPlugin:
         assert "ctf_orderflow_regime" in p.outputs
 
     def test_missing_data_returns_fallback(self, p: CrossTFOrderFlowAlignmentPlugin) -> None:
-        # Empty frames -> missing_data (no order flow data at all)
         result = p.compute_full({})
         assert result["ctf_orderflow_alignment"] == 0.0
         assert result["ctf_orderflow_regime"] == "missing_data"
@@ -239,16 +216,14 @@ class TestCrossTFOrderFlowAlignmentPlugin:
     def test_aligned_bull_positive(self, p: CrossTFOrderFlowAlignmentPlugin) -> None:
         """Strong buying pressure across all TFs -> positive alignment.
 
-        OFI is normalized by _OFI_NORM=1000 and CVD by _CVD_NORM=5000.
+        ofi_ewma_5 is normalized by _OFI_NORM=1000 and cvd by _CVD_NORM=5000.
         Use values >> norm to ensure per-TF scores exceed _STRONG_THRESHOLD=0.3.
         """
         frames = {
-            "intel_i1": {
-                "5m": {"ofi": 800.0, "cvd": 2000.0},
-                "15m": {"ofi": 700.0, "cvd": 1800.0},
-                "1h": {"ofi": 900.0, "cvd": 2500.0},
-                "4h": {"ofi": 850.0, "cvd": 2200.0},
-            }
+            "intel_5m": {"ofi_ewma_5": 800.0, "cvd": 2000.0},
+            "intel_15m": {"ofi_ewma_5": 700.0, "cvd": 1800.0},
+            "intel_1h": {"ofi_ewma_5": 900.0, "cvd": 2500.0},
+            "intel_4h": {"ofi_ewma_5": 850.0, "cvd": 2200.0},
         }
         result = p.compute_full(frames)
         assert result["ctf_orderflow_alignment"] > 0
@@ -257,12 +232,10 @@ class TestCrossTFOrderFlowAlignmentPlugin:
     def test_aligned_bear_negative(self, p: CrossTFOrderFlowAlignmentPlugin) -> None:
         """Strong selling pressure across all TFs -> negative alignment."""
         frames = {
-            "intel_i1": {
-                "5m": {"ofi": -800.0, "cvd": -2000.0},
-                "15m": {"ofi": -700.0, "cvd": -1800.0},
-                "1h": {"ofi": -900.0, "cvd": -2500.0},
-                "4h": {"ofi": -850.0, "cvd": -2200.0},
-            }
+            "intel_5m": {"ofi_ewma_5": -800.0, "cvd": -2000.0},
+            "intel_15m": {"ofi_ewma_5": -700.0, "cvd": -1800.0},
+            "intel_1h": {"ofi_ewma_5": -900.0, "cvd": -2500.0},
+            "intel_4h": {"ofi_ewma_5": -850.0, "cvd": -2200.0},
         }
         result = p.compute_full(frames)
         assert result["ctf_orderflow_alignment"] < 0
@@ -270,12 +243,10 @@ class TestCrossTFOrderFlowAlignmentPlugin:
 
     def test_gradient_range(self, p: CrossTFOrderFlowAlignmentPlugin) -> None:
         frames = {
-            "intel_i1": {
-                "5m": {"ofi": 500.0, "cvd": 200.0},
-                "15m": {"ofi": -300.0, "cvd": -100.0},
-                "1h": {"ofi": 800.0, "cvd": 500.0},
-                "4h": {"ofi": 100.0, "cvd": 50.0},
-            }
+            "intel_5m": {"ofi_ewma_5": 500.0, "cvd": 200.0},
+            "intel_15m": {"ofi_ewma_5": -300.0, "cvd": -100.0},
+            "intel_1h": {"ofi_ewma_5": 800.0, "cvd": 500.0},
+            "intel_4h": {"ofi_ewma_5": 100.0, "cvd": 50.0},
         }
         result = p.compute_full(frames)
         assert -1.0 <= result["ctf_orderflow_alignment"] <= 1.0

@@ -71,62 +71,59 @@ class CrossTFMomentumDivergencePlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Compute cross-TF momentum divergence with full gradient implementation.
 
-        Reads frames["intel_i2"] (I2 momentum event directions) and
-        frames["intel_i4"] (I4 context: RSI, MACD histogram) per timeframe.
+        Reads frames["intel_{tf}"] flat dicts (all tiers merged) for each timeframe.
+        Uses rsi_14 (I1), macd_histogram_12_26_9 (I1), and momentum_bias (I4) fields.
         Computes per-TF momentum bias, then HTF-LTF divergence via tanh.
 
         Args:
-            frames: Dict with cached I1-I5 intelligence per TF.
-                    Expected keys: "intel_i2", "intel_i4" (each maps tf->dict)
+            frames: Dict with cached I1-I6 intelligence per TF (keys like "intel_5m").
+                    Content is a flat merged dict of all tier outputs for that TF.
 
         Returns:
             dict with:
                 ctf_momentum_divergence: float [-1, +1] (tanh-normalized HTF-LTF divergence)
                 ctf_momentum_regime: str (one of 5 categorical labels per D-06)
         """
-        # Extract I2 momentum events and I4 context per TF
-        i2_events = frames.get("intel_i2", {})
-        i4_context = frames.get("intel_i4", {})
+        # Collect available cross-TF intelligence (same pattern as CrossTimeframeConfluencePlugin)
+        other_intel: dict[str, dict[str, Any]] = {}
+        for key, val in frames.items():
+            if key.startswith("intel_") and isinstance(val, dict):
+                other_intel[key[6:]] = val  # "intel_5m" → "5m"
 
         # Compute momentum bias per TF
-        # Per CONTEXT.md: "extract momentum bias from each TF using I2 events + RSI/MACD direction"
         tf_biases: dict[str, float] = {}
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            i2_tf = i2_events.get(tf)
-            i4_tf = i4_context.get(tf)
-
-            if not i2_tf and not i4_tf:
+            intel = other_intel.get(tf)
+            if not intel:
                 continue
 
-            # I2 event direction contribution (0.4 weight)
-            event_bias = 0.0
-            if i2_tf and isinstance(i2_tf, dict):
-                directions = []
-                for event in i2_tf.values():
-                    if isinstance(event, dict) and "direction" in event:
-                        d = event["direction"]
-                        if isinstance(d, (int, float)):
-                            directions.append(float(d))
-                if directions:
-                    # Average direction across all I2 events for this TF
-                    event_bias = float(np.mean(directions))
+            # I4 momentum_bias (precomputed composite — highest priority when available)
+            momentum_bias = intel.get("momentum_bias")
+            if isinstance(momentum_bias, (int, float)):
+                tf_biases[tf] = float(np.tanh(float(momentum_bias)))
+                continue
 
-            # I4 RSI and MACD alignment (0.3 + 0.3 weight)
+            # Fallback: compose from I1 RSI + MACD + I2 event flags
             rsi_alignment = 0.0
+            rsi = intel.get("rsi_14")
+            if isinstance(rsi, (int, float)):
+                rsi_alignment = (float(rsi) - 50.0) / 50.0
+
             macd_alignment = 0.0
-            if i4_tf and isinstance(i4_tf, dict):
-                rsi = i4_tf.get("rsi")
-                macd_hist = i4_tf.get("macd_histogram")
+            macd_hist = intel.get("macd_histogram_12_26_9")
+            if isinstance(macd_hist, (int, float)):
+                macd_alignment = float(np.tanh(float(macd_hist) * 10.0))
 
-                if isinstance(rsi, (int, float)):
-                    # RSI alignment: >50 bullish, <50 bearish, normalized to [-1, +1]
-                    rsi_alignment = (float(rsi) - 50.0) / 50.0
+            # I2 event flags: macd/rsi crossovers as directional bias
+            bullish = float(intel.get("macd_cross_bullish") or 0)
+            bearish = float(intel.get("macd_cross_bearish") or 0)
+            rsi_up = float(intel.get("rsi_crossed_50_up") or 0)
+            rsi_down = float(intel.get("rsi_crossed_50_down") or 0)
+            event_bias = float(np.tanh(bullish + rsi_up - bearish - rsi_down))
 
-                if isinstance(macd_hist, (int, float)):
-                    # MACD histogram: normalize via tanh for soft saturation (D-17: gradient-first)
-                    macd_alignment = float(np.tanh(float(macd_hist) * 10.0))
+            if not isinstance(rsi, (int, float)) and not isinstance(macd_hist, (int, float)) and event_bias == 0.0:
+                continue
 
-            # Combine I2 + I4 for TF momentum bias (weights sum to 1.0)
             tf_biases[tf] = event_bias * 0.4 + rsi_alignment * 0.3 + macd_alignment * 0.3
 
         # Separate HTF and LTF biases

@@ -95,11 +95,13 @@ class MacroComputeAgent(BaseAgent):
             "Macro signal payloads published to macro_signals topic",
         )
 
-        # Initialize BaseAgent with metrics port
+        # Initialize BaseAgent with metrics port and shared settings instance
+        # Pass settings= so BaseAgent.settings == self._settings (single instance, no drift)
         super().__init__(
             name="MacroComputeAgent",
             metrics_port=settings.macro_metrics_port,
             max_idle_seconds=300,  # 5 minutes stall detection
+            settings=settings,
         )
 
     # -----------------------------------------------------------------------

@@ -70,32 +70,33 @@ class CrossTFOrderFlowAlignmentPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Compute order flow alignment across timeframes.
 
-        Reads frames["intel_i1"] (I1 features: ofi, cvd) per timeframe.
-        Normalizes via tanh, averages HTF+LTF, then computes alignment score.
+        Reads frames["intel_{tf}"] flat dicts (all tiers merged) for each timeframe.
+        Uses ofi_ewma_5 (I1 OFI plugin) and cvd (I1 CVD plugin) fields.
 
         Args:
-            frames: Dict with cached I1-I5 intelligence per TF.
-                    Expected keys: "intel_i1" (maps tf->dict with ofi, cvd fields)
+            frames: Dict with cached I1-I6 intelligence per TF (keys like "intel_5m").
+                    Content is a flat merged dict of all tier outputs for that TF.
 
         Returns:
             dict with:
                 ctf_orderflow_alignment: float [-1, +1] (tanh-normalized alignment)
                 ctf_orderflow_regime: str (one of 5 categorical labels)
         """
-        i1_events = frames.get("intel_i1", {})
+        # Collect available cross-TF intelligence
+        other_intel: dict[str, dict[str, Any]] = {}
+        for key, val in frames.items():
+            if key.startswith("intel_") and isinstance(val, dict):
+                other_intel[key[6:]] = val  # "intel_5m" → "5m"
 
         of_scores: dict[str, float] = {}
 
         for tf in self._ALL_TFS:
-            if tf not in i1_events:
+            intel = other_intel.get(tf)
+            if not intel:
                 continue
 
-            i1_tf = i1_events[tf]
-            if not isinstance(i1_tf, dict):
-                continue
-
-            ofi = i1_tf.get("ofi")
-            cvd = i1_tf.get("cvd")
+            ofi = intel.get("ofi_ewma_5")  # I1 OFI plugin output (not "ofi")
+            cvd = intel.get("cvd")  # I1 CVD plugin output
 
             # Need at least one valid order flow indicator
             if not isinstance(ofi, (int, float)) and not isinstance(cvd, (int, float)):

@@ -71,56 +71,57 @@ class CrossTFSRConfluencePlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Compute S/R confluence across timeframes.
 
-        Reads frames["intel_i4"] (I4 context: pivot_r1, pivot_s1, atr) and
-        frames["intel_ohlcv"] (bar close prices) per timeframe.
-        Computes per-TF proximity score, then HTF+LTF confluence via tanh.
+        Reads frames["intel_{tf}"] flat dicts (all tiers merged) for each timeframe.
+        Uses nearest_resistance/nearest_support (I3) and atr_14 (I1).
+        Current bar close comes from frames["features"] (same for all TFs — current bar).
 
         Args:
-            frames: Dict with cached I1-I5 intelligence per TF.
-                    Expected keys: "intel_i4", "intel_ohlcv" (each maps tf->dict)
+            frames: Dict with cached I1-I6 intelligence per TF (keys like "intel_5m").
+                    Content is a flat merged dict of all tier outputs for that TF.
 
         Returns:
             dict with:
                 ctf_sr_confluence: float [-1, +1] (tanh-normalized S/R alignment)
                 ctf_sr_regime: str (one of 5 categorical labels)
         """
-        i4_context = frames.get("intel_i4", {})
-        ohlcv = frames.get("intel_ohlcv", {})
+        # Current bar close — used as the price reference for all TF distance calculations
+        features = frames.get("features") or {}
+        current_close = features.get("close", 0)
+
+        # Collect available cross-TF intelligence
+        other_intel: dict[str, dict[str, Any]] = {}
+        for key, val in frames.items():
+            if key.startswith("intel_") and isinstance(val, dict):
+                other_intel[key[6:]] = val  # "intel_5m" → "5m"
 
         sr_scores: dict[str, float] = {}
 
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            if tf not in i4_context:
+            intel = other_intel.get(tf)
+            if not intel:
                 continue
 
-            i4_tf = i4_context[tf]
-            if not isinstance(i4_tf, dict):
+            if not isinstance(current_close, (int, float)) or current_close == 0:
                 continue
 
-            bar = ohlcv.get(tf)
-            if not isinstance(bar, dict):
-                continue
+            close = float(current_close)
 
-            close = bar.get("close", 0)
-            if not isinstance(close, (int, float)) or close == 0:
-                continue
-
-            # Prefer pivot_r1/s1, fallback to pivot_r2/s2
-            resistance = i4_tf.get("pivot_r1") or i4_tf.get("pivot_r2", 0)
-            support = i4_tf.get("pivot_s1") or i4_tf.get("pivot_s2", 0)
+            # I3 SupportResistancePlugin fields (nearest_resistance, nearest_support)
+            resistance = intel.get("nearest_resistance")
+            support = intel.get("nearest_support")
 
             if not isinstance(resistance, (int, float)) or resistance == 0:
                 continue
             if not isinstance(support, (int, float)) or support == 0:
                 continue
 
-            atr = i4_tf.get("atr", 1)
+            atr = intel.get("atr_14", 1)  # I1 ATR field
             if not isinstance(atr, (int, float)) or atr <= 0:
                 atr = 1.0
 
             # Normalize distances to S/R in ATR units
-            dist_to_resistance = (float(resistance) - float(close)) / float(atr)
-            dist_to_support = (float(close) - float(support)) / float(atr)
+            dist_to_resistance = (float(resistance) - close) / float(atr)
+            dist_to_support = (close - float(support)) / float(atr)
 
             # Score: positive near resistance (+), negative near support (-)
             # Proximity decay: 1/(distance+1) within _PROXIMITY_ATR window
