@@ -882,16 +882,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                             self._cross_asset_cache[tf] = payload
                         elif _topic == _macro_topic:
                             tf = payload.get("timeframe", payload.get("tf", "1m"))
-                            self._macro_cache[tf] = {
-                                k: payload[k]
-                                for k in (
-                                    "yield_curve_slope",
-                                    "yield_curve_regime",
-                                    "ftq_score",
-                                    "ftq_regime",
-                                )
-                                if k in payload
-                            }
+                            self._macro_cache.setdefault(tf, {}).update(
+                                {
+                                    k: payload[k]
+                                    for k in (
+                                        "yield_curve_slope",
+                                        "yield_curve_regime",
+                                        "ftq_score",
+                                        "ftq_regime",
+                                    )
+                                    if k in payload
+                                }
+                            )
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         else:
