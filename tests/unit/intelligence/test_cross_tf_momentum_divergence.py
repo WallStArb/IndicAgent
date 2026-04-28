@@ -25,27 +25,21 @@ class TestCrossTFMomentumDivergencePlugin:
 
     def _frames(
         self,
-        ltf_direction: float,
-        htf_direction: float,
         ltf_rsi: float,
         htf_rsi: float,
         ltf_macd: float,
         htf_macd: float,
     ) -> dict:
-        """Build a frames dict with controlled I2/I4 values per TF."""
+        """Build a frames dict with controlled I1 values per TF.
+
+        Injects intel_{tf} flat dicts matching the actual pipeline frame format.
+        Uses rsi_14 (I1) and macd_histogram_12_26_9 (I1) for momentum bias.
+        """
         return {
-            "intel_i2": {
-                "5m": {"momentum": {"direction": ltf_direction}},
-                "15m": {"momentum": {"direction": ltf_direction * 0.9}},
-                "1h": {"momentum": {"direction": htf_direction}},
-                "4h": {"momentum": {"direction": htf_direction * 0.9}},
-            },
-            "intel_i4": {
-                "5m": {"rsi": ltf_rsi, "macd_histogram": ltf_macd},
-                "15m": {"rsi": ltf_rsi - 2, "macd_histogram": ltf_macd * 0.9},
-                "1h": {"rsi": htf_rsi, "macd_histogram": htf_macd},
-                "4h": {"rsi": htf_rsi + 2, "macd_histogram": htf_macd * 0.9},
-            },
+            "intel_5m": {"rsi_14": ltf_rsi, "macd_histogram_12_26_9": ltf_macd},
+            "intel_15m": {"rsi_14": ltf_rsi - 2, "macd_histogram_12_26_9": ltf_macd * 0.9},
+            "intel_1h": {"rsi_14": htf_rsi, "macd_histogram_12_26_9": htf_macd},
+            "intel_4h": {"rsi_14": htf_rsi + 2, "macd_histogram_12_26_9": htf_macd * 0.9},
         }
 
     def test_plugin_module_instance_exists(self) -> None:
@@ -63,11 +57,7 @@ class TestCrossTFMomentumDivergencePlugin:
 
     def test_aligned_htf_bull_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """Both HTF and LTF strongly bullish -> aligned_htf_bull regime."""
-        frames = self._frames(
-            ltf_direction=1.0, htf_direction=1.0,
-            ltf_rsi=68.0, htf_rsi=70.0,
-            ltf_macd=0.8, htf_macd=1.0,
-        )
+        frames = self._frames(ltf_rsi=68.0, htf_rsi=70.0, ltf_macd=0.8, htf_macd=1.0)
         result = p.compute_full(frames)
 
         assert result["ctf_momentum_regime"] == "aligned_htf_bull"
@@ -76,22 +66,14 @@ class TestCrossTFMomentumDivergencePlugin:
 
     def test_aligned_htf_bear_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """Both HTF and LTF strongly bearish -> aligned_htf_bear regime."""
-        frames = self._frames(
-            ltf_direction=-1.0, htf_direction=-1.0,
-            ltf_rsi=32.0, htf_rsi=30.0,
-            ltf_macd=-0.8, htf_macd=-1.0,
-        )
+        frames = self._frames(ltf_rsi=32.0, htf_rsi=30.0, ltf_macd=-0.8, htf_macd=-1.0)
         result = p.compute_full(frames)
 
         assert result["ctf_momentum_regime"] == "aligned_htf_bear"
 
     def test_pullback_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """HTF bullish, LTF bearish -> pullback regime with positive divergence."""
-        frames = self._frames(
-            ltf_direction=-1.0, htf_direction=1.0,
-            ltf_rsi=35.0, htf_rsi=68.0,
-            ltf_macd=-0.8, htf_macd=0.8,
-        )
+        frames = self._frames(ltf_rsi=35.0, htf_rsi=68.0, ltf_macd=-0.8, htf_macd=0.8)
         result = p.compute_full(frames)
 
         assert result["ctf_momentum_regime"] == "pullback"
@@ -102,11 +84,7 @@ class TestCrossTFMomentumDivergencePlugin:
 
     def test_bounce_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """HTF bearish, LTF bullish -> bounce regime with negative divergence."""
-        frames = self._frames(
-            ltf_direction=1.0, htf_direction=-1.0,
-            ltf_rsi=65.0, htf_rsi=32.0,
-            ltf_macd=0.8, htf_macd=-0.8,
-        )
+        frames = self._frames(ltf_rsi=65.0, htf_rsi=32.0, ltf_macd=0.8, htf_macd=-0.8)
         result = p.compute_full(frames)
 
         assert result["ctf_momentum_regime"] == "bounce"
@@ -117,40 +95,30 @@ class TestCrossTFMomentumDivergencePlugin:
 
     def test_mixed_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """Weak directional bias on both HTF and LTF -> mixed regime."""
-        frames = self._frames(
-            ltf_direction=0.1, htf_direction=-0.1,
-            ltf_rsi=49.0, htf_rsi=51.0,
-            ltf_macd=0.01, htf_macd=-0.01,
-        )
+        frames = self._frames(ltf_rsi=49.0, htf_rsi=51.0, ltf_macd=0.01, htf_macd=-0.01)
         result = p.compute_full(frames)
 
         assert result["ctf_momentum_regime"] == "mixed"
 
     def test_missing_data_returns_zero_mixed(self, p: CrossTFMomentumDivergencePlugin) -> None:
-        """Empty I2/I4 frames -> 0.0 divergence and mixed regime."""
-        result = p.compute_full({"intel_i2": {}, "intel_i4": {}})
-
-        assert result["ctf_momentum_divergence"] == 0.0
-        assert result["ctf_momentum_regime"] == "mixed"
-
-    def test_missing_frames_key(self, p: CrossTFMomentumDivergencePlugin) -> None:
-        """Completely missing intel_i2/intel_i4 keys -> graceful fallback."""
+        """Empty frames -> 0.0 divergence and mixed regime."""
         result = p.compute_full({})
 
         assert result["ctf_momentum_divergence"] == 0.0
         assert result["ctf_momentum_regime"] == "mixed"
 
+    def test_missing_frames_key(self, p: CrossTFMomentumDivergencePlugin) -> None:
+        """Completely missing intel keys -> graceful fallback."""
+        result = p.compute_full({"other_key": {"5m": {}}})
+
+        assert result["ctf_momentum_divergence"] == 0.0
+        assert result["ctf_momentum_regime"] == "mixed"
+
     def test_missing_htf_data(self, p: CrossTFMomentumDivergencePlugin) -> None:
-        """Only LTF data present (no HTF) -> insufficient -> mixed."""
+        """Only LTF data present (no HTF intel_1h/intel_4h) -> insufficient -> mixed."""
         frames = {
-            "intel_i2": {
-                "5m": {"momentum": {"direction": 1.0}},
-                "15m": {"momentum": {"direction": 0.8}},
-            },
-            "intel_i4": {
-                "5m": {"rsi": 65.0, "macd_histogram": 0.5},
-                "15m": {"rsi": 63.0, "macd_histogram": 0.4},
-            },
+            "intel_5m": {"rsi_14": 65.0, "macd_histogram_12_26_9": 0.5},
+            "intel_15m": {"rsi_14": 63.0, "macd_histogram_12_26_9": 0.4},
         }
         result = p.compute_full(frames)
 
@@ -163,11 +131,7 @@ class TestCrossTFMomentumDivergencePlugin:
         Per D-06/D-17: ctf_momentum_divergence must be a continuous gradient [-1, +1]
         not a binary step (-1, 0, +1).
         """
-        frames = self._frames(
-            ltf_direction=-0.7, htf_direction=0.7,
-            ltf_rsi=38.0, htf_rsi=63.0,
-            ltf_macd=-0.4, htf_macd=0.4,
-        )
+        frames = self._frames(ltf_rsi=38.0, htf_rsi=63.0, ltf_macd=-0.4, htf_macd=0.4)
         result = p.compute_full(frames)
 
         val = result["ctf_momentum_divergence"]
@@ -181,14 +145,14 @@ class TestCrossTFMomentumDivergencePlugin:
     def test_output_range_bounded(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """ctf_momentum_divergence is always in [-1.0, +1.0] due to np.tanh()."""
         test_cases = [
-            # Strong pullback
-            self._frames(-1.0, 1.0, 20.0, 80.0, -2.0, 2.0),
-            # Strong bounce
-            self._frames(1.0, -1.0, 80.0, 20.0, 2.0, -2.0),
+            # Strong pullback: LTF bearish, HTF bullish
+            self._frames(20.0, 80.0, -2.0, 2.0),
+            # Strong bounce: LTF bullish, HTF bearish
+            self._frames(80.0, 20.0, 2.0, -2.0),
             # Strong bull alignment
-            self._frames(1.0, 1.0, 80.0, 80.0, 2.0, 2.0),
+            self._frames(80.0, 80.0, 2.0, 2.0),
             # Strong bear alignment
-            self._frames(-1.0, -1.0, 20.0, 20.0, -2.0, -2.0),
+            self._frames(20.0, 20.0, -2.0, -2.0),
         ]
 
         for frames in test_cases:
@@ -200,11 +164,7 @@ class TestCrossTFMomentumDivergencePlugin:
         self, p: CrossTFMomentumDivergencePlugin
     ) -> None:
         """compute_next() delegates to compute_full() (incremental = same output)."""
-        frames = self._frames(
-            ltf_direction=-1.0, htf_direction=1.0,
-            ltf_rsi=35.0, htf_rsi=68.0,
-            ltf_macd=-0.8, htf_macd=0.8,
-        )
+        frames = self._frames(ltf_rsi=35.0, htf_rsi=68.0, ltf_macd=-0.8, htf_macd=0.8)
         full_result = p.compute_full(frames)
         next_result = p.compute_next(frames)
 
@@ -217,21 +177,21 @@ class TestCrossTFMomentumDivergencePlugin:
         aligned_htf_bull, aligned_htf_bear, pullback, bounce, mixed
         """
         # aligned_htf_bull: both HTF+LTF strongly bullish
-        r = p.compute_full(self._frames(1.0, 1.0, 70.0, 72.0, 1.0, 1.2))
+        r = p.compute_full(self._frames(70.0, 72.0, 1.0, 1.2))
         assert r["ctf_momentum_regime"] == "aligned_htf_bull"
 
         # aligned_htf_bear: both HTF+LTF strongly bearish
-        r = p.compute_full(self._frames(-1.0, -1.0, 30.0, 28.0, -1.0, -1.2))
+        r = p.compute_full(self._frames(30.0, 28.0, -1.0, -1.2))
         assert r["ctf_momentum_regime"] == "aligned_htf_bear"
 
         # pullback: HTF bullish, LTF bearish
-        r = p.compute_full(self._frames(-1.0, 1.0, 32.0, 68.0, -0.9, 0.9))
+        r = p.compute_full(self._frames(32.0, 68.0, -0.9, 0.9))
         assert r["ctf_momentum_regime"] == "pullback"
 
         # bounce: HTF bearish, LTF bullish
-        r = p.compute_full(self._frames(1.0, -1.0, 68.0, 32.0, 0.9, -0.9))
+        r = p.compute_full(self._frames(68.0, 32.0, 0.9, -0.9))
         assert r["ctf_momentum_regime"] == "bounce"
 
         # mixed: weak bias on both sides
-        r = p.compute_full(self._frames(0.05, -0.05, 50.5, 49.5, 0.005, -0.005))
+        r = p.compute_full(self._frames(50.5, 49.5, 0.005, -0.005))
         assert r["ctf_momentum_regime"] == "mixed"

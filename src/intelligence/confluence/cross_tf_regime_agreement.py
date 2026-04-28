@@ -66,32 +66,32 @@ class CrossTFRegimeAgreementPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Compute HMM regime agreement across timeframes.
 
-        Reads frames["intel_i4"] (I4 context: hmm_regime) per timeframe.
-        Trending regime (hmm_regime 1 or 2) = +1, ranging (hmm_regime 0) = -1.
-        Computes agreement as mean score normalized via tanh.
+        Reads frames["intel_{tf}"] flat dicts (all tiers merged) for each timeframe.
+        Uses hmm_regime from SMCContext (0=ranging, 1=trending-up, 2=trending-down).
 
         Args:
-            frames: Dict with cached I1-I5 intelligence per TF.
-                    Expected keys: "intel_i4" (maps tf->dict with hmm_regime field)
+            frames: Dict with cached I1-I6 intelligence per TF (keys like "intel_5m").
+                    Content is a flat merged dict of all tier outputs for that TF.
 
         Returns:
             dict with:
                 ctf_hmm_regime_agreement: float [-1, +1] (tanh-normalized regime agreement)
                 ctf_hmm_regime_label: str (one of 5 categorical labels)
         """
-        i4_context = frames.get("intel_i4", {})
+        # Collect available cross-TF intelligence
+        other_intel: dict[str, dict[str, Any]] = {}
+        for key, val in frames.items():
+            if key.startswith("intel_") and isinstance(val, dict):
+                other_intel[key[6:]] = val  # "intel_5m" → "5m"
 
         regime_scores: dict[str, float] = {}
 
         for tf in self._ALL_TFS:
-            if tf not in i4_context:
+            intel = other_intel.get(tf)
+            if not intel:
                 continue
 
-            i4_tf = i4_context[tf]
-            if not isinstance(i4_tf, dict):
-                continue
-
-            hmm_regime = i4_tf.get("hmm_regime")
+            hmm_regime = intel.get("hmm_regime")  # SMCContext field (smc tier)
             if not isinstance(hmm_regime, (int, float)):
                 continue
 

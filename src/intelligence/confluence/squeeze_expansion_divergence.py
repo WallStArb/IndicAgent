@@ -67,9 +67,8 @@ class SqueezeExpansionDivergencePlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Compute volatility squeeze/expansion divergence.
 
-        Reads frames["intel_i4"] (I4 context: atr, shannon_entropy) per timeframe.
-        Combines ATR + entropy into per-TF volatility score, then computes
-        HTF-LTF divergence via tanh.
+        Reads frames["intel_{tf}"] flat dicts (all tiers merged) for each timeframe.
+        Uses atr_14 (I1) and shannon_entropy (I4) fields.
 
         Low ATR + low entropy = squeeze (-1), high ATR + high entropy = expansion (+1)
         The normalization uses tanh with typical market parameters:
@@ -77,28 +76,29 @@ class SqueezeExpansionDivergencePlugin:
         - Entropy ref: 0.7 nats (typical mixed market; scale with tanh(entropy/ref - 1))
 
         Args:
-            frames: Dict with cached I1-I5 intelligence per TF.
-                    Expected keys: "intel_i4" (maps tf->dict with atr, shannon_entropy)
+            frames: Dict with cached I1-I6 intelligence per TF (keys like "intel_5m").
+                    Content is a flat merged dict of all tier outputs for that TF.
 
         Returns:
             dict with:
                 ctf_volatility_divergence: float [-1, +1] (tanh-normalized HTF-LTF divergence)
                 ctf_volatility_regime: str (one of 5 categorical labels)
         """
-        i4_context = frames.get("intel_i4", {})
+        # Collect available cross-TF intelligence
+        other_intel: dict[str, dict[str, Any]] = {}
+        for key, val in frames.items():
+            if key.startswith("intel_") and isinstance(val, dict):
+                other_intel[key[6:]] = val  # "intel_5m" → "5m"
 
         vol_scores: dict[str, float] = {}
 
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            if tf not in i4_context:
+            intel = other_intel.get(tf)
+            if not intel:
                 continue
 
-            i4_tf = i4_context[tf]
-            if not isinstance(i4_tf, dict):
-                continue
-
-            atr = i4_tf.get("atr")
-            entropy = i4_tf.get("shannon_entropy")
+            atr = intel.get("atr_14")  # I1 ATR field (not "atr")
+            entropy = intel.get("shannon_entropy")  # I4 ShannonEntropy field
 
             # Need at least one valid volatility indicator
             if not isinstance(atr, (int, float)) and not isinstance(entropy, (int, float)):
