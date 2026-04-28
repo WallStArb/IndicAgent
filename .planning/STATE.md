@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: Ready to execute
-last_updated: "2026-04-28T05:51:16.082Z"
+status: unknown
+last_updated: "2026-04-28T17:59:22.310Z"
 progress:
-  total_phases: 23
+  total_phases: 25
   completed_phases: 2
-  total_plans: 12
+  total_plans: 19
   completed_plans: 12
-  percent: 100
+  percent: 63
 ---
 
 # Project State
@@ -239,4 +239,4 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 64 (i6-confluence-expansion-cross-tf-plugins-macro-context-service) — 11 plans — 2026-04-28T00:39:08.241Z
+**Planned Phase:** 76 (Signal Lifecycle Labeling Fix & Activation Gate) — 3 plans — 2026-04-28T17:59:22.301Z
