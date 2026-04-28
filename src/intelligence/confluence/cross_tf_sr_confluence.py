@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from math import tanh
 
 from ..plugins import InputSpec
 
@@ -84,27 +84,18 @@ class CrossTFSRConfluencePlugin:
                 ctf_sr_confluence: float [-1, +1] (tanh-normalized S/R alignment)
                 ctf_sr_regime: str (one of 5 categorical labels)
         """
-        # Current bar close — used as the price reference for all TF distance calculations
         features = frames.get("features") or {}
-        current_close = features.get("close", 0)
+        current_close = features.get("close")
+        if not isinstance(current_close, (int, float)) or current_close <= 0:
+            return {"ctf_sr_confluence": 0.0, "ctf_sr_regime": "no_confluence"}
 
-        # Collect available cross-TF intelligence
-        other_intel: dict[str, dict[str, Any]] = {}
-        for key, val in frames.items():
-            if key.startswith("intel_") and isinstance(val, dict):
-                other_intel[key[6:]] = val  # "intel_5m" → "5m"
-
+        close = float(current_close)
         sr_scores: dict[str, float] = {}
 
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            intel = other_intel.get(tf)
+            intel = frames.get(f"intel_{tf}")
             if not intel:
                 continue
-
-            if not isinstance(current_close, (int, float)) or current_close == 0:
-                continue
-
-            close = float(current_close)
 
             # I3 SupportResistancePlugin fields (nearest_resistance, nearest_support)
             resistance = intel.get("nearest_resistance")
@@ -150,12 +141,10 @@ class CrossTFSRConfluencePlugin:
                 "ctf_sr_regime": "no_confluence",
             }
 
-        htf_avg = float(np.mean(htf_scores))
-        ltf_avg = float(np.mean(ltf_scores))
+        htf_avg = sum(htf_scores) / len(htf_scores)
+        ltf_avg = sum(ltf_scores) / len(ltf_scores)
 
-        # Confluence: both near same S/R type (resistance or support)
-        # Normalize via tanh for gradient output (D-17)
-        confluence = float(np.tanh(htf_avg + ltf_avg))
+        confluence = tanh(htf_avg + ltf_avg)
 
         # Regime classification — 5 categorical labels
         if htf_avg > self._STRONG_THRESHOLD and ltf_avg > self._STRONG_THRESHOLD:

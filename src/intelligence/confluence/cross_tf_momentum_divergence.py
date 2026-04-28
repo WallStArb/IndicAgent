@@ -29,10 +29,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from math import tanh
 
 from ..plugins import InputSpec
-from .cross_timeframe import CrossTimeframeConfluencePlugin  # noqa: F401 — pattern reference
 
 
 @dataclass
@@ -84,23 +83,16 @@ class CrossTFMomentumDivergencePlugin:
                 ctf_momentum_divergence: float [-1, +1] (tanh-normalized HTF-LTF divergence)
                 ctf_momentum_regime: str (one of 5 categorical labels per D-06)
         """
-        # Collect available cross-TF intelligence (same pattern as CrossTimeframeConfluencePlugin)
-        other_intel: dict[str, dict[str, Any]] = {}
-        for key, val in frames.items():
-            if key.startswith("intel_") and isinstance(val, dict):
-                other_intel[key[6:]] = val  # "intel_5m" → "5m"
-
-        # Compute momentum bias per TF
         tf_biases: dict[str, float] = {}
         for tf in (*self._HTF_TFS, *self._LTF_TFS):
-            intel = other_intel.get(tf)
+            intel = frames.get(f"intel_{tf}")
             if not intel:
                 continue
 
             # I4 momentum_bias (precomputed composite — highest priority when available)
             momentum_bias = intel.get("momentum_bias")
             if isinstance(momentum_bias, (int, float)):
-                tf_biases[tf] = float(np.tanh(float(momentum_bias)))
+                tf_biases[tf] = tanh(float(momentum_bias))
                 continue
 
             # Fallback: compose from I1 RSI + MACD + I2 event flags
@@ -112,14 +104,14 @@ class CrossTFMomentumDivergencePlugin:
             macd_alignment = 0.0
             macd_hist = intel.get("macd_histogram_12_26_9")
             if isinstance(macd_hist, (int, float)):
-                macd_alignment = float(np.tanh(float(macd_hist) * 10.0))
+                macd_alignment = tanh(float(macd_hist) * 10.0)
 
             # I2 event flags: macd/rsi crossovers as directional bias
             bullish = float(intel.get("macd_cross_bullish") or 0)
             bearish = float(intel.get("macd_cross_bearish") or 0)
             rsi_up = float(intel.get("rsi_crossed_50_up") or 0)
             rsi_down = float(intel.get("rsi_crossed_50_down") or 0)
-            event_bias = float(np.tanh(bullish + rsi_up - bearish - rsi_down))
+            event_bias = tanh(bullish + rsi_up - bearish - rsi_down)
 
             if not isinstance(rsi, (int, float)) and not isinstance(macd_hist, (int, float)) and event_bias == 0.0:
                 continue
@@ -137,20 +129,12 @@ class CrossTFMomentumDivergencePlugin:
                 "ctf_momentum_regime": "mixed",
             }
 
-        # Average HTF and LTF biases
-        # Per CONTEXT.md: "compute HTF-LTF divergence as continuous gradient"
-        htf_bias = float(np.mean(htf_biases))
-        ltf_bias = float(np.mean(ltf_biases))
+        htf_bias = sum(htf_biases) / len(htf_biases)
+        ltf_bias = sum(ltf_biases) / len(ltf_biases)
 
-        # Divergence = HTF_bias - LTF_bias per CONTEXT.md specification
-        # Positive: HTF bullish, LTF bearish (pullback opportunity)
-        # Negative: HTF bearish, LTF bullish (bounce / short-squeeze)
-        divergence = htf_bias - ltf_bias
+        # Positive: HTF bullish, LTF bearish (pullback). Negative: HTF bearish, LTF bullish (bounce).
+        divergence_score = tanh(htf_bias - ltf_bias)
 
-        # Normalize via np.tanh() for soft saturation (D-06, D-17: continuous gradient not binary)
-        divergence_score = float(np.tanh(divergence))
-
-        # Regime classification — 5 categorical labels per D-06
         t = self._BIAS_THRESHOLD
         if htf_bias > t and ltf_bias > t:
             regime = "aligned_htf_bull"

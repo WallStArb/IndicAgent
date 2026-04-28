@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from math import tanh
 
 from ..plugins import InputSpec
 
@@ -82,41 +82,27 @@ class CrossTFOrderFlowAlignmentPlugin:
                 ctf_orderflow_alignment: float [-1, +1] (tanh-normalized alignment)
                 ctf_orderflow_regime: str (one of 5 categorical labels)
         """
-        # Collect available cross-TF intelligence
-        other_intel: dict[str, dict[str, Any]] = {}
-        for key, val in frames.items():
-            if key.startswith("intel_") and isinstance(val, dict):
-                other_intel[key[6:]] = val  # "intel_5m" → "5m"
-
         of_scores: dict[str, float] = {}
 
         for tf in self._ALL_TFS:
-            intel = other_intel.get(tf)
+            intel = frames.get(f"intel_{tf}")
             if not intel:
                 continue
 
-            ofi = intel.get("ofi_ewma_5")  # I1 OFI plugin output (not "ofi")
-            cvd = intel.get("cvd")  # I1 CVD plugin output
+            ofi = intel.get("ofi_ewma_5")
+            cvd = intel.get("cvd")
 
-            # Need at least one valid order flow indicator
-            if not isinstance(ofi, (int, float)) and not isinstance(cvd, (int, float)):
+            ofi_valid = isinstance(ofi, (int, float))
+            cvd_valid = isinstance(cvd, (int, float))
+            if not ofi_valid and not cvd_valid:
                 continue
 
-            # Normalize OFI: positive = buying pressure, negative = selling
-            # Use tanh(ofi / norm) for gradient score
-            ofi_score = 0.0
-            if isinstance(ofi, (int, float)):
-                ofi_score = float(np.tanh(float(ofi) / self._OFI_NORM))
+            ofi_score = tanh(float(ofi) / self._OFI_NORM) if ofi_valid else 0.0
+            cvd_score = tanh(float(cvd) / self._CVD_NORM) if cvd_valid else 0.0
 
-            # Normalize CVD: positive = net buying, negative = net selling
-            cvd_score = 0.0
-            if isinstance(cvd, (int, float)):
-                cvd_score = float(np.tanh(float(cvd) / self._CVD_NORM))
-
-            # Weighted combination: equal weight OFI and CVD
-            if isinstance(ofi, (int, float)) and isinstance(cvd, (int, float)):
+            if ofi_valid and cvd_valid:
                 of_score = (ofi_score + cvd_score) / 2.0
-            elif isinstance(ofi, (int, float)):
+            elif ofi_valid:
                 of_score = ofi_score
             else:
                 of_score = cvd_score
@@ -129,12 +115,8 @@ class CrossTFOrderFlowAlignmentPlugin:
                 "ctf_orderflow_regime": "missing_data",
             }
 
-        # Average order flow score across all available TFs
-        avg_of = float(np.mean(list(of_scores.values())))
-
-        # Alignment: how strongly do TFs agree on direction?
-        # Multiply by 2.0 to sharpen gradient (D-17: continuous gradient)
-        alignment = float(np.tanh(avg_of * 2.0))
+        avg_of = sum(of_scores.values()) / len(of_scores)
+        alignment = tanh(avg_of * 2.0)
 
         # Regime classification — 5 categorical labels
         t = self._STRONG_THRESHOLD
