@@ -303,7 +303,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — NOT STARTED
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
-- [ ] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — PLANNED 2026-04-28
+- [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
   Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 - [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
@@ -321,7 +321,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Pending (Phases 73+74):**
 - ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 planned but not executed)
 - ⏸ State checkpointing for BarAggregatorComputeAgent (Phase 74 not started)
-- ⏸ Signal lifecycle labeling fix + activation gate (Phase 76 planned, 3 plans ready)
+- ✅ Signal lifecycle labeling fix + activation gate (Phase 76 complete, 2026-04-28)
 
 </details>
 
@@ -957,6 +957,6 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06)
-- [ ] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05)
+- [x] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06) — completed 2026-04-28
+- [x] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05) — completed 2026-04-28
 - [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
