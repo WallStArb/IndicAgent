@@ -143,7 +143,7 @@ class Settings(BaseSettings):
 
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
-    macro_metrics_port: int = Field(default=9128, validation_alias="MACRO_METRICS_PORT")
+    macro_metrics_port: int = Field(default=9135, validation_alias="MACRO_METRICS_PORT")
 
 
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)

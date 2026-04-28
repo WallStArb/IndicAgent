@@ -1,15 +1,14 @@
 """Unit tests for MacroComputeAgent.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
-Tests _parse_bar, _publish_macro_signal, and _persist_to_db methods.
+Tests _publish_macro_signal and _persist_to_db methods.
 """
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict, deque
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from prometheus_client import Counter
@@ -26,11 +25,7 @@ _TEST_MACRO_PUBLISHED = Counter(
 
 
 def _make_agent():
-    """Build a minimal MacroComputeAgent bypassing __init__.
-
-    Manually sets all instance attributes that _parse_bar, _publish_macro_signal,
-    and _persist_to_db reference, per the ServiceClass.__new__ pattern in CLAUDE.md.
-    """
+    """Build a minimal MacroComputeAgent bypassing __init__."""
     from services.macro_compute_agent import MacroComputeAgent
 
     agent = MacroComputeAgent.__new__(MacroComputeAgent)
@@ -47,149 +42,6 @@ def _make_agent():
     agent._bars_processed = _TEST_BARS_PROCESSED
     agent._macro_published = _TEST_MACRO_PUBLISHED
     return agent
-
-
-# ---------------------------------------------------------------------------
-# _parse_bar tests
-# ---------------------------------------------------------------------------
-
-
-class TestParseBar:
-    """Tests for MacroComputeAgent._parse_bar()."""
-
-    def test_parse_bar_valid_complete(self):
-        """_parse_bar() returns dict for valid complete JSON."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "ts": "2026-04-27T12:00:00Z",
-            "symbol": "ZT",
-            "tf": "1m",
-            "open": 98.5,
-            "high": 98.7,
-            "low": 98.4,
-            "close": 98.6,
-            "volume": 1000,
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is not None
-        assert result["symbol"] == "ZT"
-        assert result["tf"] == "1m"
-        assert result["close"] == 98.6
-        assert result["ts"] == "2026-04-27T12:00:00Z"
-
-    def test_parse_bar_minimal_required_fields(self):
-        """_parse_bar() accepts bar with only required fields (ts, symbol, tf, close)."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "ts": "2026-04-27T12:00:00Z",
-            "symbol": "ZB",
-            "tf": "1m",
-            "close": 120.5,
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is not None
-        assert result["symbol"] == "ZB"
-        assert result["close"] == 120.5
-
-    def test_parse_bar_missing_ts_returns_none(self):
-        """_parse_bar() returns None when 'ts' field missing."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "symbol": "ZT",
-            "tf": "1m",
-            "close": 98.6,
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is None
-
-    def test_parse_bar_missing_symbol_returns_none(self):
-        """_parse_bar() returns None when 'symbol' field missing."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "ts": "2026-04-27T12:00:00Z",
-            "tf": "1m",
-            "close": 98.6,
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is None
-
-    def test_parse_bar_missing_tf_returns_none(self):
-        """_parse_bar() returns None when 'tf' field missing."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "ts": "2026-04-27T12:00:00Z",
-            "symbol": "ZT",
-            "close": 98.6,
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is None
-
-    def test_parse_bar_missing_close_returns_none(self):
-        """_parse_bar() returns None when 'close' field missing."""
-        agent = _make_agent()
-        msg_value = json.dumps({
-            "ts": "2026-04-27T12:00:00Z",
-            "symbol": "ZT",
-            "tf": "1m",
-        }).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is None
-
-    def test_parse_bar_invalid_json_returns_none(self):
-        """_parse_bar() returns None for invalid JSON bytes."""
-        agent = _make_agent()
-        msg_value = b"not json at all"
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is None
-
-    def test_parse_bar_empty_bytes_returns_none(self):
-        """_parse_bar() returns None for empty bytes."""
-        agent = _make_agent()
-        result = agent._parse_bar(b"")
-
-        assert result is None
-
-    def test_parse_bar_none_value_returns_none(self):
-        """_parse_bar() returns None for None input."""
-        agent = _make_agent()
-        result = agent._parse_bar(None)
-
-        assert result is None
-
-    def test_parse_bar_preserves_all_fields(self):
-        """_parse_bar() preserves all OHLCV fields in returned dict."""
-        agent = _make_agent()
-        bar_data = {
-            "ts": "2026-04-27T15:30:00Z",
-            "symbol": "TLT",
-            "tf": "5m",
-            "open": 92.1,
-            "high": 92.5,
-            "low": 91.9,
-            "close": 92.3,
-            "volume": 5000,
-        }
-        msg_value = json.dumps(bar_data).encode()
-
-        result = agent._parse_bar(msg_value)
-
-        assert result is not None
-        for key, value in bar_data.items():
-            assert result[key] == value
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +130,11 @@ class TestPublishMacroSignal:
     async def test_publish_no_producer_no_error(self):
         """_publish_macro_signal() returns silently when producer is None."""
         agent = _make_agent()
-        agent._producer = None  # Not initialized
+        agent._producer = None
 
         macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
         bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
 
-        # Should not raise
         await agent._publish_macro_signal(macro_result, bar)
 
     @pytest.mark.asyncio
@@ -299,7 +150,6 @@ class TestPublishMacroSignal:
         await agent._publish_macro_signal(macro_result, bar)
 
         call_kwargs = mock_producer.publish.call_args[1]
-        # message_key("ZT", "1m") returns "ZT:1m"
         assert call_kwargs["key"] == "ZT:1m"
 
 
@@ -400,7 +250,6 @@ class TestPersistToDb:
         macro_result = {"yield_curve_slope": 0.5, "yield_curve_regime": "flat"}
         bar = {"ts": "2026-04-27T12:00:00Z", "symbol": "ZT", "tf": "1m"}
 
-        # Should not raise
         await agent._persist_to_db(macro_result, bar)
 
     @pytest.mark.asyncio

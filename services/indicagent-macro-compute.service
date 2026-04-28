@@ -1,28 +1,25 @@
 [Unit]
-Description=IndicAgent Macro Factors Service — Yield curve, flight-to-quality, USD strength
-Documentation=https://github.com/brandonio/indicagent
-After=network.target redpanda.service timescaledb.service
-Wants=timescaledb.service
+Description=IndicAgent Macro Compute Agent — yield curve and flight-to-quality factors
+Requires=indicagent-redpanda-ready.service
+After=network-online.target indicagent-redpanda-ready.service
+Wants=indicagent-ibkr-provider.service
+StartLimitIntervalSec=300
+StartLimitBurst=0
 
 [Service]
 Type=simple
-User=indicant
-Group=indicant
-WorkingDirectory=/home/indicant/indicagent
-Environment="PATH=/home/indicant/indicagent/.venv/bin:/usr/bin:/bin"
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=-/home/indicant/indicagent/.env
-ExecStart=/home/indicant/indicagent/.venv/bin/python services/macro_compute_agent.py
+Environment=LOG_FILE=logs/macro_compute_agent.log
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/macro_compute_agent.py
 Restart=always
 RestartSec=10
-
-# Logs go to file (setup_service_logging), NOT journald
 StandardOutput=null
 StandardError=journal
-
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
+SyslogIdentifier=indicagent-macro-compute
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
