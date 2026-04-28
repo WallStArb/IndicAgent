@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: executing
-last_updated: "2026-04-28T18:38:00.000Z"
+status: unknown
+last_updated: "2026-04-28T23:09:31.367Z"
 progress:
-  total_phases: 25
+  total_phases: 26
   completed_phases: 3
-  total_plans: 19
-  completed_plans: 18
-  percent: 95
+  total_plans: 23
+  completed_plans: 15
+  percent: 65
 ---
 
 # Project State
@@ -241,4 +241,4 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 76 (Signal Lifecycle Labeling Fix & Activation Gate) — 3 plans — 2026-04-28T17:59:22.301Z
+**Planned Phase:** 77 (OTel Observability Unification) — 4 plans — 2026-04-28T23:09:31.359Z
