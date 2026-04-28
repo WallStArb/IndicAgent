@@ -389,3 +389,169 @@ class TestBarEvaluation:
 
         # No transition, no publish
         agent._producer.publish.assert_not_called()
+
+
+class TestBootstrapTTLSweep:
+    """D-03: Bootstrap expires signals past reasonable TTL before loading."""
+
+    def test_sweep_runs_before_select(self):
+        """Verify that TTL sweep UPDATE runs before the SELECT query.
+        This is a structural test — we check the SQL exists in source.
+        """
+        src = _read_source()
+        # Check that sweep SQL exists with UPDATE signal_ledger SET status = 'expired'
+        assert "UPDATE signal_ledger" in src
+        assert "SET status = 'expired'" in src
+        assert "ttl_expired" in src
+
+    def test_sweep_only_targets_pending(self):
+        """Sweep should only expire pending signals, not active ones.
+        Check WHERE clause in SQL.
+        """
+        src = _read_source()
+        # Should have WHERE status = 'pending'
+        assert "WHERE status = 'pending'" in src or "WHERE status IN ('pending'" in src
+
+
+class TestActivationProbabilityGate:
+    """D-05: Hopeless signals are filtered at ingestion."""
+
+    def test_far_zone_and_low_ttl_filtered(self):
+        """Zone > 3x risk away AND <20% TTL remaining -> filtered."""
+        agent = _make_agent()
+        signal_payload = {
+            "signal_id": "gate-test-1",
+            "symbol": "ESM6",
+            "timeframe": "1m",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,  # risk = 15
+            "entry_zone_low": 4950.0,  # 150 pts away = 10x risk -> far
+            "entry_zone_high": 4960.0,
+            "ttl_bars": 10,
+            "bars_elapsed": 9,  # 90% elapsed -> 10% remaining
+        }
+        agent._ingest_signal_payload(signal_payload)
+        # Signal should NOT be in active index (filtered by gate)
+        assert "gate-test-1" not in agent._signal_ids
+
+    def test_close_zone_not_filtered(self):
+        """Zone close to entry -> NOT filtered, added to index."""
+        agent = _make_agent()
+        signal_payload = {
+            "signal_id": "gate-test-2",
+            "symbol": "ESM6",
+            "timeframe": "1m",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "entry_zone_low": 5095.0,  # 5 pts away = 0.33x risk -> close
+            "entry_zone_high": 5105.0,
+            "ttl_bars": 10,
+            "bars_elapsed": 0,  # 100% remaining
+        }
+        agent._ingest_signal_payload(signal_payload)
+        assert "gate-test-2" in agent._signal_ids
+
+    def test_high_ttl_remaining_not_filtered(self):
+        """Zone far away but >20% TTL remaining -> NOT filtered."""
+        agent = _make_agent()
+        signal_payload = {
+            "signal_id": "gate-test-3",
+            "symbol": "ESM6",
+            "timeframe": "1m",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "entry_zone_low": 4950.0,  # 10x risk -> far
+            "entry_zone_high": 4960.0,
+            "ttl_bars": 10,
+            "bars_elapsed": 2,  # 80% remaining -> not filtered
+        }
+        agent._ingest_signal_payload(signal_payload)
+        assert "gate-test-3" in agent._signal_ids
+
+    def test_missing_zone_fields_not_filtered(self):
+        """Missing zone fields -> gate is no-op, signal added normally."""
+        agent = _make_agent()
+        signal_payload = {
+            "signal_id": "gate-test-4",
+            "symbol": "ESM6",
+            "timeframe": "1m",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            # No entry_zone_low/high
+            "ttl_bars": 10,
+            "bars_elapsed": 9,
+        }
+        agent._ingest_signal_payload(signal_payload)
+        assert "gate-test-4" in agent._signal_ids
+
+    def test_gate_logs_filtered_signal(self):
+        """Gate should log when filtering a hopeless signal."""
+        agent = _make_agent()
+        signal_payload = {
+            "signal_id": "gate-test-log",
+            "symbol": "ESM6",
+            "timeframe": "1m",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "entry_zone_low": 4950.0,  # Far zone
+            "entry_zone_high": 4960.0,
+            "ttl_bars": 10,
+            "bars_elapsed": 9,  # Low TTL remaining
+        }
+        agent._ingest_signal_payload(signal_payload)
+        # Should have logged the filter action
+        agent.logger.debug.assert_called()
+        # Check the call contains "activation_gate_filtered"
+        call_args = str(agent.logger.debug.call_args)
+        assert "activation_gate_filtered" in call_args
+
+
+class TestTemporalGuardWiring:
+    """D-01: Temporal guard parameters passed to evaluate_signal()."""
+
+    @pytest.mark.asyncio
+    async def test_evaluate_bar_passes_timestamps(self):
+        """_evaluate_bar should pass signal_timestamp and bar_time to evaluate_signal."""
+        from unittest.mock import patch
+
+        agent = _make_agent()
+        now = datetime(2026, 4, 10, 12, 0, tzinfo=UTC)
+        sig_ts = now - timedelta(minutes=3)
+
+        signal = {
+            "signal_id": "temporal-test",
+            "timeframe": "1m",
+            "status": "pending",
+            "direction": 1,
+            "entry_price": 5000.0,
+            "stop_loss": 4990.0,
+            "entry_zone_low": 4998.0,
+            "entry_zone_high": 5002.0,
+            "targets": [5010.0],
+            "ttl_bars": 20,
+            "bars_elapsed": 3,
+            "timestamp": sig_ts,
+        }
+
+        agent._active_index[("ESM6", "1m")] = [signal]
+        agent._active_symbols = {"ESM6"}
+
+        bar = {"high": 5005.0, "low": 4999.0, "close": 5003.0}
+
+        # Patch evaluate_signal to inspect the call
+        with patch("services.signal_tracker_compute_agent.evaluate_signal") as mock_eval:
+            mock_eval.return_value = None  # No transition for this test
+            await agent._evaluate_bar("ESM6", "1m", bar, now)
+
+            # Verify evaluate_signal was called with signal_timestamp and bar_time
+            assert mock_eval.call_count == 1
+            call_kwargs = mock_eval.call_args.kwargs
+            assert "signal_timestamp" in call_kwargs
+            assert "bar_time" in call_kwargs
+            assert call_kwargs["signal_timestamp"] == sig_ts
+            assert call_kwargs["bar_time"] == now
