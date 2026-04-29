@@ -1,4 +1,4 @@
-"""SwarmAggregator — combines AgentResult lists into a final AlphaMultiplier.
+"""SwarmAggregator — combines AgentOutput lists into a final AlphaMultiplier.
 
 Path A (deterministic) and Path B (LLM) are aggregated separately,
 then combined with a discount factor on Path B confidence.
@@ -10,7 +10,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from src.intelligence.schemas import AgentResult, AlphaMultiplier
+from src.core.ai.output import AgentOutput
+from src.intelligence.schemas import AlphaMultiplier
 
 _PRODUCTION_CLAMP_LOW = 0.7
 _PRODUCTION_CLAMP_HIGH = 1.3
@@ -18,14 +19,26 @@ _NEUTRAL = 1.0
 _PATH_B_DISCOUNT = 0.3
 
 
-def _weighted_mean(results: list[AgentResult]) -> float:
+def _weighted_mean(results: list[AgentOutput]) -> float:
     """Confidence-weighted mean multiplier. Returns 1.0 for empty list."""
     if not results:
         return _NEUTRAL
-    total_weight = sum(r.confidence for r in results)
-    if total_weight == 0.0:
+
+    values = []
+    for r in results:
+        mult = r.payload.get("multiplier", 1.0)
+        conf = r.payload.get("confidence", 0.0)
+        if r.error is None and mult is not None:
+            values.append((mult, conf))
+
+    if not values:
         return _NEUTRAL
-    return sum(r.multiplier * r.confidence for r in results) / total_weight
+
+    total_conf = sum(c for _, c in values)
+    if total_conf == 0:
+        return sum(m for m, _ in values) / len(values)
+
+    return sum(m * c for m, c in values) / total_conf
 
 
 class SwarmAggregator:
@@ -37,8 +50,8 @@ class SwarmAggregator:
         symbol: str,
         timeframe: str,
         ts: datetime,
-        path_a_results: list[AgentResult],
-        path_b_results: list[AgentResult],
+        path_a_results: list[AgentOutput],
+        path_b_results: list[AgentOutput],
     ) -> AlphaMultiplier:
         path_a_mult = _weighted_mean(path_a_results) if path_a_results else None
         path_b_mult = _weighted_mean(path_b_results) if path_b_results else None
@@ -65,9 +78,9 @@ class SwarmAggregator:
 
         production = max(_PRODUCTION_CLAMP_LOW, min(_PRODUCTION_CLAMP_HIGH, final))
 
-        all_contributors = {r.agent_id: r for r in (path_a_results + path_b_results)}
+        all_contributors = {r.agent_id: r.model_dump() for r in (path_a_results + path_b_results)}
         any_shadow = (
-            any(r.shadow_only for r in all_contributors.values()) if all_contributors else True
+            any(r.shadow_only for r in (path_a_results + path_b_results))
         )
 
         return AlphaMultiplier(

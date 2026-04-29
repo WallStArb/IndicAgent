@@ -934,7 +934,7 @@ class AlphaMultiplier(BaseModel):
     path_b_multiplier: float | None
     path_b_discount: float = 0.3
 
-    contributors: dict[str, AgentResult]
+    contributors: dict[str, Any]  # AgentOutput.model_dump() — untyped at schema level
     final_alpha_multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
     production_multiplier: float
     shadow_only: bool
