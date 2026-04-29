@@ -54,13 +54,13 @@ def _make_record(
 
 
 def test_build_short_prompt_contains_symbol():
-    from src.intelligence.narrative.prompts import build_short_prompt
+    from src.intelligence.ai.narrative.prompts import build_short_prompt
     prompt = build_short_prompt(_make_record())
     assert "ESM6" in prompt
 
 
 def test_build_short_prompt_contains_direction_label():
-    from src.intelligence.narrative.prompts import build_short_prompt
+    from src.intelligence.ai.narrative.prompts import build_short_prompt
     long_prompt = build_short_prompt(_make_record(direction=1))
     short_prompt = build_short_prompt(_make_record(direction=-1))
     assert "bullish" in long_prompt.lower() or "Bullish" in long_prompt
@@ -68,14 +68,14 @@ def test_build_short_prompt_contains_direction_label():
 
 
 def test_build_deep_prompt_contains_confluence():
-    from src.intelligence.narrative.prompts import build_deep_prompt
+    from src.intelligence.ai.narrative.prompts import build_deep_prompt
     prompt = build_deep_prompt(_make_record())
     assert any(word in prompt.lower() for word in ["confluence", "ctf", "alignment"])
 
 
 def test_prompts_include_no_think_prefix():
     """Qwen3/Ollama models require /no_think prefix to avoid thinking token budget issues."""
-    from src.intelligence.narrative.prompts import build_deep_prompt, build_short_prompt
+    from src.intelligence.ai.narrative.prompts import build_deep_prompt, build_short_prompt
     record = _make_record()
     assert build_short_prompt(record).startswith("/no_think")
     assert build_deep_prompt(record).startswith("/no_think")

@@ -2,16 +2,15 @@
 import json
 from uuid import uuid4
 
-from src.intelligence.swarm.agents.skeptic_agent import (
+from src.intelligence.ai.alpha.skeptic_agent import (
     _parse_skeptic_response,
     _validate_skeptic_fields,
 )
-from src.intelligence.swarm.agents.skeptic_prompts import (
+from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
     build_skeptic_prompt,
 )
-from src.intelligence.swarm.context import SwarmContext
 
 
 def test_active_version_in_registry():
@@ -20,19 +19,19 @@ def test_active_version_in_registry():
 
 def test_build_prompt_fills_fields():
     """Verify prompt template has all expected placeholders filled."""
-    ctx = SwarmContext(
-        signal_id=uuid4(), symbol="ESM6", timeframe="5m", ts=None,
-        atr=12.5, adx=25.3, rsi=55.0,
-        hmm_regime=1, trend_regime=0.7, vol_regime=0.3,
-        vol_percentile=None, garch_vol_ratio=1.2, garch_vol_regime=None,
-        kalman_trend=None, kalman_slope=None,
-        vwap=4500.0, poc_price=4498.0, poc_price_rolling=4495.0,
-        ctf_score=None, ctf_trend_alignment=0.8, ctf_structure_alignment=None,
-        ctf_regime_agreement=0.6, ctf_timeframes_aligned=None,
-        ctf_fvg_alignment=0.4, ctf_ob_alignment=0.3,
-        winner_plugin="TrendFollowing", winner_direction=1,
-        winner_confidence=0.75, price=4502.0, volume=1500,
-    )
+    ctx = {
+        "signal_id": uuid4(), "symbol": "ESM6", "timeframe": "5m", "ts": None,
+        "atr": 12.5, "adx": 25.3, "rsi": 55.0,
+        "hmm_regime": 1, "trend_regime": 0.7, "vol_regime": 0.3,
+        "vol_percentile": None, "garch_vol_ratio": 1.2, "garch_vol_regime": None,
+        "kalman_trend": None, "kalman_slope": None,
+        "vwap": 4500.0, "poc_price": 4498.0, "poc_price_rolling": 4495.0,
+        "ctf_score": None, "ctf_trend_alignment": 0.8, "ctf_structure_alignment": None,
+        "ctf_regime_agreement": 0.6, "ctf_timeframes_aligned": None,
+        "ctf_fvg_alignment": 0.4, "ctf_ob_alignment": 0.3,
+        "winner_plugin": "TrendFollowing", "winner_direction": 1,
+        "winner_confidence": 0.75, "price": 4502.0, "volume": 1500,
+    }
     prompt = build_skeptic_prompt(ctx)
     assert "ESM6" in prompt
     assert "5m" in prompt

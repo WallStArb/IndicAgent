@@ -2,20 +2,16 @@
 
 import time
 from datetime import datetime
-from uuid import UUID
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
 
 from src.core.ai.context import (
     AIContext,
     AIContextCache,
-    I1Context,
-    I4Context,
-    I6Context,
-    I7Context,
     BarContext,
+    I1Context,
     Tier,
 )
 

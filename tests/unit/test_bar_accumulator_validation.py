@@ -1,11 +1,7 @@
-import logging
 from datetime import UTC, datetime
-
-import pytest
 
 from src.core.bar_accumulator import BarAccumulator
 from src.core.schemas.bar_message import BarMessage, SessionType
-
 
 # ---------------------------------------------------------------------------
 # Forward-only timestamp guard tests (AGG-TIMESTAMP-GUARD)

@@ -179,7 +179,6 @@ async def test_different_period_ts_both_emitted():
 
 def test_last_emitted_initialized():
     """BarAggregatorComputeAgent.__init__ must set _last_emitted as empty dict."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     # We can't call __init__ without Prometheus conflicts, so verify via the
     # real attribute access pattern used by _make_agent helper above.
@@ -196,7 +195,6 @@ def test_last_emitted_initialized():
 
 def test_lag_consumer_cached_not_recreated():
     """_get_consumer_lag must reuse self._lag_consumer rather than create new instances."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = _make_agent()
     # After the fix, agent must have a _lag_consumer attribute set in _setup()

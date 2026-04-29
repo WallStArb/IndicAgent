@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.bar_auditor_agent import BarAuditorAgent, MAX_GAP_RETRIES, _RETRY_BACKOFFS_SECS
+from services.bar_auditor_agent import _RETRY_BACKOFFS_SECS, MAX_GAP_RETRIES, BarAuditorAgent
 
 
 @pytest.fixture

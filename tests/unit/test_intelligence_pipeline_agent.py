@@ -15,8 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
-
 # ---------------------------------------------------------------------------
 # Helper: create bare agent instance via __new__() pattern (CLAUDE.md)
 # ---------------------------------------------------------------------------

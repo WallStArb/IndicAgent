@@ -1,8 +1,9 @@
 """Tests for AgentOutput universal envelope."""
 
-import pytest
 from datetime import datetime
 from uuid import UUID
+
+import pytest
 
 from src.core.ai.output import AgentOutput
 

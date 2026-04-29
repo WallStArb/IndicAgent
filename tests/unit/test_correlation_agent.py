@@ -2,21 +2,20 @@
 import json
 from uuid import uuid4
 
-from src.intelligence.swarm.agents.correlation_agent import (
+from src.intelligence.ai.alpha.correlation_agent import (
     _parse_correlation_response,
     _validate_correlation_fields,
 )
-from src.intelligence.swarm.agents.correlation_prompts import (
+from src.intelligence.ai.alpha.correlation_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
     build_correlation_prompt,
     get_lead_index,
 )
-from src.intelligence.swarm.context import SwarmContext
 
 
-def _make_ctx(**overrides) -> SwarmContext:
-    """Build a minimal SwarmContext for testing."""
+def _make_ctx(**overrides) -> dict:
+    """Build a minimal context dict for testing."""
     defaults = dict(
         signal_id=uuid4(), symbol="NQM6", timeframe="5m", ts=None,
         atr=12.5, adx=25.3, rsi=55.0,
@@ -31,7 +30,7 @@ def _make_ctx(**overrides) -> SwarmContext:
         winner_confidence=0.75, price=18050.0, volume=1500,
     )
     defaults.update(overrides)
-    return SwarmContext(**defaults)
+    return defaults
 
 
 def test_active_version_in_registry():
@@ -40,7 +39,7 @@ def test_active_version_in_registry():
 
 def test_build_prompt_without_lead_context():
     """Prompt builds fine when lead_context is None."""
-    ctx = _make_ctx(lead_context=None)
+    ctx = _make_ctx()
     prompt = build_correlation_prompt(ctx)
     assert "NQM6" in prompt
     assert "5m" in prompt
@@ -50,21 +49,22 @@ def test_build_prompt_without_lead_context():
 
 
 def test_build_prompt_with_lead_context():
-    """Prompt fills lead index fields when lead_context is set."""
-    lead_ctx = _make_ctx(
-        symbol="ESM6", lead_context=None,
-        trend_regime=0.5, rsi=60.0, adx=30.0,
-        hmm_regime=2, ctf_trend_alignment=0.9,
+    """Prompt fills lead index fields when lead fields are set."""
+    ctx = _make_ctx(
+        lead_symbol="ESM6",
+        lead_trend_regime=0.5,
+        trend_regime=0.7,
     )
-    ctx = _make_ctx(lead_context=lead_ctx, trend_regime=0.7)
     prompt = build_correlation_prompt(ctx)
     assert "ESM6" in prompt
-    assert "0.200" in prompt  # price_divergence_pct = 0.7 - 0.5
+    # The prompt should show both trend regimes
+    assert "0.70" in prompt  # asset trend regime
+    assert "0.50" in prompt  # lead trend regime
 
 
 def test_build_prompt_uses_lead_context_not_private():
-    """Per D-16: reads context.lead_context (not _lead_ctx)."""
-    ctx = _make_ctx(lead_context=_make_ctx(symbol="ESM6"))
+    """Per D-16: reads context.lead_symbol (not _lead_ctx)."""
+    ctx = _make_ctx(lead_symbol="ESM6")
     prompt = build_correlation_prompt(ctx)
     assert "ESM6" in prompt
 
