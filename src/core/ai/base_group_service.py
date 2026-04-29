@@ -16,6 +16,7 @@ from src.core.ai.context import AIContextCache
 from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
+from src.intelligence.schemas import IntelligenceEvent
 
 if TYPE_CHECKING:
     pass
@@ -84,13 +85,14 @@ class BaseGroupService(BaseAgent, ABC):
         """
         # Wire bar consumer (for AIContextCache updates)
         bar_topics = self._bar_topics()
-        self._bar_consumer = KafkaConsumerClient(
-            *bar_topics,
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id=f"{self.group_id}_bar_consumer",
-            auto_offset_reset="latest",
-        )
-        await self._bar_consumer.start()
+        if bar_topics:
+            self._bar_consumer = KafkaConsumerClient(
+                *bar_topics,
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                group_id=f"{self.group_id}_bar_consumer",
+                auto_offset_reset="latest",
+            )
+            await self._bar_consumer.start()
 
         # Wire trigger consumer (for agent dispatch)
         # Subscribe to all trigger topics
@@ -154,9 +156,11 @@ class BaseGroupService(BaseAgent, ABC):
 
     async def _run(self) -> None:
         """Run main loops: bar_loop, trigger_loop, and optional graduation_loop."""
-        bar_task = asyncio.create_task(self._bar_loop())
         trigger_task = asyncio.create_task(self._trigger_loop())
-        tasks = [bar_task, trigger_task]
+        tasks = [trigger_task]
+
+        if self._bar_consumer is not None:
+            tasks.append(asyncio.create_task(self._bar_loop()))
 
         if self.has_graduation:
             graduation_task = asyncio.create_task(self._graduation_loop())
@@ -188,9 +192,6 @@ class BaseGroupService(BaseAgent, ABC):
                 break
             self._record_message_consumed()
             try:
-                # Deserialize IntelligenceEvent
-                from src.intelligence.schemas import IntelligenceEvent
-
                 event = IntelligenceEvent.model_validate(payload)
                 self._context_cache.update(event)
             except Exception as exc:
