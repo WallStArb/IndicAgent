@@ -114,11 +114,37 @@ services:
     container_name: indicagent-tempo
     restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yaml"]
-    ports:
-      - "4318:4318"   # OTLP HTTP receiver — host agents send spans here
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.102.0
+    container_name: indicagent-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      - INDICAGENT_ENV=${INDICAGENT_ENV:-dev}
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver (existing agents already send here)
+      - "8889:8889"   # Prometheus metrics exporter (scraped by Prometheus)
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - prometheus
+      - tempo
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: indicagent-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
@@ -157,6 +183,7 @@ volumes:
   grafana-data:
   tempo-data:
   mlflow_data:
+  loki-data:
 
 
 
