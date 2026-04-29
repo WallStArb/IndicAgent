@@ -1,37 +1,45 @@
 """
-Prometheus metrics registry helper to avoid duplicate metric registration
+Prometheus metrics registry for IndicAgent.
 
-Version: 1.0.0
-Last Updated: 2025-08-09
+Version: 1.1.0
+Last Updated: 2026-04-29
 Status: Current ✅
+
+MIGRATION NOTE: The prometheus_client metric definitions below are preserved for
+incremental migration. They will be migrated to OTelCounter/OTelGauge/OTelHistogram
+wrappers in follow-up work. The HTTP scrape server has been removed — all metrics
+are now exported via the OTel Collector push pipeline.
+
+New metrics added in Phase 67+ use OTelCounter/OTelGauge/OTelHistogram wrappers
+(defined at the bottom of this file). Base class metrics (base.py, base_writer.py)
+have already been migrated to OTel wrappers.
 """
 
 from __future__ import annotations
 
 from opentelemetry import metrics as otel_metrics
-from prometheus_client import Counter, Gauge, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram
 
-_counters: dict[str, Counter] = {}
-_gauges: dict[str, Gauge] = {}
+# Helper function caches — preserved for callers that use counter()/gauge() helpers.
+# TODO: migrate callers to OTelCounter/OTelGauge in follow-up work.
+_counter_helpers: dict[str, Counter] = {}
+_gauge_helpers: dict[str, Gauge] = {}
 
 
 def counter(name: str, documentation: str) -> Counter:
-    if name in _counters:
-        return _counters[name]
+    if name in _counter_helpers:
+        return _counter_helpers[name]
     c = Counter(name, documentation)
-    _counters[name] = c
+    _counter_helpers[name] = c
     return c
 
 
 def gauge(name: str, documentation: str) -> Gauge:
-    if name in _gauges:
-        return _gauges[name]
+    if name in _gauge_helpers:
+        return _gauge_helpers[name]
     g = Gauge(name, documentation)
-    _gauges[name] = g
+    _gauge_helpers[name] = g
     return g
-
-
-_server_started = False
 
 
 # Core engine metrics
@@ -471,9 +479,17 @@ class _OTelLabeledCounter:
     def __init__(self, counter, labels: dict):
         self._counter = counter
         self._labels = labels
+        # Cumulative value tracker — used by tests that inspect counter increments.
+        # Not exported; the real export goes through self._counter.add().
+        self._total: float = 0.0
 
     def inc(self, amount: float = 1.0) -> None:
+        self._total += amount
         self._counter.add(amount, self._labels)
+
+    def get(self) -> float:
+        """Return the accumulated total. Mirrors prometheus_client Child.get() for tests."""
+        return self._total
 
 
 class OTelCounter:
@@ -572,23 +588,6 @@ class OTelHistogram:
 
     def observe(self, value: float) -> None:
         self._histogram.record(value, {})
-
-
-def start_metrics_server(port: int = 9400) -> None:
-    """Start Prometheus metrics server with enhanced monitoring."""
-    global _server_started
-    if _server_started:
-        return
-    try:
-        start_http_server(port)
-        _server_started = True
-        print(f"📊 Prometheus metrics server started on port {port}")
-        print(f"   🔗 Metrics available at: http://localhost:{port}/metrics")
-        print("   📈 Enhanced metrics: plugin, LangGraph, event-driven processing")
-    except Exception as e:
-        print(f"⚠️  Failed to start metrics server on port {port}: {e}")
-        # Best-effort; do not crash on metrics bind issues
-        pass
 
 
 def record_plugin_execution(
