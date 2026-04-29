@@ -1517,9 +1517,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             _ensure_default_models_registered()
             raw = json.loads(_CHECKPOINT_PATH.read_text())
             if raw.get("version") != _AGENT_VERSION:
-                self.logger.warning(
-                    "state.checkpoint_version_mismatch", found=raw.get("version")
-                )
+                self.logger.warning("state.checkpoint_version_mismatch", found=raw.get("version"))
                 return False
             for k, v in _untag_value(raw.get("plugin_states", {})).items():
                 self._plugin_states[_restore_tuple_key(k)] = v
