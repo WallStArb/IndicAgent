@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: unknown
-last_updated: "2026-04-29T00:35:17.466Z"
+status: executing
+last_updated: "2026-04-29T06:11:05.858Z"
 progress:
   total_phases: 26
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 23
-  completed_plans: 15
-  percent: 65
+  completed_plans: 20
+  percent: 87
 ---
 
 # Project State
@@ -19,18 +19,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase --phase — 77
+**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor
 
 ## Current Position
 
-Phase: --phase (77) — EXECUTING
-Plan: 1 of --name
+Phase: 73 (ai-llm-layer-b-architecture-refactor) — EXECUTING
+Plan: 04 of 07
 
 Plans already complete:
 
-- 64-00: Backtest infrastructure (tools/backtest_i6_plugin.py, validate_i6_backtest.py)
-- 64-03A: Yield curve macro factor (MacroComputeAgent, yield_curve.py)
-- 64-03B: Flight-to-quality macro factor (FTQ via TLT+SPY)
+- 73-01: Delete dead swarm orchestrator + add Kafka topic infrastructure (commit 8dbdc3cf)
+- 73-02: Build src/core/ai/ infrastructure (commit 256ee32f)
+- 73-03: Apply 6 LLM chain fixes + test coverage (commit 1c8c9e3b)
 
 Previous: Phase 65 — COMPLETE (2026-04-24) — Gradient Audit, gradient_utils.py delivered
 Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix, temporal guard, bootstrap sweep, activation gate, backfill SQL
