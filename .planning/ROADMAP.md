@@ -332,7 +332,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Signal transform log dual-write infrastructure shipped
 
 **Pending (Phase 73):**
-- ⏸ AI layer structural defects fixed and universal infrastructure created (Phase 73 replanned 2026-04-28, 7 plans, not yet executed)
+- 🔄 Phase 73: AI LLM Layer B+ Architecture Refactor (3 of 7 plans complete — 73-01, 73-02, 73-03)
 - ✅ State checkpointing for BarAggregatorComputeAgent (Phase 74 complete, 2026-04-26)
 - ✅ Signal lifecycle labeling fix + activation gate (Phase 76 complete, 2026-04-28)
 
