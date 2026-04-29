@@ -22,7 +22,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-import _path_bootstrap  # noqa: F401 — project root on sys.path
+import _path_bootstrap  # noqa: F401 -- project root on sys.path
 import aiohttp
 import asyncpg
 
@@ -31,7 +31,7 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
+from src.observability.metrics import OTelGauge, SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -41,84 +41,65 @@ _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 
 
 # ---------------------------------------------------------------------------
-# Service registry
+# DAG topology: unit name -> restart priority (lower = restart first)
+# Changes rarely -- much smaller than the old ServiceSpec registry.
 # ---------------------------------------------------------------------------
 
-
-@dataclass(frozen=True)
-class ServiceSpec:
-    unit: str
-    metrics_port: int | None
-    lag_threshold_messages: int  # 0 = not a Kafka consumer
-    dag_order: int  # lower = restart first
-    market_hours_only: bool
-
-
-SERVICE_REGISTRY: list[ServiceSpec] = [
-    # Order 1: Data source (never auto-restarted)
-    ServiceSpec(_SVC_DATA_PROVIDER, 9129, 0, 1, False),
-    # Order 2: Data preprocessing
-    ServiceSpec("indicagent-provider-merger", 9130, 500, 2, True),
-    # Order 3: Bar aggregation + audit
-    ServiceSpec("indicagent-bar-aggregator", 9120, 500, 3, True),
-    ServiceSpec("indicagent-bar-auditor", 9123, 200, 3, True),
-    # Order 4: Raw data persistence
-    ServiceSpec("indicagent-bar-writer", 9121, 1000, 4, True),
-    # Order 5: Core intelligence pipeline
-    ServiceSpec("indicagent-intelligence-pipeline", 9125, 500, 5, True),
-    # Order 6: Intelligence persistence + signal tracking
-    ServiceSpec("indicagent-feature-writer", 9116, 1000, 6, True),
-    ServiceSpec("indicagent-signal-tracker-compute", 9133, 500, 6, True),
-    ServiceSpec("indicagent-signal-writer", 9119, 500, 6, True),
-    ServiceSpec("indicagent-lifecycle-writer", 9128, 500, 6, True),
-    ServiceSpec("indicagent-contract-metadata-writer", 9124, 500, 6, True),
-    # Order 7: Narrative + cross-asset
-    ServiceSpec("indicagent-ai-narrative", 9113, 200, 7, True),
-    ServiceSpec("indicagent-llm-writer", 9117, 500, 7, True),
-    ServiceSpec("indicagent-cross-asset", 9118, 200, 7, True),
-    # Order 8: Secondary compute (independent of main pipeline)
-    ServiceSpec("indicagent-roll-compute", 9122, 0, 8, True),
-    ServiceSpec("indicagent-macro-compute", 9135, 0, 8, True),
-    ServiceSpec("indicagent-swarm-orchestrator", None, 0, 8, False),
-    ServiceSpec("indicagent-swarm-writer", None, 500, 8, False),
-    ServiceSpec("indicagent-signal-metrics-compute", 9126, 0, 8, False),
-    ServiceSpec("indicagent-signal-metrics-writer", 9127, 500, 8, False),
-    # Order 9: Audits + snapshots (end of DAG)
-    ServiceSpec("indicagent-signal-auditor", 9134, 0, 9, True),
-    ServiceSpec("indicagent-parity-auditor", 9137, 0, 9, True),
-    ServiceSpec("indicagent-feature-snapshot-writer", 9132, 500, 9, False),
-    ServiceSpec("indicagent-graduation-writer", 9136, 500, 9, False),
-]
-
-# Pre-sorted once — dag_order is immutable, re-sorting every 15s is wasteful
-_SORTED_REGISTRY: list[ServiceSpec] = sorted(SERVICE_REGISTRY, key=lambda s: s.dag_order)
-
-# Maps Prometheus scrape job name -> systemd unit name.
-# Keys match prometheus.yml job_name; values match ServiceSpec.unit.
-_JOB_TO_UNIT: dict[str, str] = {
-    "indicagent-ibkr-provider": "indicagent-ibkr-provider",
-    "indicagent-provider-merger": "indicagent-provider-merger",
-    "indicagent-bar-aggregator-compute": "indicagent-bar-aggregator",
-    "indicagent-bar-auditor": "indicagent-bar-auditor",
-    "indicagent-bar-writer": "indicagent-bar-writer",
-    "indicagent-intelligence-pipeline": "indicagent-intelligence-pipeline",
-    "indicagent-feature-writer": "indicagent-feature-writer",
-    "indicagent-signal-tracker": "indicagent-signal-tracker-compute",
-    "indicagent-signal-writer": "indicagent-signal-writer",
-    "indicagent-lifecycle-writer": "indicagent-lifecycle-writer",
-    "indicagent-contract-metadata-writer": "indicagent-contract-metadata-writer",
-    "indicagent-ai-narrative": "indicagent-ai-narrative",
-    "indicagent-llm-writer": "indicagent-llm-writer",
-    "indicagent-cross-asset": "indicagent-cross-asset",
-    "indicagent-roll-compute": "indicagent-roll-compute",
-    "indicagent-macro-compute": "indicagent-macro-compute",
-    "indicagent-service-auditor": "indicagent-service-auditor",
+_DAG_ORDER: dict[str, int] = {
+    "indicagent-ibkr-provider": 1,
+    "indicagent-provider-merger": 2,
+    "indicagent-bar-aggregator": 3,
+    "indicagent-bar-auditor": 3,
+    "indicagent-bar-writer": 4,
+    "indicagent-intelligence-pipeline": 5,
+    "indicagent-feature-writer": 6,
+    "indicagent-signal-tracker-compute": 6,
+    "indicagent-signal-writer": 6,
+    "indicagent-lifecycle-writer": 6,
+    "indicagent-contract-metadata-writer": 6,
+    "indicagent-ai-narrative": 7,
+    "indicagent-llm-writer": 7,
+    "indicagent-cross-asset": 7,
+    "indicagent-roll-compute": 8,
+    "indicagent-macro-compute": 8,
+    "indicagent-swarm-orchestrator": 8,
+    "indicagent-swarm-writer": 8,
+    "indicagent-signal-metrics-compute": 8,
+    "indicagent-signal-metrics-writer": 8,
+    "indicagent-signal-auditor": 9,
+    "indicagent-parity-auditor": 9,
+    "indicagent-feature-snapshot-writer": 9,
+    "indicagent-graduation-writer": 9,
+    "indicagent-graduation-compute": 9,
+    "indicagent-alerting-agent": 9,
+    "indicagent-service-auditor": 10,
 }
 
-# Maps persistence_consumer_lag agent_id label -> systemd unit name
+# Lag thresholds per service (0 = not a Kafka consumer)
+_LAG_THRESHOLDS: dict[str, int] = {
+    "indicagent-provider-merger": 500,
+    "indicagent-bar-aggregator": 500,
+    "indicagent-bar-auditor": 200,
+    "indicagent-bar-writer": 1000,
+    "indicagent-intelligence-pipeline": 500,
+    "indicagent-feature-writer": 1000,
+    "indicagent-signal-tracker-compute": 500,
+    "indicagent-signal-writer": 500,
+    "indicagent-lifecycle-writer": 500,
+    "indicagent-contract-metadata-writer": 500,
+    "indicagent-ai-narrative": 200,
+    "indicagent-llm-writer": 500,
+    "indicagent-cross-asset": 200,
+    "indicagent-swarm-writer": 500,
+    "indicagent-signal-metrics-writer": 500,
+    "indicagent-feature-snapshot-writer": 500,
+    "indicagent-graduation-writer": 500,
+}
+
+# Maps persistence_consumer_lag agent_id label -> systemd unit name.
+# Keys MUST match the name= argument in each service's super().__init__() call
+# because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py.
 _AGENT_ID_TO_UNIT: dict[str, str] = {
-    # Keys MUST match the name= argument in each service's super().__init__() call
-    # because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py
     "bar_writer_agent": "indicagent-bar-writer",
     "bar_aggregator_agent": "indicagent-bar-aggregator",
     "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
@@ -142,6 +123,13 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "ParityAuditorAgent": "indicagent-parity-auditor",
     "GraduationComputeAgent": "indicagent-graduation-writer",
 }
+
+# OTel gauge for per-unit service health (1=active, 0=inactive/failed)
+SERVICE_UP_GAUGE = OTelGauge(
+    "indicagent_service_up",
+    "Service health status: 1=active, 0=inactive/failed",
+    ["unit"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +173,6 @@ class ServiceAuditorAgent(BaseAgent):
         _settings = get_settings()
         super().__init__(
             name="service_auditor_agent",
-            metrics_port=9131,
             max_idle_seconds=600,
             settings=_settings,
         )
@@ -193,9 +180,8 @@ class ServiceAuditorAgent(BaseAgent):
         self._http_session: aiohttp.ClientSession | None = None
         self._kafka_producer: KafkaProducerClient | None = None
         self._roll_consumer: KafkaConsumerClient | None = None
-        self._service_states: dict[str, ServiceState] = {
-            s.unit: ServiceState() for s in SERVICE_REGISTRY
-        }
+        # Populated dynamically via _discover_services() at runtime
+        self._service_states: dict[str, ServiceState] = {}
         self._handled_rolls: set[tuple[str, str]] = set()
         self._topics_produced = [
             topic_health_events(self.env_name),
@@ -229,10 +215,8 @@ class ServiceAuditorAgent(BaseAgent):
         await self._roll_consumer.start()
         self.logger.info(
             "service_auditor_agent.setup_complete",
-            services=len(SERVICE_REGISTRY),
             env=self.env_name,
         )
-
 
     async def _teardown(self) -> None:
         if self._kafka_producer:
@@ -259,6 +243,26 @@ class ServiceAuditorAgent(BaseAgent):
             except asyncio.CancelledError:
                 pass
 
+    # -- Dynamic discovery ----------------------------------------------------
+
+    async def _discover_services(self) -> list[str]:
+        """Discover all indicagent systemd units dynamically via systemctl list-units."""
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "list-units", "--all", "--no-legend", "--no-pager",
+            "indicagent-*",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        units = []
+        for line in stdout.decode().strip().splitlines():
+            parts = line.split()
+            if parts:
+                # Normalize: strip .service suffix to match _DAG_ORDER keys
+                unit = parts[0].removesuffix(".service")
+                units.append(unit)
+        return sorted(units, key=lambda u: _DAG_ORDER.get(u, 99))
+
     # -- Check loops ----------------------------------------------------------
 
     async def _prometheus_check_loop(self) -> None:
@@ -270,13 +274,20 @@ class ServiceAuditorAgent(BaseAgent):
                     self._fetch_prometheus_lag(),
                     self._fetch_provider_data_flow(),
                 )
-                for spec in _SORTED_REGISTRY:
-                    has_metrics = spec.unit in health_set
-                    lag = lag_map.get(spec.unit, 0)
+                units = await self._discover_services()
+                for unit in units:
+                    if unit not in self._service_states:
+                        self._service_states[unit] = ServiceState()
+                    has_metrics = unit in health_set
+                    lag = lag_map.get(unit, 0)
                     active = "active" if has_metrics else "unknown"
                     sub = "running" if has_metrics else "no_metrics"
-                    bars_per_sec = data_flow.get(spec.unit, 0.0)
-                    await self._evaluate_service(spec, active, sub, lag, has_metrics, bars_per_sec)
+                    bars_per_sec = data_flow.get(unit, 0.0)
+                    lag_threshold = _LAG_THRESHOLDS.get(unit, 0)
+                    await self._evaluate_service_dynamic(
+                        unit, active, sub, lag, lag_threshold, has_metrics, bars_per_sec
+                    )
+                    SERVICE_UP_GAUGE.labels(unit=unit).set(1 if has_metrics else 0)
             except Exception as exc:
                 self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
 
@@ -284,10 +295,16 @@ class ServiceAuditorAgent(BaseAgent):
         while self.running:
             await asyncio.sleep(self._systemd_check_interval)
             try:
-                for spec in _SORTED_REGISTRY:
-                    active, sub = await self._check_systemd_state(spec.unit)
+                units = await self._discover_services()
+                for unit in units:
+                    if unit not in self._service_states:
+                        self._service_states[unit] = ServiceState()
+                    active, sub = await self._check_systemd_state(unit)
                     if active in ("failed", "inactive") or sub == "start-limit-hit":
-                        await self._evaluate_service(spec, active, sub, 0, False)
+                        lag_threshold = _LAG_THRESHOLDS.get(unit, 0)
+                        await self._evaluate_service_dynamic(
+                            unit, active, sub, 0, lag_threshold, False
+                        )
             except Exception as exc:
                 self.logger.error("service_auditor.systemd_check_failed", error=str(exc))
 
@@ -309,29 +326,30 @@ class ServiceAuditorAgent(BaseAgent):
 
     # -- Graduated response ---------------------------------------------------
 
-    async def _evaluate_service(
+    async def _evaluate_service_dynamic(
         self,
-        spec: ServiceSpec,
+        unit: str,
         active_state: str,
         sub_state: str,
         lag_messages: int,
+        lag_threshold: int,
         has_metrics: bool,
         bars_per_sec: float = 0.0,
     ) -> None:
-        state = self._service_states[spec.unit]
+        state = self._service_states[unit]
         if state.escalated:
             return
 
         now = datetime.now(UTC)
         is_dead = active_state in ("failed", "inactive") or sub_state == "start-limit-hit"
-        is_laggy = spec.lag_threshold_messages > 0 and lag_messages > spec.lag_threshold_messages
+        is_laggy = lag_threshold > 0 and lag_messages > lag_threshold
 
         # -- DATA STOPPAGE DETECTION (IBKR provider only) --------------------
         # Only meaningful when at least one active instrument's session is open;
         # outside market hours bars_per_sec=0 is expected and must not trigger
         # restart-thrashing.
         if (
-            spec.unit == _SVC_DATA_PROVIDER
+            unit == _SVC_DATA_PROVIDER
             and bars_per_sec == 0.0
             and has_metrics
             and self._any_active_session_open(now)
@@ -341,7 +359,7 @@ class ServiceAuditorAgent(BaseAgent):
             state.degraded_check_count += 1
             if state.degraded_check_count >= 2:  # 2 checks = 30 seconds
                 await self._emit_health_event(
-                    service=spec.unit,
+                    service=unit,
                     event_type="data_stoppage",
                     previous_state=state.last_known_state,
                     reason="bars/sec=0 for >30s during active session",
@@ -351,13 +369,13 @@ class ServiceAuditorAgent(BaseAgent):
                 )
                 await self._send_alert(
                     "HIGH",
-                    f"Provider data stoppage: {spec.unit}",
+                    f"Provider data stoppage: {unit}",
                     {"reason": "bars_per_sec=0 for 30s during active session"},
                 )
                 state.last_known_state = "restarting"
-                await self._restart_service(spec)
+                await self._restart_service_by_unit(unit)
                 return
-            # Preserve the counter across iterations — skip the healthy-reset
+            # Preserve the counter across iterations -- skip the healthy-reset
             # tail below. Without this return, lines at the bottom of the
             # function zero degraded_check_count every cycle and the
             # >=2 gate is never reached.
@@ -374,7 +392,7 @@ class ServiceAuditorAgent(BaseAgent):
                     (now - state.degraded_since).total_seconds() if state.degraded_since else None
                 )
                 await self._emit_health_event(
-                    service=spec.unit,
+                    service=unit,
                     event_type="escalated",
                     previous_state=state.last_known_state,
                     reason=f"{active_state}/{sub_state}",
@@ -383,22 +401,22 @@ class ServiceAuditorAgent(BaseAgent):
                     duration_degraded_s=duration,
                 )
                 await self._send_to_dlq(
-                    {"service": spec.unit, "restart_count": len(state.restart_times)},
+                    {"service": unit, "restart_count": len(state.restart_times)},
                     Exception("escalation threshold reached"),
                 )
                 await self._send_alert(
                     "CRITICAL",
-                    f"Service escalated: {spec.unit} -- {len(state.restart_times)} restarts in 10 min",  # noqa: E501
+                    f"Service escalated: {unit} -- {len(state.restart_times)} restarts in 10 min",  # noqa: E501
                     {"restart_count": len(state.restart_times)},
                 )
-                self.logger.error("service_auditor.escalated", service=spec.unit)
+                self.logger.error("service_auditor.escalated", service=unit)
                 return
 
             if not state.degraded_since:
                 state.degraded_since = now
             state.restart_times.append(now)
             await self._emit_health_event(
-                service=spec.unit,
+                service=unit,
                 event_type="restart",
                 previous_state=state.last_known_state,
                 reason=f"{active_state}/{sub_state}",
@@ -407,7 +425,7 @@ class ServiceAuditorAgent(BaseAgent):
                 duration_degraded_s=None,
             )
             state.last_known_state = "restarting"
-            await self._restart_service(spec)
+            await self._restart_service_by_unit(unit)
             return
 
         # -- DEGRADED ---------------------------------------------------------
@@ -417,10 +435,10 @@ class ServiceAuditorAgent(BaseAgent):
             state.degraded_check_count += 1
             if state.degraded_check_count >= 2:
                 await self._emit_health_event(
-                    service=spec.unit,
+                    service=unit,
                     event_type="degraded",
                     previous_state=state.last_known_state,
-                    reason=f"lag={lag_messages}>{spec.lag_threshold_messages}",
+                    reason=f"lag={lag_messages}>{lag_threshold}",
                     lag_messages=lag_messages,
                     restart_count=len(state.restart_times),
                     duration_degraded_s=None,
@@ -434,7 +452,7 @@ class ServiceAuditorAgent(BaseAgent):
                 (now - state.degraded_since).total_seconds() if state.degraded_since else None
             )
             await self._emit_health_event(
-                service=spec.unit,
+                service=unit,
                 event_type="recovered",
                 previous_state=state.last_known_state,
                 reason=None,
@@ -462,12 +480,12 @@ class ServiceAuditorAgent(BaseAgent):
         stdout, _ = await proc.communicate()
         return _parse_systemctl_show(stdout.decode())
 
-    async def _restart_service(self, spec: ServiceSpec) -> None:
+    async def _restart_service_by_unit(self, unit: str) -> None:
         """reset-failed clears StartLimitBurst; start re-launches the unit."""
-        self.logger.warning("service_auditor.restarting", service=spec.unit)
+        self.logger.warning("service_auditor.restarting", service=unit)
         for cmd_args in (
-            ["systemctl", "reset-failed", spec.unit],
-            ["systemctl", "start", spec.unit],
+            ["systemctl", "reset-failed", unit],
+            ["systemctl", "start", unit],
         ):
             proc = await asyncio.create_subprocess_exec(
                 *cmd_args,
@@ -481,18 +499,31 @@ class ServiceAuditorAgent(BaseAgent):
                     args=cmd_args,
                     stderr=stderr.decode().strip(),
                 )
-        # Increment metric after successful restart
-        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=spec.unit).inc()
+        # Increment metric after restart attempt
+        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=unit).inc()
 
     # -- Prometheus interface -------------------------------------------------
 
     async def _fetch_prometheus_health(self) -> set[str]:
-        results = await self._query_prometheus('up{job=~"indicagent.*"}')
-        return {
-            _JOB_TO_UNIT[r["metric"]["job"]]
-            for r in results
-            if r["value"][1] == "1" and r["metric"].get("job") in _JOB_TO_UNIT
-        }
+        """Fetch set of healthy unit names from Prometheus up{} metric.
+
+        With the collapsed Prometheus config (single OTel Collector scrape),
+        per-service up{} metrics are no longer scraped directly. This method
+        returns an empty set as a safe degraded fallback -- the systemd check
+        loop provides the primary health signal post-OTel migration.
+        """
+        try:
+            results = await self._query_prometheus('up{job=~"indicagent.*"}')
+            healthy: set[str] = set()
+            for r in results:
+                if r["value"][1] == "1":
+                    job = r["metric"].get("job", "")
+                    # Match job name directly to unit (job names are unit names in OTel scrape)
+                    if job in _DAG_ORDER:
+                        healthy.add(job)
+            return healthy
+        except Exception:
+            return set()
 
     async def _fetch_prometheus_lag(self) -> dict[str, int]:
         results = await self._query_prometheus("persistence_consumer_lag")
@@ -534,7 +565,6 @@ class ServiceAuditorAgent(BaseAgent):
         for r in results:
             provider = r["metric"].get("provider", "")
             if provider == "ibkr":
-                # Return bars/second as float
                 out[_SVC_DATA_PROVIDER] = float(r["value"][1])
                 break
         return out
@@ -614,7 +644,6 @@ class ServiceAuditorAgent(BaseAgent):
             payload.get("service", "unknown"),
         )
 
-
     # -- Roll automation -------------------------------------------------------
 
     async def _roll_consumer_loop(self) -> None:
@@ -630,7 +659,7 @@ class ServiceAuditorAgent(BaseAgent):
                 self.logger.error("roll_consumer.error", error=str(exc))
 
     async def _handle_roll_event(self, payload: dict) -> None:
-        """Process a RollEvent. Deduped by (symbol, new_contract) — handles both
+        """Process a RollEvent. Deduped by (symbol, new_contract) -- handles both
         volume and calendar detection methods without double-restarting ibkr-provider."""
         symbol = payload.get("symbol", "")
         new_contract = payload.get("new_contract", "")
@@ -672,9 +701,10 @@ class ServiceAuditorAgent(BaseAgent):
     async def _restart_roll_service(self, service_name: str) -> None:
         """Restart a systemd service as part of roll automation via sudo systemctl restart.
 
-        Distinct from _restart_service() which uses reset-failed + start for health recovery.
-        Roll restarts use a single restart command — the service is healthy, just needs
-        to re-read the updated contract_metadata after a front-month promotion.
+        Distinct from _restart_service_by_unit() which uses reset-failed + start for
+        health recovery. Roll restarts use a single restart command -- the service is
+        healthy, just needs to re-read the updated contract_metadata after a
+        front-month promotion.
         """
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -694,7 +724,7 @@ class ServiceAuditorAgent(BaseAgent):
             SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=service_name).inc()
             self.logger.info("roll_automation.restart_complete", service=service_name)
         except Exception as exc:
-            self.logger.error(  # noqa: E501
+            self.logger.error(
                 "roll_automation.restart_failed",
                 service=service_name,
                 error=str(exc),
