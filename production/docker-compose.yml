@@ -180,8 +180,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@timescaledb:5432/langfuse
       NEXTAUTH_URL: http://localhost:3010
-      NEXTAUTH_SECRET: dev-secret-replace-in-production
-      SALT: dev-salt-replace-in-production
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      SALT: ${LANGFUSE_SALT}
     depends_on:
       - timescaledb
     restart: unless-stopped
