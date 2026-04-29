@@ -295,12 +295,16 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             self._record_message_consumed()
             self._on_message_consumed(payload)
 
-            rows = self._parse_payload(payload)
-            if rows is not None:
-                self._buffer_rows(rows)
-            else:
-                self._parse_failures_total.inc()
-                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+            with self.tracer.start_as_current_span(
+                "writer.process_message",
+                attributes={"agent": self.name},
+            ):
+                rows = self._parse_payload(payload)
+                if rows is not None:
+                    self._buffer_rows(rows)
+                else:
+                    self._parse_failures_total.inc()
+                    await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             # Backpressure: if buffer is above alert threshold, pause briefly
             if len(self._buffer) > self._alert_threshold:

@@ -444,13 +444,17 @@ class BaseProviderAgent(BaseAgent):
 
     async def _publish_bar(self, bar: BarMessage) -> None:
         """Publish a BarMessage to the provider's raw topic."""
-        await self._kafka_producer.publish(
-            self._raw_topic,
-            bar.model_dump(mode="json"),
-            key=message_key(bar.symbol, bar.tf),
-        )
-        self._m_bars_raw.inc()
-        self._record_message_consumed()
+        with self.tracer.start_as_current_span(
+            "provider.publish_bar",
+            attributes={"symbol": bar.symbol, "tf": bar.tf},
+        ):
+            await self._kafka_producer.publish(
+                self._raw_topic,
+                bar.model_dump(mode="json"),
+                key=message_key(bar.symbol, bar.tf),
+            )
+            self._m_bars_raw.inc()
+            self._record_message_consumed()
 
     # ------------------------------------------------------------------
     # Helpers
