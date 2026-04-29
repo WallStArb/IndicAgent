@@ -10,7 +10,6 @@ import pytest
 
 from services.service_auditor_agent import (
     ServiceAuditorAgent,
-    ServiceSpec,
     ServiceState,
     _SVC_DATA_PROVIDER,
 )
@@ -38,20 +37,14 @@ def agent():
     agent._handled_rolls = set()
     agent._service_states = {}
     agent._emit_health_event = AsyncMock()
-    agent._restart_service = AsyncMock()
+    agent._restart_service_by_unit = AsyncMock()
     agent._restart_roll_service = AsyncMock()
     agent._send_to_dlq = AsyncMock()
     return agent
 
 
-def _make_spec(unit: str = "indicagent-test.service") -> ServiceSpec:
-    return ServiceSpec(
-        unit=unit,
-        metrics_port=9999,
-        lag_threshold_messages=1000,
-        dag_order=1,
-        market_hours_only=False,
-    )
+def _make_unit(unit: str = "indicagent-test.service") -> str:
+    return unit
 
 
 class TestSendAlertViaBusinessLogic:
@@ -60,22 +53,22 @@ class TestSendAlertViaBusinessLogic:
     @pytest.mark.asyncio
     async def test_data_stoppage_calls_send_alert_HIGH(self, agent):
         """Data stoppage (2 checks of bars_per_sec=0 during active session) -> _send_alert HIGH."""
-        spec = _make_spec(_SVC_DATA_PROVIDER)
-        agent._service_states[spec.unit] = ServiceState()
+        unit = _make_unit(_SVC_DATA_PROVIDER)
+        agent._service_states[unit] = ServiceState()
         agent._send_alert = AsyncMock()
 
         with patch.object(agent, "_any_active_session_open", return_value=True):
             # First check: degraded_since set, count=1
-            await agent._evaluate_service(
-                spec, active_state="active", sub_state="running",
-                lag_messages=0, has_metrics=True, bars_per_sec=0.0,
+            await agent._evaluate_service_dynamic(
+                unit, active_state="active", sub_state="running",
+                lag_messages=0, lag_threshold=1000, has_metrics=True, bars_per_sec=0.0,
             )
             assert agent._send_alert.call_count == 0  # not yet
 
             # Second check: count >= 2 -> alert
-            await agent._evaluate_service(
-                spec, active_state="active", sub_state="running",
-                lag_messages=0, has_metrics=True, bars_per_sec=0.0,
+            await agent._evaluate_service_dynamic(
+                unit, active_state="active", sub_state="running",
+                lag_messages=0, lag_threshold=1000, has_metrics=True, bars_per_sec=0.0,
             )
 
         assert agent._send_alert.call_count == 1
@@ -86,16 +79,16 @@ class TestSendAlertViaBusinessLogic:
     @pytest.mark.asyncio
     async def test_escalation_calls_send_alert_CRITICAL(self, agent):
         """Service escalated after 3 restarts in 10 min -> _send_alert CRITICAL."""
-        spec = _make_spec()
+        unit = _make_unit()
         state = ServiceState()
         now = datetime.now(UTC)
         state.restart_times = [now - timedelta(minutes=i) for i in range(3)]
-        agent._service_states[spec.unit] = state
+        agent._service_states[unit] = state
         agent._send_alert = AsyncMock()
 
-        await agent._evaluate_service(
-            spec, active_state="failed", sub_state="start-limit-hit",
-            lag_messages=0, has_metrics=False,
+        await agent._evaluate_service_dynamic(
+            unit, active_state="failed", sub_state="start-limit-hit",
+            lag_messages=0, lag_threshold=1000, has_metrics=False,
         )
 
         assert agent._send_alert.call_count == 1
