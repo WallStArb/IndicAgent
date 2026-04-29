@@ -179,6 +179,10 @@ class BaseAgent(abc.ABC):
             init_otel_providers(service_name=self.name)
             _tracing_initialized = True
 
+        # Set up OTLP log bridge (additive to file logging)
+        from src.observability.log_bridge import setup_otlp_logging
+        setup_otlp_logging(service_name=self.name)
+
         self.logger.info("agent.starting", agent=self.name)
 
         # NEW: Track setup latency + success/failure
