@@ -73,7 +73,7 @@ Rules:
 
 _DIRECTION_LABELS = {1: "LONG", -1: "SHORT", 0: "FLAT"}
 
-# Lead index mapping -- must match _LEAD_INDEX_MAP in swarm_dispatch_service.py
+# Lead index mapping used by CorrelationAgent prompt assembly
 _LEAD_INDEX_MAP: dict[str, str] = {
     "ES": "ES",
     "NQ": "ES",

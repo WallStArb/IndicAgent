@@ -359,8 +359,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         TODO: Add AIContextCache.get_volume_profile() in future plan to eliminate
         this private access (currently out of scope for this plan).
         """
-        # For now, return None — VolumeAgent will use I4 context directly
-        # This maintains the status quo from swarm_dispatch_service
+        # VolumeAgent uses I4 context directly
         return None
 
 
