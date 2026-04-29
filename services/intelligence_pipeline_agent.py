@@ -930,6 +930,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _process_bar(self, bar: BarMessage) -> None:
         """Core per-bar processing: gap detection → I1-I7 → output."""
+        with self.tracer.start_as_current_span(
+            "pipeline.process_bar",
+            attributes={"symbol": bar.symbol, "tf": bar.tf},
+        ):
+            await self._process_bar_inner(bar)
+
+    async def _process_bar_inner(self, bar: BarMessage) -> None:
+        """Inner implementation of _process_bar (called inside OTel span)."""
         t0 = time.perf_counter()
 
         # 1. Gap detection
@@ -1353,6 +1361,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         Returns a dict of I7 results for BarIntelligenceRecord construction:
             ranked, winner, n_raw, n_quality, n_regime, n_tod, n_calibrated, i7_computed_at
         """
+        with self.tracer.start_as_current_span(
+            "pipeline.run_i7",
+            attributes={"symbol": bar.symbol, "tf": bar.tf},
+        ):
+            return await self._run_i7_inner(bar, event, tiered)
+
+    async def _run_i7_inner(self, bar: BarMessage, event: IntelligenceEvent, tiered: dict) -> dict:
+        """Inner implementation of _run_i7 (called inside OTel span)."""
         symbol, tf = bar.symbol, bar.tf
         features = _build_features_from_event(event)
         i7_computed_at = datetime.now(UTC)

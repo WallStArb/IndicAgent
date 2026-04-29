@@ -31,13 +31,13 @@ import sys
 import time
 
 import structlog
-from prometheus_client import Counter as _Counter
-from prometheus_client import Histogram as _Histogram
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
     AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
+    OTelCounter as _Counter,
+    OTelHistogram as _Histogram,
     PERSISTENCE_CONSUMER_LAG,
 )
 from src.observability.otel import get_meter, get_tracer, init_otel_providers

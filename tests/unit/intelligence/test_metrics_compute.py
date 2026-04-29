@@ -293,7 +293,8 @@ class TestPipelinePerfWeightsSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
-        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "rank_signals" in src
         # Check that rank_signals call includes symbol=
         assert "symbol=symbol" in src

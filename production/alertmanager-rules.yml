@@ -1,0 +1,26 @@
+groups:
+  - name: indicagent_pipeline
+    rules:
+      - alert: ProviderDataStoppage
+        expr: rate(provider_bars_produced_total[5m]) == 0 and indicagent_service_up{unit="indicagent-ibkr-provider"} == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "IBKR provider producing zero bars during active session"
+
+      - alert: ServiceDown
+        expr: indicagent_service_up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service {{ $labels.unit }} is down"
+
+      - alert: ConsumerLagHigh
+        expr: persistence_consumer_lag_records > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Consumer lag > 1000 records for {{ $labels.agent_id }}"

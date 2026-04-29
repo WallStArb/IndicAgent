@@ -27,12 +27,13 @@ import asyncio
 import time
 from typing import Any
 
-from prometheus_client import Counter as _Counter
-from prometheus_client import Gauge as _Gauge
-from prometheus_client import Histogram as _Histogram
-
 from src.core.agent.base import BaseAgent
-from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
+from src.observability.metrics import (
+    OTelCounter as _Counter,
+    OTelGauge as _Gauge,
+    OTelHistogram as _Histogram,
+    PERSISTENCE_CONSUMER_LAG,
+)
 
 # Module-level metric caches — prevent duplicate registration across
 # multiple instantiations in the same process (e.g., unit tests).
@@ -53,7 +54,7 @@ def _get_or_create_counter(name: str, doc: str) -> _Counter:
     return _counters[name]
 
 
-def _get_or_create_histogram(name: str, doc: str, buckets: list[float]) -> _Histogram:
+def _get_or_create_histogram(name: str, doc: str, buckets: list[float] | None = None) -> _Histogram:
     if name not in _histograms:
         _histograms[name] = _Histogram(name, doc, buckets=buckets)
     return _histograms[name]
@@ -295,12 +296,16 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             self._record_message_consumed()
             self._on_message_consumed(payload)
 
-            rows = self._parse_payload(payload)
-            if rows is not None:
-                self._buffer_rows(rows)
-            else:
-                self._parse_failures_total.inc()
-                await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+            with self.tracer.start_as_current_span(
+                "writer.process_message",
+                attributes={"agent": self.name},
+            ):
+                rows = self._parse_payload(payload)
+                if rows is not None:
+                    self._buffer_rows(rows)
+                else:
+                    self._parse_failures_total.inc()
+                    await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             # Backpressure: if buffer is above alert threshold, pause briefly
             if len(self._buffer) > self._alert_threshold:
