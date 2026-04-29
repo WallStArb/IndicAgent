@@ -112,10 +112,11 @@ class CrossTFMomentumDivergencePlugin:
             rsi_down = float(intel.get("rsi_crossed_50_down") or 0)
             event_bias = tanh(bullish + rsi_up - bearish - rsi_down)
 
+            no_events = not any((bullish, bearish, rsi_up, rsi_down))
             if (
                 not isinstance(rsi, (int, float))
                 and not isinstance(macd_hist, (int, float))
-                and event_bias == 0.0  # gradient-exempt — sentinel default value, not measured float
+                and no_events
             ):
                 continue
 
