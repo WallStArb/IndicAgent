@@ -56,11 +56,9 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         """Kafka topic for agent output fan-out."""
         return topic_narratives(self.settings.env_name)
 
-    def _bar_topic(self) -> str:
-        """No bar consumer needed for narrative service."""
-        # Narrative service doesn't update context cache from bars
-        # It only triggers from intelligence journal
-        return ""  # Empty string means no bar consumer
+    def _bar_topics(self) -> list[str]:
+        """No bar consumer needed — narrative triggers from intelligence journal only."""
+        return []
 
     async def _setup(self) -> None:
         """Wire infrastructure beyond BaseGroupService defaults."""

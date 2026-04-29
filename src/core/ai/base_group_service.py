@@ -63,8 +63,8 @@ class BaseGroupService(BaseAgent, ABC):
 
     # Abstract methods for subclass Kafka wiring
     @abstractmethod
-    def _bar_topic(self) -> str:
-        """Topic for bar data that updates AIContextCache."""
+    def _bar_topics(self) -> list[str]:
+        """Topics for bar data that update AIContextCache. Return [] to skip bar consumer."""
         ...
 
     def __init__(self, settings: Settings, *args: Any, **kwargs: Any) -> None:
@@ -83,8 +83,9 @@ class BaseGroupService(BaseAgent, ABC):
         Subclasses should call super()._setup() then add group-specific wiring.
         """
         # Wire bar consumer (for AIContextCache updates)
+        bar_topics = self._bar_topics()
         self._bar_consumer = KafkaConsumerClient(
-            self._bar_topic(),
+            *bar_topics,
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=f"{self.group_id}_bar_consumer",
             auto_offset_reset="latest",
