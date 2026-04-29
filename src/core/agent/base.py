@@ -4,8 +4,8 @@ Provides the Renaissance Agentic DAG standard lifecycle:
 - SIGTERM/SIGINT drain via asyncio event (asyncio.get_running_loop, not deprecated get_event_loop)
 - Structured logging via structlog bound with agent name (configured before logger creation)
 - Consumer lag reporting scaffolding (override in concrete agents)
-- OTel tracer via get_tracer(name) — no-op when init_tracing() not called
-- Optional Prometheus metrics auto-start via metrics_port parameter
+- OTel MeterProvider + TracerProvider via init_otel_providers(name) — graceful degradation
+- metrics_port parameter kept for backward compat but IGNORED — OTel push replaces HTTP server
 - _setup()/_teardown() lifecycle hooks (no-op by default, override in subclasses)
 - running property derived from stop_event state
 - topics_consumed/topics_produced/lag_threshold_messages for ProcessManifest (Plan 03)
@@ -39,9 +39,8 @@ from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
     AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
     PERSISTENCE_CONSUMER_LAG,
-    start_metrics_server,
 )
-from src.observability.otel import get_tracer, init_tracing
+from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
 # BaseAgent Observability Metrics (Phase 67)
@@ -102,7 +101,7 @@ class BaseAgent(abc.ABC):
         setup_service_logging(log_path)
 
         self.name = name
-        self._metrics_port = metrics_port
+        # metrics_port kept for backward compat but IGNORED — OTel push replaces HTTP server
         self.max_idle_seconds = max_idle_seconds
         self._stop_event: asyncio.Event = asyncio.Event()
         self._last_message_ts: float | None = None
@@ -117,8 +116,10 @@ class BaseAgent(abc.ABC):
         # Settings singleton — all agents inherit configuration access
         # Use provided settings if available (e.g., from BaseProviderAgent), otherwise get singleton
         self.settings = settings if settings is not None else get_settings()
-        # OTel tracer — no-op when init_tracing() has not been called; safe before init.
+        # OTel tracer — no-op when init_otel_providers() has not been called; safe before init.
         self.tracer = get_tracer(name)
+        # OTel meter — provides instrument creation for subclasses
+        self._meter = get_meter(name)
 
         # NEW: Cache crash/setup observability metrics at init (minimal runtime overhead)
         self._agent_label = name.lower().replace(" ", "_")
@@ -126,6 +127,20 @@ class BaseAgent(abc.ABC):
         self._setup_success_total = AGENT_SETUP_SUCCESS_TOTAL.labels(agent=self._agent_label)
         # NOTE: _setup_failure_total not cached here - needs error_type label at exception time
         self._setup_latency = AGENT_SETUP_LATENCY_SECONDS.labels(agent=self._agent_label)
+
+    def __getattr__(self, name: str):
+        """Fallback for attributes not set in __new__ test pattern (bypasses __init__).
+
+        CLAUDE.md warning: tests using ServiceClass.__new__(ServiceClass) bypass __init__,
+        so attributes set there are missing. This fallback provides safe defaults for the
+        most common missing attributes without modifying all test instances.
+        """
+        if name == "_meter":
+            from src.observability.otel import get_meter
+            return get_meter("test-noop")
+        if name == "_metrics_port":
+            return None
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
     def env_name(self) -> str:
@@ -147,22 +162,21 @@ class BaseAgent(abc.ABC):
 
         Order (D-06):
         1. Register signal handlers.
-        2. Start Prometheus metrics server if metrics_port is set.
-        3. Initialize OTel tracing (idempotent — first call wins).
-        4. Log agent.starting.
-        5. Call _setup() — connect Kafka, seed history, etc.
-        6. Launch lag reporter as background task.
-        7. Await _run(). On Exception: log agent.run_failed and re-raise.
-        8. finally: cancel lag task, await _teardown(), call stop().
+        2. Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins).
+           metrics_port is accepted for backward compat but ignored — OTel push replaces HTTP.
+        3. Log agent.starting.
+        4. Call _setup() — connect Kafka, seed history, etc.
+        5. Launch lag reporter as background task.
+        6. Await _run(). On Exception: log agent.run_failed and re-raise.
+        7. finally: cancel lag task, await _teardown(), call stop().
         """
         self._register_signal_handlers()
-        if self._metrics_port is not None:
-            start_metrics_server(port=self._metrics_port)
+        # metrics_port parameter kept for backward compat but ignored — OTel push replaces HTTP
 
-        # Initialize OTel tracing (idempotent — first call wins)
+        # Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins)
         global _tracing_initialized
         if not _tracing_initialized:
-            init_tracing(service_name=self.name)
+            init_otel_providers(service_name=self.name)
             _tracing_initialized = True
 
         self.logger.info("agent.starting", agent=self.name)
