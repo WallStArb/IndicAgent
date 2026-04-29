@@ -128,15 +128,18 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 | ML Data Quality | `indicagent-ml-data-quality` (timer) | Audits `intelligence_features` for training data quality |
 | ML Discovery | `indicagent-ml-discovery` (timer) | Discovers ML training signal patterns |
 | ML Orchestrator | `indicagent-ml-orchestrator` (timer) | Orchestrates ML training pipeline |
-| Swarm Orchestrator | `indicagent-swarm-orchestrator` | Routes swarm tasks to specialist agents |
+| Alpha Swarm | `indicagent-alpha-swarm` | LLM alpha multiplier agents (skeptic, correlation, volume); extends BaseGroupService |
 | Swarm Writer | `indicagent-swarm-writer` | Persists swarm outputs to DB |
-| AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` |
+| AI Narrative | `indicagent-ai-narrative` | I8: LLM market narrative generation (5m+ TF gated); extends BaseGroupService |
+| Lineage Writer | `indicagent-lineage-writer` | Persists signal_lineage events (transform, agent_prediction, lifecycle) |
 | API | `indicagent-api` | FastAPI + SSE on :8000 |
 
 ### Core Runtime Files
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `PLUGIN_METRICS_SAMPLE_RATE`
+- `src/core/ai/` — universal AI agent infrastructure (BaseAIAgent, BaseGroupService, AIContext, AgentOutput, SafeAgentWrapper, LineageRecorder)
+- `src/intelligence/ai/` — mandate-based agent groups (alpha, narrative, risk)
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
