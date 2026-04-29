@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.3
-milestone_name: candidates
-status: ready_to_plan
-last_updated: "2026-04-29T11:55:34.954Z"
+milestone: v2.5
+milestone_name: data-quality-persistence-reliability
+status: in_progress
+last_updated: "2026-04-29T16:40:00.000Z"
 progress:
   total_phases: 26
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 19
-  percent: 83
+  completed_phases: 8
+  total_plans: 27
+  completed_plans: 26
+  percent: 96
 ---
 
 # Project State
@@ -19,11 +19,11 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor
+**Current focus:** Phase 75 — Shadow Governance System (Automated Promotion/Demotion)
 
 ## Current Position
 
-Phase: 74
+Phase: 75
 Plan: Not started
 
 Plans already complete:
@@ -33,9 +33,13 @@ Plans already complete:
 - 73-03: Apply 6 LLM chain fixes + test coverage (commit 1c8c9e3b)
 - 73-04: Create AI agent directory structure + move agents to src/intelligence/ai/ (commit edf3bd33)
 - 73-05: Service refactor to BaseGroupService + AgentOutput migration (commits 20dee0d4, 6a07b793)
+- 73-06: Lineage recorder + SafeAgentWrapper + BaseGroupService run loop (SUMMARY.md present)
+- 73-07: Test migration + import boundaries + CLAUDE.md updates (SUMMARY.md present)
 
-Previous: Phase 65 — COMPLETE (2026-04-24) — Gradient Audit, gradient_utils.py delivered
+Previous: Phase 73 — COMPLETE (2026-04-28) — AI LLM Layer B+ Architecture Refactor; BaseAIAgent, BaseGroupService, mandate-based directory structure, agent moves, lineage recorder
+Previous: Phase 74 — COMPLETE (2026-04-26) — BarNormalizerAgent state checkpointing for BarAggregator
 Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix, temporal guard, bootstrap sweep, activation gate, backfill SQL
+Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification; OTLP push pipeline, OTel Collector, Loki, Alertmanager, log bridge, service_auditor systemd discovery
 
 ## v2.1 Milestone Goal
 

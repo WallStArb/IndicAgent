@@ -19,6 +19,7 @@ Field names are extracted from each plugin's outputs frozenset — no guesswork.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -922,3 +923,23 @@ class MacroSignals(BaseModel):
     # USD strength factor (Plan 64-03C)
     # usd_strength_score: float | None = None
     # usd_strength_regime: str | None = None
+
+
+@dataclasses.dataclass
+class ShadowTransitionEvent:
+    """Published to topic_shadow_transitions on any promotion or demotion.
+
+    Fields match shadow_transition_log columns for easy DB audit correlation.
+    triggered_at is UTC ISO-8601 string with Z suffix (e.g., '2026-04-28T12:00:00.000Z').
+    """
+
+    component_name: str
+    component_type: str    # 'i7_plugin' | 'swarm_agent'
+    from_state: str        # 'shadow' | 'live'
+    to_state: str          # 'shadow' | 'live'
+    trigger_reason: str    # 'promotion_gate_cleared' | 'demotion_ev_r_degraded'
+    n: int
+    ev_r: float
+    ci_lower: float
+    win_rate: float
+    triggered_at: str      # UTC ISO-8601 with Z suffix
