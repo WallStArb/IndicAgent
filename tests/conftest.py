@@ -7,7 +7,13 @@ import sys
 from pathlib import Path
 
 # Ensure the project root is on sys.path so services/ is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_project_root = str(Path(__file__).resolve().parent.parent)
+sys.path.insert(0, _project_root)
+# Also add services/ so that `import _path_bootstrap` works when test files
+# import from services.* as a package (service scripts use services/ as sys.path[0])
+_services_dir = str(Path(__file__).resolve().parent.parent / "services")
+if _services_dir not in sys.path:
+    sys.path.insert(0, _services_dir)
 
 from unittest.mock import AsyncMock
 
