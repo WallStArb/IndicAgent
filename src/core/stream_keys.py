@@ -350,10 +350,10 @@ def topic_ml_orchestrator_dlq(env_name: str) -> str:
 
 
 def topic_alert_requests(env_name: str) -> str:
-    """Alert requests from any agent to AlertingAgent.
+    """Alert requests from any agent to AlertingComputeAgent.
 
     Any agent can publish alert requests here via BaseAgent._send_alert().
-    AlertingAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
+    AlertingComputeAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
     Consumer group: alerting_consumer
     """
     return f"{env_prefix(env_name)}alert.requests"

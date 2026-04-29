@@ -67,10 +67,9 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     ("macro_signals", 1, _BUFFER_MS, "delete"),
     # --- Lifecycle (persisted by lifecycle_writer) ---
     ("lifecycle.transitions", 1, _BUFFER_MS, "delete"),
-    # --- Swarm (persisted by swarm_writer) ---
-    ("intelligence.swarm", 1, _BUFFER_MS, "delete"),
+    # --- Alpha swarm (AlphaSwarmComputeAgent → persisted to alpha_multiplier_shadow) ---
     ("swarm.alpha", 1, _BUFFER_MS, "delete"),
-    ("swarm.graduation", 1, _BUFFER_MS, "delete"),
+    # --- Signal lineage (LineageWriterAgent → signal_lineage hypertable) ---
     ("intelligence.signal_lineage", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal_lineage.dlq", 1, _BUFFER_MS, "delete"),
     # --- Transform graduation (Phase 72) ---

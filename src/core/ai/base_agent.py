@@ -108,6 +108,17 @@ class BaseAIAgent(BaseAgent, ABC):
             await self._on_error(exc)
             return self._neutral(error=str(exc), latency_ms=latency_ms)
 
+    async def _run(self) -> None:
+        """BaseAIAgent subclasses are compute objects driven by BaseGroupService.
+
+        They must not be started as standalone agents. This satisfies BaseAgent's
+        abstract requirement while failing loudly if misused.
+        """
+        raise RuntimeError(
+            f"{self.__class__.__name__} is a compute agent and cannot be run standalone. "
+            "Use within a BaseGroupService."
+        )
+
     @abstractmethod
     async def _compute(self, context: AIContext) -> AgentOutput:
         """Implement the agent's core computation logic.

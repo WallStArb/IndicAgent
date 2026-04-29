@@ -183,7 +183,7 @@ class AIContextCache:
             symbol: Instrument symbol
             tf: Timeframe
             tiers_needed: Frozenset of Tier enums to populate
-            signal: Optional RankedSignal for i7 context
+            signal: Optional signal dict for i7 context
             signal_id: Optional signal UUID
 
         Returns:

@@ -421,7 +421,7 @@ class BaseAgent(abc.ABC):
         return None
 
     async def _send_alert(self, severity: str, message: str, context: dict | None = None) -> None:
-        """Send alert to AlertingAgent via Kafka.
+        """Send alert to AlertingComputeAgent via Kafka.
 
         Args:
             severity: "CRITICAL" | "HIGH" | "MEDIUM"
@@ -429,7 +429,7 @@ class BaseAgent(abc.ABC):
             context: Optional structured context (symbol, tf, error details, etc.)
 
         No-op if producer not configured (agents without Kafka output).
-        AlertingAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
+        AlertingComputeAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
         """
         if not hasattr(self, "_producer") or self._producer is None:
             return

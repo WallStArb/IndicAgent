@@ -5,6 +5,9 @@ Replaces GraduationWriterAgent's write path and swarm_writer_agent's shadow writ
 """
 
 import asyncio
+import time
+
+import asyncpg
 
 from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
@@ -17,9 +20,32 @@ class LineageWriterAgent(BaseWriterAgent):
     batch_size = 100
     flush_interval_s = 2.0
 
+    def __init__(self, **kwargs):
+        super().__init__(name="lineage_writer_agent", **kwargs)
+        self._pool: asyncpg.Pool | None = None
+
+    async def _setup(self) -> None:
+        self._pool = await asyncpg.create_pool(
+            self.settings.database_url,
+            min_size=2,
+            max_size=5,
+        )
+        self._create_consumer()
+        await self._consumer.start()
+        self._last_flush = time.monotonic()
+        self.logger.info("lineage_writer.started", topic=self._topic_name())
+
+    async def _teardown(self) -> None:
+        await super()._teardown()
+        if self._consumer:
+            await self._consumer.stop()
+        if self._pool:
+            await self._pool.close()
+
     def _topic_name(self) -> str:
         return topic_signal_lineage(self.env_name)
 
+    @property
     def _consumer_group(self) -> str:
         return "lineage_writer_consumer"
 
