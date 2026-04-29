@@ -302,7 +302,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
 
   Plans:
-  - [ ] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49)
+  - [x] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49) — COMPLETE 2026-04-29
   - [ ] 73-02-PLAN.md — Build src/core/ai/ infrastructure: 5 modules + TDD tests (D-18-22, D-30-31, D-42-45, D-51)
   - [ ] 73-03-PLAN.md — 6 LLM chain fixes: rate limiter, guardrails, auto-audit, real tokens, cache key (D-04-07, D-11-15, D-17)
   - [ ] 73-04-PLAN.md — Move agents to mandate-based groups + narrative TF gate (D-23-27, D-34, D-35)
@@ -602,7 +602,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
-| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Planned (Replanned 2026-04-28) | 2026-04-28 |
+| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 1/7 | In Progress (Plan 1 complete) | 2026-04-29 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
 | 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |

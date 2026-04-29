@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: unknown
-last_updated: "2026-04-28T23:48:56.207Z"
+status: executing
+last_updated: "2026-04-29T00:03:00.000Z"
 progress:
   total_phases: 26
   completed_phases: 3
   total_plans: 23
-  completed_plans: 15
-  percent: 65
+  completed_plans: 16
+  percent: 70
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 076 COMPLETE — Signal Lifecycle Labeling Fix & Activation Gate
+**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor
 
 ## Current Position
 
-Phase: 076-signal-lifecycle-labeling-activation-gate — COMPLETE (2026-04-28)
-All 3 plans executed and verified.
+Phase: 73 (AI LLM Layer B+ Architecture Refactor) — EXECUTING
+Plan: 1 of 7 COMPLETE (2026-04-29)
 
 Plans already complete:
 
@@ -86,6 +86,12 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - MacroComputeAgent standalone service (not merged into CrossAssetComputeAgent) — clean SRP separation
 - All cross-TF plugins use np.tanh() continuous gradient scoring, NOT binary flags — verified by CI scanner (Phase 65 gate)
 - Phase 64 VERIFICATION.md had pre-GAPCLOSURE stale FAILs — not debt; all resolved by GAPCLOSURE executions
+
+### Decisions (Phase 73)
+
+- Delete swarm_orchestrator_agent immediately without waiting for alpha_swarm_agent implementation — service runs with PID 281147 but has zero contributors, no code path depends on it
+- Use unified swarm.alpha topic instead of path_a/path_b split — AlphaSwarmComputeAgent (Plan 05) runs both deterministic and LLM contributors via asyncio.gather(), single topic simplifies consumer contract
+- Add signal lineage topics (intelligence.signal_lineage + DLQ) in infrastructure plan before implementation — topic registration is prerequisite for LineageRecorder/LineageWriterAgent in Plan 04, prevents circular dependency on kafka_init_topics execution order
 
 ### Roadmap Evolution
 
