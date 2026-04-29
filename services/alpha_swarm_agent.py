@@ -102,15 +102,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         """Kafka topic for agent output fan-out."""
         return topic_swarm_alpha(self.settings.env_name)
 
-    def _bar_topic(self) -> str:
-        """Topic for bar data that updates AIContextCache."""
-        # Subscribe to both 1m and HTF bars
-        return ",".join(
-            [
-                topic_market_bars(self.settings.env_name),
-                topic_market_bars_htf(self.settings.env_name),
-            ]
-        )
+    def _bar_topics(self) -> list[str]:
+        """Topics for bar data that update AIContextCache."""
+        return [
+            topic_market_bars(self.settings.env_name),
+            topic_market_bars_htf(self.settings.env_name),
+        ]
 
     async def _setup(self) -> None:
         """Wire infrastructure beyond BaseGroupService defaults."""
