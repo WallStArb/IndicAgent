@@ -308,7 +308,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 73-04-PLAN.md — Move agents to mandate-based groups + narrative TF gate (D-23-27, D-34, D-35) — COMPLETE 2026-04-29
   - [x] 73-05-PLAN.md — Rename dispatch->alpha_swarm + refactor services to BaseGroupService (D-10, D-32, D-33, D-50) — COMPLETE 2026-04-29
   - [x] 73-06-PLAN.md — Unified signal_lineage: hypertable, LineageRecorder, LineageWriterAgent (D-01-07 lineage, D-46-48) — COMPLETE 2026-04-29
-  - [ ] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51)
+  - [x] 73-07-PLAN.md — Test migration, import boundary enforcement, cleanup, CLAUDE.md update (D-36-41, D-48, D-51)
 - [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
@@ -602,7 +602,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
-| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 1/7 | In Progress (Plan 1 complete) | 2026-04-29 |
+| 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Complete    | 2026-04-29 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
 | 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |
