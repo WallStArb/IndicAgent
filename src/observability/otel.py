@@ -4,7 +4,7 @@ import os
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -54,7 +54,8 @@ def init_otel_providers(
         try:
             provider = TracerProvider(resource=resource)
             exporter = OTLPSpanExporter(
-                endpoint=f"http://{grpc_endpoint}/v1/traces",
+                endpoint=grpc_endpoint,
+                insecure=True,
             )
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
