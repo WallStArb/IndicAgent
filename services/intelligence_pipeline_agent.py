@@ -451,6 +451,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         PluginValidator().validate_all()
 
+        # Shadow governance cache (loaded from shadow_registry at startup, refreshed every 5 min)
+        self._shadow_cache: dict[str, bool] = {}
+
         # Plugin caches
         self._plugin_cache: dict[str, Any] = {}
         for n in TIER_I1:
@@ -599,6 +602,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if key not in self._plugin_states_locks:
             self._plugin_states_locks[key] = threading.Lock()
         return self._plugin_states_locks[key]
+
+    def _is_shadow(self, plugin_name: str) -> bool:
+        """Look up shadow state from cache. Returns False (live) if not enrolled."""
+        return self._shadow_cache.get(plugin_name, False)
 
     # ------------------------------------------------------------------
     # _setup: DB connect, state restore, Kafka setup, cache loading
@@ -1549,11 +1556,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["status"] = "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
             # Regime context — regime_type already set from plugin class attribute above
             sig["hmm_regime_at_fire"] = features.get("hmm_regime")
-            # is_shadow: check plugin class attribute via _plugin_cache
-            plugin_inst = self._plugin_cache.get(sig.get("setup_plugin", ""))
-            sig["is_shadow"] = bool(
-                plugin_inst is not None and getattr(plugin_inst, "IS_SHADOW", False)
-            )
+            sig["is_shadow"] = self._is_shadow(sig.get("setup_plugin", ""))
             # Stamp CIS fields (bar-level score, same for all signals in this bar)
             sig["raw_cis_score"] = round(raw_cis, 4)
             sig["filtered_cis_score"] = round(filtered_cis, 4)

@@ -12,7 +12,7 @@ Renaissance principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
@@ -40,8 +40,6 @@ class DualDivergencePlugin:
     Confidence: compose_confidence(0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
     """
 
-    # Plugin-level shadow flag — ClassVar so it's not an instance field
-    IS_SHADOW: ClassVar[bool] = False
     name: str = "trad_DualDivergence"
     outputs: frozenset[str] = frozenset(
         {
@@ -149,7 +147,7 @@ class DualDivergencePlugin:
             "regime_context": regime_context,
             "supporting_factors": supporting,
         }
-        signal["_shadow"] = capture_signal_features(
+        signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "microstructure",

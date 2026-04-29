@@ -155,7 +155,7 @@ class CVDDivergencePlugin:
             "supporting_factors": supporting,
             "dual_divergence": dual_divergence,
         }
-        signal["_shadow"] = capture_signal_features(
+        signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "microstructure",

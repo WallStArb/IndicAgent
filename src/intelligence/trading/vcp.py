@@ -225,7 +225,7 @@ class VCPPlugin:
                 "supporting_factors": supporting,
                 "contraction_count": contraction_count,
             }
-            signal["_shadow"] = capture_signal_features(
+            signal["features_snapshot"] = capture_signal_features(
                 features,
                 direction,
                 "trend",

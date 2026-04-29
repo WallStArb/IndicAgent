@@ -158,7 +158,7 @@ class GapAnalysisSetupPlugin:
             "regime_context": "gap_open",
             "supporting_factors": supporting,
         }
-        signal["_shadow"] = capture_signal_features(
+        signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "session",
