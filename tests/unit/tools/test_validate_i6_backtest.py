@@ -1,12 +1,11 @@
 """Unit tests for validate_i6_backtest.py tool."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
-from scipy.stats import pearsonr
 
-from tools.validate_i6_backtest import ValidationResults, validate_backtest_results
+from tools.validate_i6_backtest import validate_backtest_results
 
 
 @pytest.fixture

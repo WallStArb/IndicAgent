@@ -4,21 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings
-from src.core.ai.base_agent import BaseAIAgent
-from src.core.ai.context import AIContext, AIContextCache, Tier
-from src.core.ai.output import AgentOutput
 from src.core.agent.base import BaseAgent
+from src.core.ai.base_agent import BaseAIAgent
+from src.core.ai.context import AIContextCache
+from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
-
-if TYPE_CHECKING:
-    from src.intelligence.schemas import IntelligenceEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -131,7 +128,6 @@ class BaseGroupService(BaseAgent, ABC):
 
     async def _seed_context_cache(self) -> None:
         """Seed AIContextCache with recent intelligence_features rows."""
-        import asyncpg
         assert self._pool is not None
 
         async with self._pool.acquire() as conn:

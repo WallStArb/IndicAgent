@@ -55,7 +55,7 @@ def compute_yield_curve_slope(
     """
     # ZN excluded from min_required — not used in slope computation (only ZT and ZB)
     min_required = min(lookback, len(bars.get("ZT", [])), len(bars.get("ZB", [])))
-    
+
     if min_required < lookback:
         return {
             "yield_curve_slope": 0.0,

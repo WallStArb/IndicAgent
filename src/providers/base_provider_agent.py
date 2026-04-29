@@ -260,6 +260,8 @@ class BaseProviderAgent(BaseAgent):
     # Stream loop with exponential-backoff reconnect
     # ------------------------------------------------------------------
 
+    _MAX_RECONNECT_ATTEMPTS = 10  # ~5 min of attempts, then crash for clean restart
+
     async def _stream_loop(self) -> None:
         """Consume bars from adapter.stream_bars() with auto-reconnect."""
         attempt = 0
@@ -292,6 +294,18 @@ class BaseProviderAgent(BaseAgent):
 
             await self._reconnect(attempt)
             attempt += 1
+
+            if attempt >= self._MAX_RECONNECT_ATTEMPTS:
+                self.logger.error(
+                    "provider_agent.max_reconnect_exceeded",
+                    agent=self.name,
+                    provider=self._provider_name_str(),
+                    attempts=attempt,
+                )
+                raise RuntimeError(
+                    f"Exceeded {self._MAX_RECONNECT_ATTEMPTS} consecutive "
+                    f"reconnect attempts — crashing for clean systemd restart"
+                )
 
     async def _reconnect(self, attempt: int) -> None:
         """Reconnect with jittered exponential backoff (base ≤30s, delay ≤45s).

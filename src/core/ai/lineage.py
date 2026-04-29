@@ -53,7 +53,7 @@ class LineageRecorder:
     ) -> None:
         """Record a lineage event to the batch buffer."""
         row = {
-            "ts": datetime.now(UTC).isoformat(),
+            "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "signal_id": str(signal_id),
             "event_type": event_type,
             "source": source,
@@ -66,7 +66,16 @@ class LineageRecorder:
         }
         self._batch.append(row)
         if len(self._batch) >= self._batch_size:
-            asyncio.create_task(self.flush())
+            try:
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(self.flush())
+                task.add_done_callback(
+                    lambda t: logger.exception("lineage_recorder.flush_failed")
+                    if t.exception()
+                    else None
+                )
+            except RuntimeError:
+                pass  # no running loop; flush() will be called on next periodic flush
 
     async def flush(self) -> None:
         """Flush buffered records to Kafka topic_signal_lineage()."""
@@ -75,9 +84,13 @@ class LineageRecorder:
         batch = self._batch[:]
         self._batch = []
         topic = topic_signal_lineage(self._env_name)
+        failed: list[dict] = []
         for row in batch:
             try:
                 await self._producer.publish(topic, value=row)
             except Exception:
                 logger.exception("lineage_recorder.publish_failed", source=row.get("source"))
+                failed.append(row)
+        if failed:
+            self._batch = failed + self._batch
         self._last_flush = time.monotonic()

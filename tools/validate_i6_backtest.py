@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
-from typing import Any
 
 import pandas as pd
 from scipy.stats import pearsonr
@@ -31,7 +29,7 @@ class ValidationResults:
     ic: float  # information coefficient (pearsonr)
     p_value: float  # statistical significance
     passed: bool  # IC > min_ic AND p < alpha AND n >= min_n
-    regime_results: dict[str, "ValidationResults"]  # per-regime breakdown
+    regime_results: dict[str, ValidationResults]  # per-regime breakdown
     decision: str = field(default="UNKNOWN")  # D-25: VALIDATED / TWEAK / KILL
 
     def __str__(self) -> str:

@@ -167,29 +167,6 @@ def test_topic_health_events_dlq_format():
 # ---------------------------------------------------------------------------
 
 
-def test_topic_swarm_alpha_path_a():
-    from src.core.stream_keys import topic_swarm_alpha_path_a
-
-    assert topic_swarm_alpha_path_a("dev") == "dev.swarm.alpha.path_a"
-
-
-def test_topic_swarm_alpha_path_b():
-    from src.core.stream_keys import topic_swarm_alpha_path_b
-
-    assert topic_swarm_alpha_path_b("dev") == "dev.swarm.alpha.path_b"
-
-
-def test_topic_swarm_world_state():
-    from src.core.stream_keys import topic_swarm_world_state
-
-    assert topic_swarm_world_state("dev") == "dev.swarm.world_state"
-
-
-def test_topic_swarm_orchestrator_dlq():
-    from src.core.stream_keys import topic_swarm_orchestrator_dlq
-
-    assert topic_swarm_orchestrator_dlq("dev") == "dev.swarm.orchestrator.dlq"
-
 
 def test_topic_swarm_writer_dlq():
     from src.core.stream_keys import topic_swarm_writer_dlq

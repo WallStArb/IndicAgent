@@ -250,13 +250,13 @@ def compute_value_add(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[dict]:
+async def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[dict]:
     """Query signal_lineage for agent prediction events.
 
     D-06: graduation_loop uses signal_lineage WHERE event_type = 'agent_prediction'
     instead of signal_transform_log.
     """
-    rows = conn.fetch("""
+    rows = await conn.fetch("""
         SELECT sl.signal_id, sl.multiplier, sl.metadata, sl.symbol, sl.tf,
                sl.ts, sl.is_shadow,
                COALESCE(s.outcome, 'pending') as outcome,
@@ -268,9 +268,9 @@ def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[
         WHERE sl.event_type = 'agent_prediction'
           AND sl.source = $1
         ORDER BY sl.ts DESC
-        LIMIT 500
-    """, agent_id)
-    return rows
+        LIMIT $2
+    """, agent_id, min_samples)
+    return [dict(row) for row in rows]
 
 
 def evaluate_all(

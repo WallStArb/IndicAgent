@@ -74,6 +74,7 @@ class TestRemoveFromIndex:
     def test_remove_from_index_removes_correct_signal(self):
         """Only the signal with matching signal_id is removed; others preserved."""
         from unittest.mock import MagicMock
+
         from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
@@ -99,6 +100,7 @@ class TestRemoveFromIndex:
     def test_remove_from_index_on_empty_key_is_safe(self):
         """Calling _remove_from_index on a key with no signals does not raise."""
         from unittest.mock import MagicMock
+
         from services.signal_tracker_compute_agent import SignalTrackerCompute as SignalTrackerAgent
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)

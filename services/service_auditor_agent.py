@@ -31,7 +31,7 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import OTelGauge, SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
+from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, OTelGauge
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3

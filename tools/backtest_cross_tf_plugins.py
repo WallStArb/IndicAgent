@@ -9,24 +9,22 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-import pandas as pd
-
-from tools.backtest_i6_plugin import backtest_i6_plugin
 from src.intelligence.confluence.cross_tf_momentum_divergence import (
     CrossTFMomentumDivergencePlugin,
-)
-from src.intelligence.confluence.cross_tf_sr_confluence import (
-    CrossTFSRConfluencePlugin,
-)
-from src.intelligence.confluence.cross_tf_regime_agreement import (
-    CrossTFRegimeAgreementPlugin,
-)
-from src.intelligence.confluence.squeeze_expansion_divergence import (
-    SqueezeExpansionDivergencePlugin,
 )
 from src.intelligence.confluence.cross_tf_orderflow_alignment import (
     CrossTFOrderFlowAlignmentPlugin,
 )
+from src.intelligence.confluence.cross_tf_regime_agreement import (
+    CrossTFRegimeAgreementPlugin,
+)
+from src.intelligence.confluence.cross_tf_sr_confluence import (
+    CrossTFSRConfluencePlugin,
+)
+from src.intelligence.confluence.squeeze_expansion_divergence import (
+    SqueezeExpansionDivergencePlugin,
+)
+from tools.backtest_i6_plugin import backtest_i6_plugin
 
 # Explicit field map: primary numeric output field per plugin (used for IC computation)
 PLUGIN_PRIMARY_FIELDS: dict[str, str] = {

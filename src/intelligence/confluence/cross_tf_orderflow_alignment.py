@@ -24,9 +24,8 @@ Outputs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
 from math import tanh
+from typing import Any
 
 from ..plugins import InputSpec
 

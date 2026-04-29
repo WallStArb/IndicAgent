@@ -108,7 +108,7 @@ async def test_handle_trigger_skips_when_no_context():
 async def test_handle_trigger_skips_stale_bar():
     agent = _make_agent()
     event = _make_event()
-    # 15 minutes old — exceeds _STALENESS_LIMIT of 10m
+    # Years in the past — clearly exceeds _STALENESS_LIMIT of 10m
     old_ts = datetime(2020, 1, 1, 12, 0, 0, tzinfo=UTC)
     event["intelligence"]["ts"] = old_ts.isoformat()
     agent._context_cache.build.return_value = MagicMock()

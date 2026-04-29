@@ -7,10 +7,9 @@ best-effort; failures are silently dropped to avoid impacting the pipeline.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.sdk._logs import LoggingHandler, LoggerProvider
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 
@@ -18,7 +17,7 @@ from opentelemetry.sdk.resources import Resource
 def setup_otlp_logging(
     service_name: str = "indicagent",
     endpoint: str | None = None,
-) -> Optional[LoggerProvider]:
+) -> LoggerProvider | None:
     """Set up OTLP log export alongside existing file logging.
 
     Returns LoggerProvider if successful, None if Collector unreachable.

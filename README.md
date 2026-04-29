@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v2.2 · 123 plugins · 2835 tests · 60 instruments · <10ms end-to-end**
+**v2.2 · 128 plugins · 2835 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
@@ -11,7 +11,7 @@
 ## Core Architectural Concepts
 
 ### Plugin-Native Architecture
-The system is an empty shell - intelligence is composed entirely of plugins. Add capabilities via single `@dataclass` without changing pipeline logic. 123 plugins across 8 intelligence tiers (I1-I8), each with `compute_next()` for $O(1)$ incremental updates.
+The system is an empty shell - intelligence is composed entirely of plugins. Add capabilities via single `@dataclass` without changing pipeline logic. 128 plugins across 8 intelligence tiers (I1-I8), each with `compute_next()` for $O(1)$ incremental updates.
 
 ### Event-Driven Microservices
 Services never call each other directly. All communication flows through Redpanda streams - producers publish, consumers subscribe. A service going down? Messages queue. Restart? Resume from committed offset. Zero coupling, restart-safe, horizontally scalable.
@@ -43,11 +43,11 @@ KS drift detection + CUSUM performance monitoring automatically discount out-of-
 
 **[High-Level Architecture Concepts](docs/architecture/concepts.md)** - Complete patterns: dynamic clustering, modularity, API-first, multi-agent orchestrator, Renaissance principles
 
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals - regime-classified, institutionally contextualized, AI-narrated, and drift-corrected - in under 10ms. 123 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals - regime-classified, institutionally contextualized, AI-narrated, and drift-corrected - in under 10ms. 128 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
 
 Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score) requires cross-tier agreement from at least 3 of 6 independent evidence buckets; regime conflicts veto, and signals lose confidence explicitly as they age. Every winner and every rejected counterfactual lands in the feature store with its full I1–I8 context, ensuring the system accumulates its own high-fidelity labeled training dataset with every bar it processes.
 
-Designed for resilience, reproducibility, and massive scale, our pipeline processes 123 plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
+Designed for resilience, reproducibility, and massive scale, our pipeline processes 128 plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
 
 IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
 
@@ -141,7 +141,7 @@ Every stream is namespaced and typed:
 
 ## The Plugin System
 
-### 123 plugins in a dependency DAG (+ 2 aggregation)
+### 128 plugins in a dependency DAG (+ 2 aggregation)
 
 Every output in the pipeline is produced by a plugin. Plugins are stateless workers that read from the typed bus and write back to it. The dependency graph is declared, not hardcoded: each plugin specifies what it reads, and the DAG engine derives execution order automatically at startup using topological sort.
 
@@ -172,7 +172,7 @@ Raw OHLCV
 | I4 | 12 | Regime classification - GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, VolumeProfile, AnchoredVWAP, VIXRegime, CrossAssetContext (2 waves) |
 | I5 | 16 | Pattern detection - MTFVolatility, RSI/MACD/CMF divergence, squeeze, chart patterns, trend confluence, key level reactions |
 | I6 SMC | 13 | Smart Money Concepts - BOS/CHoCH, FVG, order blocks, liquidity pools, ICT killzones, AMD cycles, BOCPD (2 waves) |
-| I6 confluence | 1 | Cross-timeframe SMC synthesis |
+| I6 confluence | 6 | Cross-timeframe SMC synthesis |
 | I7 setups | 36 | 36 setup plugins — core 9 + CIS contributors + session/structure + ORB15/30 + volume profile + OFI/CVD microstructure + cross-asset divergence |
 | Aggregation | 2 | CIS scorer + signal aggregator |
 
@@ -270,7 +270,7 @@ For every signal above confidence 0.7 (on 5m, 15m, 1h timeframes), the AI Narrat
 
 Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
 
-LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama local** (gemma4:e4b, offline, AMD ROCm GPU). Every call - successful and failed - is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
+LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama Cloud** (when `OLLAMA_API_KEY` is configured) → **Ollama local** (gemma4:e4b, offline, AMD ROCm GPU). Every call - successful and failed - is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
 
 ---
 
@@ -424,7 +424,8 @@ Six models run across I4 and I6, each answering a distinct question about market
 ### The LLM chain
 
 1. **OpenRouter** (primary): free models, 100+ model catalogue, per-regime model routing
-2. **Ollama local** (offline fallback): gemma4:e4b (per-signal) + phi4-mini:3.8b (group synthesis), AMD ROCm GPU, fully offline
+2. **Ollama Cloud** (optional middle tier): enabled with `OLLAMA_API_KEY`, prioritized before local fallback
+3. **Ollama local** (offline fallback): gemma4:e4b (per-signal) + phi4-mini:3.8b (group synthesis), AMD ROCm GPU, fully offline
 
 Every call - success or failure - written to `llm_calls` (TimescaleDB hypertable). Per-model win rates and average P&L ratios tracked in `llm_model_scores`, refreshed every 15 minutes.
 
@@ -570,14 +571,14 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 |---|---|
 | **Version** | v2.2 - Swarm Foundation |
 | **Instruments** | 60 - equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
-| **Plugins** | 123 across I1–I7 + 2 aggregation components |
+| **Plugins** | 128 across I1–I7 + 2 aggregation components |
 | **Tests** | 2835 passing (unit) |
 | **Latency** | <10ms bar-to-intelligence, feed-provider bound |
 | **Data in** | Real-time market data: 100–500+ ticks/sec per instrument |
 | **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
 | **Hot/Warm path** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
 | **Cold path** | TimescaleDB on PostgreSQL 17 (feature store, signal ledger, LLM audit) |
-| **Services** | 27 systemd services, `Restart=always` |
+| **Services** | 31 systemd services + 7 timers, `Restart=always` |
 | **Stack** | Python 3.11+ · FastAPI · asyncpg · LangGraph · Next.js / React · Tailwind · Prometheus · Grafana · Superset *(planned)* |
 | **Analytics** | Apache Superset → TimescaleDB (planned) |
 
@@ -587,14 +588,14 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 
 **v2.2 - Swarm Foundation (in progress).**
 
-- **I1–I8 pipeline:** Fully operational. 123 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
+- **I1–I8 pipeline:** Fully operational. 128 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
 - **v2.1 complete:** Signal Integrity Foundation (Phases 48–53) · Unified Pipeline (Phase 57) — `IntelligencePipelineComputeAgent` merges I1–I7 into a single in-process pipeline; `SignalWriterAgent` handles I7 persistence.
 - **v2.2 in progress:** Swarm Foundation (Phase 56) — LLM layer extraction into standalone module, `SwarmOrchestratorAgent` + `SwarmWriterAgent` plumbing services live, safety wrappers, DB migration for swarm state.
 - **Cross-asset intelligence:** OFI/CVD microstructure (I1) + I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
 - **CIS pipeline:** Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`. Full audit trail per signal.
 - **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
 - **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
-- **AI Narratives:** OpenRouter (free models) / Ollama gemma4:e4b (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
+- **AI Narratives:** OpenRouter → Ollama Cloud when configured → Ollama gemma4:e4b (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
 - **Observability:** Prometheus + Grafana dashboards — pipeline throughput, latency, signal rates, LLM success rates, per-plugin errors.
 
 ---
@@ -616,4 +617,4 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 
 ---
 
-**v2.2 · 123 plugins · 2835 tests · 60 instruments**
+**v2.2 · 128 plugins · 2835 tests · 60 instruments**

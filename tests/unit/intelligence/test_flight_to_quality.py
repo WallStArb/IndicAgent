@@ -1,7 +1,6 @@
 """Unit tests for flight_to_quality macro factor."""
 
 from collections import deque
-import pytest
 
 from src.intelligence.macro.flight_to_quality import compute_flight_to_quality
 

@@ -205,7 +205,7 @@ class ContractMetadataWriterAgent(BaseAgent):
     async def _write_roll_event(
         self,
         conn: asyncpg.Connection,
-        event: "RollEvent",
+        event: RollEvent,
         is_authoritative: bool,
     ) -> None:
         """Write a detection event to roll_events for ML training."""

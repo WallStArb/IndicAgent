@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 import types
-from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +11,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
-    from src.intelligence.schemas import IntelligenceEvent, RankedSignal
+    from src.intelligence.schemas import IntelligenceEvent
 
 logger = structlog.get_logger(__name__)
 

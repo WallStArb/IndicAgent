@@ -317,27 +317,6 @@ def topic_swarm_results(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.swarm"
 
 
-def topic_swarm_alpha_path_a(env_name: str) -> str:
-    """Assembled AlphaMultiplier from deterministic (Path A) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_a"
-
-
-def topic_swarm_alpha_path_b(env_name: str) -> str:
-    """Assembled AlphaMultiplier from LLM swarm (Path B) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_b"
-
-
-def topic_swarm_world_state(env_name: str) -> str:
-    """Compacted world state topic (cleanup.policy=compact).
-    Create manually: rpk topic create dev.swarm.world_state --topic-config cleanup.policy=compact
-    """
-    return f"{env_prefix(env_name)}swarm.world_state"
-
-
-def topic_swarm_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for SwarmOrchestratorComputeAgent — unresolvable contexts."""
-    return f"{env_prefix(env_name)}swarm.orchestrator.dlq"
-
 
 def topic_swarm_writer_dlq(env_name: str) -> str:
     """DLQ for SwarmWriterAgent — malformed payloads or DB insert failures."""

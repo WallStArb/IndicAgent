@@ -91,10 +91,10 @@ async def test_discover_services_returns_sorted_list():
 
     # Mock systemctl output: bar-writer (dag 4) before ibkr-provider (dag 1)
     mock_stdout = (
-        "indicagent-bar-writer.service loaded active running\n"
-        "indicagent-ibkr-provider.service loaded active running\n"
-        "indicagent-intelligence-pipeline.service loaded active running\n"
-    ).encode()
+        b"indicagent-bar-writer.service loaded active running\n"
+        b"indicagent-ibkr-provider.service loaded active running\n"
+        b"indicagent-intelligence-pipeline.service loaded active running\n"
+    )
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(mock_stdout, b""))
@@ -271,7 +271,7 @@ async def test_emit_health_event_inserts_correct_schema():
 
 @pytest.mark.asyncio
 async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
-    from services.service_auditor_agent import ServiceState, _SVC_DATA_PROVIDER
+    from services.service_auditor_agent import _SVC_DATA_PROVIDER, ServiceState
     agent = _make_agent()
     agent._service_states[_SVC_DATA_PROVIDER] = ServiceState()
     agent._emit_health_event = AsyncMock()

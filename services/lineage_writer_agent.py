@@ -27,7 +27,8 @@ class LineageWriterAgent(BaseWriterAgent):
 
     def _parse_payload(self, payload: dict) -> list | None:
         """Parse lineage event from Kafka message."""
-        if not payload.get("signal_id") or not payload.get("event_type"):
+        required = ("signal_id", "event_type", "ts", "source")
+        if not all(payload.get(k) for k in required):
             return None
         return [payload]
 

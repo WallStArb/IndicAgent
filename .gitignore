@@ -303,3 +303,4 @@ test_ng_quote.py
 
 # Grafana alerting contact points — contains real credentials, never committed
 production/grafana/provisioning/alerting/contact-points.yml
+.codex

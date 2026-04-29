@@ -759,25 +759,6 @@ class TestConditionExpired:
 from datetime import UTC, datetime  # noqa: E402
 
 
-def _pending_with_zone(
-    direction=1, entry=5100.0, stop=5085.0, zone_low=5095.0, zone_high=5102.0
-) -> dict:
-    """Pending signal with zone bounds."""
-    return {
-        "signal_id": "test-id",
-        "status": "pending",
-        "direction": direction,
-        "entry_price": entry,
-        "stop_loss": stop,
-        "targets": [5115.0, 5130.0, 5145.0] if direction == 1 else [5085.0, 5070.0, 5055.0],
-        "ttl_bars": 10,
-        "bars_elapsed": 0,
-        "point_value": 50.0,
-        "entry_zone_low": zone_low,
-        "entry_zone_high": zone_high,
-    }
-
-
 @pytest.mark.unit
 class TestTemporalGuard:
     """D-01: Signals cannot be activated on bars from before they were fired."""

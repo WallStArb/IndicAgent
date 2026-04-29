@@ -68,7 +68,6 @@ async def _backtest_async(
     settings = Settings()
     conn = await asyncpg.connect(settings.database_url)
 
-    import json
 
     try:
         # Query intelligence_features for I1-I5 inputs.
