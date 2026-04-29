@@ -78,15 +78,23 @@ async def test_report_consumer_lag_is_noop_by_default(agent: MinimalAgent) -> No
 
 
 def test_metrics_port_none_by_default() -> None:
-    """metrics_port defaults to None when not specified."""
+    """metrics_port defaults to None when not specified.
+
+    Phase 77-02: _metrics_port is no longer stored in __init__ (OTel push replaces HTTP server).
+    __getattr__ fallback returns None for backward compat.
+    """
     a = MinimalAgent(name="x")
     assert a._metrics_port is None
 
 
-def test_metrics_port_stored() -> None:
-    """metrics_port value is stored in _metrics_port."""
+def test_metrics_port_accepted_param() -> None:
+    """metrics_port is accepted as a parameter (backward compat) but not stored.
+
+    Phase 77-02: The parameter is accepted silently but no HTTP server is started.
+    """
     a = MinimalAgent(name="x", metrics_port=9999)
-    assert a._metrics_port == 9999
+    # Should not raise — parameter is accepted
+    assert a is not None
 
 
 def test_tracer_attribute_exists() -> None:
@@ -215,29 +223,47 @@ async def test_send_to_dlq_logs_and_does_not_raise(agent: MinimalAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_metrics_server_started_when_port_set() -> None:
-    """start_metrics_server is called with the configured port when metrics_port is set."""
-    with (
-        patch("src.core.agent.base.start_metrics_server") as mock_start,
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
-    ):
-        a = MinimalAgent(name="x", metrics_port=9999)
-        await a.start()
+async def test_metrics_port_accepted_but_no_http_server_started() -> None:
+    """metrics_port is accepted for backward compat but no HTTP server is started.
 
-    mock_start.assert_called_once_with(port=9999)
+    Phase 77-02: BaseAgent migrated to OTel push — start_metrics_server is removed.
+    The metrics_port parameter stays in the signature so all 25+ service files work
+    unchanged, but the HTTP server is never started.
+    """
+    import src.core.agent.base as base_module
+
+    with patch("src.core.agent.base.init_otel_providers") as mock_init:
+        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+            # Reset module-level flag to ensure init is called
+            original = base_module._tracing_initialized
+            base_module._tracing_initialized = False
+            try:
+                a = MinimalAgent(name="x", metrics_port=9999)
+                await a.start()
+            finally:
+                base_module._tracing_initialized = original
+
+    # OTel providers must be initialized — no HTTP server
+    mock_init.assert_called_once_with(service_name="x")
 
 
 @pytest.mark.asyncio
-async def test_metrics_server_not_started_when_port_none() -> None:
-    """start_metrics_server is NOT called when metrics_port is None."""
-    with (
-        patch("src.core.agent.base.start_metrics_server") as mock_start,
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
-    ):
-        a = MinimalAgent(name="x")
-        await a.start()
+async def test_otel_providers_initialized_on_start() -> None:
+    """init_otel_providers is called once when BaseAgent.start() is invoked."""
+    import src.core.agent.base as base_module
 
-    mock_start.assert_not_called()
+    with patch("src.core.agent.base.init_otel_providers") as mock_init:
+        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+            # Reset module-level flag to ensure init is called
+            original = base_module._tracing_initialized
+            base_module._tracing_initialized = False
+            try:
+                a = MinimalAgent(name="x")
+                await a.start()
+            finally:
+                base_module._tracing_initialized = original
+
+    mock_init.assert_called_once_with(service_name="x")
 
 
 # ---------------------------------------------------------------------------

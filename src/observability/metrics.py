@@ -8,6 +8,7 @@ Status: Current ✅
 
 from __future__ import annotations
 
+from opentelemetry import metrics as otel_metrics
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 _counters: dict[str, Counter] = {}
@@ -456,6 +457,121 @@ REGIME_GATE_SUPPRESSIONS_TOTAL = Counter(
     "Signals suppressed by regime gate",
     labelnames=["reason", "plugin", "tf"],
 )
+
+
+# ---------------------------------------------------------------------------
+# OTel metric wrapper classes (Phase 77-02)
+# Drop-in replacements for prometheus_client.Counter/Gauge/Histogram.
+# Preserve the .labels(**kwargs).inc()/.set()/.observe() API while delegating
+# to the OTel SDK internally.
+# ---------------------------------------------------------------------------
+
+
+class _OTelLabeledCounter:
+    def __init__(self, counter, labels: dict):
+        self._counter = counter
+        self._labels = labels
+
+    def inc(self, amount: float = 1.0) -> None:
+        self._counter.add(amount, self._labels)
+
+
+class OTelCounter:
+    """Drop-in replacement for prometheus_client.Counter.
+
+    Preserves .labels(x="y").inc() API while delegating to OTel SDK Counter.add().
+    """
+
+    def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None):
+        self._name = name
+        self._labelnames = labelnames or []
+        self._meter = otel_metrics.get_meter("indicagent")
+        self._counter = self._meter.create_counter(
+            name, description=documentation,
+        )
+        self._labeled: dict[tuple, _OTelLabeledCounter] = {}
+
+    def labels(self, **kwargs) -> _OTelLabeledCounter:
+        key = tuple(sorted(kwargs.items()))
+        if key not in self._labeled:
+            self._labeled[key] = _OTelLabeledCounter(self._counter, kwargs)
+        return self._labeled[key]
+
+    def inc(self, amount: float = 1.0) -> None:
+        self._counter.add(amount, {})
+
+
+class _OTelLabeledGauge:
+    def __init__(self, gauge, labels: dict):
+        self._gauge = gauge
+        self._labels = labels
+
+    def set(self, value: float) -> None:
+        self._gauge.set(value, self._labels)
+
+    def inc(self, amount: float = 1.0) -> None:
+        # Gauge.inc() pattern -- set to amount (OTel gauge does not support increment)
+        self._gauge.set(amount, self._labels)
+
+
+class OTelGauge:
+    """Drop-in replacement for prometheus_client.Gauge.
+
+    Preserves .labels(x="y").set(v) API while delegating to OTel SDK Gauge.set().
+    """
+
+    def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None):
+        self._name = name
+        self._labelnames = labelnames or []
+        self._meter = otel_metrics.get_meter("indicagent")
+        self._gauge = self._meter.create_gauge(
+            name, description=documentation,
+        )
+        self._labeled: dict[tuple, _OTelLabeledGauge] = {}
+
+    def labels(self, **kwargs) -> _OTelLabeledGauge:
+        key = tuple(sorted(kwargs.items()))
+        if key not in self._labeled:
+            self._labeled[key] = _OTelLabeledGauge(self._gauge, kwargs)
+        return self._labeled[key]
+
+    def set(self, value: float) -> None:
+        self._gauge.set(value, {})
+
+
+class _OTelLabeledHistogram:
+    def __init__(self, histogram, labels: dict):
+        self._histogram = histogram
+        self._labels = labels
+
+    def observe(self, value: float) -> None:
+        self._histogram.record(value, self._labels)
+
+
+class OTelHistogram:
+    """Drop-in replacement for prometheus_client.Histogram.
+
+    Preserves .labels(x="y").observe(v) API while delegating to OTel SDK Histogram.record().
+    """
+
+    def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None,
+                 buckets: list[float] | None = None):
+        self._name = name
+        self._labelnames = labelnames or []
+        self._meter = otel_metrics.get_meter("indicagent")
+        self._histogram = self._meter.create_histogram(
+            name, description=documentation,
+        )
+        self._labeled: dict[tuple, _OTelLabeledHistogram] = {}
+
+    def labels(self, **kwargs) -> _OTelLabeledHistogram:
+        key = tuple(sorted(kwargs.items()))
+        if key not in self._labeled:
+            self._labeled[key] = _OTelLabeledHistogram(self._histogram, kwargs)
+        return self._labeled[key]
+
+    def observe(self, value: float) -> None:
+        self._histogram.record(value, {})
 
 
 def start_metrics_server(port: int = 9400) -> None:
