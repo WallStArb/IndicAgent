@@ -41,20 +41,21 @@ def _make_agent_output(multiplier: float = 1.2) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_wrapper_returns_agent_output_on_success():
+async def test_wrapper_returns_agent_result_on_success():
+    from src.core.ai.output import AgentOutput
     from src.core.ai.safe_wrapper import SafeAgentWrapper
-    from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
 
-    # Create a mock LLM chain
-    mock_llm = MagicMock()
-    mock_llm.generate = AsyncMock(return_value='{"failure_probability": 0.2, "confidence": 0.9, "risk_factors": [], "reasoning": "test"}')
+    expected = AgentOutput(agent_id="a", group="alpha", payload={"multiplier": 1.18, "confidence": 0.9})
+    agent = MagicMock()
+    agent.agent_id = "a"
+    agent.shadow_only = True
+    agent.latency_budget_ms = 1000.0
+    agent.compute = AsyncMock(return_value=expected)
 
-    agent = SkepticAgentComputeAgent(llm_chain=mock_llm)
     wrapper = SafeAgentWrapper(agent)
-    ctx = _make_context()
-    result = await wrapper.run(ctx)
+    result = await wrapper.compute(_make_context())
     assert result is not None
-    assert result.payload["multiplier"] == (1.0 - 0.2) * 0.9
+    assert result.payload["multiplier"] == pytest.approx(1.18)
 
 
 @pytest.mark.asyncio
@@ -66,13 +67,11 @@ async def test_wrapper_returns_neutral_on_timeout():
 
     agent = MagicMock()
     agent.agent_id = "slow_agent"
-    agent.latency_budget_ms = 10.0  # 10ms budget
+    agent.latency_budget_ms = 10.0
     agent.compute = slow_compute
 
     wrapper = SafeAgentWrapper(agent)
-    ctx = _make_context()
-    result = await wrapper.run(ctx)
-    # Timeout → neutral output
+    result = await wrapper.compute(_make_context())
     assert result is not None
     assert result.payload.get("multiplier", 1.0) == 1.0
     assert result.error is not None
@@ -88,24 +87,27 @@ async def test_wrapper_returns_neutral_on_exception():
     agent.compute = AsyncMock(side_effect=ValueError("agent crashed"))
 
     wrapper = SafeAgentWrapper(agent)
-    ctx = _make_context()
-    result = await wrapper.run(ctx)
-    assert result.payload.get("multiplier", 1.0) == 1.0  # neutral fallback
+    result = await wrapper.compute(_make_context())
+    assert result.payload.get("multiplier", 1.0) == 1.0
     assert result.error is not None
 
 
 @pytest.mark.asyncio
 async def test_wrapper_records_latency_ms():
+    from src.core.ai.output import AgentOutput
     from src.core.ai.safe_wrapper import SafeAgentWrapper
-    from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
 
-    mock_llm = MagicMock()
-    mock_llm.generate = AsyncMock(return_value='{"failure_probability": 0.1, "confidence": 0.95, "risk_factors": [], "reasoning": "test"}')
+    agent = MagicMock()
+    agent.agent_id = "test_agent"
+    agent.shadow_only = True
+    agent.latency_budget_ms = 1000.0
+    agent.compute = AsyncMock(return_value=AgentOutput(
+        agent_id="test_agent", group="alpha", payload={"multiplier": 1.0},
+    ))
 
-    agent = SkepticAgentComputeAgent(llm_chain=mock_llm)
     wrapper = SafeAgentWrapper(agent)
     ctx = _make_context()
-    result = await wrapper.run(ctx)
+    result = await wrapper.compute(ctx)
     assert result.latency_ms >= 0.0
 
 

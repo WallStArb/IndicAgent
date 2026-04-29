@@ -49,10 +49,7 @@ _LEAD_INDEX_MAP: dict[str, str] = {
     "VX": "VX",
 }
 
-
-def _safe(obj: Any, attr: str) -> Any:
-    """Null-safe getattr -- mirrors AIContextCache.build() helper."""
-    return getattr(obj, attr, None)
+_SYMBOL_BASE_RE = re.compile(r"^([A-Z]+?)[A-Z]\d+$")
 
 
 class AlphaSwarmComputeAgent(BaseGroupService):
@@ -155,13 +152,13 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             return
 
         signal_id = signal.signal_id or uuid4()
+        signal_dict = signal.model_dump()
 
-        # Build AIContext
         context = self._context_cache.build(
             symbol=symbol,
             tf=tf,
-            tiers_needed=frozenset(),  # Will be union of agent.tiers_needed
-            signal=signal.model_dump(),
+            tiers_needed=frozenset(),
+            signal=signal_dict,
             signal_id=signal_id,
         )
         if context is None:
@@ -170,20 +167,17 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             )
             return
 
-        # Enrich context with lead index + volume profile
         enriched = self._enrich_context(context)
 
-        # Run ALL agents concurrently per D-15
         from src.core.ai.safe_wrapper import SafeAgentWrapper
 
         tasks = []
         for agent in self._agents:
-            # Build agent-specific context with its tier requirements
             agent_context = self._context_cache.build(
                 symbol=symbol,
                 tf=tf,
                 tiers_needed=agent.tiers_needed,
-                signal=signal.model_dump(),
+                signal=signal_dict,
                 signal_id=signal_id,
             )
             if agent_context is None:
@@ -195,18 +189,14 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 )
                 continue
 
-            # Enrich agent-specific context
-            enriched_agent_ctx = self._enrich_context(agent_context)
-
             wrapper = SafeAgentWrapper(agent)
-            tasks.append(wrapper.compute(enriched_agent_ctx))
+            tasks.append(wrapper.compute(self._enrich_context(agent_context)))
 
         if not tasks:
             return
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Record each result via shared ShadowRecorder + TransformRecorder
         for result in results:
             if isinstance(result, Exception):
                 self.logger.error(
@@ -216,8 +206,6 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 continue
             if isinstance(result, AgentOutput):
                 await self._record_swarm_result(signal_id, enriched, result)
-
-                # Publish to output topic
                 await self._publish_result(result)
 
                 if result.error:
@@ -312,7 +300,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         Returns None if no lead mapping, self-lead, or cache miss.
         """
-        base_match = re.match(r"^([A-Z]+?)[A-Z]\d+$", symbol)
+        base_match = _SYMBOL_BASE_RE.match(symbol)
         if not base_match:
             return None
         base = base_match.group(1)
