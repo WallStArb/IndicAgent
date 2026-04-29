@@ -61,11 +61,11 @@ class SwarmAggregator:
         weights = []
         if path_a_results:
             components.append(path_a_mult)
-            a_weight = sum(r.confidence for r in path_a_results)
+            a_weight = sum(r.payload.get("confidence", 0.0) for r in path_a_results)
             weights.append(a_weight)
         if path_b_results:
             components.append(path_b_mult)
-            b_weight = sum(r.confidence for r in path_b_results) * (1.0 - _PATH_B_DISCOUNT)
+            b_weight = sum(r.payload.get("confidence", 0.0) for r in path_b_results) * (1.0 - _PATH_B_DISCOUNT)
             weights.append(b_weight)
 
         if not components:
@@ -78,10 +78,9 @@ class SwarmAggregator:
 
         production = max(_PRODUCTION_CLAMP_LOW, min(_PRODUCTION_CLAMP_HIGH, final))
 
-        all_contributors = {r.agent_id: r.model_dump() for r in (path_a_results + path_b_results)}
-        any_shadow = (
-            any(r.shadow_only for r in (path_a_results + path_b_results))
-        )
+        combined = path_a_results + path_b_results
+        all_contributors = {r.agent_id: r.model_dump() for r in combined}
+        any_shadow = any(r.shadow_only for r in combined) if combined else True
 
         return AlphaMultiplier(
             signal_id=signal_id,

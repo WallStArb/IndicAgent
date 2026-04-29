@@ -1,7 +1,4 @@
-"""Unit tests for AINarrativeComputeAgent.
-
-Uses __new__ pattern to bypass __init__ (per CLAUDE.md service test pattern).
-"""
+"""Unit tests for NarrativeGroupComputeAgent._handle_trigger."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -10,69 +7,113 @@ from uuid import uuid4
 
 import pytest
 
+from src.core.ai.output import AgentOutput
+
 
 def _make_agent():
-    """Create agent via __new__ to bypass __init__."""
-    from services.ai_narrative_agent import AINarrativeComputeAgent
-    agent = AINarrativeComputeAgent.__new__(AINarrativeComputeAgent)
-    agent._orchestrator = MagicMock()
+    from services.ai_narrative_agent import NarrativeGroupComputeAgent
+
+    agent = NarrativeGroupComputeAgent.__new__(NarrativeGroupComputeAgent)
+    mock_narrative_agent = MagicMock()
+    mock_narrative_agent.agent_id = "narrative_v1"
+    mock_narrative_agent.shadow_only = True
+    mock_narrative_agent.latency_budget_ms = 5000
+    mock_narrative_agent.tiers_needed = frozenset()
+    agent._agents = [mock_narrative_agent]
+    agent._context_cache = MagicMock()
     agent._producer = MagicMock()
+    agent._publish_result = AsyncMock()
     agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     return agent
 
 
-def _make_record(direction: int = 1, symbol: str = "ESM6"):
-    from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent
-    intel = MagicMock(spec=IntelligenceEvent)
-    intel.symbol = symbol
-    intel.tf = "1m"
-    intel.ts = datetime.now(UTC)
-
-    record = MagicMock(spec=BarIntelligenceRecord)
-    record.intelligence = intel
-    record.winner_direction = direction
-    record.winner_confidence = 0.80
-    record.winner_plugin = "TrendFollowing"
-    record.record_id = str(uuid4())
-    return record
+def _make_event(symbol: str = "ESM6", tf: str = "1m") -> dict:
+    return {
+        "intelligence": {
+            "symbol": symbol,
+            "tf": tf,
+            "ts": datetime.now(UTC).isoformat(),
+        },
+        "winner_direction": 1,
+        "record_id": str(uuid4()),
+    }
 
 
-@pytest.mark.asyncio
-async def test_process_bar_publishes_narrative_on_success():
-    agent = _make_agent()
-    record = _make_record()
-    agent._orchestrator.generate = AsyncMock(return_value="Bullish breakout above 5280.")
-    agent._producer.publish = AsyncMock()
-
-    await agent._process_bar(record)
-
-    agent._producer.publish.assert_awaited_once()
-    call_args = agent._producer.publish.call_args
-    payload = call_args[0][1]
-    assert payload["narrative"] == "Bullish breakout above 5280."
-    assert payload["symbol"] == "ESM6"
+def _make_output(text: str = "", error: str | None = None) -> AgentOutput:
+    return AgentOutput(
+        agent_id="narrative_v1",
+        group="narrative",
+        payload={"text": text},
+        error=error,
+        shadow_only=True,
+    )
 
 
 @pytest.mark.asyncio
-async def test_process_bar_skips_when_orchestrator_returns_none():
+async def test_handle_trigger_publishes_on_success():
     agent = _make_agent()
-    record = _make_record(direction=0)
-    agent._orchestrator.generate = AsyncMock(return_value=None)
-    agent._producer.publish = AsyncMock()
+    event = _make_event()
+    mock_context = MagicMock()
+    agent._context_cache.build.return_value = mock_context
+    output = _make_output(text="Bullish breakout above 5280.")
+    agent._agents[0].compute = AsyncMock(return_value=output)
 
-    await agent._process_bar(record)
+    await agent._handle_trigger(event)
 
-    agent._producer.publish.assert_not_awaited()
+    agent._publish_result.assert_awaited_once()
+    published: AgentOutput = agent._publish_result.await_args[0][0]
+    assert published.payload["text"] == "Bullish breakout above 5280."
+    assert published.agent_id == "narrative_v1"
 
 
 @pytest.mark.asyncio
-async def test_process_bar_does_not_raise_on_exception():
+async def test_handle_trigger_skips_when_no_narrative_text():
     agent = _make_agent()
-    record = _make_record()
-    agent._orchestrator.generate = AsyncMock(side_effect=RuntimeError("LLM exploded"))
-    agent._producer.publish = AsyncMock()
+    event = _make_event()
+    agent._context_cache.build.return_value = MagicMock()
+    agent._agents[0].compute = AsyncMock(return_value=_make_output(text=""))
 
-    # Should not raise — graceful handling
-    await agent._process_bar(record)
-    agent._producer.publish.assert_not_awaited()
+    await agent._handle_trigger(event)
+
+    agent._publish_result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_trigger_skips_when_agent_returns_error():
+    agent = _make_agent()
+    event = _make_event()
+    agent._context_cache.build.return_value = MagicMock()
+    agent._agents[0].compute = AsyncMock(
+        return_value=_make_output(text="some text", error="LLM timeout")
+    )
+
+    await agent._handle_trigger(event)
+
+    agent._publish_result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_trigger_skips_when_no_context():
+    agent = _make_agent()
+    event = _make_event()
+    agent._context_cache.build.return_value = None
+
+    await agent._handle_trigger(event)
+
+    agent._publish_result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_trigger_skips_stale_bar():
+    agent = _make_agent()
+    event = _make_event()
+    # 15 minutes old — exceeds _STALENESS_LIMIT of 10m
+    old_ts = datetime(2020, 1, 1, 12, 0, 0, tzinfo=UTC)
+    event["intelligence"]["ts"] = old_ts.isoformat()
+    agent._context_cache.build.return_value = MagicMock()
+
+    await agent._handle_trigger(event)
+
+    agent._context_cache.build.assert_not_called()
+    agent._publish_result.assert_not_awaited()

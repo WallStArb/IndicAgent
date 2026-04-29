@@ -1,5 +1,4 @@
 """Tests for AlphaSwarmComputeAgent: enrichment, TF filter, agent registry, cache seeding."""
-import types
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -89,53 +88,18 @@ def test_lead_index_mapping():
     assert _LEAD_INDEX_MAP["SI"] == "GC"
 
 
-def test_find_lead_context_builds_from_cache():
-    """Per D-15 + D-16: _find_lead_context builds real SwarmContext from cache."""
-    import time
-
+def test_find_lead_context_returns_cache_result():
+    """_find_lead_context delegates to _context_cache.get_lead() for non-self-lead symbols."""
     svc = _make_service()
+    mock_lead = MagicMock()
+    mock_lead.symbol = "ESM6"
+    svc._context_cache.get_lead.return_value = mock_lead
 
-    # Simulate cache entry for ESM6 (lead index) at 5m
-    i1 = types.SimpleNamespace(atr_14=12.5, adx=25.0, rsi_14=55.0)
-    i4 = types.SimpleNamespace(
-        hmm_regime=1, trend_regime=0.8, vol_regime=0.3,
-        vol_percentile=0.6, garch_vol_ratio=1.1, garch_vol_regime=1,
-        kalman_trend=0.01, kalman_slope=0.002,
-        vwap=4500.0, poc_price=4498.0, poc_price_rolling=4495.0,
-    )
-    i6 = types.SimpleNamespace(
-        ctf_score=0.7, ctf_trend_alignment=0.8,
-        ctf_structure_alignment=0.6, ctf_regime_agreement=0.7,
-        ctf_timeframes_aligned=3, ctf_fvg_alignment=0.4,
-        ctf_ob_alignment=0.3,
-    )
-    bar = types.SimpleNamespace(close=4502.0, volume=1500)
-    event_proxy = types.SimpleNamespace(
-        symbol="ESM6", tf="5m", ts=None,
-        bar=bar, i1=i1, i4=i4, i6=i6,
-    )
-    svc._context_cache._cache = {
-        ("ESM6", "5m"): (event_proxy, time.monotonic()),
-    }
-
-    # NQM6 should find ESM6 as its lead index
     ctx = _make_context(symbol="NQM6", timeframe="5m")
     lead = svc._find_lead_context("NQM6", "5m", ctx)
 
-    assert lead is not None
+    assert lead is mock_lead
     assert lead.symbol == "ESM6"
-    assert lead.atr == 12.5
-    assert lead.adx == 25.0
-    assert lead.rsi == 55.0
-    assert lead.hmm_regime == 1
-    assert lead.trend_regime == 0.8
-    assert lead.ctf_trend_alignment == 0.8
-    assert lead.price == 4502.0
-    assert lead.volume == 1500
-    # No winner signal for lead context
-    assert lead.winner_plugin is None
-    # Reuses signal's ID
-    assert lead.signal_id == ctx.signal_id
 
 
 def test_find_lead_context_returns_none_for_self_lead():
