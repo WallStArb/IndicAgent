@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.5
-milestone_name: milestone
-status: in_progress
-last_updated: "2026-04-29T16:52:53.874Z"
+milestone: v2.3
+milestone_name: candidates
+status: unknown
+last_updated: "2026-04-29T17:02:37.635Z"
 progress:
   total_phases: 26
   completed_phases: 4
@@ -19,12 +19,11 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 75 — Shadow Governance System (Automated Promotion/Demotion)
+**Current focus:** Phase 76 — Signal Lifecycle Labeling Fix & Activation Gate (or next available phase)
 
 ## Current Position
 
-Phase: 75
-Plan: Not started
+Phase: 75 — COMPLETE (2026-04-29) — Shadow Governance System shipped — PR #2
 
 Plans already complete:
 
