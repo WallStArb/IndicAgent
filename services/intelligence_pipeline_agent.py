@@ -343,6 +343,13 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 
 _AGENT_VERSION = "v1"
 _CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
+_CHECKPOINT_FIELDS: tuple[str, ...] = (
+    "plugin_states",
+    "kalman_state",
+    "tod_priors",
+    "last_bar_offset",
+    "setup_last_fire",
+)
 
 
 def _restore_tuple_key(k: Any) -> Any:
@@ -625,7 +632,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
-        # 3. Restore hot indicator state from local file (plugin_states, kalman, tod_priors, etc.)
+        # 3. Ensure checkpoint dir exists, restore hot indicator state from local file
+        _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
         await self._read_local_checkpoint()
 
         # 4. Seed bar_history from DB — always authoritative, not a fallback
@@ -717,7 +725,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await asyncio.wait_for(self._output_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
-        await self._write_local_checkpoint()
+        self._write_local_checkpoint()
         if hasattr(self, "_kafka_consumer"):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
@@ -1488,19 +1496,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # Local file checkpoint (hot indicator state only — bar history from DB)
     # ------------------------------------------------------------------
 
-    async def _write_local_checkpoint(self) -> None:
+    def _write_local_checkpoint(self) -> None:
         """Write hot indicator state to local file. Best-effort — never raises."""
         try:
-            _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "version": _AGENT_VERSION,
-                "ts": datetime.now(UTC).isoformat(),
-                "plugin_states": _tag_value(self._plugin_states),
-                "kalman_state": _tag_value(self._kalman_state),
-                "tod_priors": _tag_value(self._tod_priors),
-                "last_bar_offset": _tag_value(self._last_bar_offset),
-                "setup_last_fire": _tag_value(self._setup_last_fire),
-            }
+            payload: dict = {"version": _AGENT_VERSION, "ts": datetime.now(UTC).isoformat()}
+            for field in _CHECKPOINT_FIELDS:
+                payload[field] = _tag_value(getattr(self, f"_{field}"))
             tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload))
             tmp.rename(_CHECKPOINT_PATH)
@@ -1510,25 +1511,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _read_local_checkpoint(self) -> bool:
         """Restore hot indicator state from local file. Returns True on success."""
-        if not _CHECKPOINT_PATH.exists():
+        try:
+            raw_text = _CHECKPOINT_PATH.read_text()
+        except FileNotFoundError:
             self.logger.info("state.checkpoint_miss — starting fresh")
             return False
         try:
             _ensure_default_models_registered()
-            raw = json.loads(_CHECKPOINT_PATH.read_text())
+            raw = json.loads(raw_text)
             if raw.get("version") != _AGENT_VERSION:
                 self.logger.warning("state.checkpoint_version_mismatch", found=raw.get("version"))
                 return False
-            for k, v in _untag_value(raw.get("plugin_states", {})).items():
-                self._plugin_states[_restore_tuple_key(k)] = v
-            for k, v in _untag_value(raw.get("kalman_state", {})).items():
-                self._kalman_state[_restore_tuple_key(k)] = v
-            for k, v in _untag_value(raw.get("tod_priors", {})).items():
-                self._tod_priors[_restore_tuple_key(k)] = v
-            for k, v in _untag_value(raw.get("last_bar_offset", {})).items():
-                self._last_bar_offset[_restore_tuple_key(k)] = v
-            for k, v in _untag_value(raw.get("setup_last_fire", {})).items():
-                self._setup_last_fire[_restore_tuple_key(k)] = v
+            for field in _CHECKPOINT_FIELDS:
+                target = getattr(self, f"_{field}")
+                for k, v in _untag_value(raw.get(field, {})).items():
+                    target[_restore_tuple_key(k)] = v
             self.logger.info(
                 "state.checkpoint_restored", ts=raw.get("ts"), path=str(_CHECKPOINT_PATH)
             )

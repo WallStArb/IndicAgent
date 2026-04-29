@@ -389,7 +389,7 @@ class TestCheckpointState:
 
         checkpoint_file = tmp_path / "pipeline_checkpoint.json"
         with patch("services.intelligence_pipeline_agent._CHECKPOINT_PATH", checkpoint_file):
-            await agent._write_local_checkpoint()
+            agent._write_local_checkpoint()
 
         assert checkpoint_file.exists()
         written = json.loads(checkpoint_file.read_text())
