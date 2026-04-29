@@ -98,7 +98,12 @@ class BaseAgent(abc.ABC):
         import re
         log_name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
         log_path = f"logs/{log_name}.log"
-        setup_service_logging(log_path)
+        # Guard: only configure if this exact path has not already been set up.
+        # Multiple agent instantiations (e.g., in tests) would otherwise redirect
+        # all logging to the most recently instantiated agent's log file.
+        if getattr(BaseAgent, "_log_configured_path", None) != log_path:
+            setup_service_logging(log_path)
+            BaseAgent._log_configured_path = log_path
 
         self.name = name
         # metrics_port kept for backward compat but IGNORED — OTel push replaces HTTP server
