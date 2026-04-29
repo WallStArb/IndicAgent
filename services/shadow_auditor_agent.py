@@ -38,7 +38,6 @@ from src.observability.metrics import (
 logger = structlog.get_logger(__name__)
 
 _WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
-_NOT_RESOLVED = {"never_activated", "ttl_expired_behind"}
 
 
 # ---------------------------------------------------------------------------

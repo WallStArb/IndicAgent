@@ -1,8 +1,4 @@
-"""Statistical utility functions shared across intelligence services.
-
-Extracted from weight_updater._bootstrap_ci_lower (Phase 75).
-Both ShadowAuditorAgent and weight_updater import from this module.
-"""
+"""Statistical utility functions shared across intelligence services."""
 from __future__ import annotations
 
 import numpy as np

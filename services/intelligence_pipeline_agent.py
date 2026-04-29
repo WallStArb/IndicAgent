@@ -91,6 +91,7 @@ from src.intelligence.register_plugins import (
     TIER_I6,
     TIER_I7,
     TIER_SMC,
+    enroll_all_plugins,
     register_all_plugins,
 )
 from src.intelligence.schemas import (
@@ -662,6 +663,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._load_tod_multipliers()
         self._pattern_reliability = await _load_pattern_reliability_weights(self._db)
 
+        # 7. Shadow governance: enroll all TIER_I7 plugins, then load cache
+        async with self._db.pool.acquire() as conn:
+            await enroll_all_plugins(conn)
+        await self._load_shadow_cache()
+
         # Create compacted state topic if needed
         await self._ensure_state_topic()
 
@@ -814,6 +820,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
+            asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task exceptions (swallowed by return_exceptions=True)
@@ -827,6 +834,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_load_cis_weights",
             "_load_calibration_curves",
             "_load_tod_multipliers",
+            "_load_shadow_cache",
         ]
         for name, result in zip(task_names, results):
             if isinstance(result, Exception):
@@ -1849,6 +1857,17 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
         except Exception as exc:
             self.logger.warning("perf_weights.load_failed", error=str(exc))
+
+    async def _load_shadow_cache(self) -> None:
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT component_name, is_shadow FROM shadow_registry"
+            )
+            self._shadow_cache = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
+        except Exception as exc:
+            self.logger.warning("shadow_cache.load_failed", error=str(exc))
 
     async def _refresh_drift_penalties(self) -> None:
         """Refresh drift penalties from DRIFT_PENALTIES config."""
