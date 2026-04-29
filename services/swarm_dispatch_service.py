@@ -9,16 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import re
-import sys
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent

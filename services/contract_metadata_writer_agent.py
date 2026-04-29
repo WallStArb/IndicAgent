@@ -25,18 +25,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import time as _time
 from datetime import UTC, datetime
-from pathlib import Path
 
-from pydantic import ValidationError
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
+from pydantic import ValidationError
 
 from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent

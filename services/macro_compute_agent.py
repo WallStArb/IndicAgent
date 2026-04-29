@@ -14,16 +14,12 @@ Service lifecycle follows BaseAgent canonical pattern:
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime
-from pathlib import Path
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings
 from src.core.agent.base import AGENT_CRASH_TOTAL, BaseAgent

@@ -12,12 +12,9 @@ Metrics port: 9136
 from __future__ import annotations
 
 import asyncio
-import sys
 import time
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager

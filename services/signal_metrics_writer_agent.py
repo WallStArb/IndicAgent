@@ -23,13 +23,9 @@ Status: Phase 60 Plan 02
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import datetime
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 from prometheus_client import Counter
 
 from src.core.agent.base import BaseAgent

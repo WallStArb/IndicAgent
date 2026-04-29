@@ -21,12 +21,8 @@ Renaissance principle: Shadow before cutover. Earn the right through proof.
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 from pydantic import ValidationError
 
 from services.feature_writer_agent import _build_expiry_map, _record_to_insert_params

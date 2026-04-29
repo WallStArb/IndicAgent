@@ -16,15 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 from scipy.stats import binomtest
 

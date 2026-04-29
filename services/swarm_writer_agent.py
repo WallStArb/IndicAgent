@@ -8,15 +8,11 @@ DLQ:      topic_swarm_writer_dlq() — malformed payloads or DB failures
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.kafka_utils import KafkaProducerClient

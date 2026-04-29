@@ -22,6 +22,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import aiohttp
 import asyncpg
 
@@ -54,36 +55,92 @@ class ServiceSpec:
 
 
 SERVICE_REGISTRY: list[ServiceSpec] = [
+    # Order 1: Data source (never auto-restarted)
     ServiceSpec(_SVC_DATA_PROVIDER, 9129, 0, 1, False),
+    # Order 2: Data preprocessing
     ServiceSpec("indicagent-provider-merger", 9130, 500, 2, True),
-    ServiceSpec("indicagent-bar-aggregator-compute", 9120, 500, 3, True),
+    # Order 3: Bar aggregation + audit
+    ServiceSpec("indicagent-bar-aggregator", 9120, 500, 3, True),
     ServiceSpec("indicagent-bar-auditor", 9123, 200, 3, True),
+    # Order 4: Raw data persistence
     ServiceSpec("indicagent-bar-writer", 9121, 1000, 4, True),
-    ServiceSpec("indicagent-intelligence-pipeline@1", 9125, 500, 5, True),
+    # Order 5: Core intelligence pipeline
+    ServiceSpec("indicagent-intelligence-pipeline", 9125, 500, 5, True),
+    # Order 6: Intelligence persistence + signal tracking
     ServiceSpec("indicagent-feature-writer", 9116, 1000, 6, True),
-    ServiceSpec("indicagent-signal-tracker", 9115, 500, 6, True),
+    ServiceSpec("indicagent-signal-tracker-compute", 9133, 500, 6, True),
     ServiceSpec("indicagent-signal-writer", 9119, 500, 6, True),
+    ServiceSpec("indicagent-lifecycle-writer", 9128, 500, 6, True),
+    ServiceSpec("indicagent-contract-metadata-writer", 9124, 500, 6, True),
+    # Order 7: Narrative + cross-asset
     ServiceSpec("indicagent-ai-narrative", 9113, 200, 7, True),
     ServiceSpec("indicagent-llm-writer", 9117, 500, 7, True),
     ServiceSpec("indicagent-cross-asset", 9118, 200, 7, True),
+    # Order 8: Secondary compute (independent of main pipeline)
+    ServiceSpec("indicagent-roll-compute", 9122, 0, 8, True),
+    ServiceSpec("indicagent-macro-compute", 9135, 0, 8, True),
+    ServiceSpec("indicagent-swarm-orchestrator", None, 0, 8, False),
+    ServiceSpec("indicagent-swarm-writer", None, 500, 8, False),
+    ServiceSpec("indicagent-signal-metrics-compute", 9126, 0, 8, False),
+    ServiceSpec("indicagent-signal-metrics-writer", 9127, 500, 8, False),
+    # Order 9: Audits + snapshots (end of DAG)
+    ServiceSpec("indicagent-signal-auditor", 9134, 0, 9, True),
+    ServiceSpec("indicagent-parity-auditor", 9137, 0, 9, True),
+    ServiceSpec("indicagent-feature-snapshot-writer", 9132, 500, 9, False),
+    ServiceSpec("indicagent-graduation-writer", 9136, 500, 9, False),
 ]
 
 # Pre-sorted once — dag_order is immutable, re-sorting every 15s is wasteful
 _SORTED_REGISTRY: list[ServiceSpec] = sorted(SERVICE_REGISTRY, key=lambda s: s.dag_order)
 
+# Maps Prometheus scrape job name -> systemd unit name.
+# Keys match prometheus.yml job_name; values match ServiceSpec.unit.
+_JOB_TO_UNIT: dict[str, str] = {
+    "indicagent-ibkr-provider": "indicagent-ibkr-provider",
+    "indicagent-provider-merger": "indicagent-provider-merger",
+    "indicagent-bar-aggregator-compute": "indicagent-bar-aggregator",
+    "indicagent-bar-auditor": "indicagent-bar-auditor",
+    "indicagent-bar-writer": "indicagent-bar-writer",
+    "indicagent-intelligence-pipeline": "indicagent-intelligence-pipeline",
+    "indicagent-feature-writer": "indicagent-feature-writer",
+    "indicagent-signal-tracker": "indicagent-signal-tracker-compute",
+    "indicagent-signal-writer": "indicagent-signal-writer",
+    "indicagent-lifecycle-writer": "indicagent-lifecycle-writer",
+    "indicagent-contract-metadata-writer": "indicagent-contract-metadata-writer",
+    "indicagent-ai-narrative": "indicagent-ai-narrative",
+    "indicagent-llm-writer": "indicagent-llm-writer",
+    "indicagent-cross-asset": "indicagent-cross-asset",
+    "indicagent-roll-compute": "indicagent-roll-compute",
+    "indicagent-macro-compute": "indicagent-macro-compute",
+    "indicagent-service-auditor": "indicagent-service-auditor",
+}
+
 # Maps persistence_consumer_lag agent_id label -> systemd unit name
 _AGENT_ID_TO_UNIT: dict[str, str] = {
+    # Keys MUST match the name= argument in each service's super().__init__() call
+    # because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py
     "bar_writer_agent": "indicagent-bar-writer",
-    "bar_aggregator_agent": "indicagent-bar-aggregator-compute",
-    "intelligence_pipeline_agent": "indicagent-intelligence-pipeline@1",
-    "feature_writer_agent": "indicagent-feature-writer",
-    "signal_tracker_agent": "indicagent-signal-tracker",
+    "bar_aggregator_agent": "indicagent-bar-aggregator",
+    "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
+    "feature_writer": "indicagent-feature-writer",
+    "SignalTrackerCompute": "indicagent-signal-tracker-compute",
     "signal_writer_agent": "indicagent-signal-writer",
-    "ai_narrative_service": "indicagent-ai-narrative",
-    "llm_writer_service": "indicagent-llm-writer",
-    "cross_asset_service": "indicagent-cross-asset",
+    "llm_writer_agent": "indicagent-llm-writer",
+    "CrossAssetComputeAgent": "indicagent-cross-asset",
     "bar_auditor_agent": "indicagent-bar-auditor",
     "provider_merger_agent": "indicagent-provider-merger",
+    "lifecycle_writer_agent": "indicagent-lifecycle-writer",
+    "FeatureSnapshotWriterAgent": "indicagent-feature-snapshot-writer",
+    "signal_metrics_compute": "indicagent-signal-metrics-compute",
+    "signal_metrics_writer": "indicagent-signal-metrics-writer",
+    "SwarmOrchestratorComputeAgent": "indicagent-swarm-orchestrator",
+    "SwarmWriterAgent": "indicagent-swarm-writer",
+    "roll_compute_agent": "indicagent-roll-compute",
+    "MacroComputeAgent": "indicagent-macro-compute",
+    "signal_auditor_agent": "indicagent-signal-auditor",
+    "contract_metadata_writer_agent": "indicagent-contract-metadata-writer",
+    "ParityAuditorAgent": "indicagent-parity-auditor",
+    "GraduationComputeAgent": "indicagent-graduation-writer",
 }
 
 
@@ -430,8 +487,12 @@ class ServiceAuditorAgent(BaseAgent):
     # -- Prometheus interface -------------------------------------------------
 
     async def _fetch_prometheus_health(self) -> set[str]:
-        results = await self._query_prometheus("indicagent_service_health > 0")
-        return {r["metric"].get("service", "") for r in results}
+        results = await self._query_prometheus('up{job=~"indicagent.*"}')
+        return {
+            _JOB_TO_UNIT[r["metric"]["job"]]
+            for r in results
+            if r["value"][1] == "1" and r["metric"].get("job") in _JOB_TO_UNIT
+        }
 
     async def _fetch_prometheus_lag(self) -> dict[str, int]:
         results = await self._query_prometheus("persistence_consumer_lag")

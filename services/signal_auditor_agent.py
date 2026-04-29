@@ -23,13 +23,9 @@ Phase: 61
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 

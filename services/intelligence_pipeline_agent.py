@@ -7,7 +7,7 @@ agent that runs the full intelligence pipeline without Kafka between I6 and I7.
 Key design decisions:
 - I6 output feeds directly into I7 in-process (no Kafka round-trip)
 - Async output buffer (asyncio.Queue maxsize=500) — hot path never blocks
-- State checkpointing via StateSerializer to compacted Kafka topic
+- State checkpointing via JSON-tagged dict to compacted Kafka topic
 - Attribution capture: pre_quality_confidence + pre_calibration_confidence
 - Shadow mode via INTELLIGENCE_PIPELINE_SHADOW env var
 """
@@ -18,7 +18,6 @@ import ast
 import asyncio
 import json
 import os
-import sys
 import threading
 import time
 import zoneinfo
@@ -28,14 +27,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
-
-import msgpack as _msgpack
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from uuid import uuid4
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 from pydantic import ValidationError
 
@@ -52,7 +46,7 @@ from src.core.service_utils import (
     normalize_session_type,
     should_skip_plugin,
 )
-from src.core.state_serializer import StateSerializer
+from src.core.state_serializer import _ensure_default_models_registered, _tag_value, _untag_value
 from src.core.stream_keys import (
     message_key,
     topic_cross_asset,
@@ -739,12 +733,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
                         self._state_checkpoint_fallback_total.inc()
                         continue
+                    if not isinstance(payload, dict):
+                        continue
                     try:
-                        if isinstance(payload, dict):
-                            raw = _msgpack.packb(payload, use_bin_type=True)
-                            state = StateSerializer.decode(raw)
-                        else:
-                            state = StateSerializer.decode(payload)
+                        _ensure_default_models_registered()
+                        state = _untag_value(payload)
                     except Exception:
                         self._state_checkpoint_failures_total.inc()
                         continue
@@ -1609,12 +1602,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_last_bar_offset": self._last_bar_offset,
             "_setup_last_fire": self._setup_last_fire,
         }
-        encoded = StateSerializer.encode(state)
+        tagged = _tag_value(state)
         checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
         self._enqueue(
             topic_intelligence_pipeline_state(self.settings.env_name),
             checkpoint_key,
-            encoded,
+            tagged,
         )
 
     def _publish_signals_or_dlq(

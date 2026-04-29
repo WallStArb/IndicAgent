@@ -28,7 +28,6 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.core.timeframe_builder import _floor_to_period
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +39,12 @@ _ALL_TFS: tuple[str, ...] = tuple(_TF_MINUTES.keys())
 _ET = ZoneInfo("America/New_York")
 _RTH_OPEN_ET = time(9, 30)
 _RTH_CLOSE_ET = time(16, 0)
+
+
+def _floor_to_period(ts_seconds: int, tf_minutes: int) -> int:
+    """Return the period-start timestamp (seconds) for a given bar timestamp."""
+    period_seconds = tf_minutes * 60
+    return (ts_seconds // period_seconds) * period_seconds
 
 
 def _rth_boundaries_utc(day: date) -> tuple[int, int]:

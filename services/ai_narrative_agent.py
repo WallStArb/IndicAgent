@@ -9,6 +9,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import Settings
