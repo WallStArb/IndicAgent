@@ -221,6 +221,15 @@ def topic_intelligence_shadow(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.shadow"
 
 
+def topic_shadow_transitions(env_name: str) -> str:
+    """Kafka topic for shadow governance promotion/demotion events.
+
+    Published by ShadowAuditorAgent on any promotion or demotion.
+    Consumers: dashboard (future), audit tooling.
+    """
+    return f"{env_prefix(env_name)}intelligence.shadow.transitions"
+
+
 def topic_audit(env_name: str) -> str:
     """Kafka topic for structured audit events (parity violations, certification events)."""
     return f"{env_prefix(env_name)}audit"
