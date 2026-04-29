@@ -7,7 +7,8 @@ agent that runs the full intelligence pipeline without Kafka between I6 and I7.
 Key design decisions:
 - I6 output feeds directly into I7 in-process (no Kafka round-trip)
 - Async output buffer (asyncio.Queue maxsize=500) — hot path never blocks
-- State checkpointing via JSON-tagged dict to compacted Kafka topic
+- Hot state (plugin_states, kalman, tod_priors) checkpointed to local file on shutdown
+- Bar history seeded from TimescaleDB (intelligence_features) on startup
 - Attribution capture: pre_quality_confidence + pre_calibration_confidence
 - Shadow mode via INTELLIGENCE_PIPELINE_SHADOW env var
 """
@@ -54,7 +55,6 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_intelligence_journal,
     topic_intelligence_pipeline_dlq,
-    topic_intelligence_pipeline_state,
     topic_intelligence_shadow,
     topic_macro_signals,
     topic_market_bars,
@@ -342,6 +342,7 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 # ---------------------------------------------------------------------------
 
 _AGENT_VERSION = "v1"
+_CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
 
 
 def _restore_tuple_key(k: Any) -> Any:
@@ -354,11 +355,6 @@ def _restore_tuple_key(k: Any) -> Any:
         except (ValueError, SyntaxError):
             pass
     return k
-
-
-_STATE_TOPIC_PARTITIONS = 1
-_STATE_TOPIC_REPLICATION = 1
-_STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
 
 
 _OUTPUT_QUEUE_MAXSIZE = 500
@@ -532,18 +528,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "intelligence_pipeline_output_publish_failures_total",
             "Output buffer publish failures",
         )
-        self._state_checkpoint_fallback_total = counter(
-            "intelligence_pipeline_state_checkpoint_fallback_total",
-            "State checkpoint fallback to BarHistorySeeder",
-        )
-        self._state_checkpoint_failures_total = counter(
-            "intelligence_pipeline_state_checkpoint_failures_total",
-            "State checkpoint encode/decode failures",
-        )
-        self._state_offset_reset_total = counter(
-            "intelligence_pipeline_state_offset_reset_total",
-            "Consumer offset resets after checkpoint restore",
-        )
         self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
             "Bars processed through I1-I7 pipeline",
@@ -641,14 +625,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
-        # 3. Restore state from checkpoint topic
-        restored = await self._restore_state_checkpoint()
+        # 3. Restore hot indicator state from local file (plugin_states, kalman, tod_priors, etc.)
+        await self._read_local_checkpoint()
 
-        # 4. Fallback to BarHistorySeeder if checkpoint miss
-        if not restored:
-            self._state_checkpoint_fallback_total.inc()
-            self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
-            await self._seed_bar_history_from_db()
+        # 4. Seed bar_history from DB — always authoritative, not a fallback
+        await self._seed_bar_history_from_db()
 
         # 5. Construct TransformRecorder (shared across all pipeline runs)
         self._transform_recorder = TransformRecorder(
@@ -668,48 +649,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await enroll_all_plugins(conn)
         await self._load_shadow_cache()
 
-        # Create compacted state topic if needed
-        await self._ensure_state_topic()
-
         self.logger.info(
             "agent.setup_complete",
             shadow=self._shadow_mode,
             symbols=self._symbols,
             timeframes=self._timeframes,
         )
-
-    async def _ensure_state_topic(self) -> None:
-        """Create the compacted state checkpoint topic if it doesn't exist."""
-        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
-        try:
-            import subprocess
-
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [
-                    "docker",
-                    "exec",
-                    "redpanda",
-                    "rpk",
-                    "topic",
-                    "create",
-                    state_topic,
-                    "--partitions",
-                    str(_STATE_TOPIC_PARTITIONS),
-                    "--replicas",
-                    str(_STATE_TOPIC_REPLICATION),
-                    "--topic-config",
-                    "cleanup.policy=compact",
-                    "--topic-config",
-                    f"retention.ms={_STATE_TOPIC_RETENTION_MS}",
-                ],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode != 0 and b"already exists" not in result.stderr:
-                self.logger.warning("state_topic.create_failed", stderr=result.stderr.decode())
-        except Exception:
-            self.logger.debug("state_topic.create_skipped", reason="rpk unavailable")
 
     async def _seed_bar_history_from_db(self) -> None:
         """Seed BarHistory from intelligence_features (fallback)."""
@@ -721,87 +666,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await seeder.seed(self._bar_history)
         except Exception as exc:
             self.logger.warning("bar_history.seed_failed", error=str(exc))
-
-    # ------------------------------------------------------------------
-    # State checkpoint restore
-    # ------------------------------------------------------------------
-
-    async def _restore_state_checkpoint(self) -> bool:
-        """Consume compacted state topic and restore all five state fields."""
-        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
-        consumer = None
-        try:
-            consumer = KafkaConsumerClient(
-                state_topic,
-                bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                group_id=f"{self._consumer_group}_state_restore",
-                auto_offset_reset="earliest",
-            )
-            await consumer.start()
-
-            result: list[bool] = [False]
-
-            async def _drain() -> None:
-                async for _topic, key_str, payload in consumer.messages():  # type: ignore[union-attr]
-                    if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
-                        self._state_checkpoint_fallback_total.inc()
-                        continue
-                    if not isinstance(payload, dict):
-                        continue
-                    try:
-                        _ensure_default_models_registered()
-                        state = _untag_value(payload)
-                    except Exception:
-                        self._state_checkpoint_failures_total.inc()
-                        continue
-
-                    parts = key_str.split(":")
-                    if len(parts) != 3:
-                        continue
-                    _, symbol, tf = parts  # noqa: F841
-
-                    if "_plugin_states" in state:
-                        for k, v in state["_plugin_states"].items():
-                            self._plugin_states[_restore_tuple_key(k)] = v
-                    if "_kalman_state" in state:
-                        for k, v in state["_kalman_state"].items():
-                            self._kalman_state[_restore_tuple_key(k)] = v
-                    if "_tod_priors" in state:
-                        for k, v in state["_tod_priors"].items():
-                            self._tod_priors[_restore_tuple_key(k)] = v
-                    if "_bar_history" in state:
-                        for k, v in state["_bar_history"].items():
-                            self._bar_history._data[k] = v
-                    if "_last_bar_offset" in state:
-                        for k, v in state["_last_bar_offset"].items():
-                            self._last_bar_offset[_restore_tuple_key(k)] = v
-                    if "_setup_last_fire" in state:
-                        for k, v in state["_setup_last_fire"].items():
-                            self._setup_last_fire[_restore_tuple_key(k)] = v
-                    result[0] = True
-
-            try:
-                await asyncio.wait_for(_drain(), timeout=5.0)
-            except TimeoutError:
-                pass  # normal — drained all available messages
-
-            restored_any = result[0]
-            if restored_any and self._last_bar_offset:
-                self._state_offset_reset_total.inc()
-                self.logger.info("state.restored", offsets=self._last_bar_offset)
-
-            return restored_any
-
-        except Exception as exc:
-            self.logger.warning("state.restore_failed", error=str(exc))
-            self._state_checkpoint_failures_total.inc()
-            return False
-        finally:
-            if consumer is not None:
-                try:
-                    await consumer.stop()
-                except Exception:
-                    pass
 
     # ------------------------------------------------------------------
     # _run: main event loop
@@ -846,13 +710,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 )
 
     async def _teardown(self) -> None:
-        """Drain output queue, close connections."""
+        """Drain output queue, persist hot state, close connections."""
         self._stop_event.set()
         # Wait for output queue to drain (10s timeout)
         try:
             await asyncio.wait_for(self._output_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
+        await self._write_local_checkpoint()
         if hasattr(self, "_kafka_consumer"):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
@@ -1000,12 +865,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Publish BarIntelligenceRecord to journal (after I7 so ranked_signals are available)
         self._enqueue_intel_journal(bar, intel_event, t0, msg_key, i7_result)
-
-        # 7. State checkpoint (best-effort — non-serializable state is skipped)
-        try:
-            await self._checkpoint_state(bar)
-        except Exception:
-            self._state_checkpoint_failures_total.inc()
 
         self._bars_processed.inc()
 
@@ -1626,26 +1485,59 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         }
 
     # ------------------------------------------------------------------
-    # State checkpointing
+    # Local file checkpoint (hot indicator state only — bar history from DB)
     # ------------------------------------------------------------------
 
-    async def _checkpoint_state(self, bar: BarMessage) -> None:
-        """Encode current state and enqueue to compacted state topic."""
-        state = {
-            "_plugin_states": self._plugin_states,
-            "_kalman_state": self._kalman_state,
-            "_tod_priors": self._tod_priors,
-            "_bar_history": self._bar_history._data,
-            "_last_bar_offset": self._last_bar_offset,
-            "_setup_last_fire": self._setup_last_fire,
-        }
-        tagged = _tag_value(state)
-        checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
-        self._enqueue(
-            topic_intelligence_pipeline_state(self.settings.env_name),
-            checkpoint_key,
-            tagged,
-        )
+    async def _write_local_checkpoint(self) -> None:
+        """Write hot indicator state to local file. Best-effort — never raises."""
+        try:
+            _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "version": _AGENT_VERSION,
+                "ts": datetime.now(UTC).isoformat(),
+                "plugin_states": _tag_value(self._plugin_states),
+                "kalman_state": _tag_value(self._kalman_state),
+                "tod_priors": _tag_value(self._tod_priors),
+                "last_bar_offset": _tag_value(self._last_bar_offset),
+                "setup_last_fire": _tag_value(self._setup_last_fire),
+            }
+            tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload))
+            tmp.rename(_CHECKPOINT_PATH)
+            self.logger.info("state.checkpoint_written", path=str(_CHECKPOINT_PATH))
+        except Exception as exc:
+            self.logger.warning("state.checkpoint_write_failed", error=str(exc))
+
+    async def _read_local_checkpoint(self) -> bool:
+        """Restore hot indicator state from local file. Returns True on success."""
+        if not _CHECKPOINT_PATH.exists():
+            self.logger.info("state.checkpoint_miss — starting fresh")
+            return False
+        try:
+            _ensure_default_models_registered()
+            raw = json.loads(_CHECKPOINT_PATH.read_text())
+            if raw.get("version") != _AGENT_VERSION:
+                self.logger.warning(
+                    "state.checkpoint_version_mismatch", found=raw.get("version")
+                )
+                return False
+            for k, v in _untag_value(raw.get("plugin_states", {})).items():
+                self._plugin_states[_restore_tuple_key(k)] = v
+            for k, v in _untag_value(raw.get("kalman_state", {})).items():
+                self._kalman_state[_restore_tuple_key(k)] = v
+            for k, v in _untag_value(raw.get("tod_priors", {})).items():
+                self._tod_priors[_restore_tuple_key(k)] = v
+            for k, v in _untag_value(raw.get("last_bar_offset", {})).items():
+                self._last_bar_offset[_restore_tuple_key(k)] = v
+            for k, v in _untag_value(raw.get("setup_last_fire", {})).items():
+                self._setup_last_fire[_restore_tuple_key(k)] = v
+            self.logger.info(
+                "state.checkpoint_restored", ts=raw.get("ts"), path=str(_CHECKPOINT_PATH)
+            )
+            return True
+        except Exception as exc:
+            self.logger.warning("state.checkpoint_read_failed", error=str(exc))
+            return False
 
     def _publish_signals_or_dlq(
         self,

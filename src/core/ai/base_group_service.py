@@ -7,7 +7,6 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from pydantic import ValidationError
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -69,7 +68,7 @@ class BaseGroupService(BaseAgent, ABC):
         ...
 
     def __init__(self, settings: Settings, *args: Any, **kwargs: Any) -> None:
-        super().__init__(name=self.__class__.__name__, max_idle_seconds=300, settings=settings)
+        super().__init__(name=self.__class__.__name__, max_idle_seconds=0, settings=settings)
         self.settings = settings
         self._context_cache = AIContextCache()
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -215,63 +214,10 @@ class BaseGroupService(BaseAgent, ABC):
                     error=str(exc),
                 )
 
+    @abstractmethod
     async def _handle_trigger(self, event: dict) -> None:
-        """Build context per agent, gather in parallel, publish results."""
-        from src.intelligence.schemas import RankedSignal
-
-        # Extract trigger data (varies by group — alpha gets signals, narrative gets records)
-        # Subclasses may override this method to customize trigger parsing
-        try:
-            signal = RankedSignal(**event) if self.group_id == "alpha" else None
-            symbol = signal.symbol if signal else event.get("symbol")
-            tf = signal.tf if signal else event.get("tf")
-            signal_id = signal.signal_id if signal else None
-        except (ValidationError, TypeError):
-            self.logger.warning("base_group_service.invalid_trigger", event=event)
-            return
-
-        if not symbol or not tf:
-            self.logger.warning("base_group_service.missing_symbol_tf", event=event)
-            return
-
-        # Build context per agent (parallel SafeAgentWrapper.compute calls)
-        from src.core.ai.safe_wrapper import SafeAgentWrapper
-
-        tasks = []
-        for agent in self.agents:
-            context = self._context_cache.build(
-                symbol=symbol,
-                tf=tf,
-                tiers_needed=agent.tiers_needed,
-                signal=signal,
-                signal_id=signal_id,
-            )
-            if context is None:
-                self.logger.warning(
-                    "base_group_service.no_context",
-                    agent_id=agent.agent_id,
-                    symbol=symbol,
-                    tf=tf,
-                )
-                continue
-
-            wrapper = SafeAgentWrapper(agent)
-            tasks.append(wrapper.compute(context))
-
-        # Gather all agent outputs in parallel
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Publish results to output topic
-            for result in results:
-                if isinstance(result, Exception):
-                    self.logger.error(
-                        "base_group_service.agent_exception",
-                        error=str(result),
-                    )
-                    continue
-                if isinstance(result, AgentOutput):
-                    await self._publish_result(result)
+        """Process a trigger event. Subclasses own all parsing and dispatch logic."""
+        ...
 
     async def _publish_result(self, result: AgentOutput) -> None:
         """Publish AgentOutput to output topic."""
