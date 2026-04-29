@@ -1,4 +1,5 @@
 """Unit tests for migration 077_shadow_governance.sql — parse-based, no live DB."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,12 +43,12 @@ def test_shadow_registry_is_shadow_default_true():
 def test_shadow_registry_default_gate_params():
     """Verify D-02 defaults are present in DDL."""
     sql = _sql()
-    assert "DEFAULT 100" in sql    # min_n
-    assert "DEFAULT 0.0" in sql    # min_ev_r
-    assert "DEFAULT 0.05" in sql   # ci_alpha
-    assert "DEFAULT 30" in sql     # demotion_lookback_days
+    assert "DEFAULT 100" in sql  # min_n
+    assert "DEFAULT 0.0" in sql  # min_ev_r
+    assert "DEFAULT 0.05" in sql  # ci_alpha
+    assert "DEFAULT 30" in sql  # demotion_lookback_days
     assert "DEFAULT -0.05" in sql  # demotion_threshold_ev_r
-    assert "DEFAULT 3" in sql      # demotion_min_evaluations
+    assert "DEFAULT 3" in sql  # demotion_min_evaluations
 
 
 def test_shadow_transition_log_from_state_check():

@@ -934,12 +934,12 @@ class ShadowTransitionEvent:
     """
 
     component_name: str
-    component_type: str    # 'i7_plugin' | 'swarm_agent'
-    from_state: str        # 'shadow' | 'live'
-    to_state: str          # 'shadow' | 'live'
-    trigger_reason: str    # 'promotion_gate_cleared' | 'demotion_ev_r_degraded'
+    component_type: str  # 'i7_plugin' | 'swarm_agent'
+    from_state: str  # 'shadow' | 'live'
+    to_state: str  # 'shadow' | 'live'
+    trigger_reason: str  # 'promotion_gate_cleared' | 'demotion_ev_r_degraded'
     n: int
     ev_r: float
     ci_lower: float
     win_rate: float
-    triggered_at: str      # UTC ISO-8601 with Z suffix
+    triggered_at: str  # UTC ISO-8601 with Z suffix

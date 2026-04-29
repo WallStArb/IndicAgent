@@ -1,4 +1,5 @@
 """Unit tests for src/core/stats_utils.bootstrap_ci_lower."""
+
 from __future__ import annotations
 
 import math

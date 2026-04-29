@@ -64,15 +64,13 @@ def _ev_r_below_threshold(ev_r: float, threshold: float) -> bool:
 
 async def _run_audit(pool: asyncpg.Pool, producer: KafkaProducerClient, env_name: str) -> None:
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
+        rows = await conn.fetch("""
             SELECT component_name, component_type, is_shadow,
                    min_n, min_ev_r, ci_alpha,
                    demotion_lookback_days, demotion_threshold_ev_r,
                    demotion_min_evaluations, demotion_consecutive_count
             FROM shadow_registry
-            """
-        )
+            """)
 
     for row in rows:
         name = row["component_name"]
@@ -110,9 +108,7 @@ async def _check_promotion(
     n = len(signal_rows)
     pnl_r_values = [float(r["pnl_r"]) for r in signal_rows if r["pnl_r"] is not None]
     ev_r = sum(pnl_r_values) / len(pnl_r_values) if pnl_r_values else 0.0
-    win_rate = (
-        sum(1 for r in signal_rows if r["outcome"] in _WIN_OUTCOMES) / n if n > 0 else 0.0
-    )
+    win_rate = sum(1 for r in signal_rows if r["outcome"] in _WIN_OUTCOMES) / n if n > 0 else 0.0
     ci_lower = bootstrap_ci_lower(pnl_r_values, alpha=row["ci_alpha"])
 
     now = datetime.now(UTC)
@@ -125,7 +121,12 @@ async def _check_promotion(
                 last_eval_win_rate=$4, last_eval_at=$5
             WHERE component_name=$6
             """,
-            n, ev_r, ci_lower, win_rate, now, name,
+            n,
+            ev_r,
+            ci_lower,
+            win_rate,
+            now,
+            name,
         )
 
     # Prometheus gauges
@@ -137,10 +138,15 @@ async def _check_promotion(
 
     # Days-to-gate estimate
     recent_30d = sum(
-        1 for r in signal_rows
+        1
+        for r in signal_rows
         if r.get("signal_computed_at") is not None
-        and (now - r["signal_computed_at"].replace(tzinfo=UTC) if r["signal_computed_at"].tzinfo is None
-             else now - r["signal_computed_at"]).days <= 30
+        and (
+            now - r["signal_computed_at"].replace(tzinfo=UTC)
+            if r["signal_computed_at"].tzinfo is None
+            else now - r["signal_computed_at"]
+        ).days
+        <= 30
     )
     if recent_30d > 0:
         remaining = max(0, row["min_n"] - n)
@@ -159,7 +165,8 @@ async def _check_promotion(
                 SET is_shadow=FALSE, promoted_at=$1, demotion_consecutive_count=0
                 WHERE component_name=$2
                 """,
-                now, name,
+                now,
+                name,
             )
             await conn.execute(
                 """
@@ -168,13 +175,23 @@ async def _check_promotion(
                    trigger_reason, n, ev_r, ci_lower, win_rate)
                 VALUES ($1, $2, 'shadow', 'live', 'promotion_gate_cleared', $3, $4, $5, $6)
                 """,
-                name, ctype, n, ev_r, ci_lower, win_rate,
+                name,
+                ctype,
+                n,
+                ev_r,
+                ci_lower,
+                win_rate,
             )
         event = ShadowTransitionEvent(
-            component_name=name, component_type=ctype,
-            from_state="shadow", to_state="live",
+            component_name=name,
+            component_type=ctype,
+            from_state="shadow",
+            to_state="live",
             trigger_reason="promotion_gate_cleared",
-            n=n, ev_r=ev_r, ci_lower=ci_lower, win_rate=win_rate,
+            n=n,
+            ev_r=ev_r,
+            ci_lower=ci_lower,
+            win_rate=win_rate,
             triggered_at=now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
         )
         await _publish(producer, env_name, event)
@@ -202,7 +219,8 @@ async def _check_demotion(
               AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
               AND signal_computed_at > NOW() - INTERVAL '1 day' * $2
             """,
-            name, row["demotion_lookback_days"],
+            name,
+            row["demotion_lookback_days"],
         )
 
     pnl_r_values = [float(r["pnl_r"]) for r in signal_rows if r["pnl_r"] is not None]
@@ -218,7 +236,9 @@ async def _check_demotion(
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE shadow_registry SET demotion_consecutive_count=$1, last_eval_at=$2 WHERE component_name=$3",
-                new_count, now, name,
+                new_count,
+                now,
+                name,
             )
         if _should_demote(new_count, row["demotion_min_evaluations"]):
             async with pool.acquire() as conn:
@@ -228,7 +248,8 @@ async def _check_demotion(
                     SET is_shadow=TRUE, demoted_at=$1, demotion_consecutive_count=0
                     WHERE component_name=$2
                     """,
-                    now, name,
+                    now,
+                    name,
                 )
                 await conn.execute(
                     """
@@ -237,26 +258,41 @@ async def _check_demotion(
                        trigger_reason, n, ev_r, ci_lower, win_rate)
                     VALUES ($1, $2, 'live', 'shadow', 'demotion_ev_r_degraded', $3, $4, $5, $6)
                     """,
-                    name, ctype, n, ev_r, ci_lower, win_rate,
+                    name,
+                    ctype,
+                    n,
+                    ev_r,
+                    ci_lower,
+                    win_rate,
                 )
             event = ShadowTransitionEvent(
-                component_name=name, component_type=ctype,
-                from_state="live", to_state="shadow",
+                component_name=name,
+                component_type=ctype,
+                from_state="live",
+                to_state="shadow",
                 trigger_reason="demotion_ev_r_degraded",
-                n=n, ev_r=ev_r, ci_lower=ci_lower, win_rate=win_rate,
+                n=n,
+                ev_r=ev_r,
+                ci_lower=ci_lower,
+                win_rate=win_rate,
                 triggered_at=now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
             )
             await _publish(producer, env_name, event)
-            logger.warning("shadow_demoted", component_name=name, ev_r=ev_r, consecutive_count=new_count)
+            logger.warning(
+                "shadow_demoted", component_name=name, ev_r=ev_r, consecutive_count=new_count
+            )
     else:
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE shadow_registry SET demotion_consecutive_count=0, last_eval_at=$1 WHERE component_name=$2",
-                now, name,
+                now,
+                name,
             )
 
 
-async def _publish(producer: KafkaProducerClient, env_name: str, event: ShadowTransitionEvent) -> None:
+async def _publish(
+    producer: KafkaProducerClient, env_name: str, event: ShadowTransitionEvent
+) -> None:
     try:
         payload = json.dumps(dataclasses.asdict(event)).encode()
         await producer.send(

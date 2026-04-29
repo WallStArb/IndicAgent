@@ -1,4 +1,5 @@
 """Unit tests for ShadowAuditorAgent gate logic."""
+
 from __future__ import annotations
 
 import dataclasses
