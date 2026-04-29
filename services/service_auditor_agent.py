@@ -257,9 +257,15 @@ class ServiceAuditorAgent(BaseAgent):
         units = []
         for line in stdout.decode().strip().splitlines():
             parts = line.split()
-            if parts:
-                # Normalize: strip .service suffix to match _DAG_ORDER keys
-                unit = parts[0].removesuffix(".service")
+            if not parts:
+                continue
+            # Strip leading bullet character (● for failed units in systemctl output)
+            unit_raw = parts[0].lstrip("●").strip()
+            if not unit_raw:
+                # Bullet was the only token; actual unit name is next token
+                unit_raw = parts[1] if len(parts) > 1 else ""
+            unit = unit_raw.removesuffix(".service")
+            if unit:
                 units.append(unit)
         return sorted(units, key=lambda u: _DAG_ORDER.get(u, 99))
 
