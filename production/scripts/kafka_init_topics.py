@@ -69,6 +69,10 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     ("lifecycle.transitions",      1, _BUFFER_MS, "delete"),
     # --- Swarm (persisted by swarm_writer) ---
     ("intelligence.swarm",         1, _BUFFER_MS, "delete"),
+    ("swarm.alpha",                1, _BUFFER_MS, "delete"),
+    ("swarm.graduation",           1, _BUFFER_MS, "delete"),
+    ("intelligence.signal_lineage", 1, _BUFFER_MS, "delete"),
+    ("intelligence.signal_lineage.dlq", 1, _BUFFER_MS, "delete"),
     # --- Transform graduation (Phase 72) ---
     ("intelligence.transform.graduation",     1, _BUFFER_MS, "delete"),
     ("intelligence.transform.graduation.dlq", 1, _BUFFER_MS, "delete"),

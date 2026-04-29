@@ -344,6 +344,37 @@ def topic_swarm_writer_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}swarm.writer.dlq"
 
 
+def topic_swarm_alpha(env_name: str) -> str:
+    """Assembled AlphaMultiplier from all alpha agents (unified aggregate).
+
+    Published by AlphaSwarmComputeAgent after asyncio.gather() across all agents.
+    Consumed by SwarmWriterAgent for persistence.
+    """
+    return f"{env_prefix(env_name)}swarm.alpha"
+
+
+def topic_swarm_graduation(env_name: str) -> str:
+    """Per-agent graduation flip events from BaseGroupService._graduation_loop.
+
+    Published when shadow_only flips True->False via Spearman gate passage.
+    """
+    return f"{env_prefix(env_name)}swarm.graduation"
+
+
+def topic_signal_lineage(env_name: str) -> str:
+    """Unified signal lineage events (transform, agent_prediction, lifecycle).
+
+    Published by LineageRecorder on hot path (Kafka-first DAG).
+    Consumed by LineageWriterAgent for TimescaleDB persistence.
+    """
+    return f"{env_prefix(env_name)}intelligence.signal_lineage"
+
+
+def topic_signal_lineage_dlq(env_name: str) -> str:
+    """DLQ for LineageWriterAgent — failed lineage event persistence."""
+    return f"{env_prefix(env_name)}intelligence.signal_lineage.dlq"
+
+
 # ---------------------------------------------------------------------------
 # ML topics (Phase 56)
 # ---------------------------------------------------------------------------
