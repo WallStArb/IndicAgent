@@ -134,6 +134,7 @@ services:
     depends_on:
       - prometheus
       - tempo
+      - loki
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
