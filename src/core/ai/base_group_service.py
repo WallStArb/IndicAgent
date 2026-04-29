@@ -94,7 +94,7 @@ class BaseGroupService(BaseAgent, ABC):
         # Wire trigger consumer (for agent dispatch)
         # Subscribe to all trigger topics
         self._trigger_consumer = KafkaConsumerClient(
-            ",".join(self.trigger_topics),
+            *self.trigger_topics,
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id=f"{self.group_id}_trigger_consumer",
             auto_offset_reset="latest",
