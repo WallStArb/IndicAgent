@@ -186,14 +186,7 @@ class PluginValidator:
 
         for tier_name, tier_list in all_tiers:
             for plugin_name in tier_list:
-                # Try both indicator and pattern registries
-                try:
-                    plugin = self.registry.get_indicator(plugin_name)
-                except KeyError:
-                    try:
-                        plugin = self.registry.get_pattern(plugin_name)
-                    except KeyError:
-                        plugin = None
+                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(plugin_name)
                 if plugin is None:
                     results.append(
                         ValidationError(
@@ -227,13 +220,7 @@ class PluginValidator:
 
         # I7 requires regime_type
         for plugin_name in TIER_I7:
-            try:
-                plugin = self.registry.get_pattern(plugin_name)
-            except KeyError:
-                try:
-                    plugin = self.registry.get_indicator(plugin_name)
-                except KeyError:
-                    plugin = None
+            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(plugin_name)
             if plugin is None:
                 continue  # Skip if plugin not found (caught by tier_list_validation)
             if not hasattr(plugin, "regime_type"):
@@ -256,13 +243,7 @@ class PluginValidator:
         # All plugins need name, outputs, inputs
         for tier_name, tier_list in all_tiers:
             for plugin_name in tier_list:
-                try:
-                    plugin = self.registry.get_indicator(plugin_name)
-                except KeyError:
-                    try:
-                        plugin = self.registry.get_pattern(plugin_name)
-                    except KeyError:
-                        plugin = None
+                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(plugin_name)
                 if plugin is None:
                     continue  # Skip if plugin not found (caught by tier_list_validation)
                 for attr in ("name", "outputs", "inputs"):
@@ -341,13 +322,7 @@ class PluginValidator:
         # Derive expected trend setups from TIER_I7
         expected_trends = frozenset()
         for plugin_name in TIER_I7:
-            try:
-                plugin = self.registry.get_pattern(plugin_name)
-            except KeyError:
-                try:
-                    plugin = self.registry.get_indicator(plugin_name)
-                except KeyError:
-                    plugin = None
+            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(plugin_name)
             if plugin is not None and hasattr(plugin, "regime_type"):
                 if plugin.regime_type == "trend":
                     expected_trends |= frozenset([plugin.name])
