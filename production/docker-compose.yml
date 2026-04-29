@@ -137,6 +137,17 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: indicagent-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   loki:
     image: grafana/loki:2.9.6
     container_name: indicagent-loki
