@@ -268,18 +268,8 @@ class TestBufferDepthGauge:
         # Simulate what _run does: set gauge
         agent._buffer_depth_gauge.set(len(agent._buffer))
 
-        # Verify the gauge value is set (can read from Prometheus registry)
-        import prometheus_client
-
-        # Get the gauge value from the registry
-        registry = prometheus_client.REGISTRY
-        for metric in registry.collect():
-            for sample in metric.samples:
-                if sample.name == "stub_writer_buffer_depth":
-                    assert sample.value == 2.0
-                    return
-
-        pytest.fail("buffer_depth gauge not found in Prometheus registry")
+        # Verify via OTel wrapper tracker (gauge is now OTelGauge, not prometheus_client)
+        assert agent._buffer_depth_gauge.get() == 2.0
 
 
 class TestFlushLatencyMetrics:
@@ -293,16 +283,8 @@ class TestFlushLatencyMetrics:
 
         await agent._do_flush()
 
-        # Verify histogram was observed by checking Prometheus registry
-        import prometheus_client
-
-        found = False
-        for metric in prometheus_client.REGISTRY.collect():
-            for sample in metric.samples:
-                if sample.name == "stub_writer_flush_latency_seconds_bucket":
-                    found = True
-                    break
-        assert found, "flush_latency histogram should have samples after successful flush"
+        # Verify via OTel wrapper tracker (histogram is now OTelHistogram, not prometheus_client)
+        assert agent._flush_latency.get_count() >= 1, "flush_latency histogram should have samples after successful flush"
 
     @pytest.mark.asyncio
     async def test_commit_latency_histogram_has_samples_after_flush(self):
@@ -312,15 +294,7 @@ class TestFlushLatencyMetrics:
 
         await agent._do_flush()
 
-        import prometheus_client
-
-        found = False
-        for metric in prometheus_client.REGISTRY.collect():
-            for sample in metric.samples:
-                if sample.name == "stub_writer_commit_latency_seconds_bucket":
-                    found = True
-                    break
-        assert found, "commit_latency histogram should have samples after successful flush"
+        assert agent._commit_latency.get_count() >= 1, "commit_latency histogram should have samples after successful flush"
 
     @pytest.mark.asyncio
     async def test_flush_errors_counter_increments_on_failure(self):
@@ -340,15 +314,8 @@ class TestFlushLatencyMetrics:
         # Commit should NOT have been called
         agent._consumer.commit.assert_not_awaited()
 
-        # Verify flush_errors counter incremented
-        import prometheus_client
-
-        error_count = 0.0
-        for metric in prometheus_client.REGISTRY.collect():
-            for sample in metric.samples:
-                if sample.name == "stub_writer_flush_errors_total":
-                    error_count = sample.value
-        assert error_count >= 1, "flush_errors counter should have incremented"
+        # Verify flush_errors counter incremented via OTel wrapper tracker
+        assert agent._flush_errors_total.get() >= 1, "flush_errors counter should have incremented"
 
 
 class TestBufferOverflowAlert:
