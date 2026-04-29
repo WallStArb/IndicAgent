@@ -294,6 +294,11 @@ class OpenRouterProvider:
                     raise ProviderRateLimitError("HTTP 429: Too Many Requests") from exc
                 raise
             choices = result.get("choices") or []
+            # D-07: Extract usage metadata for token counting
+            usage = result.get("usage", {})
+            if usage:
+                # Store in a place LLMChain can access it
+                LLMChain.last_token_usage = usage  # type: ignore
             return _extract_message_content(choices)
 
         return await _call_llm_with_circuit_breaker(self.provider_id, _call)
@@ -418,6 +423,7 @@ class LLMChain:
     def __init__(self, providers: list[LLMProvider]) -> None:
         self.providers = providers
         self.last_provider_id: str | None = None
+        self.last_token_usage: dict | None = None  # D-07: real token counts from provider
 
     async def generate(
         self,

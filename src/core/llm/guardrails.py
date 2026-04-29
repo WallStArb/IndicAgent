@@ -23,6 +23,10 @@ class GuardrailsValidator:
         """Register a Pydantic schema for a call_type."""
         self._schemas[call_type] = schema
 
+    def has_schema(self, call_type: str) -> bool:
+        """Check if a schema is registered for the given call_type."""
+        return call_type in self._schemas
+
     def validate(self, call_type: str, response: str) -> dict[str, Any] | None:
         """Parse and validate response against registered schema.
 

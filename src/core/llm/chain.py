@@ -95,6 +95,7 @@ class LLMProviderChain:
         max_tokens: int,
         timeout: float,
         model: str = "default",
+        audit_context: dict | None = None,  # D-06: auto-audit
     ) -> str | None:
         """Generate a response. Returns None if all providers fail or guardrails reject."""
         # 1. Semantic cache lookup
@@ -103,6 +104,13 @@ class LLMProviderChain:
             if cached is not None:
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
+
+        # D-04: Rate limiter — covers OpenRouter + OllamaCloud + OllamaLocal
+        limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
+            iter(self._rate_limiters.values()), None
+        )
+        if limiter is not None:
+            await limiter.acquire(tokens=max_tokens)
 
         # 2. Budget check — route to Ollama-only if daily budget exceeded
         if _budget.is_exceeded():
@@ -136,20 +144,27 @@ class LLMProviderChain:
         if response is None:
             return None
 
-        # 4. Guardrails validation — reject responses that fail schema checks
-        if self._call_type and self._call_type in _guardrails._schemas:
+        # D-05: Use public has_schema() method instead of private _schemas access
+        if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
-        # 5. Record token spend (estimate: 1 token ≈ 4 chars)
-        estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
+        # D-07: Real token counts from provider, with len/4 fallback (Gemini review)
+        token_usage = getattr(self._inner, "last_token_usage", None)
+        actual_total = token_usage.get("total_tokens") if isinstance(token_usage, dict) else None
+        if actual_total is not None and actual_total > 0:
+            tokens = actual_total
+        else:
+            # Fallback: character-count estimate (Gemini review suggestion)
+            tokens = max(1, len(prompt) // 4 + (len(response) // 4 if response else 0))
+
         provider_id = getattr(self._inner, "last_provider_id", "unknown") or "unknown"
         _budget.record(
             call_type=self._call_type,
             provider=provider_id,
-            tokens=estimated_tokens,
+            tokens=tokens,
         )
 
         # 6. Store in cache
@@ -161,6 +176,24 @@ class LLMProviderChain:
                 response=response,
                 ttl=self._cache_ttl,
             )
+
+        # D-06: Auto-audit — publish to topic_llm_calls when audit_context provided
+        if audit_context is not None and self._producer is not None:
+            from src.core.stream_keys import topic_llm_calls
+            try:
+                await self._producer.publish(
+                    topic_llm_calls(self._settings.env_name),
+                    {
+                        **audit_context,
+                        "response": response,
+                        "provider": provider_id,
+                        "call_type": self._call_type,
+                        "tokens": tokens,
+                        "model": model,
+                    },
+                )
+            except Exception:
+                logger.exception("auto_audit.publish_failed", call_type=self._call_type)
 
         logger.debug(
             "llm_chain.generated",
