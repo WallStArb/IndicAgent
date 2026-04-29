@@ -24,13 +24,15 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 73 (ai-llm-layer-b-architecture-refactor) — EXECUTING
-Plan: 04 of 07
+Plan: 05 of 07
 
 Plans already complete:
 
 - 73-01: Delete dead swarm orchestrator + add Kafka topic infrastructure (commit 8dbdc3cf)
 - 73-02: Build src/core/ai/ infrastructure (commit 256ee32f)
 - 73-03: Apply 6 LLM chain fixes + test coverage (commit 1c8c9e3b)
+- 73-04: Create AI agent directory structure + move agents to src/intelligence/ai/ (commit edf3bd33)
+- 73-05: Service refactor to BaseGroupService + AgentOutput migration (commits 20dee0d4, 6a07b793)
 
 Previous: Phase 65 — COMPLETE (2026-04-24) — Gradient Audit, gradient_utils.py delivered
 Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix, temporal guard, bootstrap sweep, activation gate, backfill SQL
