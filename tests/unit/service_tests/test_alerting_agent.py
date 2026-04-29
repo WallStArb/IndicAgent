@@ -1,4 +1,4 @@
-"""Tests for AlertingAgent (Plan 067-01 Task 2)."""
+"""Tests for AlertingComputeAgent (Plan 067-01 Task 2)."""
 
 from unittest.mock import MagicMock
 
@@ -60,11 +60,11 @@ def mock_settings():
 
 @pytest.fixture
 def agent(mock_settings):
-    """Create AlertingAgent instance with mocks."""
-    from services.alerting_agent import AlertingAgent
+    """Create AlertingComputeAgent instance with mocks."""
+    from services.alerting_agent import AlertingComputeAgent
 
     # Use __new__ to bypass __init__
-    agent = object.__new__(AlertingAgent)
+    agent = object.__new__(AlertingComputeAgent)
     agent.settings = mock_settings
     agent.logger = MagicMock()
     agent.name = "alerting_agent"

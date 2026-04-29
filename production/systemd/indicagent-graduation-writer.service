@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent Graduation Writer — persists transform graduation results (Phase 72)
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/graduation_writer_agent.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-graduation-writer
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

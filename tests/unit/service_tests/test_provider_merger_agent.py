@@ -1,6 +1,6 @@
-"""Unit tests for ProviderMergerAgent — TDD tests for Plan 54-04.
+"""Unit tests for ProviderMergerComputeAgent — TDD tests for Plan 54-04.
 
-Tests ProviderMergerAgent structural contract (BaseAgent inheritance, consumer group),
+Tests ProviderMergerComputeAgent structural contract (BaseAgent inheritance, consumer group),
 routing contract (authoritative -> market.bars, non-authoritative dropped),
 quality event contract (ProviderQualityEvent published per bar),
 and failover/recovery contract (primary silence -> promote secondary).
@@ -40,7 +40,7 @@ _TEST_MERGER_LATENCY = Histogram(
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build a minimal ProviderMergerAgent bypassing __init__
+# Helpers: build a minimal ProviderMergerComputeAgent bypassing __init__
 # ---------------------------------------------------------------------------
 
 _SOURCE_IBKR_GENERIC = "ibkr"
@@ -73,10 +73,10 @@ def _make_agent(
     provider_routing_config: dict[str, str] | None = None,
     provider_silence_bars_threshold: int = 5,
 ):
-    """Build ProviderMergerAgent using __new__ (service test pattern)."""
-    from services.provider_merger_agent import ProviderMergerAgent
+    """Build ProviderMergerComputeAgent using __new__ (service test pattern)."""
+    from services.provider_merger_agent import ProviderMergerComputeAgent
 
-    agent = ProviderMergerAgent.__new__(ProviderMergerAgent)
+    agent = ProviderMergerComputeAgent.__new__(ProviderMergerComputeAgent)
     agent.name = "provider_merger_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -121,11 +121,11 @@ def _make_agent(
 
 
 def test_inherits_base_agent() -> None:
-    """ProviderMergerAgent must be a BaseAgent subclass."""
-    from services.provider_merger_agent import ProviderMergerAgent
+    """ProviderMergerComputeAgent must be a BaseAgent subclass."""
+    from services.provider_merger_agent import ProviderMergerComputeAgent
     from src.core.agent.base import BaseAgent
 
-    assert issubclass(ProviderMergerAgent, BaseAgent)
+    assert issubclass(ProviderMergerComputeAgent, BaseAgent)
 
 
 # ---------------------------------------------------------------------------

@@ -104,7 +104,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator_agent": "indicagent-bar-aggregator",
     "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
     "feature_writer": "indicagent-feature-writer",
-    "SignalTrackerCompute": "indicagent-signal-tracker-compute",
+    "SignalTrackerComputeAgent": "indicagent-signal-tracker-compute",
     "signal_writer_agent": "indicagent-signal-writer",
     "llm_writer_agent": "indicagent-llm-writer",
     "CrossAssetComputeAgent": "indicagent-cross-asset",

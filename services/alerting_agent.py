@@ -1,4 +1,4 @@
-"""AlertingAgent -- centralized alert dispatcher (SRP: dispatch only).
+"""AlertingComputeAgent -- centralized alert dispatcher (SRP: dispatch only).
 
 Consume topic_alert_requests, dispatch CRITICAL -> Telegram, HIGH/MEDIUM -> Discord.
 Separates alert dispatch from service auditing (Single Responsibility Principle).
@@ -20,7 +20,7 @@ from src.core.stream_keys import topic_alert_requests
 from src.observability.metrics import ALERTING_DISPATCH_TOTAL, ALERTING_LATENCY_SECONDS
 
 
-class AlertingAgent(BaseAgent):
+class AlertingComputeAgent(BaseAgent):
     """Consume topic_alert_requests, dispatch CRITICAL -> Telegram, HIGH/MEDIUM -> Discord.
 
     Any agent can publish alert requests via BaseAgent._send_alert(). This agent
@@ -161,4 +161,4 @@ class AlertingAgent(BaseAgent):
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(AlertingAgent().start())
+    asyncio.run(AlertingComputeAgent().start())
