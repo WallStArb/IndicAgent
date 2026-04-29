@@ -537,9 +537,9 @@ class _OTelLabeledGauge:
         return self._last_value
 
     def inc(self, amount: float = 1.0) -> None:
-        # Gauge.inc() pattern -- set to amount (OTel gauge does not support increment)
-        self._last_value = amount
-        self._gauge.set(amount, self._labels)
+        # Gauge.inc() pattern -- accumulate locally, OTel gauge.set() with running total
+        self._last_value += amount
+        self._gauge.set(self._last_value, self._labels)
 
 
 class OTelGauge:
