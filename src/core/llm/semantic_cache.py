@@ -1,6 +1,6 @@
 """SemanticCache — LRU + TTL cache for LLM responses.
 
-Key: SHA-256(system_prompt + prompt[:200] + model).
+Key: SHA-256(system_prompt + prompt + model) — full prompt, no truncation (D-15 fix).
 TTL is configurable per call_type (set at put() time by LLMProviderChain).
 Thread-safe (asyncio single-thread assumption — no locks needed).
 """
@@ -20,7 +20,7 @@ class SemanticCache:
         self._store: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
     def _key(self, system: str, prompt: str, model: str) -> str:
-        raw = f"{system}|{prompt[:200]}|{model}"
+        raw = f"{system}|{prompt}|{model}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self, system: str, prompt: str, model: str) -> str | None:
