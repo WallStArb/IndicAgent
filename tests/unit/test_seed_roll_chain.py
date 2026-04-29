@@ -8,6 +8,7 @@ Tests seed_roll_chain():
 - Deduplicates base symbols (same base from 2 instruments called once)
 - DB error is caught and logged, does not re-raise
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +25,7 @@ import pytest
 # When run after tests that close the default event loop (via asyncio.run()), the
 # import chain fails. The autouse fixture below ensures a fresh event loop is set
 # before each test so the import succeeds on re-entry.
+
 
 @pytest.fixture(autouse=True)
 def ensure_event_loop():
@@ -57,7 +59,12 @@ def _chain_for(base: str) -> list[dict]:
     """Return a mock 3-contract chain for the given base."""
     return [
         {"symbol": f"{base}M6", "base_symbol": base, "roll_from": None, "roll_to": f"{base}U6"},
-        {"symbol": f"{base}U6", "base_symbol": base, "roll_from": f"{base}M6", "roll_to": f"{base}Z6"},
+        {
+            "symbol": f"{base}U6",
+            "base_symbol": base,
+            "roll_from": f"{base}M6",
+            "roll_to": f"{base}Z6",
+        },
         {"symbol": f"{base}Z6", "base_symbol": base, "roll_from": f"{base}U6", "roll_to": None},
     ]
 
@@ -76,8 +83,8 @@ class TestSeedRollChainBaseSymbolIteration:
             _make_instrument("ESM6", "ES", "futures"),
             _make_instrument("NQM6", "NQ", "futures"),
             _make_instrument("CLM6", "CL", "futures"),
-            _make_instrument("SPY", "SPY", "equity"),   # ETF — skip
-            _make_instrument("EURUSD", "EUR", "fx"),     # FX — skip
+            _make_instrument("SPY", "SPY", "equity"),  # ETF — skip
+            _make_instrument("EURUSD", "EUR", "fx"),  # FX — skip
         ]
         settings = _make_settings(contracts)
         mock_db = MagicMock()
@@ -138,9 +145,9 @@ class TestSeedRollChainDeduplication:
             asyncio.run(seed_roll_chain(settings, mock_db))
 
         called_bases = [c.args[0] for c in mock_derive.call_args_list]
-        assert called_bases.count("ES") == 1, (
-            f"derive_roll_chain('ES') must be called exactly once, got {called_bases}"
-        )
+        assert (
+            called_bases.count("ES") == 1
+        ), f"derive_roll_chain('ES') must be called exactly once, got {called_bases}"
 
 
 class TestSeedRollChainIsFrontMonth:
@@ -177,7 +184,9 @@ class TestSeedRollChainIsFrontMonth:
                 if len(params_row) >= 6:  # noqa: PLR2004
                     front_month_values.append(params_row[5])
 
-        assert len(front_month_values) == 3, f"Expected 3 rows, got {front_month_values}"  # noqa: PLR2004
+        assert (
+            len(front_month_values) == 3
+        ), f"Expected 3 rows, got {front_month_values}"  # noqa: PLR2004
         assert front_month_values[0] is True, "First contract must be is_front_month=True"
         assert front_month_values[1] is False, "Second contract must be is_front_month=False"
         assert front_month_values[2] is False, "Third contract must be is_front_month=False"
@@ -277,6 +286,6 @@ class TestSeedRollChainCLIFlag:
             text=True,
             cwd="/home/bg/dev/indicagent",
         )
-        assert "--seed-roll-chain" in result.stdout, (
-            "--seed-roll-chain flag not found in --help output"
-        )
+        assert (
+            "--seed-roll-chain" in result.stdout
+        ), "--seed-roll-chain flag not found in --help output"

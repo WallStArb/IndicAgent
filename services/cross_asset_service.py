@@ -56,6 +56,7 @@ _TF_INTERVAL_SECONDS: dict[str, int] = {
     "1h": 3600,
 }
 
+
 def _extract_base_symbol(symbol: str) -> str | None:
     """Extract EQ_INDEX base symbol from a full contract symbol.
 
@@ -91,12 +92,8 @@ class CrossAssetComputeAgent(BaseAgent):
         _min_needed = self._window_bars + _SHORT_WINDOW
 
         # Rolling windows keyed by "BASE:tf" (e.g. "ES:1m")
-        self._close_windows: dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=_min_needed + 1)
-        )
-        self._vol_windows: dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=_min_needed + 1)
-        )
+        self._close_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=_min_needed + 1))
+        self._vol_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=_min_needed + 1))
 
         # Staleness tracking: last bar timestamp per "BASE:tf"
         self._last_bar_ts: dict[str, datetime] = {}
@@ -196,7 +193,6 @@ class CrossAssetComputeAgent(BaseAgent):
                     exc_info=True,
                 )
 
-
     async def _teardown(self) -> None:
         """Gracefully stop consumer, producer, and DB pool."""
         if self._consumer is not None:
@@ -253,9 +249,7 @@ class CrossAssetComputeAgent(BaseAgent):
             return False
         return last >= ts
 
-    def _check_group_staleness(
-        self, group_name: str, tf: str, now: datetime
-    ) -> tuple[bool, float]:
+    def _check_group_staleness(self, group_name: str, tf: str, now: datetime) -> tuple[bool, float]:
         """Check if any symbol in the group is stale (> 1 TF-interval old).
 
         Returns (is_stale, data_quality_score).
@@ -348,9 +342,7 @@ class CrossAssetComputeAgent(BaseAgent):
                                 vol_val = row["volume"] or 0.0
                                 self._close_windows[key].append(float(close_val))
                                 self._vol_windows[key].append(float(vol_val))
-                                self._last_bar_ts[key] = row["computed_at"].replace(
-                                    tzinfo=UTC
-                                )
+                                self._last_bar_ts[key] = row["computed_at"].replace(tzinfo=UTC)
                             self.logger.info(
                                 "Seeded rolling window from DB",
                                 base=base,
@@ -443,11 +435,9 @@ class CrossAssetComputeAgent(BaseAgent):
             )
 
 
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     asyncio.run(CrossAssetComputeAgent().start())
-

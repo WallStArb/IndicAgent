@@ -2,6 +2,7 @@
 
 Tests compute_shadow_plugin_stats() and _bootstrap_ci_lower() from weight_updater.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -83,5 +84,3 @@ def test_bootstrap_ci_lower_mixed_returns_finite():
     result = _bootstrap_ci_lower(values)
     assert result != float("-inf")
     assert result != float("inf")
-
-

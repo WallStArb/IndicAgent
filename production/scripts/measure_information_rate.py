@@ -19,9 +19,7 @@ CHANGE_RATE_THRESHOLD = 0.30  # below this → incremental computation (caching)
 
 
 async def measure_information_rate(
-    symbols: list[str] | None = None,
-    timeframe: str = "1m",
-    sample_size: int = 5000
+    symbols: list[str] | None = None, timeframe: str = "1m", sample_size: int = 5000
 ) -> dict:
     """Measure how often plugin outputs change between consecutive bars.
 
@@ -89,16 +87,20 @@ async def measure_information_rate(
 
                     if total_count > 0:
                         change_rate = change_count / total_count
-                        tier_plugins[tier].append({
-                            "symbol": symbol,
-                            "changes": change_count,
-                            "total": total_count,
-                            "change_rate": change_rate
-                        })
+                        tier_plugins[tier].append(
+                            {
+                                "symbol": symbol,
+                                "changes": change_count,
+                                "total": total_count,
+                                "change_rate": change_rate,
+                            }
+                        )
 
                         if tier == "i1":  # Only print I1 details
-                            print(f"  {tier.upper()}: {change_count}/{total_count} changes "
-                                  f"({change_rate*100:.1f}%)")
+                            print(
+                                f"  {tier.upper()}: {change_count}/{total_count} changes "
+                                f"({change_rate*100:.1f}%)"
+                            )
 
             print("\n=== INFORMATION RATE BY TIER ===\n")
 
@@ -124,8 +126,10 @@ async def measure_information_rate(
                     "total_changes": int(df["changes"].sum()),
                 }
 
-                print(f"{tier.upper()}: {weighted_rate*100:.1f}% change rate "
-                      f"(median: {p50*100:.1f}%, P75: {p75*100:.1f}%, P90: {p90*100:.1f}%)")
+                print(
+                    f"{tier.upper()}: {weighted_rate*100:.1f}% change rate "
+                    f"(median: {p50*100:.1f}%, P75: {p75*100:.1f}%, P90: {p90*100:.1f}%)"
+                )
 
             print("\n=== RENAISSANCE RECOMMENDATION ===\n")
 
@@ -171,9 +175,7 @@ async def measure_information_rate(
 async def main():
     """Run information rate measurement."""
     result = await measure_information_rate(
-        symbols=None,  # All symbols
-        timeframe="1m",
-        sample_size=5000
+        symbols=None, timeframe="1m", sample_size=5000  # All symbols
     )
 
     print("\n=== RESULT SAVED ===\n")

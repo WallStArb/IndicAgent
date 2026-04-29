@@ -31,9 +31,7 @@ _PROXY_EPSILON: float = 1e-9
 @dataclass
 class CVDPlugin:
     name: str = "ind_CVD"
-    outputs: frozenset[str] = frozenset(
-        {"cvd", "cvd_slope_5bar", "cvd_divergence", "cvd_spike_z"}
-    )
+    outputs: frozenset[str] = frozenset({"cvd", "cvd_slope_5bar", "cvd_divergence", "cvd_spike_z"})
     min_lookback: int = 2
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume", "microstructure"})
@@ -55,11 +53,7 @@ class CVDPlugin:
             et_minute = et_dt.minute
             et_date: date = et_dt.date()
             last_session_date = self._state.get("last_session_date")
-            if (
-                et_hour == 9
-                and et_minute >= 30
-                and et_date != last_session_date
-            ):
+            if et_hour == 9 and et_minute >= 30 and et_date != last_session_date:
                 self._state["cum_cvd"] = 0.0
                 self._state["last_session_date"] = et_date
 

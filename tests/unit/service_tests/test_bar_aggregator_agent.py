@@ -319,10 +319,12 @@ async def test_setup_retries_on_kafka_connection_error():
     # Mock _restore_state_checkpoint to avoid creating another KafkaConsumerClient
     agent._restore_state_checkpoint = AsyncMock(return_value=True)
 
-    with patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer), \
-         patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer), \
-         patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer), \
-         patch("asyncio.sleep", new_callable=AsyncMock):
+    with (
+        patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
+        patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer),
+        patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
         await agent._setup()
 
     # 2 failed starts (attempts 1+2 main) + 2 successes (attempt3 main + DLQ)
@@ -349,9 +351,11 @@ async def test_setup_raises_after_max_retries():
     mock_producer = AsyncMock()
     mock_producer.start = AsyncMock(side_effect=KafkaConnectionError())
 
-    with patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer), \
-         patch("asyncio.sleep", new_callable=AsyncMock), \
-         pytest.raises(KafkaConnectionError):
+    with (
+        patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(KafkaConnectionError),
+    ):
         await agent._setup()
 
     assert mock_producer.start.call_count == 4  # 1 initial + 3 retries

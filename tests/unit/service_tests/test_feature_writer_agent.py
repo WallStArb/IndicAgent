@@ -162,9 +162,9 @@ def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
     params = _record_to_insert_params(record)
 
     assert isinstance(params[0], datetime), f"ts must be datetime, got {type(params[0])}"
-    assert isinstance(params[28], datetime), (
-        f"i7_computed_at must be datetime, got {type(params[28])}"
-    )
+    assert isinstance(
+        params[28], datetime
+    ), f"i7_computed_at must be datetime, got {type(params[28])}"
 
 
 def test_record_to_insert_params_handles_none_winner_fields():
@@ -204,14 +204,12 @@ def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
 
     for idx in range(6, 14):
         value = params[idx]
-        assert isinstance(value, dict), (
-            f"params[{idx}] must be a dict, got {type(value).__name__}"
-        )
+        assert isinstance(value, dict), f"params[{idx}] must be a dict, got {type(value).__name__}"
 
     i7_value = params[14]
-    assert isinstance(i7_value, list), (
-        f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
-    )
+    assert isinstance(
+        i7_value, list
+    ), f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
 
 
 # ── _flush_batch (via BaseWriterAgent._do_flush) ──────────────────────────────
@@ -344,12 +342,12 @@ def test_removed_i7_i8_methods_absent():
     """_process_i7_message, _process_i8_message, _flush_i7_i8 must be absent."""
     from services.feature_writer_agent import FeatureWriterAgent
 
-    assert not hasattr(FeatureWriterAgent, "_process_i7_message"), (
-        "_process_i7_message must be removed"
-    )
-    assert not hasattr(FeatureWriterAgent, "_process_i8_message"), (
-        "_process_i8_message must be removed"
-    )
+    assert not hasattr(
+        FeatureWriterAgent, "_process_i7_message"
+    ), "_process_i7_message must be removed"
+    assert not hasattr(
+        FeatureWriterAgent, "_process_i8_message"
+    ), "_process_i8_message must be removed"
     assert not hasattr(FeatureWriterAgent, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
 
 
@@ -360,9 +358,9 @@ def test_topic_routing_only_handles_intelligence_record():
     from services.feature_writer_agent import FeatureWriterAgent
 
     source = inspect.getsource(FeatureWriterAgent._process_loop)
-    assert "intelligence_journal_topic" in source, (
-        "_process_loop must route intelligence_journal_topic"
-    )
+    assert (
+        "intelligence_journal_topic" in source
+    ), "_process_loop must route intelligence_journal_topic"
     assert "i7_topic" not in source, "i7_topic must be absent from _process_loop"
     assert "i8_topic" not in source, "i8_topic must be absent from _process_loop"
 
@@ -424,9 +422,9 @@ def test_kafka_consumer_group_is_feature_writer_group():
 
     assert CONSUMER_GROUP == "feature_writer_group"
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
-    assert not hasattr(svc, "redis_client"), (
-        "redis_client must not be present after Kafka migration"
-    )
+    assert not hasattr(
+        svc, "redis_client"
+    ), "redis_client must not be present after Kafka migration"
 
 
 # ── _build_expiry_map ─────────────────────────────────────────────────────────
@@ -619,6 +617,6 @@ def test_feature_writer_no_signal_signal_calls():
     from services.feature_writer_agent import FeatureWriterAgent
 
     source = inspect.getsource(FeatureWriterAgent)
-    assert "signal.signal(" not in source, (
-        "signal.signal() must not appear — use BaseAgent._register_signal_handlers()"
-    )
+    assert (
+        "signal.signal(" not in source
+    ), "signal.signal() must not appear — use BaseAgent._register_signal_handlers()"

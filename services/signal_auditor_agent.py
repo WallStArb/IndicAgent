@@ -149,7 +149,6 @@ class SignalAuditorAgent(BaseAgent):
             topics_produced=self.topics_produced,
         )
 
-
     async def _teardown(self) -> None:
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()

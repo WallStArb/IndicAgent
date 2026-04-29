@@ -249,7 +249,7 @@ async def backtest_yield_curve(
             )
 
             if ohlcv_df.empty:
-                print(f"  WARNING: No ZT/ZB data found in market_data_ohlcv for this period")
+                print("  WARNING: No ZT/ZB data found in market_data_ohlcv for this period")
                 return pd.DataFrame(), None
 
             print(f"  Loaded {len(ohlcv_df)} bars ({ohlcv_df['symbol'].nunique()} symbols)")
@@ -398,7 +398,7 @@ async def _amain() -> int:
 
     print("Phase 64: Macro Factor Backtest Validation")
     print(f"Period: {start_date.date()} to {end_date.date()}")
-    print(f"Validation gate: IC > 0.05, p < 0.01 (Bonferroni), N >= 30")
+    print("Validation gate: IC > 0.05, p < 0.01 (Bonferroni), N >= 30")
 
     # --- Yield Curve Backtest ---
     print("\n\nRunning Yield Curve backtest...")

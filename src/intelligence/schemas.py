@@ -786,7 +786,9 @@ class I6Confluence(BaseModel):
     # CrossTFRegimeAgreement: HMM regime agreement across TFs
     # NOTE: named ctf_hmm_regime_* to avoid conflict with ctf_regime_agreement
     # (CrossTimeframeConfluencePlugin) which scores regime consensus differently
-    ctf_hmm_regime_agreement: float | None = None  # [-1, +1] HMM regime agreement (+trending/-ranging)
+    ctf_hmm_regime_agreement: float | None = (
+        None  # [-1, +1] HMM regime agreement (+trending/-ranging)
+    )
     # Label: all_trending/all_ranging/mostly_trending/mostly_ranging/mixed
     ctf_hmm_regime_label: str | None = None
 
@@ -920,4 +922,3 @@ class MacroSignals(BaseModel):
     # USD strength factor (Plan 64-03C)
     # usd_strength_score: float | None = None
     # usd_strength_regime: str | None = None
-

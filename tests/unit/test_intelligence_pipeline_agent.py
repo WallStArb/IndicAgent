@@ -135,6 +135,7 @@ class TestStateRestore:
             "_last_bar_offset": {("ESM6", "1m"): 12345},
         }
         from src.core.state_serializer import _tag_value
+
         tagged = _tag_value(state_data)
 
         # Mock state consumer yielding one valid checkpoint
@@ -148,8 +149,9 @@ class TestStateRestore:
         # MagicMock return_value so messages() returns the async generator directly
         mock_consumer.messages = MagicMock(return_value=_mock_messages())
 
-        with patch("services.intelligence_pipeline_agent.KafkaConsumerClient",
-                   return_value=mock_consumer):
+        with patch(
+            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
+        ):
             result = await agent._restore_state_checkpoint()
 
         assert result is True
@@ -168,6 +170,7 @@ class TestStateRestore:
         checkpoint_key = "v99:ESM6:1m"
         state_data = {"_plugin_states": {}}
         from src.core.state_serializer import _tag_value
+
         tagged = _tag_value(state_data)
 
         mock_consumer = AsyncMock()
@@ -178,8 +181,9 @@ class TestStateRestore:
 
         mock_consumer.messages = MagicMock(return_value=_mock_messages())
 
-        with patch("services.intelligence_pipeline_agent.KafkaConsumerClient",
-                   return_value=mock_consumer):
+        with patch(
+            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
+        ):
             result = await agent._restore_state_checkpoint()
 
         assert result is False
@@ -198,8 +202,9 @@ class TestStateRestore:
 
         mock_consumer.messages = MagicMock(return_value=_mock_messages())
 
-        with patch("services.intelligence_pipeline_agent.KafkaConsumerClient",
-                   return_value=mock_consumer):
+        with patch(
+            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
+        ):
             result = await agent._restore_state_checkpoint()
 
         assert result is False
@@ -211,12 +216,14 @@ class TestAgentImport:
     def test_agent_imports(self):
         """Agent class is importable."""
         from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
+
         assert IntelligencePipelineComputeAgent is not None
 
     def test_agent_inherits_base_agent(self):
         """Agent inherits from BaseAgent."""
         from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
         from src.core.agent.base import BaseAgent
+
         assert issubclass(IntelligencePipelineComputeAgent, BaseAgent)
 
     def test_shadow_mode_default_false(self):
@@ -242,10 +249,12 @@ def test_i1_frames_contain_symbol_and_timeframe():
     from services import intelligence_pipeline_agent as m
 
     src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i1_to_i6)
-    assert '"__symbol__"' in src or "'__symbol__'" in src, \
-        "__symbol__ must be injected into I1 frames"
-    assert '"__timeframe__"' in src or "'__timeframe__'" in src, \
-        "__timeframe__ must be injected into I1 frames"
+    assert (
+        '"__symbol__"' in src or "'__symbol__'" in src
+    ), "__symbol__ must be injected into I1 frames"
+    assert (
+        '"__timeframe__"' in src or "'__timeframe__'" in src
+    ), "__timeframe__ must be injected into I1 frames"
 
 
 def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
@@ -258,7 +267,7 @@ def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
         "setup_plugin": "TestPlugin",
         "direction": "long",
         "confidence": 0.8,
-        "raw_cis_score": None,        # broken field
+        "raw_cis_score": None,  # broken field
         "filtered_cis_score": 0.6,
     }
 
@@ -336,6 +345,7 @@ class TestHMMLabelSeparation:
         import inspect
 
         from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
+
         src = inspect.getsource(
             IntelligencePipelineComputeAgent._run_i7
             if hasattr(IntelligencePipelineComputeAgent, "_run_i7")
@@ -419,7 +429,9 @@ class TestCheckpointState:
             "_plugin_states": agent._plugin_states,
             "_kalman_state": agent._kalman_state,
             "_tod_priors": agent._tod_priors,
-            "_bar_history": agent._bar_history._data if hasattr(agent._bar_history, '_data') else {},
+            "_bar_history": (
+                agent._bar_history._data if hasattr(agent._bar_history, "_data") else {}
+            ),
             "_last_bar_offset": agent._last_bar_offset,
             "_setup_last_fire": agent._setup_last_fire,
         }
@@ -449,17 +461,20 @@ class TestRegimeSuppressionMetric:
     def test_regime_gate_metric_exists(self):
         """REGIME_GATE_SUPPRESSIONS_TOTAL counter is importable from metrics module."""
         from src.observability.metrics import REGIME_GATE_SUPPRESSIONS_TOTAL
+
         assert REGIME_GATE_SUPPRESSIONS_TOTAL is not None
 
     def test_regime_gate_metric_has_labels(self):
         """REGIME_GATE_SUPPRESSIONS_TOTAL counter has reason, plugin, tf labels."""
         from src.observability.metrics import REGIME_GATE_SUPPRESSIONS_TOTAL
+
         # Prometheus labeled counter has .labels() method
         assert hasattr(REGIME_GATE_SUPPRESSIONS_TOTAL, "labels")
 
     def test_regime_gate_metric_increments_on_suppression(self):
         """Counter increments when a signal is regime-suppressed."""
         from src.observability.metrics import REGIME_GATE_SUPPRESSIONS_TOTAL
+
         # Use .labels() to get a labeled counter and call .inc()
         labeled = REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
             reason="regime_type", plugin="MeanReversion", tf="1m"
@@ -480,26 +495,28 @@ class TestLoadCalibrationCurvesSymbolKeyed:
     async def test_builds_three_tuple_key_with_symbol(self):
         agent = _make_agent()
         db = AsyncMock()
-        db.execute_query = AsyncMock(return_value=[
-            {
-                "setup_plugin": "trad_X",
-                "symbol": "ES",
-                "curve_data": {
-                    "timeframe": "5m",
-                    "breakpoints": [0.0, 0.5, 1.0],
-                    "values": [0.0, 0.6, 1.0],
+        db.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "setup_plugin": "trad_X",
+                    "symbol": "ES",
+                    "curve_data": {
+                        "timeframe": "5m",
+                        "breakpoints": [0.0, 0.5, 1.0],
+                        "values": [0.0, 0.6, 1.0],
+                    },
                 },
-            },
-            {
-                "setup_plugin": "trad_Y",
-                "symbol": "*",
-                "curve_data": {
-                    "timeframe": "1m",
-                    "breakpoints": [0.0, 1.0],
-                    "values": [0.1, 0.9],
+                {
+                    "setup_plugin": "trad_Y",
+                    "symbol": "*",
+                    "curve_data": {
+                        "timeframe": "1m",
+                        "breakpoints": [0.0, 1.0],
+                        "values": [0.1, 0.9],
+                    },
                 },
-            },
-        ])
+            ]
+        )
         agent._db = db
         await agent._load_calibration_curves()
         curves = agent._calibration_curves
@@ -514,14 +531,16 @@ class TestLoadCalibrationCurvesSymbolKeyed:
     async def test_skips_rows_missing_timeframe(self):
         agent = _make_agent()
         db = AsyncMock()
-        db.execute_query = AsyncMock(return_value=[
-            {
-                "setup_plugin": "trad_Z",
-                "symbol": "*",
-                "curve_data": {"breakpoints": [0.0], "values": [0.5]},
-                # missing "timeframe"
-            },
-        ])
+        db.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "setup_plugin": "trad_Z",
+                    "symbol": "*",
+                    "curve_data": {"breakpoints": [0.0], "values": [0.5]},
+                    # missing "timeframe"
+                },
+            ]
+        )
         agent._db = db
         await agent._load_calibration_curves()
         assert agent._calibration_curves == {}
@@ -534,10 +553,24 @@ class TestLoadTodMultipliersSymbolKeyed:
     async def test_builds_four_tuple_key_with_symbol(self):
         agent = _make_agent()
         db = AsyncMock()
-        db.execute_query = AsyncMock(return_value=[
-            {"regime_type": "trend", "tf": "1m", "hour_et": 9, "symbol": "ES", "multiplier": 1.2},
-            {"regime_type": "trend", "tf": "1m", "hour_et": 9, "symbol": "*", "multiplier": 1.1},
-        ])
+        db.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "regime_type": "trend",
+                    "tf": "1m",
+                    "hour_et": 9,
+                    "symbol": "ES",
+                    "multiplier": 1.2,
+                },
+                {
+                    "regime_type": "trend",
+                    "tf": "1m",
+                    "hour_et": 9,
+                    "symbol": "*",
+                    "multiplier": 1.1,
+                },
+            ]
+        )
         agent._db = db
         agent._tod_priors = {}
         await agent._load_tod_multipliers()
@@ -555,6 +588,7 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
+
         sig = inspect.signature(apply_tod_adjustment)
         assert "symbol" in sig.parameters
 
@@ -563,6 +597,7 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from src.intelligence.pipeline.calibrator import apply_calibration
+
         sig = inspect.signature(apply_calibration)
         assert "symbol" in sig.parameters
 
@@ -571,6 +606,7 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
+
         # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "apply_tod_adjustment" in src
@@ -581,6 +617,7 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
+
         # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "apply_calibration" in src
@@ -610,18 +647,24 @@ class TestMacroCacheMergeSemantics:
         cache: dict = {}
 
         # Step 1: yield curve message arrives
-        self._simulate_macro_update(cache, {
-            "timeframe": "5m",
-            "yield_curve_slope": 0.75,
-            "yield_curve_regime": "steepening",
-        })
+        self._simulate_macro_update(
+            cache,
+            {
+                "timeframe": "5m",
+                "yield_curve_slope": 0.75,
+                "yield_curve_regime": "steepening",
+            },
+        )
 
         # Step 2: FTQ message arrives for the same tf — must merge, not overwrite
-        self._simulate_macro_update(cache, {
-            "timeframe": "5m",
-            "ftq_score": -0.42,
-            "ftq_regime": "risk_off",
-        })
+        self._simulate_macro_update(
+            cache,
+            {
+                "timeframe": "5m",
+                "ftq_score": -0.42,
+                "ftq_regime": "risk_off",
+            },
+        )
 
         assert "5m" in cache
         assert cache["5m"]["yield_curve_slope"] == 0.75, "YC slope lost after FTQ"
@@ -633,16 +676,22 @@ class TestMacroCacheMergeSemantics:
         """FTQ fields must not be wiped when a subsequent YC message arrives."""
         cache: dict = {}
 
-        self._simulate_macro_update(cache, {
-            "timeframe": "1h",
-            "ftq_score": 0.3,
-            "ftq_regime": "risk_on",
-        })
-        self._simulate_macro_update(cache, {
-            "timeframe": "1h",
-            "yield_curve_slope": -0.1,
-            "yield_curve_regime": "flattening",
-        })
+        self._simulate_macro_update(
+            cache,
+            {
+                "timeframe": "1h",
+                "ftq_score": 0.3,
+                "ftq_regime": "risk_on",
+            },
+        )
+        self._simulate_macro_update(
+            cache,
+            {
+                "timeframe": "1h",
+                "yield_curve_slope": -0.1,
+                "yield_curve_regime": "flattening",
+            },
+        )
 
         assert cache["1h"]["ftq_score"] == 0.3, "FTQ score lost after YC update"
         assert cache["1h"]["ftq_regime"] == "risk_on", "FTQ regime lost after YC update"
@@ -667,9 +716,9 @@ class TestMacroCacheMergeSemantics:
         from services import intelligence_pipeline_agent as m
 
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._process_loop)
-        assert "_macro_cache.setdefault" in src, (
-            "Macro cache must use setdefault().update() to merge YC+FTQ — not direct assignment"
-        )
-        assert "_macro_cache[tf] = {" not in src, (
-            "Direct assignment _macro_cache[tf] = {...} must be eliminated"
-        )
+        assert (
+            "_macro_cache.setdefault" in src
+        ), "Macro cache must use setdefault().update() to merge YC+FTQ — not direct assignment"
+        assert (
+            "_macro_cache[tf] = {" not in src
+        ), "Direct assignment _macro_cache[tf] = {...} must be eliminated"

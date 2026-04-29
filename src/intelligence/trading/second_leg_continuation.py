@@ -120,7 +120,7 @@ class SecondLegContinuationPlugin:
         #                       61.8% retracement from high = swing_high - 0.618*amplitude
         # Fib zone: price between these two retracement levels
         fib_high = swing_high - _FIB_382 * amplitude  # 38.2% retrace (closer to high)
-        fib_low = swing_high - _FIB_618 * amplitude   # 61.8% retrace (closer to low)
+        fib_low = swing_high - _FIB_618 * amplitude  # 61.8% retrace (closer to low)
         # fib_low < fib_high always for bullish setup
 
         close_price = float(close[-1])

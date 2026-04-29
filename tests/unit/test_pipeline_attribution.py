@@ -17,8 +17,9 @@ from src.persistence.repository.signal_ledger_repository import LedgerEntry
 # ---------------------------------------------------------------------------
 
 
-def _apply_stage_reduction(signals: list[dict], quality_factor: float = 0.9,
-                           calibration_factor: float = 0.8) -> list[dict]:
+def _apply_stage_reduction(
+    signals: list[dict], quality_factor: float = 0.9, calibration_factor: float = 0.8
+) -> list[dict]:
     """Simulate pipeline stages that reduce confidence.
 
     Mirrors the production pipeline:

@@ -67,14 +67,16 @@ class BarHistory:
         bars = self._data.get(f"{symbol}:{tf}")
         columns = ["timestamp", "open", "high", "low", "close", "volume"]
         if not bars:
-            return pd.DataFrame({
-                "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
-                "open": pd.Series(dtype="float64"),
-                "high": pd.Series(dtype="float64"),
-                "low": pd.Series(dtype="float64"),
-                "close": pd.Series(dtype="float64"),
-                "volume": pd.Series(dtype="int64"),
-            })
+            return pd.DataFrame(
+                {
+                    "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
+                    "open": pd.Series(dtype="float64"),
+                    "high": pd.Series(dtype="float64"),
+                    "low": pd.Series(dtype="float64"),
+                    "close": pd.Series(dtype="float64"),
+                    "volume": pd.Series(dtype="int64"),
+                }
+            )
         rows = [
             {
                 "timestamp": bar.ts,
@@ -108,7 +110,7 @@ class BarHistory:
         Existing deque contents are replaced on seed.
         """
         key = f"{symbol}:{tf}"
-        self._data[key] = deque(bars[-self._maxlen:], maxlen=self._maxlen)
+        self._data[key] = deque(bars[-self._maxlen :], maxlen=self._maxlen)
 
     def migrate_symbol(self, old_symbol: str, new_symbol: str) -> None:
         """Atomically rename all (old_symbol, tf) keys to (new_symbol, tf).
@@ -119,5 +121,5 @@ class BarHistory:
         """
         prefix = f"{old_symbol}:"
         for old_key in [k for k in self._data if k.startswith(prefix)]:
-            tf = old_key[len(prefix):]
+            tf = old_key[len(prefix) :]
             self._data[f"{new_symbol}:{tf}"] = self._data.pop(old_key)

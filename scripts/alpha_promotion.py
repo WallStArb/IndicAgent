@@ -55,7 +55,9 @@ class AlphaPromotionWorker:
             for agent_id, group in df.groupby("agent_id"):
                 corr = group["agent_multiplier"].corr(group["realized_pnl"])
                 if pd.isna(corr):
-                    print(f"Warning: Agent {agent_id} has insufficient data for correlation (n={len(group)})")  # noqa: E501
+                    print(
+                        f"Warning: Agent {agent_id} has insufficient data for correlation (n={len(group)})"
+                    )  # noqa: E501
                     continue
                 if corr >= self.correlation_threshold:
                     candidates.append((agent_id, corr))

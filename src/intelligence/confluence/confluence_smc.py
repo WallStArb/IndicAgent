@@ -1,4 +1,5 @@
 """SMC-specific scoring — BOS, FVG, and Order Block alignment for cross-timeframe confluence."""
+
 from __future__ import annotations
 
 from typing import Any

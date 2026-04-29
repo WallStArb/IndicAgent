@@ -3,6 +3,7 @@
 Per D-03: prompt version tracked in every alpha_multiplier_shadow row via
 features JSONB.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -97,7 +98,8 @@ def build_volume_prompt(ctx: dict) -> str:
         timeframe=ctx.get("timeframe", "N/A"),
         winner_plugin=ctx.get("winner_plugin") or "unknown",
         winner_direction_label=_DIRECTION_LABELS.get(
-            ctx.get("winner_direction", 0), "UNKNOWN",
+            ctx.get("winner_direction", 0),
+            "UNKNOWN",
         ),
         winner_confidence=_fmt(ctx.get("winner_confidence"), ".0%"),
         price=_fmt(ctx.get("price"), ".2f"),

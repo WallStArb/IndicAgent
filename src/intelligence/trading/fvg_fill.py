@@ -128,7 +128,10 @@ class FVGFillPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "smc", signal["confidence"],
+            features,
+            direction,
+            "smc",
+            signal["confidence"],
         )
         return signal
 

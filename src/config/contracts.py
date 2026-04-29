@@ -26,15 +26,15 @@ from datetime import UTC, date, datetime, timedelta
 # ---------------------------------------------------------------------------
 
 MONTH_CODE_TO_NUM: dict[str, int] = {
-    "F": 1,   # January
-    "G": 2,   # February
-    "H": 3,   # March
-    "J": 4,   # April
-    "K": 5,   # May
-    "M": 6,   # June
-    "N": 7,   # July
-    "Q": 8,   # August
-    "U": 9,   # September
+    "F": 1,  # January
+    "G": 2,  # February
+    "H": 3,  # March
+    "J": 4,  # April
+    "K": 5,  # May
+    "M": 6,  # June
+    "N": 7,  # July
+    "Q": 8,  # August
+    "U": 9,  # September
     "V": 10,  # October
     "X": 11,  # November
     "Z": 12,  # December
@@ -53,18 +53,31 @@ _NUM_TO_MONTH_CODE: dict[int, str] = {v: k for k, v in MONTH_CODE_TO_NUM.items()
 #: Grain cycle (H/K/N/U/Z): agricultural grains
 FUTURES_ROLL_CYCLES: dict[str, list[str]] = {
     # ---- Equity Index (CME quarterly) ----
-    "ES": ["H", "M", "U", "Z"],   # E-mini S&P 500
-    "NQ": ["H", "M", "U", "Z"],   # E-mini Nasdaq
+    "ES": ["H", "M", "U", "Z"],  # E-mini S&P 500
+    "NQ": ["H", "M", "U", "Z"],  # E-mini Nasdaq
     "RTY": ["H", "M", "U", "Z"],  # E-mini Russell 2000
-    "YM": ["H", "M", "U", "Z"],   # E-mini Dow
+    "YM": ["H", "M", "U", "Z"],  # E-mini Dow
     # ---- Interest Rates (CBOT quarterly) ----
-    "ZN": ["H", "M", "U", "Z"],   # 10-Year T-Note
-    "ZF": ["H", "M", "U", "Z"],   # 5-Year T-Note
-    "ZB": ["H", "M", "U", "Z"],   # 30-Year T-Bond
-    "ZT": ["H", "M", "U", "Z"],   # 2-Year T-Note
+    "ZN": ["H", "M", "U", "Z"],  # 10-Year T-Note
+    "ZF": ["H", "M", "U", "Z"],  # 5-Year T-Note
+    "ZB": ["H", "M", "U", "Z"],  # 30-Year T-Bond
+    "ZT": ["H", "M", "U", "Z"],  # 2-Year T-Note
     # ---- Volatility (CFE quarterly) ----
-    "VX": ["H", "M", "U", "Z"],   # CBOE VIX Futures (IBKR trading_class: VX)
-    "VIX": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # CBOE VIX Futures (IBKR base=VIX, contract prefix=VX, monthly)
+    "VX": ["H", "M", "U", "Z"],  # CBOE VIX Futures (IBKR trading_class: VX)
+    "VIX": [
+        "F",
+        "G",
+        "H",
+        "J",
+        "K",
+        "M",
+        "N",
+        "Q",
+        "U",
+        "V",
+        "X",
+        "Z",
+    ],  # CBOE VIX Futures (IBKR base=VIX, contract prefix=VX, monthly)
     # ---- Energy (NYMEX monthly) ----
     "CL": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Crude Oil WTI
     "NG": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Natural Gas
@@ -96,9 +109,7 @@ _QUARTERLY_SYMBOLS: frozenset[str] = frozenset(
 
 #: Monthly energy and metals futures.
 #: Expiry = last business day of the month PRIOR to the expiry month.
-_ENERGY_METALS_SYMBOLS: frozenset[str] = frozenset(
-    {"CL", "GC", "SI", "HG", "NG", "BZ", "PL", "PA"}
-)
+_ENERGY_METALS_SYMBOLS: frozenset[str] = frozenset({"CL", "GC", "SI", "HG", "NG", "BZ", "PL", "PA"})
 
 #: Grain futures (CBOT grain cycle).
 #: Expiry = Friday closest to the 15th of the expiry month.
@@ -186,8 +197,8 @@ def get_roll_window(base_symbol: str, ref_date: date) -> tuple[date, date] | Non
 
     for entry in chain:
         expiry = get_expiry_date(base_symbol, entry["expiry_month"], entry["expiry_year"])
-        roll_start = expiry - timedelta(days=14)   # ~10 trading days before
-        roll_end = expiry - timedelta(days=3)       # ~2 trading days before
+        roll_start = expiry - timedelta(days=14)  # ~10 trading days before
+        roll_end = expiry - timedelta(days=3)  # ~2 trading days before
 
         if roll_start <= ref_date <= roll_end:
             return (roll_start, roll_end)
@@ -290,7 +301,7 @@ def derive_roll_chain(
                 "expiry_year": exp_year,
                 "expiry_date": get_expiry_date(base_symbol, exp_month, exp_year),
                 "roll_from": None,  # filled below
-                "roll_to": None,    # filled below
+                "roll_to": None,  # filled below
             }
         )
 

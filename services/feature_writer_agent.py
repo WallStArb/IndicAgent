@@ -99,8 +99,6 @@ _ROLL_BOUNDARY_TF = "1m"
 logger = structlog.get_logger(__name__)
 
 
-
-
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
 

@@ -3,6 +3,7 @@
 Consumes topic_signal_lineage() published by LineageRecorder.
 Replaces GraduationWriterAgent's write path and swarm_writer_agent's shadow write path.
 """
+
 import asyncio
 
 from src.config.settings import Settings
@@ -37,23 +38,25 @@ class LineageWriterAgent(BaseWriterAgent):
             return
         rows = []
         for event in batch:
-            rows.append((
-                event["ts"],
-                event["signal_id"],
-                event["event_type"],
-                event["source"],
-                event.get("dag_order"),
-                event.get("multiplier"),
-                event.get("metadata", {}),
-                event.get("is_shadow", True),
-                event.get("symbol", ""),
-                event.get("tf", ""),
-            ))
+            rows.append(
+                (
+                    event["ts"],
+                    event["signal_id"],
+                    event["event_type"],
+                    event["source"],
+                    event.get("dag_order"),
+                    event.get("multiplier"),
+                    event.get("metadata", {}),
+                    event.get("is_shadow", True),
+                    event.get("symbol", ""),
+                    event.get("tf", ""),
+                )
+            )
 
         async with self._pool.acquire() as conn:
             await conn.executemany(
                 """INSERT INTO signal_lineage
-                   (ts, signal_id, event_type, source, dag_order, multiplier, metadata, is_shadow, symbol, tf)
+                   (ts, signal_id, event_type, source, dag_order, multiplier, metadata, is_shadow, symbol, tf) # noqa: E501
                    VALUES ($1::timestamptz, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
                    ON CONFLICT DO NOTHING""",
                 rows,

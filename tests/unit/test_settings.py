@@ -29,9 +29,7 @@ class TestBuildContractsBaseSymbolTemplates:
         futures = [c for c in s.contracts if c.asset_class == AssetClass.FUTURES]
         assert len(futures) > 0, "No futures instruments found"
         for f in futures:
-            assert not f.expiry, (
-                f"Futures {f.symbol} should have empty expiry, got '{f.expiry}'"
-            )
+            assert not f.expiry, f"Futures {f.symbol} should have empty expiry, got '{f.expiry}'"
 
     def test_futures_have_required_fields(self):
         """Each futures template must have exchange, point_value, tick_size, session_id, sector."""
@@ -72,9 +70,9 @@ class TestBuildContractsBaseSymbolTemplates:
         futures = [c for c in s.contracts if c.asset_class == AssetClass.FUTURES]
         assert len(futures) > 0, "No futures instruments found"
         for f in futures:
-            assert f.session_id == "futures_24_5", (
-                f"{f.symbol} has session_id={f.session_id!r}, expected 'futures_24_5'"
-            )
+            assert (
+                f.session_id == "futures_24_5"
+            ), f"{f.symbol} has session_id={f.session_id!r}, expected 'futures_24_5'"
 
     def test_no_front_month_codes_in_futures_symbols(self):
         """Futures symbols should not contain quarterly contract codes (M6, H6, etc.)."""

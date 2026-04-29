@@ -150,9 +150,7 @@ def _generate_contract_symbols(base: str, start_year: int, end_year: int) -> lis
     return contracts
 
 
-def _upsert_contract_metadata(
-    db_conn: Any, metadata: list[ContractMetadata]
-) -> int:
+def _upsert_contract_metadata(db_conn: Any, metadata: list[ContractMetadata]) -> int:
     """Upsert contract metadata records.
 
     Args:
@@ -187,9 +185,16 @@ def _upsert_contract_metadata(
 
     params = [
         (
-            m.symbol, m.base_symbol, m.asset_class.value,
-            m.expiry_date, m.first_notice_date,
-            m.roll_from, m.roll_to, m.roll_date, m.roll_gap, m.exchange
+            m.symbol,
+            m.base_symbol,
+            m.asset_class.value,
+            m.expiry_date,
+            m.first_notice_date,
+            m.roll_from,
+            m.roll_to,
+            m.roll_date,
+            m.roll_gap,
+            m.exchange,
         )
         for m in metadata
     ]
@@ -259,8 +264,7 @@ def fetch_per_contract(
         first_day = date(contract_year, month_num, 1)
         first_friday = (4 - first_day.weekday()) % 7 + 1
         expiry_date = datetime.combine(
-            date(contract_year, month_num, first_friday + 7),
-            datetime.min.time()
+            date(contract_year, month_num, first_friday + 7), datetime.min.time()
         ).replace(tzinfo=UTC)
 
         # Roll date: when this contract became active (previous contract expiry + 1 day)
@@ -393,7 +397,12 @@ I2_PLUGINS = [
     "cmp_ExhaustionScore",
     "cmp_AccelerationRegime",
 ]
-I3_PLUGINS = ["struct_MACDEvents", "struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
+I3_PLUGINS = [
+    "struct_MACDEvents",
+    "struct_SwingDetector",
+    "struct_SupportResistance",
+    "struct_TrendStructure",
+]
 I4_PLUGINS = [
     "ctx_VolatilityRegime",
     "ctx_TrendRegime",
@@ -936,6 +945,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
         python production/scripts/historical_backfill.py --seed-roll-chain
     """
     import structlog
+
     log = structlog.get_logger(__name__)
 
     # Collect unique futures base symbols (order-preserving via dict.fromkeys)
@@ -958,14 +968,16 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
             params: list[tuple] = []
             for i, contract in enumerate(chain):
                 is_front_month = i == 0
-                params.append((
-                    contract["symbol"],
-                    contract["base_symbol"],
-                    "futures",
-                    contract.get("roll_from"),
-                    contract.get("roll_to"),
-                    is_front_month,
-                ))
+                params.append(
+                    (
+                        contract["symbol"],
+                        contract["base_symbol"],
+                        "futures",
+                        contract.get("roll_from"),
+                        contract.get("roll_to"),
+                        is_front_month,
+                    )
+                )
             await db.execute_batch(_SEED_ROLL_CHAIN_SQL, params)
             total_contracts += len(params)
             log.debug(
@@ -1027,7 +1039,6 @@ INSERT INTO market_data_ohlcv
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
-
 
 
 def detect_gaps(
@@ -1341,7 +1352,9 @@ def replay_symbol(
 
             if (i + 1) % 1000 == 0:
                 if skip_signals:
-                    print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_features} features")  # noqa: E501
+                    print(
+                        f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_features} features"
+                    )  # noqa: E501
                 else:
                     print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
 
@@ -1410,7 +1423,7 @@ def run_normalize(
                 continue
 
             start = min(b["timestamp"] for b in rows)
-            end   = max(b["timestamp"] for b in rows)
+            end = max(b["timestamp"] for b in rows)
 
             canonical = normalize_bars(
                 rows,
@@ -1485,21 +1498,21 @@ def main() -> None:
         "--per-contract",
         action="store_true",
         help="Fetch per-contract raw data (Renaissance style) instead of back-adjusted continuous. "
-             "Requires reseed after. Disabled by default for backward compatibility.",
+        "Requires reseed after. Disabled by default for backward compatibility.",
     )
     parser.add_argument(
         "--seed-roll-chain",
         action="store_true",
         help="Populate contract_metadata with 3-contract roll chain per active futures base "
-             "symbol. Sets is_front_month=True for the current front-month contract. "
-             "Idempotent — safe to run multiple times.",
+        "symbol. Sets is_front_month=True for the current front-month contract. "
+        "Idempotent — safe to run multiple times.",
     )
     parser.add_argument(
         "--normalize",
         action="store_true",
         default=False,
         help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
-             "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
+        "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
     )
     args = parser.parse_args()
 
@@ -1526,7 +1539,8 @@ def main() -> None:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
         # Match on full contract symbol (e.g. ESM6) OR base symbol (e.g. ES)
         contracts = [
-            c for c in contracts
+            c
+            for c in contracts
             if c.symbol in wanted or (_parse_contract_symbol(c.symbol) or (None,))[0] in wanted
         ]
         if not contracts:
@@ -1619,7 +1633,11 @@ def main() -> None:
                         )
 
                         gaps = detect_gaps(
-                            db_conn, instrument.symbol, tf, start_dt, end_dt,
+                            db_conn,
+                            instrument.symbol,
+                            tf,
+                            start_dt,
+                            end_dt,
                             session_id=instrument.session_id,
                             exchange=instrument.exchange,
                         )

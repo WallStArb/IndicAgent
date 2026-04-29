@@ -43,9 +43,11 @@ def _base_features(**kwargs):
 
 # ─── Window gate tests ────────────────────────────────────────────────────────
 
+
 def test_no_signal_outside_session_window():
     """timestamp at 12:00 ET is outside 09:30-11:30 ET window -> no_signal."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
     ts = _ts_utc(12, 0)
@@ -57,6 +59,7 @@ def test_no_signal_outside_session_window():
 def test_no_signal_before_range_complete():
     """timestamp at 09:40 ET is during accumulation window (09:30-09:45) -> no_signal."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
     ts = _ts_utc(9, 40)
@@ -67,6 +70,7 @@ def test_no_signal_before_range_complete():
 def test_fires_on_breakout_long():
     """After range complete (09:45+ ET), close > orb_high + volume expansion -> long signal."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
 
     # Step 1: accumulate range during 09:30-09:44 ET
@@ -77,11 +81,15 @@ def test_fires_on_breakout_long():
 
     # Step 2: breakout bar at 09:46 ET — close clearly above range high (+30 pts), high volume
     ts_break = _ts_utc(9, 46)
-    close_break = np.linspace(5000.0, 5040.0, 25)  # close[-1]=5040, well above orb_high (~5005+spread)
+    close_break = np.linspace(
+        5000.0, 5040.0, 25
+    )  # close[-1]=5040, well above orb_high (~5005+spread)
     high_vol = np.full(25, 800.0)
     high_vol[-1] = 3000.0  # large spike on last bar
 
-    result = plugin.compute_full(_make_frames(close_break, _base_features(), ts_break, volume=high_vol))
+    result = plugin.compute_full(
+        _make_frames(close_break, _base_features(), ts_break, volume=high_vol)
+    )
     assert result.get("direction") == 1
     assert result.get("signal_type") == "orb15_breakout_long"
     assert result.get("confidence", 0.0) > 0.0
@@ -93,6 +101,7 @@ def test_fires_on_breakout_long():
 def test_fires_on_breakout_short():
     """After range complete, close < orb_low + volume expansion -> short signal."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
 
     close_range = np.linspace(5000.0, 5005.0, 25)
@@ -106,7 +115,9 @@ def test_fires_on_breakout_short():
     high_vol = np.full(25, 800.0)
     high_vol[-1] = 3000.0
 
-    result = plugin.compute_full(_make_frames(close_break, _base_features(), ts_break, volume=high_vol))
+    result = plugin.compute_full(
+        _make_frames(close_break, _base_features(), ts_break, volume=high_vol)
+    )
     assert result.get("direction") == -1
     assert result.get("signal_type") == "orb15_breakout_short"
 
@@ -114,6 +125,7 @@ def test_fires_on_breakout_short():
 def test_no_signal_without_volume_expansion():
     """Close above orb_high but volume < 1.5x average -> no_signal."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
 
     close_range = np.linspace(5000.0, 5005.0, 25)
@@ -126,13 +138,16 @@ def test_no_signal_without_volume_expansion():
     # Uniform low volume — no expansion (all bars same volume, ratio=1.0 < 1.5)
     low_vol = np.full(25, 800.0)
 
-    result = plugin.compute_full(_make_frames(close_break, _base_features(), ts_break, volume=low_vol))
+    result = plugin.compute_full(
+        _make_frames(close_break, _base_features(), ts_break, volume=low_vol)
+    )
     assert result.get("direction") == 0
 
 
 def test_gap_bias_boosts_long_confidence():
     """Gap up (open > prior_session_close by > 0.1%) boosts long confidence."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin_gap = ORB15Plugin()
     plugin_flat = ORB15Plugin()
 
@@ -149,11 +164,15 @@ def test_gap_bias_boosts_long_confidence():
 
     # With gap up (open=5010, pdc=4970 -> gap=0.8% > 0.1%) — aligns with long
     feat_gap = _base_features(prior_session_close=4970.0)
-    result_gap = plugin_gap.compute_full(_make_frames(close_break, feat_gap, ts_break, volume=high_vol))
+    result_gap = plugin_gap.compute_full(
+        _make_frames(close_break, feat_gap, ts_break, volume=high_vol)
+    )
 
     # Without gap (pdc=0, no gap calculation)
     feat_flat = _base_features(prior_session_close=0.0)
-    result_flat = plugin_flat.compute_full(_make_frames(close_break, feat_flat, ts_break, volume=high_vol))
+    result_flat = plugin_flat.compute_full(
+        _make_frames(close_break, feat_flat, ts_break, volume=high_vol)
+    )
 
     if result_gap.get("direction") == 1 and result_flat.get("direction") == 1:
         assert result_gap.get("confidence", 0.0) > result_flat.get("confidence", 0.0)
@@ -165,6 +184,7 @@ def test_gap_bias_boosts_long_confidence():
 def test_state_resets_on_new_session_date():
     """Different date causes range state to reset and re-accumulate."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
 
     # Day 1: accumulate range
@@ -179,6 +199,7 @@ def test_state_resets_on_new_session_date():
 
     state = plugin._state.get(("ES", "1m"), {})
     from datetime import date
+
     assert state.get("session_date") == date(2026, 3, 18), "State should reflect new session date"
     # range_complete should be False after new session reset
     assert not state.get("range_complete", False)
@@ -187,6 +208,7 @@ def test_state_resets_on_new_session_date():
 def test_fires_only_once_per_direction():
     """After firing long, same direction does not re-fire in the same session."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
 
     # Accumulate range
@@ -200,17 +222,22 @@ def test_fires_only_once_per_direction():
     close_break = np.linspace(5000.0, 5020.0, 25)
 
     # First breakout: should fire
-    result1 = plugin.compute_full(_make_frames(close_break, _base_features(), _ts_utc(9, 50), volume=high_vol))
+    result1 = plugin.compute_full(
+        _make_frames(close_break, _base_features(), _ts_utc(9, 50), volume=high_vol)
+    )
     assert result1.get("direction") == 1
 
     # Second breakout in same direction: should NOT fire
-    result2 = plugin.compute_full(_make_frames(close_break, _base_features(), _ts_utc(10, 0), volume=high_vol))
+    result2 = plugin.compute_full(
+        _make_frames(close_break, _base_features(), _ts_utc(10, 0), volume=high_vol)
+    )
     assert result2.get("direction") == 0
 
 
 def test_min_lookback_guard():
     """Returns no_signal when df has fewer rows than min_lookback."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
     close = np.array([5000.0] * 5)
     ts = _ts_utc(10, 0)
@@ -222,14 +249,17 @@ def test_min_lookback_guard():
 def test_module_level_plugin_instance():
     """Module exports a plugin instance."""
     import src.intelligence.trading.orb15 as mod
+
     assert hasattr(mod, "plugin")
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     assert isinstance(mod.plugin, ORB15Plugin)
 
 
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
     from src.intelligence.trading.orb15 import ORB15Plugin
+
     plugin = ORB15Plugin()
     close = np.linspace(5000.0, 5010.0, 25)
     ts = _ts_utc(9, 50)

@@ -15,7 +15,13 @@ class TrendRegimePlugin:
 
     name: str = "ctx_TrendRegime"
     outputs: frozenset[str] = frozenset(
-        {"trend_regime", "trend_regime_continuous", "trend_confidence", "ma_alignment", "price_vs_sma20_pct"}
+        {
+            "trend_regime",
+            "trend_regime_continuous",
+            "trend_confidence",
+            "ma_alignment",
+            "price_vs_sma20_pct",
+        }
     )
     min_lookback: int = 50
     supports_incremental: bool = False

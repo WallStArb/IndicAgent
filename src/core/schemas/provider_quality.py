@@ -47,7 +47,5 @@ class ProviderQualityEvent(BaseModel):
     def _require_utc_aware(cls, v: object) -> object:
         """Reject naive datetimes — all timestamps must be UTC-aware."""
         if isinstance(v, datetime) and v.tzinfo is None:
-            raise ValueError(
-                f"datetime must be timezone-aware (UTC); got naive datetime: {v!r}"
-            )
+            raise ValueError(f"datetime must be timezone-aware (UTC); got naive datetime: {v!r}")
         return v

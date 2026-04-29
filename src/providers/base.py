@@ -87,9 +87,7 @@ class DataProvider(Protocol):
         """
         ...
 
-    async def stream_real_time_bars(
-        self, symbols: list[str]
-    ) -> AsyncIterator[tuple[str, object]]:
+    async def stream_real_time_bars(self, symbols: list[str]) -> AsyncIterator[tuple[str, object]]:
         """Async iterator yielding (symbol, RealTimeBar) tuples as 5-second bars arrive.
 
         RealTimeBar fields: time (UTC close time), open_, high, low, close, volume (float).
@@ -139,9 +137,7 @@ class DataProviderAdapter(Protocol):
         """Return True if the connection is currently active."""
         ...
 
-    async def stream_bars(
-        self, instruments: list[Instrument]
-    ) -> AsyncIterator[BarMessage]:
+    async def stream_bars(self, instruments: list[Instrument]) -> AsyncIterator[BarMessage]:
         """Async iterator yielding normalized BarMessage instances as they arrive.
 
         Each bar is published to the provider's raw topic before the merger

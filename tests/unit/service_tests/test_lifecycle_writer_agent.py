@@ -4,6 +4,7 @@ Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.m
 Tests structural contract, buffer accumulation, flush grouping by transition type,
 error handling, and buffer preservation on failure.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -163,10 +164,12 @@ class TestFlushGroupsByType:
     async def test_do_flush_handles_db_error_buffer_preserved(self):
         agent = _make_agent()
         agent._repo.batch_execute = AsyncMock(side_effect=Exception("db down"))
-        agent._buffer.extend([
-            _make_transition("activation", "sig-001"),
-            _make_transition("exit", "sig-002"),
-        ])
+        agent._buffer.extend(
+            [
+                _make_transition("activation", "sig-001"),
+                _make_transition("exit", "sig-002"),
+            ]
+        )
         await agent._do_flush()
         # Buffer should NOT be cleared on error
         assert len(agent._buffer) == 2

@@ -84,9 +84,7 @@ class IBKRAdapter:
     # stream_bars — primary live bar source
     # ------------------------------------------------------------------
 
-    async def stream_bars(
-        self, instruments: list[Instrument]
-    ) -> AsyncIterator[BarMessage]:
+    async def stream_bars(self, instruments: list[Instrument]) -> AsyncIterator[BarMessage]:
         """Async iterator yielding completed 1m BarMessage instances.
 
         Source: IBKRProvider.stream_official_bars() with keepUpToDate=True
@@ -337,7 +335,5 @@ class IBKRAdapter:
 
         success = await self._provider.qualify_instrument(flat_instrument)
         if not success:
-            raise ValueError(
-                f"IBKRAdapter.qualify_instrument failed for {instrument.symbol!r}"
-            )
+            raise ValueError(f"IBKRAdapter.qualify_instrument failed for {instrument.symbol!r}")
         return instrument

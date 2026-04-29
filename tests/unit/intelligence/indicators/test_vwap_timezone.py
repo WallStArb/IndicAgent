@@ -99,8 +99,17 @@ class TestVWAPTimezoneHandling:
         frames = _make_tz_aware_frames_same_day(n=20)
         result = plugin.compute_full(frames)
         assert result != {}
-        expected_keys = {"vwap", "vwap_upper_1", "vwap_lower_1", "vwap_upper_2", "vwap_lower_2", "vwap_std"}
-        assert expected_keys.issubset(result.keys()), f"Missing keys: {expected_keys - result.keys()}"
+        expected_keys = {
+            "vwap",
+            "vwap_upper_1",
+            "vwap_lower_1",
+            "vwap_upper_2",
+            "vwap_lower_2",
+            "vwap_std",
+        }
+        assert expected_keys.issubset(
+            result.keys()
+        ), f"Missing keys: {expected_keys - result.keys()}"
 
 
 def _make_tz_aware_frames_same_day(n: int = 20) -> dict:

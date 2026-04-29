@@ -95,9 +95,7 @@ def test_health_all_running(manifest: ProcessManifest) -> None:
     assert h["agent_b"]["running"] is True
 
 
-def test_health_after_stop_event(
-    manifest: ProcessManifest, agent_a: FakeAgent
-) -> None:
+def test_health_after_stop_event(manifest: ProcessManifest, agent_a: FakeAgent) -> None:
     agent_a._stop_event.set()
     h = manifest.health()
     assert h["agent_a"]["running"] is False
@@ -120,9 +118,7 @@ async def test_validate_topics_raises_not_implemented(
 
 
 @pytest.mark.asyncio
-async def test_start_all_calls_each_agent(
-    agent_a: FakeAgent, agent_b: FakeAgent
-) -> None:
+async def test_start_all_calls_each_agent(agent_a: FakeAgent, agent_b: FakeAgent) -> None:
     manifest = ProcessManifest([agent_a, agent_b])
     agent_a.start = AsyncMock()
     agent_b.start = AsyncMock()
@@ -132,9 +128,7 @@ async def test_start_all_calls_each_agent(
 
 
 @pytest.mark.asyncio
-async def test_stop_all_calls_each_agent(
-    agent_a: FakeAgent, agent_b: FakeAgent
-) -> None:
+async def test_stop_all_calls_each_agent(agent_a: FakeAgent, agent_b: FakeAgent) -> None:
     manifest = ProcessManifest([agent_a, agent_b])
     agent_a.stop = AsyncMock()
     agent_b.stop = AsyncMock()

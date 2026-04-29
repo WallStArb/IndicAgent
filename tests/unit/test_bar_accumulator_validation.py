@@ -85,9 +85,9 @@ def test_out_of_order_does_not_corrupt_accumulator():
     accumulator.update(_make_bar(t1))
 
     state_after = accumulator._accumulators["ES:5m"]
-    assert state_after["last_ts"] == state_before["last_ts"], (
-        "last_ts must not change after rejecting out-of-order bar"
-    )
+    assert (
+        state_after["last_ts"] == state_before["last_ts"]
+    ), "last_ts must not change after rejecting out-of-order bar"
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +104,13 @@ def test_validate_accumulator_runs_without_debug_flag():
     accumulator = BarAccumulator(timeframes=["5m"])
     # Valid accumulator
     valid_acc = {
-        "period_ts": 1000, "open": 4000.0, "high": 4001.0,
-        "low": 3999.0, "close": 4000.0, "volume": 100, "last_ts": 1060,
+        "period_ts": 1000,
+        "open": 4000.0,
+        "high": 4001.0,
+        "low": 3999.0,
+        "close": 4000.0,
+        "volume": 100,
+        "last_ts": 1060,
     }
     assert accumulator._is_accumulator_valid(valid_acc) is True
 
@@ -122,9 +127,15 @@ def test_corrupted_accumulator_detected():
     # Add a normal bar
     bar = BarMessage(
         ts=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4001.0, low=3999.0, close=4000.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4001.0,
+        low=3999.0,
+        close=4000.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
     accumulator.update(bar)
 
@@ -135,9 +146,15 @@ def test_corrupted_accumulator_detected():
     # Add another bar - corruption should be detected
     bar2 = BarMessage(
         ts=datetime(2026, 3, 29, 13, 1, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4002.0, low=3999.0, close=4001.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4002.0,
+        low=3999.0,
+        close=4001.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
 
     # Should detect corruption and log warning
@@ -147,7 +164,7 @@ def test_corrupted_accumulator_detected():
     acc = accumulator._accumulators.get("ES:5m")
     assert acc is not None
     assert acc["high"] == 4002.0  # Should have new bar's high
-    assert acc["low"] == 3999.0   # Should have new bar's low
+    assert acc["low"] == 3999.0  # Should have new bar's low
 
 
 def test_missing_key_accumulator_detected():
@@ -157,9 +174,15 @@ def test_missing_key_accumulator_detected():
     # Add a normal bar
     bar = BarMessage(
         ts=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4001.0, low=3999.0, close=4000.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4001.0,
+        low=3999.0,
+        close=4000.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
     accumulator.update(bar)
 
@@ -170,9 +193,15 @@ def test_missing_key_accumulator_detected():
     # Add another bar - corruption should be detected
     bar2 = BarMessage(
         ts=datetime(2026, 3, 29, 13, 1, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4002.0, low=3999.0, close=4001.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4002.0,
+        low=3999.0,
+        close=4001.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
 
     # Should detect corruption and reset
@@ -191,9 +220,15 @@ def test_invalid_type_accumulator_detected():
     # Add a normal bar
     bar = BarMessage(
         ts=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4001.0, low=3999.0, close=4000.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4001.0,
+        low=3999.0,
+        close=4000.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
     accumulator.update(bar)
 
@@ -204,9 +239,15 @@ def test_invalid_type_accumulator_detected():
     # Add another bar - corruption should be detected
     bar2 = BarMessage(
         ts=datetime(2026, 3, 29, 13, 1, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4002.0, low=3999.0, close=4001.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4002.0,
+        low=3999.0,
+        close=4001.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
 
     # Should detect corruption and reset
@@ -226,9 +267,15 @@ def test_valid_accumulator_not_reset():
     # Add a normal bar
     bar = BarMessage(
         ts=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4001.0, low=3999.0, close=4000.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4001.0,
+        low=3999.0,
+        close=4000.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
     accumulator.update(bar)
 
@@ -239,9 +286,15 @@ def test_valid_accumulator_not_reset():
     # Add another valid bar
     bar2 = BarMessage(
         ts=datetime(2026, 3, 29, 13, 1, tzinfo=UTC),
-        symbol="ES", tf="1m",
-        open=4000.0, high=4002.0, low=3998.0, close=4001.0,
-        volume=100, source="ibkr", session_type=SessionType.RTH
+        symbol="ES",
+        tf="1m",
+        open=4000.0,
+        high=4002.0,
+        low=3998.0,
+        close=4001.0,
+        volume=100,
+        source="ibkr",
+        session_type=SessionType.RTH,
     )
 
     # Should not detect corruption, should update normally
@@ -251,6 +304,6 @@ def test_valid_accumulator_not_reset():
     acc = accumulator._accumulators.get("ES:5m")
     assert acc is not None
     assert acc["high"] == 4002.0  # Updated to max of original and new
-    assert acc["low"] == 3998.0   # Updated to min of original and new
-    assert acc["volume"] == 200    # Sum of both volumes
+    assert acc["low"] == 3998.0  # Updated to min of original and new
+    assert acc["volume"] == 200  # Sum of both volumes
     assert acc["close"] == 4001.0  # Latest close price

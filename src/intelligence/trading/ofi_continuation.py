@@ -124,7 +124,10 @@ class OFIContinuationPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

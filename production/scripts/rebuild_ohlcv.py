@@ -111,9 +111,7 @@ async def copy_data(db: DatabaseManager, batch_days: int = 30) -> int:
     on restart. Returns total rows inserted.
     """
     async with db.get_connection() as conn:
-        row = await conn.fetchrow(
-            "SELECT MIN(timestamp), MAX(timestamp) FROM market_data_ohlcv"
-        )
+        row = await conn.fetchrow("SELECT MIN(timestamp), MAX(timestamp) FROM market_data_ohlcv")
 
         if row is None or row[0] is None:
             logger.warning("market_data_ohlcv is empty — nothing to copy.")
@@ -170,13 +168,11 @@ async def verify_v2_ready(db: DatabaseManager) -> tuple[bool, dict]:
     """
     async with db.get_connection() as conn:
         # Check chunk count
-        chunk_count = await conn.fetchval(
-            """
+        chunk_count = await conn.fetchval("""
             SELECT count(*) FROM timescaledb_information.chunks
             WHERE hypertable_name = 'market_data_ohlcv_v2'
             AND hypertable_schema = 'public'
-            """
-        )
+            """)
 
         if chunk_count >= 200:
             return False, {
@@ -223,14 +219,10 @@ async def atomic_rename(db: DatabaseManager) -> None:
     """
     async with db.get_connection() as conn:
         logger.info("Renaming market_data_ohlcv → market_data_ohlcv_old...")
-        await conn.execute(
-            "ALTER TABLE market_data_ohlcv RENAME TO market_data_ohlcv_old"
-        )
+        await conn.execute("ALTER TABLE market_data_ohlcv RENAME TO market_data_ohlcv_old")
 
         logger.info("Renaming market_data_ohlcv_v2 → market_data_ohlcv...")
-        await conn.execute(
-            "ALTER TABLE market_data_ohlcv_v2 RENAME TO market_data_ohlcv"
-        )
+        await conn.execute("ALTER TABLE market_data_ohlcv_v2 RENAME TO market_data_ohlcv")
 
         logger.info("Recreating performance index on market_data_ohlcv...")
         await conn.execute(
@@ -238,9 +230,7 @@ async def atomic_rename(db: DatabaseManager) -> None:
             "ON market_data_ohlcv (symbol, timeframe, timestamp DESC)"
         )
 
-    logger.info(
-        "Rename complete. Old table preserved as market_data_ohlcv_old."
-    )
+    logger.info("Rename complete. Old table preserved as market_data_ohlcv_old.")
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +241,7 @@ async def atomic_rename(db: DatabaseManager) -> None:
 async def _amain(args: argparse.Namespace) -> None:
     """Async main entry point."""
     settings = Settings()
-    logger.info(
-        "Connecting to database (env=%s)...", settings.environment
-    )
+    logger.info("Connecting to database (env=%s)...", settings.environment)
 
     db = await get_script_db(settings)
 
@@ -281,8 +269,7 @@ async def _amain(args: argparse.Namespace) -> None:
         # Step 4
         if args.dry_run:
             logger.info(
-                "--dry-run: skipping atomic rename. "
-                "market_data_ohlcv_v2 is ready and verified."
+                "--dry-run: skipping atomic rename. " "market_data_ohlcv_v2 is ready and verified."
             )
         else:
             await atomic_rename(db)
@@ -293,9 +280,7 @@ async def _amain(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Rebuild market_data_ohlcv with 7-day chunks"
-    )
+    parser = argparse.ArgumentParser(description="Rebuild market_data_ohlcv with 7-day chunks")
     parser.add_argument(
         "--dry-run",
         action="store_true",

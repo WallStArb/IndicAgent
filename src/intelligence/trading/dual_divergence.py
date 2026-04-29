@@ -22,8 +22,8 @@ from .state_utils import reset_consecutive_state, track_consecutive_state
 from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
-_OFI_DIV_THRESHOLD: float = 1.0   # minimum abs(ofi_divergence)
-_CVD_DIV_THRESHOLD: float = 1.0   # minimum abs(cvd_divergence)
+_OFI_DIV_THRESHOLD: float = 1.0  # minimum abs(ofi_divergence)
+_CVD_DIV_THRESHOLD: float = 1.0  # minimum abs(cvd_divergence)
 
 
 @dataclass
@@ -96,9 +96,7 @@ class DualDivergencePlugin:
         state_key = f"{symbol}_{tf}"
 
         combined_sign = ofi_sign
-        _, count = track_consecutive_state(
-            frames, self._state, state_key, combined_sign, "sign"
-        )
+        _, count = track_consecutive_state(frames, self._state, state_key, combined_sign, "sign")
 
         # Gate: require N confirmation bars
         if count < _CONFIRMATION_BARS:
@@ -114,9 +112,7 @@ class DualDivergencePlugin:
         # Direction: sign of divergence (positive = bullish pressure vs price)
         direction = combined_sign
 
-        confidence = compose_confidence(
-            0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05
-        )
+        confidence = compose_confidence(0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05)
 
         sig_type = signal_type_for_direction("dual_divergence", direction)
         tf_result = frame_trade(sig_type, direction, entry, features, atr)
@@ -154,7 +150,10 @@ class DualDivergencePlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

@@ -226,7 +226,10 @@ class VCPPlugin:
                 "contraction_count": contraction_count,
             }
             signal["_shadow"] = capture_signal_features(
-                features, direction, "trend", signal["confidence"],
+                features,
+                direction,
+                "trend",
+                signal["confidence"],
             )
             return signal
 

@@ -145,7 +145,6 @@ class ContractMetadataWriterAgent(BaseAgent):
             dry_run=self._dry_run,
         )
 
-
     async def _teardown(self) -> None:
         """Stop Kafka consumer/producer and close DB pool."""
         if self._kafka_consumer is not None:
@@ -205,7 +204,7 @@ class ContractMetadataWriterAgent(BaseAgent):
     async def _write_roll_event(
         self,
         conn: asyncpg.Connection,
-        event: "RollEvent",
+        event: RollEvent,
         is_authoritative: bool,
     ) -> None:
         """Write a detection event to roll_events for ML training."""

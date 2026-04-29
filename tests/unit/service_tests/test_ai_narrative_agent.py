@@ -1,4 +1,5 @@
 """Unit tests for NarrativeGroupComputeAgent._handle_trigger."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

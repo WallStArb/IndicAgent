@@ -4,6 +4,7 @@ Refactored from NarrativeOrchestrator to extend BaseAIAgent.
 Per D-35: TF gate rejects 1m bars (only 5m, 15m, 1h, 4h, 1d allowed).
 Per D-34: returns AgentOutput instead of str.
 """
+
 from __future__ import annotations
 
 from typing import Any

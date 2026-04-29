@@ -255,7 +255,10 @@ class ORB15Plugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "session", signal["confidence"],
+            features,
+            direction,
+            "session",
+            signal["confidence"],
         )
         return signal
 

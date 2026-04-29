@@ -31,7 +31,7 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import OTelGauge, SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
+from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, OTelGauge
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -248,7 +248,11 @@ class ServiceAuditorAgent(BaseAgent):
     async def _discover_services(self) -> list[str]:
         """Discover all indicagent systemd units dynamically via systemctl list-units."""
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "list-units", "--all", "--no-legend", "--no-pager",
+            "systemctl",
+            "list-units",
+            "--all",
+            "--no-legend",
+            "--no-pager",
             "indicagent-*",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -564,9 +568,7 @@ class ServiceAuditorAgent(BaseAgent):
     async def _fetch_provider_data_flow(self) -> dict[str, float]:
         """Check provider bars/second rate to detect data stoppage."""
         # Query rate of bars produced over last 5 minutes
-        results = await self._query_prometheus(
-            'rate(provider_bars_produced_total[5m])'
-        )
+        results = await self._query_prometheus("rate(provider_bars_produced_total[5m])")
         out: dict[str, float] = {}
         for r in results:
             provider = r["metric"].get("provider", "")
@@ -714,7 +716,10 @@ class ServiceAuditorAgent(BaseAgent):
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", service_name,
+                "sudo",
+                "systemctl",
+                "restart",
+                service_name,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )

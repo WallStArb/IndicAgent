@@ -1,4 +1,5 @@
 """Tests for NarrativeComputeAgent."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -8,8 +9,9 @@ import pytest
 
 def _make_context(**overrides):
     """Create a minimal AIContext for testing."""
-    from src.core.ai.context import AIContext
     from uuid import uuid4
+
+    from src.core.ai.context import AIContext
 
     defaults = dict(
         signal_id=uuid4(),

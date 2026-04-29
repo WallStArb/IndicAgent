@@ -94,7 +94,6 @@ def print_feature_selection_report(selection: dict[str, list[str]]) -> None:
 
 
 if __name__ == "__main__":
-    from datetime import datetime, UTC
     from tools.backtest_cross_tf_plugins import backtest_all_cross_tf_plugins
     from tools.validate_i6_backtest import validate_all_plugins
 

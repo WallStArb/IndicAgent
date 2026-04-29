@@ -13,6 +13,7 @@ by not incrementing confirmation count when post-close.
 
 Phase 38 Plan 02 — TDD
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_settings(*, tod_gated: bool = True) -> MagicMock:
     s = MagicMock()
@@ -39,6 +41,7 @@ def _make_settings(*, tod_gated: bool = True) -> MagicMock:
 
 def _make_roll_monitor(tod_gated: bool = True):
     from services.roll_compute_agent import RollMonitor  # noqa: PLC0415
+
     return RollMonitor(_make_settings(tod_gated=tod_gated))
 
 
@@ -257,6 +260,6 @@ class TestTodAdjustmentIntegratedWithCheckRoll:
                     break
 
         # TOD gating must not suppress standard RTH — roll should confirm or counter advance
-        assert confirmed or rm._confirmation_count["ES"] > 0, (
-            "Standard RTH (12:00 ET) should not suppress roll detection via TOD gating"
-        )
+        assert (
+            confirmed or rm._confirmation_count["ES"] > 0
+        ), "Standard RTH (12:00 ET) should not suppress roll detection via TOD gating"

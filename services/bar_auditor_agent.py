@@ -73,6 +73,7 @@ class _AuditWindow(NamedTuple):
     date_end_utc: datetime
     expected: int
 
+
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
 _AUDITS_RUN = Counter(
@@ -177,7 +178,6 @@ class BarAuditorAgent(BaseAgent):
             topics_produced=self.topics_produced,
             topics_consumed=self.topics_consumed,
         )
-
 
     async def _teardown(self) -> None:
         """Stop producer, contract consumer, roll consumer, and close DB pool."""
@@ -337,13 +337,18 @@ class BarAuditorAgent(BaseAgent):
                 actual = counts.get((sym, w.date_start_utc, "1m"), 0)
                 completeness = actual / w.expected
 
-                self._canonical_completeness.labels(
-                    agent=self.name, symbol=sym, tf="1m"
-                ).set(completeness)
+                self._canonical_completeness.labels(agent=self.name, symbol=sym, tf="1m").set(
+                    completeness
+                )
 
                 if completeness < threshold:
                     await self._upsert_market_data_gap(
-                        conn, sym, "1m", w.date_start_utc, w.expected, w.expected - actual,
+                        conn,
+                        sym,
+                        "1m",
+                        w.date_start_utc,
+                        w.expected,
+                        w.expected - actual,
                     )
                     req = BarGapRequest(
                         symbol=sym,
@@ -631,6 +636,7 @@ class BarAuditorAgent(BaseAgent):
                 for msg in msgs:
                     try:
                         import json
+
                         raw = msg.value
                         payload = json.loads(raw) if isinstance(raw, (bytes, str)) else raw
                         event = RollEvent.model_validate(payload)

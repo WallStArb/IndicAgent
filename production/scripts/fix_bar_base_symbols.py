@@ -14,6 +14,7 @@ Safe to run while live — UPDATE with WHERE guard is idempotent:
 Usage:
     .venv/bin/python production/scripts/fix_bar_base_symbols.py [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,7 +63,9 @@ async def _amain(dry_run: bool) -> None:
         print("\nTop affected symbols (before):")
         print(f"  {'symbol':<12} {'base_current':<14} {'base_correct':<14} {'rows':>8}")
         for r in rows:
-            print(f"  {r['symbol']:<12} {r['base_current']:<14} {r['base_correct']:<14} {r['rows']:>8,}")
+            print(
+                f"  {r['symbol']:<12} {r['base_current']:<14} {r['base_correct']:<14} {r['rows']:>8,}"
+            )
 
         if dry_run:
             print(f"\nDRY RUN — would update {affected:,} rows. Re-run without --dry-run to apply.")
@@ -100,6 +103,8 @@ async def _amain(dry_run: bool) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fix market_data_ohlcv.base symbols")
-    parser.add_argument("--dry-run", action="store_true", help="Count affected rows without modifying data")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Count affected rows without modifying data"
+    )
     args = parser.parse_args()
     asyncio.run(_amain(dry_run=args.dry_run))

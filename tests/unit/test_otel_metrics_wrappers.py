@@ -27,6 +27,7 @@ def _mock_otel_meter():
 
 def test_otel_counter_labels_inc():
     from src.observability.metrics import OTelCounter
+
     c = OTelCounter("test_counter", "test help", ["agent"])
     labeled = c.labels(agent="test")
     labeled.inc()
@@ -35,6 +36,7 @@ def test_otel_counter_labels_inc():
 
 def test_otel_counter_inc_amount():
     from src.observability.metrics import OTelCounter
+
     c = OTelCounter("test_counter2", "test help", ["agent"])
     labeled = c.labels(agent="test")
     labeled.inc(5)
@@ -43,6 +45,7 @@ def test_otel_counter_inc_amount():
 
 def test_otel_gauge_labels_set():
     from src.observability.metrics import OTelGauge
+
     g = OTelGauge("test_gauge", "test help", ["agent"])
     labeled = g.labels(agent="test")
     labeled.set(42)
@@ -51,6 +54,7 @@ def test_otel_gauge_labels_set():
 
 def test_otel_histogram_labels_observe():
     from src.observability.metrics import OTelHistogram
+
     h = OTelHistogram("test_hist", "test help", ["agent"])
     labeled = h.labels(agent="test")
     labeled.observe(0.5)
@@ -59,6 +63,7 @@ def test_otel_histogram_labels_observe():
 
 def test_otel_counter_unlabeled():
     from src.observability.metrics import OTelCounter
+
     c = OTelCounter("test_unlabeled_counter", "test help")
     c.inc()
     c._counter.add.assert_called_with(1.0, {})
@@ -66,6 +71,7 @@ def test_otel_counter_unlabeled():
 
 def test_otel_gauge_unlabeled():
     from src.observability.metrics import OTelGauge
+
     g = OTelGauge("test_unlabeled_gauge", "test help")
     g.set(99)
     g._gauge.set.assert_called_with(99, {})
@@ -73,6 +79,7 @@ def test_otel_gauge_unlabeled():
 
 def test_otel_histogram_unlabeled():
     from src.observability.metrics import OTelHistogram
+
     h = OTelHistogram("test_unlabeled_hist", "test help")
     h.observe(1.5)
     h._histogram.record.assert_called_with(1.5, {})
@@ -81,5 +88,6 @@ def test_otel_histogram_unlabeled():
 def test_init_otel_providers_graceful_degradation():
     """init_otel_providers should not crash when endpoint is unreachable."""
     from src.observability.otel import init_otel_providers
+
     # Should not raise even with bogus endpoint
     init_otel_providers(service_name="test", endpoint="http://localhost:9999")

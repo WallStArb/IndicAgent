@@ -2,6 +2,7 @@
 
 No market domain knowledge — independently testable with numeric inputs alone.
 """
+
 from __future__ import annotations
 
 from typing import Any

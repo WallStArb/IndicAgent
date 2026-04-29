@@ -12,9 +12,17 @@ sys.path.insert(0, str(Path(__file__).parents[3]))
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _sig(signal_id="sig-001", direction=1, entry=5100.0, stop=5085.0,
-         targets=None, ttl_bars=10, ts_offset_secs=0,
-         market_entry_price=5100.0, status="pending"):
+def _sig(
+    signal_id="sig-001",
+    direction=1,
+    entry=5100.0,
+    stop=5085.0,
+    targets=None,
+    ttl_bars=10,
+    ts_offset_secs=0,
+    market_entry_price=5100.0,
+    status="pending",
+):
     ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC) + timedelta(seconds=ts_offset_secs)
     return {
         "signal_id": signal_id,
@@ -34,7 +42,9 @@ def _sig(signal_id="sig-001", direction=1, entry=5100.0, stop=5085.0,
         "confidence": 0.8,
         "confluence_score": 0.7,
         "regime_context": "bullish",
-        "cis_score": None, "bucket_scores": None, "weights_version": None,
+        "cis_score": None,
+        "bucket_scores": None,
+        "weights_version": None,
     }
 
 
@@ -56,6 +66,7 @@ BASE_TS = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
 def _get_replay():
     from production.scripts import lifecycle_replay
+
     return lifecycle_replay
 
 
@@ -67,6 +78,7 @@ class TestBarTimestampUsed:
     def test_no_datetime_now_in_replay_module(self):
         """Replay must use bar.timestamp for temporal fields — not datetime.now()."""
         import inspect
+
         replay = _get_replay()
         source = inspect.getsource(replay)
         # datetime.now() calls are forbidden in the core replay logic
@@ -107,9 +119,14 @@ class TestEndOfBarsHandling:
         sig = _sig(signal_id="s1", ttl_bars=5)
         last_bar = _bar(BASE_TS + timedelta(seconds=600), 5103.0, 5097.0, 5100.0)
         # 10 bars elapsed (600s / 60s = 10) → TTL=5 exceeded → resolved
-        result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
-                                               zone_mfe=0.0, market_mfe=-0.1)
-        assert result["zone_outcome"] in ("never_activated", "ttl_expired_ahead", "ttl_expired_behind")
+        result = replay.resolve_at_end_of_bars(
+            sig, last_bar, tf_seconds=60, zone_mfe=0.0, market_mfe=-0.1
+        )
+        assert result["zone_outcome"] in (
+            "never_activated",
+            "ttl_expired_ahead",
+            "ttl_expired_behind",
+        )
         assert result["market_entry_outcome"] in ("ttl_expired_ahead", "ttl_expired_behind")
 
     def test_end_of_bars_uses_last_bar_timestamp(self):
@@ -118,8 +135,9 @@ class TestEndOfBarsHandling:
         sig = _sig(signal_id="s2", ttl_bars=3)
         last_ts = BASE_TS + timedelta(seconds=300)
         last_bar = _bar(last_ts, 5103.0, 5097.0, 5100.0)
-        result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
-                                               zone_mfe=0.5, market_mfe=0.5)
+        result = replay.resolve_at_end_of_bars(
+            sig, last_bar, tf_seconds=60, zone_mfe=0.5, market_mfe=0.5
+        )
         assert result["exit_at"] == last_ts
 
 
@@ -129,8 +147,8 @@ class TestChronologicalOrdering:
         """Signal with earlier timestamp must be added to live_signals first."""
         replay = _get_replay()
         # sig_early fires at 10:00, sig_late fires at 10:02
-        sig_early = _sig("s-early", ts_offset_secs=0)   # ts = 10:00:00
-        sig_late = _sig("s-late", ts_offset_secs=120)   # ts = 10:02:00
+        sig_early = _sig("s-early", ts_offset_secs=0)  # ts = 10:00:00
+        sig_late = _sig("s-late", ts_offset_secs=120)  # ts = 10:02:00
 
         # bar_ts = 10:01 → sig_early (10:00 < 10:01) is active, sig_late (10:02 < 10:01) is not
         bar_ts = BASE_TS + timedelta(seconds=60)
@@ -166,8 +184,9 @@ class TestMarketOutcomeNeverActivatedInvariant:
         # Simulate a signal that ran through all bars with no zone activation
         sig = _sig(ttl_bars=3, market_entry_price=5100.0)
         last_bar = _bar(BASE_TS + timedelta(seconds=300), 5097.0, 5093.0, 5094.0)
-        result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
-                                               zone_mfe=0.0, market_mfe=0.0)
+        result = replay.resolve_at_end_of_bars(
+            sig, last_bar, tf_seconds=60, zone_mfe=0.0, market_mfe=0.0
+        )
         assert result["market_entry_outcome"] != "never_activated"
 
 
@@ -178,8 +197,9 @@ class TestBarsInTradeConstraint:
         replay = _get_replay()
         sig = _sig(ttl_bars=5, market_entry_price=5100.0)
         last_bar = _bar(BASE_TS + timedelta(seconds=300), 5097.0, 5093.0, 5094.0)
-        result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
-                                               zone_mfe=0.0, market_mfe=0.0)
+        result = replay.resolve_at_end_of_bars(
+            sig, last_bar, tf_seconds=60, zone_mfe=0.0, market_mfe=0.0
+        )
         if result["market_entry_bars_in_trade"] is not None:
             assert result["market_entry_bars_in_trade"] <= sig["ttl_bars"]
 
@@ -189,15 +209,15 @@ class TestTrackComparisonInvariants:
     def test_zone_target_full_market_never_activated_is_impossible(self):
         """Zone target_full + market never_activated cannot coexist. Market always fills."""
         from production.scripts.lifecycle_replay import validate_track_pair
+
         with pytest.raises(ValueError):
-            validate_track_pair(zone_outcome="target_full",
-                                market_outcome="never_activated")
+            validate_track_pair(zone_outcome="target_full", market_outcome="never_activated")
 
     def test_zone_never_activated_market_target_full_is_valid(self):
         from production.scripts.lifecycle_replay import validate_track_pair
+
         # Should not raise
-        validate_track_pair(zone_outcome="never_activated",
-                            market_outcome="target_full")
+        validate_track_pair(zone_outcome="never_activated", market_outcome="target_full")
 
 
 # ── Chunk 1: TF_TTL_BARS constant location ────────────────────────────────
@@ -207,6 +227,7 @@ class TestTrackComparisonInvariants:
 class TestTTLConstants:
     def test_tf_ttl_bars_available_in_service_utils(self):
         from src.core.service_utils import TF_TTL_BARS
+
         assert TF_TTL_BARS["1m"] == 20
         assert TF_TTL_BARS["5m"] == 12
         assert TF_TTL_BARS["15m"] == 8
@@ -217,9 +238,10 @@ class TestTTLConstants:
         import inspect
 
         from production.scripts import lifecycle_replay
+
         source = inspect.getsource(lifecycle_replay)
         assert "TF_TTL_BARS: dict" not in source  # no local definition
-        assert "TF_TTL_BARS" in source             # it is used
+        assert "TF_TTL_BARS" in source  # it is used
 
 
 # ── Chunk 2: TTL injection + bars_in_trade ────────────────────────────────
@@ -229,6 +251,7 @@ class TestTTLConstants:
 class TestTTLInjection:
     def test_1m_signal_uses_ttl_20_after_injection(self):
         from src.core.service_utils import TF_TTL_BARS
+
         sig = _sig(signal_id="ttl-test-1")
         sig.pop("ttl_bars", None)
         sig["ttl_bars"] = TF_TTL_BARS.get("1m", 10)
@@ -236,6 +259,7 @@ class TestTTLInjection:
 
     def test_15m_signal_uses_ttl_8_after_injection(self):
         from src.core.service_utils import TF_TTL_BARS
+
         sig = _sig()
         sig.pop("ttl_bars", None)
         sig["ttl_bars"] = TF_TTL_BARS.get("15m", 10)
@@ -246,7 +270,8 @@ class TestTTLInjection:
         sig = _sig(signal_id="ttl-eob", ttl_bars=20)
         last_bar = _bar(BASE_TS + timedelta(minutes=25), 5110, 5090, 5100)
         result = replay.resolve_at_end_of_bars(
-            sig, last_bar,
+            sig,
+            last_bar,
             tf_seconds=60,
             zone_mfe=0.5,
             market_mfe=0.3,

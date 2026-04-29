@@ -3,6 +3,7 @@
 Per D-16: reads context.lead_context for lead index data.
 Pure compute class -- no infrastructure code.
 """
+
 from __future__ import annotations
 
 import json
@@ -78,9 +79,7 @@ class CorrelationAgentComputeAgent(BaseAIAgent):
         llm_confidence = parsed["confidence"]
         multiplier = (1.0 - failure_prob) * llm_confidence
 
-        lead_symbol = (
-            context.lead_context.symbol if context.lead_context else None
-        )
+        lead_symbol = context.lead_context.symbol if context.lead_context else None
 
         return AgentOutput(
             agent_id=self.agent_id,
@@ -189,9 +188,7 @@ def _context_to_dict(context: AIContext) -> dict:
             and lead_i4
             and lead_i4.trend_regime is not None
         ):
-            lead_dict["trend_regime_divergence"] = (
-                i4_ctx.trend_regime - lead_i4.trend_regime
-            )
+            lead_dict["trend_regime_divergence"] = i4_ctx.trend_regime - lead_i4.trend_regime
 
     return {
         "symbol": context.symbol,

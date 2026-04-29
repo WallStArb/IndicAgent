@@ -209,7 +209,7 @@ class BarAccumulator:
                         symbol=bar_1m.symbol,
                         tf=tf,
                         accumulator_keys=list(acc.keys()),
-                        resetting=True
+                        resetting=True,
                     )
                     acc = None
                     self._accumulators[key] = self._new_accumulator(bar_1m, period_ts)
@@ -277,10 +277,9 @@ class BarAccumulator:
         if len(self._last_session_boundary_log) > self._session_boundary_log_max_size:
             # Remove oldest 20% of entries
             num_to_remove = len(self._last_session_boundary_log) // 5
-            oldest_items = sorted(
-                self._last_session_boundary_log.items(),
-                key=lambda x: x[1]
-            )[:num_to_remove]
+            oldest_items = sorted(self._last_session_boundary_log.items(), key=lambda x: x[1])[
+                :num_to_remove
+            ]
             for key, _ in oldest_items:
                 del self._last_session_boundary_log[key]
 

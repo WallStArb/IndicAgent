@@ -131,7 +131,10 @@ class DeltaExhaustionPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "exempt_exhaustion", signal["confidence"],
+            features,
+            direction,
+            "exempt_exhaustion",
+            signal["confidence"],
         )
         return signal
 

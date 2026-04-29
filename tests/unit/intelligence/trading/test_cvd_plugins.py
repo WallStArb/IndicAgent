@@ -19,9 +19,11 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 
 # ─── CVDDivergence ────────────────────────────────────────────────────────────
 
+
 class TestCVDDivergence:
     def _make_plugin(self):
         from src.intelligence.trading.cvd_divergence import CVDDivergencePlugin
+
         return CVDDivergencePlugin()
 
     def test_fires_when_cvd_disagrees_with_price(self):
@@ -39,13 +41,21 @@ class TestCVDDivergence:
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
+        assert (
+            result.get("direction") == -1
+        ), f"Expected -1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert isinstance(
+                result.get("stop_loss"), float
+            ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert (
+                isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            ), "targets must be non-empty list"
             assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(
+                result.get("regime_context"), str
+            ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_dual_divergence_flag_true(self):
         """Both ofi_divergence and cvd_divergence nonzero and diverging → dual_divergence=True."""
@@ -78,7 +88,9 @@ class TestCVDDivergence:
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
         if result.get("direction") == -1:
-            assert result.get("dual_divergence") is False, f"Expected dual_divergence=False: {result}"
+            assert (
+                result.get("dual_divergence") is False
+            ), f"Expected dual_divergence=False: {result}"
 
     def test_no_signal_insufficient_confirmation(self):
         """Only 1 bar of CVD divergence → insufficient confirmation, no signal."""
@@ -103,19 +115,24 @@ class TestCVDDivergence:
         """cvd_divergence = 0 → no signal."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        result = plugin.compute_full(_make_frames(close, {"cvd_divergence": 0.0, "cvd_slope_5bar": 0.0}))
+        result = plugin.compute_full(
+            _make_frames(close, {"cvd_divergence": 0.0, "cvd_slope_5bar": 0.0})
+        )
         assert result.get("direction") == 0
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.cvd_divergence import plugin
+
         assert plugin.name == "trad_CVDDivergence"
 
 
 # ─── CVDSpike ─────────────────────────────────────────────────────────────────
 
+
 class TestCVDSpike:
     def _make_plugin(self):
         from src.intelligence.trading.cvd_spike import CVDSpikePlugin
+
         return CVDSpikePlugin()
 
     def test_fires_when_cvd_spike_z_exceeds_2_positive(self):
@@ -126,10 +143,16 @@ class TestCVDSpike:
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert isinstance(
+                result.get("stop_loss"), float
+            ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert (
+                isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            ), "targets must be non-empty list"
             assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(
+                result.get("regime_context"), str
+            ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_cvd_spike_z_exceeds_2_negative(self):
         """cvd_spike_z = -2.5 fires with direction=-1."""
@@ -177,14 +200,17 @@ class TestCVDSpike:
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.cvd_spike import plugin
+
         assert plugin.name == "trad_CVDSpike"
 
 
 # ─── DeltaExhaustion ──────────────────────────────────────────────────────────
 
+
 class TestDeltaExhaustion:
     def _make_plugin(self):
         from src.intelligence.trading.delta_exhaustion import DeltaExhaustionPlugin
+
         return DeltaExhaustionPlugin()
 
     def _make_frames_with_price_stall(self, spike_direction=1):
@@ -193,10 +219,13 @@ class TestDeltaExhaustion:
         close = np.full(25, 5000.0)  # flat
         atr = 10.0
         cvd_spike_z = 2.0 * spike_direction  # above 1.5 threshold
-        return _make_frames(close, {
-            "cvd_spike_z": cvd_spike_z,
-            "atr_14": atr,
-        })
+        return _make_frames(
+            close,
+            {
+                "cvd_spike_z": cvd_spike_z,
+                "atr_14": atr,
+            },
+        )
 
     def test_fires_when_large_cvd_but_price_stalls(self):
         """cvd_spike_z > 1.5 but price change < 0.3 ATR → delta exhaustion fires."""
@@ -205,13 +234,21 @@ class TestDeltaExhaustion:
         close = np.full(25, 5000.0)
         features = {"cvd_spike_z": 2.5, "atr_14": 10.0}
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == -1, f"Expected -1 (reversal vs spike), got {result.get('direction')}: {result}"
+        assert (
+            result.get("direction") == -1
+        ), f"Expected -1 (reversal vs spike), got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert isinstance(
+                result.get("stop_loss"), float
+            ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert (
+                isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            ), "targets must be non-empty list"
             assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(
+                result.get("regime_context"), str
+            ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_no_signal_when_price_follows_cvd(self):
         """cvd_spike_z > 1.5 and price moves > 0.5 ATR in CVD direction → no signal."""
@@ -221,7 +258,9 @@ class TestDeltaExhaustion:
         close = np.concatenate([np.full(24, 5000.0), [5006.0]])
         features = {"cvd_spike_z": 2.5, "atr_14": atr}
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == 0, f"Expected 0 (price followed), got {result.get('direction')}"
+        assert (
+            result.get("direction") == 0
+        ), f"Expected 0 (price followed), got {result.get('direction')}"
 
     def test_no_signal_when_cvd_spike_z_below_threshold(self):
         """cvd_spike_z = 1.0 (below 1.5 threshold) → no signal regardless of price."""
@@ -236,7 +275,9 @@ class TestDeltaExhaustion:
         close = np.full(25, 5000.0)
         features = {"cvd_spike_z": -2.5, "atr_14": 10.0}
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == 1, f"Expected 1 (reversal vs neg spike), got {result.get('direction')}"
+        assert (
+            result.get("direction") == 1
+        ), f"Expected 1 (reversal vs neg spike), got {result.get('direction')}"
 
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""
@@ -264,4 +305,5 @@ class TestDeltaExhaustion:
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.delta_exhaustion import plugin
+
         assert plugin.name == "trad_DeltaExhaustion"

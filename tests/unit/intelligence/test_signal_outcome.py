@@ -42,12 +42,7 @@ def test_ttl_outcomes_contains_2_members():
 
 def test_outcome_taxonomy_is_exhaustive():
     """All 8 outcomes should be covered by taxonomy sets (no orphaned outcomes)."""
-    all_covered = (
-        WIN_OUTCOMES
-        | STOP_OUTCOMES
-        | TTL_OUTCOMES
-        | {SignalOutcome.NEVER_ACTIVATED}
-    )
+    all_covered = WIN_OUTCOMES | STOP_OUTCOMES | TTL_OUTCOMES | {SignalOutcome.NEVER_ACTIVATED}
     assert all_covered == set(SignalOutcome)
 
 

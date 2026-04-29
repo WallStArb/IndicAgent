@@ -433,9 +433,7 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
     try:
         pattern_stats = await _calibrate_pattern_reliability(db_manager)
         if pattern_stats:
-            promoted_count = sum(
-                1 for s in pattern_stats.values() if s.get("promoted", False)
-            )
+            promoted_count = sum(1 for s in pattern_stats.values() if s.get("promoted", False))
             logger.info(
                 "Pattern calibration complete: %d patterns analyzed, %d promoted to "
                 "data-driven weights",
@@ -469,10 +467,9 @@ def _bootstrap_ci_lower(
         return float("-inf")
     rng = np.random.default_rng(42)  # reproducible for testing
     arr = np.array(pnl_r_values)
-    boot_means = np.array([
-        rng.choice(arr, size=len(arr), replace=True).mean()
-        for _ in range(n_boot)
-    ])
+    boot_means = np.array(
+        [rng.choice(arr, size=len(arr), replace=True).mean() for _ in range(n_boot)]
+    )
     return float(np.percentile(boot_means, alpha / 2 * 100))
 
 
@@ -501,8 +498,7 @@ async def compute_shadow_plugin_stats(db_manager: Any) -> None:
     WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
     N_GATE = 100  # per D-07
 
-    rows = await db_manager.execute_query(
-        """
+    rows = await db_manager.execute_query("""
         SELECT setup_plugin, outcome, pnl_r, signal_computed_at
         FROM signal_ledger
         WHERE is_shadow = TRUE
@@ -510,8 +506,7 @@ async def compute_shadow_plugin_stats(db_manager: Any) -> None:
           AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
         ORDER BY signal_computed_at DESC
         LIMIT 10000
-        """
-    )
+        """)
 
     now = datetime.now(UTC)
 
@@ -552,7 +547,8 @@ async def compute_shadow_plugin_stats(db_manager: Any) -> None:
             return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
         recent_30d = [
-            r for r in plugin_rows
+            r
+            for r in plugin_rows
             if r.get("signal_computed_at") is not None
             and (now - _as_utc(r["signal_computed_at"])).days <= 30
         ]

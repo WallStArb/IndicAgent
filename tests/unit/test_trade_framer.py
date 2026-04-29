@@ -155,7 +155,9 @@ def test_ledger_entry_to_insert_params_with_all_new_fields():
         shadow_outcome="target_1",
     )
     params = entry.to_insert_params()
-    assert len(params) == 60  # 39 original + 15 Phase 32 + 4 Phase 35 calibration + 2 Phase 57 attribution
+    assert (
+        len(params) == 60
+    )  # 39 original + 15 Phase 32 + 4 Phase 35 calibration + 2 Phase 57 attribution
     # Check that stop_basis is at position 39 (0-indexed)
     assert params[39] == "structure_snap"
     assert params[40] == "ob_bottom"
@@ -284,9 +286,9 @@ def test_frame_trade_garch_regime_0_narrows_effective_atr():
     frame_r0 = frame_trade("trend_long", 1, 4510.0, features_r0, atr)
     frame_r1 = frame_trade("trend_long", 1, 4510.0, features_r1, atr)
     # regime 0 has smaller buffer → higher stop price (closer to entry)
-    assert frame_r0.stop > frame_r1.stop, (
-        f"regime=0 stop {frame_r0.stop} should be > regime=1 stop {frame_r1.stop}"
-    )
+    assert (
+        frame_r0.stop > frame_r1.stop
+    ), f"regime=0 stop {frame_r0.stop} should be > regime=1 stop {frame_r1.stop}"
 
 
 def test_frame_trade_garch_regime_2_widens_effective_atr():
@@ -309,9 +311,9 @@ def test_frame_trade_garch_regime_2_widens_effective_atr():
     frame_r2 = frame_trade("trend_long", 1, 4510.0, features_r2, atr)
     frame_r1 = frame_trade("trend_long", 1, 4510.0, features_r1, atr)
     # regime 2 has larger buffer → lower stop price (further from entry for longs)
-    assert frame_r2.stop < frame_r1.stop, (
-        f"regime=2 stop {frame_r2.stop} should be < regime=1 stop {frame_r1.stop}"
-    )
+    assert (
+        frame_r2.stop < frame_r1.stop
+    ), f"regime=2 stop {frame_r2.stop} should be < regime=1 stop {frame_r1.stop}"
 
 
 def test_frame_trade_no_garch_regime_uses_atr_static():
@@ -415,9 +417,7 @@ def test_stop_basis_atr_static_when_no_regime():
     """stop_type='atr' and no garch_vol_regime → stop_basis='atr_static'."""
     from src.intelligence.trading.trade_framer import _classify_stop_basis
 
-    stop_basis, structure_type, dist_atr = _classify_stop_basis(
-        "atr", 80.0, 100.0, 10.0, None, 1
-    )
+    stop_basis, structure_type, dist_atr = _classify_stop_basis("atr", 80.0, 100.0, 10.0, None, 1)
     assert stop_basis == "atr_static"
     assert structure_type == "atr_fallback"
     assert dist_atr == 0.0
@@ -427,9 +427,7 @@ def test_stop_basis_garch_adaptive_for_atr_with_regime():
     """stop_type='atr' with garch_vol_regime set → stop_basis='garch_adaptive'."""
     from src.intelligence.trading.trade_framer import _classify_stop_basis
 
-    stop_basis, structure_type, dist_atr = _classify_stop_basis(
-        "atr", 80.0, 100.0, 10.0, 1, 1
-    )
+    stop_basis, structure_type, dist_atr = _classify_stop_basis("atr", 80.0, 100.0, 10.0, 1, 1)
     assert stop_basis == "garch_adaptive"
     assert structure_type == "atr_fallback"
 

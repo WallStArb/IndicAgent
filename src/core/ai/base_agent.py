@@ -23,6 +23,7 @@ class IAIAgent(Protocol):
     All AI agents must implement this interface. BaseAIAgent provides
     the default implementation; subclasses only override _compute().
     """
+
     agent_id: str
     group: str
     tiers_needed: frozenset[Tier]
@@ -65,7 +66,7 @@ class BaseAIAgent(BaseAgent, ABC):
         # If name not provided, use class name or agent_id
         if name is None:
             name = self.__class__.__name__
-        super().__init__(name=name, *args, **kwargs)
+        super().__init__(*args, name=name, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
 
     async def compute(self, context: AIContext) -> AgentOutput:
@@ -93,8 +94,9 @@ class BaseAIAgent(BaseAgent, ABC):
                 latency_ms=round(latency_ms, 1),
             )
             await self._on_error(TimeoutError(f"timeout after {self._timeout_s:.1f}s"))
-            return self._neutral(error=f"timeout after {self._timeout_s:.1f}s",
-                                 latency_ms=latency_ms)
+            return self._neutral(
+                error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms
+            )
 
         except Exception as exc:
             latency_ms = (time.monotonic() - t0) * 1000

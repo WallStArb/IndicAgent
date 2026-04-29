@@ -1,4 +1,5 @@
 """Tests for SSE event name routing."""
+
 import sys
 import types
 from unittest.mock import MagicMock
@@ -15,6 +16,7 @@ def _import_event_name_fn():
 
     # Import the function fresh; clear lru_cache before each use
     from src.api.routes.sse import _event_name_for_topic
+
     _event_name_for_topic.cache_clear()
     return _event_name_for_topic
 
@@ -58,10 +60,12 @@ class TestEventNameForTopic:
 class TestBuildTopicList:
     def _get_topics(self):
         from unittest.mock import MagicMock, patch
+
         mock_settings = MagicMock()
         mock_settings.env_name = ""
         with patch("src.api.routes.sse._get_settings", return_value=mock_settings):
             from src.api.routes.sse import _build_topic_list
+
             return _build_topic_list(["ES"], "1m")
 
     def test_no_dead_indicators_topic(self):

@@ -39,14 +39,16 @@ pytestmark = pytest.mark.skip(
 # Helpers
 # ---------------------------------------------------------------------------
 
-_DAG_STAGE_NAMES = frozenset({
-    "quality_gate",
-    "regime_gate",
-    "tod_adjuster",
-    "calibrator",
-    "ranker",
-    "winner_selector",
-})
+_DAG_STAGE_NAMES = frozenset(
+    {
+        "quality_gate",
+        "regime_gate",
+        "tod_adjuster",
+        "calibrator",
+        "ranker",
+        "winner_selector",
+    }
+)
 
 
 def _make_test_signal(symbol: str = "ES", timeframe: str = "1m") -> dict:
@@ -81,6 +83,7 @@ def _make_test_signal(symbol: str = "ES", timeframe: str = "1m") -> dict:
 # ---------------------------------------------------------------------------
 # E2E test: full signal flow through all 6 stages
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -172,8 +175,7 @@ async def test_dag_pipeline_e2e():
             pass
 
         assert winner_received, (
-            "Winner event not received within 10s — "
-            "ensure all 6 DAG stage services are running"
+            "Winner event not received within 10s — " "ensure all 6 DAG stage services are running"
         )
         assert len(attribution_stages) >= 6, (
             f"Expected 6 attribution events, got {len(attribution_stages)}: "
@@ -189,6 +191,7 @@ async def test_dag_pipeline_e2e():
 # ---------------------------------------------------------------------------
 # Fault tolerance: circuit breaker bypass on stage failure
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -258,9 +261,9 @@ async def test_dag_fault_tolerance():
             # NOTE: In bypass mode, the circuit-open stage is skipped.
             # The valid signal should still reach the winner selector.
             # This assertion validates graceful degradation.
-            assert bypass_winner_received, (
-                "Valid signal should reach winner even when circuit breaker is open"
-            )
+            assert (
+                bypass_winner_received
+            ), "Valid signal should reach winner even when circuit breaker is open"
         finally:
             await winner_consumer.stop()
 
@@ -271,6 +274,7 @@ async def test_dag_fault_tolerance():
 # ---------------------------------------------------------------------------
 # Data quality: invalid events dropped at each stage
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -304,8 +308,8 @@ async def test_dag_data_quality_validation():
         # Publish low-quality signal (hurst < 0.55, entropy < 0.60 — below QualityGate thresholds)
         low_quality_signal = _make_test_signal(symbol="ES", timeframe="1m")
         low_quality_signal["hurst_trend_quality"] = 0.30  # Below threshold
-        low_quality_signal["entropy_quality"] = 0.20     # Below threshold
-        low_quality_signal["confidence"] = 0.35          # Low confidence
+        low_quality_signal["entropy_quality"] = 0.20  # Below threshold
+        low_quality_signal["confidence"] = 0.35  # Low confidence
 
         await producer.publish(
             topic_quality_gated(env_name),
@@ -326,10 +330,7 @@ async def test_dag_data_quality_validation():
         try:
             async with asyncio.timeout(5.0):
                 async for _topic, _key, payload in data_quality_consumer.messages():
-                    if (
-                        payload.get("symbol") == "ES"
-                        and payload.get("reason") is not None
-                    ):
+                    if payload.get("symbol") == "ES" and payload.get("reason") is not None:
                         dq_alert_received = True
                         assert "reason" in payload, "Alert missing 'reason'"
                         assert "stage" in payload, "Alert missing 'stage'"
@@ -354,6 +355,7 @@ async def test_dag_data_quality_validation():
 # ---------------------------------------------------------------------------
 # Smoke test: verify topics exist and are reachable (no live services needed)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio

@@ -150,7 +150,10 @@ class VWAPDeviationPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", signal["confidence"],
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

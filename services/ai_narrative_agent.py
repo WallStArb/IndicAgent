@@ -3,6 +3,7 @@
 Per B+ architecture: narrative group service, extends BaseGroupService.
 group_id="narrative", has_graduation=False
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,6 +85,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
 
         # Wire DB pool (for context cache seeding)
         import asyncpg
+
         self._pool = await asyncpg.create_pool(
             self.settings.database_url,
             min_size=2,
@@ -205,7 +207,13 @@ class _IntelAdapter:
 class _RecordAdapter:
     """Lightweight adapter for raw dict BarIntelligenceRecord payloads."""
 
-    __slots__ = ("intelligence", "winner_direction", "winner_confidence", "winner_plugin", "record_id")
+    __slots__ = (
+        "intelligence",
+        "winner_direction",
+        "winner_confidence",
+        "winner_plugin",
+        "record_id",
+    )
 
     def __init__(self, d: dict) -> None:
         intel_raw = d.get("intelligence", {})

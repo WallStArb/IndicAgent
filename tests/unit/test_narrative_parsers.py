@@ -1,4 +1,5 @@
 """Tests for src/intelligence/narrative/parsers.py."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock
 
 def _make_record(direction: int = 1, confidence: float = 0.75):
     from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent
+
     intel = MagicMock(spec=IntelligenceEvent)
     intel.symbol = "NQM6"
     intel.tf = "5m"
@@ -30,6 +32,7 @@ def _make_record(direction: int = 1, confidence: float = 0.75):
 
 def test_parse_returns_dict_with_required_keys():
     from src.intelligence.ai.narrative.parsers import parse_bar_intelligence_record
+
     result = parse_bar_intelligence_record(_make_record())
     required = {"symbol", "timeframe", "direction", "confidence", "plugin", "regime"}
     assert required.issubset(result.keys())
@@ -38,11 +41,13 @@ def test_parse_returns_dict_with_required_keys():
 def test_parse_direction_zero_returns_none():
     """direction=0 means no actionable signal — parser returns None."""
     from src.intelligence.ai.narrative.parsers import parse_bar_intelligence_record
+
     assert parse_bar_intelligence_record(_make_record(direction=0)) is None
 
 
 def test_parse_extracts_symbol_and_tf():
     from src.intelligence.ai.narrative.parsers import parse_bar_intelligence_record
+
     result = parse_bar_intelligence_record(_make_record())
     assert result["symbol"] == "NQM6"
     assert result["timeframe"] == "5m"
@@ -50,5 +55,6 @@ def test_parse_extracts_symbol_and_tf():
 
 def test_parse_includes_hmm_regime():
     from src.intelligence.ai.narrative.parsers import parse_bar_intelligence_record
+
     result = parse_bar_intelligence_record(_make_record())
     assert result["regime"] == 1

@@ -87,8 +87,7 @@ def compute_ic(
     """
     # Filter to resolved signals only (pnl_r IS NOT NULL)
     pairs = [
-        (c, r) for c, r in zip(confidences, pnl_rs, strict=True)
-        if r is not None and c is not None
+        (c, r) for c, r in zip(confidences, pnl_rs, strict=True) if r is not None and c is not None
     ]
 
     if len(pairs) < IC_MIN_SAMPLE_SIZE:

@@ -142,7 +142,9 @@ class SqueezeExpansionPlugin:
                 trend_regime < 0 and direction == -1
             )
             if regime_agrees:
-                regime_score = 0.2 + 0.6 * max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+                regime_score = 0.2 + 0.6 * max(
+                    hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
+                )
             else:
                 regime_score = 0.2
         else:

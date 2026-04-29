@@ -226,9 +226,7 @@ def compute_eq_index_features(
     active_pair = "ES_NQ" if abs(es_nq_z) >= abs(es_rty_z) else "ES_RTY"
 
     # --- Pairs confirming: count pairs with |z| > threshold ---
-    pairs_confirming = sum(
-        1 for z in [es_nq_z, es_rty_z] if abs(z) > _CONFIRMING_Z_THRESHOLD
-    )
+    pairs_confirming = sum(1 for z in [es_nq_z, es_rty_z] if abs(z) > _CONFIRMING_Z_THRESHOLD)
 
     return {
         "ready": True,

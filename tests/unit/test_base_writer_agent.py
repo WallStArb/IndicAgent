@@ -284,7 +284,9 @@ class TestFlushLatencyMetrics:
         await agent._do_flush()
 
         # Verify via OTel wrapper tracker (histogram is now OTelHistogram, not prometheus_client)
-        assert agent._flush_latency.get_count() >= 1, "flush_latency histogram should have samples after successful flush"
+        assert (
+            agent._flush_latency.get_count() >= 1
+        ), "flush_latency histogram should have samples after successful flush"
 
     @pytest.mark.asyncio
     async def test_commit_latency_histogram_has_samples_after_flush(self):
@@ -294,7 +296,9 @@ class TestFlushLatencyMetrics:
 
         await agent._do_flush()
 
-        assert agent._commit_latency.get_count() >= 1, "commit_latency histogram should have samples after successful flush"
+        assert (
+            agent._commit_latency.get_count() >= 1
+        ), "commit_latency histogram should have samples after successful flush"
 
     @pytest.mark.asyncio
     async def test_flush_errors_counter_increments_on_failure(self):

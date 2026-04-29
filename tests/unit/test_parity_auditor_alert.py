@@ -9,8 +9,10 @@ from services.parity_auditor_agent import PARITY_ALERT_THRESHOLD, ParityAuditorA
 
 @pytest.fixture
 def agent():
-    with patch("services.parity_auditor_agent.asyncpg"), \
-         patch("services.parity_auditor_agent.AIOKafkaProducer"):
+    with (
+        patch("services.parity_auditor_agent.asyncpg"),
+        patch("services.parity_auditor_agent.AIOKafkaProducer"),
+    ):
         a = ParityAuditorAgent.__new__(ParityAuditorAgent)
         a.name = "ParityAuditorAgent"
         a.settings = MagicMock(

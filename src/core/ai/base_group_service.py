@@ -10,15 +10,15 @@ import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings
-from src.core.ai.base_agent import BaseAIAgent
-from src.core.ai.context import AIContext, AIContextCache, Tier
-from src.core.ai.output import AgentOutput
 from src.core.agent.base import BaseAgent
+from src.core.ai.base_agent import BaseAIAgent
+from src.core.ai.context import AIContextCache
+from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
 
 if TYPE_CHECKING:
-    from src.intelligence.schemas import IntelligenceEvent
+    pass
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +110,7 @@ class BaseGroupService(BaseAgent, ABC):
 
         # Wire DB pool (for context cache seeding)
         import asyncpg
+
         self._pool = await asyncpg.create_pool(
             self.settings.database_url,
             min_size=2,
@@ -131,7 +132,6 @@ class BaseGroupService(BaseAgent, ABC):
 
     async def _seed_context_cache(self) -> None:
         """Seed AIContextCache with recent intelligence_features rows."""
-        import asyncpg
         assert self._pool is not None
 
         async with self._pool.acquire() as conn:
@@ -189,6 +189,7 @@ class BaseGroupService(BaseAgent, ABC):
             try:
                 # Deserialize IntelligenceEvent
                 from src.intelligence.schemas import IntelligenceEvent
+
                 event = IntelligenceEvent.model_validate(payload)
                 self._context_cache.update(event)
             except Exception as exc:

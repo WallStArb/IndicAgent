@@ -1,12 +1,11 @@
 """Unit tests for validate_i6_backtest.py tool."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
-from scipy.stats import pearsonr
 
-from tools.validate_i6_backtest import ValidationResults, validate_backtest_results
+from tools.validate_i6_backtest import validate_backtest_results
 
 
 @pytest.fixture
@@ -57,10 +56,12 @@ def regime_segmented_data():
             # Regime 1: negative correlation
             # Regime 2: weak/no correlation
             "test_score": [
-                i / 30.0 if i < 30 else -(i - 30) / 30.0 if i < 60 else random.random() for i in range(90)
+                i / 30.0 if i < 30 else -(i - 30) / 30.0 if i < 60 else random.random()
+                for i in range(90)
             ],
             "pnl_r": [
-                i / 30.0 if i < 30 else (i - 30) / 30.0 if i < 60 else random.random() for i in range(90)
+                i / 30.0 if i < 30 else (i - 30) / 30.0 if i < 60 else random.random()
+                for i in range(90)
             ],
             "hmm_regime": [0 if i < 30 else 1 if i < 60 else 2 for i in range(90)],
         }

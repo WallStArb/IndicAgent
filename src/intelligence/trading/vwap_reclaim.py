@@ -117,7 +117,7 @@ class VWAPReclaimPlugin:
             return no_signal()
 
         # ── Detect cross ──────────────────────────────────────────────────────
-        crossed_up = (not above_prev) and above_now    # was below → now above (long reclaim)
+        crossed_up = (not above_prev) and above_now  # was below → now above (long reclaim)
         crossed_down = above_prev and (not above_now)  # was above → now below (short break)
 
         if not (crossed_up or crossed_down):
@@ -194,12 +194,7 @@ class VWAPReclaimPlugin:
             )
         sr_prox = max(0.0, 1.0 - abs(entry - sr) / (atr * 3.0)) if sr > 0 and atr > 0 else 0.0
 
-        raw_conf = (
-            0.30 * vol_score
-            + 0.30 * duration_score
-            + 0.20 * trend_align
-            + 0.20 * sr_prox
-        )
+        raw_conf = 0.30 * vol_score + 0.30 * duration_score + 0.20 * trend_align + 0.20 * sr_prox
 
         # ── Supporting factors ────────────────────────────────────────────────
         side_label = "bars_below_vwap" if direction == 1 else "bars_above_vwap"
@@ -228,7 +223,10 @@ class VWAPReclaimPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", signal["confidence"],
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

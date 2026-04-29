@@ -16,14 +16,12 @@ import pandas as pd
 from src.core.script_utils import get_script_db
 
 ATR_WINDOW = 14
-DELTA_THRESHOLD_AGGRESSIVE = 0.001   # 0.1% — aggressive filter catches 90th-percentile noise
+DELTA_THRESHOLD_AGGRESSIVE = 0.001  # 0.1% — aggressive filter catches 90th-percentile noise
 DELTA_THRESHOLD_CONSERVATIVE = 0.002  # 0.2% — conservative filter catches 75th-percentile noise
 
 
 async def measure_delta_distribution(
-    symbols: list[str] | None = None,
-    timeframe: str = "1m",
-    sample_size: int = 10000
+    symbols: list[str] | None = None, timeframe: str = "1m", sample_size: int = 10000
 ) -> dict:
     """Measure price changes between consecutive bars.
 
@@ -98,10 +96,12 @@ async def measure_delta_distribution(
                 p99 = np.percentile(deltas, 99)
                 mean = np.mean(deltas)
 
-                print(f"{symbol:10s} | {len(df):6d} bars | ATR: {atr:.4f} | "
-                      f"50%: {p50*100:.4f}% | 75%: {p75*100:.4f}% | "
-                      f"90%: {p90*100:.4f}% | 95%: {p95*100:.4f}% | "
-                      f"Mean: {mean*100:.4f}%")
+                print(
+                    f"{symbol:10s} | {len(df):6d} bars | ATR: {atr:.4f} | "
+                    f"50%: {p50*100:.4f}% | 75%: {p75*100:.4f}% | "
+                    f"90%: {p90*100:.4f}% | 95%: {p95*100:.4f}% | "
+                    f"Mean: {mean*100:.4f}%"
+                )
 
             print(f"\n=== OVERALL DELTA DISTRIBUTION ({len(all_deltas)} bars) ===\n")
 
@@ -118,7 +118,7 @@ async def measure_delta_distribution(
                     "p99": None,
                     "mean": None,
                     "std": None,
-                    "recommendation": None
+                    "recommendation": None,
                 }
 
             p50 = np.percentile(all_deltas, 50)
@@ -168,7 +168,7 @@ async def measure_delta_distribution(
                     "filter"
                     if (p90 < DELTA_THRESHOLD_AGGRESSIVE or p75 < DELTA_THRESHOLD_CONSERVATIVE)
                     else "parallelize"
-                )
+                ),
             }
 
     finally:
@@ -178,9 +178,7 @@ async def measure_delta_distribution(
 async def main():
     """Run delta distribution measurement."""
     result = await measure_delta_distribution(
-        symbols=None,  # All symbols
-        timeframe="1m",
-        sample_size=10000
+        symbols=None, timeframe="1m", sample_size=10000  # All symbols
     )
 
     print("\n=== RESULT SAVED ===\n")

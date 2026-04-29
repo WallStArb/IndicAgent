@@ -33,7 +33,7 @@ from measure_information_rate import measure_information_rate  # noqa: E402
 async def run_phase0_profiling(
     symbols: list[str] | None = None,
     timeframe: str = "1m",
-    output_file: str = "production/scripts/phase0_results.json"
+    output_file: str = "production/scripts/phase0_results.json",
 ):
     """Run all Phase 0 measurements and generate recommendations.
 
@@ -45,57 +45,53 @@ async def run_phase0_profiling(
     Returns:
         Dictionary with all measurements and recommendations
     """
-    print("="*80)
+    print("=" * 80)
     print("PHASE 0: PIPELINE PROFILING")
-    print("="*80)
+    print("=" * 80)
     print(f"Time: {datetime.now(UTC).isoformat()}")
     print(f"Timeframe: {timeframe}")
     if symbols:
         print(f"Symbols: {', '.join(symbols)}")
     else:
         print("Symbols: ALL")
-    print("="*80)
+    print("=" * 80)
 
     results = {
         "timestamp": datetime.now(UTC).isoformat(),
         "timeframe": timeframe,
         "symbols": symbols,
         "measurements": {},
-        "recommendations": {}
+        "recommendations": {},
     }
 
     # Measurement 1: Delta Distribution
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("MEASUREMENT 1: DELTA DISTRIBUTION")
-    print("="*80)
+    print("=" * 80)
     print("Question: How much do prices actually move bar-to-bar?\n")
 
     delta_results = await measure_delta_distribution(
-        symbols=symbols,
-        timeframe=timeframe,
-        sample_size=10000
+        symbols=symbols, timeframe=timeframe, sample_size=10000
     )
 
     results["measurements"]["delta_distribution"] = delta_results
 
     # Measurement 2: Information Rate
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("MEASUREMENT 2: INFORMATION RATE")
-    print("="*80)
+    print("=" * 80)
     print("Question: How often do plugin outputs actually change?\n")
 
     info_results = await measure_information_rate(
-        symbols=symbols,
-        timeframe=timeframe,
-        sample_size=5000
+        symbols=symbols, timeframe=timeframe, sample_size=5000
     )
 
     results["measurements"]["information_rate"] = info_results
 
     # Generate recommendations
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("RENAISSANCE RECOMMENDATIONS")
-    print("="*80)
+    print("=" * 80)
 
     recommendations = _generate_recommendations(delta_results, info_results)
     results["recommendations"] = recommendations
@@ -110,13 +106,17 @@ async def run_phase0_profiling(
     print(f"\n✓ Results saved to: {output_path}")
 
     # Print summary
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("PHASE 0 SUMMARY")
-    print("="*80)
+    print("=" * 80)
 
     print("\n1. DELTA DISTRIBUTION:")
     p90 = delta_results.get("p90")
-    print(f"   - 90% of bars move < {p90*100:.4f}%" if p90 is not None else "   - 90th percentile: N/A (no data)")
+    print(
+        f"   - 90% of bars move < {p90*100:.4f}%"
+        if p90 is not None
+        else "   - 90th percentile: N/A (no data)"
+    )
     if delta_results.get("recommendation") == "filter":
         print("   - ✓ RECOMMEND: Delta-based filtering")
     else:
@@ -133,7 +133,7 @@ async def run_phase0_profiling(
     print(f"   Expected improvement: {recommendations['expected_improvement']}")
     print(f"   Implementation complexity: {recommendations['complexity']}")
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
 
     return results
 
@@ -151,7 +151,7 @@ def _generate_recommendations(delta_results: dict, info_results: dict) -> dict:
         "secondary_strategies": [],
         "expected_improvement": None,
         "complexity": None,
-        "rationale": []
+        "rationale": [],
     }
 
     # Check 1: Delta filtering
@@ -161,12 +161,12 @@ def _generate_recommendations(delta_results: dict, info_results: dict) -> dict:
         recommendations["primary_strategy"] = "Delta-based filtering"
         recommendations["expected_improvement"] = "10x throughput (90% fewer bars)"
         recommendations["complexity"] = "Low (1-2 days)"
-        recommendations["rationale"].append(
-            f"90% of bars move < {_p90*100:.3f}% (noise)"
-        )
+        recommendations["rationale"].append(f"90% of bars move < {_p90*100:.3f}% (noise)")
     # Check 2: Incremental computation
-    elif (info_results.get("i1", {}).get("weighted_change_rate", 1.0) < 0.3 or
-          info_results.get("i7", {}).get("weighted_change_rate", 1.0) < 0.3):
+    elif (
+        info_results.get("i1", {}).get("weighted_change_rate", 1.0) < 0.3
+        or info_results.get("i7", {}).get("weighted_change_rate", 1.0) < 0.3
+    ):
 
         i1_rate = info_results.get("i1", {}).get("weighted_change_rate", 1.0)
         i7_rate = info_results.get("i7", {}).get("weighted_change_rate", 1.0)
@@ -208,7 +208,7 @@ async def main():
     await run_phase0_profiling(
         symbols=None,  # All symbols
         timeframe="1m",
-        output_file="production/scripts/phase0_results.json"
+        output_file="production/scripts/phase0_results.json",
     )
 
     print("\nNext steps:")

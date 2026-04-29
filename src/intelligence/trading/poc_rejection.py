@@ -107,8 +107,12 @@ class POCRejectionPlugin:
         rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
         rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (direction == -1 and rsi_div_bearish > DIV_THRESHOLD)
-        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (direction == -1 and stoch_k > STOCH_OVERBOUGHT)
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (
+            direction == -1 and rsi_div_bearish > DIV_THRESHOLD
+        )
+        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (
+            direction == -1 and stoch_k > STOCH_OVERBOUGHT
+        )
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "poc_rejection_long" if direction == 1 else "poc_rejection_short"
@@ -143,10 +147,7 @@ class POCRejectionPlugin:
         va_inverse = max(0.0, 1.0 - va_width_atr / 4.0)
 
         raw_conf = (
-            0.30 * proximity_score
-            + 0.30 * reversal_score
-            + 0.20 * vol_score
-            + 0.20 * va_inverse
+            0.30 * proximity_score + 0.30 * reversal_score + 0.20 * vol_score + 0.20 * va_inverse
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
@@ -155,7 +156,9 @@ class POCRejectionPlugin:
             f"poc_distance_atr={abs(entry - poc_price) / atr:.3f}",
             f"poc_test_volume_ratio={poc_test_volume_ratio:.2f}",
         ]
-        supporting.extend(format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok))
+        supporting.extend(
+            format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok)
+        )
 
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
@@ -174,7 +177,10 @@ class POCRejectionPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", signal["confidence"],
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

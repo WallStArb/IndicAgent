@@ -5,6 +5,7 @@ Returns None when direction=0 (no actionable signal to narrate).
 
 TODO: Update to work with AIContext instead of BarIntelligenceRecord (future plan).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any

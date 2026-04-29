@@ -46,12 +46,12 @@ TREND_SETUPS: frozenset[str] = frozenset(
         "trad_MomentumBreakout",
         "trad_SqueezeExpansion",
         "trad_LiquidityHunt",
-        "trad_ORB15",                 # new — trend continuation setup
-        "trad_ORB30",                 # new — trend continuation setup
-        "trad_SecondLegContinuation", # new — trend continuation
-        "trad_VCP",                   # new — momentum/trend compression
-        "trad_LVNBreakout",           # new — trend expansion through thin volume
-        "trad_OFIContinuation",       # new — sustained directional OFI in trend
+        "trad_ORB15",  # new — trend continuation setup
+        "trad_ORB30",  # new — trend continuation setup
+        "trad_SecondLegContinuation",  # new — trend continuation
+        "trad_VCP",  # new — momentum/trend compression
+        "trad_LVNBreakout",  # new — trend expansion through thin volume
+        "trad_OFIContinuation",  # new — sustained directional OFI in trend
     }
 )
 
@@ -510,9 +510,11 @@ def _build_all_ranked(
         with_ranks,
         key=lambda s: (
             # Primary: calibrated_confidence when available (invert: higher = better)
-            -(s.get("calibrated_confidence") or 0.0)
-            if s.get("calibrated_confidence") is not None
-            else -(s.get("confidence", 0.0)),
+            (
+                -(s.get("calibrated_confidence") or 0.0)
+                if s.get("calibrated_confidence") is not None
+                else -(s.get("confidence", 0.0))
+            ),
             # Tiebreak: adjusted_rank ascending (lower = better), then priority desc
             s["adjusted_rank"],
             -SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0) if weights else 0,

@@ -1,4 +1,5 @@
 """Tests for VIXRegimePlugin - I4 context plugin."""
+
 import pytest
 
 from src.intelligence.context.vix_regime import VIXRegimePlugin

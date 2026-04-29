@@ -1,4 +1,5 @@
 """Unit tests for apply_tod_adjustment pure function."""
+
 from __future__ import annotations
 
 import pytest

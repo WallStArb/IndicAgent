@@ -88,9 +88,7 @@ class CVDDivergencePlugin:
         state_key = f"{symbol}_{tf}"
 
         cvd_div_sign = 1 if cvd_div > 0 else -1
-        _, count = track_consecutive_state(
-            frames, self._state, state_key, cvd_div_sign, "div_sign"
-        )
+        _, count = track_consecutive_state(frames, self._state, state_key, cvd_div_sign, "div_sign")
 
         # Gate: require N confirmation bars
         if count < _CONFIRMATION_BARS:
@@ -158,7 +156,10 @@ class CVDDivergencePlugin:
             "dual_divergence": dual_divergence,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

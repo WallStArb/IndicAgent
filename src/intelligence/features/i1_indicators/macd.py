@@ -11,7 +11,9 @@ from src.intelligence.plugins import InputSpec
 @dataclass
 class MACDPlugin:
     name: str = "MACD"
-    outputs: frozenset[str] = frozenset({"macd_12_26_9", "macd_signal_12_26_9", "macd_histogram_12_26_9"})
+    outputs: frozenset[str] = frozenset(
+        {"macd_12_26_9", "macd_signal_12_26_9", "macd_histogram_12_26_9"}
+    )
     min_lookback: int = 50
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})

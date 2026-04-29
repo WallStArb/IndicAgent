@@ -139,7 +139,13 @@ class TestDivergenceStackAlwaysLogs:
         features = _make_features_with_divergences()
         result = plugin.compute_full(_make_frames(close, features))
 
-        for key in ["rsi_div_score", "macd_div_score", "vol_div_score", "obv_div_score", "cmf_div_score"]:
+        for key in [
+            "rsi_div_score",
+            "macd_div_score",
+            "vol_div_score",
+            "obv_div_score",
+            "cmf_div_score",
+        ]:
             assert key in result
 
     def test_scoring_fields_returned_with_partial_divergence(self):
@@ -240,9 +246,13 @@ class TestDivergenceStackAgeTracking:
         features = _make_features_with_divergences(rsi_bull=0.8)
 
         # First bar
-        result1 = plugin.compute_full({"main": make_ohlcv(close), "features": features, "symbol": "ES", "timeframe": "1m"})
+        result1 = plugin.compute_full(
+            {"main": make_ohlcv(close), "features": features, "symbol": "ES", "timeframe": "1m"}
+        )
         # Second bar
-        result2 = plugin.compute_full({"main": make_ohlcv(close), "features": features, "symbol": "ES", "timeframe": "1m"})
+        result2 = plugin.compute_full(
+            {"main": make_ohlcv(close), "features": features, "symbol": "ES", "timeframe": "1m"}
+        )
 
         assert result2["rsi_divergence_age_bars"] >= result1["rsi_divergence_age_bars"]
 
@@ -256,9 +266,23 @@ class TestDivergenceStackAgeTracking:
         features_inactive = _make_features_with_divergences(rsi_bull=0.0)
 
         # Bar with active divergence
-        plugin.compute_full({"main": make_ohlcv(close), "features": features_active, "symbol": "ES", "timeframe": "1m"})
+        plugin.compute_full(
+            {
+                "main": make_ohlcv(close),
+                "features": features_active,
+                "symbol": "ES",
+                "timeframe": "1m",
+            }
+        )
         # Bar with no divergence
-        result = plugin.compute_full({"main": make_ohlcv(close), "features": features_inactive, "symbol": "ES", "timeframe": "1m"})
+        result = plugin.compute_full(
+            {
+                "main": make_ohlcv(close),
+                "features": features_inactive,
+                "symbol": "ES",
+                "timeframe": "1m",
+            }
+        )
 
         assert result["rsi_divergence_age_bars"] == 0
 

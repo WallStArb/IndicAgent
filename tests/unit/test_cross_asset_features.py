@@ -115,11 +115,18 @@ def test_ready_true_returns_all_fields():
     result = compute_eq_index_features(close_w, vol_w, "1m", _TS, window_bars=20)
     assert result["ready"] is True
     expected_keys = {
-        "ready", "ts", "tf", "group",
-        "es_nq_spread_z", "es_rty_spread_z",
-        "eq_corr_break", "eq_vol_imbalance",
-        "active_pair", "pairs_confirming",
-        "data_quality_score", "low_vol_flag",
+        "ready",
+        "ts",
+        "tf",
+        "group",
+        "es_nq_spread_z",
+        "es_rty_spread_z",
+        "eq_corr_break",
+        "eq_vol_imbalance",
+        "active_pair",
+        "pairs_confirming",
+        "data_quality_score",
+        "low_vol_flag",
     }
     assert expected_keys <= set(result.keys())
 
@@ -332,9 +339,9 @@ def test_low_vol_flag_false_with_varying_prices():
     n = _WINDOW + _SHORT
     # ES drifts up; NQ stays flat => ES-NQ spread grows each window
     # RTY drifts down; ES drifts up => ES-RTY spread diverges from ES-NQ
-    es_prices = [4000.0 + i * 1.0 for i in range(n)]          # +1 per bar
-    nq_prices = [14000.0] * n                                   # flat => ES-NQ spread non-zero
-    rty_prices = [2000.0 - i * 0.5 for i in range(n)]          # -0.5 per bar (different from ES)
+    es_prices = [4000.0 + i * 1.0 for i in range(n)]  # +1 per bar
+    nq_prices = [14000.0] * n  # flat => ES-NQ spread non-zero
+    rty_prices = [2000.0 - i * 0.5 for i in range(n)]  # -0.5 per bar (different from ES)
     ym_prices = [34000.0 + i * 2.0 for i in range(n)]
     close_w = {
         "ES": deque(es_prices, maxlen=n + 1),

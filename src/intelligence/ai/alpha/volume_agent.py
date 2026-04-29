@@ -3,6 +3,7 @@
 Per D-16: reads context.volume_profile (dict set by dispatch layer).
 Pure compute class -- no infrastructure code.
 """
+
 from __future__ import annotations
 
 import json
@@ -79,10 +80,7 @@ class VolumeAgentComputeAgent(BaseAIAgent):
 
         # Check if volume profile data was available
         i4_ctx = context.i4
-        has_vp = (
-            i4_ctx is not None
-            and i4_ctx.poc_price is not None
-        )
+        has_vp = i4_ctx is not None and i4_ctx.poc_price is not None
 
         return AgentOutput(
             agent_id=self.agent_id,

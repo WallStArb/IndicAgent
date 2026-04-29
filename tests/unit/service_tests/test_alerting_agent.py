@@ -210,7 +210,7 @@ class TestAlertingAgentRunRouting:
         payload = {
             "severity": "CRITICAL",
             "message": "Test critical message",
-            "source": "test_agent"
+            "source": "test_agent",
         }
 
         # Simulate _run() routing for CRITICAL
@@ -234,11 +234,7 @@ class TestAlertingAgentRunRouting:
 
         agent._dispatch_discord = mock_dispatch_discord
 
-        payload = {
-            "severity": "HIGH",
-            "message": "Test high message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "HIGH", "message": "Test high message", "source": "test_agent"}
 
         # Simulate _run() routing for HIGH
         severity = payload.get("severity", "MEDIUM")
@@ -261,11 +257,7 @@ class TestAlertingAgentRunRouting:
 
         agent._dispatch_discord = mock_dispatch_discord
 
-        payload = {
-            "severity": "MEDIUM",
-            "message": "Test medium message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "MEDIUM", "message": "Test medium message", "source": "test_agent"}
 
         # Simulate _run() routing for MEDIUM
         severity = payload.get("severity", "MEDIUM")
@@ -279,11 +271,7 @@ class TestAlertingAgentRunRouting:
     @pytest.mark.asyncio
     async def test_run_unknown_severity_logged_at_debug(self, agent):
         """_run() logs unknown severity at debug level."""
-        payload = {
-            "severity": "UNKNOWN",
-            "message": "Test message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "UNKNOWN", "message": "Test message", "source": "test_agent"}
 
         # Simulate _run() routing for UNKNOWN
         severity = payload.get("severity", "MEDIUM")
