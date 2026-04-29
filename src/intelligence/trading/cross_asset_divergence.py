@@ -224,7 +224,7 @@ class CrossAssetDivergencePlugin:
             "setup_variant": setup_variant,
             "supporting_factors": supporting_factors,
         }
-        signal["_shadow"] = capture_signal_features(
+        signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "microstructure",

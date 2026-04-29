@@ -7,7 +7,7 @@ The contract: [CONF_FLOOR, CONF_CEIL] = [0.10, 0.95].
 Rounding: 4 decimal places for consistent ML feature representation.
 
 capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
-signal["_shadow"] for ML training — zero confidence modification.
+signal["features_snapshot"] for ML training — zero confidence modification.
 Shadow dict has 17 keys: 2 metadata (profile, existing_confidence) + 6 I6 confluence
 (ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement,
 ctf_fvg_alignment, ctf_ob_alignment) + 2 momentum divergence (ctf_momentum_divergence,
@@ -101,7 +101,7 @@ def capture_signal_features(
 ) -> dict[str, Any]:
     """Capture signal features snapshot for shadow logging.
 
-    Returns a standardized dict stored as signal["_shadow"] in i7 JSONB.
+    Returns a standardized dict stored as signal["features_snapshot"] in i7 JSONB.
     No confidence modification — pure data capture for Phase 49 ML.
 
     Zero confidence modification — pure data capture for Phase 49 ML training.

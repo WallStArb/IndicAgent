@@ -145,6 +145,8 @@ class BaseAgent(abc.ABC):
             return get_meter("test-noop")
         if name == "_metrics_port":
             return None
+        if name == "_shadow_cache":
+            return {}
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property

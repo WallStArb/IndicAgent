@@ -243,7 +243,7 @@ class DivergenceStackPlugin:
                 "regime_context": "any",
                 "ttl_bars": 10,
             }
-            signal["_shadow"] = capture_signal_features(
+            signal["features_snapshot"] = capture_signal_features(
                 features,
                 direction,
                 "microstructure",

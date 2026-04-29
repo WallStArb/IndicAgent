@@ -205,7 +205,7 @@ class HVNRejectionPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
-        signal["_shadow"] = capture_signal_features(
+        signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "mean_reversion",

@@ -167,8 +167,8 @@ class TestOFIDivergencePlugin:
         for _ in range(2):
             result = self.plugin.compute_full(frames)
         assert result.get("direction"), "Expected plugin to fire"
-        assert "_shadow" in result
-        assert "existing_confidence" in result["_shadow"]
+        assert "features_snapshot" in result
+        assert "existing_confidence" in result["features_snapshot"]
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton has correct name."""
