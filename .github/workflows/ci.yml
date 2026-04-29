@@ -5,9 +5,22 @@ on:
   push:
     branches: [main]
 
+# Cancel superseded runs on the same ref — don't burn runner minutes on stale pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  checks: write    # dorny/test-reporter posts inline PR annotations
+  contents: read
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Lint & Format — ruff (style + dead imports) + black (formatting)
+  # Fast (~10s). Blocks test job from starting if violated.
+  # ---------------------------------------------------------------------------
   lint:
-    name: Lint
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,12 +33,92 @@ jobs:
       - name: Install lint tools
         run: pip install "ruff>=0.15.0" "black>=26.1.0"
 
-      - run: ruff check .
-      - run: black --check .
+      - name: Ruff
+        run: ruff check .
 
+      - name: Black
+        run: black --check .
+
+  # ---------------------------------------------------------------------------
+  # Plugin Invariants — Renaissance-grade structural guards.
+  # Mirrors the 3 bash checks in .git/hooks/pre-commit so --no-verify can't
+  # bypass them. No pip install needed — pure grep/find, runs in ~2s.
+  # ---------------------------------------------------------------------------
+  plugin-guards:
+    name: Plugin Invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guard 1: all classes in src/intelligence/ must end with an approved suffix.
+      # Excludes swarm/ (IAlphaContributor conventions) and ai/ (Agent suffix).
+      - name: Plugin class naming
+        run: |
+          violations=$(grep -rn '^class [A-Z]' src/intelligence/ \
+            --include="*.py" \
+            --exclude-dir=swarm \
+            --exclude-dir=ai \
+            --exclude=schemas.py \
+            --exclude=alpha_multiplier.py | \
+            grep -vE 'class.*(Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain)\b' \
+            || true)
+          if [ -n "$violations" ]; then
+            echo "FAIL: plugin class naming violations (rename to end with 'Plugin'):"
+            echo "$violations"
+            exit 1
+          fi
+          echo "OK: all plugin classes follow naming convention"
+
+      # Guard 2: all files in src/intelligence/ must use snake_case.py naming.
+      - name: Plugin file naming
+        run: |
+          violations=$(find src/intelligence/ -name "*.py" \
+            ! -name "__init__.py" \
+            ! -name "conftest.py" | \
+            while read -r f; do
+              filename=$(basename "$f")
+              echo "$filename" | grep -qE '^[a-z][a-z0-9_]*\.py$' || echo "  $f"
+            done || true)
+          if [ -n "$violations" ]; then
+            echo "FAIL: plugin file naming violations (rename to snake_case.py):"
+            echo "$violations"
+            exit 1
+          fi
+          echo "OK: all plugin files use snake_case naming"
+
+      # Guard 3: every I7 trading plugin must declare regime_type.
+      # Missing this causes the regime gate to silently misfire in production.
+      - name: I7 regime_type declaration
+        run: |
+          infra="signal_ledger.py lifecycle_tracker.py trade_framer.py signal_aggregator.py cis_scorer.py weight_updater.py confidence_calibrator.py __init__.py"
+          violations=""
+          for f in src/intelligence/trading/*.py; do
+            filename=$(basename "$f")
+            is_infra=false
+            for i in $infra; do [ "$filename" = "$i" ] && is_infra=true && break; done
+            $is_infra && continue
+            if grep -q '^class.*Plugin' "$f" 2>/dev/null; then
+              grep -qE 'regime_type[[:space:]]*[:=]' "$f" || violations="$violations\n  $f"
+            fi
+          done
+          if [ -n "$violations" ]; then
+            echo "FAIL: I7 plugins missing regime_type declaration:"
+            printf "$violations\n"
+            echo "Fix: add 'regime_type: ClassVar[str] = \"trend\" | \"mean_reversion\" | \"any\"'"
+            exit 1
+          fi
+          echo "OK: all I7 plugins declare regime_type"
+
+  # ---------------------------------------------------------------------------
+  # Unit Tests — 3454 tests, CI-clean (no live infra required).
+  # Runs only after lint + plugin-guards pass to avoid wasting 60s on known-bad
+  # commits. JUnit XML uploaded so GitHub annotates failing tests inline on PRs.
+  # --durations=20: surfaces the 20 slowest tests every run (instrument everything).
+  # ---------------------------------------------------------------------------
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: [lint, plugin-guards]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,4 +131,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run unit tests
-        run: pytest tests/unit/ -q --tb=short
+        run: pytest tests/unit/ --tb=short --junit-xml=test-results.xml --durations=20
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: pytest results
+          path: test-results.xml
+          reporter: java-junit
+          fail-on-error: false
