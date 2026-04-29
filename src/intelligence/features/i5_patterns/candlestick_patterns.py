@@ -401,22 +401,12 @@ class CandlestickPatternsPlugin:
 
         # --- Belt Hold Bull (long white candle, no upper wick) ---
         belt_hold_bull = 0.0
-        if (
-            c_bullish
-            and c_range > 0
-            and c_body > 0.70 * c_range
-            and c_upper_wick < 0.10 * c_range
-        ):
+        if c_bullish and c_range > 0 and c_body > 0.70 * c_range and c_upper_wick < 0.10 * c_range:
             belt_hold_bull = 1.0
 
         # --- Belt Hold Bear (long black candle, no lower wick) ---
         belt_hold_bear = 0.0
-        if (
-            c_bearish
-            and c_range > 0
-            and c_body > 0.70 * c_range
-            and c_lower_wick < 0.10 * c_range
-        ):
+        if c_bearish and c_range > 0 and c_body > 0.70 * c_range and c_lower_wick < 0.10 * c_range:
             belt_hold_bear = 1.0
 
         # --- Kicker Bull (3-bar: pp bearish, c gaps above pp_h, c bullish large body) ---

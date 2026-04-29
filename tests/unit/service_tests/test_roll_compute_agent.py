@@ -256,6 +256,7 @@ async def test_publishes_calendar_roll_event_when_scheduler_fires():
 
     # Inject a mock calendar scheduler: False on startup sweep, True on bar loop
     from unittest.mock import MagicMock as MM
+
     calendar_scheduler = MM()
     calendar_scheduler.check_calendar_roll = MagicMock(side_effect=[False, True])
     agent._calendar_scheduler = calendar_scheduler
@@ -307,6 +308,7 @@ async def test_volume_roll_event_has_detection_method_volume():
     agent._roll_monitor._last_confirmation_count = 3
 
     from unittest.mock import MagicMock as MM
+
     calendar_scheduler = MM()
     calendar_scheduler.check_calendar_roll = MagicMock(return_value=False)
     agent._calendar_scheduler = calendar_scheduler

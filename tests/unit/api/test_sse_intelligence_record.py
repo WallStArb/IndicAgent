@@ -53,16 +53,16 @@ class TestBuildTopicList:
         (topic string: intelligence.journal).
         """
         topics = _build_topic_list(["ES"], "1m")
-        assert any("intelligence.journal" in t for t in topics), (
-            f"Expected a topic containing 'intelligence.journal' in topic list, got: {topics}"
-        )
+        assert any(
+            "intelligence.journal" in t for t in topics
+        ), f"Expected a topic containing 'intelligence.journal' in topic list, got: {topics}"
 
     def test_intelligence_i7_not_in_topic_list(self):
         """intelligence.i7 topic must NOT appear in _build_topic_list() after rewire."""
         topics = _build_topic_list(["ES"], "1m")
-        assert not any("intelligence.i7" in t for t in topics), (
-            f"Expected no topic containing 'intelligence.i7' in topic list, got: {topics}"
-        )
+        assert not any(
+            "intelligence.i7" in t for t in topics
+        ), f"Expected no topic containing 'intelligence.i7' in topic list, got: {topics}"
 
 
 class TestBarIntelligenceRecordPayloadShape:

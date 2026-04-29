@@ -30,14 +30,14 @@ _TARGET_OUTCOME_LOOKUP = (
 
 # Staleness score constants — tune after 90 days of outcome data
 STALENESS_REGIME_WEIGHT = 0.6  # weight of HMM regime drift component
-STALENESS_SIGMA_WEIGHT = 0.4   # weight of GARCH sigma ratio component
-assert STALENESS_REGIME_WEIGHT + STALENESS_SIGMA_WEIGHT == 1.0, (
-    f"Staleness weights must sum to 1.0; got {STALENESS_REGIME_WEIGHT} + {STALENESS_SIGMA_WEIGHT}"
-)
-STALENESS_SIGMA_SCALE = 3.0              # sigma ratio at which sigma_component reaches 1.0
+STALENESS_SIGMA_WEIGHT = 0.4  # weight of GARCH sigma ratio component
+assert (
+    STALENESS_REGIME_WEIGHT + STALENESS_SIGMA_WEIGHT == 1.0
+), f"Staleness weights must sum to 1.0; got {STALENESS_REGIME_WEIGHT} + {STALENESS_SIGMA_WEIGHT}"
+STALENESS_SIGMA_SCALE = 3.0  # sigma ratio at which sigma_component reaches 1.0
 STALENESS_SIGMA_COMPONENT_THRESHOLD = 0.5  # sigma_component level that triggers "both" reason label
-STALENESS_SCORE_THRESHOLD = 0.5          # composite score above which a bar counts as "stale"
-STALENESS_CONSECUTIVE_THRESHOLD = 3     # consecutive stale bars before condition_expired
+STALENESS_SCORE_THRESHOLD = 0.5  # composite score above which a bar counts as "stale"
+STALENESS_CONSECUTIVE_THRESHOLD = 3  # consecutive stale bars before condition_expired
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +222,8 @@ def evaluate_signal(
         # After tracker restart, in-memory status resets to PENDING even though
         # activated_at was persisted to DB. Use activated_at to determine real state.
         activated_at = signal.get("activated_at")
-        was_activated = (
-            status == SignalStatus.ACTIVE
-            or (activated_at is not None and status == SignalStatus.PENDING)
+        was_activated = status == SignalStatus.ACTIVE or (
+            activated_at is not None and status == SignalStatus.PENDING
         )
         # D-06: Detect and count labeling violations
         if activated_at is not None and status == SignalStatus.PENDING:
@@ -250,8 +249,15 @@ def evaluate_signal(
 
     if status == SignalStatus.PENDING:
         return _check_zone_activation(
-            sid, direction, zone_low, zone_high, high, low, bars,
-            signal_timestamp=signal_timestamp, bar_time=bar_time
+            sid,
+            direction,
+            zone_low,
+            zone_high,
+            high,
+            low,
+            bars,
+            signal_timestamp=signal_timestamp,
+            bar_time=bar_time,
         )
 
     if status == SignalStatus.ACTIVE:
@@ -532,9 +538,7 @@ def evaluate_market_entry(
         pnl_ticks = (close - market_entry_price) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
         outcome = (
-            SignalOutcome.TTL_EXPIRED_AHEAD
-            if current_mfe > 0
-            else SignalOutcome.TTL_EXPIRED_BEHIND
+            SignalOutcome.TTL_EXPIRED_AHEAD if current_mfe > 0 else SignalOutcome.TTL_EXPIRED_BEHIND
         )
         final_mae = min(current_mae, pnl_r)
         final_mfe = max(current_mfe, pnl_r)
@@ -549,8 +553,9 @@ def evaluate_market_entry(
 
     # Stop loss check (stop before target on same bar — conservative)
     if (direction == 1 and low <= stop) or (direction == -1 and high >= stop):
-        return _make_market_exit(sid, stop, market_entry_price, direction, risk,
-                                 current_mae, current_mfe)
+        return _make_market_exit(
+            sid, stop, market_entry_price, direction, risk, current_mae, current_mfe
+        )
 
     # Target checks (highest target first for maximum credit)
     for i in range(len(targets) - 1, -1, -1):

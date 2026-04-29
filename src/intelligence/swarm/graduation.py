@@ -256,7 +256,8 @@ def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[
     D-06: graduation_loop uses signal_lineage WHERE event_type = 'agent_prediction'
     instead of signal_transform_log.
     """
-    rows = conn.fetch("""
+    rows = conn.fetch(
+        """
         SELECT sl.signal_id, sl.multiplier, sl.metadata, sl.symbol, sl.tf,
                sl.ts, sl.is_shadow,
                COALESCE(s.outcome, 'pending') as outcome,
@@ -269,7 +270,9 @@ def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[
           AND sl.source = $1
         ORDER BY sl.ts DESC
         LIMIT 500
-    """, agent_id)
+    """,
+        agent_id,
+    )
     return rows
 
 

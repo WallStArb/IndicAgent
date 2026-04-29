@@ -34,7 +34,7 @@ def check_reversal_gate(
     Returns:
         Tuple of (reversal_ok, reversal_strength)
         - reversal_ok: True if reversal conditions met
-        - reversal_strength: Float 0-1 indicating reversal conviction (reserved for future ML scoring features)
+        - reversal_strength: Float 0-1 indicating reversal conviction (reserved for future ML scoring features) # noqa: E501
 
     Long reversal (direction=1):
         - rsi_div_bullish > 0.3 OR stoch_k < 30

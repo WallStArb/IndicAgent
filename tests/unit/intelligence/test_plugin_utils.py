@@ -14,6 +14,7 @@ from src.intelligence.trading.plugin_utils import (
 
 # --- no_signal ---
 
+
 def test_no_signal_returns_dict():
     result = no_signal()
     assert isinstance(result, dict)
@@ -39,6 +40,7 @@ def test_no_signal_new_dict_each_call():
 
 
 # --- extract_ohlcv ---
+
 
 def _make_frames(n: int) -> dict:
     df = pd.DataFrame(
@@ -100,6 +102,7 @@ def test_extract_ohlcv_values_correct():
 
 # --- default_compute_next ---
 
+
 class _FakePlugin:
     def compute_full(self, windows):
         return {"called_with": windows}
@@ -113,6 +116,7 @@ def test_default_compute_next_delegates():
 
 
 # --- signal_type_for_direction ---
+
 
 def test_signal_type_for_direction_long():
     assert signal_type_for_direction("trend", 1) == "trend_long"

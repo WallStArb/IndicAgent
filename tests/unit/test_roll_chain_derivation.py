@@ -29,7 +29,15 @@ class TestDeriveRollChainStructure:
     def test_es_contracts_have_required_keys(self):
         """Each contract dict must have all required fields."""
         chain = derive_roll_chain("ES")
-        required = {"symbol", "base_symbol", "month_code", "expiry_month", "expiry_year", "roll_from", "roll_to"}
+        required = {
+            "symbol",
+            "base_symbol",
+            "month_code",
+            "expiry_month",
+            "expiry_year",
+            "roll_from",
+            "roll_to",
+        }
         for contract in chain:
             assert required.issubset(set(contract.keys())), f"Missing keys in {contract}"
 
@@ -62,9 +70,9 @@ class TestDeriveRollChainStructure:
         quarterly = {"H", "M", "U", "Z"}
         chain = derive_roll_chain("ES")
         for contract in chain:
-            assert contract["month_code"] in quarterly, (
-                f"ES month code {contract['month_code']!r} not in quarterly cycle"
-            )
+            assert (
+                contract["month_code"] in quarterly
+            ), f"ES month code {contract['month_code']!r} not in quarterly cycle"
 
     def test_es_contracts_sorted_chronologically(self):
         """Contracts must be sorted by (expiry_year, expiry_month) ascending."""
@@ -151,9 +159,9 @@ class TestDeriveRollChainGrain:
         grain = {"H", "K", "N", "U", "Z"}
         chain = derive_roll_chain("ZC")
         for contract in chain:
-            assert contract["month_code"] in grain, (
-                f"ZC month code {contract['month_code']!r} not in grain cycle {grain}"
-            )
+            assert (
+                contract["month_code"] in grain
+            ), f"ZC month code {contract['month_code']!r} not in grain cycle {grain}"
 
     def test_zs_uses_grain_cycle(self):
         """ZS (soybeans) also uses H/K/N/U/Z grain cycle."""

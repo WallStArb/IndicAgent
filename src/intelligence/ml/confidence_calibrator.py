@@ -11,6 +11,7 @@ Algorithm:
   - Compute ECE (10 equal-width bins)
   - Upsert to confidence_calibration; delete stale rows for groups that dropped below N=100
 """
+
 from __future__ import annotations
 
 import collections
@@ -70,16 +71,14 @@ async def run_calibration_update(db_manager: Any) -> None:
     confidence_calibration row deleted so callers never see stale curves.
     """
     try:
-        rows = await db_manager.execute_query(
-            """
+        rows = await db_manager.execute_query("""
             SELECT setup_plugin, timeframe, confidence, outcome
             FROM signal_ledger
             WHERE outcome IS NOT NULL
               AND is_shadow = FALSE
             ORDER BY computed_at DESC
             LIMIT 50000
-            """
-        )
+            """)
         if not rows:
             logger.info("calibration_update: no resolved signals — skipping")
             return
@@ -97,9 +96,7 @@ async def run_calibration_update(db_manager: Any) -> None:
                 continue
 
             confidences = [float(r["confidence"]) for r in group_rows]
-            win_labels = [
-                1.0 if r["outcome"] in _WIN_OUTCOMES else 0.0 for r in group_rows
-            ]
+            win_labels = [1.0 if r["outcome"] in _WIN_OUTCOMES else 0.0 for r in group_rows]
             breakpoints, values, ece = _fit_curve(confidences, win_labels)
 
             await db_manager.execute_command(
@@ -145,9 +142,7 @@ async def run_calibration_update(db_manager: Any) -> None:
             )
         else:
             # No curves trained at all — clear the entire table to avoid serving stale data
-            await db_manager.execute_command(
-                "DELETE FROM confidence_calibration"
-            )
+            await db_manager.execute_command("DELETE FROM confidence_calibration")
             logger.info("calibration_update: no groups met N>=100 — cleared all curves")
 
         logger.info("calibration_update_complete", curves_trained=len(trained_keys))

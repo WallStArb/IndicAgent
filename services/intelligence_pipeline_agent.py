@@ -375,7 +375,7 @@ def _timed_plugin_call(plugin, frames):
     on every bar for stateful plugins like BOCPD and HMMRegime.
     """
     t0 = time.perf_counter()
-    if getattr(plugin, 'supports_incremental', False) and plugin._state:
+    if getattr(plugin, "supports_incremental", False) and plugin._state:
         result = plugin.compute_next(frames)
     else:
         result = plugin.compute_full(frames)
@@ -829,7 +829,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     error=str(result),
                     error_type=type(result).__name__,
                 )
-
 
     async def _teardown(self) -> None:
         """Drain output queue, close connections."""
@@ -1492,16 +1491,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["pre_regime_confidence"] = sig.get("confidence", 0.0)
 
         regime_gated = await apply_regime_gate(
-            quality_gated, features,
-            prob_min=self._regime_prob_min, dur_min=self._regime_dur_min,
-            tf=tf, recorder=self._transform_recorder,
+            quality_gated,
+            features,
+            prob_min=self._regime_prob_min,
+            dur_min=self._regime_dur_min,
+            tf=tf,
+            recorder=self._transform_recorder,
         )
 
         # Regime suppression metric
         for sig in regime_gated:
             if not sig.get("regime_eligible", True):
                 REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
-                    reason="regime_type", plugin=sig.get("setup_plugin", ""), tf=tf,
+                    reason="regime_type",
+                    plugin=sig.get("setup_plugin", ""),
+                    tf=tf,
                 ).inc()
 
         # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
@@ -1522,12 +1526,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
         calibrated = await apply_calibration(
-            tod_adjusted, self._calibration_curves, tf,
-            symbol=symbol, recorder=self._transform_recorder,
+            tod_adjusted,
+            self._calibration_curves,
+            tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
         )
         ranked = await rank_signals(
-            calibrated, self._perf_weights, tf,
-            symbol=symbol, recorder=self._transform_recorder,
+            calibrated,
+            self._perf_weights,
+            tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
         )
 
         # Annotate each ranked signal with ledger metadata before publishing

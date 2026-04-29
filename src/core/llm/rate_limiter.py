@@ -2,6 +2,7 @@
 
 Tracks RPM (requests/minute) and TPM (tokens/minute) with asyncio.sleep backoff.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +42,10 @@ class RateLimiter:
         backoff = _MIN_BACKOFF_S
         while True:
             self._prune()
-            if self._requests_in_window() < self._rpm and self._tokens_in_window() + tokens <= self._tpm:
+            if (
+                self._requests_in_window() < self._rpm
+                and self._tokens_in_window() + tokens <= self._tpm
+            ):
                 now = time.monotonic()
                 self._requests.append(now)
                 self._tokens.append((now, tokens))

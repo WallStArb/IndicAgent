@@ -24,6 +24,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _stopped_consumer():
     """Consumer whose start() raises the aiokafka stop-twice error."""
     c = MagicMock()
@@ -78,6 +79,7 @@ async def test_consumer_reset_succeeds_without_start_twice_error() -> None:
     agent._consumer_restart_needed = True  # reset already flagged
 
     import structlog
+
     agent.logger = structlog.get_logger().bind(agent=agent.name)
 
     old_consumer = _stopped_consumer()
@@ -85,6 +87,7 @@ async def test_consumer_reset_succeeds_without_start_twice_error() -> None:
     agent._kafka_consumer = old_consumer
 
     from src.config.settings import Settings
+
     agent._settings = MagicMock(spec=Settings)
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
 
@@ -127,11 +130,12 @@ async def test_consumer_reset_succeeds_without_start_twice_error() -> None:
         except Exception as exc:
             agent.logger.error("bar_aggregator.consumer_reset_failed", error=str(exc))
 
-    assert reset_complete_logged, (
-        "consumer_reset_complete must be logged; got reset_failed: "
-        + str(reset_failed_logged)
-    )
-    assert not reset_failed_logged, f"consumer_reset_failed must NOT be logged; got: {reset_failed_logged}"
+    assert (
+        reset_complete_logged
+    ), "consumer_reset_complete must be logged; got reset_failed: " + str(reset_failed_logged)
+    assert (
+        not reset_failed_logged
+    ), f"consumer_reset_failed must NOT be logged; got: {reset_failed_logged}"
     # Old consumer's start() must never be called
     old_consumer.start.assert_not_awaited()
     new_consumer.start.assert_awaited_once()
@@ -148,6 +152,7 @@ async def test_consumer_reset_uses_new_object_not_old() -> None:
     agent._env_name = ""
 
     import structlog
+
     agent.logger = structlog.get_logger().bind(agent=agent.name)
 
     old_consumer = _stopped_consumer()
@@ -155,6 +160,7 @@ async def test_consumer_reset_uses_new_object_not_old() -> None:
     agent._kafka_consumer = old_consumer
 
     from src.config.settings import Settings
+
     agent._settings = MagicMock(spec=Settings)
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
 

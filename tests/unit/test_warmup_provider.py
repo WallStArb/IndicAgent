@@ -16,6 +16,7 @@ from src.persistence.repository.feature_snapshot_repository import FeatureSnapsh
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(db_url: str = "postgresql://localhost/test") -> MagicMock:
     s = MagicMock()
     s.database_url = db_url
@@ -60,6 +61,7 @@ def _make_ohlcv_row() -> dict:
 # FeatureSnapshotRepository
 # ---------------------------------------------------------------------------
 
+
 class TestFeatureSnapshotRepository:
     @pytest.fixture
     def db(self):
@@ -69,9 +71,7 @@ class TestFeatureSnapshotRepository:
 
     def test_get_recent_features_builds_correct_query(self, db):
         repo = FeatureSnapshotRepository(db)
-        asyncio.run(
-            repo.get_recent_features("ES", "1m", 50, 3600)
-        )
+        asyncio.run(repo.get_recent_features("ES", "1m", 50, 3600))
         db.execute_query.assert_awaited_once()
         call_args = db.execute_query.call_args
         sql = call_args[0][0]
@@ -88,9 +88,7 @@ class TestFeatureSnapshotRepository:
 
     def test_get_ohlcv_fallback_builds_correct_query(self, db):
         repo = FeatureSnapshotRepository(db)
-        asyncio.run(
-            repo.get_ohlcv_fallback("ES", "5m", 30, 7200)
-        )
+        asyncio.run(repo.get_ohlcv_fallback("ES", "5m", 30, 7200))
         db.execute_query.assert_awaited_once()
         sql = db.execute_query.call_args[0][0]
         assert "market_data_ohlcv" in sql
@@ -106,6 +104,7 @@ class TestFeatureSnapshotRepository:
 # ---------------------------------------------------------------------------
 # WarmupProvider — seed()
 # ---------------------------------------------------------------------------
+
 
 class TestWarmupProviderSeed:
     @pytest.fixture
@@ -139,10 +138,9 @@ class TestWarmupProviderSeed:
         settings = _make_settings()
         provider = WarmupProvider(settings, _make_config(), kafka_producer)
 
-        with patch(
-            "src.persistence.logic.warmup_provider.DatabaseManager"
-        ) as MockDB, patch(
-            "src.persistence.logic.warmup_provider.asyncio.sleep", new=AsyncMock()
+        with (
+            patch("src.persistence.logic.warmup_provider.DatabaseManager") as MockDB,
+            patch("src.persistence.logic.warmup_provider.asyncio.sleep", new=AsyncMock()),
         ):
             MockDB.return_value.initialize = AsyncMock(side_effect=Exception("refused"))
             self._run(provider.seed(bar_history))
@@ -161,14 +159,14 @@ class TestWarmupProviderSeed:
 
         rows = [_make_feature_row()]
 
-        with patch(
-            "src.persistence.logic.warmup_provider.DatabaseManager"
-        ) as MockDB, patch(
-            "src.persistence.logic.warmup_provider.get_active_symbols",
-            return_value=["ES"],
-        ), patch(
-            "src.persistence.logic.warmup_provider.FeatureSnapshotRepository"
-        ) as MockRepo:
+        with (
+            patch("src.persistence.logic.warmup_provider.DatabaseManager") as MockDB,
+            patch(
+                "src.persistence.logic.warmup_provider.get_active_symbols",
+                return_value=["ES"],
+            ),
+            patch("src.persistence.logic.warmup_provider.FeatureSnapshotRepository") as MockRepo,
+        ):
             MockDB.return_value.initialize = AsyncMock()
             MockDB.return_value.close = AsyncMock()
             mock_repo = MagicMock()
@@ -190,14 +188,14 @@ class TestWarmupProviderSeed:
 
         rows = [_make_feature_row()]
 
-        with patch(
-            "src.persistence.logic.warmup_provider.DatabaseManager"
-        ) as MockDB, patch(
-            "src.persistence.logic.warmup_provider.get_active_symbols",
-            return_value=["ES"],
-        ), patch(
-            "src.persistence.logic.warmup_provider.FeatureSnapshotRepository"
-        ) as MockRepo:
+        with (
+            patch("src.persistence.logic.warmup_provider.DatabaseManager") as MockDB,
+            patch(
+                "src.persistence.logic.warmup_provider.get_active_symbols",
+                return_value=["ES"],
+            ),
+            patch("src.persistence.logic.warmup_provider.FeatureSnapshotRepository") as MockRepo,
+        ):
             MockDB.return_value.initialize = AsyncMock()
             MockDB.return_value.close = AsyncMock()
             mock_repo = MagicMock()
@@ -214,14 +212,14 @@ class TestWarmupProviderSeed:
         config = _make_config(symbols=("ES",), timeframes=("1m",))
         provider = WarmupProvider(settings, config, kafka_producer)
 
-        with patch(
-            "src.persistence.logic.warmup_provider.DatabaseManager"
-        ) as MockDB, patch(
-            "src.persistence.logic.warmup_provider.get_active_symbols",
-            return_value=["ES"],
-        ), patch(
-            "src.persistence.logic.warmup_provider.FeatureSnapshotRepository"
-        ) as MockRepo:
+        with (
+            patch("src.persistence.logic.warmup_provider.DatabaseManager") as MockDB,
+            patch(
+                "src.persistence.logic.warmup_provider.get_active_symbols",
+                return_value=["ES"],
+            ),
+            patch("src.persistence.logic.warmup_provider.FeatureSnapshotRepository") as MockRepo,
+        ):
             MockDB.return_value.initialize = AsyncMock()
             MockDB.return_value.close = AsyncMock()
             mock_repo = MagicMock()
@@ -241,14 +239,14 @@ class TestWarmupProviderSeed:
         config = _make_config(symbols=("ES",), timeframes=("1m",))
         provider = WarmupProvider(settings, config, kafka_producer)
 
-        with patch(
-            "src.persistence.logic.warmup_provider.DatabaseManager"
-        ) as MockDB, patch(
-            "src.persistence.logic.warmup_provider.get_active_symbols",
-            return_value=["ES"],
-        ), patch(
-            "src.persistence.logic.warmup_provider.FeatureSnapshotRepository"
-        ) as MockRepo:
+        with (
+            patch("src.persistence.logic.warmup_provider.DatabaseManager") as MockDB,
+            patch(
+                "src.persistence.logic.warmup_provider.get_active_symbols",
+                return_value=["ES"],
+            ),
+            patch("src.persistence.logic.warmup_provider.FeatureSnapshotRepository") as MockRepo,
+        ):
             MockDB.return_value.initialize = AsyncMock()
             close_mock = AsyncMock()
             MockDB.return_value.close = close_mock

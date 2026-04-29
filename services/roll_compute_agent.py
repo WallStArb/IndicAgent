@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -52,10 +52,18 @@ _ROLL_MIN_WINDOW = 20
 _logger = structlog.get_logger(__name__)
 
 # Module-level Prometheus metrics — avoids duplicate registration on re-instantiation
-_EVENTS_CONSUMED = Counter("roll_compute_events_consumed_total", "Bars consumed from market.bars", ["agent"])
-_ROLLS_DETECTED = Counter("roll_compute_rolls_detected_total", "Roll events confirmed and published", ["agent"])
-_DETECTION_LATENCY = Histogram("roll_compute_detection_latency_seconds", "Roll detection latency per bar", ["agent"])
-_DETECTION_ERRORS = Counter("roll_compute_detection_errors_total", "Exceptions during bar processing", ["agent"])
+_EVENTS_CONSUMED = Counter(
+    "roll_compute_events_consumed_total", "Bars consumed from market.bars", ["agent"]
+)
+_ROLLS_DETECTED = Counter(
+    "roll_compute_rolls_detected_total", "Roll events confirmed and published", ["agent"]
+)
+_DETECTION_LATENCY = Histogram(
+    "roll_compute_detection_latency_seconds", "Roll detection latency per bar", ["agent"]
+)
+_DETECTION_ERRORS = Counter(
+    "roll_compute_detection_errors_total", "Exceptions during bar processing", ["agent"]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -88,9 +96,18 @@ class RollMonitor:
 
     # Segmented volume ratio thresholds (kept for get_threshold() backward compat)
     VOLUME_THRESHOLDS: dict[str, float] = {
-        "ES": 1.2, "NQ": 1.2, "RTY": 1.2, "YM": 1.2,   # equity index
-        "CL": 1.5, "GC": 1.5, "SI": 1.5, "HG": 1.5,    # energy/metals
-        "ZN": 1.4, "ZF": 1.4, "ZB": 1.4, "ZT": 1.4,    # rates
+        "ES": 1.2,
+        "NQ": 1.2,
+        "RTY": 1.2,
+        "YM": 1.2,  # equity index
+        "CL": 1.5,
+        "GC": 1.5,
+        "SI": 1.5,
+        "HG": 1.5,  # energy/metals
+        "ZN": 1.4,
+        "ZF": 1.4,
+        "ZB": 1.4,
+        "ZT": 1.4,  # rates
     }
 
     # Paper account contracts known to be unavailable (D-18)
@@ -102,10 +119,10 @@ class RollMonitor:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._is_paper = self._is_paper_account()
-        self._window_size = settings.roll_monitor_window_size          # 100
-        self._confirmation_required = settings.roll_confirmation_bars   # 3
-        self._cooldown_minutes = settings.roll_monitor_cooldown_min    # 30
-        self._postroll_bars = settings.roll_monitor_postroll_bars      # 10
+        self._window_size = settings.roll_monitor_window_size  # 100
+        self._confirmation_required = settings.roll_confirmation_bars  # 3
+        self._cooldown_minutes = settings.roll_monitor_cooldown_min  # 30
+        self._postroll_bars = settings.roll_monitor_postroll_bars  # 10
         self._tod_gated = settings.roll_time_of_day_gated
 
         # Per-base-symbol rolling state
@@ -158,13 +175,13 @@ class RollMonitor:
             return threshold
         et = utc_now.astimezone(ZoneInfo("America/New_York"))
         hour_et = et.hour
-        if 16 <= hour_et < 18:   # post-close: skip detection entirely
+        if 16 <= hour_et < 18:  # post-close: skip detection entirely
             return None
-        if 9 <= hour_et < 11:    # pre-open: stricter threshold
+        if 9 <= hour_et < 11:  # pre-open: stricter threshold
             return threshold * 1.3
-        if hour_et == 15:        # close: more sensitive
+        if hour_et == 15:  # close: more sensitive
             return threshold * 0.9
-        return threshold          # standard RTH / overnight
+        return threshold  # standard RTH / overnight
 
     # ------------------------------------------------------------------
     # Volume window management
@@ -242,7 +259,9 @@ class RollMonitor:
         self._last_volume_zscore = float(z_score)
 
         if z_score < -2.0:
-            self._confirmation_counts[base_symbol] = self._confirmation_counts.get(base_symbol, 0) + 1
+            self._confirmation_counts[base_symbol] = (
+                self._confirmation_counts.get(base_symbol, 0) + 1
+            )
         else:
             self._confirmation_counts[base_symbol] = 0
 
@@ -251,9 +270,7 @@ class RollMonitor:
             self._last_confirmation_count = self._confirmation_counts[base_symbol]
             # Confirmed roll — reset counter and start cooldown
             self._confirmation_counts[base_symbol] = 0
-            self._cooldown_until[base_symbol] = utc_now + timedelta(
-                minutes=self._cooldown_minutes
-            )
+            self._cooldown_until[base_symbol] = utc_now + timedelta(minutes=self._cooldown_minutes)
             _logger.info(
                 "Roll detected",
                 base_symbol=base_symbol,
@@ -349,8 +366,7 @@ class RollComputeAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._symbol_to_base: dict[str, str] = {
-            c.symbol: c.base or c.symbol
-            for c in get_active_contracts(settings)
+            c.symbol: c.base or c.symbol for c in get_active_contracts(settings)
         }
         self._unique_bases: frozenset[str] = frozenset(self._symbol_to_base.values())
 
@@ -378,7 +394,6 @@ class RollComputeAgent(BaseAgent):
             group_id="roll_compute_consumer",
         )
         await self._kafka_consumer.start()
-
 
     async def _teardown(self) -> None:
         """Drain and close Kafka connections."""
@@ -433,7 +448,9 @@ class RollComputeAgent(BaseAgent):
             key=base_symbol,
         )
         self._rolls_detected_lbl.inc()
-        self.logger.info(log_event, symbol=base_symbol, old_contract=old_contract, new_contract=new_contract)
+        self.logger.info(
+            log_event, symbol=base_symbol, old_contract=old_contract, new_contract=new_contract
+        )
 
     async def _startup_sweep(self, roll_topic: str) -> None:
         """Fire any calendar rolls that were missed before this startup.
@@ -455,7 +472,11 @@ class RollComputeAgent(BaseAgent):
                     continue
                 tasks.append(
                     self._publish_calendar_roll(
-                        base_symbol, cal_old, cal_new, now, roll_topic,
+                        base_symbol,
+                        cal_old,
+                        cal_new,
+                        now,
+                        roll_topic,
                         "startup_sweep.calendar_roll_fired",
                     )
                 )
@@ -503,7 +524,7 @@ class RollComputeAgent(BaseAgent):
                             symbol=base_symbol,
                             old_contract=old_contract,
                             new_contract=new_contract,
-                            roll_gap_price=0.0,   # price gap computed by downstream consumer
+                            roll_gap_price=0.0,  # price gap computed by downstream consumer
                             roll_gap_pct=0.0,
                             detection_ts=bar_utc,
                             volume_zscore=self._roll_monitor._last_volume_zscore,

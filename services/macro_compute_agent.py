@@ -69,9 +69,7 @@ class MacroComputeAgent(BaseAgent):
 
         # Rolling windows keyed by symbol
         min_needed = self._window_bars + 1
-        self._bar_windows: dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=min_needed)
-        )
+        self._bar_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=min_needed))
 
         # Kafka clients (initialized in _setup)
         self._consumer: KafkaConsumerClient | None = None

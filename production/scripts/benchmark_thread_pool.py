@@ -84,8 +84,7 @@ async def _amain() -> None:
         result = await _benchmark_pool_size(pool_size, NUM_BARS)
         results.append(result)
         print(
-            f" {result['bars_per_sec']:.1f} bars/sec "
-            f"({result['avg_bar_ms']:.1f}ms/bar)",
+            f" {result['bars_per_sec']:.1f} bars/sec " f"({result['avg_bar_ms']:.1f}ms/bar)",
             file=sys.stderr,
         )
 
@@ -116,8 +115,7 @@ async def _amain() -> None:
         )
     print("", file=sys.stderr)
     print(
-        f"Recommended pool size: {best['pool_size']} "
-        f"({best['bars_per_sec']:.1f} bars/sec)",
+        f"Recommended pool size: {best['pool_size']} " f"({best['bars_per_sec']:.1f} bars/sec)",
         file=sys.stderr,
     )
     print(

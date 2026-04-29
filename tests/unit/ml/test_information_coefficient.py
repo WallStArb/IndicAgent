@@ -160,7 +160,9 @@ def test_is_ic_significant_boundary_n():
 # ---------------------------------------------------------------------------
 
 
-def _make_ic_result(ic_score: float | None, ic_p: float | None, ic_n: int = 100, ic_sig: bool = True) -> ICResult:
+def _make_ic_result(
+    ic_score: float | None, ic_p: float | None, ic_n: int = 100, ic_sig: bool = True
+) -> ICResult:
     wins = 60
     return ICResult(
         setup_plugin="trad_Test",
@@ -267,8 +269,7 @@ class TestComputeIcContinuous:
         assert p < 0.05
 
     def test_negative_ic_when_high_conf_anticorrelates(self):
-        confs, pnls = self._make_pairs(60, conf_high=0.8, pnl_high=-2.0,
-                                        conf_low=0.4, pnl_low=2.0)
+        confs, pnls = self._make_pairs(60, conf_high=0.8, pnl_high=-2.0, conf_low=0.4, pnl_low=2.0)
         ic, p, n = compute_ic(confs, pnls)
         assert ic is not None
         assert ic < 0

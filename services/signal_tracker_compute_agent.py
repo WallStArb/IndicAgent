@@ -479,7 +479,7 @@ class SignalTrackerCompute(BaseAgent):
                     ),
                     staleness_score=staleness_score_val,
                     signal_timestamp=sig_ts,  # D-01: pass signal fire time
-                    bar_time=bar_time,         # D-01: pass current bar time
+                    bar_time=bar_time,  # D-01: pass current bar time
                 )
             except Exception as exc:
                 self.logger.warning(

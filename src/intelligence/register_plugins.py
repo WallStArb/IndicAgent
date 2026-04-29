@@ -149,27 +149,91 @@ def validate_schema_coverage() -> None:
     I1 and I2 are skipped (extra='allow').
     """
     tier_checks: list[tuple[str, list, type]] = [
-        ("I3", [macd_events_plugin, swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
-                session_levels_plugin, fib_zones_plugin,
-                swing_momentum_plugin], I3Structure),
-        ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
-                garch_vol_plugin, hurst_plugin, shannon_plugin,
-                kalman_trend_plugin, session_ctx_plugin,
-                anchored_vwap_plugin, volume_profile_plugin,
-                vix_regime_plugin, cross_asset_ctx_plugin], I4Context),
-        ("I5", [mtf_vol_plugin, rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
-                trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
-                triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
-                cup_handle_plugin, measured_move_plugin,
-                key_level_reaction_plugin, macd_div_plugin, cmf_div_plugin], I5Patterns),
-        ("SMC", [bos_choch_plugin, fvg_plugin, ob_plugin, liq_sweep_plugin,
-                 bocpd_plugin, hmm_plugin, liquidity_pools_plugin,
-                 supply_demand_zones_plugin, ict_killzones_plugin, amd_cycle_plugin,
-                 breaker_blocks_plugin, mitigation_blocks_plugin,
-                 premium_discount_plugin], SMCContext),
-        ("I6", [ctf_plugin, ctf_momentum_div_plugin,
-                ctf_sr_confluence_plugin, ctf_regime_agreement_plugin,
-                ctf_squeeze_exp_div_plugin, ctf_orderflow_align_plugin], I6Confluence),
+        (
+            "I3",
+            [
+                macd_events_plugin,
+                swing_plugin,
+                sr_plugin,
+                trend_plugin,
+                market_profile_plugin,
+                session_levels_plugin,
+                fib_zones_plugin,
+                swing_momentum_plugin,
+            ],
+            I3Structure,
+        ),
+        (
+            "I4",
+            [
+                vol_regime_plugin,
+                trend_regime_plugin,
+                momentum_ctx_plugin,
+                garch_vol_plugin,
+                hurst_plugin,
+                shannon_plugin,
+                kalman_trend_plugin,
+                session_ctx_plugin,
+                anchored_vwap_plugin,
+                volume_profile_plugin,
+                vix_regime_plugin,
+                cross_asset_ctx_plugin,
+            ],
+            I4Context,
+        ),
+        (
+            "I5",
+            [
+                mtf_vol_plugin,
+                rsi_div_plugin,
+                squeeze_plugin,
+                vol_div_plugin,
+                confluence_plugin,
+                trend_confluence_plugin,
+                double_tb_plugin,
+                head_shoulders_plugin,
+                triangle_wedge_plugin,
+                candlestick_plugin,
+                flag_pennant_plugin,
+                cup_handle_plugin,
+                measured_move_plugin,
+                key_level_reaction_plugin,
+                macd_div_plugin,
+                cmf_div_plugin,
+            ],
+            I5Patterns,
+        ),
+        (
+            "SMC",
+            [
+                bos_choch_plugin,
+                fvg_plugin,
+                ob_plugin,
+                liq_sweep_plugin,
+                bocpd_plugin,
+                hmm_plugin,
+                liquidity_pools_plugin,
+                supply_demand_zones_plugin,
+                ict_killzones_plugin,
+                amd_cycle_plugin,
+                breaker_blocks_plugin,
+                mitigation_blocks_plugin,
+                premium_discount_plugin,
+            ],
+            SMCContext,
+        ),
+        (
+            "I6",
+            [
+                ctf_plugin,
+                ctf_momentum_div_plugin,
+                ctf_sr_confluence_plugin,
+                ctf_regime_agreement_plugin,
+                ctf_squeeze_exp_div_plugin,
+                ctf_orderflow_align_plugin,
+            ],
+            I6Confluence,
+        ),
     ]
 
     gaps: list[str] = []
@@ -185,8 +249,7 @@ def validate_schema_coverage() -> None:
 
     if gaps:
         raise RuntimeError(
-            "Schema coverage gaps detected — add missing fields to schemas.py:\n"
-            + "\n".join(gaps)
+            "Schema coverage gaps detected — add missing fields to schemas.py:\n" + "\n".join(gaps)
         )
 
 
@@ -405,8 +468,8 @@ TIER_I4: list[str] = [
     session_ctx_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
-    vix_regime_plugin.name,           # "ctx_VIXRegime" — Phase 46.1
-    cross_asset_ctx_plugin.name,      # "ctx_CrossAssetContext" — Phase 46.1
+    vix_regime_plugin.name,  # "ctx_VIXRegime" — Phase 46.1
+    cross_asset_ctx_plugin.name,  # "ctx_CrossAssetContext" — Phase 46.1
 ]
 
 TIER_I5: list[str] = [
@@ -447,10 +510,10 @@ TIER_SMC: list[str] = [
 TIER_I6: list[str] = [
     ctf_plugin.name,
     ctf_momentum_div_plugin.name,
-    ctf_sr_confluence_plugin.name,        # Plan 64-02
-    ctf_regime_agreement_plugin.name,     # Plan 64-02
-    ctf_squeeze_exp_div_plugin.name,      # Plan 64-02
-    ctf_orderflow_align_plugin.name,      # Plan 64-02
+    ctf_sr_confluence_plugin.name,  # Plan 64-02
+    ctf_regime_agreement_plugin.name,  # Plan 64-02
+    ctf_squeeze_exp_div_plugin.name,  # Plan 64-02
+    ctf_orderflow_align_plugin.name,  # Plan 64-02
 ]
 
 # ---------------------------------------------------------------------------
@@ -532,23 +595,23 @@ TIER_I7: list[str] = [
     gap_analysis_setup_plugin.name,
     candlestick_pattern_setup_plugin.name,
     session_extremes_setup_plugin.name,  # "trad_SessionExtremesSetup"
-    failed_breakout_plugin.name,         # "trad_FailedBreakout"
-    orb15_plugin.name,                   # "trad_ORB15"
-    orb30_plugin.name,                   # "trad_ORB30"
-    prev_day_level_test_plugin.name,     # "trad_PrevDayLevelTest"
-    second_leg_continuation_plugin.name, # "trad_SecondLegContinuation"
-    vcp_plugin.name,                     # "trad_VCP"
-    anchored_vwap_reversion_plugin.name, # "trad_AnchoredVWAPReversion"
-    vwap_reclaim_plugin.name,            # "trad_VWAPReclaim"
-    poc_rejection_plugin.name,           # "trad_POCRejection"
-    hvn_rejection_plugin.name,           # "trad_HVNRejection"
-    lvn_breakout_plugin.name,            # "trad_LVNBreakout"
-    ofi_continuation_plugin.name,        # "trad_OFIContinuation"
-    ofi_divergence_plugin.name,          # "trad_OFIDivergence"
-    ofi_spike_plugin.name,               # "trad_OFISpike"
-    cvd_divergence_plugin.name,          # "trad_CVDDivergence"
-    cvd_spike_plugin.name,               # "trad_CVDSpike"
-    delta_exhaustion_plugin.name,        # "trad_DeltaExhaustion"
-    dual_divergence_plugin.name,          # "trad_DualDivergence"
+    failed_breakout_plugin.name,  # "trad_FailedBreakout"
+    orb15_plugin.name,  # "trad_ORB15"
+    orb30_plugin.name,  # "trad_ORB30"
+    prev_day_level_test_plugin.name,  # "trad_PrevDayLevelTest"
+    second_leg_continuation_plugin.name,  # "trad_SecondLegContinuation"
+    vcp_plugin.name,  # "trad_VCP"
+    anchored_vwap_reversion_plugin.name,  # "trad_AnchoredVWAPReversion"
+    vwap_reclaim_plugin.name,  # "trad_VWAPReclaim"
+    poc_rejection_plugin.name,  # "trad_POCRejection"
+    hvn_rejection_plugin.name,  # "trad_HVNRejection"
+    lvn_breakout_plugin.name,  # "trad_LVNBreakout"
+    ofi_continuation_plugin.name,  # "trad_OFIContinuation"
+    ofi_divergence_plugin.name,  # "trad_OFIDivergence"
+    ofi_spike_plugin.name,  # "trad_OFISpike"
+    cvd_divergence_plugin.name,  # "trad_CVDDivergence"
+    cvd_spike_plugin.name,  # "trad_CVDSpike"
+    delta_exhaustion_plugin.name,  # "trad_DeltaExhaustion"
+    dual_divergence_plugin.name,  # "trad_DualDivergence"
     cross_asset_divergence_plugin.name,  # "trad_CrossAssetDivergence"
 ]

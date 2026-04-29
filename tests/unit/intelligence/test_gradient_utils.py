@@ -32,11 +32,11 @@ class TestLinearRamp:
     @pytest.mark.parametrize(
         "x, lo, hi, expected",
         [
-            (50, 30, 70, 0.5),   # midpoint
-            (30, 30, 70, 0.0),   # at lo boundary
-            (70, 30, 70, 1.0),   # at hi boundary
-            (10, 30, 70, 0.0),   # below lo, clamped
-            (90, 30, 70, 1.0),   # above hi, clamped
+            (50, 30, 70, 0.5),  # midpoint
+            (30, 30, 70, 0.0),  # at lo boundary
+            (70, 30, 70, 1.0),  # at hi boundary
+            (10, 30, 70, 0.0),  # below lo, clamped
+            (90, 30, 70, 1.0),  # above hi, clamped
         ],
     )
     def test_boundary_and_midpoint(self, x, lo, hi, expected):

@@ -29,10 +29,16 @@ from typing import Any
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import (
-    OTelCounter as _Counter,
-    OTelGauge as _Gauge,
-    OTelHistogram as _Histogram,
     PERSISTENCE_CONSUMER_LAG,
+)
+from src.observability.metrics import (
+    OTelCounter as _Counter,
+)
+from src.observability.metrics import (
+    OTelGauge as _Gauge,
+)
+from src.observability.metrics import (
+    OTelHistogram as _Histogram,
 )
 
 # Module-level metric caches — prevent duplicate registration across

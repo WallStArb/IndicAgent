@@ -7,7 +7,6 @@ Validates that transformations between intelligence tiers are consistent:
 - I4 regime matches I7 regime_type
 """
 
-
 import asyncpg
 import numpy as np
 
@@ -23,9 +22,7 @@ class CrossTierValidator:
         """
         self.db = db
 
-    async def validate_i1_to_i4_consistency(
-        self, symbol: str, tf: str
-    ) -> dict:
+    async def validate_i1_to_i4_consistency(self, symbol: str, tf: str) -> dict:
         """Validate I1 features correlate with I4 context.
 
         I1 ATR should correlate with I4 volatility (both measure volatility).
@@ -50,9 +47,7 @@ class CrossTierValidator:
         rows = await self.db.fetch(query, symbol, tf)
 
         # Extract arrays (skip nulls)
-        i1_atr = np.array(
-            [float(r["i1_atr"]) for r in rows if r["i1_atr"] is not None]
-        )
+        i1_atr = np.array([float(r["i1_atr"]) for r in rows if r["i1_atr"] is not None])
         i4_vol = np.array(
             [float(r["i4_volatility"]) for r in rows if r["i4_volatility"] is not None]
         )
@@ -89,9 +84,7 @@ class CrossTierValidator:
 
         return result
 
-    async def validate_i6_to_i7_completeness(
-        self, symbol: str, tf: str
-    ) -> dict:
+    async def validate_i6_to_i7_completeness(self, symbol: str, tf: str) -> dict:
         """Validate I6 confluence fields are present for I7 signals.
 
         Required I6 fields: ctf_score, ctf_trend_alignment, ctf_fvg_alignment, ctf_ob_alignment
@@ -141,9 +134,7 @@ class CrossTierValidator:
                 for f in missing:
                     missing_field_counts[f] = missing_field_counts.get(f, 0) + 1
 
-        completeness_rate = (
-            complete_rows / total_rows if total_rows > 0 else 0.0
-        )
+        completeness_rate = complete_rows / total_rows if total_rows > 0 else 0.0
 
         result = {
             "total_rows": total_rows,
@@ -167,9 +158,7 @@ class CrossTierValidator:
 
         return result
 
-    async def validate_regime_agreement(
-        self, symbol: str, tf: str
-    ) -> dict:
+    async def validate_regime_agreement(self, symbol: str, tf: str) -> dict:
         """Validate I4 regime matches I7 signal regime_type.
 
         Signals with regime_type='any' match any I4 regime.
@@ -216,9 +205,7 @@ class CrossTierValidator:
                 if i7_regime == "any" or i7_regime == i4_regime:
                     matching_signals += 1
 
-        agreement_rate = (
-            matching_signals / total_signals if total_signals > 0 else 0.0
-        )
+        agreement_rate = matching_signals / total_signals if total_signals > 0 else 0.0
 
         result = {
             "total_signals": total_signals,

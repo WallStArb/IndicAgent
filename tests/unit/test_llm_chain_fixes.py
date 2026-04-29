@@ -7,6 +7,7 @@ Covers 6 fixes:
 - D-06: Auto-audit publishes to topic_llm_calls when audit_context provided
 - D-07: Real token counts from response.usage with len/4 fallback
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -78,9 +79,7 @@ class TestRateLimiterWired:
 
         # Mock the inner LLMChain.generate to return a response
         with patch.object(LLMChain, "generate", return_value="test response"):
-            await chain.generate(
-                prompt="test", system="system", max_tokens=100, timeout=30.0
-            )
+            await chain.generate(prompt="test", system="system", max_tokens=100, timeout=30.0)
 
         # Verify limiter.acquire was called
         mock_limiter.acquire.assert_called_once_with(tokens=100)
@@ -172,9 +171,7 @@ class TestAutoAudit:
         mock_producer = AsyncMock()
         mock_producer.publish = AsyncMock()
 
-        chain = LLMProviderChain(
-            call_type="test", settings=settings, producer=mock_producer
-        )
+        chain = LLMProviderChain(call_type="test", settings=settings, producer=mock_producer)
 
         # Mock the inner LLMChain.generate to return a response
         with patch.object(LLMChain, "generate", return_value="test response"):

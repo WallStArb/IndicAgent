@@ -190,7 +190,6 @@ class ParityAuditorAgent(BaseAgent):
         self._repo: ParityRepository | None = None
         self._producer: AIOKafkaProducer | None = None
 
-
     async def _maybe_alert_parity(self, symbol: str, tf: str, match_rate: float) -> None:
         """Publish HIGH alert to topic_alert_requests when match_rate < PARITY_ALERT_THRESHOLD."""
         if match_rate >= PARITY_ALERT_THRESHOLD:

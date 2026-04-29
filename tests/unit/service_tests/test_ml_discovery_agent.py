@@ -1,4 +1,5 @@
 """Unit tests for MLDiscoveryComputeAgent. Uses __new__ pattern."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +11,7 @@ import pytest
 
 def _make_agent():
     from services.ml_discovery_agent import MLDiscoveryComputeAgent
+
     agent = MLDiscoveryComputeAgent.__new__(MLDiscoveryComputeAgent)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
@@ -27,6 +29,7 @@ def _make_agent():
 def _make_mock_pool_with_features(row_count: int = 500):
     """Pool that returns synthetic intelligence_features rows."""
     import random
+
     pool = MagicMock()
     conn = AsyncMock()
 
@@ -58,10 +61,13 @@ async def test_discovery_run_completes_without_crash():
     agent = _make_agent()
     agent._pool = _make_mock_pool_with_features(row_count=200)
 
-    with patch("services.ml_discovery_agent.tsfresh", create=True) as mock_tsfresh, \
-         patch("services.ml_discovery_agent.alphalens", create=True) as mock_alphalens:
+    with (
+        patch("services.ml_discovery_agent.tsfresh", create=True) as mock_tsfresh,
+        patch("services.ml_discovery_agent.alphalens", create=True) as mock_alphalens,
+    ):
         # Mock tsfresh to return a simple DataFrame
         import pandas as pd
+
         mock_tsfresh.extract_features = MagicMock(
             return_value=pd.DataFrame({"atr__mean": [1.0, 2.0], "rsi__std": [0.5, 0.3]})
         )
@@ -114,6 +120,7 @@ async def test_discovery_writes_ml_discovery_runs():
     inserted = {}
 
     conn = AsyncMock()
+
     async def mock_execute(sql, *args):
         if "ml_discovery_runs" in sql:
             inserted["written"] = True

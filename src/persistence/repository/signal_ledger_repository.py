@@ -36,7 +36,7 @@ class SignalStatus(str, Enum):
 # Signal outcome constants — 8-class taxonomy (authoritative source)
 # ---------------------------------------------------------------------------
 
-from src.intelligence.trading.signal_outcome import (
+from src.intelligence.trading.signal_outcome import (  # noqa: E501
     STOP_OUTCOMES,
     TTL_OUTCOMES,
     WIN_OUTCOMES,
@@ -906,10 +906,7 @@ WHERE signal_id = $1::uuid
             ]
         elif transition_type == "mae_mfe_update":
             sql = self._BATCH_MAE_MFE_UPDATE_SQL
-            params = [
-                (d["signal_id"], d.get("mae"), d.get("mfe"))
-                for d in items
-            ]
+            params = [(d["signal_id"], d.get("mae"), d.get("mfe")) for d in items]
         elif transition_type == "shadow_outcome":
             sql = self._BATCH_SHADOW_OUTCOME_SQL
             params = [

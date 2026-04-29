@@ -8,6 +8,7 @@ performance metrics but counted toward never_activated_pct.
 Never modifies raw signal_ledger rows. Invalid rows are logged to
 signal_metrics_dq_failures by the caller.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

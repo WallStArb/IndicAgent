@@ -1,4 +1,5 @@
 """Trend, structure, regime, and pattern scoring functions for cross-timeframe confluence."""
+
 from __future__ import annotations
 
 from typing import Any

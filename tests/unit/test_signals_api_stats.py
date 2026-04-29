@@ -1,4 +1,5 @@
 """Tests for GET /api/signals/stats."""
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -22,6 +23,7 @@ def _stats_row(**kwargs):
         "avg_pnl_r_30d": 0.22,
     }
     return {**defaults, **kwargs}
+
 
 @pytest.mark.unit
 class TestSignalsApiStats:

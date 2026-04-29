@@ -19,13 +19,15 @@ def _make_frames(
 ) -> dict:
     """Build a minimal frames dict for OFIDivergencePlugin.compute_full()."""
     closes = [5000.0 + i * 0.1 for i in range(n)]
-    df = pd.DataFrame({
-        "open": [c - 0.05 for c in closes],
-        "high": [c + 0.5 for c in closes],
-        "low": [c - 0.5 for c in closes],
-        "close": closes,
-        "volume": [1000.0] * n,
-    })
+    df = pd.DataFrame(
+        {
+            "open": [c - 0.05 for c in closes],
+            "high": [c + 0.5 for c in closes],
+            "low": [c - 0.5 for c in closes],
+            "close": closes,
+            "volume": [1000.0] * n,
+        }
+    )
     features = {
         "ofi_divergence": ofi_divergence,
         "ofi_spike_z": ofi_spike_z,
@@ -42,6 +44,7 @@ def _make_frames(
 class TestOFIDivergencePlugin:
     def setup_method(self):
         from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+
         self.plugin = OFIDivergencePlugin()
 
     def _fire_n_times(self, frames: dict, n: int) -> dict:
@@ -77,6 +80,7 @@ class TestOFIDivergencePlugin:
         assert result.get("direction") == 1
 
         from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+
         plugin2 = OFIDivergencePlugin()
         frames_short = _make_frames(ofi_divergence=-2.0, ofi_ewma_5=-0.5)
         for _ in range(2):
@@ -108,8 +112,9 @@ class TestOFIDivergencePlugin:
 
         assert r_low.get("direction"), "Expected plugin to fire for low divergence"
         assert r_high.get("direction"), "Expected plugin to fire for high divergence"
-        assert r_high["confidence"] > r_low["confidence"], \
-            "Higher divergence magnitude must produce higher confidence"
+        assert (
+            r_high["confidence"] > r_low["confidence"]
+        ), "Higher divergence magnitude must produce higher confidence"
 
     def test_ewma_agreement_boosts_confidence(self):
         """Fast EWMA agreeing with divergence direction boosts confidence."""
@@ -127,12 +132,14 @@ class TestOFIDivergencePlugin:
 
         assert r_agree.get("direction"), "Expected plugin to fire with agreeing EWMA"
         assert r_disagree.get("direction"), "Expected plugin to fire with disagreeing EWMA"
-        assert r_agree["confidence"] > r_disagree["confidence"], \
-            "EWMA agreement must boost confidence vs disagreement"
+        assert (
+            r_agree["confidence"] > r_disagree["confidence"]
+        ), "EWMA agreement must boost confidence vs disagreement"
 
     def test_regime_type_is_any(self):
         """Plugin must declare regime_type='any' — no aggregator suppression."""
         from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+
         assert OFIDivergencePlugin.regime_type == "any"  # type: ignore[attr-defined]
 
     def test_no_fire_when_ofi_divergence_missing(self):
@@ -166,4 +173,5 @@ class TestOFIDivergencePlugin:
     def test_plugin_module_export(self):
         """Module-level plugin singleton has correct name."""
         from src.intelligence.trading.ofi_divergence import plugin
+
         assert plugin.name == "trad_OFIDivergence"

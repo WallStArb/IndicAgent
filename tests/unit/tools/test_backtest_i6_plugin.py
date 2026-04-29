@@ -1,6 +1,6 @@
 """Unit tests for backtest_i6_plugin.py tool."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -141,7 +141,7 @@ def test_backtest_cli_interface():
     """Test that CLI args parse correctly."""
     # This is a basic smoke test - full CLI testing would require more setup
     # For now, just verify the module has the expected structure
-    assert hasattr(backtest_i6_plugin, "__call__")
+    assert hasattr(backtest_i6_plugin, "__call__")  # noqa: B004
 
 
 @pytest.mark.asyncio

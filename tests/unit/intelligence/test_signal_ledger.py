@@ -379,11 +379,13 @@ class TestRecordActivation:
         signal_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         activated_at = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_activation(signal_id,
-                                      activated_at=activated_at,
-                                      activation_price=5098.5,
-                                      zone_entry_pct=0.25,
-                                      bars_to_activation=3)
+        await SignalLedgerRepository(db).record_activation(
+            signal_id,
+            activated_at=activated_at,
+            activation_price=5098.5,
+            zone_entry_pct=0.25,
+            bars_to_activation=3,
+        )
 
         db.execute_command.assert_awaited_once()
         call_args = db.execute_command.call_args
@@ -403,18 +405,20 @@ class TestRecordZoneResolution:
         db.execute_command = AsyncMock()
         exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_zone_resolution("aaaa-bbbb",
-                                           status=SignalStatus.EXPIRED,
-                                           exit_at=exit_at,
-                                           exit_price=5085.0,
-                                           exit_reason="stop_loss",
-                                           pnl_r=-1.0,
-                                           pnl_dollars=-750.0,
-                                           signal_quality=0.0,
-                                           mae=-1.0,
-                                           mfe=0.3,
-                                           bars_in_trade=5,
-                                           outcome="stopped_in_trade")
+        await SignalLedgerRepository(db).record_zone_resolution(
+            "aaaa-bbbb",
+            status=SignalStatus.EXPIRED,
+            exit_at=exit_at,
+            exit_price=5085.0,
+            exit_reason="stop_loss",
+            pnl_r=-1.0,
+            pnl_dollars=-750.0,
+            signal_quality=0.0,
+            mae=-1.0,
+            mfe=0.3,
+            bars_in_trade=5,
+            outcome="stopped_in_trade",
+        )
         db.execute_command.assert_awaited_once()
 
     def test_zone_resolution_sql_does_not_touch_market_columns(self):
@@ -429,20 +433,23 @@ class TestRecordMarketResolution:
         db = AsyncMock()
         db.execute_command = AsyncMock()
 
-        await SignalLedgerRepository(db).record_market_resolution("aaaa-bbbb",
-                                             market_entry_at=None,
-                                             market_entry_exit_price=5084.0,
-                                             market_entry_exit_at=None,
-                                             market_entry_pnl_r=-1.07,
-                                             market_entry_mae=-1.07,
-                                             market_entry_mfe=0.2,
-                                             market_entry_bars_in_trade=3,
-                                             market_entry_outcome="stopped_in_trade",
-                                             market_entry_gap_bars=None)
+        await SignalLedgerRepository(db).record_market_resolution(
+            "aaaa-bbbb",
+            market_entry_at=None,
+            market_entry_exit_price=5084.0,
+            market_entry_exit_at=None,
+            market_entry_pnl_r=-1.07,
+            market_entry_mae=-1.07,
+            market_entry_mfe=0.2,
+            market_entry_bars_in_trade=3,
+            market_entry_outcome="stopped_in_trade",
+            market_entry_gap_bars=None,
+        )
         db.execute_command.assert_awaited_once()
 
     def test_market_resolution_sql_does_not_touch_zone_columns(self):
         import re
+
         for col in ["activated_at", "activation_price", "pnl_ticks"]:
             assert col not in _RECORD_MARKET_RESOLUTION_SQL
         # 'exit_at' and 'outcome' need word boundaries to avoid matching market_entry_exit_at/market_entry_outcome
@@ -454,15 +461,17 @@ class TestRecordMarketResolution:
         """gap_bars=None is the default (live signals)."""
         db = AsyncMock()
         db.execute_command = AsyncMock()
-        await SignalLedgerRepository(db).record_market_resolution("aaaa",
-                                             market_entry_at=None,
-                                             market_entry_exit_price=5115.0,
-                                             market_entry_exit_at=None,
-                                             market_entry_pnl_r=1.0,
-                                             market_entry_mae=0.0,
-                                             market_entry_mfe=1.0,
-                                             market_entry_bars_in_trade=2,
-                                             market_entry_outcome="target_1")
+        await SignalLedgerRepository(db).record_market_resolution(
+            "aaaa",
+            market_entry_at=None,
+            market_entry_exit_price=5115.0,
+            market_entry_exit_at=None,
+            market_entry_pnl_r=1.0,
+            market_entry_mae=0.0,
+            market_entry_mfe=1.0,
+            market_entry_bars_in_trade=2,
+            market_entry_outcome="target_1",
+        )
         db.execute_command.assert_awaited_once()
 
 
@@ -475,14 +484,24 @@ class TestRecordZoneWithActivation:
         db.execute_command = AsyncMock()
         ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        await SignalLedgerRepository(db).record_zone_resolution_with_activation("aaaa-bbbb",
-            activated_at=ts, activation_price=5098.0,
-            zone_entry_pct=0.1, bars_to_activation=1,
-            status=SignalStatus.EXPIRED, exit_at=ts,
-            exit_price=5085.0, exit_reason="stop_loss",
-            pnl_r=-0.87, pnl_dollars=-650.0,
-            signal_quality=0.0, mae=-0.87, mfe=0.0,
-            bars_in_trade=0, outcome="stopped_at_entry")
+        await SignalLedgerRepository(db).record_zone_resolution_with_activation(
+            "aaaa-bbbb",
+            activated_at=ts,
+            activation_price=5098.0,
+            zone_entry_pct=0.1,
+            bars_to_activation=1,
+            status=SignalStatus.EXPIRED,
+            exit_at=ts,
+            exit_price=5085.0,
+            exit_reason="stop_loss",
+            pnl_r=-0.87,
+            pnl_dollars=-650.0,
+            signal_quality=0.0,
+            mae=-0.87,
+            mfe=0.0,
+            bars_in_trade=0,
+            outcome="stopped_at_entry",
+        )
         db.execute_command.assert_awaited_once()
         assert db.execute_command.call_args[0][0] == _RECORD_ZONE_WITH_ACTIVATION_SQL
 
@@ -504,6 +523,7 @@ class TestLedgerEntryMarketEntryPrice:
 
     def test_insert_sql_includes_market_entry_price(self):
         from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
+
         assert "market_entry_price" in _INSERT_SQL
 
 
@@ -534,6 +554,7 @@ class TestIsShadowField:
 
     def test_insert_sql_contains_is_shadow_and_dollar39(self):
         from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
+
         assert "is_shadow" in _INSERT_SQL
         assert "$39" in _INSERT_SQL
 
@@ -588,6 +609,7 @@ class TestBuildFeatureRows:
 
     def test_insert_features_sql_has_on_conflict(self):
         from src.persistence.repository.signal_ledger_repository import _INSERT_FEATURES_SQL
+
         assert "ON CONFLICT" in _INSERT_FEATURES_SQL
         assert "DO NOTHING" in _INSERT_FEATURES_SQL
 
@@ -624,9 +646,9 @@ class TestLedgerEntryPhase35CalibrationFields:
         """to_insert_params() must return 60 elements after Phase 57 extension (was 58)."""
         entry = _make_entry()
         params = entry.to_insert_params()
-        assert len(params) == 60, (
-            f"Expected 60 elements (58 prior + 2 Phase 57 attribution), got {len(params)}"
-        )
+        assert (
+            len(params) == 60
+        ), f"Expected 60 elements (58 prior + 2 Phase 57 attribution), got {len(params)}"
 
     def test_to_insert_params_calibration_fields_at_positions_55_to_58(self):
         """Phase 35 fields are at $55-$58 (0-indexed: 54-57)."""
@@ -638,12 +660,12 @@ class TestLedgerEntryPhase35CalibrationFields:
         )
         params = entry.to_insert_params()
         assert len(params) == 60
-        assert params[54] == pytest.approx(0.72)   # $55 raw_cis_score
-        assert params[55] == pytest.approx(0.68)   # $56 filtered_cis_score
-        assert params[56] == pytest.approx(0.61)   # $57 calibrated_confidence
-        assert params[57] == "trend"               # $58 regime_type_at_fire
-        assert params[58] is None                  # $59 pre_quality_confidence
-        assert params[59] is None                  # $60 pre_calibration_confidence
+        assert params[54] == pytest.approx(0.72)  # $55 raw_cis_score
+        assert params[55] == pytest.approx(0.68)  # $56 filtered_cis_score
+        assert params[56] == pytest.approx(0.61)  # $57 calibrated_confidence
+        assert params[57] == "trend"  # $58 regime_type_at_fire
+        assert params[58] is None  # $59 pre_quality_confidence
+        assert params[59] is None  # $60 pre_calibration_confidence
 
     def test_to_insert_params_calibration_fields_nullable(self):
         """Calibration fields must be NULL-able (None passes through unchanged)."""
@@ -657,6 +679,7 @@ class TestLedgerEntryPhase35CalibrationFields:
     def test_insert_sql_contains_calibration_columns(self):
         """_INSERT_SQL must reference all four Phase 35 calibration columns."""
         from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
+
         assert "raw_cis_score" in _INSERT_SQL
         assert "filtered_cis_score" in _INSERT_SQL
         assert "calibrated_confidence" in _INSERT_SQL

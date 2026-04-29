@@ -179,7 +179,7 @@ class CandlestickPatternSetupPlugin:
             ("harami", -1): harami_bear,
             ("abandoned_baby", 1): abandoned_baby_bull,
             ("abandoned_baby", -1): abandoned_baby_bear,
-            ("tweezer", -1): tweezer_top,    # bearish reversal (forms at highs)
+            ("tweezer", -1): tweezer_top,  # bearish reversal (forms at highs)
             ("tweezer", 1): tweezer_bottom,  # bullish reversal (forms at lows)
             ("belt_hold", 1): belt_hold_bull,
             ("belt_hold", -1): belt_hold_bear,
@@ -301,7 +301,10 @@ class CandlestickPatternSetupPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "session", signal["confidence"],
+            features,
+            direction,
+            "session",
+            signal["confidence"],
         )
         return signal
 

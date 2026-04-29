@@ -26,10 +26,7 @@ async def check_flow():
     settings = Settings()
     env = settings.env_name
 
-    topics = [
-        topic_market_bars(env),
-        topic_intelligence(env)
-    ]
+    topics = [topic_market_bars(env), topic_intelligence(env)]
 
     print(f"Connecting to Kafka at {settings.kafka_bootstrap_servers}...")
     print(f"Monitoring topics: {topics}")
@@ -38,7 +35,7 @@ async def check_flow():
         *topics,
         bootstrap_servers=settings.kafka_bootstrap_servers,
         group_id=f"check_flow_{datetime.now().timestamp()}",
-        auto_offset_reset="latest"
+        auto_offset_reset="latest",
     )
 
     await consumer.start()
@@ -59,7 +56,9 @@ async def check_flow():
                 rec_status = "✅" if reconciled else "⏳"
                 drift_status = "⚠️ DRIFT" if drift else "OK"
 
-                print(f"[{now}] BAR  | {symbol:8} | {ts} | {status:9} | Vol: {vol:10} | {rec_status} | {drift_status}")
+                print(
+                    f"[{now}] BAR  | {symbol:8} | {ts} | {status:9} | Vol: {vol:10} | {rec_status} | {drift_status}"
+                )
 
             elif "intelligence" in topic:
                 event = payload.get("event")
@@ -75,6 +74,7 @@ async def check_flow():
         pass
     finally:
         await consumer.stop()
+
 
 if __name__ == "__main__":
     try:

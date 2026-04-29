@@ -91,13 +91,33 @@ class TestExceptionIsolation:
         event.i6 = None
 
         with (
-            patch("services.intelligence_pipeline_agent._build_features_from_event", return_value={}),
-            patch("services.intelligence_pipeline_agent.apply_quality_gate", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_regime_gate", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_tod_adjustment", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_calibration", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.rank_signals", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
+            patch(
+                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_quality_gate",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_regime_gate",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_tod_adjustment",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_calibration",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.rank_signals",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.select_winner",
+                return_value=(None, [], "no_signal"),
+            ),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             result = await agent._run_i7(bar, event, {})
@@ -142,9 +162,9 @@ class TestExceptionIsolation:
         call_args = observe_mock.call_args_list
         assert len(call_args) >= 1, "observe() was never called"
         duration_value = call_args[0][0][0]
-        assert isinstance(duration_value, (int, float)), (
-            f"Expected numeric duration, got {type(duration_value)}"
-        )
+        assert isinstance(
+            duration_value, (int, float)
+        ), f"Expected numeric duration, got {type(duration_value)}"
         assert duration_value >= 0, f"Duration must be non-negative, got {duration_value}"
 
     @pytest.mark.asyncio

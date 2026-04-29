@@ -78,9 +78,9 @@ class TestCrossTFMomentumDivergencePlugin:
 
         assert result["ctf_momentum_regime"] == "pullback"
         # Positive divergence: HTF_bias > 0, LTF_bias < 0
-        assert result["ctf_momentum_divergence"] > 0.0, (
-            f"Expected positive divergence for pullback, got {result['ctf_momentum_divergence']}"
-        )
+        assert (
+            result["ctf_momentum_divergence"] > 0.0
+        ), f"Expected positive divergence for pullback, got {result['ctf_momentum_divergence']}"
 
     def test_bounce_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """HTF bearish, LTF bullish -> bounce regime with negative divergence."""
@@ -89,9 +89,9 @@ class TestCrossTFMomentumDivergencePlugin:
 
         assert result["ctf_momentum_regime"] == "bounce"
         # Negative divergence: HTF_bias < 0, LTF_bias > 0
-        assert result["ctf_momentum_divergence"] < 0.0, (
-            f"Expected negative divergence for bounce, got {result['ctf_momentum_divergence']}"
-        )
+        assert (
+            result["ctf_momentum_divergence"] < 0.0
+        ), f"Expected negative divergence for bounce, got {result['ctf_momentum_divergence']}"
 
     def test_mixed_regime(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """Weak directional bias on both HTF and LTF -> mixed regime."""
@@ -138,9 +138,11 @@ class TestCrossTFMomentumDivergencePlugin:
         # Must be in valid range
         assert -1.0 <= val <= 1.0
         # Must NOT be exactly -1, 0, or 1 (binary step pattern)
-        assert val not in (-1.0, 0.0, 1.0), (
-            f"Expected fractional gradient value, got exact binary value {val}"
-        )
+        assert val not in (
+            -1.0,
+            0.0,
+            1.0,
+        ), f"Expected fractional gradient value, got exact binary value {val}"
 
     def test_output_range_bounded(self, p: CrossTFMomentumDivergencePlugin) -> None:
         """ctf_momentum_divergence is always in [-1.0, +1.0] due to np.tanh()."""

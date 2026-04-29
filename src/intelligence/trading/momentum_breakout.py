@@ -130,7 +130,9 @@ class MomentumBreakoutPlugin:
         )
         # Continuous regime score from HMM probabilities (replaces 3-step)
         if regime_aligns:
-            regime_score = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+            regime_score = max(
+                hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
+            )
         else:
             regime_score = 0.1
 

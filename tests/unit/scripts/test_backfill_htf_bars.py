@@ -1,18 +1,19 @@
 """Unit tests for backfill_htf_bars script."""
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
 
 
-def _make_1m_bar(symbol="ES", ts=None, o=5100.0, h=5102.0, l=5098.0, c=5101.0, v=500):
+def _make_1m_bar(symbol="ES", ts=None, o=5100.0, h=5102.0, lo=5098.0, c=5101.0, v=500):
     return {
         "symbol": symbol,
         "ts": (ts or datetime(2026, 4, 9, 14, 0, tzinfo=UTC)).isoformat(),
         "tf": "1m",
         "open": o,
         "high": h,
-        "low": l,
+        "low": lo,
         "close": c,
         "volume": v,
         "session_type": "rth",
@@ -39,10 +40,7 @@ class TestBackfillHtfBarsScript:
         acc = BarAccumulator()
         # 6 bars: 14:00-14:05. The 6th bar (14:05) crosses the 5m boundary,
         # triggering emission of the accumulated 14:00-14:04 window.
-        bars = [
-            _make_1m_bar(ts=datetime(2026, 4, 9, 14, i, tzinfo=UTC))
-            for i in range(6)
-        ]
+        bars = [_make_1m_bar(ts=datetime(2026, 4, 9, 14, i, tzinfo=UTC)) for i in range(6)]
         htf_bars = _replay_bars(acc, bars, tf_targets=("5m",))
         # 6 bars spanning one 5m boundary should produce exactly one 5m bar
         assert len([b for b in htf_bars if b.tf == "5m"]) == 1

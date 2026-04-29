@@ -284,7 +284,8 @@ async def test_terminal_event_fires_on_normal_exit():
 
     with patch("services.signal_tracker_agent.evaluate_signal", return_value=transition):
         await agent._evaluate_signals_against_bar(
-            "ES", "5m",
+            "ES",
+            "5m",
             {"high": 6825.0, "low": 6795.0, "close": 6822.0},
             bar_time,
             all_active=[sig],

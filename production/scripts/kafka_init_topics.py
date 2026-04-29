@@ -19,9 +19,9 @@ Used by pipeline_reset.py to delete + recreate all topics on a full reset.
 # ---------------------------------------------------------------------------
 # Retention tiers (milliseconds)
 # ---------------------------------------------------------------------------
-_HOT_MS: int = 7_200_000          # 2 hours — ticks, sub-minute transport
-_BUFFER_MS: int = 86_400_000      # 1 day   — standard restart catch-up
-_HTF_MS: int = 259_200_000        # 3 days  — HTF bar accumulation window
+_HOT_MS: int = 7_200_000  # 2 hours — ticks, sub-minute transport
+_BUFFER_MS: int = 86_400_000  # 1 day   — standard restart catch-up
+_HTF_MS: int = 259_200_000  # 3 days  — HTF bar accumulation window
 
 # ---------------------------------------------------------------------------
 # Topic specifications
@@ -29,58 +29,58 @@ _HTF_MS: int = 259_200_000        # 3 days  — HTF bar accumulation window
 # (suffix, num_partitions, retention_ms, cleanup_policy)
 _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     # --- Market data ---
-    ("market.ticks",               1, _HOT_MS,    "delete"),
-    ("market.bars",                1, _BUFFER_MS, "delete"),
-    ("market.bars.htf",            1, _HTF_MS,    "delete"),
+    ("market.ticks", 1, _HOT_MS, "delete"),
+    ("market.bars", 1, _BUFFER_MS, "delete"),
+    ("market.bars.htf", 1, _HTF_MS, "delete"),
     # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
     ("market.events.gap_requests", 1, _BUFFER_MS, "delete"),
-    ("market.events.roll",         1, _BUFFER_MS, "delete"),
-    ("market.data.quality",        1, _BUFFER_MS, "delete"),
+    ("market.events.roll", 1, _BUFFER_MS, "delete"),
+    ("market.data.quality", 1, _BUFFER_MS, "delete"),
     # --- Intelligence pipeline (all persisted by feature_writer → intelligence_features) ---
-    ("indicators",                 1, _BUFFER_MS, "delete"),
-    ("intelligence",               1, _BUFFER_MS, "delete"),
-    ("intelligence.i8",            1, _BUFFER_MS, "delete"),
-    ("intelligence.journal",       1, _BUFFER_MS, "delete"),
-    ("intelligence.record",        1, _BUFFER_MS, "delete"),
-    ("intelligence.i7.signals",    1, _BUFFER_MS, "delete"),
+    ("indicators", 1, _BUFFER_MS, "delete"),
+    ("intelligence", 1, _BUFFER_MS, "delete"),
+    ("intelligence.i8", 1, _BUFFER_MS, "delete"),
+    ("intelligence.journal", 1, _BUFFER_MS, "delete"),
+    ("intelligence.record", 1, _BUFFER_MS, "delete"),
+    ("intelligence.i7.signals", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal_metrics", 1, _BUFFER_MS, "delete"),
-    ("intelligence.signal.audit",  1, _BUFFER_MS, "delete"),
+    ("intelligence.signal.audit", 1, _BUFFER_MS, "delete"),
     ("intelligence.service_auditor.journal.dlq", 1, _BUFFER_MS, "delete"),
     # --- Signal pipeline stages (consumed within seconds, persisted downstream) ---
-    ("pipeline.quality_gated",     1, _BUFFER_MS, "delete"),
-    ("pipeline.regime_gated",      1, _BUFFER_MS, "delete"),
-    ("pipeline.tod_adjusted",      1, _BUFFER_MS, "delete"),
-    ("pipeline.calibrated",        1, _BUFFER_MS, "delete"),
-    ("pipeline.ranked",            1, _BUFFER_MS, "delete"),
+    ("pipeline.quality_gated", 1, _BUFFER_MS, "delete"),
+    ("pipeline.regime_gated", 1, _BUFFER_MS, "delete"),
+    ("pipeline.tod_adjusted", 1, _BUFFER_MS, "delete"),
+    ("pipeline.calibrated", 1, _BUFFER_MS, "delete"),
+    ("pipeline.ranked", 1, _BUFFER_MS, "delete"),
     # --- Signals (persisted by signal_writer → signal_ledger) ---
-    ("signals",                    1, _BUFFER_MS, "delete"),
-    ("signals.aggregated",         1, _BUFFER_MS, "delete"),
+    ("signals", 1, _BUFFER_MS, "delete"),
+    ("signals.aggregated", 1, _BUFFER_MS, "delete"),
     # --- LLM (persisted by llm_writer → llm_calls) ---
-    ("llm.calls",                  1, _BUFFER_MS, "delete"),
-    ("llm.outcomes",               1, _BUFFER_MS, "delete"),
+    ("llm.calls", 1, _BUFFER_MS, "delete"),
+    ("llm.outcomes", 1, _BUFFER_MS, "delete"),
     # --- Narratives (consumed by dashboard SSE) ---
-    ("narratives",                 1, _BUFFER_MS, "delete"),
-    ("narratives.group",           1, _BUFFER_MS, "delete"),
+    ("narratives", 1, _BUFFER_MS, "delete"),
+    ("narratives.group", 1, _BUFFER_MS, "delete"),
     # --- Cross-asset (consumed in real-time by pipeline) ---
-    ("cross_asset",                1, _BUFFER_MS, "delete"),
+    ("cross_asset", 1, _BUFFER_MS, "delete"),
     # --- Macro factors (persisted by macro_compute_agent → macro_features) ---
-    ("macro_signals",              1, _BUFFER_MS, "delete"),
+    ("macro_signals", 1, _BUFFER_MS, "delete"),
     # --- Lifecycle (persisted by lifecycle_writer) ---
-    ("lifecycle.transitions",      1, _BUFFER_MS, "delete"),
+    ("lifecycle.transitions", 1, _BUFFER_MS, "delete"),
     # --- Swarm (persisted by swarm_writer) ---
-    ("intelligence.swarm",         1, _BUFFER_MS, "delete"),
-    ("swarm.alpha",                1, _BUFFER_MS, "delete"),
-    ("swarm.graduation",           1, _BUFFER_MS, "delete"),
+    ("intelligence.swarm", 1, _BUFFER_MS, "delete"),
+    ("swarm.alpha", 1, _BUFFER_MS, "delete"),
+    ("swarm.graduation", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal_lineage", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal_lineage.dlq", 1, _BUFFER_MS, "delete"),
     # --- Transform graduation (Phase 72) ---
-    ("intelligence.transform.graduation",     1, _BUFFER_MS, "delete"),
+    ("intelligence.transform.graduation", 1, _BUFFER_MS, "delete"),
     ("intelligence.transform.graduation.dlq", 1, _BUFFER_MS, "delete"),
     # --- System ---
-    ("system.events",              1, _BUFFER_MS, "delete"),
-    ("system.health.events",       1, _BUFFER_MS, "delete"),
-    ("audit",                      1, _BUFFER_MS, "delete"),
-    ("pipeline.data_quality",      1, _BUFFER_MS, "delete"),
+    ("system.events", 1, _BUFFER_MS, "delete"),
+    ("system.health.events", 1, _BUFFER_MS, "delete"),
+    ("audit", 1, _BUFFER_MS, "delete"),
+    ("pipeline.data_quality", 1, _BUFFER_MS, "delete"),
 ]
 
 # Compacted topics (state snapshots — key-based retention)

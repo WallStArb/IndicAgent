@@ -62,9 +62,7 @@ class TestCVDPlugin:
         # Now simulate 09:30 ET = 13:30 UTC
         df_session = _make_df(5, start_hour=13)  # 13:30 UTC = 09:30 ET (EDT)
         # Create a DataFrame with timestamps at exactly 13:30 UTC
-        session_timestamps = [
-            datetime(2026, 3, 18, 13, 30 + i, 0, tzinfo=UTC) for i in range(5)
-        ]
+        session_timestamps = [datetime(2026, 3, 18, 13, 30 + i, 0, tzinfo=UTC) for i in range(5)]
         df_session = df_session.copy()
         df_session["timestamp"] = session_timestamps
 
@@ -73,9 +71,9 @@ class TestCVDPlugin:
         assert cvd_at_reset is not None
         # CVD should be near 0 at session open (accumulated delta of just this one bar)
         # The absolute cumulative should be small relative to pre-reset value
-        assert abs(cvd_at_reset) < abs(pre_reset.get("cvd", 0.0)), (
-            f"CVD should reset at session open: got {cvd_at_reset} vs pre-reset {pre_reset.get('cvd')}"
-        )
+        assert abs(cvd_at_reset) < abs(
+            pre_reset.get("cvd", 0.0)
+        ), f"CVD should reset at session open: got {cvd_at_reset} vs pre-reset {pre_reset.get('cvd')}"
 
     def test_slope_sign(self):
         """When CVD is rising over 5 bars, cvd_slope_5bar is positive."""

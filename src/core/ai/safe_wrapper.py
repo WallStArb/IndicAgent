@@ -54,8 +54,9 @@ class SafeAgentWrapper:
                 timeout_s=self._timeout_s,
                 latency_ms=round(latency_ms, 1),
             )
-            return self._neutral(error=f"timeout after {self._timeout_s:.1f}s",
-                                 latency_ms=latency_ms)
+            return self._neutral(
+                error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms
+            )
 
         except Exception as exc:
             latency_ms = (time.monotonic() - t0) * 1000

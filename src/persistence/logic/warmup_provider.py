@@ -150,6 +150,7 @@ class WarmupProvider:
 
                 latest = rows[0]
                 try:
+
                     def _tier(tier_key: str) -> dict:
                         return {
                             k: v

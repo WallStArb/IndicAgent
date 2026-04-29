@@ -31,8 +31,8 @@ from .plugin_utils import no_signal, signal_type_for_direction
 from .state_utils import track_consecutive_state
 from .trade_framer import frame_trade
 
-_MIN_DIVERGENCE: float = 1.5   # σ threshold — recalibrate from observed fire rate
-_MIN_PERSISTENCE: int = 2       # consecutive bars required before firing
+_MIN_DIVERGENCE: float = 1.5  # σ threshold — recalibrate from observed fire rate
+_MIN_PERSISTENCE: int = 2  # consecutive bars required before firing
 
 
 @dataclass
@@ -45,16 +45,18 @@ class OFIDivergencePlugin:
     """
 
     name: str = "trad_OFIDivergence"
-    outputs: frozenset[str] = frozenset({
-        "signal_type",
-        "direction",
-        "entry_price",
-        "stop_loss",
-        "targets",
-        "confidence",
-        "regime_context",
-        "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "divergence", "ofi", "price_discovery"})
@@ -113,7 +115,7 @@ class OFIDivergencePlugin:
 
         # ── Confidence: continuous, magnitude-weighted ────────────────────────
         confidence = 0.42
-        confidence += 0.25 * math.tanh(peak_abs / 3.0)   # principled soft cap
+        confidence += 0.25 * math.tanh(peak_abs / 3.0)  # principled soft cap
 
         ofi_ewma_5 = features.get("ofi_ewma_5")
         ofi_ewma_20 = features.get("ofi_ewma_20")
@@ -142,7 +144,7 @@ class OFIDivergencePlugin:
             # Continuous regime weighting (regime_type="any")
             ranging_w = hmm_regime_weight(features, "ranging")
             trending_w = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
-            confidence += 0.06 * ranging_w   # ranging — soft positive hint
+            confidence += 0.06 * ranging_w  # ranging — soft positive hint
             confidence -= 0.06 * trending_w  # trending — soft negative hint
 
         confidence = compose_confidence(confidence)
@@ -184,7 +186,10 @@ class OFIDivergencePlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

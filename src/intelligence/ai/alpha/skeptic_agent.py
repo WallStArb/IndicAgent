@@ -3,6 +3,7 @@
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
 No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
 """
+
 from __future__ import annotations
 
 import json

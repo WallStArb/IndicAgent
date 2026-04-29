@@ -9,23 +9,30 @@ Tests cover:
 
 import pytest
 
-from src.intelligence.confluence.cross_tf_sr_confluence import (
-    CrossTFSRConfluencePlugin,
-    plugin as sr_plugin,
+from src.intelligence.confluence.cross_tf_orderflow_alignment import (
+    CrossTFOrderFlowAlignmentPlugin,
+)
+from src.intelligence.confluence.cross_tf_orderflow_alignment import (
+    plugin as orderflow_plugin,
 )
 from src.intelligence.confluence.cross_tf_regime_agreement import (
     CrossTFRegimeAgreementPlugin,
+)
+from src.intelligence.confluence.cross_tf_regime_agreement import (
     plugin as regime_plugin,
+)
+from src.intelligence.confluence.cross_tf_sr_confluence import (
+    CrossTFSRConfluencePlugin,
+)
+from src.intelligence.confluence.cross_tf_sr_confluence import (
+    plugin as sr_plugin,
 )
 from src.intelligence.confluence.squeeze_expansion_divergence import (
     SqueezeExpansionDivergencePlugin,
+)
+from src.intelligence.confluence.squeeze_expansion_divergence import (
     plugin as squeeze_plugin,
 )
-from src.intelligence.confluence.cross_tf_orderflow_alignment import (
-    CrossTFOrderFlowAlignmentPlugin,
-    plugin as orderflow_plugin,
-)
-
 
 # ---------------------------------------------------------------------------
 # CrossTFSRConfluencePlugin
@@ -176,7 +183,9 @@ class TestSqueezeExpansionDivergencePlugin:
         result = p.compute_full(frames)
         assert -1.0 <= result["ctf_volatility_divergence"] <= 1.0
 
-    def test_htf_expanding_ltf_squeezing_positive(self, p: SqueezeExpansionDivergencePlugin) -> None:
+    def test_htf_expanding_ltf_squeezing_positive(
+        self, p: SqueezeExpansionDivergencePlugin
+    ) -> None:
         """HTF high vol, LTF low vol -> positive divergence (coiling signal)."""
         frames = {
             "intel_1h": {"atr_14": 0.05, "shannon_entropy": 1.0},

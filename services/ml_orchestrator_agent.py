@@ -149,7 +149,11 @@ class MLOrchestratorComputeAgent(BaseAgent):
         self.logger.info("ml_orchestrator.data_quality_node.starting")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", "--wait", "indicagent-ml-data-quality.service",
+                "sudo",
+                "systemctl",
+                "start",
+                "--wait",
+                "indicagent-ml-data-quality.service",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -179,7 +183,11 @@ class MLOrchestratorComputeAgent(BaseAgent):
         self.logger.info("ml_orchestrator.discovery_node.starting")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", "--wait", "indicagent-ml-discovery.service",
+                "sudo",
+                "systemctl",
+                "start",
+                "--wait",
+                "indicagent-ml-discovery.service",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

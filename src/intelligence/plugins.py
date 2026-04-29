@@ -94,7 +94,7 @@ class PluginRegistry:
                     raise ValueError(
                         f"I7 plugin '{name}' missing regime_type declaration. "
                         f"Add: regime_type: ClassVar[str] = "
-                        f"\"trend\" | \"mean_reversion\" | \"any\""
+                        f'"trend" | "mean_reversion" | "any"'
                     )
                 regime = plugin.regime_type
                 if regime not in valid_regimes:

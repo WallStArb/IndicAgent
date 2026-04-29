@@ -1,4 +1,5 @@
 """Tests for src/core/ml/ — FeatureExtractor, ShadowRecorder, ModelRegistry, TrainingDataQuery."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ import pytest
 
 def _make_event(symbol: str = "ESM6", tf: str = "1m", regime: int = 1):
     from src.intelligence.schemas import IntelligenceEvent
+
     event = MagicMock(spec=IntelligenceEvent)
     event.symbol = symbol
     event.tf = tf
@@ -50,13 +52,16 @@ def _make_event(symbol: str = "ESM6", tf: str = "1m", regime: int = 1):
 # FeatureExtractor
 # ---------------------------------------------------------------------------
 
+
 def test_extractor_from_event_returns_feature_vector():
     from src.core.ml.extractor import FeatureExtractor
+
     extractor = FeatureExtractor()
     event = _make_event()
     fv = extractor.from_event(event)
 
     from src.core.ml.features import FeatureVector
+
     assert isinstance(fv, FeatureVector)
     assert fv.symbol == "ESM6"
     assert fv.tf == "1m"
@@ -72,6 +77,7 @@ def test_extractor_from_event_same_result_from_row():
     that mirrors what a real DB query would return.
     """
     from src.core.ml.extractor import FeatureExtractor
+
     extractor = FeatureExtractor()
     event = _make_event()
     fv_from_event = extractor.from_event(event)
@@ -107,9 +113,11 @@ def test_extractor_from_event_same_result_from_row():
 def test_extractor_returns_none_for_missing_fields_gracefully():
     """Missing i-tier fields default to None — no crash."""
     from src.core.ml.extractor import FeatureExtractor
+
     extractor = FeatureExtractor()
 
     from src.intelligence.schemas import IntelligenceEvent
+
     event = MagicMock(spec=IntelligenceEvent)
     event.symbol = "ESM6"
     event.tf = "1m"
@@ -130,6 +138,7 @@ def test_extractor_returns_none_for_missing_fields_gracefully():
 # ---------------------------------------------------------------------------
 # ShadowRecorder
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_shadow_recorder_record_queues_row():
@@ -195,21 +204,25 @@ async def test_shadow_recorder_writes_correct_columns():
     assert len(written_rows) == 1
     row = written_rows[0]
     # Row is a tuple: (ts, signal_id, agent_id, symbol, tf, regime, path, multiplier, confidence, features_json)
-    assert row[2] == "my_agent"   # agent_id
-    assert row[3] == "NQM6"       # symbol
-    assert row[7] == 1.3          # multiplier
-    assert row[8] == 0.9          # confidence
+    assert row[2] == "my_agent"  # agent_id
+    assert row[3] == "NQM6"  # symbol
+    assert row[7] == 1.3  # multiplier
+    assert row[8] == 0.9  # confidence
 
 
 # ---------------------------------------------------------------------------
 # TrainingDataQuery
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_training_data_query_enforces_no_lookahead():
     """SQL must contain a WHERE clause preventing feature_ts >= outcome_ts."""
     from src.core.ml.training_data import TrainingDataQuery
+
     query = TrainingDataQuery.__new__(TrainingDataQuery)
     # Access the SQL constant directly
-    assert "feature_ts < " in TrainingDataQuery._NO_LOOKAHEAD_SQL or \
-           "WHERE" in TrainingDataQuery._BASE_SQL
+    assert (
+        "feature_ts < " in TrainingDataQuery._NO_LOOKAHEAD_SQL
+        or "WHERE" in TrainingDataQuery._BASE_SQL
+    )

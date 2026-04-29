@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 import types
-from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +11,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
-    from src.intelligence.schemas import IntelligenceEvent, RankedSignal
+    from src.intelligence.schemas import IntelligenceEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -24,6 +23,7 @@ class Tier(str, Enum):
 
     Extends str for DB compatibility (per CLAUDE.md convention).
     """
+
     BAR = "bar"
     I1 = "i1"
     I2 = "i2"
@@ -36,11 +36,13 @@ class Tier(str, Enum):
 
 class TierContext(BaseModel):
     """Base model for tier-specific context (placeholder for future)."""
+
     model_config = ConfigDict(frozen=True)
 
 
 class I1Context(TierContext):
     """I1 indicator context."""
+
     atr: float | None = None
     adx: float | None = None
     rsi: float | None = None
@@ -48,6 +50,7 @@ class I1Context(TierContext):
 
 class I4Context(TierContext):
     """I4 context classification."""
+
     hmm_regime: int | None = None
     trend_regime: float | None = None
     vol_regime: float | None = None
@@ -63,6 +66,7 @@ class I4Context(TierContext):
 
 class I6Context(TierContext):
     """I6 cross-timeframe confluence."""
+
     ctf_score: float | None = None
     ctf_trend_alignment: float | None = None
     ctf_structure_alignment: float | None = None
@@ -74,6 +78,7 @@ class I6Context(TierContext):
 
 class I7Context(TierContext):
     """I7 signal context."""
+
     winner_plugin: str | None = None
     winner_direction: int | None = None
     winner_confidence: float | None = None
@@ -81,6 +86,7 @@ class I7Context(TierContext):
 
 class BarContext(TierContext):
     """Bar OHLCV context."""
+
     open: float | None = None
     high: float | None = None
     low: float | None = None
@@ -94,6 +100,7 @@ class AIContext(BaseModel):
     Generalized from SwarmContext with tier-specific sub-contexts.
     Self-referential lead_context enabled via model_rebuild().
     """
+
     model_config = ConfigDict(frozen=True)
 
     signal_id: Any | None = None  # UUID or None
@@ -142,6 +149,7 @@ class AIContextCache:
         in build() without requiring a full IntelligenceEvent deserialization.
         asyncpg returns JSONB columns as Python dicts; SimpleNamespace unpacks them.
         """
+
         def _ns(d: dict | None) -> types.SimpleNamespace:
             if isinstance(d, dict):
                 return types.SimpleNamespace(**d)
@@ -197,43 +205,59 @@ class AIContextCache:
             return getattr(obj, attr, None)
 
         # Build tier contexts conditionally based on tiers_needed
-        bar_ctx = BarContext(
-            open=_safe(event.bar, "open"),
-            high=_safe(event.bar, "high"),
-            low=_safe(event.bar, "low"),
-            close=_safe(event.bar, "close"),
-            volume=_safe(event.bar, "volume"),
-        ) if Tier.BAR in tiers_needed else None
+        bar_ctx = (
+            BarContext(
+                open=_safe(event.bar, "open"),
+                high=_safe(event.bar, "high"),
+                low=_safe(event.bar, "low"),
+                close=_safe(event.bar, "close"),
+                volume=_safe(event.bar, "volume"),
+            )
+            if Tier.BAR in tiers_needed
+            else None
+        )
 
-        i1_ctx = I1Context(
-            atr=_safe(event.i1, "atr_14"),
-            adx=_safe(event.i1, "adx"),
-            rsi=_safe(event.i1, "rsi_14"),
-        ) if Tier.I1 in tiers_needed else None
+        i1_ctx = (
+            I1Context(
+                atr=_safe(event.i1, "atr_14"),
+                adx=_safe(event.i1, "adx"),
+                rsi=_safe(event.i1, "rsi_14"),
+            )
+            if Tier.I1 in tiers_needed
+            else None
+        )
 
-        i4_ctx = I4Context(
-            hmm_regime=_safe(event.i4, "hmm_regime"),
-            trend_regime=_safe(event.i4, "trend_regime"),
-            vol_regime=_safe(event.i4, "vol_regime"),
-            vol_percentile=_safe(event.i4, "vol_percentile"),
-            garch_vol_ratio=_safe(event.i4, "garch_vol_ratio"),
-            garch_vol_regime=_safe(event.i4, "garch_vol_regime"),
-            kalman_trend=_safe(event.i4, "kalman_trend"),
-            kalman_slope=_safe(event.i4, "kalman_slope"),
-            vwap=_safe(event.i4, "vwap"),
-            poc_price=_safe(event.i4, "poc_price"),
-            poc_price_rolling=_safe(event.i4, "poc_price_rolling"),
-        ) if Tier.I4 in tiers_needed else None
+        i4_ctx = (
+            I4Context(
+                hmm_regime=_safe(event.i4, "hmm_regime"),
+                trend_regime=_safe(event.i4, "trend_regime"),
+                vol_regime=_safe(event.i4, "vol_regime"),
+                vol_percentile=_safe(event.i4, "vol_percentile"),
+                garch_vol_ratio=_safe(event.i4, "garch_vol_ratio"),
+                garch_vol_regime=_safe(event.i4, "garch_vol_regime"),
+                kalman_trend=_safe(event.i4, "kalman_trend"),
+                kalman_slope=_safe(event.i4, "kalman_slope"),
+                vwap=_safe(event.i4, "vwap"),
+                poc_price=_safe(event.i4, "poc_price"),
+                poc_price_rolling=_safe(event.i4, "poc_price_rolling"),
+            )
+            if Tier.I4 in tiers_needed
+            else None
+        )
 
-        i6_ctx = I6Context(
-            ctf_score=_safe(event.i6, "ctf_score"),
-            ctf_trend_alignment=_safe(event.i6, "ctf_trend_alignment"),
-            ctf_structure_alignment=_safe(event.i6, "ctf_structure_alignment"),
-            ctf_regime_agreement=_safe(event.i6, "ctf_regime_agreement"),
-            ctf_timeframes_aligned=_safe(event.i6, "ctf_timeframes_aligned"),
-            ctf_fvg_alignment=_safe(event.i6, "ctf_fvg_alignment"),
-            ctf_ob_alignment=_safe(event.i6, "ctf_ob_alignment"),
-        ) if Tier.I6 in tiers_needed else None
+        i6_ctx = (
+            I6Context(
+                ctf_score=_safe(event.i6, "ctf_score"),
+                ctf_trend_alignment=_safe(event.i6, "ctf_trend_alignment"),
+                ctf_structure_alignment=_safe(event.i6, "ctf_structure_alignment"),
+                ctf_regime_agreement=_safe(event.i6, "ctf_regime_agreement"),
+                ctf_timeframes_aligned=_safe(event.i6, "ctf_timeframes_aligned"),
+                ctf_fvg_alignment=_safe(event.i6, "ctf_fvg_alignment"),
+                ctf_ob_alignment=_safe(event.i6, "ctf_ob_alignment"),
+            )
+            if Tier.I6 in tiers_needed
+            else None
+        )
 
         i7_ctx = None
         if Tier.I7 in tiers_needed and signal is not None:
@@ -275,11 +299,13 @@ class AIContextCache:
         Returns:
             AIContext for lead instrument if found and not stale, None otherwise
         """
+
         # Extract base symbol (e.g., "ES" from "ESM6")
         def _extract_base(sym: str) -> str:
             """Extract base symbol from futures contract."""
             # Remove trailing month/year codes (e.g., "M6", "U6")
             import re
+
             match = re.match(r"^([A-Z]+)", sym)
             return match.group(1) if match else sym
 

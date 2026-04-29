@@ -13,7 +13,9 @@ def test_062_market_data_gaps_sql_parseable():
     sql = sql_path.read_text()
 
     # Check for required table (allow IF NOT EXISTS)
-    assert "CREATE TABLE" in sql and "market_data_gaps" in sql, "Missing CREATE TABLE market_data_gaps"
+    assert (
+        "CREATE TABLE" in sql and "market_data_gaps" in sql
+    ), "Missing CREATE TABLE market_data_gaps"
 
     # Check for unique constraint
     assert "UNIQUE" in sql, "Missing UNIQUE constraint"

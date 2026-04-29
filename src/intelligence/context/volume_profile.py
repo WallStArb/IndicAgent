@@ -10,6 +10,7 @@ Migrated from I5/patterns/ to I4/context/ and extended with:
 Backward-compatible: original 4 fields (nearest_hvn_level, nearest_hvn_dist_atr,
 nearest_lvn_level, in_lvn) are preserved unchanged.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ from ..plugins import InputSpec
 _N_BUCKETS = 50
 _HVN_THRESHOLD = 0.80  # top 20% by volume = HVN
 _LVN_THRESHOLD = 0.20  # bottom 20% by volume = LVN
-_ROLLING_WINDOW = 480   # bars for rolling track
+_ROLLING_WINDOW = 480  # bars for rolling track
 
 
 @dataclass
@@ -149,9 +150,7 @@ class VolumeProfilePlugin:
             result["nearest_hvn_above"] = float(hvn_above.min()) if len(hvn_above) > 0 else None
             result["nearest_hvn_below"] = float(hvn_below.max()) if len(hvn_below) > 0 else None
             # Legacy: nearest overall HVN
-            result["nearest_hvn_level"] = float(
-                hvn_prices[np.argmin(np.abs(hvn_prices - close))]
-            )
+            result["nearest_hvn_level"] = float(hvn_prices[np.argmin(np.abs(hvn_prices - close))])
         else:
             result["nearest_hvn_above"] = None
             result["nearest_hvn_below"] = None
@@ -163,9 +162,7 @@ class VolumeProfilePlugin:
             lvn_below = lvn_prices[lvn_prices <= close]
             result["nearest_lvn_above"] = float(lvn_above.min()) if len(lvn_above) > 0 else None
             result["nearest_lvn_below"] = float(lvn_below.max()) if len(lvn_below) > 0 else None
-            result["nearest_lvn_level"] = float(
-                lvn_prices[np.argmin(np.abs(lvn_prices - close))]
-            )
+            result["nearest_lvn_level"] = float(lvn_prices[np.argmin(np.abs(lvn_prices - close))])
         else:
             result["nearest_lvn_above"] = None
             result["nearest_lvn_below"] = None
@@ -232,9 +229,7 @@ class VolumeProfilePlugin:
             in_lvn_flag = 0.0
         else:
             vol_threshold_low = np.quantile(nonzero, _LVN_THRESHOLD)
-            cur_bucket = int(
-                np.clip((close - s_price_min) / s_bucket_size, 0, _N_BUCKETS - 1)
-            )
+            cur_bucket = int(np.clip((close - s_price_min) / s_bucket_size, 0, _N_BUCKETS - 1))
             in_lvn_flag = 1.0 if s_vol_hist[cur_bucket] <= vol_threshold_low else 0.0
 
         # nearest_hvn_dist_atr (legacy)
@@ -247,9 +242,7 @@ class VolumeProfilePlugin:
 
         # Value area context fields
         price_in_value_area = (
-            1.0
-            if val is not None and vah is not None and val <= close <= vah
-            else 0.0
+            1.0 if val is not None and vah is not None and val <= close <= vah else 0.0
         )
         va_width_atr = (
             (vah - val) / float(atr_14)

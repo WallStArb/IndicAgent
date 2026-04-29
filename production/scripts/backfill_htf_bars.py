@@ -9,6 +9,7 @@ Usage:
 The intelligence pipeline must be running — it will consume and persist the replayed bars.
 Run while the bar_aggregator service is stopped to avoid duplicate messages.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -133,9 +134,7 @@ async def _amain(args: argparse.Namespace) -> None:
         by_symbol.setdefault(row["symbol"], []).append(row)
 
     htf_topic = topic_market_bars_htf(settings.env_prefix)
-    producer = KafkaProducerClient(
-        bootstrap_servers=settings.kafka_bootstrap_servers
-    )
+    producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
     await producer.start()
     try:
         total_published = 0

@@ -87,9 +87,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
         else:
             return mock_rows  # Return all 3 signal rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -172,9 +170,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
         else:
             return mock_rows  # Return rows on 3rd call
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -188,9 +184,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
         assert "sig1" in agent._signal_ids
         assert "sig2" in agent._signal_ids
         # Verify retry happened (check log calls)
-        assert any(
-            "bootstrap_empty_retry" in str(call) for call in agent.logger.method_calls
-        )
+        assert any("bootstrap_empty_retry" in str(call) for call in agent.logger.method_calls)
 
 
 @pytest.mark.asyncio
@@ -217,9 +211,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
         else:
             return []  # No rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -232,9 +224,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
         assert len(agent._signal_ids) == 0
         assert len(agent._active_symbols) == 0
         # Should not log retry warnings
-        assert not any(
-            "bootstrap_retry" in str(call) for call in agent.logger.method_calls
-        )
+        assert not any("bootstrap_retry" in str(call) for call in agent.logger.method_calls)
 
 
 @pytest.mark.asyncio
@@ -259,9 +249,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
         else:
             return []  # But query always returns empty
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -332,9 +320,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
         else:
             return mock_rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute

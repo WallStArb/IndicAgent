@@ -1,4 +1,5 @@
 """Unit tests for apply_quality_gate pure function."""
+
 from __future__ import annotations
 
 import pytest
@@ -42,15 +43,23 @@ async def test_does_not_mutate_input():
     """Original signal dict must not be modified."""
     sig = make_signal(confidence=0.8)
     original_conf = sig["confidence"]
-    await apply_quality_gate([sig], {"hurst_quality": 0.5, "entropy_quality": 0.5, "drift_penalty": 0.5})
+    await apply_quality_gate(
+        [sig], {"hurst_quality": 0.5, "entropy_quality": 0.5, "drift_penalty": 0.5}
+    )
     assert sig["confidence"] == original_conf
 
 
 @pytest.mark.asyncio
 async def test_returns_all_signals():
     """Three inputs → three outputs (gate does not drop)."""
-    signals = [make_signal(confidence=0.5), make_signal(confidence=0.6), make_signal(confidence=0.7)]
-    result = await apply_quality_gate(signals, {"hurst_quality": 0.9, "entropy_quality": 0.95, "drift_penalty": 1.0})
+    signals = [
+        make_signal(confidence=0.5),
+        make_signal(confidence=0.6),
+        make_signal(confidence=0.7),
+    ]
+    result = await apply_quality_gate(
+        signals, {"hurst_quality": 0.9, "entropy_quality": 0.95, "drift_penalty": 1.0}
+    )
     assert len(result) == 3
 
 

@@ -337,9 +337,9 @@ async def test_setup_failure_logs_agent_setup_failed() -> None:
             await a.start()
 
     logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
-    assert "agent.setup_failed" in logged_events, (
-        "Expected agent.setup_failed to be logged via logger.exception when _setup() raises"
-    )
+    assert (
+        "agent.setup_failed" in logged_events
+    ), "Expected agent.setup_failed to be logged via logger.exception when _setup() raises"
 
 
 @pytest.mark.asyncio
@@ -361,9 +361,9 @@ async def test_setup_failure_does_not_log_run_failed() -> None:
             await a.start()
 
     logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
-    assert "agent.run_failed" not in logged_events, (
-        "agent.run_failed must not be logged when _setup() fails — _run() was never called"
-    )
+    assert (
+        "agent.run_failed" not in logged_events
+    ), "agent.run_failed must not be logged when _setup() fails — _run() was never called"
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +383,7 @@ async def test_base_agent_has_crash_metrics() -> None:
         a = CrashAgent(name="crash_test")
         # Get the crash total before and after (OTelCounter uses .get() not ._value.get())
         from src.core.agent.base import AGENT_CRASH_TOTAL
+
         before = AGENT_CRASH_TOTAL.labels(agent="crash_test").get()
         with pytest.raises(RuntimeError):
             await a.start()
@@ -405,6 +406,7 @@ async def test_base_agent_tracks_setup_success() -> None:
     with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
         a = SuccessAgent(name="success_test")
         from src.core.agent.base import AGENT_SETUP_SUCCESS_TOTAL
+
         before = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
         await a.start()
         after = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
@@ -425,10 +427,15 @@ async def test_base_agent_tracks_setup_failure() -> None:
     with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
         a = FailSetupAgent(name="fail_setup_test")
         from src.core.agent.base import AGENT_SETUP_FAILURE_TOTAL
-        before = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError").get()
+
+        before = AGENT_SETUP_FAILURE_TOTAL.labels(
+            agent="fail_setup_test", error_type="ValueError"
+        ).get()
         with pytest.raises(ValueError):
             await a.start()
-        after = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError").get()
+        after = AGENT_SETUP_FAILURE_TOTAL.labels(
+            agent="fail_setup_test", error_type="ValueError"
+        ).get()
         assert after == before + 1
 
 
@@ -447,6 +454,7 @@ async def test_base_agent_send_alert_publishes_to_kafka() -> None:
             a = AlertAgent(name="alert_test")
             # Mock the producer with an async method
             from unittest.mock import AsyncMock
+
             mock_producer = AsyncMock()
             a._producer = mock_producer
             # Mock settings for env_name

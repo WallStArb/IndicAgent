@@ -3,6 +3,7 @@
 Per D-03: prompt version tracked in every alpha_multiplier_shadow row via
 features JSONB.
 """
+
 from __future__ import annotations
 
 import re
@@ -74,10 +75,20 @@ _DIRECTION_LABELS = {1: "LONG", -1: "SHORT", 0: "FLAT"}
 
 # Lead index mapping -- must match _LEAD_INDEX_MAP in swarm_dispatch_service.py
 _LEAD_INDEX_MAP: dict[str, str] = {
-    "ES": "ES", "NQ": "ES", "RTY": "ES", "YM": "ES",
-    "CL": "CL", "HO": "CL", "RB": "CL",
-    "GC": "GC", "SI": "GC", "HG": "GC",
-    "ZN": "ZN", "ZB": "ZN", "ZF": "ZN", "ZT": "ZN",
+    "ES": "ES",
+    "NQ": "ES",
+    "RTY": "ES",
+    "YM": "ES",
+    "CL": "CL",
+    "HO": "CL",
+    "RB": "CL",
+    "GC": "GC",
+    "SI": "GC",
+    "HG": "GC",
+    "ZN": "ZN",
+    "ZB": "ZN",
+    "ZF": "ZN",
+    "ZT": "ZN",
     "VX": "VX",
 }
 
@@ -110,9 +121,7 @@ def build_correlation_prompt(ctx: dict) -> str:
     lead_rsi = _fmt(ctx.get("lead_rsi"), ".1f")
     lead_adx = _fmt(ctx.get("lead_adx"), ".1f")
     lead_hmm_regime = (
-        str(ctx.get("lead_hmm_regime"))
-        if ctx.get("lead_hmm_regime") is not None
-        else "N/A"
+        str(ctx.get("lead_hmm_regime")) if ctx.get("lead_hmm_regime") is not None else "N/A"
     )
     lead_ctf_trend_alignment = _fmt(ctx.get("lead_ctf_trend_alignment"), ".2f")
     trend_regime_divergence = _fmt(ctx.get("trend_regime_divergence"), ".3f")
@@ -122,7 +131,8 @@ def build_correlation_prompt(ctx: dict) -> str:
         timeframe=ctx.get("timeframe", "N/A"),
         winner_plugin=ctx.get("winner_plugin") or "unknown",
         winner_direction_label=_DIRECTION_LABELS.get(
-            ctx.get("winner_direction", 0), "UNKNOWN",
+            ctx.get("winner_direction", 0),
+            "UNKNOWN",
         ),
         winner_confidence=_fmt(ctx.get("winner_confidence"), ".0%"),
         price=_fmt(ctx.get("price"), ".2f"),

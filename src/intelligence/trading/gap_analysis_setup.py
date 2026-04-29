@@ -91,6 +91,7 @@ class GapAnalysisSetupPlugin:
 
         # GAP-02: Volume check
         import numpy as np
+
         vol = df["volume"].to_numpy(dtype=float)
         if len(vol) > 21:
             vol_mean = np.mean(vol[-21:-1])
@@ -158,7 +159,10 @@ class GapAnalysisSetupPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "session", signal["confidence"],
+            features,
+            direction,
+            "session",
+            signal["confidence"],
         )
         return signal
 

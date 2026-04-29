@@ -161,6 +161,7 @@ def test_clear_kafka_topics_deletes_all_env_prefixed_topics():
 
     with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
         import asyncio
+
         count = asyncio.run(
             clear_kafka_topics("localhost:19092", env_prefix="development", providers=["ibkr"])
         )
@@ -185,6 +186,7 @@ def test_clear_kafka_topics_recreates_topics_after_delete():
 
     with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
         import asyncio
+
         asyncio.run(
             clear_kafka_topics("localhost:19092", env_prefix="development", providers=["ibkr"])
         )

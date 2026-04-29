@@ -98,12 +98,28 @@ class TestAIContextCache:
             ts=datetime.now(),
             bar=SimpleNamespace(open=4500.0, high=4510.0, low=4490.0, close=4505.0, volume=1000),
             i1=SimpleNamespace(atr_14=10.0, adx=25.0, rsi_14=55.0),
-            i4=SimpleNamespace(hmm_regime=1, trend_regime=0.8, vol_regime=0.5, vol_percentile=0.6,
-                               garch_vol_ratio=1.2, garch_vol_regime=1, kalman_trend=0.3,
-                               kalman_slope=0.1, vwap=4502.0, poc_price=4501.0, poc_price_rolling=4500.5),
-            i6=SimpleNamespace(ctf_score=0.7, ctf_trend_alignment=0.5, ctf_structure_alignment=0.6,
-                               ctf_regime_agreement=0.8, ctf_timeframes_aligned=3.0,
-                               ctf_fvg_alignment=0.4, ctf_ob_alignment=0.5),
+            i4=SimpleNamespace(
+                hmm_regime=1,
+                trend_regime=0.8,
+                vol_regime=0.5,
+                vol_percentile=0.6,
+                garch_vol_ratio=1.2,
+                garch_vol_regime=1,
+                kalman_trend=0.3,
+                kalman_slope=0.1,
+                vwap=4502.0,
+                poc_price=4501.0,
+                poc_price_rolling=4500.5,
+            ),
+            i6=SimpleNamespace(
+                ctf_score=0.7,
+                ctf_trend_alignment=0.5,
+                ctf_structure_alignment=0.6,
+                ctf_regime_agreement=0.8,
+                ctf_timeframes_aligned=3.0,
+                ctf_fvg_alignment=0.4,
+                ctf_ob_alignment=0.5,
+            ),
             i7=None,
         )
 
@@ -153,6 +169,7 @@ class TestAIContextCache:
         # Wait for TTL to expire (5 min = 300 sec)
         # Patch _TTL_SECONDS to 0 for testing
         import src.core.ai.context as ctx_module
+
         original_ttl = ctx_module._TTL_SECONDS
         ctx_module._TTL_SECONDS = 0
 
@@ -178,12 +195,28 @@ class TestAIContextCache:
             ts=datetime.now(),
             bar=SimpleNamespace(close=120.0),
             i1=SimpleNamespace(atr_14=2.0),
-            i4=SimpleNamespace(hmm_regime=1, trend_regime=0.5, vol_regime=0.5, vol_percentile=0.5,
-                             garch_vol_ratio=1.0, garch_vol_regime=1, kalman_trend=0.2,
-                             kalman_slope=0.1, vwap=120.5, poc_price=120.3, poc_price_rolling=120.2),
-            i6=SimpleNamespace(ctf_score=0.5, ctf_trend_alignment=0.4, ctf_structure_alignment=0.5,
-                             ctf_regime_agreement=0.6, ctf_timeframes_aligned=2.0,
-                             ctf_fvg_alignment=0.3, ctf_ob_alignment=0.4),
+            i4=SimpleNamespace(
+                hmm_regime=1,
+                trend_regime=0.5,
+                vol_regime=0.5,
+                vol_percentile=0.5,
+                garch_vol_ratio=1.0,
+                garch_vol_regime=1,
+                kalman_trend=0.2,
+                kalman_slope=0.1,
+                vwap=120.5,
+                poc_price=120.3,
+                poc_price_rolling=120.2,
+            ),
+            i6=SimpleNamespace(
+                ctf_score=0.5,
+                ctf_trend_alignment=0.4,
+                ctf_structure_alignment=0.5,
+                ctf_regime_agreement=0.6,
+                ctf_timeframes_aligned=2.0,
+                ctf_fvg_alignment=0.3,
+                ctf_ob_alignment=0.4,
+            ),
             i7=None,
         )
         cache.update(lead_event)

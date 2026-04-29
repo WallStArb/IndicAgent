@@ -1,4 +1,5 @@
 """Unit tests for confidence_calibrator.py — CAL-01, CAL-02."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock

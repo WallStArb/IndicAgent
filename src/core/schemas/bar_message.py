@@ -84,7 +84,9 @@ class BarMessage(BaseModel):
     low: float
     close: float
     volume: int
-    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC, SOURCE_UNKNOWN]
+    source: Literal[
+        SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC, SOURCE_UNKNOWN
+    ]
     session_type: SessionType
     gap_preceding: bool = False
     is_flat_bar: bool = False

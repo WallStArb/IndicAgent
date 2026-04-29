@@ -11,6 +11,7 @@ from src.core.ai.safe_wrapper import SafeAgentWrapper
 
 class DummyAgent(BaseAIAgent):
     """Dummy agent for testing."""
+
     agent_id = "dummy"
     group = "alpha"
     tiers_needed = frozenset()

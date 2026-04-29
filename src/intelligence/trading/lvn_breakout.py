@@ -173,10 +173,7 @@ class LVNBreakoutPlugin:
             close_strength = 0.5
 
         raw_conf = (
-            0.30 * vol_score
-            + 0.25 * trend_clarity
-            + 0.25 * lvn_inverse
-            + 0.20 * close_strength
+            0.30 * vol_score + 0.25 * trend_clarity + 0.25 * lvn_inverse + 0.20 * close_strength
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
@@ -206,7 +203,10 @@ class LVNBreakoutPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "lvn", signal["confidence"],
+            features,
+            direction,
+            "lvn",
+            signal["confidence"],
         )
         return signal
 

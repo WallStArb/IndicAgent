@@ -115,9 +115,7 @@ class TradingSession:
 
         # All-day session (open == close, e.g. crypto, fx_24_5)
         if self.open_time == self.close_time:
-            start_utc = _datetime(
-                target_date.year, target_date.month, target_date.day, tzinfo=UTC
-            )
+            start_utc = _datetime(target_date.year, target_date.month, target_date.day, tzinfo=UTC)
             end_utc = start_utc + timedelta(days=1)
             return (start_utc, end_utc)
 
@@ -144,8 +142,7 @@ class TradingSession:
         for brk_start, brk_end in self.trading_breaks:
             total += int(
                 (
-                    _datetime.combine(anchor, brk_end)
-                    - _datetime.combine(anchor, brk_start)
+                    _datetime.combine(anchor, brk_end) - _datetime.combine(anchor, brk_start)
                 ).total_seconds()
                 / 60
             )
@@ -501,29 +498,29 @@ class DataQuality(BaseModel):
 
 @dataclass(frozen=True)
 class ContractMetadata:
-	"""Futures contract roll tracking metadata.
+    """Futures contract roll tracking metadata.
 
-	Stores per-contract information for roll chain navigation and
-	lifetime filtering. Enables Renaissance-style per-contract data storage
-	where continuous series are derived, not baked in.
+    Stores per-contract information for roll chain navigation and
+    lifetime filtering. Enables Renaissance-style per-contract data storage
+    where continuous series are derived, not baked in.
 
-	Example:
-		symbol="ESH6", base_symbol="ES", asset_class=AssetClass.FUTURES,
-		expiry_date=datetime(2026, 3, 19, tzinfo=ZoneInfo("America/Chicago")),
-		roll_from="ESZ5", roll_to="ESM6",
-		roll_date=datetime(2025, 12, 15, tzinfo=ZoneInfo("America/Chicago")),
-		roll_gap=-12.5, exchange="CME"
-	"""
+    Example:
+            symbol="ESH6", base_symbol="ES", asset_class=AssetClass.FUTURES,
+            expiry_date=datetime(2026, 3, 19, tzinfo=ZoneInfo("America/Chicago")),
+            roll_from="ESZ5", roll_to="ESM6",
+            roll_date=datetime(2025, 12, 15, tzinfo=ZoneInfo("America/Chicago")),
+            roll_gap=-12.5, exchange="CME"
+    """
 
-	symbol: str
-	base_symbol: str
-	asset_class: AssetClass
-	expiry_date: datetime | None
-	first_notice_date: datetime | None
-	roll_from: str | None
-	roll_to: str | None
-	roll_date: datetime | None
-	roll_gap: float | None
-	exchange: str
-	created_at: datetime | None = None
-	updated_at: datetime | None = None
+    symbol: str
+    base_symbol: str
+    asset_class: AssetClass
+    expiry_date: datetime | None
+    first_notice_date: datetime | None
+    roll_from: str | None
+    roll_to: str | None
+    roll_date: datetime | None
+    roll_gap: float | None
+    exchange: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

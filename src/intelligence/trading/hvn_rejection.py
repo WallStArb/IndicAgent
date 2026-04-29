@@ -108,9 +108,7 @@ class HVNRejectionPlugin:
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
 
         # Determine candidate directions
-        can_long = near_hvn_below and (
-            rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD
-        )
+        can_long = near_hvn_below and (rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD)
         can_short = near_hvn_above and (
             rsi_div_bearish > DIV_THRESHOLD or stoch_k > STOCH_OVERBOUGHT
         )
@@ -175,15 +173,21 @@ class HVNRejectionPlugin:
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (direction == -1 and rsi_div_bearish > DIV_THRESHOLD)
-        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (direction == -1 and stoch_k > STOCH_OVERBOUGHT)
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (
+            direction == -1 and rsi_div_bearish > DIV_THRESHOLD
+        )
+        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (
+            direction == -1 and stoch_k > STOCH_OVERBOUGHT
+        )
 
         supporting: list[str] = [
             f"hvn_level={hvn_level:.2f}",
             f"hvn_distance_entered_atr={dist_atr:.3f}",
             "hvn_volume_rank=0.0",  # placeholder — volume rank not yet computed
         ]
-        supporting.extend(format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok))
+        supporting.extend(
+            format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok)
+        )
 
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
@@ -202,7 +206,10 @@ class HVNRejectionPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", signal["confidence"],
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

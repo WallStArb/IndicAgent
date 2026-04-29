@@ -49,7 +49,7 @@ async def test_cross_asset_emits_crash_metric_on_exception():
     agent._run = _failing_run
 
     # Get initial crash count
-    before = agent._crash_total._value.get() if hasattr(agent._crash_total, '_value') else 0
+    before = agent._crash_total._value.get() if hasattr(agent._crash_total, "_value") else 0
 
     try:
         await agent.start()
@@ -57,7 +57,7 @@ async def test_cross_asset_emits_crash_metric_on_exception():
         pass  # Expected
 
     # Verify crash metric incremented
-    after = agent._crash_total._value.get() if hasattr(agent._crash_total, '_value') else 0
+    after = agent._crash_total._value.get() if hasattr(agent._crash_total, "_value") else 0
     # Note: In test environment, _value might not be available; we check the metric was called
     # The actual verification happens via Prometheus metric scraping in production
 
@@ -77,12 +77,12 @@ async def test_cross_asset_emits_setup_success_metric():
 
     # Get initial setup success count
     setup_metric = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="cross_asset_compute_agent")
-    before = setup_metric._value.get() if hasattr(setup_metric, '_value') else 0
+    before = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
 
     await agent.start()
 
     # Verify setup success metric incremented
-    after = setup_metric._value.get() if hasattr(setup_metric, '_value') else 0
+    after = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
     # Note: In test environment, _value might not be available; we check the metric was called
     # The actual verification happens via Prometheus metric scraping in production
 

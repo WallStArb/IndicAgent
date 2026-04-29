@@ -33,7 +33,6 @@ def _make_openrouter_response(content: str) -> bytes:
     return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
-
 def _make_ollama_response(content: str) -> bytes:
     import json
 

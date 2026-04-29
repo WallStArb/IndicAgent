@@ -129,13 +129,9 @@ class Settings(BaseSettings):
     roll_monitor_postroll_bars: int = Field(
         default=10, validation_alias="ROLL_MONITOR_POSTROLL_BARS"
     )
-    roll_monitor_cooldown_min: int = Field(
-        default=30, validation_alias="ROLL_MONITOR_COOLDOWN_MIN"
-    )
+    roll_monitor_cooldown_min: int = Field(default=30, validation_alias="ROLL_MONITOR_COOLDOWN_MIN")
     roll_confirmation_bars: int = Field(default=3, validation_alias="ROLL_CONFIRMATION_BARS")
-    roll_time_of_day_gated: bool = Field(
-        default=True, validation_alias="ROLL_TIME_OF_DAY_GATED"
-    )
+    roll_time_of_day_gated: bool = Field(default=True, validation_alias="ROLL_TIME_OF_DAY_GATED")
 
     # Cross-asset intelligence (always active — feature flag removed Phase 47-04)
     cross_asset_window_bars: int = Field(default=20, validation_alias="CROSS_ASSET_WINDOW_BARS")
@@ -144,7 +140,6 @@ class Settings(BaseSettings):
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
     macro_metrics_port: int = Field(default=9135, validation_alias="MACRO_METRICS_PORT")
-
 
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
     # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
@@ -178,14 +173,24 @@ class Settings(BaseSettings):
     LLM_RATE_LIMIT_RPM: int = Field(default=60, description="Default LLM requests per minute")
     LLM_RATE_LIMIT_TPM: int = Field(default=100_000, description="Default LLM tokens per minute")
 
-    SHADOW_CORRELATION_THRESHOLD: float = Field(default=0.4, description="Min Pearson rho for promotion")
+    SHADOW_CORRELATION_THRESHOLD: float = Field(
+        default=0.4, description="Min Pearson rho for promotion"
+    )
     SHADOW_MIN_SAMPLES: int = Field(default=100, description="Min N for promotion consideration")
 
-    DATA_QUALITY_MIN_SCORE: float = Field(default=0.85, description="Min quality score to gate discovery")
-    ML_DISCOVERY_LOOKBACK_DAYS: int = Field(default=90, description="tsfresh rolling lookback window")
-    ML_DISCOVERY_IC_THRESHOLD: float = Field(default=0.05, description="Min IC to include in report")
+    DATA_QUALITY_MIN_SCORE: float = Field(
+        default=0.85, description="Min quality score to gate discovery"
+    )
+    ML_DISCOVERY_LOOKBACK_DAYS: int = Field(
+        default=90, description="tsfresh rolling lookback window"
+    )
+    ML_DISCOVERY_IC_THRESHOLD: float = Field(
+        default=0.05, description="Min IC to include in report"
+    )
 
-    MLFLOW_TRACKING_URI: str = Field(default="http://localhost:5000", description="MLflow server URI")
+    MLFLOW_TRACKING_URI: str = Field(
+        default="http://localhost:5000", description="MLflow server URI"
+    )
     LANGFUSE_HOST: str = Field(default="http://localhost:3010", description="LangFuse server URI")
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
@@ -931,8 +936,18 @@ def get_settings() -> Settings:
 
 # CME/CBOT futures month codes → YYYYMM suffix for IBKR lastTradeDateOrContractMonth
 _FUTURES_MONTH_CODES: dict[str, int] = {
-    "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
-    "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12,
+    "F": 1,
+    "G": 2,
+    "H": 3,
+    "J": 4,
+    "K": 5,
+    "M": 6,
+    "N": 7,
+    "Q": 8,
+    "U": 9,
+    "V": 10,
+    "X": 11,
+    "Z": 12,
 }
 
 
@@ -942,7 +957,7 @@ def _derive_expiry_from_symbol(symbol: str, base_symbol: str) -> str:
     E.g. 'ESM6' with base 'ES' → suffix 'M6' → month=6, year=2026 → '202606'.
     Returns '' if the suffix cannot be parsed.
     """
-    suffix = symbol[len(base_symbol):]
+    suffix = symbol[len(base_symbol) :]
     if len(suffix) == 2 and suffix[0] in _FUTURES_MONTH_CODES and suffix[1].isdigit():
         month = _FUTURES_MONTH_CODES[suffix[0]]
         year = 2020 + int(suffix[1])
@@ -1029,8 +1044,7 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
 
         # Build DB-sourced futures Instruments
         db_instruments: list[Instrument] = [
-            _build_instrument_from_db_row(row, config_by_base, config_by_symbol)
-            for row in rows
+            _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
         ]
 
         # Add config-file non-futures Instruments (FX, equity, crypto)
@@ -1043,6 +1057,7 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
 
     except Exception as exc:
         import structlog as _structlog
+
         _structlog.get_logger(__name__).warning(
             "get_active_contracts DB query failed — falling back to config-file contracts",
             error=str(exc),

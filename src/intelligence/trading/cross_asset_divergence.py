@@ -178,9 +178,7 @@ class CrossAssetDivergencePlugin:
         entry_price = float(df["close"].iloc[-1])
 
         signal_type = (
-            "cross_asset_divergence_long"
-            if direction == 1
-            else "cross_asset_divergence_short"
+            "cross_asset_divergence_long" if direction == 1 else "cross_asset_divergence_short"
         )
         tf = frame_trade(
             setup_type=signal_type,
@@ -227,7 +225,10 @@ class CrossAssetDivergencePlugin:
             "supporting_factors": supporting_factors,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 
