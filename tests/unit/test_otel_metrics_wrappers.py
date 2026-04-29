@@ -1,7 +1,8 @@
 """Tests for OTel metric wrapper classes (OTelCounter, OTelGauge, OTelHistogram)."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture(autouse=True)
