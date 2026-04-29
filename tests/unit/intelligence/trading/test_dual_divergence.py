@@ -108,7 +108,6 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
-
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""
         plugin = self._make_plugin()

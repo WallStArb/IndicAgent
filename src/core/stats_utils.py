@@ -1,4 +1,5 @@
 """Statistical utility functions shared across intelligence services."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,8 +27,7 @@ def bootstrap_ci_lower(
         return float("-inf")
     rng = np.random.default_rng(42)
     arr = np.array(pnl_r_values)
-    boot_means = np.array([
-        rng.choice(arr, size=len(arr), replace=True).mean()
-        for _ in range(n_boot)
-    ])
+    boot_means = np.array(
+        [rng.choice(arr, size=len(arr), replace=True).mean() for _ in range(n_boot)]
+    )
     return float(np.percentile(boot_means, alpha / 2 * 100))
