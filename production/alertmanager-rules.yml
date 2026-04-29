@@ -2,8 +2,11 @@ groups:
   - name: indicagent_pipeline
     rules:
       - alert: ProviderDataStoppage
-        expr: rate(provider_bars_produced_total[5m]) == 0 and indicagent_service_up{unit="indicagent-ibkr-provider"} == 1
-        for: 30s
+        expr: >
+          rate(provider_bars_produced_total[5m]) == 0
+          and indicagent_service_up{unit="indicagent-ibkr-provider"} == 1
+          and (hour() >= 6 and hour() <= 21)
+        for: 5m
         labels:
           severity: critical
         annotations:
