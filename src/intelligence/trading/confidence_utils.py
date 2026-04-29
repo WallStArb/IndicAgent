@@ -102,8 +102,6 @@ def capture_signal_features(
     """Capture signal features snapshot for shadow logging.
 
     Returns a standardized dict stored as signal["features_snapshot"] in i7 JSONB.
-    No confidence modification — pure data capture for Phase 49 ML.
-
     Zero confidence modification — pure data capture for Phase 49 ML training.
     All I7 plugins emit the same shadow structure regardless of family.
 
