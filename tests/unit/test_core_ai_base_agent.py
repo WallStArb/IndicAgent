@@ -2,12 +2,11 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.ai.base_agent import BaseAIAgent, IAIAgent
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import AIContext
 from src.core.ai.output import AgentOutput
 
 

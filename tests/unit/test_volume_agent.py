@@ -2,20 +2,19 @@
 import json
 from uuid import uuid4
 
-from src.intelligence.swarm.agents.volume_agent import (
+from src.intelligence.ai.alpha.volume_agent import (
     _parse_volume_response,
     _validate_volume_fields,
 )
-from src.intelligence.swarm.agents.volume_prompts import (
+from src.intelligence.ai.alpha.volume_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
     build_volume_prompt,
 )
-from src.intelligence.swarm.context import SwarmContext
 
 
-def _make_ctx(**overrides) -> SwarmContext:
-    """Build a minimal SwarmContext for testing."""
+def _make_ctx(**overrides) -> dict:
+    """Build a minimal context dict for testing."""
     defaults = dict(
         signal_id=uuid4(), symbol="ESM6", timeframe="5m", ts=None,
         atr=12.5, adx=25.3, rsi=55.0,
@@ -30,7 +29,7 @@ def _make_ctx(**overrides) -> SwarmContext:
         winner_confidence=0.75, price=4502.0, volume=1500,
     )
     defaults.update(overrides)
-    return SwarmContext(**defaults)
+    return defaults
 
 
 def test_active_version_in_registry():
@@ -39,7 +38,7 @@ def test_active_version_in_registry():
 
 def test_build_prompt_without_volume_profile():
     """Prompt builds fine when volume_profile is None."""
-    ctx = _make_ctx(volume_profile=None)
+    ctx = _make_ctx()
     prompt = build_volume_prompt(ctx)
     assert "ESM6" in prompt
     assert "5m" in prompt

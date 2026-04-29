@@ -2,12 +2,9 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from src.core.ai.base_agent import BaseAIAgent
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import AIContext
 from src.core.ai.output import AgentOutput
 from src.core.ai.safe_wrapper import SafeAgentWrapper
 
