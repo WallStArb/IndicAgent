@@ -17,6 +17,7 @@ Note: dict keys are stringified (str(k)) during encoding. Tuple keys like
 from __future__ import annotations
 
 from collections import deque
+from datetime import datetime
 from typing import Any
 
 import msgpack
@@ -65,10 +66,12 @@ def _tag_value(obj: Any) -> Any:
     # Fast-path for common primitives — avoids 4 expensive isinstance checks
     if isinstance(obj, _PRIMITIVES):
         return obj
+    if isinstance(obj, datetime):
+        return obj.isoformat()
     if isinstance(obj, np.ndarray):
         return {"__ndarray__": True, "data": obj.tolist(), "dtype": str(obj.dtype)}
     if isinstance(obj, BaseModel):
-        return {"__pydantic__": type(obj).__name__, "data": obj.model_dump()}
+        return {"__pydantic__": type(obj).__name__, "data": obj.model_dump(mode="json")}
     if isinstance(obj, deque):
         return {"__deque__": True, "data": [_tag_value(item) for item in obj], "maxlen": obj.maxlen}
     if isinstance(obj, dict):

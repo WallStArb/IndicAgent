@@ -3,14 +3,14 @@
 Tests cover:
 - Output buffer QueueFull handling
 - Drain task dequeues and publishes
-- State restore from checkpoint payload
-- State restore version mismatch fallback
+- Local file state checkpoint read/write
 - Agent import and instantiation
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,15 +35,13 @@ def _make_agent():
     agent._output_buffer_drops = MagicMock()
     agent._output_buffer_depth = MagicMock()
     agent._output_publish_failures = MagicMock()
-    agent._state_checkpoint_fallback_total = MagicMock()
-    agent._state_checkpoint_failures_total = MagicMock()
-    agent._state_offset_reset_total = MagicMock()
     agent.settings = MagicMock(env_name="dev")
     agent._plugin_states = {}
     agent._kalman_state = {}
     agent._tod_priors = {}
     agent._bar_history = MagicMock()
     agent._last_bar_offset = {}
+    agent._setup_last_fire = {}
     agent._shadow_mode = False
     agent._kafka_producer = AsyncMock()
     agent._db = None
@@ -120,39 +118,28 @@ class TestDrainOutput:
 
 
 class TestStateRestore:
-    """Test state checkpoint restore logic."""
+    """Test local file checkpoint read/write logic."""
 
     @pytest.mark.asyncio
-    async def test_state_restore_populates_fields(self):
-        """State restore from checkpoint payload restores all five state fields."""
+    async def test_state_restore_populates_fields(self, tmp_path):
+        """_read_local_checkpoint restores all state fields from file."""
         agent = _make_agent()
 
-        # Create a checkpoint payload (key names match agent's _checkpoint_state format)
-        state_data = {
-            "_plugin_states": {("rsi_14", "ESM6", "1m"): {"value": 42.5}},
-            "_kalman_state": {("ESM6", "1m"): {"x_est": 0.5, "P_est": 0.01}},
-            "_tod_priors": {("trending", "1m", 10): 1.2},
-            "_last_bar_offset": {("ESM6", "1m"): 12345},
+        # Build file in the exact format _write_local_checkpoint produces
+        checkpoint_data = {
+            "version": "v1",
+            "ts": "2026-04-29T00:00:00+00:00",
+            "plugin_states": {"('rsi_14', 'ESM6', '1m')": {"value": 42.5}},
+            "kalman_state": {"('ESM6', '1m')": {"x_est": 0.5, "P_est": 0.01}},
+            "tod_priors": {"('trending', '1m', 10)": 1.2},
+            "last_bar_offset": {"('ESM6', '1m')": 12345},
+            "setup_last_fire": {},
         }
-        from src.core.state_serializer import _tag_value
+        checkpoint_file = tmp_path / "pipeline_checkpoint.json"
+        checkpoint_file.write_text(json.dumps(checkpoint_data))
 
-        tagged = _tag_value(state_data)
-
-        # Mock state consumer yielding one valid checkpoint
-        checkpoint_key = "v1:ESM6:1m"
-        mock_consumer = AsyncMock()
-
-        async def _mock_messages():
-            yield ("topic", checkpoint_key, tagged)
-            await asyncio.sleep(0.1)
-
-        # MagicMock return_value so messages() returns the async generator directly
-        mock_consumer.messages = MagicMock(return_value=_mock_messages())
-
-        with patch(
-            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
-        ):
-            result = await agent._restore_state_checkpoint()
+        with patch("services.intelligence_pipeline_agent._CHECKPOINT_PATH", checkpoint_file):
+            result = await agent._read_local_checkpoint()
 
         assert result is True
         assert ("rsi_14", "ESM6", "1m") in agent._plugin_states
@@ -162,50 +149,26 @@ class TestStateRestore:
         assert agent._last_bar_offset[("ESM6", "1m")] == 12345
 
     @pytest.mark.asyncio
-    async def test_state_restore_version_mismatch_triggers_fallback(self):
-        """State restore with version mismatch triggers fallback counter increment."""
+    async def test_state_restore_version_mismatch_returns_false(self, tmp_path):
+        """_read_local_checkpoint returns False when version does not match."""
         agent = _make_agent()
 
-        # Checkpoint with wrong version prefix
-        checkpoint_key = "v99:ESM6:1m"
-        state_data = {"_plugin_states": {}}
-        from src.core.state_serializer import _tag_value
+        checkpoint_file = tmp_path / "pipeline_checkpoint.json"
+        checkpoint_file.write_text(json.dumps({"version": "v99", "plugin_states": {}}))
 
-        tagged = _tag_value(state_data)
-
-        mock_consumer = AsyncMock()
-
-        async def _mock_messages():
-            yield ("topic", checkpoint_key, tagged)
-            await asyncio.sleep(0.1)
-
-        mock_consumer.messages = MagicMock(return_value=_mock_messages())
-
-        with patch(
-            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
-        ):
-            result = await agent._restore_state_checkpoint()
+        with patch("services.intelligence_pipeline_agent._CHECKPOINT_PATH", checkpoint_file):
+            result = await agent._read_local_checkpoint()
 
         assert result is False
-        agent._state_checkpoint_fallback_total.inc.assert_called()
 
     @pytest.mark.asyncio
-    async def test_state_restore_empty_topic_returns_false(self):
-        """State restore with no messages on topic returns False."""
+    async def test_state_restore_no_file_returns_false(self, tmp_path):
+        """_read_local_checkpoint returns False when no checkpoint file exists."""
         agent = _make_agent()
+        missing = tmp_path / "nonexistent.json"
 
-        mock_consumer = AsyncMock()
-
-        async def _mock_messages():
-            return
-            yield  # unreachable yield makes this an empty async generator
-
-        mock_consumer.messages = MagicMock(return_value=_mock_messages())
-
-        with patch(
-            "services.intelligence_pipeline_agent.KafkaConsumerClient", return_value=mock_consumer
-        ):
-            result = await agent._restore_state_checkpoint()
+        with patch("services.intelligence_pipeline_agent._CHECKPOINT_PATH", missing):
+            result = await agent._read_local_checkpoint()
 
         assert result is False
 
@@ -416,27 +379,22 @@ class TestAttributionVector:
 
 
 class TestCheckpointState:
-    """Test 7: _checkpoint_state includes _setup_last_fire."""
+    """Test 7: _write_local_checkpoint writes all hot state fields."""
 
     @pytest.mark.asyncio
-    async def test_checkpoint_includes_setup_last_fire(self):
-        """_checkpoint_state dict includes _setup_last_fire key."""
+    async def test_checkpoint_writes_setup_last_fire(self, tmp_path):
+        """_write_local_checkpoint writes setup_last_fire to the checkpoint file."""
         agent = _make_agent()
         agent._setup_last_fire = {("ES", "1m", "TrendFollowing", 1): {"bars_since": 3}}
 
-        # Verify the checkpoint dict construction includes _setup_last_fire
-        state = {
-            "_plugin_states": agent._plugin_states,
-            "_kalman_state": agent._kalman_state,
-            "_tod_priors": agent._tod_priors,
-            "_bar_history": (
-                agent._bar_history._data if hasattr(agent._bar_history, "_data") else {}
-            ),
-            "_last_bar_offset": agent._last_bar_offset,
-            "_setup_last_fire": agent._setup_last_fire,
-        }
-        assert "_setup_last_fire" in state
-        assert ("ES", "1m", "TrendFollowing", 1) in state["_setup_last_fire"]
+        checkpoint_file = tmp_path / "pipeline_checkpoint.json"
+        with patch("services.intelligence_pipeline_agent._CHECKPOINT_PATH", checkpoint_file):
+            await agent._write_local_checkpoint()
+
+        assert checkpoint_file.exists()
+        written = json.loads(checkpoint_file.read_text())
+        assert "setup_last_fire" in written
+        assert written["version"] == "v1"
 
 
 class TestResolutionMethodStamp:

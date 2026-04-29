@@ -144,9 +144,13 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:
-        """Process a single I7 winner signal through all agents.
+        """Unpack i7.signals envelope and dispatch each signal."""
+        for raw_signal in event.get("signals", []):
+            await self._process_one_signal(raw_signal)
 
-        Overrides BaseGroupService._handle_trigger to add:
+    async def _process_one_signal(self, raw_signal: dict) -> None:
+        """Process a single I7 ranked signal through all swarm agents.
+
         - TF gate (5m+ only)
         - Volume profile enrichment
         - Lead context enrichment (D-10 fix: uses get_lead())
@@ -156,9 +160,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         from src.intelligence.schemas import RankedSignal
 
         try:
-            signal = RankedSignal(**event)
+            signal = RankedSignal(**raw_signal)
         except Exception:
-            self.logger.warning("alpha_swarm.invalid_trigger", event=event)
+            self.logger.warning("alpha_swarm.invalid_trigger", event=raw_signal)
             return
 
         symbol = signal.symbol
