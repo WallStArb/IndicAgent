@@ -1,0 +1,11 @@
+route:
+  receiver: "default"
+  group_by: ["alertname", "unit"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+
+receivers:
+  - name: "default"
+    # No notification config yet -- alerts visible in Prometheus/Alertmanager UI
+    # Telegram/Discord webhook routing added when notification channels configured

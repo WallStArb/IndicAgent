@@ -573,7 +573,8 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
-        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "apply_tod_adjustment" in src
         assert "symbol=symbol" in src
 
@@ -582,7 +583,8 @@ class TestCallSitesPassSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
-        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7)
+        # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
+        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "apply_calibration" in src
 
 

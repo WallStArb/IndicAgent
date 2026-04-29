@@ -381,12 +381,12 @@ async def test_base_agent_has_crash_metrics() -> None:
 
     with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
         a = CrashAgent(name="crash_test")
-        # Get the crash total before and after
+        # Get the crash total before and after (OTelCounter uses .get() not ._value.get())
         from src.core.agent.base import AGENT_CRASH_TOTAL
-        before = AGENT_CRASH_TOTAL.labels(agent="crash_test")._value.get()
+        before = AGENT_CRASH_TOTAL.labels(agent="crash_test").get()
         with pytest.raises(RuntimeError):
             await a.start()
-        after = AGENT_CRASH_TOTAL.labels(agent="crash_test")._value.get()
+        after = AGENT_CRASH_TOTAL.labels(agent="crash_test").get()
         # Counter should have incremented
         assert after == before + 1
 
@@ -405,9 +405,9 @@ async def test_base_agent_tracks_setup_success() -> None:
     with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
         a = SuccessAgent(name="success_test")
         from src.core.agent.base import AGENT_SETUP_SUCCESS_TOTAL
-        before = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test")._value.get()
+        before = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
         await a.start()
-        after = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test")._value.get()
+        after = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
         assert after == before + 1
 
 
@@ -425,10 +425,10 @@ async def test_base_agent_tracks_setup_failure() -> None:
     with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
         a = FailSetupAgent(name="fail_setup_test")
         from src.core.agent.base import AGENT_SETUP_FAILURE_TOTAL
-        before = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError")._value.get()
+        before = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError").get()
         with pytest.raises(ValueError):
             await a.start()
-        after = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError")._value.get()
+        after = AGENT_SETUP_FAILURE_TOTAL.labels(agent="fail_setup_test", error_type="ValueError").get()
         assert after == before + 1
 
 
