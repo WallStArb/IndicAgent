@@ -31,8 +31,8 @@ _TARGET_OUTCOME_LOOKUP = (
 # Staleness score constants — tune after 90 days of outcome data
 STALENESS_REGIME_WEIGHT = 0.6  # weight of HMM regime drift component
 STALENESS_SIGMA_WEIGHT = 0.4  # weight of GARCH sigma ratio component
-assert (
-    STALENESS_REGIME_WEIGHT + STALENESS_SIGMA_WEIGHT == 1.0
+assert math.isclose(
+    STALENESS_REGIME_WEIGHT + STALENESS_SIGMA_WEIGHT, 1.0
 ), f"Staleness weights must sum to 1.0; got {STALENESS_REGIME_WEIGHT} + {STALENESS_SIGMA_WEIGHT}"
 STALENESS_SIGMA_SCALE = 3.0  # sigma ratio at which sigma_component reaches 1.0
 STALENESS_SIGMA_COMPONENT_THRESHOLD = 0.5  # sigma_component level that triggers "both" reason label

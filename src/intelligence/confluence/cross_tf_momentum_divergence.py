@@ -115,7 +115,7 @@ class CrossTFMomentumDivergencePlugin:
             if (
                 not isinstance(rsi, (int, float))
                 and not isinstance(macd_hist, (int, float))
-                and event_bias == 0.0
+                and event_bias == 0.0  # gradient-exempt — sentinel default value, not measured float
             ):
                 continue
 
