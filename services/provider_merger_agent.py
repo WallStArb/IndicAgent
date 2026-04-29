@@ -26,16 +26,12 @@ Status: Phase 54 Plan 04
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import defaultdict
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 from pydantic import ValidationError
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient

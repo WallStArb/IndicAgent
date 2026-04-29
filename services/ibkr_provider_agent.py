@@ -11,11 +11,7 @@ Metrics port: :9129
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.providers.base import DataProviderAdapter
 from src.providers.base_provider_agent import BaseProviderAgent

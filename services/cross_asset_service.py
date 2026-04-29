@@ -21,13 +21,10 @@ Last Updated: 2026-03-18
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent

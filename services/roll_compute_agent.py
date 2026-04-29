@@ -30,19 +30,13 @@ Status: Phase 053.3 Plan 03
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-
-import numpy as np
-import structlog
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from zoneinfo import ZoneInfo
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
+import numpy as np
+import structlog
 from prometheus_client import Counter, Histogram
 
 from src.config.contracts import derive_roll_chain, get_roll_window

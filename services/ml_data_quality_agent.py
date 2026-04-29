@@ -15,12 +15,9 @@ Score = weighted average: CIS(30%) + coverage(30%) + gaps(20%) + outliers(20%).
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
 
@@ -57,18 +54,23 @@ class MLDataQualityAuditorAgent(BaseAgent):
             bootstrap_servers=settings.kafka_bootstrap_servers,
         )
 
-    async def _run(self) -> None:
-        """One-shot entry point: connect DB, run checks, emit metrics, exit."""
+    async def _setup(self) -> None:
         self._pool = await asyncpg.create_pool(self.settings.database_url)
-        self.logger.info("ml_data_quality.starting")
-        try:
-            score = await self._compute_quality_score()
-            await self._write_score(score)
-            await self._emit_metric(score)
-            await self._maybe_publish_alert(score)
-            self.logger.info("ml_data_quality.complete", score=round(score, 4))
-        finally:
+        await self._producer.start()
+
+    async def _teardown(self) -> None:
+        await self._producer.stop()
+        if self._pool:
             await self._pool.close()
+
+    async def _run(self) -> None:
+        """One-shot entry point: run checks, emit metrics, exit."""
+        self.logger.info("ml_data_quality.starting")
+        score = await self._compute_quality_score()
+        await self._write_score(score)
+        await self._emit_metric(score)
+        await self._maybe_publish_alert(score)
+        self.logger.info("ml_data_quality.complete", score=round(score, 4))
 
     async def _compute_quality_score(self) -> float:
         """Run all 4 checks and return composite score [0.0, 1.0]."""

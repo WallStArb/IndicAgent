@@ -16,15 +16,11 @@ Consumer groups:
 """
 
 import asyncio
-import sys
 from collections import defaultdict
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import get_point_value

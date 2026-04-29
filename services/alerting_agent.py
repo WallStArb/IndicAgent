@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import aiohttp
 
 from src.config.settings import get_settings

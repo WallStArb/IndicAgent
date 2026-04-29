@@ -20,6 +20,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
 
@@ -75,6 +76,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
         """Main one-shot lifecycle: connect DB, run discovery for all symbols/tfs, exit."""
         self._pool = await asyncpg.create_pool(self.settings.database_url)
         self._query = TrainingDataQuery(self._pool)
+        await self._producer.start()
         self.logger.info("ml_discovery.starting")
         try:
             for symbol in self.settings.get_active_contracts():
@@ -82,6 +84,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
                 for tf in ["1m", "5m", "15m"]:
                     await self._run_all_regimes(symbol=sym, tf=tf)
         finally:
+            await self._producer.stop()
             await self._pool.close()
 
     async def _run_all_regimes(self, symbol: str, tf: str) -> None:

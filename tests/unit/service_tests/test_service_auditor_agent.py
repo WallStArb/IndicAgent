@@ -35,11 +35,17 @@ def test_registry_covers_all_active_services():
     units = {s.unit for s in SERVICE_REGISTRY}
     required = {
         "indicagent-ibkr-provider", "indicagent-provider-merger",
-        "indicagent-bar-aggregator-compute", "indicagent-bar-writer",
-        "indicagent-bar-auditor", "indicagent-intelligence-pipeline@1",
-        "indicagent-signal-tracker", "indicagent-signal-writer",
+        "indicagent-bar-aggregator", "indicagent-bar-writer",
+        "indicagent-bar-auditor", "indicagent-intelligence-pipeline",
+        "indicagent-signal-tracker-compute", "indicagent-signal-writer",
         "indicagent-ai-narrative", "indicagent-feature-writer",
         "indicagent-llm-writer", "indicagent-cross-asset",
+        "indicagent-lifecycle-writer", "indicagent-contract-metadata-writer",
+        "indicagent-roll-compute", "indicagent-macro-compute",
+        "indicagent-swarm-orchestrator", "indicagent-swarm-writer",
+        "indicagent-signal-metrics-compute", "indicagent-signal-metrics-writer",
+        "indicagent-signal-auditor", "indicagent-parity-auditor",
+        "indicagent-feature-snapshot-writer", "indicagent-graduation-writer",
     }
     assert not required - units, f"Missing: {required - units}"
 
@@ -48,9 +54,9 @@ def test_registry_dag_order_sources_before_sinks():
     from services.service_auditor_agent import SERVICE_REGISTRY
     by_unit = {s.unit: s.dag_order for s in SERVICE_REGISTRY}
     assert by_unit["indicagent-ibkr-provider"] < by_unit["indicagent-provider-merger"]
-    assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator-compute"]
-    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit["indicagent-intelligence-pipeline@1"]
-    assert by_unit["indicagent-intelligence-pipeline@1"] < by_unit["indicagent-feature-writer"]
+    assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator"]
+    assert by_unit["indicagent-bar-aggregator"] < by_unit["indicagent-intelligence-pipeline"]
+    assert by_unit["indicagent-intelligence-pipeline"] < by_unit["indicagent-feature-writer"]
 
 
 # ── systemctl parsing ─────────────────────────────────────────────────────────
@@ -195,3 +201,59 @@ async def test_emit_health_event_inserts_correct_schema():
     assert "service_health_events" in sql_and_args[0]
     assert "indicagent-bar-writer" in sql_and_args
     assert "restart" in sql_and_args
+
+
+# ── Prometheus health check ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_prometheus_health_maps_jobs_to_units():
+    agent = _make_agent()
+    agent._http_session = AsyncMock()
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={
+        "data": {
+            "result": [
+                {"metric": {"job": "indicagent-ibkr-provider"}, "value": [0, "1"]},
+                {"metric": {"job": "indicagent-intelligence-pipeline"}, "value": [0, "1"]},
+                {"metric": {"job": "indicagent-bar-aggregator-compute"}, "value": [0, "1"]},
+                {"metric": {"job": "indicagent-ai-narrative"}, "value": [0, "0"]},  # down
+            ]
+        }
+    })
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+    agent._http_session.get = MagicMock(return_value=mock_resp)
+
+    result = await agent._fetch_prometheus_health()
+
+    assert "indicagent-ibkr-provider" in result
+    assert "indicagent-intelligence-pipeline" in result
+    assert "indicagent-bar-aggregator" in result  # job name translated
+    assert "indicagent-ai-narrative" not in result  # value was 0 (down)
+
+
+# ── Data stoppage detection ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
+    from services.service_auditor_agent import ServiceSpec, ServiceState, _SVC_DATA_PROVIDER
+    agent = _make_agent()
+    spec = ServiceSpec(_SVC_DATA_PROVIDER, 9129, 0, 1, False)
+    agent._service_states[_SVC_DATA_PROVIDER] = ServiceState()
+    agent._emit_health_event = AsyncMock()
+    agent._restart_service = AsyncMock()
+    agent._send_alert = AsyncMock()
+    # Force session open so market-hours gate passes
+    agent._any_active_session_open = MagicMock(return_value=True)
+
+    # First check — counter increments but no restart
+    await agent._evaluate_service(spec, "active", "running", 0, True, bars_per_sec=0.0)
+    agent._restart_service.assert_not_called()
+    assert agent._service_states[_SVC_DATA_PROVIDER].degraded_check_count == 1
+
+    # Second check — triggers restart
+    await agent._evaluate_service(spec, "active", "running", 0, True, bars_per_sec=0.0)
+    agent._restart_service.assert_called_once_with(spec)
+    event_types = [c[1]["event_type"] for c in agent._emit_health_event.call_args_list]
+    assert "data_stoppage" in event_types

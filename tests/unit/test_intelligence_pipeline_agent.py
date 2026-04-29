@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.state_serializer import StateSerializer
+
 
 # ---------------------------------------------------------------------------
 # Helper: create bare agent instance via __new__() pattern (CLAUDE.md)
@@ -136,14 +136,15 @@ class TestStateRestore:
             "_tod_priors": {("trending", "1m", 10): 1.2},
             "_last_bar_offset": {("ESM6", "1m"): 12345},
         }
-        encoded = StateSerializer.encode(state_data)
+        from src.core.state_serializer import _tag_value
+        tagged = _tag_value(state_data)
 
         # Mock state consumer yielding one valid checkpoint
         checkpoint_key = "v1:ESM6:1m"
         mock_consumer = AsyncMock()
 
         async def _mock_messages():
-            yield ("topic", checkpoint_key, encoded)
+            yield ("topic", checkpoint_key, tagged)
             await asyncio.sleep(0.1)
 
         # MagicMock return_value so messages() returns the async generator directly
@@ -168,12 +169,13 @@ class TestStateRestore:
         # Checkpoint with wrong version prefix
         checkpoint_key = "v99:ESM6:1m"
         state_data = {"_plugin_states": {}}
-        encoded = StateSerializer.encode(state_data)
+        from src.core.state_serializer import _tag_value
+        tagged = _tag_value(state_data)
 
         mock_consumer = AsyncMock()
 
         async def _mock_messages():
-            yield ("topic", checkpoint_key, encoded)
+            yield ("topic", checkpoint_key, tagged)
             await asyncio.sleep(0.1)
 
         mock_consumer.messages = MagicMock(return_value=_mock_messages())
