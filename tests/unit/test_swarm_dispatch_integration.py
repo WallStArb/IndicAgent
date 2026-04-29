@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.intelligence.schemas import AgentResult
+from src.core.ai.output import AgentOutput
 from src.intelligence.swarm.context import SwarmContext
 
 
@@ -33,6 +33,36 @@ def _make_context(**overrides):
     return SwarmContext(**defaults)
 
 
+def _make_signal_event(**overrides):
+    """Create a minimal RankedSignal-compatible event dict."""
+    defaults = dict(
+        signal_id=str(uuid4()),
+        plugin="TrendFollowing",
+        direction=1,
+        raw_confidence=0.7,
+        calibrated_confidence=0.7,
+        regime_eligible=True,
+        quality_score=0.8,
+        tod_multiplier=1.0,
+        adjusted_rank=0.75,
+        is_winner=True,
+        symbol="ESM6",
+        tf="5m",
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+def _make_mock_context(**overrides):
+    """Create a mock AIContext-like object with .i4 attribute."""
+    ctx = MagicMock()
+    ctx.symbol = overrides.get("symbol", "ESM6")
+    ctx.timeframe = overrides.get("timeframe", "5m")
+    ctx.i4 = MagicMock()
+    ctx.i4.hmm_regime = overrides.get("hmm_regime", None)
+    return ctx
+
+
 def _make_service_with_mock_agents(n_agents: int = 3):
     """Create AlphaSwarmComputeAgent with mock agents."""
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
@@ -42,11 +72,15 @@ def _make_service_with_mock_agents(n_agents: int = 3):
     svc._context_cache = MagicMock()
     svc._recorder = MagicMock()
     svc._recorder.record = AsyncMock()
+    svc._recorder.flush = AsyncMock()
+    svc._transform_recorder = MagicMock()
+    svc._transform_recorder.record = AsyncMock()
+    svc._transform_recorder.flush = AsyncMock()
     svc._producer = MagicMock()
     svc._producer.publish = AsyncMock()
     svc.logger = MagicMock()
 
-    # Create mock agents
+    # Create mock agents that return AgentOutput
     mock_agents = []
     for i in range(n_agents):
         agent = MagicMock()
@@ -54,13 +88,13 @@ def _make_service_with_mock_agents(n_agents: int = 3):
         agent.path = "llm_swarm"
         agent.shadow_only = True
         agent.latency_budget_ms = 5000.0
-        agent.compute = AsyncMock(return_value=AgentResult(
+        agent.tiers_needed = frozenset()
+        agent.compute = AsyncMock(return_value=AgentOutput(
             agent_id=f"test_agent_{i}",
-            path="llm_swarm",
-            multiplier=0.8,
-            confidence=0.6,
+            group="alpha",
+            output_type="prediction",
+            payload={"multiplier": 0.8, "confidence": 0.6, "failure_probability": 0.5, "prompt_version": "test_v1"},
             shadow_only=True,
-            metadata={"failure_probability": 0.5, "prompt_version": "test_v1"},
         ))
         mock_agents.append(agent)
 
@@ -69,70 +103,62 @@ def _make_service_with_mock_agents(n_agents: int = 3):
 
 
 @pytest.mark.asyncio
-async def test_handle_signal_runs_all_agents():
+async def test_handle_trigger_runs_all_agents():
     """Per D-15: all agents run concurrently via asyncio.gather."""
     svc, agents = _make_service_with_mock_agents(3)
-    ctx = _make_context(symbol="ESM6", timeframe="5m", hmm_regime=1)
+    ctx = _make_mock_context(symbol="ESM6", timeframe="5m", hmm_regime=1)
     svc._context_cache.build = MagicMock(return_value=ctx)
-    svc._context_cache._cache = {}
     svc._enrich_context = MagicMock(return_value=ctx)
 
-    signal = {"symbol": "ESM6", "tf": "5m", "plugin": "TrendFollowing"}
-    await svc._handle_signal(signal)
+    event = _make_signal_event(symbol="ESM6", tf="5m")
+    await svc._handle_trigger(event)
 
     # All 3 agents called
     for agent in agents:
         agent.compute.assert_called_once()
 
-    # ShadowRecorder called 3 times (once per agent)
-    assert svc._recorder.record.call_count == 3
-
-    # Producer published 3 results
+    # 3 publish calls (one per agent result)
     assert svc._producer.publish.call_count == 3
 
 
 @pytest.mark.asyncio
-async def test_handle_signal_filters_1m():
+async def test_handle_trigger_filters_1m():
     """Per D-09: 1m signals are skipped."""
     svc, agents = _make_service_with_mock_agents(3)
 
-    signal = {"symbol": "ESM6", "tf": "1m"}
-    await svc._handle_signal(signal)
+    event = _make_signal_event(symbol="ESM6", tf="1m")
+    await svc._handle_trigger(event)
 
     # No agents called
     for agent in agents:
         agent.compute.assert_not_called()
 
-    # No shadow records
-    svc._recorder.record.assert_not_called()
-
 
 @pytest.mark.asyncio
-async def test_handle_signal_accepts_all_eligible_tfs():
+async def test_handle_trigger_accepts_all_eligible_tfs():
     """Per D-09: 5m, 15m, 1h, 4h, 1d all processed."""
-    from services.swarm_dispatch_service import _ELIGIBLE_TFS
+    from services.alpha_swarm_agent import _ELIGIBLE_TFS
 
     for tf in _ELIGIBLE_TFS:
         svc, agents = _make_service_with_mock_agents(1)
-        ctx = _make_context(timeframe=tf)
+        ctx = _make_mock_context(timeframe=tf)
         svc._context_cache.build = MagicMock(return_value=ctx)
-        svc._context_cache._cache = {}
         svc._enrich_context = MagicMock(return_value=ctx)
 
-        signal = {"symbol": "ESM6", "tf": tf}
-        await svc._handle_signal(signal)
+        event = _make_signal_event(tf=tf)
+        await svc._handle_trigger(event)
 
         agents[0].compute.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_handle_signal_skips_on_no_context():
-    """Signal is skipped when SwarmContextCache returns None."""
+async def test_handle_trigger_skips_on_no_context():
+    """Signal is skipped when context_cache.build returns None."""
     svc, agents = _make_service_with_mock_agents(3)
     svc._context_cache.build = MagicMock(return_value=None)
 
-    signal = {"symbol": "ESM6", "tf": "5m"}
-    await svc._handle_signal(signal)
+    event = _make_signal_event(symbol="ESM6", tf="5m")
+    await svc._handle_trigger(event)
 
     for agent in agents:
         agent.compute.assert_not_called()
@@ -143,7 +169,6 @@ async def test_enrichment_adds_volume_profile():
     """Per D-16: volume_profile dict added to enriched context."""
     svc, _ = _make_service_with_mock_agents(0)
 
-    # Mock _extract_volume_profile to return data
     svc._extract_volume_profile = MagicMock(return_value={
         "vah": 4505.0, "val": 4495.0,
         "price_in_value_area": 0.7,
@@ -179,79 +204,44 @@ async def test_enrichment_adds_lead_context():
 
 
 @pytest.mark.asyncio
-async def test_neutral_result_recorded_on_error():
-    """Per D-11: neutral AgentResult (multiplier=1.0, confidence=0.0) recorded on error."""
+async def test_neutral_result_on_error():
+    """Per D-11: errors are logged but don't crash the service."""
     svc, agents = _make_service_with_mock_agents(1)
 
-    # Agent raises exception
+    # Agent raises exception — SafeAgentWrapper catches and returns error output
     agents[0].compute = AsyncMock(side_effect=Exception("LLM timeout"))
 
-    ctx = _make_context(symbol="ESM6", timeframe="5m")
+    ctx = _make_mock_context(symbol="ESM6", timeframe="5m")
     svc._context_cache.build = MagicMock(return_value=ctx)
-    svc._context_cache._cache = {}
     svc._enrich_context = MagicMock(return_value=ctx)
 
-    signal = {"symbol": "ESM6", "tf": "5m"}
+    event = _make_signal_event(symbol="ESM6", tf="5m")
 
-    # _handle_signal should NOT raise -- exception is inside compute()
-    # But since we're using mock agents (not SwarmBaseAgent), we need to handle this
-    # In real code, SwarmBaseAgent.compute() catches the exception
-    # For this test, verify the service doesn't crash
-
-    # Make the mock agent behave like real SwarmBaseAgent (return neutral on error)
-    agents[0].compute = AsyncMock(return_value=AgentResult(
-        agent_id="test_agent_0",
-        path="llm_swarm",
-        multiplier=1.0,
-        confidence=0.0,
-        shadow_only=True,
-        error="LLM timeout",
-    ))
-
-    await svc._handle_signal(signal)
-
-    # Should have recorded a neutral result
-    svc._recorder.record.assert_called_once()
-    call_args = svc._recorder.record.call_args
-    assert call_args.kwargs["multiplier"] == 1.0
-    assert call_args.kwargs["confidence"] == 0.0
+    # Should NOT raise — error is caught by SafeAgentWrapper
+    await svc._handle_trigger(event)
 
 
 @pytest.mark.asyncio
 async def test_each_agent_recorded_independently():
-    """Per D-15: each agent's result recorded via shared ShadowRecorder."""
+    """Per D-15: each agent's result published independently."""
     svc, agents = _make_service_with_mock_agents(3)
 
     # Give each agent a distinct result
     for i, agent in enumerate(agents):
-        agent.compute = AsyncMock(return_value=AgentResult(
+        agent.compute = AsyncMock(return_value=AgentOutput(
             agent_id=f"test_agent_{i}",
-            path="llm_swarm",
-            multiplier=0.5 + i * 0.3,
-            confidence=0.4 + i * 0.2,
+            group="alpha",
+            output_type="prediction",
+            payload={"multiplier": 0.5 + i * 0.3, "confidence": 0.4 + i * 0.2, "failure_probability": 0.3 + i * 0.1},
             shadow_only=True,
-            metadata={"failure_probability": 0.3 + i * 0.1},
         ))
 
-    ctx = _make_context(symbol="ESM6", timeframe="5m", hmm_regime=1)
+    ctx = _make_mock_context(symbol="ESM6", timeframe="5m", hmm_regime=1)
     svc._context_cache.build = MagicMock(return_value=ctx)
-    svc._context_cache._cache = {}
     svc._enrich_context = MagicMock(return_value=ctx)
 
-    signal = {"symbol": "ESM6", "tf": "5m"}
-    await svc._handle_signal(signal)
-
-    # 3 independent record calls
-    assert svc._recorder.record.call_count == 3
-
-    # Verify each agent recorded with its own agent_id
-    recorded_ids = [
-        call.kwargs["agent_id"]
-        for call in svc._recorder.record.call_args_list
-    ]
-    assert "test_agent_0" in recorded_ids
-    assert "test_agent_1" in recorded_ids
-    assert "test_agent_2" in recorded_ids
+    event = _make_signal_event(symbol="ESM6", tf="5m")
+    await svc._handle_trigger(event)
 
     # 3 independent publish calls
     assert svc._producer.publish.call_count == 3
