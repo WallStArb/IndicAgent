@@ -20,10 +20,10 @@ Field names are extracted from each plugin's outputs frozenset — no guesswork.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from src.core.schemas.bar_message import SessionType
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
@@ -894,55 +894,6 @@ class BarIntelligenceRecord(BaseModel):
     i7_computed_at: datetime
     pipeline_latency_ms: float
 
-
-# ---------------------------------------------------------------------------
-# Alpha Multiplier — swarm / I8 shadow layer
-# Moved here from src/intelligence/schemas/alpha_multiplier.py to avoid
-# the Python namespace collision (schemas.py vs schemas/ package).
-# ---------------------------------------------------------------------------
-
-MIN_MULTIPLIER: float = 0.0
-MAX_MULTIPLIER: float = 2.0
-
-
-class AgentResult(BaseModel):
-    """Result from a single swarm agent. Immutable."""
-
-    model_config = ConfigDict(frozen=True)
-
-    agent_id: str
-    path: Literal["deterministic", "llm_swarm"]
-    multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    shadow_only: bool = True
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    latency_ms: float = 0.0
-    error: str | None = None
-
-
-class AlphaMultiplier(BaseModel):
-    """Assembled alpha multiplier for a signal. Published to swarm.alpha.* topics."""
-
-    model_config = ConfigDict(frozen=True)
-
-    signal_id: UUID
-    symbol: str
-    timeframe: str
-    ts: datetime
-
-    path_a_multiplier: float | None
-    path_b_multiplier: float | None
-    path_b_discount: float = 0.3
-
-    contributors: dict[str, Any]  # AgentOutput.model_dump() — untyped at schema level
-    final_alpha_multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
-    production_multiplier: float
-    shadow_only: bool
-
-    @property
-    def is_production_ready(self) -> bool:
-        """Returns True only when all contributors are production-ready (not shadow-only)."""
-        return not self.shadow_only
 
 class MacroSignals(BaseModel):
     """Macro factor signals from MacroComputeAgent.
