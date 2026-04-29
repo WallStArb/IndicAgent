@@ -514,19 +514,31 @@ class OTelCounter:
         return self._labeled[key]
 
     def inc(self, amount: float = 1.0) -> None:
+        self._total = getattr(self, "_total", 0.0) + amount
         self._counter.add(amount, {})
+
+    def get(self) -> float:
+        """Return accumulated total for unlabeled counter. Used by tests."""
+        return getattr(self, "_total", 0.0)
 
 
 class _OTelLabeledGauge:
     def __init__(self, gauge, labels: dict):
         self._gauge = gauge
         self._labels = labels
+        self._last_value: float = 0.0
 
     def set(self, value: float) -> None:
+        self._last_value = value
         self._gauge.set(value, self._labels)
+
+    def get(self) -> float:
+        """Return the last set value. Used by tests that inspect gauge state."""
+        return self._last_value
 
     def inc(self, amount: float = 1.0) -> None:
         # Gauge.inc() pattern -- set to amount (OTel gauge does not support increment)
+        self._last_value = amount
         self._gauge.set(amount, self._labels)
 
 
@@ -552,16 +564,27 @@ class OTelGauge:
         return self._labeled[key]
 
     def set(self, value: float) -> None:
+        self._last_value = value
         self._gauge.set(value, {})
+
+    def get(self) -> float:
+        """Return the last set value. Used by tests."""
+        return getattr(self, "_last_value", 0.0)
 
 
 class _OTelLabeledHistogram:
     def __init__(self, histogram, labels: dict):
         self._histogram = histogram
         self._labels = labels
+        self._count: int = 0
 
     def observe(self, value: float) -> None:
+        self._count += 1
         self._histogram.record(value, self._labels)
+
+    def get_count(self) -> int:
+        """Return number of observations. Used by tests inspecting histogram activity."""
+        return self._count
 
 
 class OTelHistogram:
@@ -587,7 +610,12 @@ class OTelHistogram:
         return self._labeled[key]
 
     def observe(self, value: float) -> None:
+        self._count = getattr(self, "_count", 0) + 1
         self._histogram.record(value, {})
+
+    def get_count(self) -> int:
+        """Return number of observations. Used by tests."""
+        return getattr(self, "_count", 0)
 
 
 def record_plugin_execution(
