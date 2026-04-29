@@ -12,6 +12,8 @@ Tests seed_roll_chain():
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -281,10 +283,10 @@ class TestSeedRollChainCLIFlag:
         import subprocess
 
         result = subprocess.run(
-            [".venv/bin/python", "production/scripts/historical_backfill.py", "--help"],
+            [sys.executable, "production/scripts/historical_backfill.py", "--help"],
             capture_output=True,
             text=True,
-            cwd="/home/bg/dev/indicagent",
+            cwd=str(Path(__file__).resolve().parents[2]),
         )
         assert (
             "--seed-roll-chain" in result.stdout
