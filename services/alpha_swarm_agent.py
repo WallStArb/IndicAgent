@@ -191,8 +191,8 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         enriched = self._enrich_context(context)
 
-        from src.core.ai.safe_wrapper import SafeAgentWrapper
-
+        # D-18: BaseAIAgent.compute() already provides asyncio.wait_for + neutral
+        # fallback — SafeAgentWrapper deleted in Phase 78.
         tasks = []
         for agent in self._agents:
             agent_context = self._context_cache.build(
@@ -211,8 +211,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 )
                 continue
 
-            wrapper = SafeAgentWrapper(agent)
-            tasks.append(wrapper.compute(self._enrich_context(agent_context)))
+            tasks.append(agent.compute(self._enrich_context(agent_context)))
 
         if not tasks:
             return
