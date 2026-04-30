@@ -463,7 +463,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             )
             return
 
-        segment_key = f"{hmm_regime}.{enriched.timeframe}"
+        segment_key = f"{int(hmm_regime)}.{enriched.timeframe}"
         multiplier = result.payload.get("multiplier", 1.0)
 
         self._lineage.record(

@@ -19,7 +19,8 @@ from uuid import uuid4
 
 import pytest
 
-from src.core.ai.context import AIContext, I4Context
+from src.core.ai.context import AIContext
+from src.intelligence.schemas import SMCContext
 from src.core.ai.output import AgentOutput
 from src.core.stream_keys import topic_signal_lineage
 
@@ -50,12 +51,12 @@ def _make_agent(hmm_regime: int = 1, tf: str = "5m"):
     agent._lineage = LineageRecorder(producer=fake_producer, env_name="test")
 
     # Mock context cache
-    i4_ctx = I4Context(hmm_regime=hmm_regime)
+    smc_ctx = SMCContext(hmm_regime=hmm_regime)
     mock_context = AIContext(
         symbol="ESM6",
         timeframe=tf,
         ts=datetime.now(UTC),
-        i4=i4_ctx,
+        smc=smc_ctx,
     )
     agent._context_cache = MagicMock()
     agent._context_cache.build.return_value = mock_context
@@ -140,12 +141,12 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
     """One signal in → one Kafka message to topic_signal_lineage with agent_prediction."""
     agent, fake_producer = _make_agent(hmm_regime=1, tf="5m")
 
-    i4_ctx = I4Context(hmm_regime=1)
+    smc_ctx = SMCContext(hmm_regime=1)
     enriched = AIContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
-        i4=i4_ctx,
+        smc=smc_ctx,
     )
     result = AgentOutput(
         agent_id="skeptic_v1",
@@ -178,12 +179,12 @@ async def test_record_swarm_result_segment_key_numeric():
     """Recorded segment_key must match r'^\\d+\\.[0-9]+m$' (numeric.TFm)."""
     agent, fake_producer = _make_agent(hmm_regime=2, tf="15m")
 
-    i4_ctx = I4Context(hmm_regime=2)
+    smc_ctx = SMCContext(hmm_regime=2)
     enriched = AIContext(
         symbol="NQM6",
         timeframe="15m",
         ts=datetime.now(UTC),
-        i4=i4_ctx,
+        smc=smc_ctx,
     )
     result = AgentOutput(
         agent_id="skeptic_v1",
@@ -213,12 +214,12 @@ async def test_record_swarm_result_missing_hmm_regime_skips():
     """If hmm_regime is None, _record_swarm_result must log warning and skip."""
     agent, fake_producer = _make_agent(hmm_regime=1)
 
-    i4_ctx = I4Context(hmm_regime=None)
+    smc_ctx = SMCContext(hmm_regime=None)
     enriched = AIContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
-        i4=i4_ctx,
+        smc=smc_ctx,
     )
     result = AgentOutput(
         agent_id="skeptic_v1",
@@ -281,12 +282,12 @@ async def test_segment_key_uses_numeric_regime():
     """For i4.hmm_regime=1 and tf='5m', segment_key == '1.5m'."""
     agent, fake_producer = _make_agent(hmm_regime=1, tf="5m")
 
-    i4_ctx = I4Context(hmm_regime=1)
+    smc_ctx = SMCContext(hmm_regime=1)
     enriched = AIContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
-        i4=i4_ctx,
+        smc=smc_ctx,
     )
     result = AgentOutput(
         agent_id="skeptic_v1",
