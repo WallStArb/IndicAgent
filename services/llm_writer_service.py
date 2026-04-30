@@ -733,7 +733,7 @@ class LLMWriterAgent(BaseWriterAgent):
             return
 
         try:
-            rows = await self.db_manager.fetch_all(_SELECT_OUTCOME_ROWS_SQL, [])
+            rows = await self.db_manager.fetch(_SELECT_OUTCOME_ROWS_SQL)
             if not rows:
                 return
 
