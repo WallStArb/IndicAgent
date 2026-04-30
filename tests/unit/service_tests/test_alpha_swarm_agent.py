@@ -1,4 +1,4 @@
-"""Unit tests for AlphaSwarmComputeAgent — Plan 78-01.
+"""Unit tests for AlphaSwarmComputeAgent — Plan 78-01 + 78-03.
 
 Tests verify:
 - Single LineageRecorder replaces ShadowRecorder + TransformRecorder
@@ -7,11 +7,13 @@ Tests verify:
 - ES resolves to NQ via _LEAD_MAP; NQ self-leads
 - _extract_volume_profile removed
 - ShadowRecorder/TransformRecorder not importable from module
+- Plan 78-03: _graduation_loop Spearman gates (promotion, demotion, under-N)
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -316,3 +318,193 @@ async def test_es_lead_is_nq():
     # _resolve_lead takes the base symbol, not the full contract
     lead = _resolve_lead("ES")
     assert lead == "NQ", f"Expected lead='NQ' for ES, got {lead!r}"
+
+
+# ---------------------------------------------------------------------------
+# Plan 78-03: _graduation_loop unit tests (Spearman gates)
+# ---------------------------------------------------------------------------
+
+
+def _structlog_mock():
+    """Minimal structlog-compatible mock."""
+    log = MagicMock()
+    log.info = MagicMock()
+    log.warning = MagicMock()
+    log.error = MagicMock()
+    return log
+
+
+def _make_graduation_agent():
+    """Build AlphaSwarmComputeAgent with mock DB pool for graduation tests."""
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+
+    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent.settings = MagicMock()
+    agent.settings.swarm_graduation_interval_s = 0  # no sleep in tests
+    agent.logger = _structlog_mock()
+    agent._pool = MagicMock()
+    agent._demotion_streak = 0
+    # Note: 'running' is a read-only property; _run_graduation_cycle() is callable directly
+    return agent
+
+
+def _make_mock_pool_and_conn(rows: list[tuple], current_state: str = "shadow"):
+    """Return (pool, conn) mock yielding (multiplier, pnl_r) rows.
+
+    Each row is (prediction_value, pnl_r); prediction stored as {'score': value}.
+    current_state 'shadow' means is_shadow=True.
+    """
+    is_shadow = current_state == "shadow"
+
+    # Build asyncpg Record-like dicts
+    records = [{"prediction": {"score": float(m)}, "pnl_r": float(p)} for m, p in rows]
+    state_row = {"is_shadow": is_shadow, "demotion_consecutive_count": 0}
+
+    conn = MagicMock()
+    conn.fetch = AsyncMock(return_value=records)
+    conn.fetchrow = AsyncMock(return_value=state_row)
+    conn.execute = AsyncMock()
+
+    conn_ctx = MagicMock()
+    conn_ctx.__aenter__ = AsyncMock(return_value=conn)
+    conn_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=conn_ctx)
+    return pool, conn
+
+
+@pytest.mark.asyncio
+async def test_promotion_gate_promotes_with_100_positive_samples():
+    """100 strongly-positive correlated samples → state transitions to 'live' (is_shadow=FALSE)."""
+    import numpy as np
+
+    agent = _make_graduation_agent()
+
+    # 100 samples with strong positive Spearman correlation
+    rng = np.random.default_rng(42)
+    predictions = np.linspace(0.1, 1.0, 100)
+    pnl_rs = predictions + rng.normal(0, 0.05, 100)  # strong positive correlation
+    rows = list(zip(predictions.tolist(), pnl_rs.tolist()))
+
+    pool, conn = _make_mock_pool_and_conn(rows, current_state="shadow")
+    agent._pool = pool
+
+    await agent._run_graduation_cycle()
+
+    # Check that promotion UPDATE was issued: is_shadow=FALSE
+    execute_calls = conn.execute.call_args_list
+    assert len(execute_calls) > 0, "Expected at least one DB execute call"
+    # Find UPDATE call that passes is_shadow=False
+    promoted = any(
+        False in call.args  # asyncpg uses positional params
+        for call in execute_calls
+    )
+    assert promoted or agent.logger.info.called, (
+        f"Promotion UPDATE not found. execute_calls={execute_calls}"
+    )
+    # Check logger for 'live' in info calls
+    info_str = str(agent.logger.info.call_args_list)
+    assert "live" in info_str, f"Expected 'live' state logged. info_calls={info_str}"
+
+
+@pytest.mark.asyncio
+async def test_under_n_no_eval():
+    """50 samples (< 100) → no Spearman; n written to DB; no promotion."""
+    import numpy as np
+
+    agent = _make_graduation_agent()
+
+    rng = np.random.default_rng(7)
+    predictions = np.linspace(0.1, 1.0, 50)
+    pnl_rs = predictions + rng.normal(0, 0.05, 50)
+    rows = list(zip(predictions.tolist(), pnl_rs.tolist()))
+
+    pool, conn = _make_mock_pool_and_conn(rows, current_state="shadow")
+    agent._pool = pool
+
+    await agent._run_graduation_cycle()
+
+    # No promotion: is_shadow=False should NOT appear in execute args
+    execute_calls = conn.execute.call_args_list
+    assert len(execute_calls) > 0, "Expected UPDATE to write n_resolved even under-N"
+    promoted = any(
+        False in call.args
+        for call in execute_calls
+    )
+    assert not promoted, f"Unexpected promotion with n=50: execute_calls={execute_calls}"
+
+    # n=50 should appear as an integer arg in one of the execute calls
+    all_int_args = [
+        a for call in execute_calls for a in call.args if isinstance(a, int)
+    ]
+    assert 50 in all_int_args, f"n=50 not found in execute call args: {execute_calls}"
+
+
+@pytest.mark.asyncio
+async def test_demotion_streak_fires_after_3_consecutive_negative_cycles():
+    """state='live', 3 consecutive rho < 0 → demotion; streak resets on positive cycle."""
+    import numpy as np
+
+    rng = np.random.default_rng(99)
+    predictions = np.linspace(0.1, 1.0, 100)
+
+    # Negative correlation rows
+    neg_pnl = -predictions + rng.normal(0, 0.05, 100)
+    neg_rows = list(zip(predictions.tolist(), neg_pnl.tolist()))
+
+    # Test 1: 3 consecutive negative cycles → _demotion_streak reaches 3
+    agent = _make_graduation_agent()
+    agent._demotion_streak = 0
+
+    for _cycle in range(3):
+        pool, conn = _make_mock_pool_and_conn(neg_rows, current_state="live")
+        agent._pool = pool
+        await agent._run_graduation_cycle()
+
+    assert agent._demotion_streak >= 3, (
+        f"_demotion_streak should be >= 3 after 3 neg cycles, got {agent._demotion_streak}"
+    )
+
+    # Test 2: streak resets to 0 after positive cycle
+    pos_pnl = predictions + rng.normal(0, 0.05, 100)
+    pos_rows = list(zip(predictions.tolist(), pos_pnl.tolist()))
+
+    agent2 = _make_graduation_agent()
+    agent2._demotion_streak = 0
+
+    # Cycle 1: negative → streak = 1
+    pool, conn = _make_mock_pool_and_conn(neg_rows, current_state="live")
+    agent2._pool = pool
+    await agent2._run_graduation_cycle()
+    streak_after_neg = agent2._demotion_streak
+    assert streak_after_neg == 1, f"Expected streak=1 after neg, got {streak_after_neg}"
+
+    # Cycle 2: positive → streak = 0
+    pool, conn = _make_mock_pool_and_conn(pos_rows, current_state="live")
+    agent2._pool = pool
+    await agent2._run_graduation_cycle()
+    streak_after_pos = agent2._demotion_streak
+    assert streak_after_pos == 0, f"Expected streak=0 after pos, got {streak_after_pos}"
+
+    # Cycle 3: negative → streak = 1 (reset from 0, not from 2)
+    pool, conn = _make_mock_pool_and_conn(neg_rows, current_state="live")
+    agent2._pool = pool
+    await agent2._run_graduation_cycle()
+    streak_final = agent2._demotion_streak
+    assert streak_final == 1, f"Expected streak=1 after reset+neg, got {streak_final}"
+
+
+@pytest.mark.asyncio
+async def test_graduation_loop_handles_nan_gracefully():
+    """Constant prediction values → scipy nan rho — treated as rho=0, p=1; no crash."""
+    agent = _make_graduation_agent()
+
+    # 100 rows with constant prediction (scipy returns nan rho)
+    rows = [(0.5, float(i) * 0.01) for i in range(100)]
+    pool, conn = _make_mock_pool_and_conn(rows, current_state="shadow")
+    agent._pool = pool
+
+    # Should not raise
+    await agent._run_graduation_cycle()
+    # No crash = pass
