@@ -1,18 +1,30 @@
-"""ShadowRecorder — async batch writer for alpha_multiplier_shadow.
+"""ARCHIVED in Phase 78 (D-04). ShadowRecorder is preserved for historical reference only.
 
+After Phase 78 the swarm writes via src.core.ai.lineage.LineageRecorder. Do NOT import
+this module from production code. The class body below is retained verbatim so that
+historical migrations and tests can still inspect the old contract.
+
+Original purpose: async batch writer for alpha_multiplier_shadow.
 Called automatically by AIBaseAgent (Plan 56-04 SwarmBaseAgent via compute()).
 Zero per-agent boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.
 """
-
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
-from typing import Any
-from uuid import UUID
+import warnings
 
-import structlog
+warnings.warn(
+    "ShadowRecorder is archived (Phase 78 D-04). Use LineageRecorder.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+import json  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+from typing import Any  # noqa: E402
+from uuid import UUID  # noqa: E402
+
+import structlog  # noqa: E402
 
 logger = structlog.get_logger(__name__)
 
