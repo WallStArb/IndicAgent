@@ -193,6 +193,27 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Pipeline optimization status:** I1/I7 tiers are parallelized (via `asyncio.gather` + ThreadPoolExecutor in `intelligence_pipeline_agent.py`), but I2-I6 tiers remain sequential — this is the current bottleneck. GIL contention prevents threading from achieving true parallelism; individual plugin vectorization (e.g., OBVMomentum 46x faster) doesn't improve overall throughput.
 - **When optimizing plugins:** Profile first with Renaissance principles — measure → fix biggest lever → measure. Don't optimize individual plugins without confirming the bottleneck is in that tier.
 
+## Adding an AI Agent
+
+Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton
+in `src/intelligence/ai/TEMPLATE_agent.py`. Canonical reference: `skeptic_agent.py`.
+
+1. **Class attributes** (mandatory five): `agent_id`, `group`, `tiers_needed`,
+   `latency_budget_ms`, `shadow_only`. See AUTHORING.md for semantics.
+2. **File location**: `src/intelligence/ai/<group>/<name>_agent.py` plus a
+   paired `<name>_prompts.py`.
+3. **tiers_needed**: Use `Tier` enum. Tiers drive `AIContextCache.build()`
+   — only requested tiers populate.
+4. **`_compute()` contract**: Build prompt -> call LLM -> parse -> return
+   `AgentOutput`. Never raise; use `self._neutral(error=...)` on failure.
+   Include `prompt_version` in payload so LineageRecorder attribution is correct.
+5. **Prompt file convention**: `<name>_prompts.py` exposes `PROMPT_REGISTRY: dict`
+   and `ACTIVE_VERSION: str`. Build function takes the typed AIContext (v2 pattern).
+
+After adding the agent class, register it in the relevant group service
+(e.g., `AlphaSwarmComputeAgent._agents`) and call `shadow_registry_ensure()`
+at startup so the graduation loop tracks it.
+
 ## Development Standards
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues. See `docs/operations/infrastructure-reference.md` for CodeRabbit limits and pre-commit hook details.

@@ -29,7 +29,7 @@ from scipy.stats import spearmanr
 
 from src.config.settings import Settings
 from src.core.ai.base_group_service import BaseGroupService
-from src.core.ai.context import AIContext
+from src.core.ai.context import AIContext, Tier
 from src.core.ai.lineage import LineageRecorder
 from src.core.ai.output import AgentOutput
 from src.core.stream_keys import (
@@ -364,7 +364,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         context = self._context_cache.build(
             symbol=symbol,
             tf=tf,
-            tiers_needed=frozenset(),
+            tiers_needed=frozenset({Tier.SMC}),  # need SMC for hmm_regime segment_key
             signal=signal_dict,
             signal_id=signal_id,
         )
@@ -448,8 +448,10 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         if self._lineage is None:
             return
 
-        # Build segment_key from I4 hmm_regime (numeric) + timeframe
-        hmm_regime = enriched.i4.hmm_regime if enriched.i4 is not None else None
+        # Build segment_key from SMC hmm_regime (numeric) + timeframe.
+        # NOTE: hmm_regime lives on SMCContext, not I4Context (schemas.I4Context has no
+        # hmm_regime field). D-09/D-10 rewrite moved this to ctx.smc per Plan 05.
+        hmm_regime = enriched.smc.hmm_regime if enriched.smc is not None else None
         if hmm_regime is None:
             self.logger.warning(
                 "alpha_swarm.missing_hmm_regime",
