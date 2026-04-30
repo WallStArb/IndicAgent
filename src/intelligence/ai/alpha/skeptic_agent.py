@@ -56,8 +56,11 @@ class SkepticAgentComputeAgent(BaseAIAgent):
         Per D-04: multiplier = (1.0 - failure_probability) * llm_confidence.
         Per D-06: raw values stored in payload, never overwrites signal_ledger.
         """
-        # Build prompt from AIContext - convert to dict for prompt building
-        prompt = build_skeptic_prompt(_context_to_dict(context))
+        # Build prompt — v2 passes AIContext directly; v1 uses dict adapter
+        if ACTIVE_VERSION == "skeptic_v2":
+            prompt = build_skeptic_prompt(context)
+        else:
+            prompt = build_skeptic_prompt(_context_to_dict(context))
 
         response = await self._llm.generate(
             prompt=prompt,
