@@ -360,8 +360,7 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        # Mock fetch_all to return a row with symbol
-        svc.db_manager.fetch_all = AsyncMock(
+        svc.db_manager.fetch = AsyncMock(
             return_value=[
                 {
                     "model": "test_model",
@@ -403,7 +402,7 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        svc.db_manager.fetch_all = AsyncMock(
+        svc.db_manager.fetch = AsyncMock(
             return_value=[
                 {
                     "model": "test_model",
