@@ -176,7 +176,7 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
 
 @pytest.mark.asyncio
 async def test_record_swarm_result_segment_key_numeric():
-    """Recorded segment_key must match ^\d+\.[0-9]+m$ (numeric.TFm)."""
+    """Recorded segment_key must match r'^\\d+\\.[0-9]+m$' (numeric.TFm)."""
     agent, fake_producer = _make_agent(hmm_regime=2, tf="15m")
 
     i4_ctx = I4Context(hmm_regime=2)
