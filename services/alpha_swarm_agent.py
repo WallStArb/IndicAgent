@@ -29,6 +29,7 @@ from src.core.stream_keys import (
 from src.intelligence.ai.alpha.correlation_agent import CorrelationAgentComputeAgent
 from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
 from src.intelligence.ai.alpha.volume_agent import VolumeAgentComputeAgent
+from src.intelligence.schemas import signal_dict_to_ranked
 
 logger = structlog.get_logger(__name__)
 
@@ -157,12 +158,10 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         - SwarmAggregator calls
         - ShadowRecorder + TransformRecorder writes
         """
-        from src.intelligence.schemas import RankedSignal
-
         try:
-            signal = RankedSignal(**raw_signal)
-        except Exception:
-            self.logger.warning("alpha_swarm.invalid_trigger", event=raw_signal)
+            signal = signal_dict_to_ranked(raw_signal)
+        except Exception as e:
+            self.logger.warning("alpha_swarm.invalid_trigger", signal=raw_signal, exc_info=e)
             return
 
         symbol = signal.symbol
