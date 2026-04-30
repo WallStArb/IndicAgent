@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import datetime
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
 
@@ -868,6 +868,47 @@ class RankedSignal(BaseModel):
     tod_multiplier: float
     adjusted_rank: float
     is_winner: bool = False
+
+
+# Fields consumed by explicit kwargs in signal_dict_to_ranked — excluded from **extras.
+_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "setup_plugin",
+        "direction",
+        "pre_quality_confidence",
+        "confidence",
+        "calibrated_confidence",
+        "regime_eligible",
+        "quality_score",
+        "tod_multiplier",
+        "adjusted_rank",
+        "was_selected",
+    }
+)
+
+
+def signal_dict_to_ranked(sig: dict) -> RankedSignal:
+    """Map a raw pipeline signal dict to RankedSignal, translating field names.
+
+    Key renames: setup_plugin→plugin, pre_quality_confidence→raw_confidence,
+    was_selected→is_winner. calibrated_confidence falls back to confidence when absent.
+    All other keys pass through via extra="allow".
+    """
+    _cc = sig.get("calibrated_confidence")
+    return RankedSignal(
+        signal_id=str(sig.get("signal_id") or uuid4()),
+        plugin=sig.get("setup_plugin", "unknown"),
+        direction=int(sig.get("direction", 0)),
+        raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
+        calibrated_confidence=float(_cc if _cc is not None else sig.get("confidence", 0.0)),
+        regime_eligible=bool(sig.get("regime_eligible", True)),
+        quality_score=float(sig.get("quality_score", 1.0)),
+        tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
+        adjusted_rank=float(sig.get("adjusted_rank", 0.0)),
+        is_winner=bool(sig.get("was_selected", False)),
+        **{k: v for k, v in sig.items() if k not in _RANKED_CONSUMED_KEYS},
+    )
 
 
 class BarIntelligenceRecord(BaseModel):

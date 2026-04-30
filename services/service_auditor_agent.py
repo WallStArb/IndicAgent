@@ -46,32 +46,40 @@ _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 # ---------------------------------------------------------------------------
 
 _DAG_ORDER: dict[str, int] = {
+    # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,
     "indicagent-provider-merger": 2,
+    # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,
     "indicagent-bar-auditor": 3,
     "indicagent-bar-writer": 4,
+    # Layer 3 — intelligence pipeline (I1-I7)
     "indicagent-intelligence-pipeline": 5,
+    "indicagent-cross-asset": 5,
+    "indicagent-macro-compute": 5,
+    # Layer 4 — persistence writers (parallel, all consume pipeline output)
     "indicagent-feature-writer": 6,
     "indicagent-signal-tracker-compute": 6,
     "indicagent-signal-writer": 6,
     "indicagent-lifecycle-writer": 6,
+    "indicagent-lineage-writer": 6,
     "indicagent-contract-metadata-writer": 6,
+    # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
+    "indicagent-alpha-swarm": 7,
     "indicagent-ai-narrative": 7,
     "indicagent-llm-writer": 7,
-    "indicagent-cross-asset": 7,
+    # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-roll-compute": 8,
-    "indicagent-macro-compute": 8,
-    "indicagent-swarm-orchestrator": 8,
-    "indicagent-swarm-writer": 8,
     "indicagent-signal-metrics-compute": 8,
     "indicagent-signal-metrics-writer": 8,
+    "indicagent-graduation-compute": 8,
+    "indicagent-graduation-writer": 8,
+    "indicagent-feature-snapshot-writer": 8,
+    # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,
     "indicagent-parity-auditor": 9,
-    "indicagent-feature-snapshot-writer": 9,
-    "indicagent-graduation-writer": 9,
-    "indicagent-graduation-compute": 9,
     "indicagent-alerting-agent": 9,
+    # Layer 8 — meta: monitors and restarts all of the above
     "indicagent-service-auditor": 10,
 }
 
@@ -82,18 +90,20 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-bar-auditor": 200,
     "indicagent-bar-writer": 1000,
     "indicagent-intelligence-pipeline": 500,
+    "indicagent-cross-asset": 200,
+    "indicagent-macro-compute": 500,
     "indicagent-feature-writer": 1000,
     "indicagent-signal-tracker-compute": 500,
     "indicagent-signal-writer": 500,
     "indicagent-lifecycle-writer": 500,
+    "indicagent-lineage-writer": 500,
     "indicagent-contract-metadata-writer": 500,
+    "indicagent-alpha-swarm": 200,
     "indicagent-ai-narrative": 200,
     "indicagent-llm-writer": 500,
-    "indicagent-cross-asset": 200,
-    "indicagent-swarm-writer": 500,
     "indicagent-signal-metrics-writer": 500,
-    "indicagent-feature-snapshot-writer": 500,
     "indicagent-graduation-writer": 500,
+    "indicagent-feature-snapshot-writer": 500,
 }
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
@@ -111,17 +121,19 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_auditor_agent": "indicagent-bar-auditor",
     "provider_merger_agent": "indicagent-provider-merger",
     "lifecycle_writer_agent": "indicagent-lifecycle-writer",
+    "lineage_writer_agent": "indicagent-lineage-writer",
     "FeatureSnapshotWriterAgent": "indicagent-feature-snapshot-writer",
     "signal_metrics_compute": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
-    "SwarmOrchestratorComputeAgent": "indicagent-swarm-orchestrator",
-    "SwarmWriterAgent": "indicagent-swarm-writer",
+    "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
+    "NarrativeGroupComputeAgent": "indicagent-ai-narrative",
     "roll_compute_agent": "indicagent-roll-compute",
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
     "contract_metadata_writer_agent": "indicagent-contract-metadata-writer",
     "ParityAuditorAgent": "indicagent-parity-auditor",
-    "GraduationComputeAgent": "indicagent-graduation-writer",
+    "GraduationComputeAgent": "indicagent-graduation-compute",
+    "graduation_writer_agent": "indicagent-graduation-writer",
 }
 
 # OTel gauge for per-unit service health (1=active, 0=inactive/failed)

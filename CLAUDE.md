@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.37.0 | Status: v2.3 PARTIAL — Phase 64 core complete (2026-04-28); 03C+04 deferred (~May 10 data gate). v2.5 PARTIAL — Phases 69+71+72 shipped; Phase 70 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate for Phase 64 03C+04 and Phase 70.
+Version: 5.37.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -33,7 +33,7 @@ cd dashboard && npm run dev
 **API:** `uvicorn src.api.main:app` (`:8000`)
 **Service status:** `systemctl list-units --all | grep indicagent`
 **Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
-**Full reference:** `docs/cheatsheet.md`
+**Full reference:** `docs/cheatsheet.md` · **Roadmap:** `.planning/ROADMAP.md`
 
 ---
 
@@ -114,25 +114,38 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 
 ## Key Components
 
-### Active Services (key services — full list: `systemctl list-units --all | grep indicagent`)
+### Service DAG
 
-| Service | Unit | Purpose |
-|---------|------|---------|
-| Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics |
-| IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation |
-| Bar Aggregator | `indicagent-bar-aggregator` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
-| Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer |
-| Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer |
-| Signal Tracker | `indicagent-signal-tracker-compute` | Zone-aware lifecycle (DB-ignorant compute); publishes transitions to `LifecycleWriterAgent` |
-| Lifecycle Writer | `indicagent-lifecycle-writer` | Persists signal lifecycle transitions to `signal_ledger` |
-| ML Data Quality | `indicagent-ml-data-quality` (timer) | Audits `intelligence_features` for training data quality |
-| ML Discovery | `indicagent-ml-discovery` (timer) | Discovers ML training signal patterns |
-| ML Orchestrator | `indicagent-ml-orchestrator` (timer) | Orchestrates ML training pipeline |
-| Alpha Swarm | `indicagent-alpha-swarm` | LLM alpha multiplier agents (skeptic, correlation, volume); extends BaseGroupService |
-| Swarm Writer | `indicagent-swarm-writer` | Persists swarm outputs to DB |
-| AI Narrative | `indicagent-ai-narrative` | I8: LLM market narrative generation (5m+ TF gated); extends BaseGroupService |
-| Lineage Writer | `indicagent-lineage-writer` | Persists signal_lineage events (transform, agent_prediction, lifecycle) |
-| API | `indicagent-api` | FastAPI + SSE on :8000 |
+The canonical service registry is `_DAG_ORDER` in `services/service_auditor_agent.py`. That dict is the single source of truth — it drives restart priority, lag monitoring, and health escalation. Never maintain a parallel list here.
+
+**Live state:** `systemctl list-units --all | grep indicagent`
+**Monitoring:** Grafana `:3001` → `indicagent_service_up` gauge per unit (1=active, 0=failed)
+**Health audit trail:** `service_health_events` TimescaleDB table + `system.health.events` Kafka topic
+**Self-healing:** `indicagent-service-auditor` auto-discovers units, monitors Prometheus lag, restarts in DAG order, escalates after 3 failures in 10 min
+
+DAG layers (from `_DAG_ORDER`):
+```
+L1  ibkr-provider                       — data ingestion
+L2  provider-merger                      — stream merge
+L3  bar-aggregator, bar-auditor          — bar processing
+L4  bar-writer                           — OHLCV persistence
+L5  intelligence-pipeline, cross-asset,
+    macro-compute                        — I1-I7 compute + context
+L6  feature-writer, signal-writer,
+    signal-tracker-compute, lifecycle-
+    writer, lineage-writer,
+    contract-metadata-writer             — persistence writers (parallel)
+L7  alpha-swarm, ai-narrative,
+    llm-writer                           — AI/LLM layer
+L8  roll-compute, signal-metrics-*,
+    graduation-*, feature-snapshot-writer — analytics + rolling metrics
+L9  signal-auditor, parity-auditor,
+    alerting-agent                       — audit, parity, alerting
+L10 service-auditor                      — meta: monitors + restarts all above
+```
+
+ML timers (gated by data quality — inactive between runs):
+- `indicagent-ml-data-quality` · `indicagent-ml-discovery` · `indicagent-ml-orchestrator`
 
 ### Core Runtime Files
 - `src/core/stream_keys.py` — all stream/topic key construction
@@ -153,8 +166,6 @@ Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
 Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 ```
 **Real-time pipeline never touches the database directly.**
-
-**Signal lifecycle is a different concern from signal generation.** Generation is real-time compute (ms latency, per-bar). Lifecycle is business object tracking (minutes to days, state accumulates). The signal tracker is the only service that violates the compute→Kafka→writer DAG pattern — it reads and writes signal_ledger in the same process. Fix plan: `docs/plans/2026-04-10-pipeline-health-fixes-design.md`.
 
 ### TimescaleDB Tables
 - `market_data_ohlcv` — raw OHLCV (backfill + live via BarWriterAgent; keep forever — ground truth). Primary time column is `timestamp` (not `ts`); columns: `timestamp`, `symbol`, `timeframe`, `open`, `high`, `low`, `close`, `volume`, `source`, `base`.
@@ -199,8 +210,11 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **`KafkaProducerClient` / `KafkaConsumerClient`**: Infrastructure utilities in `src/core/` — not Agents or Services. `Client` suffix is correct; do not apply `PascalCaseService` or `PascalCaseAgent` rules to them.
 - **Kafka is transport, not state store.** Never use a compacted Kafka topic to persist agent state. Hot indicator state (plugin_states, kalman, tod_priors) belongs in a local file checkpoint (`cache/pipeline_checkpoint.json`); bar history belongs in TimescaleDB. The `intelligence.pipeline.state` topic was deleted — do not recreate it.
 - **Timestamps: always UTC.** All datetimes must be timezone-aware UTC — `datetime.now(UTC)` or `datetime.now(tz=UTC)`. Never `datetime.now()` (naive) or `datetime.utcnow()` (naive despite the name). When labeling a naive timestamp from an external source (e.g. IBKR bars), use `replace(tzinfo=UTC)` only if you are certain the source is already UTC — otherwise `astimezone(UTC)`. All DB columns are `timestamp with time zone`; all stream timestamps are UTC ISO-8601 (`Z` suffix).
-- **asyncpg batch inserts**: `execute_batch()` / `executemany()` requires Python `datetime` objects for `timestamptz` columns — ISO-8601 strings cause type mismatch. SQL `::timestamptz` casts work for single inserts but not batch mode. Use `_parse_ts()` from `feature_writer_service.py` or parse with `datetime.fromisoformat()` before inserting.
+- **asyncpg batch inserts**: `execute_batch()` / `executemany()` requires Python `datetime` objects for `timestamptz` columns — ISO-8601 strings cause type mismatch. Use `_parse_ts()` from `feature_writer_service.py` or parse with `datetime.fromisoformat()` before inserting.
 - **Async Database Operations (Default)**: Use `asyncpg` for all new database code — never `psycopg2`. Connection: `conn = await asyncpg.connect(settings.database_url)` or pool context `async with asyncpg.create_pool(settings.database_url) as pool:`. Scripts: wrap entry point in `asyncio.run(_amain(args))`. All DB calls use `async/await`. JSONB: asyncpg returns Python `dict` (no `json.loads()` needed). Timestamps: asyncpg returns `datetime` objects (no parsing for `timestamptz`). UUIDs: asyncpg returns `uuid.UUID` objects — always `str()` before JSON serialization or Kafka publish.
+- **`topic_intelligence_i7_signals` payload uses raw pipeline field names**: `setup_plugin` (not `plugin`), `pre_quality_confidence` (not `raw_confidence`), no `signal_id`. Use `signal_dict_to_ranked()` from `src/intelligence/schemas.py` to deserialize — never `RankedSignal(**raw_signal)` directly.
+- **structlog `event` kwarg collision**: `event` is structlog's reserved positional argument. Never pass `event=<value>` as a keyword to `.info()`/`.warning()`/`.error()` — causes "multiple values for argument 'event'" at runtime. Use `signal=`, `payload=`, `data=`, etc.
+- **Service registry = `_DAG_ORDER` in `services/service_auditor_agent.py`**: single source of truth for all services, restart priority, and lag thresholds. When adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS` (if Kafka consumer), and `_AGENT_ID_TO_UNIT` (maps `agent_id` metric label → unit name). Never maintain a parallel list in CLAUDE.md.
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **`INDICAGENT_ENV` must be consistent across ALL services**: Every systemd unit must use the same `INDICAGENT_ENV` value (or omit it entirely). Mixed env prefixes cause services to subscribe to different Kafka topics — producers write to `market.bars` while consumers read from `development.market.bars`, resulting in zero data flow. Verify with: `for svc in /etc/systemd/system/indicagent-*.service; do printf "%-50s %s\n" "$(basename $svc)" "$(grep INDICAGENT_ENV $svc 2>/dev/null | sed 's/.*=//' || echo 'unset')"; done`
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
@@ -219,7 +233,6 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`**: `.labels(agent_id="my_agent")` — not `agent=`. Always check `src/observability/metrics.py` label names before using any labeled metric.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Async mock gotcha**: `AsyncMock` with instance-level `__aiter__` silently yields 0 iterations — Python dunder lookup is on the type. Define `__aiter__` at class level in a real class when mocking async iterables (e.g., AIOKafkaConsumer).
-- **OTel carrier `get()` signature**: OTel's `DefaultGetter` calls `carrier.get(key, default)` with 2 args. Any `TextMapPropagator` carrier must accept `get(self, key, default=None)` or runtime `TypeError` occurs.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise service silently fails mid-test with a misleading error.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 - **GSD phase directory padding**: `gsd-sdk` returns `phase_dir` without zero-padding (e.g., `67-observability-alerting-automation`) but actual directories use padded names (`067-*`). If init returns `plan_count: 0` but plan files exist, check both directory variants.
@@ -255,11 +268,10 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Energy/metals futures expiry** (`src/config/contracts.py`): CME rule = 3 business days before the 25th of the month prior to delivery month (not "last business day of prior month"). Example: CLK6 (May delivery) expires ~April 21, not April 30. Wrong formula = roll_end computed 9 days late = roll never fires before expiry.
 - **Manual roll recovery** (when roll agent missed a cycle): `INSERT INTO contract_metadata (symbol, base_symbol, asset_class, expiry_date, roll_from, roll_to, roll_date, exchange, is_front_month, roll_direction, roll_detected_at, confirmation_count) VALUES ('CLM6', 'CL', 'futures', '<expiry>+00', 'CLK6', 'CLM6', NOW(), 'NYMEX', true, 'unknown', NOW(), 0);` then `UPDATE contract_metadata SET is_front_month = false WHERE symbol = 'CLK6';` then restart `indicagent-ibkr-provider`.
 - **Roll investigate:** `grep "calendar_roll_fired\|startup_sweep" logs/roll_compute_agent.log` — startup sweep fires overdue rolls at agent start; bar-loop fires during live trading.
-- **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — no manual start needed.
+- **Docker containers on reboot**: All 11 containers have `restart: unless-stopped`, but this only takes effect after first creation. After adding new services to `docker-compose.yml`, run `cd production && docker compose up -d` once to create them. Full stack: timescaledb, redpanda, ollama, prometheus, grafana, loki, tempo, otel-collector, alertmanager, mlflow, langfuse.
+- **Prometheus rule files**: Must be explicitly volume-mounted into the Prometheus container — Prometheus silently loads zero rules if the file isn't present (no error, no warning). Pattern: `./alertmanager-rules.yml:/etc/prometheus/alertmanager-rules.yml:ro`. Verify: `docker exec indicagent-prometheus wget -qO- http://localhost:9090/api/v1/rules`.
+- **Visualization stack (four layers):** Grafana (:3001) = ops/time-series (Prometheus metrics, system health); Next.js (:3000) = real-time market intelligence; Python (matplotlib/plotly) = research/analytical output; Apache Superset (:8088, in progress) = SQL analytics against TimescaleDB read-only (like Tableau). Design doc: `docs/ideas/bi-analytics-layer-design.md`.
 - **Systemd unit conventions:** `production/systemd/` is reference templates. Installed units in `/etc/systemd/system/` — check `systemctl status` for authoritative state.
 
 > Sudo details, INDICAGENT_ENV mismatch, and debugging procedures: `docs/operations/infrastructure-reference.md`
 
-## Roadmap
-
-See `.planning/ROADMAP.md` for current milestone status and phase details.

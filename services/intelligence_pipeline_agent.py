@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
-from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
@@ -104,8 +103,8 @@ from src.intelligence.schemas import (
     I6Confluence,
     IntelligenceEvent,
     OHLCVBar,
-    RankedSignal,
     SMCContext,
+    signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
@@ -117,56 +116,6 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Fields consumed by explicit keyword args in _signal_dict_to_ranked — excluded from **extras.
-_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset(
-    {
-        "signal_id",
-        "setup_plugin",
-        "direction",
-        "pre_quality_confidence",
-        "confidence",
-        "calibrated_confidence",
-        "regime_eligible",
-        "quality_score",
-        "tod_multiplier",
-        "adjusted_rank",
-        "was_selected",
-    }
-)
-
-
-def _signal_dict_to_ranked(sig: dict) -> RankedSignal:
-    """Map a pipeline signal dict to a RankedSignal model.
-
-    Signal dicts use different field names than RankedSignal schema:
-      setup_plugin → plugin
-      pre_quality_confidence (or confidence) → raw_confidence
-      was_selected → is_winner
-    calibrated_confidence may be None — fall back to confidence.
-    """
-    return RankedSignal(
-        signal_id=str(sig.get("signal_id") or uuid4()),
-        plugin=sig.get("setup_plugin", "unknown"),
-        direction=int(sig.get("direction", 0)),
-        raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
-        calibrated_confidence=float(
-            sig.get("calibrated_confidence")
-            if sig.get("calibrated_confidence") is not None
-            else sig.get("confidence", 0.0)
-        ),
-        regime_eligible=bool(sig.get("regime_eligible", True)),
-        quality_score=float(sig.get("quality_score", 1.0)),
-        tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
-        adjusted_rank=float(sig.get("adjusted_rank", 0.0)),
-        is_winner=bool(sig.get("was_selected", False)),
-        **{k: v for k, v in sig.items() if k not in _RANKED_CONSUMED_KEYS},
-    )
-
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -1603,7 +1552,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         winner: dict | None = i7.get("winner")
         i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
 
-        ranked_signals = [_signal_dict_to_ranked(s) for s in ranked_dicts]
+        ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
 
         record = BarIntelligenceRecord(
             intelligence=event,
