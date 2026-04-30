@@ -990,3 +990,21 @@ Plans:
 - [ ] 077-02-PLAN.md -- OTel SDK wrapper classes (OTelCounter/Gauge/Histogram), MeterProvider+TracerProvider init, BaseAgent migration off HTTP server
 - [ ] 077-03-PLAN.md -- Log bridge (OTLPLogHandler), service_auditor systemd discovery refactor, Prometheus config collapse
 - [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
+
+
+### Phase 78: I8 Alpha Feedback Loop
+
+**Goal:** Close the feedback loop so I8 actually produces statistical alpha. Fix 6 live bugs (pool leak, segment key, SafeAgentWrapper dead code, NarrativeGroupComputeAgent._setup() override, _extract_volume_profile() stub, ES lead instrument). Implement graduation (Spearman p<0.05, N≥100, auto-demotion mirroring I7 shadow pattern). Add Brier score + calibration to llm_model_scores. Expand AIContext to full feature vector. Replace CorrelationAgent + VolumeAgent with pure-math I8 plugins. Move NarrativeComputeAgent off the hot path to an API endpoint.
+
+**Requirements**: P78-POOL-FIX, P78-SEGMENT-KEY, P78-SAFE-WRAPPER, P78-SETUP-OVERRIDE, P78-VOLUME-PROFILE, P78-LEAD-MAP, P78-GRADUATION, P78-BRIER, P78-CONTEXT, P78-MATH-PLUGINS, P78-NARRATIVE
+**Depends on:** Phase 73 (AI/LLM infrastructure: BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment)
+**Plans:** 7 plans
+
+Plans:
+- [ ] 078-01-PLAN.md — Wave 1: bug fixes (pool, segment-key, volume-profile stub, lead-map)
+- [ ] 078-02-PLAN.md — Wave 1: dead code removal (SafeAgentWrapper, setup override)
+- [ ] 078-03-PLAN.md — Wave 2: graduation loop
+- [ ] 078-04-PLAN.md — Wave 2: Brier score + calibration metrics
+- [ ] 078-05-PLAN.md — Wave 2: expand AIContext to full feature vector
+- [ ] 078-06-PLAN.md — Wave 3: replace Correlation+Volume LLM agents with pure-math plugins
+- [ ] 078-07-PLAN.md — Wave 3: move NarrativeComputeAgent to API endpoint
