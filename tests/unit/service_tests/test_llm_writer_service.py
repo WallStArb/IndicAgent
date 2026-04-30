@@ -360,22 +360,22 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        svc.db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "model": "test_model",
-                    "regime": "trending",
-                    "setup_type": "trad_TrendFollowing",
-                    "call_type": "per_signal",
-                    "symbol": "ES",
-                    "n_calls": 50,
-                    "n_outcomes": 50,
-                    "win_rate": 0.60,
-                    "avg_pnl_r": 0.5,
-                    "avg_latency_ms": 200.0,
-                },
-            ]
-        )
+        # fetch is called twice: first for aggregate rows, second for confidence rows
+        aggregate_rows = [
+            {
+                "model": "test_model",
+                "regime": "trending",
+                "setup_type": "trad_TrendFollowing",
+                "call_type": "per_signal",
+                "symbol": "ES",
+                "n_calls": 50,
+                "n_outcomes": 50,
+                "win_rate": 0.60,
+                "avg_pnl_r": 0.5,
+                "avg_latency_ms": 200.0,
+            },
+        ]
+        svc.db_manager.fetch = AsyncMock(side_effect=[aggregate_rows, []])
         svc.db_manager.execute_batch = AsyncMock()
 
         await svc._recompute_scores()
@@ -402,22 +402,22 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        svc.db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "model": "test_model",
-                    "regime": "trending",
-                    "setup_type": "trad_TrendFollowing",
-                    "call_type": "per_signal",
-                    "symbol": None,
-                    "n_calls": 50,
-                    "n_outcomes": 50,
-                    "win_rate": 0.60,
-                    "avg_pnl_r": 0.5,
-                    "avg_latency_ms": 200.0,
-                },
-            ]
-        )
+        # fetch is called twice: first for aggregate rows, second for confidence rows
+        aggregate_rows = [
+            {
+                "model": "test_model",
+                "regime": "trending",
+                "setup_type": "trad_TrendFollowing",
+                "call_type": "per_signal",
+                "symbol": None,
+                "n_calls": 50,
+                "n_outcomes": 50,
+                "win_rate": 0.60,
+                "avg_pnl_r": 0.5,
+                "avg_latency_ms": 200.0,
+            },
+        ]
+        svc.db_manager.fetch = AsyncMock(side_effect=[aggregate_rows, []])
         svc.db_manager.execute_batch = AsyncMock()
 
         await svc._recompute_scores()
