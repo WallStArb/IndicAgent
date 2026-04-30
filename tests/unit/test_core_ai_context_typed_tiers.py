@@ -27,31 +27,38 @@ from src.intelligence.schemas import (
 )
 
 
+_UNSET = object()  # sentinel for "caller did not provide a value"
+
+
 def _make_event(
     symbol: str = "ESM6",
     tf: str = "5m",
     *,
-    i1: I1Indicators | None = None,
-    i2: I2Events | None = None,
-    i3: I3Structure | None = None,
-    i4: I4Context | None = None,
-    i5: I5Patterns | None = None,
-    i6: I6Confluence | None = None,
-    smc: SMCContext | None = None,
+    i1: object = _UNSET,
+    i2: object = _UNSET,
+    i3: object = _UNSET,
+    i4: object = _UNSET,
+    i5: object = _UNSET,
+    i6: object = _UNSET,
+    smc: object = _UNSET,
 ) -> types.SimpleNamespace:
-    """Build a minimal event-like proxy for cache.update() / build() tests."""
+    """Build a minimal event-like proxy for cache.update() / build() tests.
+
+    Pass a value (including None) to override the default.
+    Omitting a kwarg uses a sensible non-None default.
+    """
     return types.SimpleNamespace(
         symbol=symbol,
         tf=tf,
         ts=datetime.now(tz=timezone.utc),
         bar=types.SimpleNamespace(o=4500.0, h=4510.0, l=4490.0, c=4505.0, v=1000),
-        i1=i1 or I1Indicators(rsi_14=55.0, atr_14=12.5),
-        i2=i2 or I2Events(),
-        i3=i3 or I3Structure(),
-        i4=i4 or I4Context(vol_regime=1.0, trend_regime=0.8),
-        i5=i5 or I5Patterns(),
-        i6=i6 or I6Confluence(ctf_score=0.7),
-        smc=smc or SMCContext(hmm_regime=1.0),
+        i1=I1Indicators(rsi_14=55.0, atr_14=12.5) if i1 is _UNSET else i1,
+        i2=I2Events() if i2 is _UNSET else i2,
+        i3=I3Structure() if i3 is _UNSET else i3,
+        i4=I4Context(vol_regime=1.0, trend_regime=0.8) if i4 is _UNSET else i4,
+        i5=I5Patterns() if i5 is _UNSET else i5,
+        i6=I6Confluence(ctf_score=0.7) if i6 is _UNSET else i6,
+        smc=SMCContext(hmm_regime=1.0) if smc is _UNSET else smc,
     )
 
 
@@ -72,7 +79,7 @@ class TestTierEnumComplete:
 
     def test_all_tiers_in_enum(self) -> None:
         tier_values = {t.value for t in Tier}
-        assert tier_values == {"bar", "i1", "i2", "i3", "i4", "i5", "i6", "i7"}
+        assert tier_values == {"bar", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "smc"}
 
 
 class TestAIContextTypedAssignment:

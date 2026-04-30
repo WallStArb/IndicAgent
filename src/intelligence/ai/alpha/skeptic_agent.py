@@ -42,7 +42,7 @@ class SkepticAgentComputeAgent(BaseAIAgent):
 
     agent_id = "skeptic_v1"
     group = "alpha"
-    tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7})
+    tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
     latency_budget_ms = 5000.0
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
@@ -159,17 +159,18 @@ def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
 
 
 def _context_to_dict(context: AIContext) -> dict:
-    """Convert AIContext to dict for prompt building (temporary adapter).
+    """Convert AIContext to dict for prompt building (v1 adapter — kept for rollback).
 
-    This bridges the new AIContext to existing prompt builders that expect dict access.
-    Future prompt builders will use AIContext directly.
+    Used when ACTIVE_VERSION == "skeptic_v1". Preserved intact per plan instructions.
+    NOTE: hmm_regime comes from ctx.smc (SMCContext), not ctx.i4 — schemas.I4Context
+    does not have hmm_regime (D-09/D-10 rewrite, Plan 05).
     """
-    # Extract I1 context
     i1_ctx = context.i1
     i4_ctx = context.i4
     i6_ctx = context.i6
     i7_ctx = context.i7
     bar_ctx = context.bar
+    smc_ctx = context.smc
 
     return {
         "symbol": context.symbol,
@@ -178,10 +179,11 @@ def _context_to_dict(context: AIContext) -> dict:
         "winner_plugin": i7_ctx.winner_plugin if i7_ctx else None,
         "winner_direction": i7_ctx.winner_direction if i7_ctx else None,
         "winner_confidence": i7_ctx.winner_confidence if i7_ctx else None,
-        "atr": i1_ctx.atr if i1_ctx else None,
-        "rsi": i1_ctx.rsi if i1_ctx else None,
-        "adx": i1_ctx.adx if i1_ctx else None,
-        "hmm_regime": i4_ctx.hmm_regime if i4_ctx else None,
+        "atr": i1_ctx.atr_14 if i1_ctx else None,
+        "rsi": i1_ctx.rsi_14 if i1_ctx else None,
+        "adx": i1_ctx.adx_14 if i1_ctx else None,
+        # hmm_regime lives on SMCContext (not I4Context) per schemas.py
+        "hmm_regime": smc_ctx.hmm_regime if smc_ctx else None,
         "trend_regime": i4_ctx.trend_regime if i4_ctx else None,
         "vol_regime": i4_ctx.vol_regime if i4_ctx else None,
         "garch_vol_ratio": i4_ctx.garch_vol_ratio if i4_ctx else None,
