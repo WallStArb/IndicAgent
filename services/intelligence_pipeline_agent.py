@@ -38,7 +38,9 @@ from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.ml.transform_recorder import TransformRecorder
+
+# TransformRecorder archived in Phase 78 (D-04) — import deferred to _setup()
+# to avoid top-level production import of archived module.
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
     TF_SECONDS,
@@ -589,6 +591,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._seed_bar_history_from_db()
 
         # 5. Construct TransformRecorder (shared across all pipeline runs)
+        # Deferred import: TransformRecorder archived in Phase 78 (D-04).
+        # Will be replaced by LineageRecorder in a future plan.
+        from src.core.ml.transform_recorder import TransformRecorder  # noqa: PLC0415
+
         self._transform_recorder = TransformRecorder(
             pool=self._db.pool, batch_size=100, flush_interval_s=2.0
         )

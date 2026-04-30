@@ -15,7 +15,6 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.base_group_service import BaseGroupService
 from src.core.ai.output import AgentOutput
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_intelligence_journal, topic_narratives
 from src.intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
 
@@ -59,52 +58,6 @@ class NarrativeGroupComputeAgent(BaseGroupService):
     def _bar_topics(self) -> list[str]:
         """No bar consumer needed — narrative triggers from intelligence journal only."""
         return []
-
-    async def _setup(self) -> None:
-        """Wire infrastructure beyond BaseGroupService defaults."""
-        # Don't call super()._setup() since we don't need bar consumer
-        # Just wire trigger consumer and producer
-
-        # Wire trigger consumer (for agent dispatch)
-        self._trigger_consumer = KafkaConsumerClient(
-            *self.trigger_topics,
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id=f"{self.group_id}_trigger_consumer",
-            auto_offset_reset="latest",
-        )
-        await self._trigger_consumer.start()
-        await self._trigger_consumer.skip_lag_if_needed(max_lag=100)
-
-        # Wire producer (for agent output fan-out)
-        self._producer = KafkaProducerClient(
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-        )
-        await self._producer.start()
-
-        # Wire DB pool (for context cache seeding)
-        import asyncpg
-
-        self._pool = await asyncpg.create_pool(
-            self.settings.database_url,
-            min_size=2,
-            max_size=5,
-        )
-
-        # Seed context cache from DB
-        await self._seed_context_cache()
-
-        agent_ids = [a.agent_id for a in self._agents]
-        self.logger.info("narrative_group.started", agents=agent_ids)
-
-    async def _run(self) -> None:
-        """Run main loop: trigger_loop only (no bar_loop for narrative)."""
-        # Narrative doesn't need bar_loop or graduation_loop
-        trigger_task = asyncio.create_task(self._trigger_loop())
-        try:
-            await trigger_task
-        except Exception:
-            trigger_task.cancel()
-            raise
 
     # Drop bars older than this — prevents wasting LLM tokens on replay/stale data.
     _STALENESS_LIMIT = timedelta(minutes=10)
@@ -167,18 +120,9 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             )
             return
 
-        # Run narrative agent
-        from src.core.ai.safe_wrapper import SafeAgentWrapper
-
-        wrapper = SafeAgentWrapper(self._agents[0])
-        result = await wrapper.compute(context)
-
-        if isinstance(result, Exception):
-            self.logger.error(
-                "narrative_group.agent_exception",
-                error=str(result),
-            )
-            return
+        # Run narrative agent — BaseAIAgent.compute() already provides
+        # asyncio.wait_for + neutral fallback (D-18: SafeAgentWrapper deleted).
+        result = await self._agents[0].compute(context)
 
         if isinstance(result, AgentOutput):
             # Check if narrative was generated (not TF-gated)
