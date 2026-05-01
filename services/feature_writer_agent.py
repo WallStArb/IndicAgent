@@ -629,6 +629,7 @@ class FeatureWriterAgent(BaseWriterAgent):
                     "pairs_confirming": payload.get("pairs_confirming"),
                     "data_quality_score": payload.get("data_quality_score"),
                     "low_vol_flag": payload.get("low_vol_flag"),
+                    "corr_z": payload.get("corr_z"),  # P78-MATH-PLUGINS — Phase 78 D-20
                 }
             }
             # Persist cross-asset snapshot for each EQ_INDEX group member symbol.
