@@ -73,7 +73,7 @@ class AIContext(BaseModel):
     """Typed context for AI agent computation. Immutable after construction.
 
     Pipeline tiers (i1-i6, smc) use schemas.py types directly (D-09).
-    No sparse subclasses, no dict[str, Any] escape hatch (D-10, D-15).
+    No sparse subclasses, no untyped dict escape hatch (D-10, D-15).
     Self-referential lead_context enabled via model_rebuild().
     """
 
@@ -101,7 +101,6 @@ class AIContext(BaseModel):
 
     # Enrichment fields
     lead_context: AIContext | None = None
-    volume_profile: dict[str, Any] | None = None  # transitional — Plan 06 deletes this
 
 
 # Enable self-referential lead_context field

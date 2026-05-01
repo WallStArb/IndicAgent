@@ -38,9 +38,7 @@ from src.core.stream_keys import (
     topic_market_bars_htf,
     topic_swarm_alpha,
 )
-from src.intelligence.ai.alpha.correlation_agent import CorrelationAgentComputeAgent
 from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
-from src.intelligence.ai.alpha.volume_agent import VolumeAgentComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +48,13 @@ _ELIGIBLE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
 # Graduation gate constants (D-24, D-25)
 _GRAD_MIN_N = 100           # minimum resolved signals before Spearman is computed
 _GRAD_DEMOTION_STREAK = 3   # consecutive negative-rho cycles to trigger demotion
+
+# Agent-to-transform mapping for LineageRecorder attribution (D-22).
+# Phase 78 Plan 06: reduced to single skeptic entry;
+# correlation_v1 and volume_v1 entries removed.
+_SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
+    "skeptic_v1": ("swarm_skeptic", 6),
+}
 
 # Lead index mapping: ES -> NQ (per D-36 / D-37)
 # ES equities all route to NQ as the lead index.
@@ -88,11 +93,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self._lineage: LineageRecorder | None = None
         self._demotion_streak: int = 0  # consecutive negative-rho cycles (D-25)
 
-        # Agent registry -- pure compute, no infrastructure
+        # Agent registry -- pure compute, no infrastructure.
+        # Phase 78 Plan 06: single agent; CorrelationAgent + VolumeAgent replaced
+        # by deterministic pipeline-tier features (corr_z in I4, volume_z_score in I1).
         self._agents = [
             SkepticAgentComputeAgent(llm_chain=self._llm_chain),
-            CorrelationAgentComputeAgent(llm_chain=self._llm_chain),
-            VolumeAgentComputeAgent(llm_chain=self._llm_chain),
         ]
 
     @property
@@ -376,7 +381,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             )
             return
 
-        enriched = self._enrich_context(context)
+        enriched = await self._enrich_context(context)
 
         # D-18: BaseAIAgent.compute() already provides asyncio.wait_for + neutral
         # fallback — SafeAgentWrapper deleted in Phase 78.
@@ -398,7 +403,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 )
                 continue
 
-            tasks.append(agent.compute(self._enrich_context(agent_context)))
+            tasks.append(agent.compute(await self._enrich_context(agent_context)))
 
         if not tasks:
             return
@@ -481,55 +486,14 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             tf=enriched.timeframe,
         )
 
-    def _enrich_context(self, ctx: AIContext) -> AIContext:
-        """Enrich AIContext with agent-specific data.
+    async def _enrich_context(self, ctx: AIContext) -> AIContext:
+        """Pass-through (Phase 78 D-22).
 
-        Per D-16: uses model_copy(update={...}) to create enriched copy.
-        No object.__setattr__ hacks -- proper Pydantic fields.
-
-        D-10 fix: uses AIContextCache.get_lead() instead of private _cache access.
-        D-38: volume_profile field removed; VolumeZscorePlugin (Plan 06) provides volume data.
+        CorrelationAgent and VolumeAgent are deleted; their consumers (lead_context,
+        volume_profile) no longer exist. Skeptic v2 reads volume_z_score and corr_z
+        directly from AIContext via _render_full_context iterating model_fields.
         """
-        # Lead index context for CorrelationAgent
-        lead_context = self._find_lead_context(
-            ctx.symbol,
-            ctx.timeframe,
-            ctx,
-        )
-
-        return ctx.model_copy(
-            update={
-                "lead_context": lead_context,
-            }
-        )
-
-    def _find_lead_context(
-        self,
-        symbol: str,
-        tf: str,
-        ctx: AIContext,
-    ) -> AIContext | None:
-        """Look up lead index AIContext from cache using _LEAD_MAP.
-
-        Per D-10 fix: uses AIContextCache.get_lead() public method.
-        Per D-36/D-37: uses _LEAD_MAP via _resolve_lead() — no inline conditionals.
-
-        Returns None if no lead mapping, self-lead, or cache miss.
-        """
-        # Extract base from contract symbol (e.g. "ESM6" -> "ES")
-        import re
-
-        base_match = re.match(r"^([A-Z]+?)[A-Z]\d+$", symbol)
-        if not base_match:
-            return None
-        base = base_match.group(1)
-
-        lead_base = _resolve_lead(base)
-        if lead_base == base:
-            return None  # self-lead — no enrichment needed
-
-        # D-10: Use public get_lead() method instead of private _cache access
-        return self._context_cache.get_lead(symbol, tf, _LEAD_MAP)
+        return ctx
 
 
 def main() -> None:

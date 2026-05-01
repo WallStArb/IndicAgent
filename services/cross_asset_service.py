@@ -67,6 +67,17 @@ def _extract_base_symbol(symbol: str) -> str | None:
     return resolve_eq_index_base(symbol)
 
 
+# Lead instrument mapping for corr_z computation (Phase 78 D-20, D-37).
+# Cross-asset-local: the swarm's _LEAD_INDEX_MAP is being deleted in Plan 06 Task 3.
+# Instruments NOT in this map get corr_z = 0.0 (no lead relationship).
+_PAIR_LEAD: dict[str, str] = {
+    "ES": "NQ",
+    "NQ": "ES",
+    "RTY": "ES",
+    "YM": "ES",
+}
+
+
 # ---------------------------------------------------------------------------
 # Service class
 # ---------------------------------------------------------------------------
@@ -100,6 +111,14 @@ class CrossAssetComputeAgent(BaseAgent):
 
         # Dedup: last published timestamp per tf
         self._last_published_ts: dict[str, datetime] = {}
+
+        # corr_z state: rolling history of per-bar Pearson correlation between
+        # each (base, lead, tf) pair. Used to compute z-score of current corr.
+        # Phase 78 D-20 / P78-MATH-PLUGINS.
+        _corr_history_max = 30
+        self._corr_history: dict[tuple[str, str, str], deque] = defaultdict(
+            lambda: deque(maxlen=_corr_history_max)
+        )
 
         # Group configuration (extensible for future groups)
         self._groups: dict[str, frozenset[str]] = CROSS_ASSET_GROUPS
@@ -417,6 +436,37 @@ class CrossAssetComputeAgent(BaseAgent):
 
             # Inject quality from staleness check
             result["data_quality_score"] = float(quality)
+
+            # Compute corr_z: rolling Pearson correlation z-score per (base, lead) pair.
+            # Phase 78 D-20 / P78-MATH-PLUGINS. Always float() — numpy scalars not JSONB-safe.
+            import numpy as np  # noqa: PLC0415 — deferred import, already in requirements.txt
+
+            base = _extract_base_symbol(payload.get("symbol", ""))
+            if base is not None and base in _PAIR_LEAD:
+                lead = _PAIR_LEAD[base]
+                inst_w = self._close_windows.get(f"{base}:{tf}")
+                lead_w = self._close_windows.get(f"{lead}:{tf}")
+                corr_z = 0.0
+                if inst_w is not None and lead_w is not None:
+                    n = min(len(inst_w), len(lead_w))
+                    if n >= _SHORT_WINDOW:
+                        inst_arr = np.asarray(list(inst_w)[-n:], dtype=float)
+                        lead_arr = np.asarray(list(lead_w)[-n:], dtype=float)
+                        if inst_arr.std() > 0.0 and lead_arr.std() > 0.0:
+                            c = float(np.corrcoef(inst_arr, lead_arr)[0, 1])
+                            if not np.isnan(c):
+                                hist = self._corr_history[(base, lead, tf)]
+                                hist.append(c)
+                                if len(hist) >= 2:
+                                    hist_arr = np.asarray(list(hist)[:-1], dtype=float)
+                                    mean = float(hist_arr.mean())
+                                    std = float(hist_arr.std())
+                                    if std > 0.0:
+                                        corr_z = float((hist[-1] - mean) / std)
+                result["corr_z"] = float(corr_z)
+            else:
+                # Non-EQ_INDEX symbol or no lead mapping — emit 0.0 for deterministic field.
+                result["corr_z"] = 0.0
 
             # Publish
             if self._producer is not None:

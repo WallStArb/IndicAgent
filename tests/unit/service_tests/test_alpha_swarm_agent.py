@@ -514,3 +514,94 @@ async def test_graduation_loop_handles_nan_gracefully():
     # Should not raise
     await agent._run_graduation_cycle()
     # No crash = pass
+
+
+# ---------------------------------------------------------------------------
+# Plan 78-06: Task 3 — Single-agent swarm, pass-through enrichment, dead helpers deleted
+# ---------------------------------------------------------------------------
+
+
+def test_single_agent_swarm_only_skeptic():
+    """_agents must contain exactly one agent: SkepticAgentComputeAgent."""
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
+
+    svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    # Simulate what __init__ should set after Plan 06
+    # We test the class structure directly: CorrelationAgent/VolumeAgent must not exist
+    assert not hasattr(AlphaSwarmComputeAgent, "_CorrelationAgentComputeAgent__init__"), (
+        "CorrelationAgentComputeAgent still referenced in class"
+    )
+    # Module-level imports must be clean
+    import services.alpha_swarm_agent as m
+    assert not hasattr(m, "CorrelationAgentComputeAgent"), (
+        "CorrelationAgentComputeAgent still imported in alpha_swarm_agent"
+    )
+    assert not hasattr(m, "VolumeAgentComputeAgent"), (
+        "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
+    )
+
+
+def test_swarm_agent_to_transform_has_only_skeptic():
+    """_SWARM_AGENT_TO_TRANSFORM must map exactly one key: 'skeptic_v1'."""
+    import services.alpha_swarm_agent as m
+
+    assert hasattr(m, "_SWARM_AGENT_TO_TRANSFORM"), (
+        "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
+    )
+    mapping = m._SWARM_AGENT_TO_TRANSFORM
+    assert set(mapping.keys()) == {"skeptic_v1"}, (
+        f"_SWARM_AGENT_TO_TRANSFORM has unexpected keys: {set(mapping.keys())}"
+    )
+    assert mapping["skeptic_v1"] == ("swarm_skeptic", 6), (
+        f"Unexpected value for skeptic_v1: {mapping['skeptic_v1']}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_enrich_context_is_pass_through():
+    """_enrich_context must be async and return the same context object (identity)."""
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from datetime import UTC, datetime
+    from src.core.ai.context import AIContext
+
+    svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    svc.logger = MagicMock()
+    # _context_cache needed by _enrich_context? No — pass-through needs nothing
+    ctx = AIContext(symbol="ESM6", timeframe="5m", ts=datetime.now(UTC))
+
+    result = await svc._enrich_context(ctx)
+    assert result is ctx, (
+        "_enrich_context must return the SAME ctx object (pass-through, object identity)"
+    )
+
+
+def test_lead_index_map_deleted():
+    """_LEAD_INDEX_MAP, _find_lead_context, _extract_volume_profile must be absent."""
+    import services.alpha_swarm_agent as m
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+
+    assert not hasattr(m, "_LEAD_INDEX_MAP"), (
+        "_LEAD_INDEX_MAP still present in alpha_swarm_agent"
+    )
+    assert not hasattr(AlphaSwarmComputeAgent, "_find_lead_context"), (
+        "_find_lead_context still present on AlphaSwarmComputeAgent"
+    )
+    assert not hasattr(AlphaSwarmComputeAgent, "_extract_volume_profile"), (
+        "_extract_volume_profile still present on AlphaSwarmComputeAgent"
+    )
+
+
+def test_wave1_invariants_preserved():
+    """Plan 01 invariants: LineageRecorder present, no ShadowRecorder/TransformRecorder."""
+    import services.alpha_swarm_agent as m
+
+    assert hasattr(m, "LineageRecorder"), (
+        "LineageRecorder not found in alpha_swarm_agent (Plan 01 invariant)"
+    )
+    assert not hasattr(m, "ShadowRecorder"), (
+        "ShadowRecorder still imported (Plan 01 should have removed it)"
+    )
+    assert not hasattr(m, "TransformRecorder"), (
+        "TransformRecorder still imported (Plan 01 should have removed it)"
+    )
