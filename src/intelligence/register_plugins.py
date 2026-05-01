@@ -67,6 +67,7 @@ from src.intelligence.features.smc_context.premium_discount import plugin as pre
 from src.intelligence.features.smc_context.supply_demand_zones import (
     plugin as supply_demand_zones_plugin,
 )
+from src.intelligence.trading.volume_zscore import plugin as volume_zscore_plugin
 
 from .composites.acceleration_regime import plugin as accel_regime_plugin
 from .composites.adx_events import plugin as adx_events_plugin
@@ -281,6 +282,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(hma_plugin)
     registry.register_indicator(ofi_plugin)
     registry.register_indicator(cvd_plugin)
+    registry.register_indicator(volume_zscore_plugin)  # Phase 78 P78-MATH-PLUGINS
 
     # I2: Composite event plugins — run on I1 features, before I3
     registry.register_pattern(rsi_events_plugin)
@@ -431,6 +433,7 @@ TIER_I1: list[str] = [
     hma_plugin.name,  # 'HMA'
     ofi_plugin.name,  # 'ind_OFI'
     cvd_plugin.name,  # 'ind_CVD'
+    volume_zscore_plugin.name,  # 'volume_zscore' — Phase 78 P78-MATH-PLUGINS
 ]
 
 TIER_I2: list[str] = [
