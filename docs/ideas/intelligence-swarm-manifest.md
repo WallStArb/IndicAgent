@@ -2,7 +2,7 @@
 
 **Status:** Active Reference — Core swarm architecture principles
 **Created:** 2026-03-07  
-**Updated:** 2026-04-21
+**Updated:** 2026-05-02
 **Related:** 
 - `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
 
@@ -105,6 +105,7 @@ To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pat
 **🔄 Integration In Progress** (2026-04-08)
 - Swarm agents integrating with shared LLM infrastructure
 - Framework wiring: Context enrichment, Kafka bridge, shadow-table schema sync
+- Shared storage may be used for shadow outputs and evaluation history, but agents remain independently runnable and should not require each other's uptime.
 
 **📋 Extensions Roadmap** (2026-04-08)
 - 14 new swarm agents designed (S1-S7 + narrative extensions N1-N6)

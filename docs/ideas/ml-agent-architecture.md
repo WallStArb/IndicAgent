@@ -3,7 +3,7 @@
 **Status:** design — prerequisites met, ready for roadmap planning
 **Priority:** high
 **Milestone:** v1.9+
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-05-02
 
 ---
 
@@ -37,6 +37,8 @@ Each layer is independently valuable and ships incrementally. The system never s
 ## Multi-Agent Architecture
 
 A **Supervisor/Orchestrator** coordinates domain-specific agents, each expert in their own toolset. The Orchestrator understands system state and routes work. Domain agents are independently testable, replaceable, and observable.
+
+Shared cold and warm storage is acceptable for training data and artifacts, but runtime independence remains the rule. A storage outage should degrade capability, not collapse unrelated agents.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
