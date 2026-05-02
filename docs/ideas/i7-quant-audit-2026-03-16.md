@@ -9,6 +9,8 @@ reviewer: spec-document-reviewer (automated) + manual code verification
 
 # I7 Layer: Principal Quantitative Researcher Audit & Alpha Enhancement Brief
 
+**Last Updated:** 2026-05-02
+
 *Authored as a Principal Quantitative Researcher (Renaissance Technologies framing). Every recommendation includes: The Logic Change, The Mathematical Justification, The Expected Alpha Impact. All architectural claims verified against actual source code.*
 
 > **Jim Simons Rule #1:** Know what you already have before proposing what to build.

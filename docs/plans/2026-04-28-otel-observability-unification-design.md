@@ -1,5 +1,7 @@
 # OTel Observability Unification Design
 
+**Last Updated:** 2026-05-02
+
 ## Context
 
 The current observability stack has three anti-patterns that caused an 11-hour undetected outage on 2026-04-28:

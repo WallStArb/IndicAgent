@@ -1,5 +1,7 @@
 # IndicAgent Command Cheatsheet
 
+**Last Updated:** 2026-05-02
+
 ## Development Setup
 ```bash
 source .venv/bin/activate

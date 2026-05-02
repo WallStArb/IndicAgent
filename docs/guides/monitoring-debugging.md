@@ -1,5 +1,7 @@
 # Monitoring & Debugging
 
+**Last Updated:** 2026-05-02
+
 [TODO: Logs, metrics, troubleshooting]
 
 ---

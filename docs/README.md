@@ -1,12 +1,13 @@
 # IndicAgent Intelligence Platform Documentation
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-05-02
 
 ---
 
 ## Working on the platform?
 
 **→ [CLAUDE.md](../CLAUDE.md)** — Primary reference: architecture, commands, conventions, gotchas
+**→ [CODEX.md](../CODEX.md)** — Codex-specific entry point that defers to `CLAUDE.md`
 **→ [Guides](guides/)** — How to add plugins, run services, debug
 **→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 **→ [Ideas](ideas/)** — Research and strategy docs (living workspace)
@@ -20,6 +21,8 @@
 **→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
 **→ [DAG Execution](concepts/dag-execution.md)** — Dependency ordering
 **→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold flow, Redpanda, TimescaleDB
+**→ [Agent Contract Checklist](architecture/agent-contract-checklist.md)** — Required contract for new agents
+**→ [Canonical Truth Registry](architecture/canonical-truth-registry.md)** — Canonical stream/table ownership
 
 ---
 

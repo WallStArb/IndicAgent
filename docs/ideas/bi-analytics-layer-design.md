@@ -1,5 +1,7 @@
 # BI Analytics Layer — Apache Superset
 
+**Last Updated:** 2026-05-02
+
 **Status:** approved design
 **Created:** 2026-04-23
 **Supersedes:** `docs/ideas/bi-analytics-layer.md`

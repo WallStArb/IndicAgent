@@ -1,5 +1,7 @@
 # Kubernetes: Evaluation for IndicAgent v2.1
 
+**Last Updated:** 2026-05-02
+
 **Version:** 1.0
 **Created:** 2026-03-30
 **Status:** Research & Planning — Not Currently Implemented

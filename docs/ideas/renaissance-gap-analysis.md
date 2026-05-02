@@ -1,5 +1,7 @@
 # Renaissance Principles Gap Analysis
 
+**Last Updated:** 2026-05-02
+
 **Created:** 2026-03-08
 **Status:** Phase 29 shipped — T0-B, T1-A–E, T2-A, T2-B, T3-A, T3-B all live as of 2026-03-13
 **Related:** `docs/ideas/renaissance-i7-i8-refinement.md` (105 ideas, 48 sections)
