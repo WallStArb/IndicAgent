@@ -1,5 +1,7 @@
 # REST API Endpoints
 
+**Last Updated:** 2026-05-02
+
 FastAPI backend routes.
 
 ---

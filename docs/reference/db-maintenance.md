@@ -1,5 +1,7 @@
 # Database Maintenance Runbook
 
+**Last Updated:** 2026-05-02
+
 Last updated: 2026-03-07
 
 TimescaleDB handles most routine maintenance automatically (compression, retention, continuous aggregate refresh). This doc covers what is automated, what requires manual intervention, and the scheduled cadence for health checks.

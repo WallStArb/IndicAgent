@@ -1,5 +1,7 @@
 # Plugin Reference Overview
 
+**Last Updated:** 2026-05-02
+
 All 62 registered plugins.
 
 ---

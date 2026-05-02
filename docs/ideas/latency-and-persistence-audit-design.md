@@ -1,5 +1,7 @@
 # Latency & Persistence Architectural Improvements
 
+**Last Updated:** 2026-05-02
+
 ## Goal
 Decouple signal generation from I/O-bound persistence to achieve sub-millisecond signal latency, while maintaining rigorous auditability and data integrity.
 

@@ -1,5 +1,7 @@
 # Server-Sent Events Protocol
 
+**Last Updated:** 2026-05-02
+
 Real-time streaming API.
 
 ---

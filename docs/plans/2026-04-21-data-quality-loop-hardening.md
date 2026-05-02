@@ -1,5 +1,7 @@
 # Data-Quality Loop Hardening Implementation Plan
 
+**Last Updated:** 2026-05-02
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix 5 issues found in the data-quality loop audit: DB-backed gap retry tracking with DLQ escalation, roll-event suppression of false gap alerts, provider idempotency pre-check, and parity alerting threshold.

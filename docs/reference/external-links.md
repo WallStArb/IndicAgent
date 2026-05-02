@@ -1,5 +1,7 @@
 # External Links & Resources
 
+**Last Updated:** 2026-05-02
+
 Curated reference links for libraries, APIs, trading theory, and research relevant to IndicAgent.
 Add new links here as you discover useful resources — keeps everything in one place.
 

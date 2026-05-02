@@ -1,5 +1,7 @@
 # Intelligence Stack Latency Reduction
 
+**Last Updated:** 2026-05-02
+
 **Created:** 2026-03-07
 **Status:** Active Research — Revise as discoveries emerge
 **Purpose:** Document latency bottlenecks, Renaissance-framed approaches, and implementation roadmap
