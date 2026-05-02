@@ -1,7 +1,7 @@
 # GEMINI.md
 
-Version: 1.0.0
-Last Updated: 2026-03-22
+Version: 1.0.1
+Last Updated: 2026-05-02
 Status: OPERATIONAL
 
 ## The Renaissance Mandate (Precedence)
@@ -20,11 +20,17 @@ This file takes absolute precedence over all other instructions. Adhere rigorous
 
 ### Naming Transformation Rules
 Follow these strictly. If a concept is `alpha_signal`, all derived names are:
-- **Service:** `services/alpha_signal_service.py` | Class: `AlphaSignalService`
-- **Systemd:** `indicagent-alpha-signal.service`
-- **Plugin:** `src/intelligence/trading/alpha_signal.py` | Class: `AlphaSignalPlugin`
-- **Kafka Topic:** `topic_alpha_signal()` in `stream_keys.py` -> `dev.alpha_signal`
-- **Database:** Table `alpha_signals` | Column `ts` (always UTC)
+- **Python Service File:** `services/<concept>_service.py`
+- **Python Agent File:** `services/<concept>_agent.py`
+- **Python Plugin File:** `src/intelligence/trading/<concept>.py`
+- **Python Service Class:** `PascalCase` + `Service`
+- **Python Agent Class:** `PascalCase` + role suffix (`ProviderAgent`, `ComputeAgent`, `GeneratorAgent`, `WriterAgent`, `TrackerAgent`, `AuditorAgent`)
+- **Python Plugin Class:** `PascalCase` + `Plugin`
+- **Systemd unit:** `indicagent-<concept-kebab>.service`
+- **Kafka topic function:** `topic_<concept>()` in `src/core/stream_keys.py`
+- **Kafka topic string:** `<env>.<domain>[.<sublayer>]` (dots only, never colons)
+- **Database table:** `snake_case` plural nouns
+- **Database columns:** `snake_case` (use `ts` for intelligence features, `timestamp` for OHLCV)
 
 ### Variable & Function Style
 - **Constants:** `UPPER_SNAKE_CASE` (e.g., `TIER_I7`, `MIN_BARS_FOR_TF`).
@@ -62,13 +68,12 @@ Follow these strictly. If a concept is `alpha_signal`, all derived names are:
 
 ---
 
-## Enhanced Intelligence Rules
+## 4. Enhanced Intelligence Rules
 - **Agentic DAG Architecture:** The system uses autonomous, event-driven agents. Compute Agents (I1-I6) are DB-ignorant and publish to Tiered Topics (`intelligence.i{N}`). DataWriterAgents (consumers) manage persistence.
 - **The Persistence DAG:** WriterAgents must use the "Convergence Gate" (StreamMerger) to join tiered streams into a single, unified journal entry before persistence, ensuring atomic data integrity.
 - **Resilience & Observability:** All agents must be instrumented with `persistence_batch_latency` and `persistence_consumer_lag` metrics.
 - **Lifecycle Management:** Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ for unprocessable payloads.
 - **Taxonomy:** All persistence logic resides in `src/persistence/repository/` (Repositories) and `src/persistence/writer/` (WriterAgents).
-
 
 ---
 

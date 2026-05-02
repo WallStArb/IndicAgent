@@ -612,7 +612,7 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 **→ [ML/AI Architecture](docs/ideas/ml-agent-architecture.md)** - Multi-agent orchestrator and swarm intelligence
 **→ [BI Analytics Layer](docs/ideas/bi-analytics-layer.md)** - Superset, signal outcome visualization, planned dashboards
 
-**For AI Assistants:** [CLAUDE.md](CLAUDE.md)
+**For AI Assistants:** [CLAUDE.md](CLAUDE.md) · [CODEX.md](CODEX.md) · [GEMINI.md](GEMINI.md)
 
 ---
 
