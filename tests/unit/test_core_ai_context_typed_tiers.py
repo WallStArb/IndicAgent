@@ -10,12 +10,12 @@ Plan 078-05, Task 1:
 from __future__ import annotations
 
 import types
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
-from src.core.ai.context import AIContext, AIContextCache, BarContext, I7Context, Tier
+from src.core.ai.context import AIContext, AIContextCache, Tier
 from src.intelligence.schemas import (
     I1Indicators,
     I2Events,
@@ -25,7 +25,6 @@ from src.intelligence.schemas import (
     I6Confluence,
     SMCContext,
 )
-
 
 _UNSET = object()  # sentinel for "caller did not provide a value"
 
@@ -50,7 +49,7 @@ def _make_event(
     return types.SimpleNamespace(
         symbol=symbol,
         tf=tf,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         bar=types.SimpleNamespace(o=4500.0, h=4510.0, l=4490.0, c=4505.0, v=1000),
         i1=I1Indicators(rsi_14=55.0, atr_14=12.5) if i1 is _UNSET else i1,
         i2=I2Events() if i2 is _UNSET else i2,
@@ -164,9 +163,9 @@ class TestSparseClassesDeleted:
     def test_no_i1context_local_class(self) -> None:
         import src.core.ai.context as ctx_mod
 
-        assert not hasattr(ctx_mod, "I1Context"), (
-            "I1Context sparse subclass must be deleted per D-10"
-        )
+        assert not hasattr(
+            ctx_mod, "I1Context"
+        ), "I1Context sparse subclass must be deleted per D-10"
 
     def test_no_i4context_local_class(self) -> None:
         """The local sparse I4Context(TierContext) must be gone.
@@ -189,9 +188,9 @@ class TestSparseClassesDeleted:
     def test_no_i6context_local_class(self) -> None:
         import src.core.ai.context as ctx_mod
 
-        assert not hasattr(ctx_mod, "I6Context"), (
-            "I6Context sparse subclass must be deleted per D-10"
-        )
+        assert not hasattr(
+            ctx_mod, "I6Context"
+        ), "I6Context sparse subclass must be deleted per D-10"
 
     def test_grep_no_class_i1context(self) -> None:
         """File-level grep check: no 'class I1Context' in context.py."""
@@ -218,7 +217,6 @@ class TestNoEscapeHatch:
 
     def test_aicontext_i1_type_is_not_dict(self) -> None:
         """AIContext.i1 annotation must be I1Indicators | None, not dict."""
-        import typing
 
         hints = AIContext.model_fields
         i1_field = hints.get("i1")

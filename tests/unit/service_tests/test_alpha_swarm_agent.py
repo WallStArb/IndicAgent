@@ -20,9 +20,9 @@ from uuid import uuid4
 import pytest
 
 from src.core.ai.context import AIContext
-from src.intelligence.schemas import SMCContext
 from src.core.ai.output import AgentOutput
 from src.core.stream_keys import topic_signal_lineage
+from src.intelligence.schemas import SMCContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -99,36 +99,32 @@ def test_shadow_recorder_not_in_module():
     """ShadowRecorder must not be importable from alpha_swarm_agent module."""
     import services.alpha_swarm_agent as m
 
-    assert not hasattr(m, "ShadowRecorder"), (
-        "ShadowRecorder still imported in alpha_swarm_agent"
-    )
+    assert not hasattr(m, "ShadowRecorder"), "ShadowRecorder still imported in alpha_swarm_agent"
 
 
 def test_transform_recorder_not_in_module():
     """TransformRecorder must not be importable from alpha_swarm_agent module."""
     import services.alpha_swarm_agent as m
 
-    assert not hasattr(m, "TransformRecorder"), (
-        "TransformRecorder still imported in alpha_swarm_agent"
-    )
+    assert not hasattr(
+        m, "TransformRecorder"
+    ), "TransformRecorder still imported in alpha_swarm_agent"
 
 
 def test_lineage_recorder_in_module():
     """LineageRecorder must be imported in alpha_swarm_agent module."""
     import services.alpha_swarm_agent as m
 
-    assert hasattr(m, "LineageRecorder"), (
-        "LineageRecorder not found in alpha_swarm_agent"
-    )
+    assert hasattr(m, "LineageRecorder"), "LineageRecorder not found in alpha_swarm_agent"
 
 
 def test_extract_volume_profile_not_in_module():
     """_extract_volume_profile method must be removed from AlphaSwarmComputeAgent."""
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
 
-    assert not hasattr(AlphaSwarmComputeAgent, "_extract_volume_profile"), (
-        "_extract_volume_profile still present in AlphaSwarmComputeAgent"
-    )
+    assert not hasattr(
+        AlphaSwarmComputeAgent, "_extract_volume_profile"
+    ), "_extract_volume_profile still present in AlphaSwarmComputeAgent"
 
 
 # ---------------------------------------------------------------------------
@@ -164,14 +160,12 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
     expected_topic = topic_signal_lineage("test")
     assert fake_producer.publish.called, "LineageRecorder.flush() never published"
     call_args = fake_producer.publish.call_args
-    assert call_args[0][0] == expected_topic or call_args.args[0] == expected_topic, (
-        f"Published to wrong topic: {call_args}"
-    )
+    assert (
+        call_args[0][0] == expected_topic or call_args.args[0] == expected_topic
+    ), f"Published to wrong topic: {call_args}"
     row = call_args[1].get("value") or (call_args[0][1] if len(call_args[0]) > 1 else None)
     assert row is not None, f"No value kwarg in publish call: {call_args}"
-    assert row["event_type"] == "agent_prediction", (
-        f"event_type mismatch: {row['event_type']}"
-    )
+    assert row["event_type"] == "agent_prediction", f"event_type mismatch: {row['event_type']}"
 
 
 @pytest.mark.asyncio
@@ -201,12 +195,12 @@ async def test_record_swarm_result_segment_key_numeric():
     row = call_args[1].get("value") or (call_args[0][1] if len(call_args[0]) > 1 else None)
     segment_key = row.get("metadata", {}).get("segment_key") or row.get("segment_key", "")
     # segment_key may be in metadata JSONB — check both locations
-    assert re.match(r"^\d+\.", segment_key), (
-        f"segment_key does not start with numeric prefix: {segment_key!r}"
-    )
-    assert not segment_key.startswith("unknown."), (
-        f"segment_key starts with 'unknown.': {segment_key!r}"
-    )
+    assert re.match(
+        r"^\d+\.", segment_key
+    ), f"segment_key does not start with numeric prefix: {segment_key!r}"
+    assert not segment_key.startswith(
+        "unknown."
+    ), f"segment_key starts with 'unknown.': {segment_key!r}"
 
 
 @pytest.mark.asyncio
@@ -233,13 +227,11 @@ async def test_record_swarm_result_missing_hmm_regime_skips():
     await agent._lineage.flush()
 
     # Should not have published anything
-    assert not fake_producer.publish.called, (
-        "LineageRecorder published despite missing hmm_regime"
-    )
+    assert not fake_producer.publish.called, "LineageRecorder published despite missing hmm_regime"
     # Logger should have been called with missing_hmm_regime warning
-    assert agent.logger.warning.called or agent.logger.warn.called, (
-        "No warning logged for missing hmm_regime"
-    )
+    assert (
+        agent.logger.warning.called or agent.logger.warn.called
+    ), "No warning logged for missing hmm_regime"
 
 
 # ---------------------------------------------------------------------------
@@ -394,13 +386,10 @@ async def test_promotion_gate_promotes_with_100_positive_samples():
     execute_calls = conn.execute.call_args_list
     assert len(execute_calls) > 0, "Expected at least one DB execute call"
     # Find UPDATE call that passes is_shadow=False
-    promoted = any(
-        False in call.args  # asyncpg uses positional params
-        for call in execute_calls
-    )
-    assert promoted or agent.logger.info.called, (
-        f"Promotion UPDATE not found. execute_calls={execute_calls}"
-    )
+    promoted = any(False in call.args for call in execute_calls)  # asyncpg uses positional params
+    assert (
+        promoted or agent.logger.info.called
+    ), f"Promotion UPDATE not found. execute_calls={execute_calls}"
     # Check logger for 'live' in info calls
     info_str = str(agent.logger.info.call_args_list)
     assert "live" in info_str, f"Expected 'live' state logged. info_calls={info_str}"
@@ -426,16 +415,11 @@ async def test_under_n_no_eval():
     # No promotion: is_shadow=False should NOT appear in execute args
     execute_calls = conn.execute.call_args_list
     assert len(execute_calls) > 0, "Expected UPDATE to write n_resolved even under-N"
-    promoted = any(
-        False in call.args
-        for call in execute_calls
-    )
+    promoted = any(False in call.args for call in execute_calls)
     assert not promoted, f"Unexpected promotion with n=50: execute_calls={execute_calls}"
 
     # n=50 should appear as an integer arg in one of the execute calls
-    all_int_args = [
-        a for call in execute_calls for a in call.args if isinstance(a, int)
-    ]
+    all_int_args = [a for call in execute_calls for a in call.args if isinstance(a, int)]
     assert 50 in all_int_args, f"n=50 not found in execute call args: {execute_calls}"
 
 
@@ -468,9 +452,9 @@ async def test_demotion_streak_fires_after_3_consecutive_negative_cycles():
     # After 3 negative cycles from 'live', demotion should have fired.
     # Implementation resets streak to 0 after demotion — check streak was 0 (reset) or demotion logged
     info_str = str(agent.logger.info.call_args_list)
-    assert "shadow" in info_str or agent._demotion_streak == 0, (
-        f"Expected demotion after 3 neg cycles. streak={agent._demotion_streak}, info={info_str}"
-    )
+    assert (
+        "shadow" in info_str or agent._demotion_streak == 0
+    ), f"Expected demotion after 3 neg cycles. streak={agent._demotion_streak}, info={info_str}"
 
     # Test 2: streak resets to 0 after positive cycle
     pos_pnl = predictions + rng.normal(0, 0.05, 100)
@@ -524,45 +508,47 @@ async def test_graduation_loop_handles_nan_gracefully():
 def test_single_agent_swarm_only_skeptic():
     """_agents must contain exactly one agent: SkepticAgentComputeAgent."""
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
-    from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
 
     svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
     # Simulate what __init__ should set after Plan 06
     # We test the class structure directly: CorrelationAgent/VolumeAgent must not exist
-    assert not hasattr(AlphaSwarmComputeAgent, "_CorrelationAgentComputeAgent__init__"), (
-        "CorrelationAgentComputeAgent still referenced in class"
-    )
+    assert not hasattr(
+        AlphaSwarmComputeAgent, "_CorrelationAgentComputeAgent__init__"
+    ), "CorrelationAgentComputeAgent still referenced in class"
     # Module-level imports must be clean
     import services.alpha_swarm_agent as m
-    assert not hasattr(m, "CorrelationAgentComputeAgent"), (
-        "CorrelationAgentComputeAgent still imported in alpha_swarm_agent"
-    )
-    assert not hasattr(m, "VolumeAgentComputeAgent"), (
-        "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
-    )
+
+    assert not hasattr(
+        m, "CorrelationAgentComputeAgent"
+    ), "CorrelationAgentComputeAgent still imported in alpha_swarm_agent"
+    assert not hasattr(
+        m, "VolumeAgentComputeAgent"
+    ), "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
 
 
 def test_swarm_agent_to_transform_has_only_skeptic():
     """_SWARM_AGENT_TO_TRANSFORM must map exactly one key: 'skeptic_v1'."""
     import services.alpha_swarm_agent as m
 
-    assert hasattr(m, "_SWARM_AGENT_TO_TRANSFORM"), (
-        "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
-    )
+    assert hasattr(
+        m, "_SWARM_AGENT_TO_TRANSFORM"
+    ), "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
     mapping = m._SWARM_AGENT_TO_TRANSFORM
-    assert set(mapping.keys()) == {"skeptic_v1"}, (
-        f"_SWARM_AGENT_TO_TRANSFORM has unexpected keys: {set(mapping.keys())}"
-    )
-    assert mapping["skeptic_v1"] == ("swarm_skeptic", 6), (
-        f"Unexpected value for skeptic_v1: {mapping['skeptic_v1']}"
-    )
+    assert set(mapping.keys()) == {
+        "skeptic_v1"
+    }, f"_SWARM_AGENT_TO_TRANSFORM has unexpected keys: {set(mapping.keys())}"
+    assert mapping["skeptic_v1"] == (
+        "swarm_skeptic",
+        6,
+    ), f"Unexpected value for skeptic_v1: {mapping['skeptic_v1']}"
 
 
 @pytest.mark.asyncio
 async def test_enrich_context_is_pass_through():
     """_enrich_context must be async and return the same context object (identity)."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
     from datetime import UTC, datetime
+
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
     from src.core.ai.context import AIContext
 
     svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
@@ -571,9 +557,9 @@ async def test_enrich_context_is_pass_through():
     ctx = AIContext(symbol="ESM6", timeframe="5m", ts=datetime.now(UTC))
 
     result = await svc._enrich_context(ctx)
-    assert result is ctx, (
-        "_enrich_context must return the SAME ctx object (pass-through, object identity)"
-    )
+    assert (
+        result is ctx
+    ), "_enrich_context must return the SAME ctx object (pass-through, object identity)"
 
 
 def test_lead_index_map_deleted():
@@ -581,27 +567,25 @@ def test_lead_index_map_deleted():
     import services.alpha_swarm_agent as m
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
 
-    assert not hasattr(m, "_LEAD_INDEX_MAP"), (
-        "_LEAD_INDEX_MAP still present in alpha_swarm_agent"
-    )
-    assert not hasattr(AlphaSwarmComputeAgent, "_find_lead_context"), (
-        "_find_lead_context still present on AlphaSwarmComputeAgent"
-    )
-    assert not hasattr(AlphaSwarmComputeAgent, "_extract_volume_profile"), (
-        "_extract_volume_profile still present on AlphaSwarmComputeAgent"
-    )
+    assert not hasattr(m, "_LEAD_INDEX_MAP"), "_LEAD_INDEX_MAP still present in alpha_swarm_agent"
+    assert not hasattr(
+        AlphaSwarmComputeAgent, "_find_lead_context"
+    ), "_find_lead_context still present on AlphaSwarmComputeAgent"
+    assert not hasattr(
+        AlphaSwarmComputeAgent, "_extract_volume_profile"
+    ), "_extract_volume_profile still present on AlphaSwarmComputeAgent"
 
 
 def test_wave1_invariants_preserved():
     """Plan 01 invariants: LineageRecorder present, no ShadowRecorder/TransformRecorder."""
     import services.alpha_swarm_agent as m
 
-    assert hasattr(m, "LineageRecorder"), (
-        "LineageRecorder not found in alpha_swarm_agent (Plan 01 invariant)"
-    )
-    assert not hasattr(m, "ShadowRecorder"), (
-        "ShadowRecorder still imported (Plan 01 should have removed it)"
-    )
-    assert not hasattr(m, "TransformRecorder"), (
-        "TransformRecorder still imported (Plan 01 should have removed it)"
-    )
+    assert hasattr(
+        m, "LineageRecorder"
+    ), "LineageRecorder not found in alpha_swarm_agent (Plan 01 invariant)"
+    assert not hasattr(
+        m, "ShadowRecorder"
+    ), "ShadowRecorder still imported (Plan 01 should have removed it)"
+    assert not hasattr(
+        m, "TransformRecorder"
+    ), "TransformRecorder still imported (Plan 01 should have removed it)"

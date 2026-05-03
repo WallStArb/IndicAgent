@@ -76,17 +76,19 @@ def _fmt(val: Any, spec: str) -> str:
 
 # Top-level AIContext fields that are NOT pipeline tiers — skip in rendering.
 # Pipeline tiers are everything else that is a Pydantic BaseModel instance.
-_CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset({
-    "signal_id",
-    "symbol",
-    "timeframe",
-    "ts",
-    "trigger",
-    "bar",
-    "i7",  # custom types — rendered separately if at all
-    "lead_context",
-    "volume_profile",
-})
+_CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "symbol",
+        "timeframe",
+        "ts",
+        "trigger",
+        "bar",
+        "i7",  # custom types — rendered separately if at all
+        "lead_context",
+        "volume_profile",
+    }
+)
 
 
 def _render_full_context(ctx: AIContext) -> str:
@@ -125,7 +127,9 @@ def _render_full_context(ctx: AIContext) -> str:
     return "\n".join(lines) if lines else "(no features available)"
 
 
-PROMPT_REGISTRY["skeptic_v2"] = """You are a skeptical trading analyst reviewing a signal for potential failure.
+PROMPT_REGISTRY[
+    "skeptic_v2"
+] = """You are a skeptical trading analyst reviewing a signal for potential failure.
 
 SIGNAL CONTEXT:
 - Symbol: {symbol}
@@ -168,10 +172,7 @@ def build_skeptic_prompt(ctx: Any) -> str:
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     if ACTIVE_VERSION == "skeptic_v2":
         if not isinstance(ctx, AIContext):
-            raise TypeError(
-                "skeptic_v2 requires AIContext, got "
-                f"{type(ctx).__name__}"
-            )
+            raise TypeError("skeptic_v2 requires AIContext, got " f"{type(ctx).__name__}")
         i7 = ctx.i7
         return template.format(
             symbol=ctx.symbol,
@@ -180,9 +181,7 @@ def build_skeptic_prompt(ctx: Any) -> str:
             winner_direction_label=_DIRECTION_LABELS.get(
                 (i7.winner_direction if i7 else 0) or 0, "UNKNOWN"
             ),
-            winner_confidence=_fmt(
-                i7.winner_confidence if i7 else None, ".0%"
-            ),
+            winner_confidence=_fmt(i7.winner_confidence if i7 else None, ".0%"),
             full_context_block=_render_full_context(ctx),
         )
 

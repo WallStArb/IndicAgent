@@ -21,6 +21,7 @@ def test_active_version_in_registry():
 def test_build_prompt_fills_fields(monkeypatch):
     """Verify v1 prompt template has all expected placeholders filled (dict path)."""
     import src.intelligence.ai.alpha.skeptic_prompts as _sp
+
     monkeypatch.setattr(_sp, "ACTIVE_VERSION", "skeptic_v1")
     ctx = {
         "signal_id": uuid4(),

@@ -11,6 +11,7 @@ Zero per-transform boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.
 Mirrors ShadowRecorder pattern exactly (src/core/ml/shadow.py).
 """
+
 from __future__ import annotations
 
 import warnings
