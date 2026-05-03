@@ -117,7 +117,6 @@ _STOP_SERVICES = [
     "indicagent-signal-tracker",
     "indicagent-feature-compute",
     "indicagent-feature-writer",
-    "indicagent-ai-narrative",
 ]
 
 _START_SERVICES = [
@@ -133,7 +132,6 @@ _START_SERVICES = [
     "indicagent-feature-writer",
     "indicagent-signal-generator",
     "indicagent-signal-tracker",
-    "indicagent-ai-narrative",
 ]
 
 

@@ -44,7 +44,6 @@ def test_dag_order_covers_required_services():
         "indicagent-intelligence-pipeline",
         "indicagent-signal-tracker-compute",
         "indicagent-signal-writer",
-        "indicagent-ai-narrative",
         "indicagent-feature-writer",
         "indicagent-llm-writer",
         "indicagent-cross-asset",
