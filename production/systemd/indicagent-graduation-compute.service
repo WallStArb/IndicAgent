@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent Graduation Compute — transform graduation evaluator (Phase 72)
+Description=IndicAgent Graduation Compute — event-driven transform graduation evaluator
 After=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
@@ -10,10 +10,11 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/graduation_compute_agent.py
+Environment=INDICAGENT_ENV=development
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/graduation_compute_agent.py
 Restart=always
-RestartSec=10
 TimeoutStopSec=30
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=indicagent-graduation-compute

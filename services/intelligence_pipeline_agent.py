@@ -164,7 +164,7 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
     Config file can override defaults for specific timeframes, but "default"
     key is always guaranteed via merge with hardcoded defaults.
     """
-    config_path = Path(__file__).parent.parent / "config" / "kalman_parameters.json"
+    config_path = Path(__file__).parent.parent / "src" / "config" / "kalman_parameters.json"
     try:
         data = json.loads(config_path.read_text())
         config_params = data.get("cis_kalman", {})
