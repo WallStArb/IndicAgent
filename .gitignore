@@ -292,3 +292,10 @@ test_ng_quote.py
 
 # Grafana alerting contact points — contains real credentials, never committed
 production/grafana/provisioning/alerting/contact-points.yml
+
+# AI tool config files — kept local, not tracked
+GEMINI.md
+CODEX.md
+AGENTS.md
+CURSOR.md
+COPILOT.md

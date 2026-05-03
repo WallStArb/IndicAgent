@@ -7,7 +7,6 @@
 ## Working on the platform?
 
 **→ [CLAUDE.md](../CLAUDE.md)** — Primary reference: architecture, commands, conventions, gotchas
-**→ [CODEX.md](../CODEX.md)** — Codex-specific entry point that defers to `CLAUDE.md`
 **→ [Guides](guides/)** — How to add plugins, run services, debug
 **→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 **→ [Ideas](ideas/)** — Research and strategy docs (living workspace)
