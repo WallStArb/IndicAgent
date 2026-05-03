@@ -10,6 +10,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -145,25 +146,32 @@ class GapAnalysisSetupPlugin:
         bias_abbr = "cont" if bias == "continuation" else "fade"
         signal_type = f"gap_{bias_abbr}_{'long' if direction == 1 else 'short'}"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "bias": bias,
-            "gap_size_atr": round(gap_size_atr, 4),
-            "confidence": confidence,
-            "entry_type": entry_type,
-            "entry_price": round(float(entry), 2),
-            "stop_loss": round(float(stop), 2),
-            "targets": targets,
-            "regime_context": "gap_open",
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
+        features_snapshot = capture_signal_features(
             features,
             direction,
             "session",
-            signal["confidence"],
+            confidence,
         )
+        signal = make_signal(
+            symbol="",
+            timeframe="",
+            timestamp="",
+            signal_type=signal_type,
+            setup_plugin="trad_GapAnalysisSetup",
+            direction=direction,
+            entry_price=float(entry),
+            stop_loss=float(stop),
+            targets=targets,
+            confidence=confidence,
+            regime_context="gap_open",
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            entry_type=entry_type,
+        )
+        signal["bias"] = bias
+        signal["gap_size_atr"] = round(gap_size_atr, 4)
+        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
