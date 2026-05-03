@@ -17,6 +17,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -181,21 +182,29 @@ class SupplyDemandSetupPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": [round(t1, 2), round(t2, 2)],
-            "confidence": confidence,
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
+        features_snapshot = capture_signal_features(
             features,
             direction,
             "smc",
-            signal["confidence"],
+            confidence,
         )
+        signal = make_signal(
+            symbol="",
+            timeframe="",
+            timestamp="",
+            signal_type=sig_type,
+            setup_plugin="trad_SupplyDemandSetup",
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            targets=[round(t1, 2), round(t2, 2)],
+            confidence=confidence,
+            regime_context="",
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

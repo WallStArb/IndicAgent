@@ -12,6 +12,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -141,25 +142,32 @@ class SessionExtremesSetupPlugin:
         regime_ctx = f"session_extreme_{session_ctx}"
         supporting.append(f"session:{session_ctx}")
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "bias": side,
-            "proximity_atr": round(proximity_atr, 4),
-            "confidence": confidence,
-            "entry_type": "at_limit",
-            "entry_price": round(entry_price, 2),
-            "stop_loss": round(stop_loss, 2),
-            "targets": targets,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
+        features_snapshot = capture_signal_features(
             features,
             direction,
             "session",
-            signal["confidence"],
+            confidence,
         )
+        signal = make_signal(
+            symbol="",
+            timeframe="",
+            timestamp="",
+            signal_type=signal_type,
+            setup_plugin="trad_SessionExtremesSetup",
+            direction=direction,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            targets=targets,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            entry_type="at_limit",
+        )
+        signal["bias"] = side
+        signal["proximity_atr"] = round(proximity_atr, 4)
+        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
