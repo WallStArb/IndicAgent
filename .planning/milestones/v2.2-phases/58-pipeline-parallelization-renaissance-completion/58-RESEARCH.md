@@ -533,7 +533,7 @@ class TestExceptionIsolation:
 - Direct code reading: `src/config/settings.py` — Field pattern, existing aliases
 - Direct code reading: `tests/unit/test_pipeline_parallelization.py` — `_make_agent()` pattern
 - Direct reading: `/etc/systemd/system/indicagent-intelligence-pipeline.service` — current installed unit
-- Direct reading: `docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md` — authoritative spec
+- Direct reading: `docs/plans/archive/2026-04-02-pipeline-parallelization-renaissance-completion-design.md` — authoritative spec
 - Direct reading: `.planning/phases/58-pipeline-parallelization-renaissance-completion/58-CONTEXT.md` — locked decisions
 
 ### Secondary (MEDIUM confidence)

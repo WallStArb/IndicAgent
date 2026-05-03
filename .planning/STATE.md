@@ -19,12 +19,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 78 (Plan 07 pending), Phase 70 deferred ~May 10
+**Current focus:** v2.5 nearly complete — only Phase 70 (ML Scoring) deferred ~May 10
 
 ## Current Position
 
-Phase: 78 (I8 Alpha Feedback Loop) — 6/7 complete
-Plan: 7 of 7 (078-07 pending — move NarrativeComputeAgent to API endpoint)
+Phase: 78 (I8 Alpha Feedback Loop) — 7/7 COMPLETE (2026-05-03)
+Plan: 7 of 7 complete
 
 Previous: Phase 79 — COMPLETE (2026-05-03) — Signal Quality Fix (zone width + entry price + co-fire tracking)
 Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification
@@ -141,10 +141,19 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Pending Todos
 
-**9 pending todos** (see `.planning/todos/pending/`)
+**18 pending todos** (see `.planning/todos/pending/`)
 
 Recent additions:
 
+- 2026-05-03: Qualitative CTX Schema Foundation (P-CTX-01) — ctx_events + ctx_snapshots tables, CtxWriterAgent, ctx column, as-of join pattern
+- 2026-05-03: Earnings Provider Lane (P-CTX-03a) — IBKR fundamental data → earnings context lane
+- 2026-05-03: Macro Event Provider Lane (P-CTX-03b) — economic calendar → macro context lane (FOMC, CPI, NFP)
+- 2026-05-03: Qualitative Shadow Evaluation Gate (P-CTX-04) — statistical gate before ctx affects I7 confidence
+- 2026-05-03: News Sentiment Provider Lane (P-CTX-05) — news NLP pipeline, ships after deterministic lanes proven
+- 2026-05-03: Quant Pipeline Modularization (P-QUANT-01) — decouple indicator logic into versioned library
+- 2026-05-03: HMM Multi-TF + Training Pipeline — per-TF HMM instances with Baum-Welch training, data-gated ~May 10
+- 2026-05-03: Regime Transition Early Detection — regime_entropy + hmm_regime_velocity, soft confidence multiplier for transition window
+- 2026-05-03: I8 Intelligence Extensions — counterfactual generator, regime explainer, anomaly triage (after Phase 78)
 - 2026-04-28: Phase 076 Plan 03 complete — SQL migration backfills 2,744 corrupted signal_ledger rows, adds labeling integrity CHECK constraint (commit 0db4fb75)
 - 2026-04-27: Align shadow infrastructure across I7 plugins and swarm agents — 3 independent shadow concepts, dead code, naming collisions, no promotion path
 - 2026-04-27: Add FeatureValidationService as new phase — automated IC/p-value gate superseding Phase 64-04 Task 3 human-verify checkpoint
@@ -245,5 +254,5 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 78 (I8 Alpha Feedback Loop) — 7 plans (6 complete, 078-07 pending)
-**Next Phase:** 70 (ML Scoring Model) — deferred ~May 10 (30-day data gate)
+**Planned Phase:** 70 (ML Scoring Model) — deferred ~May 10 (30-day data gate)
+**Next Phase:** Phase 72 Phases 2-4 — Signal Transform graduation (gated ~May 25)

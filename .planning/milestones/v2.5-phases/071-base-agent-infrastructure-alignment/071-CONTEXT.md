@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-04-14
 **Status:** Ready for planning
-**Source:** PRD Express Path (docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md)
+**Source:** PRD Express Path (docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md)
 
 <domain>
 ## Phase Boundary
@@ -98,7 +98,7 @@
 - `src/core/stream_keys.py` — All Kafka topic key construction
 
 ### Design Doc (PRD)
-- `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md` — Full design with rationale, risk assessment, and execution order
+- `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md` — Full design with rationale, risk assessment, and execution order
 
 </canonical_refs>
 

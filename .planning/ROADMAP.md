@@ -17,7 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 core complete 2026-04-28 — 03C USD strength + Plan 04 validation deferred ~May 10 data gate; MacroComputeAgent needs prod deploy)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79 (69+71+72+73+74+75+76+77+79 complete; 78 at 6/7; Phase 70 deferred ~May 10)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79 (69+71+72+73+74+75+76+77+78+79 complete; Phase 70 deferred ~May 10)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -236,7 +236,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 57-02-PLAN.md — I1-I6 in-process pipeline, state checkpointing, BarHistorySeeder warmup
   - [x] 57-03-PLAN.md — I7 integration, confidence attribution, output queue, async drain
 - [x] **Phase 57.1: SignalWriterAgent — signal_generator_agent Retirement** — New `intelligence.i7.signals` topic; thin `SignalWriterAgent` (WriterAgent) consumes all ranked I7 signals → `signal_ledger`; fix winner publish to `topic_signals_aggregated`; retire `signal_generator_agent`
-  Design doc: `docs/superpowers/plans/2026-03-30-signal-writer-agent.md`
+  Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical — file since removed)
   - [x] 057.1-01-PLAN.md — stream key, pipeline publish fix, SignalWriterAgent, tests, systemd, retirement
 
 </details>
@@ -281,7 +281,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-79) — Phase 70 deferred, Phase 78 6/7, all others complete</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-79) — Phase 70 deferred, all others complete</summary>
 
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 79 fixes zero-width signal zones and wrong entry_price for at_pullback/at_limit entries — activation rate should jump from 0.3% to meaningful levels. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
 
@@ -291,7 +291,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
 - [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
   Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
-  **Design doc:** `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md`
+  **Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
   **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
 - [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
   Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
@@ -340,8 +340,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ OTel unification: OTLP push, OTel Collector, Loki, Alertmanager, systemd discovery
 - ✅ Signal quality fix: zero-width zones eliminated, make_signal_from_frame() mandatory, signal_schema_version='v1', entry_type, co-fire tracking
 
-**Pending (Phase 78):**
-- 🔄 Phase 78: I8 Alpha Feedback Loop (6 of 7 plans complete — 078-07 pending: move NarrativeComputeAgent to API endpoint)
+**Pending:**
+- ⏸ Phase 70: ML Scoring Model (deferred ~May 10, 30-day data gate)
 - ⏸ Phase 70: ML Scoring Model (deferred ~May 10, 30-day data gate)
 
 **Completed (v2.5):**
@@ -354,6 +354,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Phase 76: Signal Lifecycle Labeling Fix (2026-04-28)
 - ✅ Phase 77: OTel Observability Unification (2026-04-29)
 - ✅ Phase 79: Signal Quality Fix — Zone Width + Entry Price (2026-05-03)
+- ✅ Phase 78: I8 Alpha Feedback Loop (2026-05-03)
 
 </details>
 
@@ -925,7 +926,7 @@ Plans:
 ### Phase 71: BaseAgent Infrastructure Alignment
 
 **Goal:** 6 targeted changes to eliminate boilerplate, fix bugs, and close observability gaps across the agent base class hierarchy. No new features, no new agents — purely refactoring the existing 4-class base hierarchy (BaseAgent, BaseProviderAgent, BaseWriterAgent, SwarmBaseAgent) so that adding a new agent requires zero tribal knowledge.
-**Design doc:** `docs/superpowers/specs/2026-04-14-base-agent-infrastructure-alignment-design.md`
+**Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
 **Depends on:** Phase 68 (BaseWriterAgent must exist before Plan 04 override)
 **Plans:** 5 plans
 
@@ -960,7 +961,7 @@ Plans:
 ### Phase 75: Shadow Governance System — Automated Promotion/Demotion
 
 **Goal:** Replace the three conflated "shadow" concepts with a clean, automated system. Deliver: (1) `shadow_registry` DB table as single source of truth for component shadow state with per-component gate parameters; (2) `ShadowAuditorAgent` timer that auto-promotes and auto-demotes I7 plugins and swarm agents based on statistical gates (N≥min_n, bootstrap CI lower > min_ev_r, demotion consecutive count); (3) auto-enrollment at pipeline startup — all TIER_I7 plugins and swarm agents enroll unless `SHADOW_SKIP = True`; (4) unified `_is_shadow()` cache in pipeline (no code change needed to promote); (5) rename `signal["_shadow"]` → `signal["features_snapshot"]` across all 37 I7 plugins; (6) extract `_bootstrap_ci_lower` to `src/core/stats_utils.py`; (7) remove hardcoded `SHADOW_PLUGINS` tuple and "human action required" log warning from `weight_updater.py`.
-**Design doc:** `docs/superpowers/specs/2026-04-28-shadow-governance-design.md`
+**Design doc:** `docs/plans/2026-04-28-shadow-governance-design.md`
 **Requirements**: [SHADOW-REGISTRY, SHADOW-AUDITOR, SHADOW-AUTO-ENROLL, SHADOW-CACHE, SHADOW-RENAME, SHADOW-STATS-UTILS, SHADOW-CLEANUP]
 **Depends on:** Phase 72 (signal_transform_log exists — ShadowAuditorAgent follows same timer pattern)
 **Plans:** 4 plans
@@ -1014,11 +1015,11 @@ Plans:
 - [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
 
 
-### Phase 78: I8 Alpha Feedback Loop — 6/7 COMPLETE
+### Phase 78: I8 Alpha Feedback Loop — COMPLETE (2026-05-03)
 
 **Goal:** Close the feedback loop so I8 actually produces statistical alpha. Fix 6 live bugs (pool leak, segment key, SafeAgentWrapper dead code, NarrativeGroupComputeAgent._setup() override, _extract_volume_profile() stub, ES lead instrument). Implement graduation (Spearman p<0.05, N≥100, auto-demotion mirroring I7 shadow pattern). Add Brier score + calibration to llm_model_scores. Expand AIContext to full feature vector. Replace CorrelationAgent + VolumeAgent with pure-math I8 plugins. Move NarrativeComputeAgent off the hot path to an API endpoint.
 
-**Status:** 6/7 plans complete. 078-07 (NarrativeComputeAgent to API endpoint) pending.
+**Status:** ✅ Complete (2026-05-03)
 
 **Requirements**: P78-POOL-FIX, P78-SEGMENT-KEY, P78-SAFE-WRAPPER, P78-SETUP-OVERRIDE, P78-VOLUME-PROFILE, P78-LEAD-MAP, P78-GRADUATION, P78-BRIER, P78-CONTEXT, P78-MATH-PLUGINS, P78-NARRATIVE
 **Depends on:** Phase 73 (AI/LLM infrastructure: BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment)
@@ -1031,7 +1032,7 @@ Plans:
 - [x] 078-04-PLAN.md — Wave 2: Brier score + calibration metrics — COMPLETE
 - [x] 078-05-PLAN.md — Wave 2: expand AIContext to full feature vector — COMPLETE
 - [x] 078-06-PLAN.md — Wave 3: replace Correlation+Volume LLM agents with pure-math plugins — COMPLETE
-- [ ] 078-07-PLAN.md — Wave 3: move NarrativeComputeAgent to API endpoint
+- [x] 078-07-PLAN.md — Wave 3: move NarrativeComputeAgent to API endpoint — COMPLETE
 
 ### Phase 79: Signal Quality Fix — Zone Width + Entry Price
 
