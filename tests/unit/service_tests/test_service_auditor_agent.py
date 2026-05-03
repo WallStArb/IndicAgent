@@ -143,6 +143,26 @@ async def test_discover_services_empty_output():
     assert result == []
 
 
+@pytest.mark.asyncio
+async def test_discover_services_strips_bullet_prefix_from_failed_units():
+    """_discover_services() handles ● bullet prefix on failed units."""
+    agent = _make_agent()
+
+    mock_stdout = (
+        b"\xe2\x97\x8f indicagent-bar-writer.service loaded failed failed\n"
+        b"indicagent-ibkr-provider.service loaded active running\n"
+    )
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(mock_stdout, b""))
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        result = await agent._discover_services()
+
+    assert "indicagent-bar-writer" in result
+    assert "indicagent-ibkr-provider" in result
+
+
 # -- SERVICE_UP_GAUGE ──────────────────────────────────────────────────────────
 
 
