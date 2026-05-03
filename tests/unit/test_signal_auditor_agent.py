@@ -160,9 +160,7 @@ async def test_coverage_skips_non_trading_day(agent):
     conn = _make_conn_mock(coverage_count=0)
     _set_db_pool(agent, conn)
 
-    instrument.trading_session.session_window_for_date = MagicMock(
-        return_value=(None, None)
-    )
+    instrument.trading_session.session_window_for_date = MagicMock(return_value=(None, None))
 
     gaps = await agent._check_coverage([instrument])
 

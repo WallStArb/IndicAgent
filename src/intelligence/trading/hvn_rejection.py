@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 from .volume_profile_utils import (
     DIV_THRESHOLD,
@@ -108,9 +109,7 @@ class HVNRejectionPlugin:
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
 
         # Determine candidate directions
-        can_long = near_hvn_below and (
-            rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD
-        )
+        can_long = near_hvn_below and (rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD)
         can_short = near_hvn_above and (
             rsi_div_bearish > DIV_THRESHOLD or stoch_k > STOCH_OVERBOUGHT
         )
@@ -175,15 +174,21 @@ class HVNRejectionPlugin:
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (direction == -1 and rsi_div_bearish > DIV_THRESHOLD)
-        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (direction == -1 and stoch_k > STOCH_OVERBOUGHT)
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (
+            direction == -1 and rsi_div_bearish > DIV_THRESHOLD
+        )
+        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (
+            direction == -1 and stoch_k > STOCH_OVERBOUGHT
+        )
 
         supporting: list[str] = [
             f"hvn_level={hvn_level:.2f}",
             f"hvn_distance_entered_atr={dist_atr:.3f}",
             "hvn_volume_rank=0.0",  # placeholder — volume rank not yet computed
         ]
-        supporting.extend(format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok))
+        supporting.extend(
+            format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok)
+        )
 
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
@@ -191,18 +196,25 @@ class HVNRejectionPlugin:
         hmm = float(features.get("hmm_regime", 0.0))
         regime_ctx = "ranging" if hmm == 0 else ("trending_up" if hmm == 1 else "trending_down")
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(frame.stop, 2),
-            "targets": [round(t.price, 2) for t in frame.targets],
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", signal["confidence"],
+        signal = make_signal_from_frame(
+            frame,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

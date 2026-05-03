@@ -14,8 +14,10 @@ from unittest.mock import patch
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_scheduler():
     from services.roll_compute_agent import CalendarRollScheduler
+
     return CalendarRollScheduler()
 
 
@@ -31,6 +33,7 @@ def _utc_datetime(d: date) -> datetime:
 def test_calendar_roll_scheduler_class_exists():
     """CalendarRollScheduler must exist in roll_compute_agent module."""
     from services.roll_compute_agent import CalendarRollScheduler
+
     assert CalendarRollScheduler is not None
 
 
@@ -45,11 +48,13 @@ def test_does_not_fire_before_roll_end():
 
     # Use a known roll window: get_roll_window returns (roll_start, roll_end)
     # Simulate being one day before roll_end
-    fake_roll_end = date(2026, 6, 16)   # arbitrary future date
+    fake_roll_end = date(2026, 6, 16)  # arbitrary future date
     fake_roll_start = fake_roll_end - timedelta(days=11)
     before_roll_end = _utc_datetime(fake_roll_end - timedelta(days=1))
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         result = scheduler.check_calendar_roll("ES", before_roll_end)
 
     assert result is False
@@ -68,7 +73,9 @@ def test_fires_on_roll_end_date():
     fake_roll_start = fake_roll_end - timedelta(days=11)
     on_roll_end = _utc_datetime(fake_roll_end)
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         result = scheduler.check_calendar_roll("ES", on_roll_end)
 
     assert result is True
@@ -87,7 +94,9 @@ def test_fires_after_roll_end_date():
     fake_roll_start = fake_roll_end - timedelta(days=11)
     after_roll_end = _utc_datetime(fake_roll_end + timedelta(days=1))
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         result = scheduler.check_calendar_roll("ES", after_roll_end)
 
     assert result is True
@@ -106,7 +115,9 @@ def test_fires_only_once_per_cycle():
     fake_roll_start = fake_roll_end - timedelta(days=11)
     on_roll_end = _utc_datetime(fake_roll_end)
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         first = scheduler.check_calendar_roll("ES", on_roll_end)
         second = scheduler.check_calendar_roll("ES", on_roll_end)
         third = scheduler.check_calendar_roll("ES", on_roll_end + timedelta(hours=2))
@@ -129,7 +140,9 @@ def test_different_symbols_fire_independently():
     fake_roll_start = fake_roll_end - timedelta(days=11)
     on_roll_end = _utc_datetime(fake_roll_end)
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         es_fired = scheduler.check_calendar_roll("ES", on_roll_end)
         nq_fired = scheduler.check_calendar_roll("NQ", on_roll_end)
 
@@ -182,7 +195,9 @@ def test_get_last_fired_roll_end():
     fake_roll_start = fake_roll_end - timedelta(days=11)
     on_roll_end = _utc_datetime(fake_roll_end)
 
-    with patch("services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)):
+    with patch(
+        "services.roll_compute_agent.get_roll_window", return_value=(fake_roll_start, fake_roll_end)
+    ):
         scheduler.check_calendar_roll("ES", on_roll_end)
 
     assert scheduler.get_last_fired_roll_end("ES") == fake_roll_end

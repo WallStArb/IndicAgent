@@ -17,6 +17,7 @@ class AgentOutput(BaseModel):
     Infrastructure (dispatcher, SafeAgentWrapper, graduation) handles
     AgentOutput without knowing payload internals.
     """
+
     model_config = ConfigDict(frozen=True)
 
     agent_id: str

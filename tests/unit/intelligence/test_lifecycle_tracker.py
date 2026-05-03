@@ -328,53 +328,57 @@ class TestEvaluateMarketEntryMechanics:
     def test_long_stop_hit_outcome_none(self):
         """Stop hit → outcome=None (caller resolves via _classify_stop_outcome)."""
         sig = _market_signal(direction=1, stop=5085.0)
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5098.0, low=5084.0, close=5086.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5098.0, low=5084.0, close=5086.0
+        )
         assert t is not None
         assert t.exit_price == 5085.0
         assert t.outcome is None  # stop outcome is resolved by caller
 
     def test_short_stop_hit(self):
-        sig = _market_signal(direction=-1, stop=5115.0,
-                             targets=[5085.0, 5070.0, 5055.0])
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5116.0, low=5105.0, close=5110.0)
+        sig = _market_signal(direction=-1, stop=5115.0, targets=[5085.0, 5070.0, 5055.0])
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5116.0, low=5105.0, close=5110.0
+        )
         assert t.exit_price == 5115.0
         assert t.outcome is None
 
     def test_long_target_1(self):
         sig = _market_signal(direction=1, targets=[5115.0, 5130.0, 5145.0])
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5116.0, low=5099.0, close=5115.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5116.0, low=5099.0, close=5115.0
+        )
         assert t.outcome == "target_1"
         assert t.exit_price == 5115.0
 
     def test_long_target_full(self):
         sig = _market_signal(direction=1, targets=[5115.0, 5130.0, 5145.0])
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5146.0, low=5099.0, close=5145.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5146.0, low=5099.0, close=5145.0
+        )
         assert t.outcome == "target_full"
         assert t.exit_price == 5145.0
 
     def test_ttl_expired_ahead(self):
         sig = _market_signal(bars_elapsed=11, ttl_bars=10)
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5108.0, low=5099.0, close=5105.0,
-                                  current_mfe=0.3)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5108.0, low=5099.0, close=5105.0, current_mfe=0.3
+        )
         assert t.outcome == "ttl_expired_ahead"
 
     def test_ttl_expired_behind(self):
         sig = _market_signal(bars_elapsed=11, ttl_bars=10)
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5097.0, low=5093.0, close=5094.0,
-                                  current_mfe=0.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5097.0, low=5093.0, close=5094.0, current_mfe=0.0
+        )
         assert t.outcome == "ttl_expired_behind"
 
     def test_no_exit_returns_still_running(self):
         """No stop/target/TTL hit → MarketTransition with outcome=None."""
         sig = _market_signal(direction=1, bars_elapsed=3)
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5108.0, low=5099.0, close=5105.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5108.0, low=5099.0, close=5105.0
+        )
         assert t.outcome is None
         assert t.exit_price is None
 
@@ -382,26 +386,28 @@ class TestEvaluateMarketEntryMechanics:
         """Market track risk = abs(market_entry_price - stop), not abs(entry_price - stop)."""
         # entry_price=5100, stop=5085 → zone risk=15
         # market_entry_price=5090, stop=5085 → market risk=5
-        sig = _market_signal(direction=1, entry=5100.0, stop=5085.0,
-                             targets=[5105.0])
-        t = evaluate_market_entry(sig, market_entry_price=5090.0,
-                                  high=5106.0, low=5089.0, close=5105.0)
+        sig = _market_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5105.0])
+        t = evaluate_market_entry(
+            sig, market_entry_price=5090.0, high=5106.0, low=5089.0, close=5105.0
+        )
         expected_pnl_r = round((5105.0 - 5090.0) * 1 / abs(5090.0 - 5085.0), 4)
         assert t.pnl_r == expected_pnl_r
 
     def test_stop_checked_before_target(self):
         """Same bar hits both stop and target — stop wins."""
         sig = _market_signal(direction=1, stop=5085.0, targets=[5115.0])
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5116.0, low=5084.0, close=5100.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5116.0, low=5084.0, close=5100.0
+        )
         assert t.exit_price == 5085.0
         assert t.outcome is None  # stop → caller classifies
 
     def test_never_activated_absent_from_market_track(self):
         """Market track never returns never_activated — the concept doesn't apply."""
         sig = _market_signal(bars_elapsed=11, ttl_bars=10)
-        t = evaluate_market_entry(sig, market_entry_price=5100.0,
-                                  high=5097.0, low=5093.0, close=5094.0)
+        t = evaluate_market_entry(
+            sig, market_entry_price=5100.0, high=5097.0, low=5093.0, close=5094.0
+        )
         assert t.outcome != "never_activated"
 
 
@@ -414,9 +420,15 @@ class TestMarketTrackMathInvariants:
         mae = mfe = 0.0
         t = None
         for high, low, close in bars:
-            t = evaluate_market_entry(sig, market_entry_price=market_price,
-                                      high=high, low=low, close=close,
-                                      current_mae=mae, current_mfe=mfe)
+            t = evaluate_market_entry(
+                sig,
+                market_entry_price=market_price,
+                high=high,
+                low=low,
+                close=close,
+                current_mae=mae,
+                current_mfe=mfe,
+            )
             if t.outcome is not None:
                 return t
             # accumulate excursions on no-exit bars (mirrors service logic)
@@ -430,9 +442,7 @@ class TestMarketTrackMathInvariants:
 
     def test_mae_le_pnl_r_le_mfe(self):
         sig = _market_signal(direction=1, stop=5085.0, targets=[5120.0])
-        bars = [(5103.0, 5098.0, 5101.0),
-                (5110.0, 5102.0, 5108.0),
-                (5121.0, 5105.0, 5120.0)]
+        bars = [(5103.0, 5098.0, 5101.0), (5110.0, 5102.0, 5108.0), (5121.0, 5105.0, 5120.0)]
         t = self._run_bars(sig, 5100.0, bars)
         assert t.mae <= t.pnl_r <= t.mfe
 
@@ -522,7 +532,10 @@ class TestChandelierTightening:
         }
         # Bar: high=5115 exceeds highest_high -> new stop = 5115 - 3*5 = 5100 > 5090 -> tightens
         evaluate_signal(
-            sig, high=5115.0, low=5098.0, close=5110.0,
+            sig,
+            high=5115.0,
+            low=5098.0,
+            close=5110.0,
             chandelier_state=ch,
         )
         assert ch["trailing_stop"] == pytest.approx(5100.0)
@@ -539,16 +552,17 @@ class TestChandelierTightening:
         }
         # Bar: high=5108 < highest_high=5115 -> new_stop = 5115 - 30 = 5085 < 5100 -> rejected
         evaluate_signal(
-            sig, high=5108.0, low=5098.0, close=5105.0,
+            sig,
+            high=5108.0,
+            low=5098.0,
+            close=5105.0,
             chandelier_state=ch,
         )
         assert ch["trailing_stop"] == pytest.approx(5100.0)  # unchanged
 
     def test_short_stop_tightens_when_low_decreases(self):
         """For a short, as lowest_low falls the stop should move down (tighten)."""
-        sig = _active_signal(
-            direction=-1, entry=5100.0, stop=5115.0, targets=[5060.0, 5040.0]
-        )
+        sig = _active_signal(direction=-1, entry=5100.0, stop=5115.0, targets=[5060.0, 5040.0])
         ch = {
             "trailing_stop": 5110.0,
             "highest_high": 5105.0,
@@ -558,7 +572,10 @@ class TestChandelierTightening:
         }
         # Bar: low=5085 < lowest_low -> new_stop = 5085 + 15 = 5100 < 5110 -> tightens
         evaluate_signal(
-            sig, high=5097.0, low=5085.0, close=5088.0,
+            sig,
+            high=5097.0,
+            low=5085.0,
+            close=5088.0,
             chandelier_state=ch,
         )
         assert ch["trailing_stop"] == pytest.approx(5100.0)
@@ -577,7 +594,10 @@ class TestChandelierStopExit:
             "vol_source": "garch_sigma",
         }
         t = evaluate_signal(
-            sig, high=5100.0, low=5094.0, close=5096.0,
+            sig,
+            high=5100.0,
+            low=5094.0,
+            close=5096.0,
             chandelier_state=ch,
         )
         assert t is not None
@@ -586,9 +606,7 @@ class TestChandelierStopExit:
 
     def test_short_exits_when_high_breaches_trailing_stop(self):
         """Short: high >= trailing_stop -> chandelier_stop exit."""
-        sig = _active_signal(
-            direction=-1, entry=5100.0, stop=5130.0, targets=[5060.0, 5040.0]
-        )
+        sig = _active_signal(direction=-1, entry=5100.0, stop=5130.0, targets=[5060.0, 5040.0])
         ch = {
             "trailing_stop": 5108.0,
             "highest_high": 5105.0,
@@ -597,7 +615,10 @@ class TestChandelierStopExit:
             "vol_source": "garch_sigma",
         }
         t = evaluate_signal(
-            sig, high=5109.0, low=5098.0, close=5105.0,
+            sig,
+            high=5109.0,
+            low=5098.0,
+            close=5105.0,
             chandelier_state=ch,
         )
         assert t is not None
@@ -615,7 +636,10 @@ class TestChandelierStopExit:
             "vol_source": "garch_sigma",
         }
         t = evaluate_signal(
-            sig, high=5115.0, low=5105.0, close=5112.0,
+            sig,
+            high=5115.0,
+            low=5105.0,
+            close=5112.0,
             chandelier_state=ch,
         )
         assert t is None  # no exit
@@ -624,6 +648,7 @@ class TestChandelierStopExit:
 # ============================================================
 # Staleness Score Tests
 # ============================================================
+
 
 @pytest.mark.unit
 class TestComputeStalenessScore:
@@ -699,13 +724,17 @@ class TestComputeStalenessScore:
 # Staleness condition_expired + confirmation window Tests
 # ============================================================
 
+
 @pytest.mark.unit
 class TestConditionExpired:
     def test_condition_expired_fires_after_3_consecutive_bars(self):
         """evaluate_signal returns condition_expired when consecutive >= 3 and score > 0.5."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
         t = evaluate_signal(
-            sig, high=5110.0, low=5098.0, close=5105.0,
+            sig,
+            high=5110.0,
+            low=5098.0,
+            close=5105.0,
             staleness_consecutive_bars=3,
             staleness_score=0.6,
         )
@@ -718,7 +747,10 @@ class TestConditionExpired:
         """evaluate_signal returns None when consecutive = 2 (confirmation window not met)."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
         t = evaluate_signal(
-            sig, high=5110.0, low=5098.0, close=5105.0,
+            sig,
+            high=5110.0,
+            low=5098.0,
+            close=5105.0,
             staleness_consecutive_bars=2,
             staleness_score=0.6,
         )
@@ -728,7 +760,10 @@ class TestConditionExpired:
         """No expiry when score <= 0.5 even if consecutive >= 3."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
         t = evaluate_signal(
-            sig, high=5110.0, low=5098.0, close=5105.0,
+            sig,
+            high=5110.0,
+            low=5098.0,
+            close=5105.0,
             staleness_consecutive_bars=5,
             staleness_score=0.4,
         )
@@ -737,15 +772,22 @@ class TestConditionExpired:
     def test_return_type_is_transition_or_none(self):
         """evaluate_signal always returns Transition | None -- never a tuple."""
         from src.intelligence.trading.lifecycle_tracker import Transition
+
         sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
         t = evaluate_signal(
-            sig, high=5110.0, low=5098.0, close=5105.0,
+            sig,
+            high=5110.0,
+            low=5098.0,
+            close=5105.0,
             staleness_consecutive_bars=3,
             staleness_score=0.6,
         )
         assert isinstance(t, Transition)
         t2 = evaluate_signal(
-            sig, high=5110.0, low=5098.0, close=5105.0,
+            sig,
+            high=5110.0,
+            low=5098.0,
+            close=5105.0,
             staleness_consecutive_bars=2,
             staleness_score=0.6,
         )
@@ -788,8 +830,12 @@ class TestTemporalGuard:
         signal_ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)
         bar_ts = datetime(2026, 4, 28, 12, 3, tzinfo=UTC)  # 2 min BEFORE signal
         t = evaluate_signal(
-            sig, high=5098.0, low=5093.0, close=5096.0,
-            signal_timestamp=signal_ts, bar_time=bar_ts,
+            sig,
+            high=5098.0,
+            low=5093.0,
+            close=5096.0,
+            signal_timestamp=signal_ts,
+            bar_time=bar_ts,
         )
         assert t is None  # temporal guard prevents activation
 
@@ -799,8 +845,12 @@ class TestTemporalGuard:
         signal_ts = datetime(2026, 4, 28, 12, 0, tzinfo=UTC)
         bar_ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)  # 5 min AFTER signal
         t = evaluate_signal(
-            sig, high=5098.0, low=5093.0, close=5096.0,
-            signal_timestamp=signal_ts, bar_time=bar_ts,
+            sig,
+            high=5098.0,
+            low=5093.0,
+            close=5096.0,
+            signal_timestamp=signal_ts,
+            bar_time=bar_ts,
         )
         assert t is not None
         assert t.new_status == "active"
@@ -810,8 +860,12 @@ class TestTemporalGuard:
         sig = _pending_with_zone(direction=1, zone_low=5095.0, zone_high=5102.0)
         ts = datetime(2026, 4, 28, 12, 5, tzinfo=UTC)
         t = evaluate_signal(
-            sig, high=5098.0, low=5093.0, close=5096.0,
-            signal_timestamp=ts, bar_time=ts,
+            sig,
+            high=5098.0,
+            low=5093.0,
+            close=5096.0,
+            signal_timestamp=ts,
+            bar_time=ts,
         )
         assert t is not None
         assert t.new_status == "active"
@@ -830,8 +884,12 @@ class TestTemporalGuard:
         signal_ts = datetime(2026, 4, 28, 12, 0, tzinfo=UTC)
         bar_ts = datetime(2026, 4, 28, 11, 55, tzinfo=UTC)  # before signal
         t = evaluate_signal(
-            sig, high=5080.0, low=5075.0, close=5078.0,
-            signal_timestamp=signal_ts, bar_time=bar_ts,
+            sig,
+            high=5080.0,
+            low=5075.0,
+            close=5078.0,
+            signal_timestamp=signal_ts,
+            bar_time=bar_ts,
         )
         assert t is not None
         assert t.new_status == "expired"
@@ -848,7 +906,10 @@ class TestTTLOutcomeWithActivatedAt:
         sig["bars_elapsed"] = 10
         sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
         t = evaluate_signal(
-            sig, high=5108.0, low=5095.0, close=5105.0,
+            sig,
+            high=5108.0,
+            low=5095.0,
+            close=5105.0,
             current_mfe=0.3,
         )
         assert t is not None
@@ -860,7 +921,10 @@ class TestTTLOutcomeWithActivatedAt:
         sig["bars_elapsed"] = 10
         sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
         t = evaluate_signal(
-            sig, high=5090.0, low=5080.0, close=5085.0,
+            sig,
+            high=5090.0,
+            low=5080.0,
+            close=5085.0,
             current_mfe=0.0,
         )
         assert t is not None
@@ -874,5 +938,3 @@ class TestTTLOutcomeWithActivatedAt:
         t = evaluate_signal(sig, high=5080.0, low=5075.0, close=5078.0)
         assert t is not None
         assert t.outcome == "never_activated"
-
-

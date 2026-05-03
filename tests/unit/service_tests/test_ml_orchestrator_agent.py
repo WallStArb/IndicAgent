@@ -1,4 +1,5 @@
 """Unit tests for MLOrchestratorComputeAgent. Uses __new__ pattern."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -8,6 +9,7 @@ import pytest
 
 def _make_agent():
     from services.ml_orchestrator_agent import MLOrchestratorComputeAgent
+
     agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
@@ -85,7 +87,12 @@ async def test_training_node_is_noop():
     agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
     agent.logger = MagicMock()
 
-    state = {"data_quality_score": 0.9, "last_discovery_run_id": "r1", "model_status": "none", "last_error": None}
+    state = {
+        "data_quality_score": 0.9,
+        "last_discovery_run_id": "r1",
+        "model_status": "none",
+        "last_error": None,
+    }
     result = await agent._training_node(state)
 
     assert result == state  # state unchanged
@@ -102,7 +109,12 @@ async def test_monitor_node_is_noop():
     agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
     agent.logger = MagicMock()
 
-    state = {"data_quality_score": 0.9, "last_discovery_run_id": "r1", "model_status": "none", "last_error": None}
+    state = {
+        "data_quality_score": 0.9,
+        "last_discovery_run_id": "r1",
+        "model_status": "none",
+        "last_error": None,
+    }
     result = await agent._monitor_node(state)
 
     assert result == state

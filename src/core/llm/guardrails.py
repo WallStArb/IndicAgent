@@ -3,6 +3,7 @@
 Each call_type registers a schema. generate() responses are validated before
 returned to callers. Invalid responses → None (logged, published to DLQ by chain).
 """
+
 from __future__ import annotations
 
 import json

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class ProvenanceChain(BaseModel):
     """Zero-copy provenance metadata for intelligence records."""
+
     origin_ts: datetime
     pipeline_id: str
     plugin_stack: list[str]
@@ -16,6 +17,7 @@ class ProvenanceChain(BaseModel):
 
 class IntelligenceJournal(BaseModel):
     """Atomic IntelligenceJournal record for Unified Intelligence Journaling."""
+
     ts: datetime = Field(..., description="Journaling timestamp (UTC)")
     sid: str = Field(..., description="Signal ID or unique event identifier")
     payload: dict[str, Any]

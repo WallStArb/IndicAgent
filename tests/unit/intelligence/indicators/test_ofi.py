@@ -12,9 +12,7 @@ def _make_df(n: int = 20, base_close: float = 100.0) -> pd.DataFrame:
     closes = [base_close + i * 0.1 for i in range(n)]
     return pd.DataFrame(
         {
-            "timestamp": [
-                datetime(2026, 3, 18, 13, 0, i, tzinfo=UTC) for i in range(n)
-            ],
+            "timestamp": [datetime(2026, 3, 18, 13, 0, i, tzinfo=UTC) for i in range(n)],
             "open": [c - 0.05 for c in closes],
             "high": [c + 0.2 for c in closes],
             "low": [c - 0.2 for c in closes],
@@ -69,15 +67,19 @@ class TestOFIPlugin:
         df = _make_df(20)
         # Warm up state so z-scores are meaningful
         for _ in range(15):
-            plugin_fresh.compute_full({"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
-        result = plugin_fresh.compute_full({"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
+            plugin_fresh.compute_full(
+                {"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+            )
+        result = plugin_fresh.compute_full(
+            {"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+        )
         divergence = result.get("ofi_divergence")
         assert divergence is not None
         assert isinstance(divergence, float)
         # New range is NOT limited to [-2, 2] — it's z-score space
         # Just verify it's a real float (not nan/inf)
         assert divergence == divergence  # not NaN
-        assert abs(divergence) < 20.0   # sanity bound
+        assert abs(divergence) < 20.0  # sanity bound
 
     def test_symbols_have_independent_state(self):
         """Different symbols must not share OFI state."""
@@ -86,21 +88,35 @@ class TestOFIPlugin:
         df_mnq = _make_df(20, base_close=20000.0)
         # Run ES many times to build history
         for _ in range(20):
-            plugin_fresh.compute_full({"main": df_es, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
-        es_result = plugin_fresh.compute_full({"main": df_es, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
+            plugin_fresh.compute_full(
+                {"main": df_es, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+            )
+        es_result = plugin_fresh.compute_full(
+            {"main": df_es, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+        )
         # Run MNQ once — should have fresh/minimal state
-        mnq_result = plugin_fresh.compute_full({"main": df_mnq, "tick_buffer": [], "__symbol__": "MNQ", "__timeframe__": "1m"})
+        mnq_result = plugin_fresh.compute_full(
+            {"main": df_mnq, "tick_buffer": [], "__symbol__": "MNQ", "__timeframe__": "1m"}
+        )
         # MNQ with only 1 call has no z-score history → spike_z = 0 → divergence = -price_return_z
         # ES with 21 calls has full history. They should differ.
-        assert es_result.get("ofi_spike_z") != mnq_result.get("ofi_spike_z") or \
-               es_result.get("ofi_divergence") != mnq_result.get("ofi_divergence"), \
-               "ES and MNQ must have independent state"
+        assert es_result.get("ofi_spike_z") != mnq_result.get("ofi_spike_z") or es_result.get(
+            "ofi_divergence"
+        ) != mnq_result.get("ofi_divergence"), "ES and MNQ must have independent state"
 
     def test_all_outputs_present_with_symbol(self):
         """All 5 declared outputs appear in result when symbol/tf provided."""
         df = _make_df(20)
-        result = self.plugin.compute_full({"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
-        expected_keys = {"ofi_ewma_5", "ofi_ewma_20", "ofi_divergence", "ofi_spike_z", "ofi_variant"}
+        result = self.plugin.compute_full(
+            {"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+        )
+        expected_keys = {
+            "ofi_ewma_5",
+            "ofi_ewma_20",
+            "ofi_divergence",
+            "ofi_spike_z",
+            "ofi_variant",
+        }
         assert expected_keys.issubset(set(result.keys()))
 
     def test_spike_z_score(self):
@@ -137,8 +153,16 @@ class TestOFIPlugin:
     def test_all_outputs_present(self):
         """All 5 declared outputs appear in result."""
         df = _make_df(20)
-        result = self.plugin.compute_full({"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"})
-        expected_keys = {"ofi_ewma_5", "ofi_ewma_20", "ofi_divergence", "ofi_spike_z", "ofi_variant"}
+        result = self.plugin.compute_full(
+            {"main": df, "tick_buffer": [], "__symbol__": "ES", "__timeframe__": "1m"}
+        )
+        expected_keys = {
+            "ofi_ewma_5",
+            "ofi_ewma_20",
+            "ofi_divergence",
+            "ofi_spike_z",
+            "ofi_variant",
+        }
         assert expected_keys.issubset(set(result.keys()))
 
     def test_plugin_module_export(self):

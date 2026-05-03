@@ -101,6 +101,6 @@ class TestNoFStringSQLInGetRecentSignals:
         source = inspect.getsource(get_recent_signals)
         # The query should be a plain string, not f"..." or f'''...'''
         # Look for the pattern: f""" or f''' followed by SELECT
-        assert 'f"""' not in source or "SELECT" not in source.split('f"""')[1].split('"""')[0], (
-            "f-string SQL query found in get_recent_signals() — must use parameterized query"
-        )
+        assert (
+            'f"""' not in source or "SELECT" not in source.split('f"""')[1].split('"""')[0]
+        ), "f-string SQL query found in get_recent_signals() — must use parameterized query"

@@ -290,7 +290,9 @@ class SessionContextPlugin:
         # "first 30 min" and "last 60 min" for NYSE sessions.
         # Gradient: linear decay from 1.0 at session start to 0.0 at threshold
         opening_threshold = 30.0 / 390.0  # ~0.077
-        is_opening = max(0.0, 1.0 - elapsed / opening_threshold) if elapsed < opening_threshold else 0.0
+        is_opening = (
+            max(0.0, 1.0 - elapsed / opening_threshold) if elapsed < opening_threshold else 0.0
+        )
 
         # Gradient: linear ramp from 0.0 at power_hour_start to 1.0 at session end
         power_start = 330.0 / 390.0  # ~0.846

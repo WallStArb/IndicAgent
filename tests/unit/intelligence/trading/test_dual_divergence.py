@@ -20,6 +20,7 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 class TestDualDivergence:
     def _make_plugin(self):
         from src.intelligence.trading.dual_divergence import DualDivergencePlugin
+
         return DualDivergencePlugin()
 
     def test_fires_when_both_diverge(self):
@@ -39,10 +40,16 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
-        assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-        assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+        assert isinstance(
+            result.get("stop_loss"), float
+        ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+        assert (
+            isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+        ), "targets must be non-empty list"
         assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-        assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+        assert isinstance(
+            result.get("regime_context"), str
+        ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_both_diverge_bearish(self):
         """Both OFI and CVD bearish divergence → fires short."""
@@ -57,7 +64,9 @@ class TestDualDivergence:
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))
         result = plugin.compute_full(_make_frames(close, features))
-        assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
+        assert (
+            result.get("direction") == -1
+        ), f"Expected -1, got {result.get('direction')}: {result}"
 
     def test_no_signal_only_ofi_diverges(self):
         """ofi_divergence high but cvd_divergence near 0 → no signal."""
@@ -99,11 +108,6 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
-    def test_has_is_shadow_false(self):
-        """plugin.IS_SHADOW must be False — plugin promoted from shadow to live."""
-        plugin = self._make_plugin()
-        assert getattr(plugin, "IS_SHADOW", True) is False
-
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""
         plugin = self._make_plugin()
@@ -124,11 +128,16 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         if result.get("direction") != 0:
             supporting = result.get("supporting_factors", [])
-            assert any("ofi" in str(s).lower() for s in supporting), f"Expected ofi in supporting: {supporting}"
-            assert any("cvd" in str(s).lower() for s in supporting), f"Expected cvd in supporting: {supporting}"
+            assert any(
+                "ofi" in str(s).lower() for s in supporting
+            ), f"Expected ofi in supporting: {supporting}"
+            assert any(
+                "cvd" in str(s).lower() for s in supporting
+            ), f"Expected cvd in supporting: {supporting}"
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.dual_divergence import plugin
+
         assert plugin.name == "trad_DualDivergence"
 
     def test_no_signal_uses_canonical_format(self):

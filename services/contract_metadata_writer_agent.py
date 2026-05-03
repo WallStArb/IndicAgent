@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import AssetClass
 from src.core.schemas.market_events import ContractUpdateEvent, RollEvent
@@ -121,9 +122,7 @@ class ContractMetadataWriterAgent(BaseAgent):
     async def _setup(self) -> None:
         """Connect DB pool, seed missing contracts, start Kafka consumer/producer."""
         # Hard-fail on DB unavailability per CONTEXT.md D-spec
-        self._db_pool = await asyncpg.create_pool(
-            self.settings.database_url, min_size=1, max_size=3
-        )
+        self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         await self._seed_missing_contracts()
 
         self._kafka_consumer = KafkaConsumerClient(
@@ -144,7 +143,6 @@ class ContractMetadataWriterAgent(BaseAgent):
             topics_consumed=self.topics_consumed,
             dry_run=self._dry_run,
         )
-
 
     async def _teardown(self) -> None:
         """Stop Kafka consumer/producer and close DB pool."""
@@ -205,7 +203,7 @@ class ContractMetadataWriterAgent(BaseAgent):
     async def _write_roll_event(
         self,
         conn: asyncpg.Connection,
-        event: "RollEvent",
+        event: RollEvent,
         is_authoritative: bool,
     ) -> None:
         """Write a detection event to roll_events for ML training."""

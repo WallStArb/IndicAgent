@@ -33,6 +33,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import _TF_MINUTES
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.market_events import BarGapRequest, RollEvent
 from src.core.stream_keys import (
@@ -72,6 +73,7 @@ class _AuditWindow(NamedTuple):
     date_start_utc: datetime
     date_end_utc: datetime
     expected: int
+
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -151,9 +153,7 @@ class BarAuditorAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect asyncpg pool, Kafka producer, and contract update consumer."""
-        self._db_pool = await asyncpg.create_pool(
-            self.settings.database_url, min_size=1, max_size=3
-        )
+        self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
@@ -177,7 +177,6 @@ class BarAuditorAgent(BaseAgent):
             topics_produced=self.topics_produced,
             topics_consumed=self.topics_consumed,
         )
-
 
     async def _teardown(self) -> None:
         """Stop producer, contract consumer, roll consumer, and close DB pool."""
@@ -337,13 +336,18 @@ class BarAuditorAgent(BaseAgent):
                 actual = counts.get((sym, w.date_start_utc, "1m"), 0)
                 completeness = actual / w.expected
 
-                self._canonical_completeness.labels(
-                    agent=self.name, symbol=sym, tf="1m"
-                ).set(completeness)
+                self._canonical_completeness.labels(agent=self.name, symbol=sym, tf="1m").set(
+                    completeness
+                )
 
                 if completeness < threshold:
                     await self._upsert_market_data_gap(
-                        conn, sym, "1m", w.date_start_utc, w.expected, w.expected - actual,
+                        conn,
+                        sym,
+                        "1m",
+                        w.date_start_utc,
+                        w.expected,
+                        w.expected - actual,
                     )
                     req = BarGapRequest(
                         symbol=sym,
@@ -631,6 +635,7 @@ class BarAuditorAgent(BaseAgent):
                 for msg in msgs:
                     try:
                         import json
+
                         raw = msg.value
                         payload = json.loads(raw) if isinstance(raw, (bytes, str)) else raw
                         event = RollEvent.model_validate(payload)

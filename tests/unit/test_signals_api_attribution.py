@@ -1,4 +1,5 @@
 """Tests for GET /api/signals/attribution — reads pre-computed signal_metrics table."""
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -87,7 +88,9 @@ class TestSignalsApiAttribution:
         mock_db = AsyncMock()
         mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
-        resp = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup&track=market")
+        resp = TestClient(app).get(
+            "/api/signals/attribution?window=30d&group_by=setup&track=market"
+        )
         assert resp.status_code == 200
 
     def test_window_param_7d_accepted(self):

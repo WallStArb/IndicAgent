@@ -202,9 +202,9 @@ def test_upsert_i8_sql_is_update_not_insert():
     """_UPDATE_I8_SQL must start with UPDATE (not INSERT) to avoid phantom rows."""
     from services.llm_writer_service import _UPDATE_I8_SQL  # type: ignore[import]
 
-    assert _UPDATE_I8_SQL.strip().startswith("UPDATE"), (
-        "_UPDATE_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
-    )
+    assert _UPDATE_I8_SQL.strip().startswith(
+        "UPDATE"
+    ), "_UPDATE_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
 
 
 def test_process_i8_message_buffers_correctly():
@@ -234,6 +234,7 @@ def test_process_i8_message_buffers_correctly():
     assert symbol == "ES"
     assert tf == "1m"
     import json as _json
+
     parsed = _json.loads(i8_json)
     assert parsed["model"] == "qwen3.5:9b"
 
@@ -334,12 +335,14 @@ class TestLlmModelScoresSymbol:
     def test_select_outcome_rows_includes_symbol(self):
         """_SELECT_OUTCOME_ROWS_SQL includes symbol in SELECT and GROUP BY."""
         from services.llm_writer_service import _SELECT_OUTCOME_ROWS_SQL
+
         assert "symbol" in _SELECT_OUTCOME_ROWS_SQL
         assert "GROUP BY model, regime, setup_type, call_type, symbol" in _SELECT_OUTCOME_ROWS_SQL
 
     def test_upsert_score_sql_includes_symbol(self):
         """_UPSERT_SCORE_SQL includes symbol column and ON CONFLICT with symbol."""
         from services.llm_writer_service import _UPSERT_SCORE_SQL
+
         assert "symbol" in _UPSERT_SCORE_SQL
         assert "ON CONFLICT (model, regime, setup_type, call_type, symbol)" in _UPSERT_SCORE_SQL
 
@@ -349,6 +352,7 @@ class TestLlmModelScoresSymbol:
         from unittest.mock import AsyncMock, MagicMock
 
         from services.llm_writer_service import _UPSERT_SCORE_SQL, LLMWriterService
+
         svc = LLMWriterService.__new__(LLMWriterService)
         svc.db_manager = AsyncMock()
         svc.score_recomputes_total = MagicMock()
@@ -356,8 +360,8 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        # Mock fetch_all to return a row with symbol
-        svc.db_manager.fetch_all = AsyncMock(return_value=[
+        # fetch is called twice: first for aggregate rows, second for confidence rows
+        aggregate_rows = [
             {
                 "model": "test_model",
                 "regime": "trending",
@@ -370,7 +374,8 @@ class TestLlmModelScoresSymbol:
                 "avg_pnl_r": 0.5,
                 "avg_latency_ms": 200.0,
             },
-        ])
+        ]
+        svc.db_manager.fetch = AsyncMock(side_effect=[aggregate_rows, []])
         svc.db_manager.execute_batch = AsyncMock()
 
         await svc._recompute_scores()
@@ -389,6 +394,7 @@ class TestLlmModelScoresSymbol:
         from unittest.mock import AsyncMock, MagicMock
 
         from services.llm_writer_service import LLMWriterService
+
         svc = LLMWriterService.__new__(LLMWriterService)
         svc.db_manager = AsyncMock()
         svc.score_recomputes_total = MagicMock()
@@ -396,7 +402,8 @@ class TestLlmModelScoresSymbol:
         svc._error_count = 0
         svc.error_count_total = MagicMock()
 
-        svc.db_manager.fetch_all = AsyncMock(return_value=[
+        # fetch is called twice: first for aggregate rows, second for confidence rows
+        aggregate_rows = [
             {
                 "model": "test_model",
                 "regime": "trending",
@@ -409,10 +416,92 @@ class TestLlmModelScoresSymbol:
                 "avg_pnl_r": 0.5,
                 "avg_latency_ms": 200.0,
             },
-        ])
+        ]
+        svc.db_manager.fetch = AsyncMock(side_effect=[aggregate_rows, []])
         svc.db_manager.execute_batch = AsyncMock()
 
         await svc._recompute_scores()
 
         params = svc.db_manager.execute_batch.call_args[0][1]
         assert params[0][4] == "*"
+
+
+# ---------------------------------------------------------------------------
+# Phase 78-04: Probabilistic calibration metrics (D-27, D-28)
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrationMetrics:
+    """Tests for _brier_score, _calibration_slope, and _ece helper functions."""
+
+    def test_brier_perfect(self):
+        """Brier score is 0.0 when confidence == outcome (perfect prediction)."""
+        import numpy as np
+
+        from services.llm_writer_service import _brier_score
+
+        conf = np.array([0.0, 0.5, 1.0, 0.3, 0.8])
+        outcome = np.array([0.0, 0.5, 1.0, 0.3, 0.8])
+        assert _brier_score(conf, outcome) == pytest.approx(0.0, abs=1e-9)
+
+    def test_brier_worst(self):
+        """Brier score is 1.0 when confidence=0 but outcome=1 (worst possible)."""
+        import numpy as np
+
+        from services.llm_writer_service import _brier_score
+
+        conf = np.array([0.0, 0.0, 0.0])
+        outcome = np.array([1.0, 1.0, 1.0])
+        assert _brier_score(conf, outcome) == pytest.approx(1.0, abs=1e-9)
+
+    def test_calibration_slope_perfect(self):
+        """Calibration slope is approximately 1.0 for perfectly calibrated predictions."""
+        import numpy as np
+
+        from services.llm_writer_service import _calibration_slope
+
+        rng = np.random.default_rng(42)
+        conf = rng.uniform(0.1, 0.9, 50)
+        # outcomes = confidence + small noise (perfectly calibrated)
+        outcome = np.clip(conf + rng.normal(0, 0.05, 50), 0.0, 1.0)
+        slope = _calibration_slope(conf, outcome)
+        assert slope is not None
+        assert abs(slope - 1.0) < 0.3
+
+    def test_calibration_slope_zero_variance(self):
+        """Calibration slope is None when all confidences are identical (zero variance)."""
+        import numpy as np
+
+        from services.llm_writer_service import _calibration_slope
+
+        conf = np.full(20, 0.7)
+        outcome = np.array([1.0, 0.0] * 10)
+        slope = _calibration_slope(conf, outcome)
+        assert slope is None
+
+    def test_ece_perfect(self):
+        """ECE is 0.0 when mean confidence in each bin equals mean accuracy."""
+        import numpy as np
+
+        from services.llm_writer_service import _ece
+
+        # Build data where confidence == outcome within each bin
+        # Use midpoints of each bin for both confidence and outcome
+        conf = np.array([0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95])
+        outcome = np.array([0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95])
+        assert _ece(conf, outcome) == pytest.approx(0.0, abs=1e-9)
+
+    def test_ece_overconfident(self):
+        """ECE is 0.9 when confidence=1.0 (all in top bin) but all outcomes are 0."""
+        import numpy as np
+
+        from services.llm_writer_service import _ece
+
+        # All in last bin [0.9, 1.0], confidence mean = 1.0, outcome mean = 0.0
+        # weight = N/N = 1.0, |1.0 - 0.0| = 1.0, but conf is 1.0 so it falls in last bin
+        # ECE = (N/N) * |mean_conf - mean_outcome| = 1.0 * |1.0 - 0.0| = 1.0
+        # But since conf=0.9 (within [0.9,1.0)), conf mean=0.9, outcome=0 → ECE=0.9
+        conf = np.full(100, 0.9)
+        outcome = np.zeros(100)
+        result = _ece(conf, outcome)
+        assert result == pytest.approx(0.9, abs=1e-9)

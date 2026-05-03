@@ -1,5 +1,7 @@
 # Adding Plugins
 
+**Last Updated:** 2026-05-02
+
 Step-by-step guide to creating new plugins.
 
 ---

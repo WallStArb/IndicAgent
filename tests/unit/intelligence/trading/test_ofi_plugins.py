@@ -19,9 +19,11 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
 
 # ─── OFIContinuation ──────────────────────────────────────────────────────────
 
+
 class TestOFIContinuation:
     def _make_plugin(self):
         from src.intelligence.trading.ofi_continuation import OFIContinuationPlugin
+
         return OFIContinuationPlugin()
 
     def test_fires_on_sustained_directional_ofi(self):
@@ -37,10 +39,16 @@ class TestOFIContinuation:
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert isinstance(
+                result.get("stop_loss"), float
+            ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert (
+                isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            ), "targets must be non-empty list"
             assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(
+                result.get("regime_context"), str
+            ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_no_signal_insufficient_persistence(self):
         """After only 2 bars of positive OFI, no signal fires."""
@@ -70,14 +78,19 @@ class TestOFIContinuation:
         close = np.linspace(5000.0, 5010.0, 25)
         # Build up positive OFI count
         for _ in range(5):
-            plugin.compute_full(_make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0}))
+            plugin.compute_full(
+                _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
+            )
         # Flip to negative — count should reset
-        result = plugin.compute_full(_make_frames(close, {"ofi_ewma_20": -150.0, "ofi_ewma_5": -120.0, "atr_14": 2.0}))
+        result = plugin.compute_full(
+            _make_frames(close, {"ofi_ewma_20": -150.0, "ofi_ewma_5": -120.0, "atr_14": 2.0})
+        )
         assert result.get("direction") == 0  # count reset, only 1 bar in new direction
 
     def test_module_level_plugin_instance(self):
         """Module-level plugin instance must have correct name."""
         from src.intelligence.trading.ofi_continuation import plugin
+
         assert plugin.name == "trad_OFIContinuation"
 
 
@@ -85,9 +98,11 @@ class TestOFIContinuation:
 # Phase 59: Redesigned — continuous z-score factor, 2-bar persistence, regime_type="any".
 # Full coverage: tests/unit/intelligence/test_ofi_divergence.py
 
+
 class TestOFIDivergence:
     def _make_plugin(self):
         from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
+
         return OFIDivergencePlugin()
 
     def _make_frames_n(self, close_arr, features=None, n=2, symbol="ES", tf="1m"):
@@ -101,7 +116,9 @@ class TestOFIDivergence:
         frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_5": -0.5, "atr_14": 2.0})
         plugin.compute_full(frames)  # bar 1 — no fire
         result = plugin.compute_full(frames)  # bar 2 — should fire
-        assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
+        assert (
+            result.get("direction") == -1
+        ), f"Expected -1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
             assert isinstance(result.get("stop_loss"), float)
@@ -157,14 +174,17 @@ class TestOFIDivergence:
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.ofi_divergence import plugin
+
         assert plugin.name == "trad_OFIDivergence"
 
 
 # ─── OFISpike ─────────────────────────────────────────────────────────────────
 
+
 class TestOFISpike:
     def _make_plugin(self):
         from src.intelligence.trading.ofi_spike import OFISpikePlugin
+
         return OFISpikePlugin()
 
     def test_fires_when_ofi_spike_z_exceeds_2_positive(self):
@@ -176,10 +196,16 @@ class TestOFISpike:
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert isinstance(
+                result.get("stop_loss"), float
+            ), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert (
+                isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            ), "targets must be non-empty list"
             assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(
+                result.get("regime_context"), str
+            ), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_ofi_spike_z_exceeds_2_negative(self):
         """ofi_spike_z = -2.5 fires with direction=-1."""
@@ -230,4 +256,5 @@ class TestOFISpike:
 
     def test_module_level_plugin_instance(self):
         from src.intelligence.trading.ofi_spike import plugin
+
         assert plugin.name == "trad_OFISpike"

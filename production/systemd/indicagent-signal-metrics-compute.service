@@ -1,7 +1,6 @@
 [Unit]
 Description=IndicAgent Signal Metrics Compute Agent — timer-triggered signal performance metrics
-Requires=indicagent-redpanda-ready.service
-After=network-online.target indicagent-intelligence-pipeline.service indicagent-redpanda-ready.service
+After=network-online.target indicagent-intelligence-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

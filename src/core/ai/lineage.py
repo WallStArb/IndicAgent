@@ -4,6 +4,7 @@ Replaces ShadowRecorder + TransformRecorder with a single Kafka-first recorder.
 Hot path publishes to topic_signal_lineage() Kafka topic (D-46).
 LineageWriterAgent consumes and persists to signal_lineage hypertable.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,9 @@ class LineageRecorder:
     D-48: All records start is_shadow=True by default.
     """
 
-    def __init__(self, producer: Any, env_name: str, batch_size: int = 50, flush_interval_s: float = 2.0) -> None:
+    def __init__(
+        self, producer: Any, env_name: str, batch_size: int = 50, flush_interval_s: float = 2.0
+    ) -> None:
         self._producer = producer
         self._env_name = env_name
         self._batch: list[dict] = []
@@ -43,7 +46,7 @@ class LineageRecorder:
         *,
         signal_id: UUID,
         event_type: str,  # 'transform' | 'agent_prediction' | 'lifecycle'
-        source: str,       # transform_id or agent_id
+        source: str,  # transform_id or agent_id
         dag_order: int | None = None,
         multiplier: float | None = None,
         metadata: dict[str, Any] | None = None,  # D-07: event-specific JSONB

@@ -52,9 +52,11 @@ def _base_features_short(**kwargs):
 
 # ─── Test 1: fires long when below poc and rsi_div_bullish > 0.3 ─────────────
 
+
 def test_fires_long_near_poc_from_below():
     """close within 0.3*ATR below poc_price + rsi_div_bullish=0.5 → direction == 1."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     # poc_price=5000, ATR=10, 0.3*ATR=3 → close must be in [4997, 5003]
     close = np.linspace(4997.5, 4998.0, 25)
@@ -65,9 +67,11 @@ def test_fires_long_near_poc_from_below():
 
 # ─── Test 2: fires short when above poc and rsi_div_bearish > 0.3 ────────────
 
+
 def test_fires_short_near_poc_from_above():
     """close within 0.3*ATR above poc_price + rsi_div_bearish=0.5 → direction == -1."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(5002.0, 5002.5, 25)
     result = plugin.compute_full(_make_frames(close, _base_features_short()))
@@ -77,9 +81,11 @@ def test_fires_short_near_poc_from_above():
 
 # ─── Test 3: does NOT fire when too far from POC ─────────────────────────────
 
+
 def test_no_signal_when_far_from_poc():
     """close = 4990 (10 pts below poc, ATR=10 → 1.0× ATR > 0.3 threshold) → no signal."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(4990.0, 4990.5, 25)
     result = plugin.compute_full(_make_frames(close, _base_features_long()))
@@ -89,9 +95,11 @@ def test_no_signal_when_far_from_poc():
 
 # ─── Test 4: does NOT fire when no momentum reversal signal ──────────────────
 
+
 def test_no_signal_when_no_momentum_reversal():
     """Near poc but rsi_div_bullish=0.0 and stoch_k=50 → no reversal confirmation."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
     features = _base_features_long(rsi_div_bullish=0.0, stoch_k_14_3=50.0)
@@ -102,9 +110,11 @@ def test_no_signal_when_no_momentum_reversal():
 
 # ─── Test 5: fires with stoch_k < 30 as reversal signal ─────────────────────
 
+
 def test_fires_with_stoch_oversold():
     """stoch_k=20 < 30 → oversold reversal signal → long fires near poc."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
     features = _base_features_long(rsi_div_bullish=0.0, stoch_k_14_3=20.0)
@@ -114,18 +124,22 @@ def test_fires_with_stoch_oversold():
 
 # ─── Test 6: regime_type is mean_reversion ───────────────────────────────────
 
+
 def test_regime_type_is_mean_reversion():
     """Plugin must declare regime_type == 'mean_reversion'."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     assert plugin.regime_type == "mean_reversion"
 
 
 # ─── Test 7: no signal when required fields missing ──────────────────────────
 
+
 def test_no_signal_when_poc_missing():
     """Missing poc_price → returns no signal."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.5, 4998.0, 25)
     result = plugin.compute_full(_make_frames(close, {}))
@@ -134,17 +148,21 @@ def test_no_signal_when_poc_missing():
 
 # ─── Test 8: module-level plugin instance ────────────────────────────────────
 
+
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
     from src.intelligence.trading.poc_rejection import plugin
+
     assert plugin.name == "trad_POCRejection"
 
 
 # ─── Test 9: TF guard returns no_signal on 1h bars ───────────────────────────
 
+
 def test_tf_guard_returns_no_signal_on_1h():
     """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
     from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+
     plugin = POCRejectionPlugin()
     close = np.linspace(4997.0, 4999.0, 25)
     frames = _make_frames(close, {"poc_price": 5000.0, "atr_14": 10.0})

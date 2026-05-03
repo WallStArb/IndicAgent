@@ -3,6 +3,7 @@
 Composes: SemanticCache → RateLimiter → TokenBudget → LLMChain → GuardrailsValidator → LangFuse.
 Callers: `chain = LLMProviderChain(call_type="narrative"); text = await chain.generate(...)`.
 """
+
 from __future__ import annotations
 
 import time
@@ -78,9 +79,7 @@ class LLMProviderChain:
             # Prioritize by speed + quality (nemotron-3-super fastest at 1.83s avg)
             cloud_models = ["nemotron-3-super", "minimax-m2.7", "gemini-3-flash-preview"]
             for model in cloud_models:
-                providers.append(
-                    OllamaCloudProvider(model=model, api_key=settings.ollama_api_key)
-                )
+                providers.append(OllamaCloudProvider(model=model, api_key=settings.ollama_api_key))
 
         # 3. Ollama Local (fallback)
         providers.append(
@@ -129,8 +128,11 @@ class LLMProviderChain:
             _budget.record(call_type=self._call_type, provider="ollama", tokens=estimated_tokens)
             if self._cache_ttl > 0:
                 _cache.put(
-                    system=system, prompt=prompt, model=model,
-                    response=response, ttl=self._cache_ttl,
+                    system=system,
+                    prompt=prompt,
+                    model=model,
+                    response=response,
+                    ttl=self._cache_ttl,
                 )
             return response
 
@@ -180,6 +182,7 @@ class LLMProviderChain:
         # D-06: Auto-audit — publish to topic_llm_calls when audit_context provided
         if audit_context is not None and self._producer is not None:
             from src.core.stream_keys import topic_llm_calls
+
             try:
                 await self._producer.publish(
                     topic_llm_calls(self._settings.env_name),

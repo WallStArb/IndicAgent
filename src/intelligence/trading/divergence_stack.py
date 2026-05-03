@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # ---------------------------------------------------------------------------
@@ -105,11 +106,26 @@ class DivergenceStackPlugin:
 
         # Read all 5 divergence input pairs from features dict (I5 outputs)
         inputs_map: dict[str, tuple[float, float]] = {
-            "rsi": (float(features.get("rsi_div_bullish") or 0), float(features.get("rsi_div_bearish") or 0)),
-            "macd": (float(features.get("macd_div_bullish") or 0), float(features.get("macd_div_bearish") or 0)),
-            "vol": (float(features.get("vol_div_bullish") or 0), float(features.get("vol_div_bearish") or 0)),
-            "obv": (float(features.get("obv_div_bullish") or 0), float(features.get("obv_div_bearish") or 0)),
-            "cmf": (float(features.get("cmf_div_bullish") or 0), float(features.get("cmf_div_bearish") or 0)),
+            "rsi": (
+                float(features.get("rsi_div_bullish") or 0),
+                float(features.get("rsi_div_bearish") or 0),
+            ),
+            "macd": (
+                float(features.get("macd_div_bullish") or 0),
+                float(features.get("macd_div_bearish") or 0),
+            ),
+            "vol": (
+                float(features.get("vol_div_bullish") or 0),
+                float(features.get("vol_div_bearish") or 0),
+            ),
+            "obv": (
+                float(features.get("obv_div_bullish") or 0),
+                float(features.get("obv_div_bearish") or 0),
+            ),
+            "cmf": (
+                float(features.get("cmf_div_bullish") or 0),
+                float(features.get("cmf_div_bearish") or 0),
+            ),
         }
 
         # Per-input scores: max(bullish, bearish) — divergence presence score
@@ -185,21 +201,27 @@ class DivergenceStackPlugin:
 
             atr = get_atr(features)
             if atr is None:
-                return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
+                return {
+                    **base_output,
+                    "signal_type": "none",
+                    "direction": 0,
+                    "confidence": 0.0,
+                    "supporting_factors": [],
+                }
 
             entry = float(df["close"].iloc[-1])
             signal_type = signal_type_for_direction("divergence_stack", direction)
             tf = frame_trade(signal_type, direction, entry, features, atr)
             if not tf.viable:
-                return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
-            stop = tf.stop
-            targets = [round(t.price, 2) for t in tf.targets]
+                return {
+                    **base_output,
+                    "signal_type": "none",
+                    "direction": 0,
+                    "confidence": 0.0,
+                    "supporting_factors": [],
+                }
 
-            supporting = [
-                name
-                for name, s in per_input_scores.items()
-                if s > 0
-            ]
+            supporting = [name for name, s in per_input_scores.items() if s > 0]
             supporting_factors = [f"div_{name}" for name in supporting]
 
             raw_div_conf = weighted_score / DIVERGENCE_CONFIDENCE_NORM
@@ -208,20 +230,27 @@ class DivergenceStackPlugin:
             )
             confidence = compose_confidence(raw_div_conf)
 
-            signal = {
-                **base_output,
-                "signal_type": signal_type,
-                "direction": direction,
-                "confidence": confidence,
-                "supporting_factors": supporting_factors,
-                "entry_price": round(entry, 2),
-                "stop_loss": round(stop, 2),
-                "targets": targets,
-                "regime_context": "any",
-                "ttl_bars": 10,
-            }
-            signal["_shadow"] = capture_signal_features(
-                features, direction, "microstructure", signal["confidence"],
+            signal = make_signal_from_frame(
+                tf,
+                symbol=frames.get("symbol", ""),
+                timeframe=features.get("timeframe", ""),
+                timestamp=features.get("timestamp", ""),
+                signal_type=signal_type,
+                setup_plugin="trad_DivergenceStack",
+                direction=direction,
+                confidence=confidence,
+                regime_context="any",
+                confluence_score=0.0,
+                supporting_factors=supporting_factors,
+                invalidation_conditions=[],
+            )
+            # Merge always-logged scoring fields on top of the framed signal
+            signal.update(base_output)
+            signal["features_snapshot"] = capture_signal_features(
+                features,
+                direction,
+                "microstructure",
+                signal["confidence"],
             )
             return signal
 

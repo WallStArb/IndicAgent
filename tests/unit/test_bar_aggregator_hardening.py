@@ -44,9 +44,11 @@ def _make_agent():
     agent._env_name = "dev"
 
     import structlog
+
     agent.logger = structlog.get_logger().bind(agent=agent.name)
 
     from src.config.settings import Settings
+
     agent._settings = MagicMock(spec=Settings)
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
     agent._settings.env_name = "dev"
@@ -90,9 +92,7 @@ async def test_malformed_bar_routes_to_dlq():
         # Route to DLQ
         await agent._dlq_producer.produce(agent._dlq_topic, raw_payload)
 
-    agent._dlq_producer.produce.assert_awaited_once_with(
-        "dev.bar.aggregator.dlq", raw_payload
-    )
+    agent._dlq_producer.produce.assert_awaited_once_with("dev.bar.aggregator.dlq", raw_payload)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +200,6 @@ def test_lag_consumer_cached_not_recreated():
     # After the fix, agent must have a _lag_consumer attribute set in _setup()
     # We verify the attribute exists (set during _setup, here we simulate it)
     agent._lag_consumer = MagicMock()
-    assert hasattr(agent, "_lag_consumer"), (
-        "_lag_consumer must be cached on agent — not created per _get_consumer_lag() call"
-    )
+    assert hasattr(
+        agent, "_lag_consumer"
+    ), "_lag_consumer must be cached on agent — not created per _get_consumer_lag() call"

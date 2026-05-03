@@ -76,8 +76,8 @@ def compute_flight_to_quality(
                 continue
 
             # Previous close for return calculation
-            spy_prev = bars["SPY"][-i-1]["close"]
-            tlt_prev = bars["TLT"][-i-1]["close"]
+            spy_prev = bars["SPY"][-i - 1]["close"]
+            tlt_prev = bars["TLT"][-i - 1]["close"]
 
             # Simple return
             spy_ret = (spy_close - spy_prev) / spy_prev if spy_prev != 0 else 0.0

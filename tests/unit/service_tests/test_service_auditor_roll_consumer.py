@@ -22,7 +22,9 @@ async def test_restart_roll_service_increments_counter():
 
     from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
-    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")._value.set(0)
+    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+        service_name="indicagent-ibkr-provider"
+    )._value.set(0)
 
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
@@ -31,7 +33,9 @@ async def test_restart_roll_service_increments_counter():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
         await agent._restart_roll_service("indicagent-ibkr-provider")
         assert mock_exec.call_count == 1
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")
+        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+            service_name="indicagent-ibkr-provider"
+        )
         assert metric._value.get() == 1
 
 
@@ -44,7 +48,9 @@ async def test_restart_roll_service_subprocess_failure_is_logged():
 
     from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
 
-    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")._value.set(0)
+    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+        service_name="indicagent-ibkr-provider"
+    )._value.set(0)
 
     mock_proc = AsyncMock()
     mock_proc.returncode = 1
@@ -53,5 +59,7 @@ async def test_restart_roll_service_subprocess_failure_is_logged():
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         await agent._restart_roll_service("indicagent-ibkr-provider")
         assert agent.logger.error.called
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")
+        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+            service_name="indicagent-ibkr-provider"
+        )
         assert metric._value.get() == 0

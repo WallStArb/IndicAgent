@@ -1,5 +1,9 @@
 # Architectural Standard: The Renaissance "Agent" Pattern
 
+**Related Standards:**
+- `docs/architecture/agent-contract-checklist.md` — required contract for new agents
+- `docs/architecture/canonical-truth-registry.md` — canonical stream/table ownership registry
+
 ## 1. Core Definition: The Renaissance Agent (OODA Loop)
 A Renaissance Agent is an **autonomous, event-driven compute node** within our pipeline DAG. It operates on a continuous **OODA Loop** (Observe-Decide-Act):
 

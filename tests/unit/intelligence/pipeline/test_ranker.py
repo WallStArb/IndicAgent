@@ -1,4 +1,5 @@
 """Unit tests for rank_signals pure function."""
+
 from __future__ import annotations
 
 import pytest

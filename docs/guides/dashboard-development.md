@@ -1,5 +1,7 @@
 # Dashboard Development
 
+**Last Updated:** 2026-05-02
+
 [TODO: Frontend setup, component dev, SSE integration]
 
 ---

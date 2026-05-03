@@ -247,8 +247,10 @@ def _print_table(results: list[ICResult], min_ic: float) -> None:
         print("\nNoise candidates flagged for Phase 44 shadow review:")
         for r in noise_plugins:
             ic_fmt = f"{r.ic_score:.4f}" if r.ic_score is not None else "None"
-            print(f"  - {r.setup_plugin} [{r.timeframe}] {r.symbol or 'ALL'}: "
-                  f"IC={ic_fmt}, N={r.ic_n}, grade={r.grade}")
+            print(
+                f"  - {r.setup_plugin} [{r.timeframe}] {r.symbol or 'ALL'}: "
+                f"IC={ic_fmt}, N={r.ic_n}, grade={r.grade}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +272,7 @@ async def _amain(args: argparse.Namespace) -> int:
     print()
 
     from src.core.database_manager import DatabaseManager
+
     db = DatabaseManager(settings.database_url)
     await db.initialize()
     try:
@@ -295,10 +298,7 @@ async def _amain(args: argparse.Namespace) -> int:
         _print_table(results, args.min_ic)
 
         # Exit 1 if any plugin with N >= 30 is noise (monitoring integration)
-        noise_count = sum(
-            1 for r in results
-            if r.is_noise and r.ic_n >= IC_MIN_SAMPLE_SIZE
-        )
+        noise_count = sum(1 for r in results if r.is_noise and r.ic_n >= IC_MIN_SAMPLE_SIZE)
         if noise_count > 0:
             print(f"\nExit 1: {noise_count} noise plugin(s) detected (IC gate failed).")
             return 1

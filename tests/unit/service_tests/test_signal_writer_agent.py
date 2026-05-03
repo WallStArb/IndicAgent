@@ -3,6 +3,7 @@
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
 Tests structural contract, _payload_to_ledger_entries conversion, and flush behavior.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -56,27 +57,29 @@ def _make_payload(n_signals: int = 2, winner_idx: int = 0) -> dict:
     """Build a minimal intelligence.i7.signals payload."""
     signals = []
     for i in range(n_signals):
-        signals.append({
-            "signal_id": f"sig_{i}",
-            "setup_plugin": f"trad_Plugin{i}",
-            "signal_type": "long",
-            "direction": 1,
-            "entry_price": 5000.0 + i,
-            "stop_loss": 4990.0,
-            "targets": [5020.0],
-            "confidence": 0.6 - i * 0.1,
-            "confluence_score": 0.7,
-            "regime_context": "trending",
-            "supporting_factors": ["rsi_cross"],
-            "was_selected": i == winner_idx,
-            "num_signals_bar": n_signals,
-            "composite_rank": i + 1,
-            "status": "pending",
-            "is_shadow": False,
-            "pre_quality_confidence": 0.65,
-            "pre_calibration_confidence": 0.62,
-            "regime_type": "trend",
-        })
+        signals.append(
+            {
+                "signal_id": f"sig_{i}",
+                "setup_plugin": f"trad_Plugin{i}",
+                "signal_type": "long",
+                "direction": 1,
+                "entry_price": 5000.0 + i,
+                "stop_loss": 4990.0,
+                "targets": [5020.0],
+                "confidence": 0.6 - i * 0.1,
+                "confluence_score": 0.7,
+                "regime_context": "trending",
+                "supporting_factors": ["rsi_cross"],
+                "was_selected": i == winner_idx,
+                "num_signals_bar": n_signals,
+                "composite_rank": i + 1,
+                "status": "pending",
+                "is_shadow": False,
+                "pre_quality_confidence": 0.65,
+                "pre_calibration_confidence": 0.62,
+                "regime_type": "trend",
+            }
+        )
     return {
         "symbol": "ES",
         "tf": "1m",

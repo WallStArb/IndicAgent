@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # Volume expansion threshold for LVN breakout
@@ -173,10 +174,7 @@ class LVNBreakoutPlugin:
             close_strength = 0.5
 
         raw_conf = (
-            0.30 * vol_score
-            + 0.25 * trend_clarity
-            + 0.25 * lvn_inverse
-            + 0.20 * close_strength
+            0.30 * vol_score + 0.25 * trend_clarity + 0.25 * lvn_inverse + 0.20 * close_strength
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
@@ -195,19 +193,28 @@ class LVNBreakoutPlugin:
 
         regime_ctx = "trending_up" if hmm == 1 else "trending_down"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(frame.stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "lvn", signal["confidence"],
+        features_snapshot = capture_signal_features(
+            features,
+            direction,
+            "lvn",
+            confidence,
         )
+        signal = make_signal_from_frame(
+            frame,
+            symbol="",
+            timeframe="",
+            timestamp="",
+            signal_type=signal_type,
+            setup_plugin="trad_LVNBreakout",
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            features_snapshot=features_snapshot,
+        )
+        signal["targets"] = targets
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

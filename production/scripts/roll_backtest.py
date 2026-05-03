@@ -190,15 +190,11 @@ async def validate_known_roll(
     bars = await load_bars(conn, old_contract, pre_start, roll["roll_window_end"])
 
     if len(bars) < 100:
-        print(
-            f"  [SKIP] Only {len(bars)} bars found for {old_contract} — insufficient data"
-        )
+        print(f"  [SKIP] Only {len(bars)} bars found for {old_contract} — insufficient data")
         # Insufficient data counts as a failure for graduation purposes
         return 0, 1
 
-    print(
-        f"  Loaded {len(bars)} bars ({pre_start.date()} -> {roll['roll_window_end'].date()})"
-    )
+    print(f"  Loaded {len(bars)} bars ({pre_start.date()} -> {roll['roll_window_end'].date()})")
 
     # Fresh RollMonitor per symbol — no state bleed between symbols
     monitor = RollMonitor(settings)

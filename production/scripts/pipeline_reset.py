@@ -59,17 +59,17 @@ from src.intelligence.register_plugins import register_all_plugins
 _ALWAYS_CLEAR = [
     "signal_ledger",
     "intelligence_features",
-    "setup_performance",      # no symbol column — always truncated in full
+    "setup_performance",  # no symbol column — always truncated in full
     "drift_state",
     "drift_monitor",
-    "confidence_calibration", # isotonic regression curves — fit on signal outcomes
-    "cis_weights",            # CIS aggregator weights — learned from signal outcomes
-    "system_events",          # roll/pipeline event log — ephemeral operational data
-    "instruments",            # Active traded instruments
-    "contract_metadata",      # Contract-specific metadata
-    "pattern_reliability",    # Historical pattern reliability
-    "llm_calls",              # LLM call audit log
-    "llm_model_scores",       # LLM performance scores
+    "confidence_calibration",  # isotonic regression curves — fit on signal outcomes
+    "cis_weights",  # CIS aggregator weights — learned from signal outcomes
+    "system_events",  # roll/pipeline event log — ephemeral operational data
+    "instruments",  # Active traded instruments
+    "contract_metadata",  # Contract-specific metadata
+    "pattern_reliability",  # Historical pattern reliability
+    "llm_calls",  # LLM call audit log
+    "llm_model_scores",  # LLM performance scores
 ]
 
 # Tables in _ALWAYS_CLEAR that have no symbol column (always TRUNCATE, never per-symbol DELETE)
@@ -92,11 +92,11 @@ _OHLCV_TABLE = "market_data_ohlcv"
 # All values are <= 90d so IBKR returns named front-month bars (no back-adjustment).
 # Real prices only — no continuous-adjusted artifacts that distort signal fire prices and stops.
 _TF_SEED_CONFIG: dict[str, int] = {
-    "1m":  3,   # ~1,170 bars — warm up I1 indicators, intraday pattern coverage
-    "5m":  7,   # ~546 bars  — one full week of session context
+    "1m": 3,  # ~1,170 bars — warm up I1 indicators, intraday pattern coverage
+    "5m": 7,  # ~546 bars  — one full week of session context
     "15m": 21,  # ~546 bars  — 3 weeks of pattern detection history
-    "1h":  45,  # ~293 bars  — ~6 weeks of regime context
-    "1d":  90,  # ~90 bars   — 3 months of macro structure
+    "1h": 45,  # ~293 bars  — ~6 weeks of regime context
+    "1d": 90,  # ~90 bars   — 3 months of macro structure
 }
 
 # Cleared only with --clear-llm
@@ -117,7 +117,6 @@ _STOP_SERVICES = [
     "indicagent-signal-tracker",
     "indicagent-feature-compute",
     "indicagent-feature-writer",
-    "indicagent-ai-narrative",
 ]
 
 _START_SERVICES = [
@@ -133,7 +132,6 @@ _START_SERVICES = [
     "indicagent-feature-writer",
     "indicagent-signal-generator",
     "indicagent-signal-tracker",
-    "indicagent-ai-narrative",
 ]
 
 
@@ -192,9 +190,7 @@ def build_preflight_summary(
     return "\n".join(lines)
 
 
-async def clear_kafka_topics(
-    bootstrap_servers: str, env_prefix: str, providers: list[str]
-) -> int:
+async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str, providers: list[str]) -> int:
     """Delete and recreate all pipeline Kafka topics to flush all stream data.
 
     Returns number of topics cleared.
@@ -241,7 +237,10 @@ async def clear_kafka_topics(
         try:
             await client.create_topics(new_topics)
         except Exception as e:
-            if type(e).__name__ != "TopicAlreadyExistsError" and "already exists" not in str(e).lower():
+            if (
+                type(e).__name__ != "TopicAlreadyExistsError"
+                and "already exists" not in str(e).lower()
+            ):
                 raise
     finally:
         await client.close()
@@ -444,15 +443,20 @@ def main() -> None:
         print("      WARNING: kafka_bootstrap_servers not configured, using localhost:19092")
         bootstrap = "localhost:19092"
     n_topics = asyncio.run(
-        clear_kafka_topics(bootstrap, env_prefix=kafka_env_prefix, providers=settings.provider_raw_topics)
+        clear_kafka_topics(
+            bootstrap, env_prefix=kafka_env_prefix, providers=settings.provider_raw_topics
+        )
     )
     print(f"      Cleared {n_topics} Kafka topics")
 
     # --- Stage 3: Truncate DB ---
     print("\n[2/5] Truncating DB tables...")
     cleared = truncate_tables(
-        db_conn, args.keep_ohlcv, args.clear_llm,
-        symbols=target_symbols, no_backfill=args.no_backfill,
+        db_conn,
+        args.keep_ohlcv,
+        args.clear_llm,
+        symbols=target_symbols,
+        no_backfill=args.no_backfill,
     )
     verb = "DELETED rows for specified symbols in" if target_symbols else "TRUNCATED"
     for t in cleared:
@@ -461,11 +465,13 @@ def main() -> None:
     # Re-seed contract_metadata — truncate_tables() wipes it, so ibkr_provider_agent would
     # pick up 0 futures from get_active_contracts() and never subscribe to them.
     print("      re-seeding contract_metadata (front-month roll chain)...")
+
     async def _seed_contract_metadata() -> None:
         _dm = DatabaseManager(settings.database_url)
         await _dm.initialize()
         await seed_roll_chain(settings, _dm)
         await _dm.close()
+
     asyncio.run(_seed_contract_metadata())
 
     # --- Stage 4: Fetch OHLCV ---
@@ -546,6 +552,7 @@ def main() -> None:
         _fetch_ohlcv(seed_config)
     elif not args.keep_ohlcv:
         from production.scripts.historical_backfill import _TF_FETCH_CONFIG
+
         full_config = {
             tf: (
                 args.days if tf == "1m" else fetch_days,

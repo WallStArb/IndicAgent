@@ -10,6 +10,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 
@@ -48,10 +49,10 @@ class MeanReversionPlugin:
         features = frames.get("features") or {}
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
-        # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)
-        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)
+        # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)  # noqa: E501
+        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)  # noqa: E501
         # Estimated benefit: Skip ~144 numpy conversions per bar (80% early exit rate)
-        # Remaining plugins to optimize: All other I7 plugins except trend_following.py and this file
+        # Remaining plugins to optimize: All other I7 plugins except trend_following.py and this file  # noqa: E501
         trend_regime = features.get("trend_regime", 0.0)
         if abs(trend_regime) >= self.regime_threshold:
             return no_signal()
@@ -100,8 +101,6 @@ class MeanReversionPlugin:
         tf = frame_trade(signal_type, direction, entry, features, atr)
         if not tf.viable:
             return no_signal()
-        stop = tf.stop
-        targets = [round(t.price, 2) for t in tf.targets]
 
         # ── Confidence scoring ──
         # RSI extremeness (0.3 weight)
@@ -142,18 +141,25 @@ class MeanReversionPlugin:
 
         regime_ctx = "ranging"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "mean_reversion", confidence,
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "mean_reversion",
+            signal["confidence"],
         )
         return signal
 

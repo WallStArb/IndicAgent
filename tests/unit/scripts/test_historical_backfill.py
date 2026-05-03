@@ -469,9 +469,9 @@ def test_run_i1_plugins_state_written_back_after_compute():
     # Write-back must have captured the reassigned _state
     written = [v for k, v in plugin_states.items() if k[1] == "ESH6"]
     assert written, "plugin_states must have ESH6 entries after compute"
-    assert any(v.get("model_fitted") for v in written), (
-        "Write-back must capture GARCH-style _state reassignment"
-    )
+    assert any(
+        v.get("model_fitted") for v in written
+    ), "Write-back must capture GARCH-style _state reassignment"
 
 
 def test_run_analysis_pipeline_includes_i2_tier():
@@ -536,16 +536,12 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
 
     with (
         patch("production.scripts.historical_backfill.psycopg2.connect", return_value=mock_conn),
-        patch(
-            "production.scripts.historical_backfill.register_all_plugins"
-        ) as mock_register,
+        patch("production.scripts.historical_backfill.register_all_plugins") as mock_register,
         patch(
             "production.scripts.historical_backfill.replay_symbol", return_value=fake_counts
         ) as mock_replay,
     ):
-        result = _replay_worker(
-            ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts)
-        )
+        result = _replay_worker(("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts))
 
     sym, total, counts = result
     assert sym == "ESH6"

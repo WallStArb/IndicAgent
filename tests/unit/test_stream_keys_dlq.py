@@ -12,7 +12,6 @@ from src.core.stream_keys import (
     topic_signal_audit_dlq,
     topic_signal_tracker_dlq,
     topic_signal_writer_dlq,
-    topic_swarm_writer_dlq,
 )
 
 
@@ -22,7 +21,6 @@ def test_writer_agent_dlq_topics():
     assert topic_feature_writer_dlq("dev") == "dev.feature.writer.dlq"
     assert topic_signal_writer_dlq("dev") == "dev.intelligence.signal.writer.dlq"
     assert topic_lifecycle_writer_dlq("dev") == "dev.lifecycle.writer.dlq"
-    assert topic_swarm_writer_dlq("dev") == "dev.swarm.writer.dlq"
 
 
 def test_auditor_agent_dlq_topics():

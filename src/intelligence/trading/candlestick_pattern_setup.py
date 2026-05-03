@@ -12,6 +12,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 # Module-level constants — static across all bars, extracted from hot path.
 _FALLBACK_WEIGHTS: dict[str, float] = {
@@ -179,7 +180,7 @@ class CandlestickPatternSetupPlugin:
             ("harami", -1): harami_bear,
             ("abandoned_baby", 1): abandoned_baby_bull,
             ("abandoned_baby", -1): abandoned_baby_bear,
-            ("tweezer", -1): tweezer_top,    # bearish reversal (forms at highs)
+            ("tweezer", -1): tweezer_top,  # bearish reversal (forms at highs)
             ("tweezer", 1): tweezer_bottom,  # bullish reversal (forms at lows)
             ("belt_hold", 1): belt_hold_bull,
             ("belt_hold", -1): belt_hold_bear,
@@ -289,19 +290,27 @@ class CandlestickPatternSetupPlugin:
         signal_type = f"candlestick_{pattern_name}_{suffix}"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(float(stop), 2),
-            "targets": targets,
-            "confidence": confidence,
-            "confluence_score": confluence_score,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "session", signal["confidence"],
+        signal = make_signal(
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            entry_price=entry,
+            stop_loss=float(stop),
+            targets=targets,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=float(confluence_score),
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "session",
+            signal["confidence"],
         )
         return signal
 

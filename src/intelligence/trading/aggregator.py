@@ -8,6 +8,7 @@ when CIS is neutral (abs(score) <= 0.35 or buckets_agreeing < 3).
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,12 +47,12 @@ TREND_SETUPS: frozenset[str] = frozenset(
         "trad_MomentumBreakout",
         "trad_SqueezeExpansion",
         "trad_LiquidityHunt",
-        "trad_ORB15",                 # new — trend continuation setup
-        "trad_ORB30",                 # new — trend continuation setup
-        "trad_SecondLegContinuation", # new — trend continuation
-        "trad_VCP",                   # new — momentum/trend compression
-        "trad_LVNBreakout",           # new — trend expansion through thin volume
-        "trad_OFIContinuation",       # new — sustained directional OFI in trend
+        "trad_ORB15",  # new — trend continuation setup
+        "trad_ORB30",  # new — trend continuation setup
+        "trad_SecondLegContinuation",  # new — trend continuation
+        "trad_VCP",  # new — momentum/trend compression
+        "trad_LVNBreakout",  # new — trend expansion through thin volume
+        "trad_OFIContinuation",  # new — sustained directional OFI in trend
     }
 )
 
@@ -75,6 +76,32 @@ class AggregatedResult:
 def _pick_with_method(group: list[dict]) -> dict:
     """Return the first element of a priority-sorted group."""
     return group[0]
+
+
+def _tag_co_fires(all_ranked: list[dict]) -> None:
+    """Tag signals that fire on the same bar with identical entry/stop/targets.
+
+    Mutates signal dicts in-place, adding ``co_fire_count`` and
+    ``co_fire_partners`` keys.
+    """
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for sig in all_ranked:
+        if sig.get("regime_eligible", True):
+            key = (
+                sig.get("symbol", ""),
+                sig.get("feature_ts"),
+                sig.get("feature_tf", ""),
+                round(sig.get("entry_price", 0.0), 4),
+                round(sig.get("stop_loss", 0.0), 4),
+                tuple(round(t, 4) for t in (sig.get("targets") or ())),
+            )
+            groups[key].append(sig)
+    for group in groups.values():
+        if len(group) > 1:
+            partners = [s.get("setup_plugin", "") for s in group]
+            for sig in group:
+                sig["co_fire_count"] = len(group)
+                sig["co_fire_partners"] = [p for p in partners if p != sig.get("setup_plugin", "")]
 
 
 def _regime_gate_signals(
@@ -188,6 +215,7 @@ def aggregate(
         calibration_curves=calibration_curves,
         timeframe=timeframe,
     )
+    _tag_co_fires(all_ranked)
     # CRITICAL INVARIANT: active must ALWAYS be derived from all_ranked, never from raw signals.
     # _build_all_ranked() copies signal dicts and sets adjusted_rank — raw signals never have
     # adjusted_rank set. Deriving active from raw signals silently makes perf_weights have zero
@@ -510,9 +538,11 @@ def _build_all_ranked(
         with_ranks,
         key=lambda s: (
             # Primary: calibrated_confidence when available (invert: higher = better)
-            -(s.get("calibrated_confidence") or 0.0)
-            if s.get("calibrated_confidence") is not None
-            else -(s.get("confidence", 0.0)),
+            (
+                -(s.get("calibrated_confidence") or 0.0)
+                if s.get("calibrated_confidence") is not None
+                else -(s.get("confidence", 0.0))
+            ),
             # Tiebreak: adjusted_rank ascending (lower = better), then priority desc
             s["adjusted_rank"],
             -SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0) if weights else 0,

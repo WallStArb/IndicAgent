@@ -1,4 +1,5 @@
 """Integration test for bar aggregator session boundary handling."""
+
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
@@ -14,10 +15,7 @@ async def test_session_boundary_under_load():
     # Test 1: Verify infrastructure is accessible
     print("Testing Kafka connectivity...")
     try:
-        producer = AIOKafkaProducer(
-            bootstrap_servers="localhost:19092",
-            client_id="test_producer"
-        )
+        producer = AIOKafkaProducer(bootstrap_servers="localhost:19092", client_id="test_producer")
         await producer.start()
         await producer.stop()
         print("✓ Kafka connectivity verified")
@@ -32,7 +30,7 @@ async def test_session_boundary_under_load():
             "development.market.bars",
             bootstrap_servers="localhost:19092",
             auto_offset_reset="earliest",
-            client_id="test_topic_check"
+            client_id="test_topic_check",
         )
         await consumer.start()
         await consumer.stop()
@@ -43,10 +41,7 @@ async def test_session_boundary_under_load():
 
     # Test 3: Produce test bars spanning session boundary
     print("Producing test bars...")
-    producer = AIOKafkaProducer(
-        bootstrap_servers="localhost:19092",
-        client_id="test_producer"
-    )
+    producer = AIOKafkaProducer(bootstrap_servers="localhost:19092", client_id="test_producer")
     await producer.start()
 
     symbol = "ES"
@@ -65,12 +60,10 @@ async def test_session_boundary_under_load():
             "close": 4000.5 + i,
             "volume": 100,
             "source": "test",
-            "session_type": "rth"
+            "session_type": "rth",
         }
         await producer.send_and_wait(
-            "development.market.bars",
-            value=json.dumps(bar).encode(),
-            key=f"{symbol}:1m".encode()
+            "development.market.bars", value=json.dumps(bar).encode(), key=f"{symbol}:1m".encode()
         )
         bars_produced += 1
 
@@ -82,13 +75,25 @@ async def test_session_boundary_under_load():
     try:
         # Check topic offset after producing
         import subprocess
-        result = subprocess.run([
-            "docker", "exec", "redpanda", "rpk", "topic", "describe",
-            "development.market.bars", "--print-partitions"
-        ], capture_output=True, text=True, timeout=10)
+
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                "redpanda",
+                "rpk",
+                "topic",
+                "describe",
+                "development.market.bars",
+                "--print-partitions",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
 
         if result.returncode == 0:
-            lines = result.stdout.split('\n')
+            lines = result.stdout.split("\n")
             for line in lines:
                 if "HIGH-WATERMARK" in line:
                     offset = int(line.split()[1])
@@ -118,7 +123,7 @@ async def test_session_boundary_under_load():
         auto_offset_reset="latest",  # Get new HTF bars
         group_id="test_htf_consumer",
         enable_auto_commit=False,
-        client_id="test_htf_consumer"
+        client_id="test_htf_consumer",
     )
     await htf_consumer.start()
 
@@ -160,7 +165,10 @@ async def test_session_boundary_under_load():
             print("⚠ No 5m HTF bars detected (might be normal depending on timing)")
     else:
         print("⚠ No HTF bars detected - bar aggregator may not be processing test bars")
-        print("This could be normal if bar aggregator is configured with different symbols or filtering")
+        print(
+            "This could be normal if bar aggregator is configured with different symbols or filtering"
+        )
+
 
 if __name__ == "__main__":
     asyncio.run(test_session_boundary_under_load())

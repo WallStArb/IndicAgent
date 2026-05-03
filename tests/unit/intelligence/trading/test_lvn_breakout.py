@@ -25,8 +25,8 @@ def _base_features_long(**kwargs):
     defaults = {
         "atr_14": 5.0,
         "in_lvn": 1.0,
-        "hmm_regime": 1,          # trending up
-        "rel_volume": 2.0,        # > 1.5 threshold
+        "hmm_regime": 1,  # trending up
+        "rel_volume": 2.0,  # > 1.5 threshold
         "nearest_hvn_above": 5015.0,  # T1 target
         "nearest_hvn_below": 4985.0,
         "nearest_lvn_above": 5005.0,
@@ -43,8 +43,8 @@ def _base_features_short(**kwargs):
     defaults = {
         "atr_14": 5.0,
         "in_lvn": 1.0,
-        "hmm_regime": 2,          # trending down
-        "rel_volume": 2.0,        # > 1.5 threshold
+        "hmm_regime": 2,  # trending down
+        "rel_volume": 2.0,  # > 1.5 threshold
         "nearest_hvn_above": 5015.0,
         "nearest_hvn_below": 4985.0,  # T1 target for short
         "nearest_lvn_above": 5005.0,
@@ -58,9 +58,11 @@ def _base_features_short(**kwargs):
 
 # ─── Test 1: fires long when in_lvn=1.0, vol>=1.5, trending up, up bar ───────
 
+
 def test_fires_long_in_lvn_trending_up():
     """in_lvn=1.0, hmm_regime=1, rel_volume=2.0, close > open → long breakout."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     # Upward bar: close > open
     open_arr = np.full(25, 5000.0)
@@ -72,9 +74,11 @@ def test_fires_long_in_lvn_trending_up():
 
 # ─── Test 2: fires short when in_lvn=1.0, vol>=1.5, trending down, down bar ─
 
+
 def test_fires_short_in_lvn_trending_down():
     """in_lvn=1.0, hmm_regime=2, rel_volume=2.0, close < open → short breakout."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     # Downward bar: close < open
     open_arr = np.full(25, 5001.0)
@@ -86,9 +90,11 @@ def test_fires_short_in_lvn_trending_down():
 
 # ─── Test 3: does NOT fire when in_lvn != 1.0 ────────────────────────────────
 
+
 def test_no_signal_when_not_in_lvn():
     """in_lvn=0.0 → not in LVN → no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
@@ -100,9 +106,11 @@ def test_no_signal_when_not_in_lvn():
 
 # ─── Test 4: does NOT fire when rel_volume < 1.5 ─────────────────────────────
 
+
 def test_no_signal_when_volume_insufficient():
     """rel_volume=1.0 < 1.5 → insufficient volume expansion → no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
@@ -114,9 +122,11 @@ def test_no_signal_when_volume_insufficient():
 
 # ─── Test 5: does NOT fire when hmm_regime == 0 (ranging) ───────────────────
 
+
 def test_no_signal_when_ranging_regime():
     """hmm_regime=0 (ranging) → LVN breakout requires trending regime → no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
@@ -128,9 +138,11 @@ def test_no_signal_when_ranging_regime():
 
 # ─── Test 6: T1 target is nearest_hvn_above for long ────────────────────────
 
+
 def test_first_target_is_nearest_hvn_above_for_long():
     """For long LVN breakout, first target should be nearest_hvn_above (5015.0)."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
@@ -144,18 +156,22 @@ def test_first_target_is_nearest_hvn_above_for_long():
 
 # ─── Test 7: regime_type is "trend" ──────────────────────────────────────────
 
+
 def test_regime_type_is_trend():
     """Plugin must declare regime_type == 'trend'."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     assert plugin.regime_type == "trend"
 
 
 # ─── Test 8: no signal when in_lvn field missing ─────────────────────────────
 
+
 def test_no_signal_when_in_lvn_missing():
     """Missing in_lvn field → returns no signal."""
     from src.intelligence.trading.lvn_breakout import LVNBreakoutPlugin
+
     plugin = LVNBreakoutPlugin()
     open_arr = np.full(25, 5000.0)
     close = np.linspace(5000.5, 5002.0, 25)
@@ -165,7 +181,9 @@ def test_no_signal_when_in_lvn_missing():
 
 # ─── Test 9: module-level plugin instance ────────────────────────────────────
 
+
 def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
     from src.intelligence.trading.lvn_breakout import plugin
+
     assert plugin.name == "trad_LVNBreakout"

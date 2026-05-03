@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
-from typing import Any
 
 import pandas as pd
 from scipy.stats import pearsonr
@@ -31,7 +29,7 @@ class ValidationResults:
     ic: float  # information coefficient (pearsonr)
     p_value: float  # statistical significance
     passed: bool  # IC > min_ic AND p < alpha AND n >= min_n
-    regime_results: dict[str, "ValidationResults"]  # per-regime breakdown
+    regime_results: dict[str, ValidationResults]  # per-regime breakdown
     decision: str = field(default="UNKNOWN")  # D-25: VALIDATED / TWEAK / KILL
 
     def __str__(self) -> str:
@@ -92,7 +90,11 @@ def validate_backtest_results(
     valid_df = df[[field_name, "pnl_r", "hmm_regime"]].dropna()
 
     if len(valid_df) < min_n:
-        reason = "insufficient pnl_r outcomes" if df["pnl_r"].isna().all() else f"n={len(valid_df)} < {min_n}"
+        reason = (
+            "insufficient pnl_r outcomes"
+            if df["pnl_r"].isna().all()
+            else f"n={len(valid_df)} < {min_n}"
+        )
         return ValidationResults(
             field_name=field_name,
             n=len(valid_df),
@@ -264,9 +266,7 @@ def print_validation_report(all_results: dict[str, ValidationResults]) -> None:
 
 def main():
     """CLI interface for validation tool."""
-    parser = argparse.ArgumentParser(
-        description="Validate I6 backtest results using IC/p-value"
-    )
+    parser = argparse.ArgumentParser(description="Validate I6 backtest results using IC/p-value")
     parser.add_argument(
         "--input",
         type=str,

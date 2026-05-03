@@ -12,6 +12,7 @@ Exit codes:
     1 — FAIL (one or more symbols below gate)
     2 — SKIP (insufficient historical data for validation)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,17 +38,17 @@ from src.core.models import AssetClass
 # ---------------------------------------------------------------------------
 # Accuracy gates (D-21)
 # ---------------------------------------------------------------------------
-DETECTION_RATE_GATE = 0.90   # >= 90% of known roll events must be detected
+DETECTION_RATE_GATE = 0.90  # >= 90% of known roll events must be detected
 FALSE_POSITIVE_RATE_GATE = 0.10  # < 10% of detections must be outside any roll window
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-LOOKBACK_DAYS = 365          # 1 year of history
-Z_SCORE_THRESHOLD = -2.0     # Volume DROP threshold (same as RollMonitor)
-CONFIRMATION_REQUIRED = 3    # Consecutive confirming bars (same as RollMonitor)
-MIN_WINDOW_BARS = 20         # Min bars for z-score (same as RollMonitor)
-WINDOW_SIZE = 100            # Rolling window size (matches ROLL_MONITOR_WINDOW_SIZE default)
+LOOKBACK_DAYS = 365  # 1 year of history
+Z_SCORE_THRESHOLD = -2.0  # Volume DROP threshold (same as RollMonitor)
+CONFIRMATION_REQUIRED = 3  # Consecutive confirming bars (same as RollMonitor)
+MIN_WINDOW_BARS = 20  # Min bars for z-score (same as RollMonitor)
+WINDOW_SIZE = 100  # Rolling window size (matches ROLL_MONITOR_WINDOW_SIZE default)
 MIN_BARS_FOR_VALIDATION = 100  # Skip symbol if insufficient data
 
 
@@ -259,8 +260,7 @@ async def main() -> int:
     for sym in sorted(results.keys()):
         r = results[sym]
         passes = (
-            r["detection_rate"] >= DETECTION_RATE_GATE
-            and r["fp_rate"] < FALSE_POSITIVE_RATE_GATE
+            r["detection_rate"] >= DETECTION_RATE_GATE and r["fp_rate"] < FALSE_POSITIVE_RATE_GATE
         )
         if not passes:
             all_pass = False

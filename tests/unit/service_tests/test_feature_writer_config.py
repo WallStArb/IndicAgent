@@ -30,7 +30,9 @@ def test_default_config_uses_active_contracts():
     # Must contain whichever ES and NQ contracts are currently active
     assert any(s.startswith("ES") for s in symbols), "No ES contract in default symbol list"
     assert any(s.startswith("NQ") for s in symbols), "No NQ contract in default symbol list"
-    assert symbols == active_symbols, "feature_writer symbols must exactly match get_active_contracts()"
+    assert (
+        symbols == active_symbols
+    ), "feature_writer symbols must exactly match get_active_contracts()"
 
 
 def test_active_contracts_count():

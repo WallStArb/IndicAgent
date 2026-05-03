@@ -27,9 +27,8 @@ Outputs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
 from math import tanh
+from typing import Any
 
 from ..plugins import InputSpec
 
@@ -113,7 +112,12 @@ class CrossTFMomentumDivergencePlugin:
             rsi_down = float(intel.get("rsi_crossed_50_down") or 0)
             event_bias = tanh(bullish + rsi_up - bearish - rsi_down)
 
-            if not isinstance(rsi, (int, float)) and not isinstance(macd_hist, (int, float)) and event_bias == 0.0:
+            no_events = not any((bullish, bearish, rsi_up, rsi_down))
+            if (
+                not isinstance(rsi, (int, float))
+                and not isinstance(macd_hist, (int, float))
+                and no_events
+            ):
                 continue
 
             tf_biases[tf] = event_bias * 0.4 + rsi_alignment * 0.3 + macd_alignment * 0.3

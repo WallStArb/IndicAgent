@@ -34,8 +34,8 @@ start_metrics_server(port=9100)
 
 | Metric | Type | Labels | Purpose |
 |--------|------|--------|---------|
-| `stream_messages_read_total` | Counter | stream, group | Total messages from Redis/Kafka streams |
-| `stream_read_seconds` | Histogram | stream, group | XREADGROUP latency |
+| `stream_messages_read_total` | Counter | stream, group | Total messages from Redpanda streams |
+| `stream_read_seconds` | Histogram | stream, group | Consumer poll latency |
 | `db_batch_write_seconds` | Histogram | — | TimescaleDB batch write time |
 | `engine_bars_processed` | Gauge | — | Total bars processed (cumulative) |
 | `engine_throughput_per_sec` | Gauge | — | Current bars/second rate |

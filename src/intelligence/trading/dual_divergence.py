@@ -12,18 +12,19 @@ Renaissance principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .state_utils import reset_consecutive_state, track_consecutive_state
 from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
-_OFI_DIV_THRESHOLD: float = 1.0   # minimum abs(ofi_divergence)
-_CVD_DIV_THRESHOLD: float = 1.0   # minimum abs(cvd_divergence)
+_OFI_DIV_THRESHOLD: float = 1.0  # minimum abs(ofi_divergence)
+_CVD_DIV_THRESHOLD: float = 1.0  # minimum abs(cvd_divergence)
 
 
 @dataclass
@@ -40,8 +41,6 @@ class DualDivergencePlugin:
     Confidence: compose_confidence(0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
     """
 
-    # Plugin-level shadow flag — ClassVar so it's not an instance field
-    IS_SHADOW: ClassVar[bool] = False
     name: str = "trad_DualDivergence"
     outputs: frozenset[str] = frozenset(
         {
@@ -96,9 +95,7 @@ class DualDivergencePlugin:
         state_key = f"{symbol}_{tf}"
 
         combined_sign = ofi_sign
-        _, count = track_consecutive_state(
-            frames, self._state, state_key, combined_sign, "sign"
-        )
+        _, count = track_consecutive_state(frames, self._state, state_key, combined_sign, "sign")
 
         # Gate: require N confirmation bars
         if count < _CONFIRMATION_BARS:
@@ -114,17 +111,12 @@ class DualDivergencePlugin:
         # Direction: sign of divergence (positive = bullish pressure vs price)
         direction = combined_sign
 
-        confidence = compose_confidence(
-            0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05
-        )
+        confidence = compose_confidence(0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05)
 
         sig_type = signal_type_for_direction("dual_divergence", direction)
         tf_result = frame_trade(sig_type, direction, entry, features, atr)
         if not tf_result.viable:
             return no_signal()
-
-        stop_loss = tf_result.stop
-        targets = [t.price for t in tf_result.targets]
 
         hmm_regime = features.get("hmm_regime")
         regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
@@ -143,18 +135,25 @@ class DualDivergencePlugin:
 
         # exhaustion: not applicable — spike/divergence signals are regime-independent;
         # Phase 49 will learn gate behavior from shadow data
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": float(stop_loss),
-            "targets": [float(t) for t in targets],
-            "confidence": confidence,
-            "regime_context": regime_context,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+        signal = make_signal_from_frame(
+            tf_result,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=sig_type,
+            setup_plugin="trad_DualDivergence",
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_context,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

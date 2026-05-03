@@ -32,6 +32,7 @@ import structlog
 from aiokafka import AIOKafkaProducer
 
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.schemas.parity import FieldViolation
 from src.core.stream_keys import topic_alert_requests, topic_system_events
 from src.observability.metrics import (
@@ -190,7 +191,6 @@ class ParityAuditorAgent(BaseAgent):
         self._repo: ParityRepository | None = None
         self._producer: AIOKafkaProducer | None = None
 
-
     async def _maybe_alert_parity(self, symbol: str, tf: str, match_rate: float) -> None:
         """Publish HIGH alert to topic_alert_requests when match_rate < PARITY_ALERT_THRESHOLD."""
         if match_rate >= PARITY_ALERT_THRESHOLD:
@@ -226,7 +226,7 @@ class ParityAuditorAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main timer loop — runs comparison cycle every COMPARISON_INTERVAL_SECS."""
-        self._pool = await asyncpg.create_pool(self.settings.database_url)
+        self._pool = await create_db_pool(self.settings.database_url)
         self._repo = ParityRepository(self._pool)
 
         self._producer = AIOKafkaProducer(bootstrap_servers=self.settings.kafka_bootstrap_servers)

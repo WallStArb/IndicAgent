@@ -5,7 +5,6 @@ Compares production values from intelligence_features to reference
 implementations to detect calculation errors.
 """
 
-
 import asyncpg
 import numpy as np
 
@@ -37,9 +36,7 @@ class ComputationalCorrectnessValidator:
         """
         self.db = db
 
-    async def fetch_production_data(
-        self, symbol: str, tf: str, hours: int = 24
-    ) -> dict[str, list]:
+    async def fetch_production_data(self, symbol: str, tf: str, hours: int = 24) -> dict[str, list]:
         """Fetch data from intelligence_features for validation.
 
         Args:
@@ -78,7 +75,10 @@ class ComputationalCorrectnessValidator:
             "i1_rsi": [float(r["i1_rsi"]) if r["i1_rsi"] is not None else np.nan for r in rows],
             "i1_macd": [float(r["i1_macd"]) if r["i1_macd"] is not None else np.nan for r in rows],
             "i1_atr": [float(r["i1_atr"]) if r["i1_atr"] is not None else np.nan for r in rows],
-            "i4_volatility": [float(r["i4_volatility"]) if r["i4_volatility"] is not None else np.nan for r in rows],
+            "i4_volatility": [
+                float(r["i4_volatility"]) if r["i4_volatility"] is not None else np.nan
+                for r in rows
+            ],
             "i4_vwap": [float(r["i4_vwap"]) if r["i4_vwap"] is not None else np.nan for r in rows],
         }
 
@@ -172,9 +172,7 @@ class ComputationalCorrectnessValidator:
 
         return results
 
-    async def persist_results(
-        self, symbol: str, tf: str, results: dict[str, dict]
-    ) -> None:
+    async def persist_results(self, symbol: str, tf: str, results: dict[str, dict]) -> None:
         """Write validation results to database.
 
         Args:

@@ -15,16 +15,29 @@ select = [
 ]
 ignore = [
   "B008",  # Depends() in function defaults is standard FastAPI pattern
+  "B017",  # assertRaises(Exception) — acceptable in unit tests
+  "B905",  # zip() without strict= — too noisy across codebase
+  "B007",  # loop variable unused — use _var convention when cleaning up
+  "F841",  # local variable assigned but never used — common in tests/stubs
+  "E501",  # line too long — pre-existing baseline; black enforces 100 on new code
+  "UP042", # StrEnum — kept as (str, Enum) intentionally for DB compat (see CLAUDE.md)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "services/*.py" = ["E402"]
-"production/**/*.py" = ["E402"]
-"scripts/*.py" = ["E402"]
+"production/**/*.py" = ["E402", "E501"]  # SQL strings and long operational scripts
+"scripts/*.py" = ["E402", "E501"]
 "examples/*.py" = ["E402"]
+"tests/**/*.py" = ["E501", "E402"]  # test fixtures exceed 100 chars; mid-file imports common
+"tools/**/*.py" = ["E501", "E402", "F821", "F404"]
+"tests/integration/**/*.py" = ["F821"]  # references to deleted topics in legacy e2e tests
 "tests/integration/*.py" = ["E402"]
 "tests/unit/indicators/test_incremental_manager.py" = ["E402"]
 "src/intelligence/schemas.py" = ["E741"]  # 'l' is intentional for OHLCVBar low field
+"src/validation/**/*.py" = ["UP031"]  # legacy % format in SQL strings  # 'l' is intentional for OHLCVBar low field
+"src/core/bar_history_seeder.py" = ["E402"]  # deferred imports after async helpers
+"src/persistence/repository/signal_ledger_repository.py" = ["E402"]  # deferred imports
+"tests/unit/providers/test_base.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "production", "services"]
@@ -44,7 +57,9 @@ exclude = [
 
 [dependency-groups]
 dev = [
+    "black>=26.1.0",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.1.0",
+    "ruff>=0.15.0",
     "statsmodels>=0.14.6",
 ]
-
-

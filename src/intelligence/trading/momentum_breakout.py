@@ -13,6 +13,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -130,7 +131,9 @@ class MomentumBreakoutPlugin:
         )
         # Continuous regime score from HMM probabilities (replaces 3-step)
         if regime_aligns:
-            regime_score = max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+            regime_score = max(
+                hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
+            )
         else:
             regime_score = 0.1
 
@@ -162,17 +165,23 @@ class MomentumBreakoutPlugin:
         signal_type = "momentum_breakout_long" if direction == 1 else "momentum_breakout_short"
         regime_ctx = "breakout_bullish" if direction == 1 else "breakout_bearish"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
+        signal = make_signal(
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            targets=targets,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
             features, direction, "trend", signal["confidence"]
         )
         return signal

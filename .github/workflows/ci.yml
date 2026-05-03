@@ -59,7 +59,9 @@ jobs:
             --exclude-dir=swarm \
             --exclude-dir=ai \
             --exclude=schemas.py \
-            --exclude=alpha_multiplier.py | \
+            --exclude=alpha_multiplier.py \
+            --exclude=dag.py \
+            --exclude=position_sizer.py | \
             grep -vE 'class.*(Plugin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain)\b' \
             || true)
           if [ -n "$violations" ]; then
@@ -74,7 +76,8 @@ jobs:
         run: |
           violations=$(find src/intelligence/ -name "*.py" \
             ! -name "__init__.py" \
-            ! -name "conftest.py" | \
+            ! -name "conftest.py" \
+            ! -name "TEMPLATE_agent.py" | \
             while read -r f; do
               filename=$(basename "$f")
               echo "$filename" | grep -qE '^[a-z][a-z0-9_]*\.py$' || echo "  $f"

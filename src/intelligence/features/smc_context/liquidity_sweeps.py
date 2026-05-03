@@ -8,7 +8,7 @@ import pandas as pd
 from src.intelligence.plugins import InputSpec
 from src.intelligence.utils.gradient_utils import linear_ramp
 
-from ._swing_utils import find_swing_highs, find_swing_lows
+from .swing_utils import find_swing_highs, find_swing_lows
 
 
 @dataclass
@@ -83,7 +83,9 @@ class LiquiditySweepsPlugin:
                         bars_to_reclaim = self.reclaim_bars
                     # Gradient companions
                     sweep_str = linear_ramp(depth, 0, 2.0)  # 0-2% depth maps to 0-1
-                    reclaim_vel = linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
+                    reclaim_vel = (
+                        linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
+                    )
                     sweeps.append(
                         {
                             "type": 1.0,
@@ -108,7 +110,9 @@ class LiquiditySweepsPlugin:
                         if all(close[i + k] < sh_price for k in range(1, self.reclaim_bars + 1)):
                             reclaimed = 1.0
                     sweep_str = linear_ramp(depth, 0, 2.0)
-                    reclaim_vel = linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
+                    reclaim_vel = (
+                        linear_ramp(1.0 / max(1, bars_to_reclaim), 0, 0.5) if reclaimed else 0.0
+                    )
                     sweeps.append(
                         {
                             "type": -1.0,

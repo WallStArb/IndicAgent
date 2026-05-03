@@ -207,7 +207,6 @@ class SignalMetricsWriterAgent(BaseAgent):
             topics_consumed=self.topics_consumed,
         )
 
-
     async def _teardown(self) -> None:
         """Stop consumer and close DB pool."""
         if self._kafka_consumer is not None:

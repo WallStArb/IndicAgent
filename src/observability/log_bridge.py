@@ -7,10 +7,9 @@ best-effort; failures are silently dropped to avoid impacting the pipeline.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.sdk._logs import LoggingHandler, LoggerProvider
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 
@@ -18,7 +17,7 @@ from opentelemetry.sdk.resources import Resource
 def setup_otlp_logging(
     service_name: str = "indicagent",
     endpoint: str | None = None,
-) -> Optional[LoggerProvider]:
+) -> LoggerProvider | None:
     """Set up OTLP log export alongside existing file logging.
 
     Returns LoggerProvider if successful, None if Collector unreachable.
@@ -27,9 +26,7 @@ def setup_otlp_logging(
     import os
 
     try:
-        endpoint = endpoint or os.getenv(
-            "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
-        )
+        endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
         grpc_endpoint = endpoint.replace("http://", "").replace("https://", "")
         if "/" in grpc_endpoint:
             grpc_endpoint = grpc_endpoint.split("/")[0]
@@ -38,9 +35,7 @@ def setup_otlp_logging(
             {
                 "service.name": service_name,
                 "service.version": os.getenv("APP_VERSION", "dev"),
-                "deployment.environment": os.getenv(
-                    "INDICAGENT_ENV", os.getenv("ENV", "dev")
-                ),
+                "deployment.environment": os.getenv("INDICAGENT_ENV", os.getenv("ENV", "dev")),
             }
         )
 

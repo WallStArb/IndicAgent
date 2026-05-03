@@ -1,4 +1,5 @@
 """Test session boundary handling in BarAccumulator."""
+
 from datetime import UTC, datetime, timedelta
 
 from src.core.bar_accumulator import BarAccumulator
@@ -20,10 +21,11 @@ def _create_bars(symbol: str, start_time: datetime, count: int) -> list[BarMessa
             close=4000.5 + i,
             volume=100,
             source=SOURCE_IBKR_GENERIC,
-            session_type=SessionType.RTH
+            session_type=SessionType.RTH,
         )
         bars.append(bar)
     return bars
+
 
 def test_session_boundary_emits_partial_bar():
     """Test that RTH close triggers partial bar emission."""
@@ -45,7 +47,7 @@ def test_session_boundary_emits_partial_bar():
         close=4005.5,
         volume=100,
         source=SOURCE_IBKR_GENERIC,
-        session_type=SessionType.RTH
+        session_type=SessionType.RTH,
     )
 
     completed = accumulator.update(rth_close_bar)
@@ -58,6 +60,7 @@ def test_session_boundary_emits_partial_bar():
     # Verify partial bar contains data from bars before boundary
     assert completed[0].open == 4000.0  # First bar's open
     assert completed[0].close == 4004.5  # Last complete bar's close before boundary
+
 
 def test_session_boundary_starts_new_accumulator():
     """Test that session boundary starts fresh accumulator."""
@@ -79,7 +82,7 @@ def test_session_boundary_starts_new_accumulator():
         close=4005.5,
         volume=100,
         source=SOURCE_IBKR_GENERIC,
-        session_type=SessionType.RTH
+        session_type=SessionType.RTH,
     )
     completed_before = accumulator.update(rth_close_bar)
 
@@ -94,7 +97,7 @@ def test_session_boundary_starts_new_accumulator():
         close=4006.5,
         volume=100,
         source=SOURCE_IBKR_GENERIC,
-        session_type=SessionType.ETH  # After hours session
+        session_type=SessionType.ETH,  # After hours session
     )
     completed_after = accumulator.update(next_bar)
 

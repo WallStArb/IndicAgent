@@ -45,9 +45,7 @@ class TestI1ParallelExecution:
         elapsed_parallel = time.perf_counter() - start
 
         assert len(result) >= 27, f"Expected at least 27 keys, got {len(result)}"
-        assert (
-            elapsed_parallel < 0.050
-        ), f"I1 took {elapsed_parallel * 1000:.1f}ms, expected <50ms"
+        assert elapsed_parallel < 0.050, f"I1 took {elapsed_parallel * 1000:.1f}ms, expected <50ms"
 
         print(f"✓ I1 parallel execution: {elapsed_parallel * 1000:.1f}ms for 27 plugins")
 
@@ -59,9 +57,7 @@ class TestI1ParallelExecution:
         if not TIER_I1:
             pytest.skip("No TIER_I1 plugins registered")
         plugin_name_i1 = TIER_I1[0]
-        agent._plugin_cache[plugin_name_i1] = _mock_plugin(
-            {"value": 1, "_state": {"counter": 0}}
-        )
+        agent._plugin_cache[plugin_name_i1] = _mock_plugin({"value": 1, "_state": {"counter": 0}})
 
         frames = {"main": MagicMock()}
 
@@ -98,13 +94,18 @@ class TestI1ParallelExecution:
         event.i6 = None
 
         with (
-            patch("services.intelligence_pipeline_agent._build_features_from_event", return_value={}),
+            patch(
+                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+            ),
             patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
             patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
+            patch(
+                "services.intelligence_pipeline_agent.select_winner",
+                return_value=(None, [], "no_signal"),
+            ),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             i7_result1 = await agent._run_i7(bar, event, {})
@@ -144,13 +145,18 @@ class TestI7ParallelExecution:
         event.i6 = None
 
         with (
-            patch("services.intelligence_pipeline_agent._build_features_from_event", return_value={}),
+            patch(
+                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+            ),
             patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
             patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
+            patch(
+                "services.intelligence_pipeline_agent.select_winner",
+                return_value=(None, [], "no_signal"),
+            ),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             start = time.perf_counter()
@@ -159,9 +165,7 @@ class TestI7ParallelExecution:
 
         assert "ranked" in result
         assert isinstance(result["ranked"], list)
-        assert (
-            elapsed_parallel < 0.050
-        ), f"I7 took {elapsed_parallel * 1000:.1f}ms, expected <50ms"
+        assert elapsed_parallel < 0.050, f"I7 took {elapsed_parallel * 1000:.1f}ms, expected <50ms"
 
         print(f"✓ I7 parallel execution: {elapsed_parallel * 1000:.1f}ms for 36 plugins")
 

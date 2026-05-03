@@ -86,6 +86,7 @@ class TestDataProviderAdapterProtocol:
                 async def _gen():
                     return
                     yield  # pragma: no cover
+
                 return _gen()
 
             async def fetch_historical(

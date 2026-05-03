@@ -1,4 +1,4 @@
-"""Tests for AlertingAgent (Plan 067-01 Task 2)."""
+"""Tests for AlertingComputeAgent (Plan 067-01 Task 2)."""
 
 from unittest.mock import MagicMock
 
@@ -60,11 +60,11 @@ def mock_settings():
 
 @pytest.fixture
 def agent(mock_settings):
-    """Create AlertingAgent instance with mocks."""
-    from services.alerting_agent import AlertingAgent
+    """Create AlertingComputeAgent instance with mocks."""
+    from services.alerting_agent import AlertingComputeAgent
 
     # Use __new__ to bypass __init__
-    agent = object.__new__(AlertingAgent)
+    agent = object.__new__(AlertingComputeAgent)
     agent.settings = mock_settings
     agent.logger = MagicMock()
     agent.name = "alerting_agent"
@@ -210,7 +210,7 @@ class TestAlertingAgentRunRouting:
         payload = {
             "severity": "CRITICAL",
             "message": "Test critical message",
-            "source": "test_agent"
+            "source": "test_agent",
         }
 
         # Simulate _run() routing for CRITICAL
@@ -234,11 +234,7 @@ class TestAlertingAgentRunRouting:
 
         agent._dispatch_discord = mock_dispatch_discord
 
-        payload = {
-            "severity": "HIGH",
-            "message": "Test high message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "HIGH", "message": "Test high message", "source": "test_agent"}
 
         # Simulate _run() routing for HIGH
         severity = payload.get("severity", "MEDIUM")
@@ -261,11 +257,7 @@ class TestAlertingAgentRunRouting:
 
         agent._dispatch_discord = mock_dispatch_discord
 
-        payload = {
-            "severity": "MEDIUM",
-            "message": "Test medium message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "MEDIUM", "message": "Test medium message", "source": "test_agent"}
 
         # Simulate _run() routing for MEDIUM
         severity = payload.get("severity", "MEDIUM")
@@ -279,11 +271,7 @@ class TestAlertingAgentRunRouting:
     @pytest.mark.asyncio
     async def test_run_unknown_severity_logged_at_debug(self, agent):
         """_run() logs unknown severity at debug level."""
-        payload = {
-            "severity": "UNKNOWN",
-            "message": "Test message",
-            "source": "test_agent"
-        }
+        payload = {"severity": "UNKNOWN", "message": "Test message", "source": "test_agent"}
 
         # Simulate _run() routing for UNKNOWN
         severity = payload.get("severity", "MEDIUM")

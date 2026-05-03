@@ -1,4 +1,5 @@
 """Tests for compute_signal_metrics and compute_ic_metrics."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -69,8 +70,7 @@ class TestHmmToRegimeMapping:
 
 class TestComputeSignalMetrics:
     def _make_n_rows(self, n, pnl_r=1.0, outcome="target_1", hmm_regime=1):
-        return [_make_row(pnl_r=pnl_r, outcome=outcome, hmm_regime=hmm_regime)
-                for _ in range(n)]
+        return [_make_row(pnl_r=pnl_r, outcome=outcome, hmm_regime=hmm_regime) for _ in range(n)]
 
     def test_returns_empty_when_insufficient_n(self):
         rows = self._make_n_rows(MIN_SAMPLE_SIZE - 1)
@@ -104,8 +104,7 @@ class TestComputeSignalMetrics:
     def test_never_activated_pct_counted(self):
         # 30 valid rows + 10 never-activated (pnl_r=None, outcome=never_activated)
         valid = self._make_n_rows(MIN_SAMPLE_SIZE, pnl_r=1.0, outcome="target_1")
-        never_act = [_make_row(pnl_r=None, outcome="never_activated")
-                     for _ in range(10)]
+        never_act = [_make_row(pnl_r=None, outcome="never_activated") for _ in range(10)]
         result = compute_signal_metrics(valid + never_act, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
         assert all_row.never_activated_pct == pytest.approx(10 / 40, abs=0.01)
@@ -113,8 +112,7 @@ class TestComputeSignalMetrics:
     def test_dq_invalid_rows_excluded_and_counted(self):
         # 30 valid + 5 with bad risk (should be caught by validator -> n_outliers)
         valid = self._make_n_rows(MIN_SAMPLE_SIZE)
-        bad = [_make_row(entry_price=5000.0, stop_loss=5000.01, pnl_r=-193.0)
-               for _ in range(5)]
+        bad = [_make_row(entry_price=5000.0, stop_loss=5000.01, pnl_r=-193.0) for _ in range(5)]
         result = compute_signal_metrics(valid + bad, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
         assert all_row.n == MIN_SAMPLE_SIZE
@@ -207,12 +205,24 @@ class TestComputeAgentSymbolPublish:
         """The metrics_computed event dict should contain 'symbol' key."""
         # This is a structural test: verify the compute agent's publish msg includes symbol
         from src.intelligence.metrics.compute import SignalMetricsResult
+
         mr = SignalMetricsResult(
-            track="zone", setup_plugin="trad_X", tf="5m",
-            regime_type="trend", window_days=30, symbol="ES",
-            n=50, n_outliers=0, never_activated_pct=None,
-            win_rate=0.5, avg_r=0.3, std_r=0.8, sharpe=0.3,
-            p_value=0.04, avg_mae=-0.4, avg_mfe=0.9,
+            track="zone",
+            setup_plugin="trad_X",
+            tf="5m",
+            regime_type="trend",
+            window_days=30,
+            symbol="ES",
+            n=50,
+            n_outliers=0,
+            never_activated_pct=None,
+            win_rate=0.5,
+            avg_r=0.3,
+            std_r=0.8,
+            sharpe=0.3,
+            p_value=0.04,
+            avg_mae=-0.4,
+            avg_mfe=0.9,
             computed_at=datetime.now(UTC),
         )
         # Verify the field is accessible
@@ -227,6 +237,7 @@ class TestWriterSymbolInsert:
         from unittest.mock import AsyncMock
 
         from services.signal_metrics_writer_agent import _handle_metrics_computed
+
         conn = AsyncMock()
         event = {
             "track": "zone",
@@ -257,6 +268,7 @@ class TestWriterSymbolInsert:
         from unittest.mock import AsyncMock
 
         from services.signal_metrics_writer_agent import _handle_ic_computed
+
         conn = AsyncMock()
         event = {
             "setup_plugin": "trad_TrendFollowing",
@@ -284,15 +296,17 @@ class TestPipelinePerfWeightsSymbol:
         import inspect
 
         from services import intelligence_pipeline_agent as m
+
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._load_perf_weights)
         assert "symbol" in src
-        assert "row.get(\"symbol\"" in src or 'row.get("symbol"' in src
+        assert 'row.get("symbol"' in src or 'row.get("symbol"' in src
 
     def test_rank_signals_call_site_passes_symbol(self):
         """Verify rank_signals is called with symbol=symbol."""
         import inspect
 
         from services import intelligence_pipeline_agent as m
+
         # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
         src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
         assert "rank_signals" in src

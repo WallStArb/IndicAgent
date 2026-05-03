@@ -13,15 +13,15 @@ ET = ZoneInfo("America/New_York")
 
 # Bar provenance — stored in market_data_ohlcv.source for every bar written.
 # Always use these constants; never write raw string literals.
-SOURCE_IBKR_NAMED      = "ibkr_named"          # Named-contract direct IBKR fetch
+SOURCE_IBKR_NAMED = "ibkr_named"  # Named-contract direct IBKR fetch
 SOURCE_IBKR_CONTINUOUS = "ibkr_continuous_adj"  # Continuous back-adjusted IBKR fetch
-SOURCE_IBKR_OFFICIAL   = "ibkr_official"        # Official 1m bars from TWS reconciliation
-SOURCE_IBKR_GENERIC    = "ibkr"                 # Generic IBKR fetch (RTB / fallback)
-SOURCE_IBKR_SEED       = "ibkr_seed"            # Historical seed bar from DB backfill (BarMessage bus)
-SOURCE_HTF_DERIVED     = "htf_derived"          # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
-SOURCE_DERIVED_1M      = "derived_1m"           # Aggregated from 1m bars in DB (market_data_ohlcv)
-SOURCE_SYNTHETIC_FILL  = "synthetic_fill"       # Flat fill for canonical grid gaps
-SOURCE_UNKNOWN         = "unknown"              # Source missing from payload (provider-agnostic fallback)
+SOURCE_IBKR_OFFICIAL = "ibkr_official"  # Official 1m bars from TWS reconciliation
+SOURCE_IBKR_GENERIC = "ibkr"  # Generic IBKR fetch (RTB / fallback)
+SOURCE_IBKR_SEED = "ibkr_seed"  # Historical seed bar from DB backfill (BarMessage bus)
+SOURCE_HTF_DERIVED = "htf_derived"  # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
+SOURCE_DERIVED_1M = "derived_1m"  # Aggregated from 1m bars in DB (market_data_ohlcv)
+SOURCE_SYNTHETIC_FILL = "synthetic_fill"  # Flat fill for canonical grid gaps
+SOURCE_UNKNOWN = "unknown"  # Source missing from payload (provider-agnostic fallback)
 
 # Minutes per timeframe
 _TF_MINUTES: dict[str, int] = {
@@ -37,11 +37,11 @@ _TF_MINUTES: dict[str, int] = {
 # Only used for futures (session_id="futures_24_5") where exchange disambiguates.
 # Equities always use "SMART" exchange — handled by session_id="nyse" branch.
 _FUTURES_EXCHANGE_TO_PMC: dict[str, str] = {
-    "CME": "CME_Equity",    # ES, NQ, RTY
+    "CME": "CME_Equity",  # ES, NQ, RTY
     "CBOT": "CBOT_Equity",  # YM, ZB, ZT, ZN, ZF, ZC, ZS, ZW
     "COMEX": "CME_Equity",  # GC, SI, HG  (COMEX is a CME division)
     "NYMEX": "CME_Equity",  # CL, NG      (NYMEX is a CME division)
-    "CFE": "CFE",           # VIX futures
+    "CFE": "CFE",  # VIX futures
 }
 
 # Module-level calendar cache — PMC calendar instantiation is expensive.
@@ -57,6 +57,7 @@ _NYSE_SESSION_CLOSE_HOUR = 20
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def generate_session_slots(
     session_id: str,
@@ -131,11 +132,13 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
     trading_windows: list[tuple[datetime, datetime]] = []
     for _, row in schedule.iterrows():
         day_et = row["market_open"].date()
-        day_open = datetime(day_et.year, day_et.month, day_et.day,
-                            _NYSE_SESSION_OPEN_HOUR, 0, tzinfo=ET)
+        day_open = datetime(
+            day_et.year, day_et.month, day_et.day, _NYSE_SESSION_OPEN_HOUR, 0, tzinfo=ET
+        )
         pmc_close_et = row["market_close"].astimezone(ET)
-        full_close_et = datetime(day_et.year, day_et.month, day_et.day,
-                                 _NYSE_SESSION_CLOSE_HOUR, 0, tzinfo=ET)
+        full_close_et = datetime(
+            day_et.year, day_et.month, day_et.day, _NYSE_SESSION_CLOSE_HOUR, 0, tzinfo=ET
+        )
         # PMC market_close < 16:00 ET means it's a half-day — honour early close
         day_close = pmc_close_et if pmc_close_et.hour < 16 else full_close_et
         trading_windows.append((day_open, day_close))
@@ -185,7 +188,7 @@ def _slots_futures(
 
     windows: list[tuple[datetime, datetime]] = []
     for _, row in schedule.iterrows():
-        win_open  = row["market_open"].to_pydatetime().astimezone(UTC)
+        win_open = row["market_open"].to_pydatetime().astimezone(UTC)
         win_close = row["market_close"].to_pydatetime().astimezone(UTC)
         windows.append((win_open, win_close))
 
@@ -203,6 +206,7 @@ def _slots_futures(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def normalize_bars(
     bars: list[dict],
@@ -255,15 +259,17 @@ def normalize_bars(
             prev_close = float(bar["close"])
         else:
             if prev_close is not None:
-                result.append({
-                    "timestamp": slot,
-                    "open":   prev_close,
-                    "high":   prev_close,
-                    "low":    prev_close,
-                    "close":  prev_close,
-                    "volume": 0,
-                    "source": SOURCE_SYNTHETIC_FILL,
-                })
+                result.append(
+                    {
+                        "timestamp": slot,
+                        "open": prev_close,
+                        "high": prev_close,
+                        "low": prev_close,
+                        "close": prev_close,
+                        "volume": 0,
+                        "source": SOURCE_SYNTHETIC_FILL,
+                    }
+                )
         slot += interval
 
     return result

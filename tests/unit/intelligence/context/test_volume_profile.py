@@ -9,6 +9,7 @@ Tests cover:
 - Legacy field backward compatibility
 - Edge cases (short data, zero range)
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -101,6 +102,7 @@ def frames_simple(plugin):
 # Test 1: Plugin identity
 # ---------------------------------------------------------------------------
 
+
 def test_plugin_name(plugin):
     assert plugin.name == "ctx_VolumeProfile"
 
@@ -146,6 +148,7 @@ def test_outputs_contains_all_18_fields(plugin):
 # Test 3: compute_full returns all 18 keys
 # ---------------------------------------------------------------------------
 
+
 def test_compute_full_returns_all_18_keys(plugin, frames_simple):
     result = plugin.compute_full(frames_simple)
     assert len(result) > 0, "Expected non-empty result"
@@ -157,20 +160,22 @@ def test_compute_full_returns_all_18_keys(plugin, frames_simple):
 # Test 4: POC is at bucket center with highest volume
 # ---------------------------------------------------------------------------
 
+
 def test_poc_is_highest_volume_bucket(plugin):
     df = _make_concentrated_df(n=100, poc_price=105.0)
     features = {"atr_14": 1.0, "close": float(df["close"].iloc[-1])}
     result = plugin.compute_full({"main": df, "features": features})
     assert result.get("poc_price") is not None
     # POC should be near the high-volume cluster (within 2 price units of 105.0)
-    assert abs(result["poc_price"] - 105.0) < 2.0, (
-        f"POC {result['poc_price']} not near expected 105.0"
-    )
+    assert (
+        abs(result["poc_price"] - 105.0) < 2.0
+    ), f"POC {result['poc_price']} not near expected 105.0"
 
 
 # ---------------------------------------------------------------------------
 # Test 5: VAH >= POC >= VAL, and VAH/VAL enclose 70% volume
 # ---------------------------------------------------------------------------
+
 
 def test_vah_val_ordering(plugin, frames_simple):
     result = plugin.compute_full(frames_simple)
@@ -198,6 +203,7 @@ def test_value_area_70_percent_rule(plugin):
 # ---------------------------------------------------------------------------
 # Test 6: price_in_value_area binary
 # ---------------------------------------------------------------------------
+
 
 def test_price_in_value_area_when_inside(plugin):
     df = _make_concentrated_df(n=100, poc_price=105.0)
@@ -229,6 +235,7 @@ def test_price_in_value_area_outside(plugin):
 # Test 7: va_width_atr = (vah - val) / atr_14
 # ---------------------------------------------------------------------------
 
+
 def test_va_width_atr_formula(plugin, frames_simple):
     atr_14 = 2.0
     result = plugin.compute_full(frames_simple)
@@ -243,6 +250,7 @@ def test_va_width_atr_formula(plugin, frames_simple):
 # ---------------------------------------------------------------------------
 # Test 8: distance_to_vah_atr and distance_to_val_atr
 # ---------------------------------------------------------------------------
+
 
 def test_distance_to_vah_val_atr(plugin, frames_simple):
     atr_14 = 2.0
@@ -264,6 +272,7 @@ def test_distance_to_vah_val_atr(plugin, frames_simple):
 # ---------------------------------------------------------------------------
 # Test 9: Directional HVN (above/below close)
 # ---------------------------------------------------------------------------
+
 
 def test_nearest_hvn_above_is_lowest_hvn_above_close(plugin):
     df = _make_concentrated_df(n=150, poc_price=105.0)
@@ -287,6 +296,7 @@ def test_nearest_hvn_below_is_highest_hvn_below_close(plugin):
 # Test 10: Directional LVN (above/below close)
 # ---------------------------------------------------------------------------
 
+
 def test_nearest_lvn_above_below_correct_side(plugin, frames_simple):
     df = frames_simple["main"]
     close = float(df["close"].iloc[-1])
@@ -302,6 +312,7 @@ def test_nearest_lvn_above_below_correct_side(plugin, frames_simple):
 # ---------------------------------------------------------------------------
 # Test 11: Rolling track uses min(480, len(df)) bars
 # ---------------------------------------------------------------------------
+
 
 def test_rolling_track_poc_computed(plugin, frames_simple):
     result = plugin.compute_full(frames_simple)
@@ -335,6 +346,7 @@ def test_rolling_track_differs_from_session_with_many_bars(plugin):
 # Test 12: Legacy fields backward-compatible
 # ---------------------------------------------------------------------------
 
+
 def test_legacy_nearest_hvn_level_computed(plugin, frames_simple):
     result = plugin.compute_full(frames_simple)
     # nearest_hvn_level should be the HVN closest to close (not necessarily above or below)
@@ -361,6 +373,7 @@ def test_legacy_in_lvn_is_0_or_1(plugin, frames_simple):
 # ---------------------------------------------------------------------------
 # Test 13: Fewer than min_lookback bars returns empty dict
 # ---------------------------------------------------------------------------
+
 
 def test_fewer_than_min_lookback_returns_empty(plugin):
     df = _make_df(n=5)  # less than min_lookback=20

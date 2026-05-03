@@ -1,5 +1,7 @@
 # TimescaleDB Advanced Gotchas
 
+**Last Updated:** 2026-05-02
+
 Rare or advanced TimescaleDB patterns that are good to know but not needed for day-to-day development. For common gotchas, see `CLAUDE.md`.
 
 ## Autovacuum on Hypertables

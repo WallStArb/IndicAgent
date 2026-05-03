@@ -263,11 +263,19 @@ async def test_gap_fills_published_to_raw_topic():
     filled_bar.low = 5098.0
     filled_bar.close = 5103.0
     filled_bar.volume = 1000
-    filled_bar.model_dump = MagicMock(return_value={
-        "symbol": "ESM6", "tf": "1m", "ts": "2026-03-28T10:00:00+00:00",
-        "open": 5100.0, "high": 5105.0, "low": 5098.0, "close": 5103.0,
-        "volume": 1000, "source": "ibkr_gap_fill",
-    })
+    filled_bar.model_dump = MagicMock(
+        return_value={
+            "symbol": "ESM6",
+            "tf": "1m",
+            "ts": "2026-03-28T10:00:00+00:00",
+            "open": 5100.0,
+            "high": 5105.0,
+            "low": 5098.0,
+            "close": 5103.0,
+            "volume": 1000,
+            "source": "ibkr_gap_fill",
+        }
+    )
 
     mock_adapter = AsyncMock()
     mock_adapter.fetch_historical = AsyncMock(return_value=[filled_bar])
@@ -309,12 +317,12 @@ async def test_gap_fills_published_to_raw_topic():
     canonical_topic = topic_market_bars("dev")
 
     assert len(published_topics) == 1, f"Expected 1 publish, got {len(published_topics)}"
-    assert published_topics[0] == raw_topic, (
-        f"Expected publish to raw topic {raw_topic!r}, got {published_topics[0]!r}"
-    )
-    assert canonical_topic not in published_topics, (
-        "Must NOT publish gap fills to canonical market.bars topic"
-    )
+    assert (
+        published_topics[0] == raw_topic
+    ), f"Expected publish to raw topic {raw_topic!r}, got {published_topics[0]!r}"
+    assert (
+        canonical_topic not in published_topics
+    ), "Must NOT publish gap fills to canonical market.bars topic"
 
 
 # ---------------------------------------------------------------------------
@@ -364,11 +372,18 @@ async def test_publish_bar_to_raw_topic():
     mock_bar = MagicMock()
     mock_bar.symbol = "ESM6"
     mock_bar.tf = "1m"
-    mock_bar.model_dump = MagicMock(return_value={
-        "symbol": "ESM6", "tf": "1m", "ts": "2026-03-28T10:00:00+00:00",
-        "open": 5100.0, "high": 5105.0, "low": 5098.0, "close": 5103.0,
-        "volume": 1000,
-    })
+    mock_bar.model_dump = MagicMock(
+        return_value={
+            "symbol": "ESM6",
+            "tf": "1m",
+            "ts": "2026-03-28T10:00:00+00:00",
+            "open": 5100.0,
+            "high": 5105.0,
+            "low": 5098.0,
+            "close": 5103.0,
+            "volume": 1000,
+        }
+    )
 
     published_topics: list[str] = []
 
@@ -381,6 +396,6 @@ async def test_publish_bar_to_raw_topic():
 
     expected_topic = topic_market_bars_raw("dev", "test")
     assert len(published_topics) == 1
-    assert published_topics[0] == expected_topic, (
-        f"Expected {expected_topic!r}, got {published_topics[0]!r}"
-    )
+    assert (
+        published_topics[0] == expected_topic
+    ), f"Expected {expected_topic!r}, got {published_topics[0]!r}"

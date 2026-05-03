@@ -1,5 +1,7 @@
 # Guides — Task-Oriented How-Tos
 
+**Last Updated:** 2026-05-02
+
 Step-by-step guides for common development tasks.
 
 ---

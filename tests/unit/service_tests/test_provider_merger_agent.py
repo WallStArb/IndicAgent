@@ -1,6 +1,6 @@
-"""Unit tests for ProviderMergerAgent — TDD tests for Plan 54-04.
+"""Unit tests for ProviderMergerComputeAgent — TDD tests for Plan 54-04.
 
-Tests ProviderMergerAgent structural contract (BaseAgent inheritance, consumer group),
+Tests ProviderMergerComputeAgent structural contract (BaseAgent inheritance, consumer group),
 routing contract (authoritative -> market.bars, non-authoritative dropped),
 quality event contract (ProviderQualityEvent published per bar),
 and failover/recovery contract (primary silence -> promote secondary).
@@ -40,7 +40,7 @@ _TEST_MERGER_LATENCY = Histogram(
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build a minimal ProviderMergerAgent bypassing __init__
+# Helpers: build a minimal ProviderMergerComputeAgent bypassing __init__
 # ---------------------------------------------------------------------------
 
 _SOURCE_IBKR_GENERIC = "ibkr"
@@ -73,10 +73,10 @@ def _make_agent(
     provider_routing_config: dict[str, str] | None = None,
     provider_silence_bars_threshold: int = 5,
 ):
-    """Build ProviderMergerAgent using __new__ (service test pattern)."""
-    from services.provider_merger_agent import ProviderMergerAgent
+    """Build ProviderMergerComputeAgent using __new__ (service test pattern)."""
+    from services.provider_merger_agent import ProviderMergerComputeAgent
 
-    agent = ProviderMergerAgent.__new__(ProviderMergerAgent)
+    agent = ProviderMergerComputeAgent.__new__(ProviderMergerComputeAgent)
     agent.name = "provider_merger_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -98,6 +98,7 @@ def _make_agent(
     agent._provider_silence_bars_threshold = provider_silence_bars_threshold
     # Topic -> provider cache (mirrors __init__ pattern)
     from src.core.stream_keys import topic_market_bars_raw
+
     agent._topic_to_provider = {
         topic_market_bars_raw("dev", p): p for p in (provider_raw_topics or ["ibkr"])
     }
@@ -108,15 +109,9 @@ def _make_agent(
     }
     # Pre-cache labeled metric children (mirrors __init__ pattern)
     all_providers = provider_raw_topics or ["ibkr"]
-    agent._routed_lbl = {
-        p: _TEST_MERGER_ROUTED.labels(provider=p) for p in all_providers
-    }
-    agent._dropped_lbl = {
-        p: _TEST_MERGER_DROPPED.labels(provider=p) for p in all_providers
-    }
-    agent._latency_lbl = {
-        p: _TEST_MERGER_LATENCY.labels(provider=p) for p in all_providers
-    }
+    agent._routed_lbl = {p: _TEST_MERGER_ROUTED.labels(provider=p) for p in all_providers}
+    agent._dropped_lbl = {p: _TEST_MERGER_DROPPED.labels(provider=p) for p in all_providers}
+    agent._latency_lbl = {p: _TEST_MERGER_LATENCY.labels(provider=p) for p in all_providers}
     return agent
 
 
@@ -126,11 +121,11 @@ def _make_agent(
 
 
 def test_inherits_base_agent() -> None:
-    """ProviderMergerAgent must be a BaseAgent subclass."""
-    from services.provider_merger_agent import ProviderMergerAgent
+    """ProviderMergerComputeAgent must be a BaseAgent subclass."""
+    from services.provider_merger_agent import ProviderMergerComputeAgent
     from src.core.agent.base import BaseAgent
 
-    assert issubclass(ProviderMergerAgent, BaseAgent)
+    assert issubclass(ProviderMergerComputeAgent, BaseAgent)
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +200,7 @@ async def test_preserves_bar_message_source() -> None:
 
     # Find the market.bars publish call
     calls = agent._kafka_producer.publish.call_args_list
-    market_bars_calls = [
-        c for c in calls if c.args and c.args[0] == topic_market_bars("dev")
-    ]
+    market_bars_calls = [c for c in calls if c.args and c.args[0] == topic_market_bars("dev")]
     assert len(market_bars_calls) == 1
     published_payload = market_bars_calls[0].args[1]
     assert published_payload["source"] == _SOURCE_IBKR_GENERIC
@@ -231,9 +224,7 @@ async def test_publishes_quality_event_on_routed_bar() -> None:
 
     # Find the quality event publish call
     calls = agent._kafka_producer.publish.call_args_list
-    quality_calls = [
-        c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")
-    ]
+    quality_calls = [c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")]
     assert len(quality_calls) >= 1
     quality_payload = quality_calls[0].args[1]
     assert quality_payload["event_type"] == "bar_received"
@@ -256,9 +247,7 @@ async def test_latency_ms_positive() -> None:
     await agent._handle_bar(topic, bar)
 
     calls = agent._kafka_producer.publish.call_args_list
-    quality_calls = [
-        c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")
-    ]
+    quality_calls = [c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")]
     assert len(quality_calls) >= 1
     quality_payload = quality_calls[0].args[1]
     assert quality_payload["latency_ms"] >= 0
@@ -276,7 +265,12 @@ async def test_detects_primary_silence_promotes_secondary() -> None:
 
     agent = _make_agent(
         provider_raw_topics=["ibkr", "alpaca"],
-        provider_routing_config={"futures": "ibkr", "equity": "ibkr", "crypto": "ibkr", "fx": "ibkr"},
+        provider_routing_config={
+            "futures": "ibkr",
+            "equity": "ibkr",
+            "crypto": "ibkr",
+            "fx": "ibkr",
+        },
         provider_silence_bars_threshold=2,
     )
 
@@ -295,12 +289,8 @@ async def test_detects_primary_silence_promotes_secondary() -> None:
 
     # A failover quality event must have been published
     calls = agent._kafka_producer.publish.call_args_list
-    quality_calls = [
-        c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")
-    ]
-    failover_events = [
-        c for c in quality_calls if c.args[1].get("event_type") == "failover"
-    ]
+    quality_calls = [c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")]
+    failover_events = [c for c in quality_calls if c.args[1].get("event_type") == "failover"]
     assert len(failover_events) >= 1
     assert failover_events[0].args[1]["promoted_provider"] == "alpaca"
 
@@ -317,7 +307,12 @@ async def test_recovery_after_failover() -> None:
 
     agent = _make_agent(
         provider_raw_topics=["ibkr", "alpaca"],
-        provider_routing_config={"futures": "ibkr", "equity": "ibkr", "crypto": "ibkr", "fx": "ibkr"},
+        provider_routing_config={
+            "futures": "ibkr",
+            "equity": "ibkr",
+            "crypto": "ibkr",
+            "fx": "ibkr",
+        },
     )
     # Pre-set failover state: ESM6 is promoted to alpaca
     agent._promoted = {"ESM6": "alpaca"}
@@ -333,12 +328,8 @@ async def test_recovery_after_failover() -> None:
 
     # A recovery quality event must have been published
     calls = agent._kafka_producer.publish.call_args_list
-    quality_calls = [
-        c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")
-    ]
-    recovery_events = [
-        c for c in quality_calls if c.args[1].get("event_type") == "recovery"
-    ]
+    quality_calls = [c for c in calls if c.args and c.args[0] == topic_market_data_quality("dev")]
+    recovery_events = [c for c in quality_calls if c.args[1].get("event_type") == "recovery"]
     assert len(recovery_events) >= 1
 
 

@@ -1,4 +1,5 @@
 """Tests for GET /api/signals/recent tier filtering and signal_tier field."""
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,14 +33,20 @@ def _row(**kwargs):
     }
     return {**defaults, **kwargs}
 
+
 @pytest.mark.unit
 class TestSignalsApiTier:
     def _setup(self, rows, summary_row=None):
         mock_db = AsyncMock()
         mock_db.fetch = AsyncMock(return_value=rows)
         if summary_row is None:
-            summary_row = {"n_total": len(rows), "n_resolved": 0, "n_suppressed": 0,
-                           "win_rate": None, "avg_pnl_r": None}
+            summary_row = {
+                "n_total": len(rows),
+                "n_resolved": 0,
+                "n_suppressed": 0,
+                "win_rate": None,
+                "avg_pnl_r": None,
+            }
         mock_db.fetchrow = AsyncMock(return_value=summary_row)
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         return TestClient(app), mock_db
@@ -95,10 +102,14 @@ class TestSignalsApiTier:
         call_args = mock_db.fetch.call_args[0]
         # $4 = require_selected, $5 = require_hero_gate — both must be False for tier=all
         # call_args: (query, resolved_symbol, timeframe, limit, require_selected, require_hero_gate)
-        require_selected = call_args[4]   # 5th positional arg
+        require_selected = call_args[4]  # 5th positional arg
         require_hero_gate = call_args[5]  # 6th positional arg
-        assert require_selected is False, f"tier=all should have require_selected=False, got {require_selected}"
-        assert require_hero_gate is False, f"tier=all should have require_hero_gate=False, got {require_hero_gate}"
+        assert (
+            require_selected is False
+        ), f"tier=all should have require_selected=False, got {require_selected}"
+        assert (
+            require_hero_gate is False
+        ), f"tier=all should have require_hero_gate=False, got {require_hero_gate}"
 
     def test_symbol_optional_omitted(self):
         """Omitting symbol (tier=all, no symbol) must return 200."""

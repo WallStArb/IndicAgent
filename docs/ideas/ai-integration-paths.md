@@ -1,13 +1,18 @@
 # AI Integration Paths
 
 Date: 2026-04-24
+Last Updated: 2026-05-02
 Status: Idea — not scheduled
 
 ## Key Insight
 
 The wiring is already done. SwarmBaseAgent (Phase 066) provides the base class with DLQ, timeouts, shadow recording, OTel spans. SwarmDispatchService owns the Kafka/pub-sub infrastructure. SkepticAgent proves the pattern — new AI agents just subclass `SwarmBaseAgent`, implement `_compute()`, and register.
 
-I1-I7 results publish to tiered Kafka topics (`intelligence.i{N}`). Any new AI agent subscribes independently — no pipeline modification needed.
+Current production contract: I1-I7 results are available through `intelligence.journal`, `intelligence_features`, and `intelligence.i7.signals`. Tiered Kafka topics (`intelligence.i1`, `intelligence.i2`, etc.) are a target architecture, not the current canonical integration path unless they are added to `src/core/stream_keys.py`.
+
+Any new AI agent should subscribe to current canonical topics or read from the feature store first. Add tier-specific streams only when a concrete AI consumer, replay requirement, or scaling bottleneck justifies the extra topic surface.
+
+Shared storage for training data and shadow outputs is fine, but no AI agent should depend on another agent's runtime being available.
 
 ## Tier 1: Zero Infra Change (Do Now)
 
@@ -29,10 +34,11 @@ Train on `(I1-I7 features → pnl_r)` with accumulated data. Pluggable into aggr
 Newer small models with better reasoning drop regularly. Swap is one config line. Evaluate gemma variants or mistral at similar sizes.
 
 ### Kafka-Subscribed AI Agents
-Since I1-I7 publish to `intelligence.i{N}` topics, dedicated AI consumers could:
-- Subscribe to `intelligence.i5` (pattern detection) for pattern confirmation/validation
-- Subscribe to `intelligence.i7` (trading signals) for regime-aware filtering
-- Subscribe to `intelligence.i6` (confluence) for cross-timeframe consensus scoring
+Dedicated AI consumers can subscribe independently without pipeline modification:
+- Subscribe to `intelligence.journal` for full per-bar I1-I7 context.
+- Subscribe to `intelligence.i7.signals` for ranked signal candidates.
+- Read `intelligence_features` for batch/shadow analysis and model training.
+- Use future tier topics (`intelligence.i5`, `intelligence.i6`, etc.) only after those topics exist in `stream_keys.py` and have a documented producer.
 
 Each agent is independent, stateless, and scales by adding consumers.
 

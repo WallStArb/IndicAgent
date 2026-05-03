@@ -23,7 +23,7 @@ All live in `src/intelligence/trading/`:
 | `plugin_utils.py` | `no_signal()`, `extract_ohlcv()`, `signal_type_for_direction()` | Canonical no-signal dict, OHLCV extraction, signal type naming |
 | `atr_utils.py` | `get_atr(features)` | Null-safe I1 ATR accessor — never recompute ATR in I7 |
 | `state_utils.py` | `track_consecutive_state()`, `reset_consecutive_state()` | Consecutive bar state counting |
-| `confidence_utils.py` | `compose_confidence(raw)`, `capture_signal_features()`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.10, 0.95], rounds to 4dp). `capture_signal_features()` writes `_shadow` dict (15 keys: 2 metadata, 6 I6 CTF, 4 I4 macro, 3 exhaustion) for ML training — zero confidence modification. ML scoring (XGBoost) planned for v2.3. |
+| `confidence_utils.py` | `compose_confidence(raw)`, `capture_signal_features()`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.10, 0.95], rounds to 4dp). `capture_signal_features()` writes `_shadow` dict (15 keys: 2 metadata, 6 I6 CTF, 4 I4 macro, 3 exhaustion) for ML training — zero confidence modification. |
 | `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
 | `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |
@@ -84,15 +84,3 @@ All live in `src/intelligence/trading/`:
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
 **After plugin changes:** Restart `indicagent-intelligence-pipeline` (unified I1-I7). See root CLAUDE.md Active Services table for canonical service names and metrics ports.
-
-### Plugin Testing Workflow
-
-1. **Unit test:** Add test to `tests/unit/intelligence/` — use `__new__()` pattern per CLAUDE.md to avoid `__init__`
-2. **Integration test:** Run `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py` to verify I1-I7 pipeline
-3. **Service restart:** `sudo systemctl restart indicagent-intelligence-pipeline` (unified I1-I7)
-4. **Verify output:** `docker exec redpanda rpk topic consume intelligence --from-end` — check IntelligenceEvent output
-
-**Quick reference — `regime_type` values:**
-- `"trend"` — TrendFollowing, MomentumBreakout, etc.
-- `"mean_reversion"` — MeanReversion, VWAPDeviation, SqueezeExpansion
-- `"any"` — RegimeTransition, GapAnalysisSetup (works in all regimes)

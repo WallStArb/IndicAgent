@@ -1,6 +1,6 @@
 # IndicAgent Intelligence Platform Documentation
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-05-02
 
 ---
 
@@ -20,6 +20,8 @@
 **→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
 **→ [DAG Execution](concepts/dag-execution.md)** — Dependency ordering
 **→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold flow, Redpanda, TimescaleDB
+**→ [Agent Contract Checklist](architecture/agent-contract-checklist.md)** — Required contract for new agents
+**→ [Canonical Truth Registry](architecture/canonical-truth-registry.md)** — Canonical stream/table ownership
 
 ---
 

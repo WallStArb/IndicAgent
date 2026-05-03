@@ -171,9 +171,9 @@ def test_family_profiles_has_exactly_six_keys() -> None:
 
 def test_family_profiles_all_values_are_confluence_weight_profile() -> None:
     for name, profile in FAMILY_PROFILES.items():
-        assert isinstance(profile, ConfluenceWeightProfile), (
-            f"FAMILY_PROFILES['{name}'] is {type(profile)}, expected ConfluenceWeightProfile"
-        )
+        assert isinstance(
+            profile, ConfluenceWeightProfile
+        ), f"FAMILY_PROFILES['{name}'] is {type(profile)}, expected ConfluenceWeightProfile"
         assert profile.name == name
 
 

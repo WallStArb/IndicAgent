@@ -22,6 +22,7 @@ from src.core.models import AssetClass, Instrument
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_settings() -> MagicMock:
     """Build a minimal mock Settings object."""
     mock = MagicMock()
@@ -57,6 +58,7 @@ def _make_settings() -> MagicMock:
 def _reset_cache() -> None:
     """Reset the module-level cache so tests are isolated."""
     import src.config.settings as settings_mod
+
     settings_mod._active_contracts_cache = None
     settings_mod._active_contracts_last_refresh = 0.0
 
@@ -185,9 +187,9 @@ class TestGetActiveContractsDbEnabled:
         with patch("psycopg2.connect", return_value=mock_conn):
             get_active_contracts(mock_settings)
         executed_sql = mock_conn.cursor.return_value.__enter__.return_value.execute.call_args[0][0]
-        assert "is_front_month" in executed_sql, (
-            f"DB query must filter by is_front_month; got SQL: {executed_sql!r}"
-        )
+        assert (
+            "is_front_month" in executed_sql
+        ), f"DB query must filter by is_front_month; got SQL: {executed_sql!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +218,9 @@ class TestGetActiveContractsDbFallback:
         with patch("psycopg2.connect", side_effect=Exception("timeout")):
             result = get_active_contracts(mock_settings)
         for item in result:
-            assert isinstance(item, Instrument), f"Fallback must return Instrument, got {type(item)}"
+            assert isinstance(
+                item, Instrument
+            ), f"Fallback must return Instrument, got {type(item)}"
 
 
 # ---------------------------------------------------------------------------
@@ -235,14 +239,15 @@ class TestGetActiveContractsCache:
         with patch("psycopg2.connect", return_value=mock_conn) as mock_connect:
             result1 = get_active_contracts(mock_settings)
             result2 = get_active_contracts(mock_settings)
-        assert mock_connect.call_count == 1, (
-            f"DB must only be queried once within cache TTL, called {mock_connect.call_count} times"
-        )
+        assert (
+            mock_connect.call_count == 1
+        ), f"DB must only be queried once within cache TTL, called {mock_connect.call_count} times"
         assert result1 == result2
 
     def test_cache_expires_after_60s(self):
         """After forcing cache expiry, next call must re-query the DB."""
         import src.config.settings as settings_mod
+
         mock_settings = _make_settings()
         mock_conn = _make_mock_db_conn([("ESM6", "ES", "CME")])
         with patch("psycopg2.connect", return_value=mock_conn) as mock_connect:
@@ -271,9 +276,9 @@ class TestGetActiveContractsReturnType:
         with patch("psycopg2.connect", return_value=mock_conn):
             result = get_active_contracts(mock_settings)
         if result:
-            assert not isinstance(result[0], str), (
-                "get_active_contracts() must return list[Instrument], not list[str]"
-            )
+            assert not isinstance(
+                result[0], str
+            ), "get_active_contracts() must return list[Instrument], not list[str]"
 
     def test_get_active_symbols_returns_list_of_str(self):
         """get_active_symbols() must return list[str]."""
@@ -288,4 +293,5 @@ class TestGetActiveContractsReturnType:
     def test_get_active_symbols_function_exists(self):
         """get_active_symbols must be importable from src.config.settings."""
         from src.config.settings import get_active_symbols as _fn
+
         assert callable(_fn)

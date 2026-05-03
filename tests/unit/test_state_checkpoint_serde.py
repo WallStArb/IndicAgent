@@ -166,7 +166,10 @@ class TestFullAgentState:
                 "('macd', 'ESM6', '1m')": {"signal": 0.5, "histogram": np.array([0.1, 0.2, 0.3])},
             },
             "kalman_state": {
-                "ESM6:1m": {"x_est": np.array([0.5, 0.02]), "P_est": np.array([[0.01, 0.0], [0.0, 0.01]])}
+                "ESM6:1m": {
+                    "x_est": np.array([0.5, 0.02]),
+                    "P_est": np.array([[0.01, 0.0], [0.0, 0.01]]),
+                }
             },
             "tod_priors": {
                 "('trend', '1m', 9)": 1.05,

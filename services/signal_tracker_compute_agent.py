@@ -68,7 +68,7 @@ def _bars_in_trade(activated_at: datetime | None, exit_at: datetime, timeframe: 
     return max(0, int(delta / tf_secs))
 
 
-class SignalTrackerCompute(BaseAgent):
+class SignalTrackerComputeAgent(BaseAgent):
     """DB-ignorant lifecycle evaluation agent.
 
     Consumes bars from Kafka, evaluates signal lifecycle transitions using
@@ -86,7 +86,7 @@ class SignalTrackerCompute(BaseAgent):
     _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
 
     def __init__(self) -> None:
-        super().__init__(name="SignalTrackerCompute", metrics_port=9133, max_idle_seconds=300)
+        super().__init__(name="SignalTrackerComputeAgent", metrics_port=9133, max_idle_seconds=300)
         self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         # In-memory active signal index: (symbol, timeframe) -> [signal dicts]
@@ -479,7 +479,7 @@ class SignalTrackerCompute(BaseAgent):
                     ),
                     staleness_score=staleness_score_val,
                     signal_timestamp=sig_ts,  # D-01: pass signal fire time
-                    bar_time=bar_time,         # D-01: pass current bar time
+                    bar_time=bar_time,  # D-01: pass current bar time
                 )
             except Exception as exc:
                 self.logger.warning(
@@ -800,7 +800,7 @@ class SignalTrackerCompute(BaseAgent):
 
 
 async def main() -> None:
-    agent = SignalTrackerCompute()
+    agent = SignalTrackerComputeAgent()
     try:
         await agent.start()
     except KeyboardInterrupt:

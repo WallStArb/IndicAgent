@@ -1,8 +1,8 @@
 # Intelligence Platform Dashboard
 
-**Version:** 2.0.0  
-**Last Updated:** 2026-02-12  
-**Status:** Current - I5 patterns, structure, and context panels operational
+**Version:** 2.5.0
+**Last Updated:** 2026-05-03
+**Status:** Current - Full I1-I8 intelligence pipeline with AI narratives, signal scorecard, and SMC context
 
 Real-time futures trading dashboard with live pattern detection, market structure, context classification, and technical analysis.
 
@@ -11,11 +11,14 @@ Real-time futures trading dashboard with live pattern detection, market structur
 **Futures-Focused Intelligence:**
 - **ES, NQ, RTY Futures**: Primary instruments with 24/7 institutional flow data
 - **Multi-timeframe Analysis**: 1m precision to 15m signals to 1h context (1m, 5m, 15m, 1h, 4h, 1d)
-- **Technical Indicators**: 12 indicator plugins with automatic calculation engine (I1)
+- **Technical Indicators**: 27 indicator plugins with automatic calculation engine (I1)
 - **Pattern Detection (I5)**: RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence
 - **Market Structure (I3)**: Swing detector, support/resistance, trend structure
 - **Context Classification (I4)**: Volatility regime, trend regime, momentum context
-- **Real-time Updates**: SSE or Socket.IO (env-configurable via `NEXT_PUBLIC_USE_SSE`) from IndicAgent API
+- **Smart Money Concepts (SMC)**: BOS/CHoCH, FVG, order blocks, liquidity pools
+- **Signal Scorecard (I7)**: All ranked signal candidates per bar with CIS scores
+- **AI Narratives (I8)**: LLM-generated market narratives with model attribution
+- **Real-time Updates**: SSE from IndicAgent API
 
 **Intelligence Platform Integration:**
 - **Foundation Layer**: Live technical indicators with incremental calculation (141x performance)

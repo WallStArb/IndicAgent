@@ -1,4 +1,5 @@
 """Unit tests for apply_calibration pure function."""
+
 from __future__ import annotations
 
 import numpy as np

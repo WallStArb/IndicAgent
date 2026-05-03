@@ -113,7 +113,9 @@ def _make_agent():
         "GCJ6": "GC",
     }
     agent._contract_cache_size_lbl = _TEST_CONTRACT_CACHE_SIZE.labels(agent="bar_writer_agent")
-    agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(agent="bar_writer_agent")
+    agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(
+        agent="bar_writer_agent"
+    )
     agent._buffer_depth_gauge = _TEST_BUFFER_DEPTH
     agent._buffer_overflow_total = _TEST_BUFFER_OVERFLOW
 
@@ -208,8 +210,8 @@ def test_parse_payload_appends_tuple():
     assert len(rows) == 1
     row = rows[0]
     assert len(row) == 10
-    assert row[1] == "ESM6"   # symbol
-    assert row[3] == "1m"     # timeframe (index 3 after base added at index 2)
+    assert row[1] == "ESM6"  # symbol
+    assert row[3] == "1m"  # timeframe (index 3 after base added at index 2)
     assert isinstance(row[0], datetime)  # ts must be a datetime object
 
 
@@ -248,10 +250,12 @@ async def test_flush_batch_success():
     mock_conn.executemany = AsyncMock(return_value=None)
 
     mock_pool = AsyncMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=None),
-    ))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=None),
+        )
+    )
     agent._db_pool = mock_pool
 
     await agent._flush_batch(batch)
@@ -273,10 +277,12 @@ async def test_flush_batch_leaves_buffer_on_error():
     agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
 
     mock_pool = AsyncMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(side_effect=Exception("DB connection refused")),
-        __aexit__=AsyncMock(return_value=None),
-    ))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(side_effect=Exception("DB connection refused")),
+            __aexit__=AsyncMock(return_value=None),
+        )
+    )
     agent._db_pool = mock_pool
 
     await agent._do_flush()
@@ -318,9 +324,9 @@ def test_parse_payload_resolves_futures_base():
     rows = agent._parse_payload(payload)
 
     row = rows[0]
-    assert row[1] == "ESM6"   # symbol unchanged
-    assert row[2] == "ES"     # base resolved from contract_cache
-    assert row[3] == "1m"     # timeframe at correct index
+    assert row[1] == "ESM6"  # symbol unchanged
+    assert row[2] == "ES"  # base resolved from contract_cache
+    assert row[3] == "1m"  # timeframe at correct index
 
 
 def test_parse_payload_fallback_for_non_futures():
@@ -331,8 +337,8 @@ def test_parse_payload_fallback_for_non_futures():
     rows = agent._parse_payload(payload)
 
     row = rows[0]
-    assert row[1] == "DIA"    # symbol
-    assert row[2] == "DIA"    # base == symbol (fallback — DIA not in contract_metadata)
+    assert row[1] == "DIA"  # symbol
+    assert row[2] == "DIA"  # base == symbol (fallback — DIA not in contract_metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -389,10 +395,12 @@ async def test_flush_batch_increments_tf_counter():
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
     mock_pool = AsyncMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=None),
-    ))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=None),
+        )
+    )
     agent._db_pool = mock_pool
 
     before = agent._bars_written_lbl["1m"]._value.get()

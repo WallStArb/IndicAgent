@@ -1,4 +1,5 @@
 """Tests for SignalMetricsComputeAgent."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -104,10 +105,14 @@ class TestSignalMetricsComputeAgent:
         agent._producer.publish = AsyncMock()
         # First cycle
         await agent._run_compute_cycle()
-        first_dq_count = len([c for c in agent._producer.publish.call_args_list if "dq_failure" in str(c)])
+        first_dq_count = len(
+            [c for c in agent._producer.publish.call_args_list if "dq_failure" in str(c)]
+        )
         assert first_dq_count == 1
         # Second cycle — same data
         agent._producer.publish.reset_mock()
         await agent._run_compute_cycle()
-        second_dq_count = len([c for c in agent._producer.publish.call_args_list if "dq_failure" in str(c)])
+        second_dq_count = len(
+            [c for c in agent._producer.publish.call_args_list if "dq_failure" in str(c)]
+        )
         assert second_dq_count == 0  # dedup: already published

@@ -74,8 +74,12 @@ class VolumeEventsPlugin:
             # Gradient: proximity to band decays over 15% of BB width
             proximity_width = bb_width * 0.15
             if proximity_width > 0:
-                out["bb_upper_touch"] = threshold_decay(float(close), float(bb_upper), proximity_width)
-                out["bb_lower_touch"] = threshold_decay(float(close), float(bb_lower), proximity_width)
+                out["bb_upper_touch"] = threshold_decay(
+                    float(close), float(bb_upper), proximity_width
+                )
+                out["bb_lower_touch"] = threshold_decay(
+                    float(close), float(bb_lower), proximity_width
+                )
             else:
                 out["bb_upper_touch"] = 0.0
                 out["bb_lower_touch"] = 0.0

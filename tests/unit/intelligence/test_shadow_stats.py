@@ -2,6 +2,7 @@
 
 Tests compute_shadow_plugin_stats() and _bootstrap_ci_lower() from weight_updater.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -51,7 +52,7 @@ def _make_rows(
 
 
 def test_bootstrap_ci_lower_returns_neg_inf_when_too_few_samples():
-    from src.intelligence.weight_updater import _bootstrap_ci_lower
+    from src.core.stats_utils import bootstrap_ci_lower as _bootstrap_ci_lower
 
     result = _bootstrap_ci_lower([])
     assert result == float("-inf")
@@ -61,7 +62,7 @@ def test_bootstrap_ci_lower_returns_neg_inf_when_too_few_samples():
 
 
 def test_bootstrap_ci_lower_returns_positive_for_positive_values():
-    from src.intelligence.weight_updater import _bootstrap_ci_lower
+    from src.core.stats_utils import bootstrap_ci_lower as _bootstrap_ci_lower
 
     # 100 large positive values → CI lower should also be positive
     result = _bootstrap_ci_lower([2.0] * 100)
@@ -69,19 +70,17 @@ def test_bootstrap_ci_lower_returns_positive_for_positive_values():
 
 
 def test_bootstrap_ci_lower_returns_negative_for_all_negative():
-    from src.intelligence.weight_updater import _bootstrap_ci_lower
+    from src.core.stats_utils import bootstrap_ci_lower as _bootstrap_ci_lower
 
     result = _bootstrap_ci_lower([-1.5] * 100)
     assert result < 0.0
 
 
 def test_bootstrap_ci_lower_mixed_returns_finite():
-    from src.intelligence.weight_updater import _bootstrap_ci_lower
+    from src.core.stats_utils import bootstrap_ci_lower as _bootstrap_ci_lower
 
     # Mixed positive/negative — result should be finite (not inf/-inf)
     values = [1.0, -1.0] * 50
     result = _bootstrap_ci_lower(values)
     assert result != float("-inf")
     assert result != float("inf")
-
-

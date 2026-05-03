@@ -134,11 +134,17 @@ def resolve_at_end_of_bars(
     last_ts = last_bar["timestamp"]
     bars_elapsed = int((last_ts - sig["timestamp"]).total_seconds() / tf_seconds)
 
-    zone_outcome = "ttl_expired_ahead" if zone_mfe > 0 else (
-        "never_activated" if not zone_activated else "ttl_expired_behind"
+    zone_outcome = (
+        "ttl_expired_ahead"
+        if zone_mfe > 0
+        else ("never_activated" if not zone_activated else "ttl_expired_behind")
     )
     mep = market_entry_price if market_entry_price is not None else sig.get("market_entry_price")
-    market_outcome = ("ttl_expired_ahead" if market_mfe > 0 else "ttl_expired_behind") if mep is not None else None
+    market_outcome = (
+        ("ttl_expired_ahead" if market_mfe > 0 else "ttl_expired_behind")
+        if mep is not None
+        else None
+    )
     market_bit = min(bars_elapsed, sig.get("ttl_bars", 10))
 
     return {
@@ -168,7 +174,9 @@ def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
 # ── Core replay logic ────────────────────────────────────────────────────────
 
 
-async def _fetch_work_queue(db: DatabaseManager, symbols: list[str], timeframes: list[str]) -> list[tuple[str, str, int]]:
+async def _fetch_work_queue(
+    db: DatabaseManager, symbols: list[str], timeframes: list[str]
+) -> list[tuple[str, str, int]]:
     """Build work queue ordered by estimated pending row count descending (largest first)."""
     async with db.get_connection() as conn:
         rows = await conn.fetch(
@@ -179,7 +187,8 @@ async def _fetch_work_queue(db: DatabaseManager, symbols: list[str], timeframes:
                   AND timeframe = ANY($2)
                 GROUP BY symbol, timeframe
                 ORDER BY cnt DESC""",
-            symbols, timeframes,
+            symbols,
+            timeframes,
         )
         return [(row["symbol"], row["timeframe"], row["cnt"]) for row in rows]
 
@@ -198,8 +207,15 @@ async def _process_symbol_tf(
     Each worker uses the shared DatabaseManager with its own transaction.
     """
     tf_secs = TF_SECONDS.get(timeframe, 60)
-    stats = {"symbol": symbol, "tf": timeframe, "processed": 0,
-             "zone": {}, "market": {}, "gaps": 0, "errors": 0}
+    stats = {
+        "symbol": symbol,
+        "tf": timeframe,
+        "processed": 0,
+        "zone": {},
+        "market": {},
+        "gaps": 0,
+        "errors": 0,
+    }
 
     try:
         # Use a connection for this work item (manual transaction control for incremental commits)
@@ -233,7 +249,8 @@ async def _process_symbol_tf(
                    WHERE status IN ('pending', 'regime_suppressed')
                      AND symbol = $1 AND timeframe = $2
                    ORDER BY timestamp ASC""",
-                symbol, timeframe,
+                symbol,
+                timeframe,
             )
 
         if not signals:
@@ -262,7 +279,7 @@ async def _process_symbol_tf(
         zone_activated: dict[str, bool] = {}
         pending_writes: list[tuple] = []
         last_bar: dict | None = None
-        live_sids: set[str] = set()   # signals currently being evaluated
+        live_sids: set[str] = set()  # signals currently being evaluated
 
         # 3. Fetch bars into memory and run processing phase on a dedicated connection
         conn = await db.pool.acquire()
@@ -274,7 +291,9 @@ async def _process_symbol_tf(
                    WHERE symbol = $1 AND timeframe = $2
                      AND timestamp >= $3
                    ORDER BY timestamp ASC""",
-                symbol, timeframe, min_ts,
+                symbol,
+                timeframe,
+                min_ts,
             )
         except Exception:
             await db.pool.release(conn)
@@ -292,7 +311,11 @@ async def _process_symbol_tf(
             # Activate signals that fired before this bar (signal fires on bar N close,
             # first evaluable bar is N+1). Skip already-resolved signals (outcome set).
             for sid, sig in sig_map.items():
-                if sid not in live_sids and sig.get("outcome") is None and sig["timestamp"] < bar_ts:
+                if (
+                    sid not in live_sids
+                    and sig.get("outcome") is None
+                    and sig["timestamp"] < bar_ts
+                ):
                     live_sids.add(sid)
                     mep = sig.get("market_entry_price")
                     if mep is None:
@@ -324,10 +347,13 @@ async def _process_symbol_tf(
                     m_mfe = market_mfe_acc.get(sid, 0.0)
                     try:
                         m_trans = evaluate_market_entry(
-                            sig_eval, market_entry_price=mep,
-                            high=float(bar["high"]), low=float(bar["low"]),
+                            sig_eval,
+                            market_entry_price=mep,
+                            high=float(bar["high"]),
+                            low=float(bar["low"]),
                             close=float(bar["close"]),
-                            current_mae=m_mae, current_mfe=m_mfe,
+                            current_mae=m_mae,
+                            current_mfe=m_mfe,
                         )
                     except Exception as exc:
                         logger.warning("market eval error %s: %s", sid, exc)
@@ -336,21 +362,31 @@ async def _process_symbol_tf(
 
                     if m_trans and m_trans.outcome is not None:
                         m_entry_at = market_activated_at.get(sid)
-                        m_bit = int((bar_ts - m_entry_at).total_seconds() / tf_secs) if m_entry_at else 0
+                        m_bit = (
+                            int((bar_ts - m_entry_at).total_seconds() / tf_secs)
+                            if m_entry_at
+                            else 0
+                        )
                         m_outcome = m_trans.outcome
                         stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
-                        pending_writes.append(("market", sid, {
-                            "_ts": sig["timestamp"],
-                            "market_entry_at": m_entry_at,
-                            "market_entry_exit_price": m_trans.exit_price,
-                            "market_entry_exit_at": bar_ts,
-                            "market_entry_pnl_r": m_trans.pnl_r,
-                            "market_entry_mae": m_trans.mae,
-                            "market_entry_mfe": m_trans.mfe,
-                            "market_entry_bars_in_trade": m_bit,
-                            "market_entry_outcome": m_outcome,
-                            "market_entry_gap_bars": sig.get("_replay_gap_bars"),
-                        }))
+                        pending_writes.append(
+                            (
+                                "market",
+                                sid,
+                                {
+                                    "_ts": sig["timestamp"],
+                                    "market_entry_at": m_entry_at,
+                                    "market_entry_exit_price": m_trans.exit_price,
+                                    "market_entry_exit_at": bar_ts,
+                                    "market_entry_pnl_r": m_trans.pnl_r,
+                                    "market_entry_mae": m_trans.mae,
+                                    "market_entry_mfe": m_trans.mfe,
+                                    "market_entry_bars_in_trade": m_bit,
+                                    "market_entry_outcome": m_outcome,
+                                    "market_entry_gap_bars": sig.get("_replay_gap_bars"),
+                                },
+                            )
+                        )
                         sig["_market_resolved"] = True
                     elif m_trans:
                         # Still open — accumulate running MAE/MFE in R-multiples
@@ -368,14 +404,20 @@ async def _process_symbol_tf(
                 z_mae = zone_mae.get(sid, 0.0)
                 z_mfe = zone_mfe.get(sid, 0.0)
                 z_status = "active" if zone_activated.get(sid) else sig.get("status", "pending")
-                sig_eval["status"] = "active" if (z_status == "regime_suppressed" or zone_activated.get(sid)) else z_status
+                sig_eval["status"] = (
+                    "active"
+                    if (z_status == "regime_suppressed" or zone_activated.get(sid))
+                    else z_status
+                )
 
                 try:
                     z_trans = evaluate_signal(
                         sig_eval,
-                        high=float(bar["high"]), low=float(bar["low"]),
+                        high=float(bar["high"]),
+                        low=float(bar["low"]),
                         close=float(bar["close"]),
-                        current_mae=z_mae, current_mfe=z_mfe,
+                        current_mae=z_mae,
+                        current_mfe=z_mfe,
                     )
                 except Exception as exc:
                     logger.warning("zone eval error %s: %s", sid, exc)
@@ -399,38 +441,52 @@ async def _process_symbol_tf(
                     # Signal entered the zone — record activation and reset MAE/MFE
                     zone_activated[sid] = True
                     zone_activated_at[sid] = bar_ts
-                    pending_writes.append(("activation", sid, {
-                        "_ts": sig["timestamp"],
-                        "activation_price": z_trans.activation_price,
-                        "zone_entry_pct": z_trans.zone_entry_pct,
-                        "bars_to_activation": z_trans.bars_to_activation,
-                        "activated_at": bar_ts,
-                    }))
+                    pending_writes.append(
+                        (
+                            "activation",
+                            sid,
+                            {
+                                "_ts": sig["timestamp"],
+                                "activation_price": z_trans.activation_price,
+                                "zone_entry_pct": z_trans.zone_entry_pct,
+                                "bars_to_activation": z_trans.bars_to_activation,
+                                "activated_at": bar_ts,
+                            },
+                        )
+                    )
                     zone_mae[sid] = 0.0
                     zone_mfe[sid] = 0.0
                 else:
                     # Zone exit — classify outcome and mark resolved
                     z_outcome = z_trans.outcome
                     if z_outcome is None:
-                        z_bit = int((bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs)
+                        z_bit = int(
+                            (bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs
+                        )
                         z_outcome = _classify_stop_outcome(z_mfe, z_bit)
                     stats["zone"][z_outcome] = stats["zone"].get(z_outcome, 0) + 1
                     stats["processed"] += 1
-                    pending_writes.append(("zone_exit", sid, {
-                        "_ts": sig["timestamp"],
-                        "status": z_trans.new_status,
-                        "exit_at": bar_ts,
-                        "exit_price": z_trans.exit_price,
-                        "exit_reason": z_trans.exit_reason,
-                        "pnl_ticks": z_trans.pnl_ticks,
-                        "pnl_r": z_trans.pnl_r,
-                        "pnl_dollars": z_trans.pnl_dollars,
-                        "signal_quality": None,
-                        "mae": z_trans.mae,
-                        "mfe": z_trans.mfe,
-                        "bars_in_trade": None,
-                        "outcome": z_outcome,
-                    }))
+                    pending_writes.append(
+                        (
+                            "zone_exit",
+                            sid,
+                            {
+                                "_ts": sig["timestamp"],
+                                "status": z_trans.new_status,
+                                "exit_at": bar_ts,
+                                "exit_price": z_trans.exit_price,
+                                "exit_reason": z_trans.exit_reason,
+                                "pnl_ticks": z_trans.pnl_ticks,
+                                "pnl_r": z_trans.pnl_r,
+                                "pnl_dollars": z_trans.pnl_dollars,
+                                "signal_quality": None,
+                                "mae": z_trans.mae,
+                                "mfe": z_trans.mfe,
+                                "bars_in_trade": None,
+                                "outcome": z_outcome,
+                            },
+                        )
+                    )
                     resolved_this_bar.add(sid)
 
             live_sids -= resolved_this_bar
@@ -447,7 +503,9 @@ async def _process_symbol_tf(
                     await conn.execute("BEGIN")
                     logger.info(
                         "%s %s: committed %d resolved so far",
-                        symbol, timeframe, stats["processed"],
+                        symbol,
+                        timeframe,
+                        stats["processed"],
                     )
 
         # 5. End of bars — resolve remaining live signals (TTL expired)
@@ -455,54 +513,89 @@ async def _process_symbol_tf(
             for sid in live_sids:
                 sig = sig_map[sid]
                 result = resolve_at_end_of_bars(
-                    sig, last_bar, tf_seconds=tf_secs,
+                    sig,
+                    last_bar,
+                    tf_seconds=tf_secs,
                     zone_mfe=zone_mfe.get(sid, 0.0),
                     market_mfe=market_mfe_acc.get(sid, 0.0),
                     zone_activated=zone_activated.get(sid, False),
                     market_entry_price=market_entry_prices.get(sid),
                 )
-                stats["zone"][result["zone_outcome"]] = stats["zone"].get(result["zone_outcome"], 0) + 1
+                stats["zone"][result["zone_outcome"]] = (
+                    stats["zone"].get(result["zone_outcome"], 0) + 1
+                )
                 stats["processed"] += 1
                 if zone_activated.get(sid):
                     _activated_at = zone_activated_at.get(sid, sig["timestamp"])
                     _bars_in_trade = int(
                         (result["exit_at"] - _activated_at).total_seconds() / tf_secs
                     )
-                    pending_writes.append(("zone_exit", sid, {
-                        "_ts": sig["timestamp"],
-                        "status": "expired", "exit_at": result["exit_at"],
-                        "exit_price": last_bar["close"], "exit_reason": "ttl_expired",
-                        "pnl_ticks": None, "pnl_r": None, "pnl_dollars": None,
-                        "signal_quality": None,
-                        "mae": zone_mae.get(sid, 0.0),
-                        "mfe": zone_mfe.get(sid, 0.0),
-                        "bars_in_trade": _bars_in_trade, "outcome": result["zone_outcome"],
-                    }))
+                    pending_writes.append(
+                        (
+                            "zone_exit",
+                            sid,
+                            {
+                                "_ts": sig["timestamp"],
+                                "status": "expired",
+                                "exit_at": result["exit_at"],
+                                "exit_price": last_bar["close"],
+                                "exit_reason": "ttl_expired",
+                                "pnl_ticks": None,
+                                "pnl_r": None,
+                                "pnl_dollars": None,
+                                "signal_quality": None,
+                                "mae": zone_mae.get(sid, 0.0),
+                                "mfe": zone_mfe.get(sid, 0.0),
+                                "bars_in_trade": _bars_in_trade,
+                                "outcome": result["zone_outcome"],
+                            },
+                        )
+                    )
                 else:
-                    pending_writes.append(("zone_exit", sid, {
-                        "_ts": sig["timestamp"],
-                        "status": "expired", "exit_at": result["exit_at"],
-                        "exit_price": None, "exit_reason": "ttl_expired",
-                        "pnl_ticks": None, "pnl_r": None, "pnl_dollars": None,
-                        "signal_quality": None, "mae": None, "mfe": None,
-                        "bars_in_trade": None, "outcome": result["zone_outcome"],
-                    }))
+                    pending_writes.append(
+                        (
+                            "zone_exit",
+                            sid,
+                            {
+                                "_ts": sig["timestamp"],
+                                "status": "expired",
+                                "exit_at": result["exit_at"],
+                                "exit_price": None,
+                                "exit_reason": "ttl_expired",
+                                "pnl_ticks": None,
+                                "pnl_r": None,
+                                "pnl_dollars": None,
+                                "signal_quality": None,
+                                "mae": None,
+                                "mfe": None,
+                                "bars_in_trade": None,
+                                "outcome": result["zone_outcome"],
+                            },
+                        )
+                    )
                 mep = market_entry_prices.get(sid)
                 if mep is not None and not sig.get("_market_resolved"):
                     stats["market"][result["market_entry_outcome"]] = (
-                        stats["market"].get(result["market_entry_outcome"], 0) + 1)
-                    pending_writes.append(("market", sid, {
-                        "_ts": sig["timestamp"],
-                        "market_entry_at": market_activated_at.get(sid),
-                        "market_entry_exit_price": float(last_bar["close"]),
-                        "market_entry_exit_at": last_bar["timestamp"],
-                        "market_entry_pnl_r": None,
-                        "market_entry_mae": market_mae_acc.get(sid, 0.0),
-                        "market_entry_mfe": market_mfe_acc.get(sid, 0.0),
-                        "market_entry_bars_in_trade": result["market_entry_bars_in_trade"],
-                        "market_entry_outcome": result["market_entry_outcome"],
-                        "market_entry_gap_bars": sig.get("_replay_gap_bars"),
-                    }))
+                        stats["market"].get(result["market_entry_outcome"], 0) + 1
+                    )
+                    pending_writes.append(
+                        (
+                            "market",
+                            sid,
+                            {
+                                "_ts": sig["timestamp"],
+                                "market_entry_at": market_activated_at.get(sid),
+                                "market_entry_exit_price": float(last_bar["close"]),
+                                "market_entry_exit_at": last_bar["timestamp"],
+                                "market_entry_pnl_r": None,
+                                "market_entry_mae": market_mae_acc.get(sid, 0.0),
+                                "market_entry_mfe": market_mfe_acc.get(sid, 0.0),
+                                "market_entry_bars_in_trade": result["market_entry_bars_in_trade"],
+                                "market_entry_outcome": result["market_entry_outcome"],
+                                "market_entry_gap_bars": sig.get("_replay_gap_bars"),
+                            },
+                        )
+                    )
 
         # 6. Final flush + commit
         if pending_writes and not dry_run:
@@ -541,25 +634,54 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
     for kind, sid, data in writes:
         ts = data["_ts"]
         if kind == "activation":
-            activations.append((sid, ts, data["activated_at"], data["activation_price"],
-                                 data["zone_entry_pct"], data["bars_to_activation"]))
+            activations.append(
+                (
+                    sid,
+                    ts,
+                    data["activated_at"],
+                    data["activation_price"],
+                    data["zone_entry_pct"],
+                    data["bars_to_activation"],
+                )
+            )
         elif kind == "zone_exit":
             status = data["status"]
             outcome = data["outcome"]
-            zone_exits.append((sid, ts, _enum_value(status),
-                                data["exit_at"], data["exit_price"],
-                                data["exit_reason"], data["pnl_ticks"], data["pnl_r"],
-                                data["pnl_dollars"], data["signal_quality"],
-                                data["mae"], data["mfe"], data["bars_in_trade"],
-                                _enum_value(outcome)))
+            zone_exits.append(
+                (
+                    sid,
+                    ts,
+                    _enum_value(status),
+                    data["exit_at"],
+                    data["exit_price"],
+                    data["exit_reason"],
+                    data["pnl_ticks"],
+                    data["pnl_r"],
+                    data["pnl_dollars"],
+                    data["signal_quality"],
+                    data["mae"],
+                    data["mfe"],
+                    data["bars_in_trade"],
+                    _enum_value(outcome),
+                )
+            )
         elif kind == "market":
             m_outcome = data["market_entry_outcome"]
-            markets.append((sid, ts, data["market_entry_at"], data["market_entry_exit_price"],
-                             data["market_entry_exit_at"], data["market_entry_pnl_r"],
-                             data["market_entry_mae"], data["market_entry_mfe"],
-                             data["market_entry_bars_in_trade"],
-                             _enum_value(m_outcome),
-                             data["market_entry_gap_bars"]))
+            markets.append(
+                (
+                    sid,
+                    ts,
+                    data["market_entry_at"],
+                    data["market_entry_exit_price"],
+                    data["market_entry_exit_at"],
+                    data["market_entry_pnl_r"],
+                    data["market_entry_mae"],
+                    data["market_entry_mfe"],
+                    data["market_entry_bars_in_trade"],
+                    _enum_value(m_outcome),
+                    data["market_entry_gap_bars"],
+                )
+            )
 
     # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
     await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
@@ -635,7 +757,8 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
            FROM signal_ledger
            WHERE status NOT IN ('pending', 'regime_suppressed')
              AND symbol = $1 AND timeframe = $2""",
-        symbol, timeframe,
+        symbol,
+        timeframe,
     )
 
     if not row or row["total"] == 0:
@@ -644,33 +767,47 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
 
     logger.info(
         "VALIDATE %s %s: %d resolved signals, %d with zone outcome, %d with market outcome",
-        symbol, timeframe, row["total"], row["with_outcome"], row["with_market_outcome"],
+        symbol,
+        timeframe,
+        row["total"],
+        row["with_outcome"],
+        row["with_market_outcome"],
     )
     # Full re-simulation validation is not implemented — this confirms DB read consistency only.
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
 
 
 async def main_async():
-    parser = argparse.ArgumentParser(description="Lifecycle Replay — backfill historical signal outcomes")
+    parser = argparse.ArgumentParser(
+        description="Lifecycle Replay — backfill historical signal outcomes"
+    )
     parser.add_argument("--symbols", help="Comma-separated symbols (default: all active)")
     parser.add_argument("--timeframes", help="Comma-separated timeframes (default: 1m,5m,15m,1h)")
     parser.add_argument("--validate", action="store_true", help="Run validation first")
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't write")
-    parser.add_argument("--batch-size", type=int, default=500, help="DB flush every N pending writes")
-    parser.add_argument("--commit-every", type=int, default=1000, help="Commit after every N resolved signals per pair")
+    parser.add_argument(
+        "--batch-size", type=int, default=500, help="DB flush every N pending writes"
+    )
+    parser.add_argument(
+        "--commit-every",
+        type=int,
+        default=1000,
+        help="Commit after every N resolved signals per pair",
+    )
     parser.add_argument("--workers", type=int, default=4, help="Concurrency level (default: 4)")
     args = parser.parse_args()
 
     # Use -u (unbuffered) when redirecting output: python -u lifecycle_replay.py > log 2>&1 &
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     settings = Settings()
     db = DatabaseManager(settings.database_url)
     await db.initialize()
 
     try:
-        symbols = args.symbols.split(",") if args.symbols else [c.symbol for c in get_active_contracts()]
+        symbols = (
+            args.symbols.split(",") if args.symbols else [c.symbol for c in get_active_contracts()]
+        )
         timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
 
         # Build work queue
@@ -680,9 +817,11 @@ async def main_async():
             logger.info("No pending signals found. Nothing to do.")
             return
 
-        logger.info("Work queue: %d (symbol, tf) pairs, %d total pending signals",
-                    len(work_queue),
-                    sum(w[2] for w in work_queue))
+        logger.info(
+            "Work queue: %d (symbol, tf) pairs, %d total pending signals",
+            len(work_queue),
+            sum(w[2] for w in work_queue),
+        )
 
         # Process all pairs concurrently using asyncio.gather with semaphore for concurrency control
         semaphore = asyncio.Semaphore(args.workers)
@@ -693,10 +832,7 @@ async def main_async():
                     db, sym, tf, args.batch_size, args.commit_every, args.dry_run, args.validate
                 )
 
-        tasks = [
-            process_with_limit(sym, tf)
-            for sym, tf, _ in work_queue
-        ]
+        tasks = [process_with_limit(sym, tf) for sym, tf, _ in work_queue]
 
         all_stats = []
         for future in asyncio.as_completed(tasks):
@@ -707,10 +843,13 @@ async def main_async():
             m = stats["market"]
             logger.info(
                 "%s %s: %d processed | Zone: %s | Market: %s | gaps=%d errors=%d",
-                sym, tf, stats["processed"],
+                sym,
+                tf,
+                stats["processed"],
                 " | ".join(f"{k}={v}" for k, v in z.items()),
                 " | ".join(f"{k}={v}" for k, v in m.items()),
-                stats["gaps"], stats["errors"],
+                stats["gaps"],
+                stats["errors"],
             )
 
         total = sum(s["processed"] for s in all_stats)

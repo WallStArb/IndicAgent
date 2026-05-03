@@ -1,4 +1,5 @@
 """Tests for DataQualityValidator — all 4 gates + per-instrument tick sizes."""
+
 from src.intelligence.metrics.validator import validate_signal_row
 
 
@@ -30,24 +31,32 @@ class TestGate2Risk:
 
     def test_risk_below_min_tick_es(self):
         # CVDDivergence bug: stop almost equal to entry (ES tick=0.25)
-        r = validate_signal_row(1, 5000.0, 4999.974, -193.0, 1, symbol="ES", tick_sizes={"ES": 0.25})
+        r = validate_signal_row(
+            1, 5000.0, 4999.974, -193.0, 1, symbol="ES", tick_sizes={"ES": 0.25}
+        )
         assert r.is_valid is False
         assert r.reason_code == "risk_below_min_tick"
 
     def test_forex_small_tick_valid(self):
         # EURUSD tick=0.0001, risk=0.0002 > 0.0001
-        r = validate_signal_row(1, 1.1200, 1.1198, 0.5, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001})
+        r = validate_signal_row(
+            1, 1.1200, 1.1198, 0.5, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001}
+        )
         assert r.is_valid is True
 
     def test_forex_risk_below_tick(self):
         # EURUSD tick=0.0001, risk=0.00005 < 0.0001
-        r = validate_signal_row(1, 1.1200, 1.11995, -10.0, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001})
+        r = validate_signal_row(
+            1, 1.1200, 1.11995, -10.0, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001}
+        )
         assert r.is_valid is False
         assert r.reason_code == "risk_below_min_tick"
 
     def test_bond_tick_size(self):
         # ZN (10y Treasury): tick = 1/64 = 0.015625
-        r = validate_signal_row(1, 110.50, 110.484375, 0.5, 1, symbol="ZNM6", tick_sizes={"ZN": 0.015625})
+        r = validate_signal_row(
+            1, 110.50, 110.484375, 0.5, 1, symbol="ZNM6", tick_sizes={"ZN": 0.015625}
+        )
         assert r.is_valid is True
 
     def test_copper_tick_size(self):

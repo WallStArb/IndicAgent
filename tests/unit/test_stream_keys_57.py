@@ -13,7 +13,10 @@ from src.core.stream_keys import (
 
 def test_topic_intelligence_pipeline_state_with_env():
     """Pipeline state topic includes env prefix."""
-    assert topic_intelligence_pipeline_state("development") == "development.intelligence.pipeline.state"
+    assert (
+        topic_intelligence_pipeline_state("development")
+        == "development.intelligence.pipeline.state"
+    )
 
 
 def test_topic_intelligence_pipeline_state_empty_env():

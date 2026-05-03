@@ -264,6 +264,7 @@ class IBKRProvider:
         # running loop. The import-time pre-created loop is a dummy; TWS callbacks use
         # main_event_loop.call_soon_threadsafe() — must point to this loop or bars drop.
         import eventkit.util
+
         eventkit.util.main_event_loop = asyncio.get_running_loop()
 
         # Check circuit breaker state first
@@ -293,15 +294,11 @@ class IBKRProvider:
             return False
         try:
             # reqCurrentTime is lightweight and fast
-            await asyncio.wait_for(
-                self._ib.reqCurrentTimeAsync(),
-                timeout=5.0
-            )
+            await asyncio.wait_for(self._ib.reqCurrentTimeAsync(), timeout=5.0)
             return True
         except (TimeoutError, ConnectionError, OSError) as exc:
             logger.warning(
-                "IBKR ping failed",
-                extra={"error": str(exc), "error_type": type(exc).__name__}
+                "IBKR ping failed", extra={"error": str(exc), "error_type": type(exc).__name__}
             )
             return False
 
@@ -611,9 +608,7 @@ class IBKRProvider:
                 tick = self._normalize_ticker(ticker)
                 if tick:
                     try:
-                        self._loop.call_soon_threadsafe(
-                            self._tick_queue.put_nowait, tick
-                        )
+                        self._loop.call_soon_threadsafe(self._tick_queue.put_nowait, tick)
                     except Exception:
                         _M_DROPPED_TICK_QUEUE_FULL.inc()
         except Exception:
@@ -647,9 +642,7 @@ class IBKRProvider:
         finally:
             self._ib.pendingTickersEvent -= self._handle_pending_tickers
 
-    async def stream_real_time_bars(
-        self, symbols: list[str]
-    ) -> AsyncIterator[tuple[str, object]]:
+    async def stream_real_time_bars(self, symbols: list[str]) -> AsyncIterator[tuple[str, object]]:
         """Async iterator yielding (symbol, RealTimeBar) tuples as 5-second bars arrive.
 
         Bridges ib_insync's sync updateEvent callbacks to asyncio via a bounded Queue.
@@ -677,14 +670,10 @@ class IBKRProvider:
                     return
                 bar = bars_list[-1]
                 try:
-                    self._loop.call_soon_threadsafe(
-                        self._rtb_queue.put_nowait, (_symbol, bar)
-                    )
+                    self._loop.call_soon_threadsafe(self._rtb_queue.put_nowait, (_symbol, bar))
                 except Exception:
                     _M_DROPPED_RTB_QUEUE_FULL.inc()
-                    logger.warning(
-                        "ibkr.rtb_queue_full_dropping symbol=%s", _symbol
-                    )
+                    logger.warning("ibkr.rtb_queue_full_dropping symbol=%s", _symbol)
 
             bars.updateEvent += _on_bar
             subscribed.append((bars, _on_bar))
@@ -771,9 +760,7 @@ class IBKRProvider:
                     )
                 except Exception:
                     _M_DROPPED_OFFICIAL_QUEUE_ERROR.inc()
-                    logger.warning(
-                        "ibkr.official_queue_error_dropping symbol=%s", _symbol
-                    )
+                    logger.warning("ibkr.official_queue_error_dropping symbol=%s", _symbol)
 
             bars.updateEvent += _on_official_bar
             subscribed.append((bars, _on_official_bar))

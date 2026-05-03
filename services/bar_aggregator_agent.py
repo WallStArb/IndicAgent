@@ -152,26 +152,22 @@ class BarAggregatorComputeAgent(BaseAgent):
             "bar_agg_aggregation_errors_total", "Exceptions during bar processing", ["agent"]
         )
         self._health_status = Gauge(
-            "bar_agg_health_status",
-            "Service health status (1=healthy, 0=unhealthy)",
-            ["agent"]
+            "bar_agg_health_status", "Service health status (1=healthy, 0=unhealthy)", ["agent"]
         )
         self._consumer_lag_seconds = Gauge(
             "bar_agg_consumer_lag_seconds",
             "How far behind the consumer is (head offset - current offset)",
-            ["agent"]
+            ["agent"],
         )
         self._time_since_last_bar_seconds = Gauge(
-            "bar_agg_time_since_last_bar_seconds",
-            "Seconds since last bar was processed",
-            ["agent"]
+            "bar_agg_time_since_last_bar_seconds", "Seconds since last bar was processed", ["agent"]
         )
         # Add aggregation latency metric (missing from class)
         self._aggregation_latency = Histogram(
             "bar_aggregation_latency_seconds",
             "Latency for bar aggregation processing",
             ["agent"],
-            buckets=[0.001, 0.01, 0.1, 1.0, 10.0]
+            buckets=[0.001, 0.01, 0.1, 1.0, 10.0],
         )
         # Add label for aggregation latency metric
         self._aggregation_latency_lbl = self._aggregation_latency.labels(agent=self.name)
@@ -216,8 +212,8 @@ class BarAggregatorComputeAgent(BaseAgent):
         import aiokafka
         from aiokafka.errors import KafkaConnectionError as _KCE
 
-        _MAX_ATTEMPTS = 4   # 1 initial + 3 retries
-        _BASE_DELAY = 2.0   # seconds (doubles each attempt: 2, 4, 8)
+        _MAX_ATTEMPTS = 4  # 1 initial + 3 retries
+        _BASE_DELAY = 2.0  # seconds (doubles each attempt: 2, 4, 8)
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
@@ -297,8 +293,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._checkpoint_failure_timestamps.append(now)
         # Prune old failures (outside 60s window)
         self._checkpoint_failure_timestamps = [
-            ts for ts in self._checkpoint_failure_timestamps
-            if now - ts < 60.0
+            ts for ts in self._checkpoint_failure_timestamps if now - ts < 60.0
         ]
         # Check if degraded
         if len(self._checkpoint_failure_timestamps) >= 3:
@@ -338,7 +333,12 @@ class BarAggregatorComputeAgent(BaseAgent):
                         continue
                     version, symbol, tf = parts
                     if version != self._AGENT_VERSION:
-                        self.logger.warning("state.version_mismatch", key=key_str, version=version, expected=self._AGENT_VERSION)
+                        self.logger.warning(
+                            "state.version_mismatch",
+                            key=key_str,
+                            version=version,
+                            expected=self._AGENT_VERSION,
+                        )
                         continue
 
                     if "_accumulators" in payload:
@@ -520,7 +520,9 @@ class BarAggregatorComputeAgent(BaseAgent):
                                     await self._checkpoint_state(bar)
                                     self._checkpoint_failure_timestamps.clear()
                                 except Exception as exc:
-                                    self.logger.warning("bar_aggregator.checkpoint_failed", error=str(exc))
+                                    self.logger.warning(
+                                        "bar_aggregator.checkpoint_failed", error=str(exc)
+                                    )
                                     self._state_checkpoint_failures_total.inc()
                                     # Check if degraded (3 failures in 60s)
                                     if self._track_checkpoint_failure():
@@ -549,7 +551,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                             "bar_aggregator.processing_timeout",
                             symbol=payload.get("symbol", "unknown"),
                             ts=payload.get("ts") or payload.get("timestamp"),
-                            timeout_seconds=5
+                            timeout_seconds=5,
                         )
                         # Continue to next bar - don't let one slow bar block everything
 
@@ -578,9 +580,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         self._health_metrics._last_htf_emit_ts = time.monotonic()
                         self.logger.info("bar_aggregator.consumer_reset_complete")
                     except Exception as exc:
-                        self.logger.error(
-                            "bar_aggregator.consumer_reset_failed", error=str(exc)
-                        )
+                        self.logger.error("bar_aggregator.consumer_reset_failed", error=str(exc))
                         raise  # unrecoverable — let systemd restart clean
 
         finally:

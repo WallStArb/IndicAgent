@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from services.service_auditor_agent import (
+    _SVC_DATA_PROVIDER,
     ServiceAuditorAgent,
     ServiceState,
-    _SVC_DATA_PROVIDER,
 )
 
 
@@ -60,15 +60,25 @@ class TestSendAlertViaBusinessLogic:
         with patch.object(agent, "_any_active_session_open", return_value=True):
             # First check: degraded_since set, count=1
             await agent._evaluate_service_dynamic(
-                unit, active_state="active", sub_state="running",
-                lag_messages=0, lag_threshold=1000, has_metrics=True, bars_per_sec=0.0,
+                unit,
+                active_state="active",
+                sub_state="running",
+                lag_messages=0,
+                lag_threshold=1000,
+                has_metrics=True,
+                bars_per_sec=0.0,
             )
             assert agent._send_alert.call_count == 0  # not yet
 
             # Second check: count >= 2 -> alert
             await agent._evaluate_service_dynamic(
-                unit, active_state="active", sub_state="running",
-                lag_messages=0, lag_threshold=1000, has_metrics=True, bars_per_sec=0.0,
+                unit,
+                active_state="active",
+                sub_state="running",
+                lag_messages=0,
+                lag_threshold=1000,
+                has_metrics=True,
+                bars_per_sec=0.0,
             )
 
         assert agent._send_alert.call_count == 1
@@ -87,8 +97,12 @@ class TestSendAlertViaBusinessLogic:
         agent._send_alert = AsyncMock()
 
         await agent._evaluate_service_dynamic(
-            unit, active_state="failed", sub_state="start-limit-hit",
-            lag_messages=0, lag_threshold=1000, has_metrics=False,
+            unit,
+            active_state="failed",
+            sub_state="start-limit-hit",
+            lag_messages=0,
+            lag_threshold=1000,
+            has_metrics=False,
         )
 
         assert agent._send_alert.call_count == 1
@@ -102,12 +116,14 @@ class TestSendAlertViaBusinessLogic:
         """Roll event with new contract -> _send_alert HIGH."""
         agent._send_alert = AsyncMock()
 
-        await agent._handle_roll_event({
-            "symbol": "ES",
-            "old_contract": "ESM6",
-            "new_contract": "ESN6",
-            "detection_method": "volume",
-        })
+        await agent._handle_roll_event(
+            {
+                "symbol": "ES",
+                "old_contract": "ESM6",
+                "new_contract": "ESN6",
+                "detection_method": "volume",
+            }
+        )
 
         assert agent._send_alert.call_count == 1
         call_args = agent._send_alert.call_args

@@ -216,6 +216,7 @@ class TestGetSignals:
     def test_get_signals_base_symbol_resolved(self):
         """Base symbol 'ES' resolves to the active ES contract before the DB query."""
         from src.config.settings import get_active_contracts
+
         active_es = next(c.symbol for c in get_active_contracts() if c.base == "ES")
 
         mock_db = _make_mock_db()

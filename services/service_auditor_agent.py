@@ -28,10 +28,11 @@ import asyncpg
 
 from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import OTelGauge, SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
+from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, OTelGauge
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -46,32 +47,39 @@ _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 # ---------------------------------------------------------------------------
 
 _DAG_ORDER: dict[str, int] = {
+    # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,
     "indicagent-provider-merger": 2,
+    # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,
     "indicagent-bar-auditor": 3,
     "indicagent-bar-writer": 4,
+    # Layer 3 — intelligence pipeline (I1-I7)
     "indicagent-intelligence-pipeline": 5,
+    "indicagent-cross-asset": 5,
+    "indicagent-macro-compute": 5,
+    # Layer 4 — persistence writers (parallel, all consume pipeline output)
     "indicagent-feature-writer": 6,
     "indicagent-signal-tracker-compute": 6,
     "indicagent-signal-writer": 6,
     "indicagent-lifecycle-writer": 6,
+    "indicagent-lineage-writer": 6,
     "indicagent-contract-metadata-writer": 6,
-    "indicagent-ai-narrative": 7,
+    # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
+    "indicagent-alpha-swarm": 7,
     "indicagent-llm-writer": 7,
-    "indicagent-cross-asset": 7,
+    # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-roll-compute": 8,
-    "indicagent-macro-compute": 8,
-    "indicagent-swarm-orchestrator": 8,
-    "indicagent-swarm-writer": 8,
     "indicagent-signal-metrics-compute": 8,
     "indicagent-signal-metrics-writer": 8,
+    "indicagent-graduation-compute": 8,
+    "indicagent-graduation-writer": 8,
+    "indicagent-feature-snapshot-writer": 8,
+    # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,
     "indicagent-parity-auditor": 9,
-    "indicagent-feature-snapshot-writer": 9,
-    "indicagent-graduation-writer": 9,
-    "indicagent-graduation-compute": 9,
     "indicagent-alerting-agent": 9,
+    # Layer 8 — meta: monitors and restarts all of the above
     "indicagent-service-auditor": 10,
 }
 
@@ -82,18 +90,19 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-bar-auditor": 200,
     "indicagent-bar-writer": 1000,
     "indicagent-intelligence-pipeline": 500,
+    "indicagent-cross-asset": 200,
+    "indicagent-macro-compute": 500,
     "indicagent-feature-writer": 1000,
     "indicagent-signal-tracker-compute": 500,
     "indicagent-signal-writer": 500,
     "indicagent-lifecycle-writer": 500,
+    "indicagent-lineage-writer": 500,
     "indicagent-contract-metadata-writer": 500,
-    "indicagent-ai-narrative": 200,
+    "indicagent-alpha-swarm": 200,
     "indicagent-llm-writer": 500,
-    "indicagent-cross-asset": 200,
-    "indicagent-swarm-writer": 500,
     "indicagent-signal-metrics-writer": 500,
-    "indicagent-feature-snapshot-writer": 500,
     "indicagent-graduation-writer": 500,
+    "indicagent-feature-snapshot-writer": 500,
 }
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
@@ -104,24 +113,25 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator_agent": "indicagent-bar-aggregator",
     "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
     "feature_writer": "indicagent-feature-writer",
-    "SignalTrackerCompute": "indicagent-signal-tracker-compute",
+    "SignalTrackerComputeAgent": "indicagent-signal-tracker-compute",
     "signal_writer_agent": "indicagent-signal-writer",
     "llm_writer_agent": "indicagent-llm-writer",
     "CrossAssetComputeAgent": "indicagent-cross-asset",
     "bar_auditor_agent": "indicagent-bar-auditor",
     "provider_merger_agent": "indicagent-provider-merger",
     "lifecycle_writer_agent": "indicagent-lifecycle-writer",
+    "lineage_writer_agent": "indicagent-lineage-writer",
     "FeatureSnapshotWriterAgent": "indicagent-feature-snapshot-writer",
     "signal_metrics_compute": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
-    "SwarmOrchestratorComputeAgent": "indicagent-swarm-orchestrator",
-    "SwarmWriterAgent": "indicagent-swarm-writer",
+    "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
     "roll_compute_agent": "indicagent-roll-compute",
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
     "contract_metadata_writer_agent": "indicagent-contract-metadata-writer",
     "ParityAuditorAgent": "indicagent-parity-auditor",
-    "GraduationComputeAgent": "indicagent-graduation-writer",
+    "GraduationComputeAgent": "indicagent-graduation-compute",
+    "graduation_writer_agent": "indicagent-graduation-writer",
 }
 
 # OTel gauge for per-unit service health (1=active, 0=inactive/failed)
@@ -196,9 +206,7 @@ class ServiceAuditorAgent(BaseAgent):
         return self._topics_produced
 
     async def _setup(self) -> None:
-        self._db_pool = await asyncpg.create_pool(
-            self.settings.database_url, min_size=1, max_size=3
-        )
+        self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._http_session = aiohttp.ClientSession()
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
@@ -248,7 +256,11 @@ class ServiceAuditorAgent(BaseAgent):
     async def _discover_services(self) -> list[str]:
         """Discover all indicagent systemd units dynamically via systemctl list-units."""
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "list-units", "--all", "--no-legend", "--no-pager",
+            "systemctl",
+            "list-units",
+            "--all",
+            "--no-legend",
+            "--no-pager",
             "indicagent-*",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -564,9 +576,7 @@ class ServiceAuditorAgent(BaseAgent):
     async def _fetch_provider_data_flow(self) -> dict[str, float]:
         """Check provider bars/second rate to detect data stoppage."""
         # Query rate of bars produced over last 5 minutes
-        results = await self._query_prometheus(
-            'rate(provider_bars_produced_total[5m])'
-        )
+        results = await self._query_prometheus("rate(provider_bars_produced_total[5m])")
         out: dict[str, float] = {}
         for r in results:
             provider = r["metric"].get("provider", "")
@@ -714,7 +724,10 @@ class ServiceAuditorAgent(BaseAgent):
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", service_name,
+                "sudo",
+                "systemctl",
+                "restart",
+                service_name,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
