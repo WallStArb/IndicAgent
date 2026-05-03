@@ -19,6 +19,7 @@ import asyncpg
 import pandas as pd
 
 from src.config.settings import Settings
+from src.core.database_manager import create_pool as create_db_pool
 from src.intelligence.macro.flight_to_quality import compute_flight_to_quality
 from src.intelligence.macro.yield_curve import compute_yield_curve_slope
 from tools.validate_i6_backtest import ValidationResults, validate_backtest_results
@@ -238,7 +239,7 @@ async def backtest_yield_curve(
     settings = Settings()
     output_field = "yield_curve_slope"
 
-    async with asyncpg.create_pool(settings.database_url, min_size=1, max_size=3) as pool:
+    async with create_db_pool(settings.database_url, min_size=1, max_size=3) as pool:
         async with pool.acquire() as conn:
             print(f"  Loading ZT+ZB bars from {start_date.date()} to {end_date.date()}...")
             ohlcv_df = await _load_ohlcv(
@@ -306,7 +307,7 @@ async def backtest_ftq(
     settings = Settings()
     output_field = "ftq_score"
 
-    async with asyncpg.create_pool(settings.database_url, min_size=1, max_size=3) as pool:
+    async with create_db_pool(settings.database_url, min_size=1, max_size=3) as pool:
         async with pool.acquire() as conn:
             print(f"  Loading TLT+SPY bars from {start_date.date()} to {end_date.date()}...")
             ohlcv_df = await _load_ohlcv(

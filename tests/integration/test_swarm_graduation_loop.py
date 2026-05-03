@@ -28,15 +28,15 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
 
     Cleans up inserted rows after the test.
     """
-    import asyncpg
     import numpy as np
     from scipy.stats import spearmanr
 
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
     from src.config.settings import Settings
+    from src.core.database_manager import create_pool as create_db_pool
 
     settings = Settings()
-    pool = await asyncpg.create_pool(settings.database_url, min_size=1, max_size=3)
+    pool = await create_db_pool(settings.database_url, min_size=1, max_size=3)
 
     # Ensure skeptic_v1 enrolled (idempotent)
     async with pool.acquire() as conn:
@@ -115,9 +115,9 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
             )
 
         assert row is not None, "skeptic_v1 not found in shadow_registry"
-        assert row["is_shadow"] is False, (
-            f"Expected is_shadow=FALSE after promotion, got {row['is_shadow']}"
-        )
+        assert (
+            row["is_shadow"] is False
+        ), f"Expected is_shadow=FALSE after promotion, got {row['is_shadow']}"
 
     finally:
         # Cleanup: remove test rows, reset shadow state

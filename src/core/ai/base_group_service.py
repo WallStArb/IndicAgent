@@ -111,9 +111,9 @@ class BaseGroupService(BaseAgent, ABC):
         await self._producer.start()
 
         # Wire DB pool (for context cache seeding)
-        import asyncpg
+        from src.core.database_manager import create_pool as create_db_pool
 
-        self._pool = await asyncpg.create_pool(
+        self._pool = await create_db_pool(
             self.settings.database_url,
             min_size=2,
             max_size=5,

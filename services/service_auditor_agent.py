@@ -28,6 +28,7 @@ import asyncpg
 
 from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
@@ -208,9 +209,7 @@ class ServiceAuditorAgent(BaseAgent):
         return self._topics_produced
 
     async def _setup(self) -> None:
-        self._db_pool = await asyncpg.create_pool(
-            self.settings.database_url, min_size=1, max_size=3
-        )
+        self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
         self._http_session = aiohttp.ClientSession()
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers,

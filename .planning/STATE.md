@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.3
-milestone_name: candidates
-status: unknown
-last_updated: "2026-04-30T23:36:18.575Z"
+milestone: v2.5
+milestone_name: data-quality-persistence
+status: active
+last_updated: "2026-05-03T12:00:00.000Z"
 progress:
-  total_phases: 27
-  completed_phases: 2
-  total_plans: 22
-  completed_plans: 17
-  percent: 77
+  total_phases: 29
+  completed_phases: 27
+  total_plans: 24
+  completed_plans: 23
+  percent: 96
 ---
 
 # Project State
@@ -19,27 +19,26 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase --phase — 78
+**Current focus:** Phase 78 (Plan 07 pending)
 
 ## Current Position
 
-Phase: --phase (78) — EXECUTING
-Plan: 1 of --name
+Phase: 78 (I8 Alpha Feedback Loop) — EXECUTING
+Plan: 7 of 7 (078-07 pending — move NarrativeComputeAgent to API endpoint)
 
 Plans already complete:
+- 078-01: Bug fixes (pool leak, segment key, volume-profile stub, lead-map)
+- 078-02: Dead code removal (SafeAgentWrapper, setup override)
+- 078-03: Graduation loop (Spearman gate, shadow enrollment)
+- 078-04: Brier score + calibration metrics (llm_model_scores)
+- 078-05: Typed AIContext + skeptic_v2 + AUTHORING.md
+- 078-06: corr_z + VolumeZscorePlugin + AlphaSwarm simplification
 
-- 73-01: Delete dead swarm orchestrator + add Kafka topic infrastructure (commit 8dbdc3cf)
-- 73-02: Build src/core/ai/ infrastructure (commit 256ee32f)
-- 73-03: Apply 6 LLM chain fixes + test coverage (commit 1c8c9e3b)
-- 73-04: Create AI agent directory structure + move agents to src/intelligence/ai/ (commit edf3bd33)
-- 73-05: Service refactor to BaseGroupService + AgentOutput migration (commits 20dee0d4, 6a07b793)
-- 73-06: Lineage recorder + SafeAgentWrapper + BaseGroupService run loop (SUMMARY.md present)
-- 73-07: Test migration + import boundaries + CLAUDE.md updates (SUMMARY.md present)
-
-Previous: Phase 73 — COMPLETE (2026-04-28) — AI LLM Layer B+ Architecture Refactor; BaseAIAgent, BaseGroupService, mandate-based directory structure, agent moves, lineage recorder
-Previous: Phase 74 — COMPLETE (2026-04-26) — BarNormalizerAgent state checkpointing for BarAggregator
-Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix, temporal guard, bootstrap sweep, activation gate, backfill SQL
-Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification; OTLP push pipeline, OTel Collector, Loki, Alertmanager, log bridge, service_auditor systemd discovery
+Previous: Phase 73 — COMPLETE (2026-04-28) — AI LLM Layer B+ Architecture Refactor
+Previous: Phase 74 — COMPLETE (2026-04-26) — BarNormalizerAgent state checkpointing
+Previous: Phase 75 — COMPLETE (absorbed into Phase 77) — Shadow governance (shadow_registry, ShadowAuditorAgent, features_snapshot rename)
+Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix
+Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification
 
 ## v2.1 Milestone Goal
 
@@ -253,4 +252,4 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 73 (AI LLM Layer B+ Architecture Refactor) — 7 plans — 2026-04-28T23:48:56.201Z
+**Planned Phase:** 78 (I8 Alpha Feedback Loop) — 7 plans (6 complete, 078-07 pending)
