@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.39.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77+78+79 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: Phase 70 (ML Scoring) + 03C/04 after ~May 10 data gate. Phase 79 signal quality fix deployed — activation rate should jump from 0.3% to meaningful levels on next trading day.
+Version: 5.40.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77+79 shipped (merged to main); Phase 78 at 6/7; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: Phase 78-07 (narrative API endpoint) + Phase 70 (ML Scoring) after ~May 10 data gate. Phase 79 signal quality fix merged to main — activation rate should jump from 0.3% to meaningful levels on next trading day.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
