@@ -142,7 +142,7 @@ class LedgerEntry:
     signal_schema_version: str = "v0"
     entry_type: str | None = None
     co_fire_count: int = 1
-    co_fire_partners: list = field(default_factory=list)
+    co_fire_partners: list[str] = field(default_factory=list)
 
     def to_insert_params(self) -> tuple:
         """Return a 64-element tuple ready for batch INSERT.

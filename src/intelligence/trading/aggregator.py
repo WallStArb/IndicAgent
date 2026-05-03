@@ -8,6 +8,7 @@ when CIS is neutral (abs(score) <= 0.35 or buckets_agreeing < 3).
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -81,10 +82,8 @@ def _tag_co_fires(all_ranked: list[dict]) -> None:
     """Tag signals that fire on the same bar with identical entry/stop/targets.
 
     Mutates signal dicts in-place, adding ``co_fire_count`` and
-    ``co_fire_partners`` keys. Phase 79.
+    ``co_fire_partners`` keys.
     """
-    from collections import defaultdict
-
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for sig in all_ranked:
         if sig.get("regime_eligible", True):
@@ -94,7 +93,7 @@ def _tag_co_fires(all_ranked: list[dict]) -> None:
                 sig.get("feature_tf", ""),
                 round(sig.get("entry_price", 0.0), 4),
                 round(sig.get("stop_loss", 0.0), 4),
-                tuple(round(t, 4) for t in (sig.get("targets") or [])),
+                tuple(round(t, 4) for t in (sig.get("targets") or ())),
             )
             groups[key].append(sig)
     for group in groups.values():
@@ -102,8 +101,7 @@ def _tag_co_fires(all_ranked: list[dict]) -> None:
             partners = [s.get("setup_plugin", "") for s in group]
             for sig in group:
                 sig["co_fire_count"] = len(group)
-                others = [p for p in partners if p != sig.get("setup_plugin", "")]
-                sig["co_fire_partners"] = others
+                sig["co_fire_partners"] = [p for p in partners if p != sig.get("setup_plugin", "")]
 
 
 def _regime_gate_signals(
@@ -217,7 +215,6 @@ def aggregate(
         calibration_curves=calibration_curves,
         timeframe=timeframe,
     )
-    # Phase 79: tag co-firing signals (same bar, identical entry/stop/targets)
     _tag_co_fires(all_ranked)
     # CRITICAL INVARIANT: active must ALWAYS be derived from all_ranked, never from raw signals.
     # _build_all_ranked() copies signal dicts and sets adjusted_rank — raw signals never have
