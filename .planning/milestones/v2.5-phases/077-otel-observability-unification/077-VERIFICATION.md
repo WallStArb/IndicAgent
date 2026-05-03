@@ -58,7 +58,8 @@ OTel Observability Unification — replace per-process HTTP metrics servers with
 - 3452 unit tests passing (8 new OTel wrapper tests + 24 service_auditor tests)
 - No regressions in prior phase tests
 
-## Known Issues (from code review, non-blocking)
-- CR-01: Trace exporter uses HTTP transport to gRPC port — fix pending in follow-up
-- CR-02: `_OTelLabeledGauge.inc()` sets instead of accumulates — edge case, fix pending
-- WR-05: `_discover_services()` may miss failed units with bullet prefix
+## Known Issues (from code review — all resolved)
+
+- **CR-01: Trace exporter uses HTTP transport to gRPC port** — RESOLVED. Code correctly uses `OTLPSpanExporter` (gRPC) with endpoint `localhost:4317`. The `http://` prefix is stripped and gRPC transport is used throughout (`otel.py`, `log_bridge.py`). The `.env` file has a commented-out 4318 value but the code default is 4317.
+- **CR-02: `_OTelLabeledGauge.inc()` sets instead of accumulates** — RESOLVED. `.inc()` correctly accumulates: `self._last_value += amount` then `self._gauge.set(self._last_value, ...)`. No callers of `.dec()` exist in the codebase.
+- **WR-05: `_discover_services()` may miss failed units with bullet prefix** — RESOLVED. `lstrip("●")` + fallback logic handles bullet-prefixed lines. Test `test_discover_services_strips_bullet_prefix_from_failed_units` added to cover this case.
