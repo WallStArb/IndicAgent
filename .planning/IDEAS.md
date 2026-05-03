@@ -27,3 +27,11 @@ When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`
 - **Roll Detection Architecture Improvements** — dedicated `roll_events` table, signed `roll_gap` convention, `FUTURES_SPECS` per-symbol month cycles.
 - **Qualitative Intelligence Layer** — non-price data integration (earnings, macro events, news sentiment). See `docs/ideas/qualitative-intelligence-layer.md` and implementation plan `docs/plans/2026-05-02-unified-intelligence-design.md`. Tracked as todos 012-016.
 - **Unified Intelligence Fabric** — transition from linear quant-only TA engine to multi-domain intelligence fabric. See `docs/plans/2026-05-02-unified-intelligence-design.md`. Tracked as todo 017.
+- **DerivAgent — Derivatives Intelligence** — volatility surface, GEX, VANNA/CHARM, VRP. Full options intelligence vision. See `docs/ideas/derivagent-vision.md`.
+- **Renaissance I7/I8 Refinement** — 105 ideas across 48 sections: alpha decay, hidden alpha, regime intelligence, adaptive learning, information theory, neural intelligence. See `docs/ideas/renaissance-i7-i8-refinement.md`.
+- **Future Indicators Backlog** — Tracks B/C: I3 structure enhancements (SR zones, swing magnitude, trend structure), momentum composite (EMA stack score, golden/death cross, ADX qualification). See `docs/ideas/future-indicators-backlog.md`.
+- **Timeframe Cascade Strategy** — multi-TF trade management: micro entry (1m) → momentum hold (5m) → trend capture (15m/30m) → swing hold (1h/4h) → position hold (1d). See `docs/ideas/timeframe-cascade-strategy.md`.
+- **Momentum Acceleration (Second Derivative)** — f''(x) inflection points as earliest reversal signals; RSI/MACD/ROC acceleration. Core built in Phase 08, deeper ideas remain. See `docs/ideas/momentum-acceleration-second-derivative.md`.
+- **Second Derivative Indicators — Current & Future** — expansion ideas beyond Phase 08 baseline. See `docs/ideas/second-derivative-indicators-current-and-future.md`.
+- **Intelligence Confluence Patterns** — Renaissance-aligned confluence framework concepts beyond Phase 46 baseline. See `docs/ideas/intelligence-confluence-patterns.md`.
+- **Renaissance Framing** — foundational philosophy from Simons/Medallion approach. See `docs/ideas/renaissance-framing.md`.
