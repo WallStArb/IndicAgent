@@ -10,6 +10,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 
@@ -100,8 +101,6 @@ class MeanReversionPlugin:
         tf = frame_trade(signal_type, direction, entry, features, atr)
         if not tf.viable:
             return no_signal()
-        stop = tf.stop
-        targets = [round(t.price, 2) for t in tf.targets]
 
         # ── Confidence scoring ──
         # RSI extremeness (0.3 weight)
@@ -142,21 +141,25 @@ class MeanReversionPlugin:
 
         regime_ctx = "ranging"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
         signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
             "mean_reversion",
-            confidence,
+            signal["confidence"],
         )
         return signal
 
