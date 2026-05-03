@@ -46,8 +46,8 @@ logger = structlog.get_logger(__name__)
 _ELIGIBLE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
 
 # Graduation gate constants (D-24, D-25)
-_GRAD_MIN_N = 100           # minimum resolved signals before Spearman is computed
-_GRAD_DEMOTION_STREAK = 3   # consecutive negative-rho cycles to trigger demotion
+_GRAD_MIN_N = 100  # minimum resolved signals before Spearman is computed
+_GRAD_DEMOTION_STREAK = 3  # consecutive negative-rho cycles to trigger demotion
 
 # Agent-to-transform mapping for LineageRecorder attribution (D-22).
 # Phase 78 Plan 06: reduced to single skeptic entry;

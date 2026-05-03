@@ -13,7 +13,7 @@ from src.core.ai.context import (
     BarContext,
     Tier,
 )
-from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence, SMCContext
+from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence
 
 
 class TestTierEnum:

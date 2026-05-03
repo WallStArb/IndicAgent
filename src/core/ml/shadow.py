@@ -9,6 +9,7 @@ Called automatically by AIBaseAgent (Plan 56-04 SwarmBaseAgent via compute()).
 Zero per-agent boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.
 """
+
 from __future__ import annotations
 
 import warnings

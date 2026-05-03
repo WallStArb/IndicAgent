@@ -8,14 +8,13 @@ Plan 078-05, Task 2:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import ClassVar
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
 
-from src.core.ai.context import AIContext, BarContext, I7Context, Tier
+from src.core.ai.context import AIContext, I7Context
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
@@ -37,7 +36,7 @@ def _make_ctx(
     return AIContext(
         symbol=symbol,
         timeframe=timeframe,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         i1=i1,
         i4=i4,
         i6=i6,
@@ -101,12 +100,10 @@ class TestRenderFullContext:
         """The implementation must reference model_fields, not a hardcoded tier list."""
         import pathlib
 
-        content = pathlib.Path(
-            "src/intelligence/ai/alpha/skeptic_prompts.py"
-        ).read_text()
-        assert "model_fields" in content, (
-            "_render_full_context must iterate ctx.__class__.model_fields"
-        )
+        content = pathlib.Path("src/intelligence/ai/alpha/skeptic_prompts.py").read_text()
+        assert (
+            "model_fields" in content
+        ), "_render_full_context must iterate ctx.__class__.model_fields"
         # Should NOT have hardcoded 'i1', 'i2' tier list inside the function
         # (checking for a list literal that enumerates all six tiers)
         assert '"i1", "i2"' not in content
@@ -125,9 +122,7 @@ class TestBuildSkepticPromptV2:
             symbol="NQM6",
             i4=I4Context(vol_regime=1.2, trend_regime=0.9),
         )
-        with patch(
-            "src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"
-        ):
+        with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"):
             prompt = build_skeptic_prompt(ctx)
 
         assert "NQM6" in prompt
@@ -137,9 +132,7 @@ class TestBuildSkepticPromptV2:
             symbol="ESM6",
             i4=I4Context(vol_regime=1.2, trend_regime=0.9),
         )
-        with patch(
-            "src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"
-        ):
+        with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"):
             prompt = build_skeptic_prompt(ctx)
 
         assert "## i4" in prompt
@@ -147,9 +140,7 @@ class TestBuildSkepticPromptV2:
     def test_v2_raises_type_error_on_dict_input(self) -> None:
         """skeptic_v2 must reject dict input (was v1 contract)."""
         ctx_dict = {"symbol": "ESM6", "timeframe": "5m"}
-        with patch(
-            "src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"
-        ):
+        with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"):
             with pytest.raises(TypeError, match="skeptic_v2 requires AIContext"):
                 build_skeptic_prompt(ctx_dict)  # type: ignore[arg-type]
 
@@ -184,9 +175,7 @@ class TestSkepticV1BackCompat:
             "poc_price": 4485.0,
             "poc_price_rolling": 4480.0,
         }
-        with patch(
-            "src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v1"
-        ):
+        with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v1"):
             result = build_skeptic_prompt(ctx_dict)
 
         assert "ESM6" in result

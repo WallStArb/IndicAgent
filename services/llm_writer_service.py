@@ -871,21 +871,21 @@ class LLMWriterAgent(BaseWriterAgent):
 
                 score_params.append(
                     (
-                        model,          # $1
-                        regime,         # $2
-                        setup_type,     # $3
-                        call_type,      # $4
-                        symbol,         # $5
-                        n_calls,        # $6
-                        n_outcomes,     # $7
-                        win_rate,       # $8
-                        avg_pnl_r,      # $9
-                        avg_latency_ms, # $10
-                        p_value,        # $11
-                        is_significant, # $12
-                        brier,          # $13 brier_score
-                        cal_slope,      # $14 calibration_slope
-                        ece_val,        # $15 ece
+                        model,  # $1
+                        regime,  # $2
+                        setup_type,  # $3
+                        call_type,  # $4
+                        symbol,  # $5
+                        n_calls,  # $6
+                        n_outcomes,  # $7
+                        win_rate,  # $8
+                        avg_pnl_r,  # $9
+                        avg_latency_ms,  # $10
+                        p_value,  # $11
+                        is_significant,  # $12
+                        brier,  # $13 brier_score
+                        cal_slope,  # $14 calibration_slope
+                        ece_val,  # $15 ece
                     )
                 )
 
