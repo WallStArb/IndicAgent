@@ -325,6 +325,7 @@ def evaluate_signal(
             pnl_dollars = round(pnl_ticks * point_value, 2)
             final_mae = min(current_mae, pnl_r)
             final_mfe = max(current_mfe, pnl_r)
+            _record_outcome(signal, "condition_expired")
             return Transition(
                 signal_id=sid,
                 new_status=SignalStatus.EXPIRED,
@@ -354,7 +355,6 @@ def evaluate_signal(
             current_mfe,
         )
 
-        # Phase 79: record outcomes for stop/target exits
         if result is not None and result.outcome is not None:
             _record_outcome(signal, result.outcome)
 
