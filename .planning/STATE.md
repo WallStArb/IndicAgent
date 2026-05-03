@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.5
 milestone_name: milestone
 status: active
-last_updated: "2026-05-03T16:19:17.775Z"
+last_updated: "2026-05-03T17:00:00.000Z"
 progress:
   total_phases: 27
   completed_phases: 3
@@ -19,27 +19,19 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 78 (Plan 07 pending)
+**Current focus:** Phase 78 (Plan 07 pending), Phase 70 deferred ~May 10
 
 ## Current Position
 
-Phase: 78 (I8 Alpha Feedback Loop) — EXECUTING
+Phase: 78 (I8 Alpha Feedback Loop) — 6/7 complete
 Plan: 7 of 7 (078-07 pending — move NarrativeComputeAgent to API endpoint)
 
-Plans already complete:
-
-- 078-01: Bug fixes (pool leak, segment key, volume-profile stub, lead-map)
-- 078-02: Dead code removal (SafeAgentWrapper, setup override)
-- 078-03: Graduation loop (Spearman gate, shadow enrollment)
-- 078-04: Brier score + calibration metrics (llm_model_scores)
-- 078-05: Typed AIContext + skeptic_v2 + AUTHORING.md
-- 078-06: corr_z + VolumeZscorePlugin + AlphaSwarm simplification
-
+Previous: Phase 79 — COMPLETE (2026-05-03) — Signal Quality Fix (zone width + entry price + co-fire tracking)
+Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification
+Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix
+Previous: Phase 75 — COMPLETE (absorbed into Phase 77) — Shadow governance
 Previous: Phase 73 — COMPLETE (2026-04-28) — AI LLM Layer B+ Architecture Refactor
 Previous: Phase 74 — COMPLETE (2026-04-26) — BarNormalizerAgent state checkpointing
-Previous: Phase 75 — COMPLETE (absorbed into Phase 77) — Shadow governance (shadow_registry, ShadowAuditorAgent, features_snapshot rename)
-Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix
-Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification
 
 ## v2.1 Milestone Goal
 
@@ -254,3 +246,4 @@ Recent additions:
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
 **Planned Phase:** 78 (I8 Alpha Feedback Loop) — 7 plans (6 complete, 078-07 pending)
+**Next Phase:** 70 (ML Scoring Model) — deferred ~May 10 (30-day data gate)
