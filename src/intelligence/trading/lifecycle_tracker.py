@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from src.intelligence.trading.signal_outcome import SignalOutcome
+from src.observability.metrics import SIGNAL_OUTCOME_TOTAL
 from src.observability.metrics import counter as _counter
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
@@ -48,6 +49,15 @@ _LABELING_VIOLATIONS = _counter(
     "signal_tracker_labeling_violations_total",
     "Count of signals with activated_at set but status=PENDING at TTL time",
 )
+
+
+def _record_outcome(signal: dict, outcome: SignalOutcome | str) -> None:
+    """Record signal outcome to Prometheus for quality tracking (Phase 79)."""
+    outcome_str = outcome.value if isinstance(outcome, SignalOutcome) else str(outcome)
+    SIGNAL_OUTCOME_TOTAL.labels(
+        setup_plugin=signal.get("setup_plugin", "unknown"),
+        outcome=outcome_str,
+    ).inc()
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +244,7 @@ def evaluate_signal(
             outcome = SignalOutcome.TTL_EXPIRED_AHEAD
         else:
             outcome = SignalOutcome.TTL_EXPIRED_BEHIND
+        _record_outcome(signal, outcome)
         return Transition(
             signal_id=sid,
             new_status=SignalStatus.EXPIRED,
@@ -271,6 +282,7 @@ def evaluate_signal(
                     pnl_dollars = round(pnl_ticks * point_value, 2)
                     final_mae = min(current_mae, pnl_r)
                     final_mfe = max(current_mfe, pnl_r)
+                    _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
                     return Transition(
                         signal_id=sid,
                         new_status=SignalStatus.EXPIRED,
@@ -289,6 +301,7 @@ def evaluate_signal(
                     pnl_dollars = round(pnl_ticks * point_value, 2)
                     final_mae = min(current_mae, pnl_r)
                     final_mfe = max(current_mfe, pnl_r)
+                    _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
                     return Transition(
                         signal_id=sid,
                         new_status=SignalStatus.EXPIRED,
@@ -340,6 +353,10 @@ def evaluate_signal(
             current_mae,
             current_mfe,
         )
+
+        # Phase 79: record outcomes for stop/target exits
+        if result is not None and result.outcome is not None:
+            _record_outcome(signal, result.outcome)
 
         # Update Chandelier state in-place (no exit: still running)
         if result is None and chandelier_state is not None:
