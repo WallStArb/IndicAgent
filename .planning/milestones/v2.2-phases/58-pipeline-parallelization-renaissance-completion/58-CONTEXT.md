@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-04-01
 **Status:** Ready for planning
-**Source:** PRD Express Path (docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md)
+**Source:** PRD Express Path (docs/plans/archive/2026-04-02-pipeline-parallelization-renaissance-completion-design.md)
 
 <domain>
 ## Phase Boundary
@@ -120,10 +120,10 @@ Record `PLUGIN_DURATION_MS` per plugin inside `_collect_plugin_results` — one 
 
 ### Correctness Testing
 - `tests/unit/` — existing test patterns; follow same conventions
-- `docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md` — full spec including Correctness Validation section and Horizontal Scaling Readiness checklist
+- `docs/plans/archive/2026-04-02-pipeline-parallelization-renaissance-completion-design.md` — full spec including Correctness Validation section and Horizontal Scaling Readiness checklist
 
 ### Design Docs
-- `docs/superpowers/specs/2026-04-01-pipeline-parallelization-design.md` — original parallelization design (superseded by this spec but useful for implementation history)
+- `docs/plans/archive/2026-04-01-pipeline-parallelization-design.md` — original parallelization design (superseded by this spec but useful for implementation history)
 - `production/scripts/README_PROFILING.md` — existing profiling docs to append to
 
 </canonical_refs>
