@@ -56,6 +56,7 @@ class CVDSpikePlugin:
             spike_feature_key="cvd_spike_z",
             signal_name_prefix="cvd_spike",
             min_lookback=self.min_lookback,
+            setup_plugin=self.name,
         )
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

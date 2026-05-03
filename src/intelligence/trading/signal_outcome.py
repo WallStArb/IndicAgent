@@ -24,18 +24,24 @@ class SignalOutcome(str, Enum):
 
 
 # Outcome taxonomy groupings — single source of truth for win/loss classification
-WIN_OUTCOMES: frozenset[str] = frozenset({
-    SignalOutcome.TARGET_1,
-    SignalOutcome.TARGET_1_2,
-    SignalOutcome.TARGET_FULL,
-})
+WIN_OUTCOMES: frozenset[str] = frozenset(
+    {
+        SignalOutcome.TARGET_1,
+        SignalOutcome.TARGET_1_2,
+        SignalOutcome.TARGET_FULL,
+    }
+)
 
-STOP_OUTCOMES: frozenset[str] = frozenset({
-    SignalOutcome.STOPPED_AT_ENTRY,
-    SignalOutcome.STOPPED_IN_TRADE,
-})
+STOP_OUTCOMES: frozenset[str] = frozenset(
+    {
+        SignalOutcome.STOPPED_AT_ENTRY,
+        SignalOutcome.STOPPED_IN_TRADE,
+    }
+)
 
-TTL_OUTCOMES: frozenset[str] = frozenset({
-    SignalOutcome.TTL_EXPIRED_AHEAD,
-    SignalOutcome.TTL_EXPIRED_BEHIND,
-})
+TTL_OUTCOMES: frozenset[str] = frozenset(
+    {
+        SignalOutcome.TTL_EXPIRED_AHEAD,
+        SignalOutcome.TTL_EXPIRED_BEHIND,
+    }
+)

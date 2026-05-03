@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_agent():
     from services.contract_metadata_writer_agent import ContractMetadataWriterAgent
@@ -80,6 +80,7 @@ def _make_pool(conn):
 # Test 1: _processed_rolls set exists
 # ---------------------------------------------------------------------------
 
+
 def test_processed_rolls_set_initialized():
     """ContractMetadataWriterAgent must have _processed_rolls as an empty set."""
     agent = _make_agent()
@@ -91,6 +92,7 @@ def test_processed_rolls_set_initialized():
 # ---------------------------------------------------------------------------
 # Test 2: First event — authoritative write + adds to processed_rolls
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_first_roll_event_writes_authoritative_to_roll_events():
@@ -132,6 +134,7 @@ async def test_first_roll_event_adds_to_processed_rolls():
 # Test 3: Duplicate event — skip promotion, write non-authoritative
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_duplicate_roll_event_skips_promotion():
     """Duplicate event skips contract_metadata UPDATE entirely."""
@@ -151,7 +154,9 @@ async def test_duplicate_roll_event_skips_promotion():
         await agent._handle_roll_event(_valid_payload("calendar"))
 
     for sql in executed_sqls:
-        assert "contract_metadata" not in sql, f"Must not touch contract_metadata on duplicate: {sql}"
+        assert (
+            "contract_metadata" not in sql
+        ), f"Must not touch contract_metadata on duplicate: {sql}"
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,7 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.ml.training_data import TrainingDataQuery
 from src.core.service_utils import setup_service_logging
@@ -74,7 +75,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main one-shot lifecycle: connect DB, run discovery for all symbols/tfs, exit."""
-        self._pool = await asyncpg.create_pool(self.settings.database_url)
+        self._pool = await create_db_pool(self.settings.database_url)
         self._query = TrainingDataQuery(self._pool)
         await self._producer.start()
         self.logger.info("ml_discovery.starting")

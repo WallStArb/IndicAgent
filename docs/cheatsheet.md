@@ -1,5 +1,7 @@
 # IndicAgent Command Cheatsheet
 
+**Last Updated:** 2026-05-02
+
 ## Development Setup
 ```bash
 source .venv/bin/activate
@@ -11,7 +13,6 @@ pip install -r requirements.txt
 cd production && docker compose up -d redpanda
 
 # Database schema
-psql -U postgres -d indicagent -f production/schemas/create_schema.sql
 for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"; done
 ```
 
@@ -29,6 +30,7 @@ sudo systemctl restart indicagent-signal-tracker-compute
 sudo systemctl restart indicagent-feature-writer
 sudo systemctl restart indicagent-llm-writer
 sudo systemctl restart indicagent-ai-narrative
+sudo systemctl restart indicagent-alpha-swarm
 sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
@@ -82,7 +84,7 @@ cd production && docker compose up -d prometheus grafana
 # Step 1 — preview (no changes made)
 .venv/bin/python production/scripts/pipeline_reset.py --dry-run
 
-# Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
+# Step 2 — full reset (requires TWS connected at 192.168.1.157:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
 # → when prompted to STOP, run:
 sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker-compute \
@@ -118,8 +120,6 @@ cd dashboard && npm run dev            # Frontend dev server
 INDICAGENT_ENV="development"
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/indicagent"
 KAFKA_BOOTSTRAP_SERVERS="localhost:19092"
-IBKR_HOST="10.0.0.33"
+IBKR_HOST="192.168.1.157"
 IBKR_PORT=7497
-OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_DEFAULT_MODEL="gemma4:e4b"
 ```

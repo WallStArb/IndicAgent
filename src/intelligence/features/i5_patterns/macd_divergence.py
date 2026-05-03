@@ -19,7 +19,9 @@ class MACDDivergencePlugin:
     """
 
     name: str = "patt_MACDDivergence"
-    outputs: frozenset[str] = frozenset({"macd_div_bullish", "macd_div_bearish", "macd_div_strength"})
+    outputs: frozenset[str] = frozenset(
+        {"macd_div_bullish", "macd_div_bearish", "macd_div_strength"}
+    )
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "momentum"})
@@ -59,11 +61,7 @@ class MACDDivergencePlugin:
         # Bearish divergence: price higher high + histogram lower high at same bars
         if len(price_peaks) >= 2:
             i_prev, i_curr = price_peaks[-2], price_peaks[-1]
-            if (
-                i_prev >= 26
-                and close[i_curr] > close[i_prev]
-                and hist[i_curr] < hist[i_prev]
-            ):
+            if i_prev >= 26 and close[i_curr] > close[i_prev] and hist[i_curr] < hist[i_prev]:
                 price_rise = (close[i_curr] - close[i_prev]) / (abs(close[i_prev]) + 1e-10)
                 hist_drop = abs(hist[i_prev] - hist[i_curr]) / (abs(hist[i_prev]) + 1e-10)
                 bearish = min(1.0, 0.3 + price_rise * 5.0 + hist_drop * 2.0)

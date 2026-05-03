@@ -1,5 +1,7 @@
 # Running Services
 
+**Last Updated:** 2026-05-02
+
 All services are systemd-managed (`Restart=always`, start on boot).
 
 ---

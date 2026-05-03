@@ -67,6 +67,7 @@ from src.intelligence.features.smc_context.premium_discount import plugin as pre
 from src.intelligence.features.smc_context.supply_demand_zones import (
     plugin as supply_demand_zones_plugin,
 )
+from src.intelligence.trading.volume_zscore import plugin as volume_zscore_plugin
 
 from .composites.acceleration_regime import plugin as accel_regime_plugin
 from .composites.adx_events import plugin as adx_events_plugin
@@ -149,27 +150,91 @@ def validate_schema_coverage() -> None:
     I1 and I2 are skipped (extra='allow').
     """
     tier_checks: list[tuple[str, list, type]] = [
-        ("I3", [macd_events_plugin, swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
-                session_levels_plugin, fib_zones_plugin,
-                swing_momentum_plugin], I3Structure),
-        ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
-                garch_vol_plugin, hurst_plugin, shannon_plugin,
-                kalman_trend_plugin, session_ctx_plugin,
-                anchored_vwap_plugin, volume_profile_plugin,
-                vix_regime_plugin, cross_asset_ctx_plugin], I4Context),
-        ("I5", [mtf_vol_plugin, rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
-                trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
-                triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
-                cup_handle_plugin, measured_move_plugin,
-                key_level_reaction_plugin, macd_div_plugin, cmf_div_plugin], I5Patterns),
-        ("SMC", [bos_choch_plugin, fvg_plugin, ob_plugin, liq_sweep_plugin,
-                 bocpd_plugin, hmm_plugin, liquidity_pools_plugin,
-                 supply_demand_zones_plugin, ict_killzones_plugin, amd_cycle_plugin,
-                 breaker_blocks_plugin, mitigation_blocks_plugin,
-                 premium_discount_plugin], SMCContext),
-        ("I6", [ctf_plugin, ctf_momentum_div_plugin,
-                ctf_sr_confluence_plugin, ctf_regime_agreement_plugin,
-                ctf_squeeze_exp_div_plugin, ctf_orderflow_align_plugin], I6Confluence),
+        (
+            "I3",
+            [
+                macd_events_plugin,
+                swing_plugin,
+                sr_plugin,
+                trend_plugin,
+                market_profile_plugin,
+                session_levels_plugin,
+                fib_zones_plugin,
+                swing_momentum_plugin,
+            ],
+            I3Structure,
+        ),
+        (
+            "I4",
+            [
+                vol_regime_plugin,
+                trend_regime_plugin,
+                momentum_ctx_plugin,
+                garch_vol_plugin,
+                hurst_plugin,
+                shannon_plugin,
+                kalman_trend_plugin,
+                session_ctx_plugin,
+                anchored_vwap_plugin,
+                volume_profile_plugin,
+                vix_regime_plugin,
+                cross_asset_ctx_plugin,
+            ],
+            I4Context,
+        ),
+        (
+            "I5",
+            [
+                mtf_vol_plugin,
+                rsi_div_plugin,
+                squeeze_plugin,
+                vol_div_plugin,
+                confluence_plugin,
+                trend_confluence_plugin,
+                double_tb_plugin,
+                head_shoulders_plugin,
+                triangle_wedge_plugin,
+                candlestick_plugin,
+                flag_pennant_plugin,
+                cup_handle_plugin,
+                measured_move_plugin,
+                key_level_reaction_plugin,
+                macd_div_plugin,
+                cmf_div_plugin,
+            ],
+            I5Patterns,
+        ),
+        (
+            "SMC",
+            [
+                bos_choch_plugin,
+                fvg_plugin,
+                ob_plugin,
+                liq_sweep_plugin,
+                bocpd_plugin,
+                hmm_plugin,
+                liquidity_pools_plugin,
+                supply_demand_zones_plugin,
+                ict_killzones_plugin,
+                amd_cycle_plugin,
+                breaker_blocks_plugin,
+                mitigation_blocks_plugin,
+                premium_discount_plugin,
+            ],
+            SMCContext,
+        ),
+        (
+            "I6",
+            [
+                ctf_plugin,
+                ctf_momentum_div_plugin,
+                ctf_sr_confluence_plugin,
+                ctf_regime_agreement_plugin,
+                ctf_squeeze_exp_div_plugin,
+                ctf_orderflow_align_plugin,
+            ],
+            I6Confluence,
+        ),
     ]
 
     gaps: list[str] = []
@@ -185,8 +250,7 @@ def validate_schema_coverage() -> None:
 
     if gaps:
         raise RuntimeError(
-            "Schema coverage gaps detected — add missing fields to schemas.py:\n"
-            + "\n".join(gaps)
+            "Schema coverage gaps detected — add missing fields to schemas.py:\n" + "\n".join(gaps)
         )
 
 
@@ -218,6 +282,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(hma_plugin)
     registry.register_indicator(ofi_plugin)
     registry.register_indicator(cvd_plugin)
+    registry.register_indicator(volume_zscore_plugin)  # Phase 78 P78-MATH-PLUGINS
 
     # I2: Composite event plugins — run on I1 features, before I3
     registry.register_pattern(rsi_events_plugin)
@@ -368,6 +433,7 @@ TIER_I1: list[str] = [
     hma_plugin.name,  # 'HMA'
     ofi_plugin.name,  # 'ind_OFI'
     cvd_plugin.name,  # 'ind_CVD'
+    volume_zscore_plugin.name,  # 'volume_zscore' — Phase 78 P78-MATH-PLUGINS
 ]
 
 TIER_I2: list[str] = [
@@ -405,8 +471,8 @@ TIER_I4: list[str] = [
     session_ctx_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
-    vix_regime_plugin.name,           # "ctx_VIXRegime" — Phase 46.1
-    cross_asset_ctx_plugin.name,      # "ctx_CrossAssetContext" — Phase 46.1
+    vix_regime_plugin.name,  # "ctx_VIXRegime" — Phase 46.1
+    cross_asset_ctx_plugin.name,  # "ctx_CrossAssetContext" — Phase 46.1
 ]
 
 TIER_I5: list[str] = [
@@ -447,10 +513,10 @@ TIER_SMC: list[str] = [
 TIER_I6: list[str] = [
     ctf_plugin.name,
     ctf_momentum_div_plugin.name,
-    ctf_sr_confluence_plugin.name,        # Plan 64-02
-    ctf_regime_agreement_plugin.name,     # Plan 64-02
-    ctf_squeeze_exp_div_plugin.name,      # Plan 64-02
-    ctf_orderflow_align_plugin.name,      # Plan 64-02
+    ctf_sr_confluence_plugin.name,  # Plan 64-02
+    ctf_regime_agreement_plugin.name,  # Plan 64-02
+    ctf_squeeze_exp_div_plugin.name,  # Plan 64-02
+    ctf_orderflow_align_plugin.name,  # Plan 64-02
 ]
 
 # ---------------------------------------------------------------------------
@@ -532,23 +598,54 @@ TIER_I7: list[str] = [
     gap_analysis_setup_plugin.name,
     candlestick_pattern_setup_plugin.name,
     session_extremes_setup_plugin.name,  # "trad_SessionExtremesSetup"
-    failed_breakout_plugin.name,         # "trad_FailedBreakout"
-    orb15_plugin.name,                   # "trad_ORB15"
-    orb30_plugin.name,                   # "trad_ORB30"
-    prev_day_level_test_plugin.name,     # "trad_PrevDayLevelTest"
-    second_leg_continuation_plugin.name, # "trad_SecondLegContinuation"
-    vcp_plugin.name,                     # "trad_VCP"
-    anchored_vwap_reversion_plugin.name, # "trad_AnchoredVWAPReversion"
-    vwap_reclaim_plugin.name,            # "trad_VWAPReclaim"
-    poc_rejection_plugin.name,           # "trad_POCRejection"
-    hvn_rejection_plugin.name,           # "trad_HVNRejection"
-    lvn_breakout_plugin.name,            # "trad_LVNBreakout"
-    ofi_continuation_plugin.name,        # "trad_OFIContinuation"
-    ofi_divergence_plugin.name,          # "trad_OFIDivergence"
-    ofi_spike_plugin.name,               # "trad_OFISpike"
-    cvd_divergence_plugin.name,          # "trad_CVDDivergence"
-    cvd_spike_plugin.name,               # "trad_CVDSpike"
-    delta_exhaustion_plugin.name,        # "trad_DeltaExhaustion"
-    dual_divergence_plugin.name,          # "trad_DualDivergence"
+    failed_breakout_plugin.name,  # "trad_FailedBreakout"
+    orb15_plugin.name,  # "trad_ORB15"
+    orb30_plugin.name,  # "trad_ORB30"
+    prev_day_level_test_plugin.name,  # "trad_PrevDayLevelTest"
+    second_leg_continuation_plugin.name,  # "trad_SecondLegContinuation"
+    vcp_plugin.name,  # "trad_VCP"
+    anchored_vwap_reversion_plugin.name,  # "trad_AnchoredVWAPReversion"
+    vwap_reclaim_plugin.name,  # "trad_VWAPReclaim"
+    poc_rejection_plugin.name,  # "trad_POCRejection"
+    hvn_rejection_plugin.name,  # "trad_HVNRejection"
+    lvn_breakout_plugin.name,  # "trad_LVNBreakout"
+    ofi_continuation_plugin.name,  # "trad_OFIContinuation"
+    ofi_divergence_plugin.name,  # "trad_OFIDivergence"
+    ofi_spike_plugin.name,  # "trad_OFISpike"
+    cvd_divergence_plugin.name,  # "trad_CVDDivergence"
+    cvd_spike_plugin.name,  # "trad_CVDSpike"
+    delta_exhaustion_plugin.name,  # "trad_DeltaExhaustion"
+    dual_divergence_plugin.name,  # "trad_DualDivergence"
     cross_asset_divergence_plugin.name,  # "trad_CrossAssetDivergence"
 ]
+
+
+async def shadow_registry_ensure(conn: object, component_name: str, component_type: str) -> None:
+    """Idempotent enrollment of a component into shadow_registry.
+
+    Uses ON CONFLICT DO NOTHING so custom gate parameters tuned directly in DB
+    are never overwritten by restarts (per D-14).
+    """
+    await conn.execute(  # type: ignore[union-attr]
+        """
+        INSERT INTO shadow_registry (component_name, component_type)
+        VALUES ($1, $2)
+        ON CONFLICT (component_name) DO NOTHING
+        """,
+        component_name,
+        component_type,
+    )
+
+
+async def enroll_all_plugins(conn: object) -> None:
+    """Auto-enroll all TIER_I7 plugins in shadow_registry unless SHADOW_SKIP=True.
+
+    Called by IntelligencePipelineAgent._setup() after DB connection established.
+    Safe to call on every restart (idempotent via ON CONFLICT DO NOTHING).
+    """
+    for plugin_name in TIER_I7:
+        plugin_obj = registry.get_indicator(plugin_name) or registry.get_pattern(plugin_name)
+        plugin_cls = type(plugin_obj) if plugin_obj is not None else None
+        if plugin_cls is not None and getattr(plugin_cls, "SHADOW_SKIP", False):
+            continue
+        await shadow_registry_ensure(conn, plugin_name, "i7_plugin")

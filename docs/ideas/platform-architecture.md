@@ -1,7 +1,7 @@
 # Platform Architecture — Unified Intelligence & Execution Suite (Vision)
 
 **Created:** 2026-03-04
-**Last Updated:** 2026-03-30
+**Last Updated:** 2026-05-02
 **Status:** Vision — architecture ideation / ideas capture
 **Related:** `docs/architecture/concepts.md` (high-level patterns), `docs/ideas/ml-agent-architecture.md` (ML/AI), `docs/ideas/intelligence-swarm-manifest.md` (swarm), qualagent/derivagent/tradeagent/primeagent/aegisagent visions, `docs/ideas/renaissance-framing.md`
 
@@ -89,6 +89,8 @@ COLD  (TimescaleDB + pgvector)
 ```
 
 The streams are the nervous system. Every event that matters flows through them. Actions are triggered by data events, never by polling.
+
+Shared storage is acceptable and often preferable when schemas and retention rules align. That does not imply shared runtimes: each product should remain independently runnable, with its own ingestion, compute, and persistence processes.
 
 > **Infrastructure note:** The event bus is **Redpanda** (Kafka-compatible, single binary, no ZooKeeper). Target infrastructure: **Redpanda + PostgreSQL** (TimescaleDB + pgvector extensions). DragonflyDB is not in the initial target stack — it will be added only when a specific trigger is real (tick SaaS fan-out, DerivAgent options chain state, or scale fan-out bottleneck). See `docs/ideas/tech-stack.md`.
 
@@ -252,6 +254,8 @@ The streams are the nervous system. Every event that matters flows through them.
 ### The principle
 
 > Each product distills its domain into a regime state or scored signal and publishes that to the bus. Consumers get the intelligence, not the raw data. The raw pipelines stay inside the product that owns them.
+
+Cross-product synthesis is a **read model**, not a controller. It may materialize a combined regime view for TradeAgent, DerivAgent, PrimeAgent, dashboard, or ML consumers, but it must never become required infrastructure for IndicAgent, QualAgent, or DerivAgent ingestion/compute to run. If the synthesis layer is down, domain products keep publishing their own streams and consumers degrade by missing combined context.
 
 ---
 

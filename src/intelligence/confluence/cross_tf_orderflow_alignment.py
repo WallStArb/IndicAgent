@@ -24,9 +24,8 @@ Outputs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
 from math import tanh
+from typing import Any
 
 from ..plugins import InputSpec
 
@@ -61,8 +60,8 @@ class CrossTFOrderFlowAlignmentPlugin:
     _ALL_TFS: tuple[str, ...] = ("5m", "15m", "1h", "4h")
 
     # Normalization constants for OFI and CVD (typical magnitudes)
-    _OFI_NORM: float = 1000.0   # Typical OFI magnitude per bar
-    _CVD_NORM: float = 5000.0   # Typical CVD magnitude per bar
+    _OFI_NORM: float = 1000.0  # Typical OFI magnitude per bar
+    _CVD_NORM: float = 5000.0  # Typical CVD magnitude per bar
 
     # Majority thresholds for regime classification
     _STRONG_THRESHOLD: float = 0.3

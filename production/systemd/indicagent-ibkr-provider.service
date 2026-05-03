@@ -13,8 +13,6 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/ibkr_provider_agent.py
 Restart=always
-WatchdogSec=60
-NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

@@ -503,7 +503,8 @@ class OTelCounter:
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
         self._counter = self._meter.create_counter(
-            name, description=documentation,
+            name,
+            description=documentation,
         )
         self._labeled: dict[tuple, _OTelLabeledCounter] = {}
 
@@ -553,7 +554,8 @@ class OTelGauge:
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
         self._gauge = self._meter.create_gauge(
-            name, description=documentation,
+            name,
+            description=documentation,
         )
         self._labeled: dict[tuple, _OTelLabeledGauge] = {}
 
@@ -593,13 +595,19 @@ class OTelHistogram:
     Preserves .labels(x="y").observe(v) API while delegating to OTel SDK Histogram.record().
     """
 
-    def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None,
-                 buckets: list[float] | None = None):
+    def __init__(
+        self,
+        name: str,
+        documentation: str,
+        labelnames: list[str] | None = None,
+        buckets: list[float] | None = None,
+    ):
         self._name = name
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
         self._histogram = self._meter.create_histogram(
-            name, description=documentation,
+            name,
+            description=documentation,
         )
         self._labeled: dict[tuple, _OTelLabeledHistogram] = {}
 
@@ -696,3 +704,14 @@ def record_redis_stream_event(
     EVENT_PROCESSING_DURATION.labels(event_type=event_type, workflow_name="redis_streams").observe(
         processing_time
     )
+
+
+# ---------------------------------------------------------------------------
+# Signal quality metrics (Phase 79)
+# ---------------------------------------------------------------------------
+
+SIGNAL_OUTCOME_TOTAL = OTelCounter(
+    "signal_outcome_total",
+    "Signal outcomes by plugin and result",
+    labelnames=["setup_plugin", "outcome"],
+)

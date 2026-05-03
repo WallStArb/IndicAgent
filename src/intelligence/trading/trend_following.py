@@ -10,6 +10,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 
@@ -47,8 +48,8 @@ class TrendFollowingPlugin:
         features = frames.get("features") or {}
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
-        # TODO: Apply this pattern to remaining 34/36 I7 plugins (see mean_reversion.py for example)
-        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)
+        # TODO: Apply this pattern to remaining 34/36 I7 plugins (see mean_reversion.py for example)  # noqa: E501
+        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)  # noqa: E501
         # Estimated benefit: Skip ~144 numpy conversions per bar (80% early exit rate)
         trend_regime = features.get("trend_regime", 0.0)
         trend_conf = features.get("trend_confidence", 0.0)
@@ -83,8 +84,6 @@ class TrendFollowingPlugin:
         tf = frame_trade(signal_type, direction, entry, features, atr)
         if not tf.viable:
             return no_signal()
-        stop = tf.stop
-        targets = [t.price for t in tf.targets]
 
         raw_conf = (
             0.35 * min(1.0, abs(trend_regime))
@@ -119,17 +118,21 @@ class TrendFollowingPlugin:
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": [round(t, 2) for t in targets],
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
             features, direction, "trend", signal["confidence"]
         )
         return signal

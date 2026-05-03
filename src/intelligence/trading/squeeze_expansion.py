@@ -13,6 +13,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -142,7 +143,9 @@ class SqueezeExpansionPlugin:
                 trend_regime < 0 and direction == -1
             )
             if regime_agrees:
-                regime_score = 0.2 + 0.6 * max(hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down"))
+                regime_score = 0.2 + 0.6 * max(
+                    hmm_regime_weight(features, "up"), hmm_regime_weight(features, "down")
+                )
             else:
                 regime_score = 0.2
         else:
@@ -172,19 +175,24 @@ class SqueezeExpansionPlugin:
         signal_type = "squeeze_long" if direction == 1 else "squeeze_short"
         regime_ctx = "expansion_bullish" if direction == 1 else "expansion_bearish"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "trend", signal["confidence"]
+        features_snapshot = capture_signal_features(features, direction, "trend", confidence)
+        signal = make_signal(
+            symbol="",
+            timeframe="",
+            timestamp="",
+            signal_type=signal_type,
+            setup_plugin="trad_SqueezeExpansion",
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            targets=targets,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
         )
+        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

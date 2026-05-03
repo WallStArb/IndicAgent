@@ -51,12 +51,12 @@ async def test_llm_writer_emits_setup_success_metric():
 
     # Get initial setup success count
     setup_metric = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="llm_writer_agent")
-    before = setup_metric._value.get() if hasattr(setup_metric, '_value') else 0
+    before = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
 
     await agent.start()
 
     # Verify setup success metric incremented
-    after = setup_metric._value.get() if hasattr(setup_metric, '_value') else 0
+    after = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
     # Note: In test environment, _value might not be available; we check the metric was called
     # The actual verification happens via Prometheus metric scraping in production
 

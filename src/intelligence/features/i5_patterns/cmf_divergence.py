@@ -49,9 +49,9 @@ class CMFDivergencePlugin:
         n = len(close)
         cmf_series = np.zeros(n)
         for i in range(cmf_window - 1, n):
-            vol_sum = float(np.sum(volume[i - cmf_window + 1: i + 1]))
+            vol_sum = float(np.sum(volume[i - cmf_window + 1 : i + 1]))
             if vol_sum > 0:
-                cmf_series[i] = float(np.sum(mfv[i - cmf_window + 1: i + 1])) / vol_sum
+                cmf_series[i] = float(np.sum(mfv[i - cmf_window + 1 : i + 1])) / vol_sum
 
         # Use linear regression slopes over lookback window
         window = min(self.lookback, n)

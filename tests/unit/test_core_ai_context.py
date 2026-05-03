@@ -11,9 +11,9 @@ from src.core.ai.context import (
     AIContext,
     AIContextCache,
     BarContext,
-    I1Context,
     Tier,
 )
+from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence
 
 
 class TestTierEnum:
@@ -72,7 +72,7 @@ class TestAIContext:
             timeframe="5m",
             ts=datetime.now(),
             bar=BarContext(open=4500.0, high=4510.0, low=4490.0, close=4505.0),
-            i1=I1Context(atr=10.0, adx=25.0, rsi=55.0),
+            i1=I1Indicators(atr_14=10.0, adx_14=25.0, rsi_14=55.0),
             i4=None,
             i6=None,
             i7=None,
@@ -80,7 +80,7 @@ class TestAIContext:
         assert ctx.bar is not None
         assert ctx.bar.open == 4500.0
         assert ctx.i1 is not None
-        assert ctx.i1.atr == 10.0
+        assert ctx.i1.atr_14 == 10.0
         assert ctx.i4 is None
 
 
@@ -91,19 +91,19 @@ class TestAIContextCache:
         """Verify update with mock event, build returns AIContext."""
         cache = AIContextCache()
 
-        # Create mock event using SimpleNamespace (mimics IntelligenceEvent structure)
+        # Create mock event using SimpleNamespace with typed tier models
         event = SimpleNamespace(
             symbol="ES",
             tf="5m",
             ts=datetime.now(),
             bar=SimpleNamespace(open=4500.0, high=4510.0, low=4490.0, close=4505.0, volume=1000),
-            i1=SimpleNamespace(atr_14=10.0, adx=25.0, rsi_14=55.0),
-            i4=SimpleNamespace(hmm_regime=1, trend_regime=0.8, vol_regime=0.5, vol_percentile=0.6,
-                               garch_vol_ratio=1.2, garch_vol_regime=1, kalman_trend=0.3,
-                               kalman_slope=0.1, vwap=4502.0, poc_price=4501.0, poc_price_rolling=4500.5),
-            i6=SimpleNamespace(ctf_score=0.7, ctf_trend_alignment=0.5, ctf_structure_alignment=0.6,
-                               ctf_regime_agreement=0.8, ctf_timeframes_aligned=3.0,
-                               ctf_fvg_alignment=0.4, ctf_ob_alignment=0.5),
+            i1=I1Indicators(atr_14=10.0, adx_14=25.0, rsi_14=55.0),
+            i2=None,
+            i3=None,
+            i4=I4Context(trend_regime=0.8, vol_regime=0.5, poc_price=4501.0),
+            i5=None,
+            i6=I6Confluence(ctf_score=0.7, ctf_trend_alignment=0.5, ctf_regime_agreement=0.8),
+            smc=None,
             i7=None,
         )
 
@@ -122,9 +122,8 @@ class TestAIContextCache:
         assert ctx.bar is not None
         assert ctx.bar.close == 4505.0
         assert ctx.i1 is not None
-        assert ctx.i1.atr == 10.0
+        assert ctx.i1.atr_14 == 10.0
         assert ctx.i4 is not None
-        assert ctx.i4.hmm_regime == 1
 
     def test_context_cache_ttl_expiry(self):
         """Verify cached entry expires after _TTL_SECONDS."""
@@ -135,9 +134,13 @@ class TestAIContextCache:
             tf="5m",
             ts=datetime.now(),
             bar=SimpleNamespace(close=4500.0),
-            i1=SimpleNamespace(atr_14=10.0),
-            i4=SimpleNamespace(),
-            i6=SimpleNamespace(),
+            i1=I1Indicators(atr_14=10.0),
+            i2=None,
+            i3=None,
+            i4=None,
+            i5=None,
+            i6=None,
+            smc=None,
         )
 
         cache.update(event)
@@ -153,6 +156,7 @@ class TestAIContextCache:
         # Wait for TTL to expire (5 min = 300 sec)
         # Patch _TTL_SECONDS to 0 for testing
         import src.core.ai.context as ctx_module
+
         original_ttl = ctx_module._TTL_SECONDS
         ctx_module._TTL_SECONDS = 0
 
@@ -177,13 +181,13 @@ class TestAIContextCache:
             tf="5m",
             ts=datetime.now(),
             bar=SimpleNamespace(close=120.0),
-            i1=SimpleNamespace(atr_14=2.0),
-            i4=SimpleNamespace(hmm_regime=1, trend_regime=0.5, vol_regime=0.5, vol_percentile=0.5,
-                             garch_vol_ratio=1.0, garch_vol_regime=1, kalman_trend=0.2,
-                             kalman_slope=0.1, vwap=120.5, poc_price=120.3, poc_price_rolling=120.2),
-            i6=SimpleNamespace(ctf_score=0.5, ctf_trend_alignment=0.4, ctf_structure_alignment=0.5,
-                             ctf_regime_agreement=0.6, ctf_timeframes_aligned=2.0,
-                             ctf_fvg_alignment=0.3, ctf_ob_alignment=0.4),
+            i1=I1Indicators(atr_14=2.0),
+            i2=None,
+            i3=None,
+            i4=I4Context(trend_regime=0.5, vol_regime=0.5, poc_price=120.3),
+            i5=None,
+            i6=I6Confluence(ctf_score=0.5, ctf_trend_alignment=0.4, ctf_regime_agreement=0.6),
+            smc=None,
             i7=None,
         )
         cache.update(lead_event)
@@ -214,8 +218,8 @@ class TestAIContextCache:
             "tf": "5m",
             "ts": datetime.now(),
             "bar": {"close": 4500.0, "volume": 1000},
-            "i1": {"atr_14": 10.0, "adx": 25.0},
-            "i4": {"hmm_regime": 1},
+            "i1": {"atr_14": 10.0, "adx_14": 25.0},
+            "i4": {"trend_regime": 0.8},
             "i6": {"ctf_score": 0.7},
             "i7": None,
         }
@@ -233,7 +237,7 @@ class TestAIContextCache:
         assert ctx.bar is not None
         assert ctx.bar.close == 4500.0
         assert ctx.i1 is not None
-        assert ctx.i1.atr == 10.0
+        assert ctx.i1.atr_14 == 10.0
 
     def test_context_cache_build_with_signal(self):
         """Verify build populates i7 context when signal provided."""
@@ -244,9 +248,13 @@ class TestAIContextCache:
             tf="5m",
             ts=datetime.now(),
             bar=SimpleNamespace(close=4500.0),
-            i1=SimpleNamespace(),
-            i4=SimpleNamespace(),
-            i6=SimpleNamespace(),
+            i1=None,
+            i2=None,
+            i3=None,
+            i4=None,
+            i5=None,
+            i6=None,
+            smc=None,
             i7=None,
         )
         cache.update(event)

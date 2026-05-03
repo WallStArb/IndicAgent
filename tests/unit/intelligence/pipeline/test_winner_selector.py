@@ -1,4 +1,5 @@
 """Unit tests for select_winner pure function."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -81,7 +82,9 @@ def test_cis_override_no_confidence_boost():
     signals = [
         make_signal(confidence=0.7, direction=1, plugin="trad_TrendFollowing", adjusted_rank=3),
         make_signal(confidence=0.6, direction=1, plugin="trad_MTFAlignment", adjusted_rank=4),
-        make_signal(confidence=base_conf, direction=1, plugin="trad_SqueezeExpansion", adjusted_rank=2),
+        make_signal(
+            confidence=base_conf, direction=1, plugin="trad_SqueezeExpansion", adjusted_rank=2
+        ),
     ]
     winner, _, method = select_winner(signals, cis_result)
     assert method == "cis_override"

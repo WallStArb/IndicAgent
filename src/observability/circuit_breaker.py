@@ -46,9 +46,7 @@ class CircuitBreaker:
                 if time.time() - self._last_failure_time >= self.timeout_sec:
                     self._state = CircuitState.HALF_OPEN
                 else:
-                    raise CircuitOpenError(
-                        f"Circuit is OPEN — reopens after {self.timeout_sec}s"
-                    )
+                    raise CircuitOpenError(f"Circuit is OPEN — reopens after {self.timeout_sec}s")
 
             try:
                 if asyncio.iscoroutinefunction(func):

@@ -247,8 +247,11 @@ class PrevDayLevelTestPlugin:
             "level_name": level_name,
             "level_value": level_value,
         }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "session", signal["confidence"],
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "session",
+            signal["confidence"],
         )
         return signal
 

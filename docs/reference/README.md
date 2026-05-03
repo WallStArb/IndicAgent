@@ -1,5 +1,7 @@
 # Reference — API & Technical Specifications
 
+**Last Updated:** 2026-05-02
+
 Technical reference for APIs, plugins, services, and schemas.
 
 ---

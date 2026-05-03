@@ -17,7 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 core complete 2026-04-28 — 03C USD strength + Plan 04 validation deferred ~May 10 data gate; MacroComputeAgent needs prod deploy)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74 (69+71+72+74 complete; 73 planned but not executed; Phase 70 deferred ~May 10)
+- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79 (69+71+72+73+74+75+76+77+79 complete; 78 at 6/7; Phase 70 deferred ~May 10)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -281,9 +281,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-74) — Phase 70 deferred, Phase 73 planned but not executed, Phase 74 complete</summary>
+<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-79) — Phase 70 deferred, Phase 78 6/7, all others complete</summary>
 
-**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
+**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 79 fixes zero-width signal zones and wrong entry_price for at_pullback/at_limit entries — activation rate should jump from 0.3% to meaningful levels. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
   Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
@@ -297,7 +297,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
   **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
   **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
-- [ ] **Phase 73: AI LLM Layer B+ Architecture Refactor** — REPLANNED 2026-04-28 (7 plans, 4 waves, 51 decisions)
+- [x] **Phase 73: AI LLM Layer B+ Architecture Refactor** — COMPLETE 2026-04-29 (7/7 plans shipped)
   Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
   **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
 
@@ -317,12 +317,17 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
 - [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
   LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
-- [ ] **Phase 77: OTel Observability Unification** — NOT STARTED
+- [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
+- [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
   Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
   **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
   **Planning:** `.planning/phases/077-otel-observability-unification/`
+- [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
+  Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` ('v1') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version = 'v1'`.
+  **Design spec:** `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
+  **Planning:** `.planning/phases/079-signal-quality-fix/`
 
-**Success Criteria (Phases 69+71+72):**
+**Success Criteria (Phases 69+71+72+73+75+76+77):**
 - ✅ Single consumer creation pattern across all 6 writers
 - ✅ 5/6 writers use base class `_run()` loop (feature_writer exception)
 - ✅ Buffer overflow triggers critical alert (pager + backpressure)
@@ -330,11 +335,25 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Auto init_tracing() — no manual __main__ calls
 - ✅ Default lag reporting in base classes — 15 overrides removed
 - ✅ Signal transform log dual-write infrastructure shipped
+- ✅ AI/LLM B+ architecture: BaseAIAgent, BaseGroupService, mandate groups, lineage recorder, 6 chain fixes
+- ✅ Shadow governance: shadow_registry, ShadowAuditorAgent, auto-enrollment, features_snapshot rename
+- ✅ OTel unification: OTLP push, OTel Collector, Loki, Alertmanager, systemd discovery
+- ✅ Signal quality fix: zero-width zones eliminated, make_signal_from_frame() mandatory, signal_schema_version='v1', entry_type, co-fire tracking
 
-**Pending (Phase 73):**
-- 🔄 Phase 73: AI LLM Layer B+ Architecture Refactor (6 of 7 plans complete — 73-01 through 73-06; 73-07 pending)
-- ✅ State checkpointing for BarAggregatorComputeAgent (Phase 74 complete, 2026-04-26)
-- ✅ Signal lifecycle labeling fix + activation gate (Phase 76 complete, 2026-04-28)
+**Pending (Phase 78):**
+- 🔄 Phase 78: I8 Alpha Feedback Loop (6 of 7 plans complete — 078-07 pending: move NarrativeComputeAgent to API endpoint)
+- ⏸ Phase 70: ML Scoring Model (deferred ~May 10, 30-day data gate)
+
+**Completed (v2.5):**
+- ✅ Phase 69: Writer Agent Renaissance Refactor (2026-04-23)
+- ✅ Phase 71: BaseAgent Infrastructure Alignment (2026-04-14)
+- ✅ Phase 72: Signal Transform Log Phase 1 (2026-04-25)
+- ✅ Phase 73: AI LLM Layer B+ Architecture Refactor (2026-04-29)
+- ✅ Phase 74: BarNormalizerAgent State Checkpointing (2026-04-26)
+- ✅ Phase 75: Shadow Governance System (2026-04-29, absorbed into Phase 77)
+- ✅ Phase 76: Signal Lifecycle Labeling Fix (2026-04-28)
+- ✅ Phase 77: OTel Observability Unification (2026-04-29)
+- ✅ Phase 79: Signal Quality Fix — Zone Width + Entry Price (2026-05-03)
 
 </details>
 
@@ -506,7 +525,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72+74 complete; 73 planned but not executed; Phase 70 deferred ~May 10).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72+73+74+75+76+77+79 complete; 78 at 6/7; Phase 70 deferred ~May 10).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -605,7 +624,10 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Complete    | 2026-04-29 |
 | 74. BarNormalizerAgent - State Checkpointing | v2.5 | 1/1 | Complete | 2026-04-26 |
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
-| 77. OTel Observability Unification | v2.5 | 0/4 | Planned | — |
+| 75. Shadow Governance System | v2.5 | 4/4 | Complete (absorbed into 77) | 2026-04-29 |
+| 77. OTel Observability Unification | v2.5 | 4/4 | Complete | 2026-04-29 |
+| 78. I8 Alpha Feedback Loop | v2.5 | 6/7 | In Progress | — |
+| 79. Signal Quality Fix — Zone Width + Entry Price | v2.5 | 10/10 | Complete | 2026-05-03 |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -990,3 +1012,40 @@ Plans:
 - [ ] 077-02-PLAN.md -- OTel SDK wrapper classes (OTelCounter/Gauge/Histogram), MeterProvider+TracerProvider init, BaseAgent migration off HTTP server
 - [ ] 077-03-PLAN.md -- Log bridge (OTLPLogHandler), service_auditor systemd discovery refactor, Prometheus config collapse
 - [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
+
+
+### Phase 78: I8 Alpha Feedback Loop — 6/7 COMPLETE
+
+**Goal:** Close the feedback loop so I8 actually produces statistical alpha. Fix 6 live bugs (pool leak, segment key, SafeAgentWrapper dead code, NarrativeGroupComputeAgent._setup() override, _extract_volume_profile() stub, ES lead instrument). Implement graduation (Spearman p<0.05, N≥100, auto-demotion mirroring I7 shadow pattern). Add Brier score + calibration to llm_model_scores. Expand AIContext to full feature vector. Replace CorrelationAgent + VolumeAgent with pure-math I8 plugins. Move NarrativeComputeAgent off the hot path to an API endpoint.
+
+**Status:** 6/7 plans complete. 078-07 (NarrativeComputeAgent to API endpoint) pending.
+
+**Requirements**: P78-POOL-FIX, P78-SEGMENT-KEY, P78-SAFE-WRAPPER, P78-SETUP-OVERRIDE, P78-VOLUME-PROFILE, P78-LEAD-MAP, P78-GRADUATION, P78-BRIER, P78-CONTEXT, P78-MATH-PLUGINS, P78-NARRATIVE
+**Depends on:** Phase 73 (AI/LLM infrastructure: BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment)
+**Plans:** 7 plans
+
+Plans:
+- [x] 078-01-PLAN.md — Wave 1: bug fixes (pool, segment-key, volume-profile stub, lead-map) — COMPLETE
+- [x] 078-02-PLAN.md — Wave 1: dead code removal (SafeAgentWrapper, setup override) — COMPLETE
+- [x] 078-03-PLAN.md — Wave 2: graduation loop — COMPLETE
+- [x] 078-04-PLAN.md — Wave 2: Brier score + calibration metrics — COMPLETE
+- [x] 078-05-PLAN.md — Wave 2: expand AIContext to full feature vector — COMPLETE
+- [x] 078-06-PLAN.md — Wave 3: replace Correlation+Volume LLM agents with pure-math plugins — COMPLETE
+- [ ] 078-07-PLAN.md — Wave 3: move NarrativeComputeAgent to API endpoint
+
+### Phase 79: Signal Quality Fix — Zone Width + Entry Price
+
+**Goal:** Fix the critical signal quality bug where all I7 signals had zero-width zones (entry==stop==target) because plugins built signal dicts manually instead of using `make_signal_from_frame()`. This caused 99.7% of signals to never activate (price never exactly hits a point). Add `signal_schema_version` column to distinguish v0 (contaminated) from v1 (fixed) signals. Add `entry_type` column and co-fire tracking.
+
+**Status:** ✅ Complete (2026-05-03)
+
+**Depends on:** Phase 75 (shadow governance, features_snapshot rename)
+
+**Success Criteria:**
+1. ✅ `make_signal_from_frame()` helper with zone propagation and resolved entry_price
+2. ✅ All 36 I7 plugins migrated to use `make_signal_from_frame()` — no manual signal dict construction
+3. ✅ `signal_schema_version` column: 'v0' (pre-fix, contaminated) vs 'v1' (post-fix, clean)
+4. ✅ `entry_type` column: at_close, at_pullback, at_limit, at_reclaim, zone_proximal
+5. ✅ `co_fire_count` / `co_fire_partners` columns for co-occurring signals
+6. ✅ Signal quality metrics in pipeline
+7. ✅ ML training queries MUST filter `WHERE signal_schema_version = 'v1'`

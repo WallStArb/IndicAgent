@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.3
-milestone_name: candidates
-status: ready_to_plan
-last_updated: "2026-04-29T07:28:19.413Z"
+milestone: v2.5
+milestone_name: milestone
+status: active
+last_updated: "2026-05-03T17:00:00.000Z"
 progress:
-  total_phases: 26
-  completed_phases: 5
-  total_plans: 23
-  completed_plans: 19
-  percent: 19
+  total_phases: 27
+  completed_phases: 3
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -19,23 +19,19 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 73 — AI LLM Layer B+ Architecture Refactor
+**Current focus:** Phase 78 (Plan 07 pending), Phase 70 deferred ~May 10
 
 ## Current Position
 
-Phase: 74
-Plan: Not started
+Phase: 78 (I8 Alpha Feedback Loop) — 6/7 complete
+Plan: 7 of 7 (078-07 pending — move NarrativeComputeAgent to API endpoint)
 
-Plans already complete:
-
-- 73-01: Delete dead swarm orchestrator + add Kafka topic infrastructure (commit 8dbdc3cf)
-- 73-02: Build src/core/ai/ infrastructure (commit 256ee32f)
-- 73-03: Apply 6 LLM chain fixes + test coverage (commit 1c8c9e3b)
-- 73-04: Create AI agent directory structure + move agents to src/intelligence/ai/ (commit edf3bd33)
-- 73-05: Service refactor to BaseGroupService + AgentOutput migration (commits 20dee0d4, 6a07b793)
-
-Previous: Phase 65 — COMPLETE (2026-04-24) — Gradient Audit, gradient_utils.py delivered
-Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix, temporal guard, bootstrap sweep, activation gate, backfill SQL
+Previous: Phase 79 — COMPLETE (2026-05-03) — Signal Quality Fix (zone width + entry price + co-fire tracking)
+Previous: Phase 77 — COMPLETE (2026-04-29) — OTel Observability Unification
+Previous: Phase 76 — COMPLETE (2026-04-28) — Signal lifecycle labeling fix
+Previous: Phase 75 — COMPLETE (absorbed into Phase 77) — Shadow governance
+Previous: Phase 73 — COMPLETE (2026-04-28) — AI LLM Layer B+ Architecture Refactor
+Previous: Phase 74 — COMPLETE (2026-04-26) — BarNormalizerAgent state checkpointing
 
 ## v2.1 Milestone Goal
 
@@ -249,4 +245,5 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 73 (AI LLM Layer B+ Architecture Refactor) — 7 plans — 2026-04-28T23:48:56.201Z
+**Planned Phase:** 78 (I8 Alpha Feedback Loop) — 7 plans (6 complete, 078-07 pending)
+**Next Phase:** 70 (ML Scoring Model) — deferred ~May 10 (30-day data gate)

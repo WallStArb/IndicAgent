@@ -6,6 +6,7 @@ Usage:
     chain = LLMProviderChain(call_type="narrative")
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
 """
+
 from src.core.llm.chain import LLMProviderChain
 from src.core.llm.providers import LLMChain, LLMProvider, OllamaProvider, OpenRouterProvider
 

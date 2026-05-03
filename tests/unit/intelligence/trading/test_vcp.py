@@ -64,8 +64,9 @@ def _run_contractions(plugin, n_contractions, symbol="ES", tf="1m", features=Non
         bar_vol = start_vol - i * 50.0
         high_val = center + bar_range / 2
         low_val = center - bar_range / 2
-        frames = _make_frames_hl(high_val, low_val, bar_vol, features=features,
-                                  symbol=symbol, tf=tf)
+        frames = _make_frames_hl(
+            high_val, low_val, bar_vol, features=features, symbol=symbol, tf=tf
+        )
         plugin.compute_full(frames)
 
     return plugin
@@ -73,9 +74,11 @@ def _run_contractions(plugin, n_contractions, symbol="ES", tf="1m", features=Non
 
 # ─── Regime gate tests ───────────────────────────────────────────────────────
 
+
 def test_no_signal_when_hmm_not_trend():
     """hmm_regime=0.0 (ranging) -> no_signal."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features(hmm_regime=0.0)
     frames = _make_frames_hl(5055.0, 5045.0, 500.0, features=features)
@@ -87,6 +90,7 @@ def test_no_signal_when_hmm_not_trend():
 def test_no_signal_when_hmm_prob_below_060():
     """hmm_regime=1.0, hmm_regime_prob=0.55 -> no_signal (prob gate)."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features(hmm_regime=1.0, hmm_regime_prob=0.55)
     frames = _make_frames_hl(5055.0, 5045.0, 500.0, features=features)
@@ -96,9 +100,11 @@ def test_no_signal_when_hmm_prob_below_060():
 
 # ─── Insufficient contractions test ─────────────────────────────────────────
 
+
 def test_no_signal_with_only_two_contractions():
     """Only 2 contractions -> no_signal (need >= 3)."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features()
 
@@ -119,9 +125,11 @@ def test_no_signal_with_only_two_contractions():
 
 # ─── Fires after 3+ contractions ────────────────────────────────────────────
 
+
 def test_fires_after_three_contractions():
     """3+ contractions with declining range/volume, then expansion bar -> fires."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features(
         hmm_regime=1.0,
@@ -142,9 +150,9 @@ def test_fires_after_three_contractions():
         plugin.compute_full(frames)
 
     # Expansion bar: larger range, higher volume, close above prior high
-    exp_high = center + 15.0   # range=30 > 10 (last contraction)
+    exp_high = center + 15.0  # range=30 > 10 (last contraction)
     exp_low = center - 5.0
-    exp_vol = 800.0   # > 500*1.2=600
+    exp_vol = 800.0  # > 500*1.2=600
     exp_frames = _make_frames_hl(exp_high, exp_low, exp_vol, features=features)
     # Set close to be clearly above prior bar high (= center + 10/2 = 5055)
     # prior_high was 5055 so close needs to be > 5055
@@ -163,9 +171,11 @@ def test_fires_after_three_contractions():
 def test_direction_follows_hmm_trend_long():
     """hmm_regime=1.0 -> direction=1 (long breakout)."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
-    features = _base_features(hmm_regime=1.0, hmm_regime_prob=0.75,
-                               nearest_resistance=5300.0, nearest_support=4800.0)
+    features = _base_features(
+        hmm_regime=1.0, hmm_regime_prob=0.75, nearest_resistance=5300.0, nearest_support=4800.0
+    )
 
     center = 5050.0
     for r, v in [(20.0, 1000.0), (14.0, 700.0), (10.0, 500.0)]:
@@ -186,9 +196,11 @@ def test_direction_follows_hmm_trend_long():
 def test_direction_follows_hmm_trend_short():
     """hmm_regime=2.0 -> direction=-1 (short breakout)."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
-    features = _base_features(hmm_regime=2.0, hmm_regime_prob=0.75,
-                               nearest_support=4800.0, nearest_resistance=5300.0)
+    features = _base_features(
+        hmm_regime=2.0, hmm_regime_prob=0.75, nearest_support=4800.0, nearest_resistance=5300.0
+    )
 
     center = 5050.0
     for r, v in [(20.0, 1000.0), (14.0, 700.0), (10.0, 500.0)]:
@@ -208,9 +220,11 @@ def test_direction_follows_hmm_trend_short():
 
 # ─── Session reset test ──────────────────────────────────────────────────────
 
+
 def test_state_resets_on_new_session():
     """Different session date -> contraction list clears (state reset)."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features()
 
@@ -219,14 +233,12 @@ def test_state_resets_on_new_session():
     center = 5050.0
     for i, (r, v) in enumerate([(20.0, 1000.0), (14.0, 700.0), (10.0, 500.0)]):
         ts = ts_day1 + timedelta(minutes=i)
-        frames = _make_frames_hl(center + r / 2, center - r / 2, v,
-                                  features=features, ts=ts)
+        frames = _make_frames_hl(center + r / 2, center - r / 2, v, features=features, ts=ts)
         plugin.compute_full(frames)
 
     # Day 2: single bar — state should reset, no fire even with expansion bar
     ts_day2 = datetime(2026, 3, 18, 10, 0, tzinfo=UTC)
-    exp_frames = _make_frames_hl(center + 15, center - 5, 800.0,
-                                  features=features, ts=ts_day2)
+    exp_frames = _make_frames_hl(center + 15, center - 5, 800.0, features=features, ts=ts_day2)
     exp_frames["main"].loc[exp_frames["main"].index[-1], "close"] = center + 14.0
     exp_frames["main"].loc[exp_frames["main"].index[-2], "high"] = center + 4.0
 
@@ -238,6 +250,7 @@ def test_state_resets_on_new_session():
 def test_contraction_count_in_output():
     """Valid VCP fire must include contraction_count >= 3 in output."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     features = _base_features(
         hmm_regime=1.0,
@@ -265,6 +278,7 @@ def test_contraction_count_in_output():
 def test_insufficient_lookback_returns_empty():
     """len(df) < min_lookback -> empty dict."""
     from src.intelligence.trading.vcp import VCPPlugin
+
     plugin = VCPPlugin()
     close = np.full(5, 5050.0)
     df = make_ohlcv(close)
@@ -277,6 +291,7 @@ def test_insufficient_lookback_returns_empty():
 def test_plugin_instance_exists():
     """Module-level plugin instance must exist."""
     from src.intelligence.trading.vcp import VCPPlugin, plugin
+
     assert isinstance(plugin, VCPPlugin)
     assert plugin.name == "trad_VCP"
     assert plugin.regime_type == "trend"

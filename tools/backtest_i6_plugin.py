@@ -68,8 +68,6 @@ async def _backtest_async(
     settings = Settings()
     conn = await asyncpg.connect(settings.database_url)
 
-    import json
-
     try:
         # Query intelligence_features for I1-I5 inputs.
         # Column names are i2/i3/i4/i5 (JSONB), hmm_regime is inside smc JSONB.
@@ -252,9 +250,7 @@ async def _backtest_async(
 
 def main():
     """CLI interface for backtest tool."""
-    parser = argparse.ArgumentParser(
-        description="Backtest I6 plugin on historical market data"
-    )
+    parser = argparse.ArgumentParser(description="Backtest I6 plugin on historical market data")
     parser.add_argument(
         "--plugin",
         type=str,

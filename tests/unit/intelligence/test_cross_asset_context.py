@@ -1,4 +1,5 @@
 """Tests for CrossAssetContextPlugin - I4 macro context plugin."""
+
 import pytest
 
 from src.intelligence.context.cross_asset_context import CrossAssetContextPlugin
@@ -9,18 +10,24 @@ def plugin():
     return CrossAssetContextPlugin()
 
 
-def _xa_frame(ready: bool, active_pair: str = "ES_NQ",
-               es_nq_spread_z: float = 1.5, es_rty_spread_z: float = -0.8,
-               pairs_confirming: int = 2) -> dict:
+def _xa_frame(
+    ready: bool,
+    active_pair: str = "ES_NQ",
+    es_nq_spread_z: float = 1.5,
+    es_rty_spread_z: float = -0.8,
+    pairs_confirming: int = 2,
+) -> dict:
     if not ready:
         return {"cross_asset": {"ready": False}}
-    return {"cross_asset": {
-        "ready": True,
-        "active_pair": active_pair,
-        "es_nq_spread_z": es_nq_spread_z,
-        "es_rty_spread_z": es_rty_spread_z,
-        "pairs_confirming": pairs_confirming,
-    }}
+    return {
+        "cross_asset": {
+            "ready": True,
+            "active_pair": active_pair,
+            "es_nq_spread_z": es_nq_spread_z,
+            "es_rty_spread_z": es_rty_spread_z,
+            "pairs_confirming": pairs_confirming,
+        }
+    }
 
 
 def test_returns_eq_fields_when_ready_es_nq(plugin):
@@ -48,8 +55,7 @@ def test_returns_empty_when_frame_absent(plugin):
 
 def test_pairs_confirming_none_when_key_missing(plugin):
     """Missing pairs_confirming key -> None, not 0.0 (0.0 is a valid count value)."""
-    frames = {"cross_asset": {"ready": True, "active_pair": "ES_NQ",
-                               "es_nq_spread_z": 1.0}}
+    frames = {"cross_asset": {"ready": True, "active_pair": "ES_NQ", "es_nq_spread_z": 1.0}}
     result = plugin.compute_full(frames)
     assert result["eq_pairs_confirming"] is None
 

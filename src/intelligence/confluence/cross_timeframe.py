@@ -91,9 +91,7 @@ class CrossTimeframeConfluencePlugin:
         fvg_score, fvg_tf_contribs = score_fvg_alignment(
             features, other_intel, current_tf, cur_trend
         )
-        ob_score, ob_tf_contribs = score_ob_alignment(
-            features, other_intel, current_tf, cur_trend
-        )
+        ob_score, ob_tf_contribs = score_ob_alignment(features, other_intel, current_tf, cur_trend)
         i2_score = score_i2_events(features)
 
         # Weighted composite: positive = bullish confluence, negative = bearish

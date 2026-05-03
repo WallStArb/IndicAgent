@@ -32,6 +32,7 @@ from pydantic import ValidationError
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.bar_normalizer import SOURCE_UNKNOWN
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.schemas.market_events import ContractUpdateEvent
@@ -205,7 +206,7 @@ class BarWriterAgent(BaseWriterAgent):
 
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
-        self._db_pool = await asyncpg.create_pool(self.settings.database_url)
+        self._db_pool = await create_db_pool(self.settings.database_url)
         # AUDIT-LOW-4: Retry contract cache load — transient DB failure at startup
         # must not leave cache empty (would cause days_to_expiry=0 for all symbols).
         _cache_attempts = 3

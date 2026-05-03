@@ -8,7 +8,7 @@ import pandas as pd
 
 from src.intelligence.plugins import InputSpec
 
-from ._swing_utils import find_swing_highs, find_swing_lows
+from .swing_utils import find_swing_highs, find_swing_lows
 
 
 @dataclass

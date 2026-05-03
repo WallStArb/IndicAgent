@@ -221,6 +221,15 @@ def topic_intelligence_shadow(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.shadow"
 
 
+def topic_shadow_transitions(env_name: str) -> str:
+    """Kafka topic for shadow governance promotion/demotion events.
+
+    Published by ShadowAuditorAgent on any promotion or demotion.
+    Consumers: dashboard (future), audit tooling.
+    """
+    return f"{env_prefix(env_name)}intelligence.shadow.transitions"
+
+
 def topic_audit(env_name: str) -> str:
     """Kafka topic for structured audit events (parity violations, certification events)."""
     return f"{env_prefix(env_name)}audit"
@@ -306,59 +315,13 @@ def topic_transform_graduation(env_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Swarm topics (Phase 56)
+# Swarm topics
 # ---------------------------------------------------------------------------
 
 
-def topic_swarm_results(env_name: str) -> str:
-    """Per-AgentResult fan-out topic. SwarmWriterAgent subscribes here.
-    One message = one AgentResult from one contributor for one signal.
-    """
-    return f"{env_prefix(env_name)}intelligence.swarm"
-
-
-def topic_swarm_alpha_path_a(env_name: str) -> str:
-    """Assembled AlphaMultiplier from deterministic (Path A) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_a"
-
-
-def topic_swarm_alpha_path_b(env_name: str) -> str:
-    """Assembled AlphaMultiplier from LLM swarm (Path B) contributors."""
-    return f"{env_prefix(env_name)}swarm.alpha.path_b"
-
-
-def topic_swarm_world_state(env_name: str) -> str:
-    """Compacted world state topic (cleanup.policy=compact).
-    Create manually: rpk topic create dev.swarm.world_state --topic-config cleanup.policy=compact
-    """
-    return f"{env_prefix(env_name)}swarm.world_state"
-
-
-def topic_swarm_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for SwarmOrchestratorComputeAgent — unresolvable contexts."""
-    return f"{env_prefix(env_name)}swarm.orchestrator.dlq"
-
-
-def topic_swarm_writer_dlq(env_name: str) -> str:
-    """DLQ for SwarmWriterAgent — malformed payloads or DB insert failures."""
-    return f"{env_prefix(env_name)}swarm.writer.dlq"
-
-
 def topic_swarm_alpha(env_name: str) -> str:
-    """Assembled AlphaMultiplier from all alpha agents (unified aggregate).
-
-    Published by AlphaSwarmComputeAgent after asyncio.gather() across all agents.
-    Consumed by SwarmWriterAgent for persistence.
-    """
+    """Unified alpha multiplier topic. Published by AlphaSwarmComputeAgent."""
     return f"{env_prefix(env_name)}swarm.alpha"
-
-
-def topic_swarm_graduation(env_name: str) -> str:
-    """Per-agent graduation flip events from BaseGroupService._graduation_loop.
-
-    Published when shadow_only flips True->False via Spearman gate passage.
-    """
-    return f"{env_prefix(env_name)}swarm.graduation"
 
 
 def topic_signal_lineage(env_name: str) -> str:
@@ -396,10 +359,10 @@ def topic_ml_orchestrator_dlq(env_name: str) -> str:
 
 
 def topic_alert_requests(env_name: str) -> str:
-    """Alert requests from any agent to AlertingAgent.
+    """Alert requests from any agent to AlertingComputeAgent.
 
     Any agent can publish alert requests here via BaseAgent._send_alert().
-    AlertingAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
+    AlertingComputeAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
     Consumer group: alerting_consumer
     """
     return f"{env_prefix(env_name)}alert.requests"
@@ -485,8 +448,6 @@ def topic_transform_graduation_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
-
-
 def topic_macro_signals(env_name: str) -> str:
     """Kafka topic for macro factor signals.
 
@@ -497,6 +458,7 @@ def topic_macro_signals(env_name: str) -> str:
     Topic naming: <env>.macro_signals (dots only, no colons)
     """
     return f"{env_prefix(env_name)}macro_signals"
+
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.

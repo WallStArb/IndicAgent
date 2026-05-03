@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
+import numpy as np
 import structlog
 from scipy.stats import binomtest
 
@@ -88,8 +89,10 @@ _UPSERT_SCORE_SQL = """
 INSERT INTO llm_model_scores (
     model, regime, setup_type, call_type, symbol,
     n_calls, n_outcomes, win_rate, avg_pnl_r, avg_latency_ms,
-    p_value, is_significant, score_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+    p_value, is_significant,
+    brier_score, calibration_slope, ece,
+    score_updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
 ON CONFLICT (model, regime, setup_type, call_type, symbol)
 DO UPDATE SET
     n_calls = EXCLUDED.n_calls,
@@ -99,6 +102,9 @@ DO UPDATE SET
     avg_latency_ms = EXCLUDED.avg_latency_ms,
     p_value = EXCLUDED.p_value,
     is_significant = EXCLUDED.is_significant,
+    brier_score = EXCLUDED.brier_score,
+    calibration_slope = EXCLUDED.calibration_slope,
+    ece = EXCLUDED.ece,
     score_updated_at = NOW()
 """
 
@@ -118,6 +124,16 @@ SELECT model, regime, setup_type, call_type, symbol,
 FROM llm_calls
 WHERE outcome IS NOT NULL
 GROUP BY model, regime, setup_type, call_type, symbol
+"""
+
+_SELECT_CONFIDENCE_ROWS_SQL = """
+SELECT model, regime, setup_type, call_type, symbol,
+       confidence,
+       CASE WHEN win THEN 1.0 ELSE 0.0 END AS outcome_binary
+FROM llm_calls
+WHERE outcome IS NOT NULL
+  AND confidence IS NOT NULL
+  AND win IS NOT NULL
 """
 
 logger = structlog.get_logger(__name__)
@@ -302,6 +318,57 @@ def _build_score_insert_params(
         "p_value": p_value,
         "is_significant": is_significant,
     }
+
+
+# ── Probabilistic calibration metric helpers (D-27) ──────────────────────────
+
+
+def _brier_score(conf: np.ndarray, outcome: np.ndarray) -> float:
+    """Brier score: mean squared error of confidence vs realized outcome.
+
+    Lower is better; 0.0 = perfect; 1.0 = worst case.
+    outcome ∈ {0, 1}; confidence ∈ [0, 1].
+    """
+    return float(np.mean((conf - outcome) ** 2))
+
+
+def _calibration_slope(conf: np.ndarray, outcome: np.ndarray) -> float | None:
+    """OLS slope of outcome ~ confidence.
+
+    Perfect calibration → slope = 1.0; <1 = over-confident.
+    Returns None when variance is zero (all confidences identical) or
+    when all outcomes are identical (degenerate regression).
+    Requires at least 10 samples.
+    """
+    if conf.size < 10 or np.std(conf) < 1e-9 or np.std(outcome) < 1e-9:
+        return None
+    # polyfit returns [slope, intercept] for deg=1
+    slope, _ = np.polyfit(conf, outcome.astype(float), 1)
+    return float(slope)
+
+
+def _ece(conf: np.ndarray, outcome: np.ndarray, n_bins: int = 10) -> float:
+    """Expected Calibration Error across n_bins equal-width confidence bins.
+
+    ECE = Σ_i (|bin_i| / N) * |mean(conf in bin_i) - mean(outcome in bin_i)|
+    Empty bins contribute 0. Returns 0.0 for empty input.
+    """
+    if conf.size == 0:
+        return 0.0
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    total = 0.0
+    n = float(conf.size)
+    for i in range(n_bins):
+        lo, hi = edges[i], edges[i + 1]
+        # Last bin is inclusive on right edge to capture confidence == 1.0
+        if i < n_bins - 1:
+            mask = (conf >= lo) & (conf < hi)
+        else:
+            mask = (conf >= lo) & (conf <= hi)
+        if not mask.any():
+            continue
+        total += (mask.sum() / n) * abs(conf[mask].mean() - outcome[mask].mean())
+    return float(total)
 
 
 # ── Agent class ───────────────────────────────────────────────────────────────
@@ -728,14 +795,37 @@ class LLMWriterAgent(BaseWriterAgent):
 
         Groups by (model, regime, setup_type, call_type) and additionally computes '__all__'
         aggregate rows across regimes and setup_types.
+
+        Also computes Brier score, calibration slope, and ECE (D-27) per group
+        when N >= 10 resolved calls with non-null confidence values are available.
         """
         if not self.db_manager:
             return
 
         try:
-            rows = await self.db_manager.fetch_all(_SELECT_OUTCOME_ROWS_SQL, [])
+            rows = await self.db_manager.fetch(_SELECT_OUTCOME_ROWS_SQL)
             if not rows:
                 return
+
+            # Fetch raw confidence + outcome for calibration metrics
+            conf_rows = await self.db_manager.fetch(_SELECT_CONFIDENCE_ROWS_SQL)
+
+            # Build per-group confidence/outcome arrays for calibration
+            # Key: (model, regime, setup_type, call_type, symbol)
+            from collections import defaultdict
+
+            group_conf: dict[tuple, list[float]] = defaultdict(list)
+            group_outcome: dict[tuple, list[float]] = defaultdict(list)
+            for cr in conf_rows:
+                key = (
+                    cr["model"],
+                    cr["regime"] or "__all__",
+                    cr["setup_type"] or "__all__",
+                    cr["call_type"] or "__all__",
+                    cr["symbol"] or "*",
+                )
+                group_conf[key].append(float(cr["confidence"]))
+                group_outcome[key].append(float(cr["outcome_binary"]))
 
             score_params: list[tuple] = []
             # Process each group
@@ -764,20 +854,38 @@ class LLMWriterAgent(BaseWriterAgent):
                     n_outcomes >= SCORE_MIN_N_OUTCOMES
                 )
 
+                # Compute calibration metrics if enough data with confidence values
+                key = (model, regime, setup_type, call_type, symbol)
+                conf_list = group_conf.get(key, [])
+                outcome_list = group_outcome.get(key, [])
+                if len(conf_list) >= 10:
+                    conf_arr = np.array(conf_list, dtype=float)
+                    outcome_arr = np.array(outcome_list, dtype=float)
+                    brier = _brier_score(conf_arr, outcome_arr)
+                    cal_slope = _calibration_slope(conf_arr, outcome_arr)
+                    ece_val = _ece(conf_arr, outcome_arr)
+                else:
+                    brier = None
+                    cal_slope = None
+                    ece_val = None
+
                 score_params.append(
                     (
-                        model,
-                        regime,
-                        setup_type,
-                        call_type,
-                        symbol,
-                        n_calls,
-                        n_outcomes,
-                        win_rate,
-                        avg_pnl_r,
-                        avg_latency_ms,
-                        p_value,
-                        is_significant,
+                        model,  # $1
+                        regime,  # $2
+                        setup_type,  # $3
+                        call_type,  # $4
+                        symbol,  # $5
+                        n_calls,  # $6
+                        n_outcomes,  # $7
+                        win_rate,  # $8
+                        avg_pnl_r,  # $9
+                        avg_latency_ms,  # $10
+                        p_value,  # $11
+                        is_significant,  # $12
+                        brier,  # $13 brier_score
+                        cal_slope,  # $14 calibration_slope
+                        ece_val,  # $15 ece
                     )
                 )
 

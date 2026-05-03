@@ -1,4 +1,5 @@
 """Tests for SignalMetricsWriterAgent."""
+
 from unittest.mock import AsyncMock
 
 import pytest

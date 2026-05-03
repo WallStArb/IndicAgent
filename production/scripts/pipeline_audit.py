@@ -49,27 +49,17 @@ async def main():
     try:
         # Layer 1: Computational Correctness
         validator = ComputationalCorrectnessValidator(db.pool)
-        correctness_results = await validator.run_validation(
-            args.symbol, args.tf, args.hours
-        )
+        correctness_results = await validator.run_validation(args.symbol, args.tf, args.hours)
         reporter.print_computational_correctness(correctness_results)
 
         # Layer 2: Cross-Tier Consistency
         cross_validator = CrossTierValidator(db.pool)
 
-        i1_i4_results = await cross_validator.validate_i1_to_i4_consistency(
-            args.symbol, args.tf
-        )
-        i6_i7_results = await cross_validator.validate_i6_to_i7_completeness(
-            args.symbol, args.tf
-        )
-        regime_results = await cross_validator.validate_regime_agreement(
-            args.symbol, args.tf
-        )
+        i1_i4_results = await cross_validator.validate_i1_to_i4_consistency(args.symbol, args.tf)
+        i6_i7_results = await cross_validator.validate_i6_to_i7_completeness(args.symbol, args.tf)
+        regime_results = await cross_validator.validate_regime_agreement(args.symbol, args.tf)
 
-        reporter.print_cross_tier_consistency(
-            i1_i4_results, i6_i7_results, regime_results
-        )
+        reporter.print_cross_tier_consistency(i1_i4_results, i6_i7_results, regime_results)
 
         # Summary
         reporter.print_summary()

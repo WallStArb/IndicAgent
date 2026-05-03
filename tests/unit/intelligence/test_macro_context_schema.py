@@ -1,4 +1,5 @@
 """Verify I4Context has VIX/EQ fields and I6Confluence does not."""
+
 from src.intelligence.schemas import I4Context, I6Confluence
 
 

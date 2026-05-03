@@ -40,12 +40,14 @@ def _anticorrelated_df(n: int = 100, seed: int = 42) -> pd.DataFrame:
 
 # --- Gate constant tests ---
 
+
 def test_gate_constants_positive():
     """GATE_SPEARMAN_RHO must be +0.15 (positive multiplier semantics)."""
     assert GATE_SPEARMAN_RHO == 0.15
 
 
 # --- compute_spearman tests ---
+
 
 def test_compute_spearman_passes_when_correlated():
     """Strong positive correlation should pass the Spearman gate."""
@@ -72,6 +74,7 @@ def test_compute_spearman_insufficient_n():
 
 # --- compute_expected_shortfall tests ---
 
+
 def test_compute_expected_shortfall_pass():
     """Bottom decile of multiplier with avg pnl_r = -1.0 must pass cvar gate."""
     # Build df where lowest-multiplier rows have pnl_r = -1.0
@@ -90,6 +93,7 @@ def test_compute_expected_shortfall_pass():
 
 # --- compute_segment_power tests ---
 
+
 def test_compute_segment_power_returns_finite_for_large_n():
     """n=100 should return a finite MDE < 0.5."""
     mde = compute_segment_power(100)
@@ -105,6 +109,7 @@ def test_compute_segment_power_inf_for_small_n():
 
 # --- compute_walk_forward tests ---
 
+
 def test_compute_walk_forward_split():
     """100-row df with 70% train fraction → train_n=70, val_n=30."""
     df = _correlated_df(n=100, rho=0.8)
@@ -114,6 +119,7 @@ def test_compute_walk_forward_split():
 
 
 # --- compute_value_add tests ---
+
 
 def test_compute_value_add_positive():
     """Filtered (high-multiplier) trades with better Sharpe → pass=True."""
@@ -131,6 +137,7 @@ def test_compute_value_add_positive():
 
 
 # --- evaluate_all tests ---
+
 
 def test_evaluate_all_returns_payload_schema():
     """evaluate_all must return all 15 required keys with correct types."""
@@ -153,9 +160,9 @@ def test_evaluate_all_returns_payload_schema():
         "evaluated_at",
         "expires_at",
     }
-    assert required_keys.issubset(result.keys()), (
-        f"Missing keys: {required_keys - set(result.keys())}"
-    )
+    assert required_keys.issubset(
+        result.keys()
+    ), f"Missing keys: {required_keys - set(result.keys())}"
     assert result["transform_id"] == "test_xform"
     assert result["segment_key"] == "trend.5m"
     assert result["transform_version"] == "v1"

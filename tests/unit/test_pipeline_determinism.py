@@ -41,9 +41,9 @@ class TestPipelineDeterminism:
 
         assert len(results) == 100
         first = results[0]
-        assert all(r == first for r in results[1:]), (
-            "I1 output is not deterministic — some results differ across 100 runs"
-        )
+        assert all(
+            r == first for r in results[1:]
+        ), "I1 output is not deterministic — some results differ across 100 runs"
         for idx, name in enumerate(plugin_names):
             assert f"{name}_rsi" in first, f"Missing key {name}_rsi in output"
             assert first[f"{name}_rsi"] == float(idx)
@@ -82,9 +82,9 @@ class TestPipelineDeterminism:
             a = parallel_result[key]
             b = sequential_result[key]
             if isinstance(a, float) and isinstance(b, float):
-                assert abs(a - b) < 1e-10, (
-                    f"Value mismatch for key '{key}': parallel={a}, sequential={b}"
-                )
+                assert (
+                    abs(a - b) < 1e-10
+                ), f"Value mismatch for key '{key}': parallel={a}, sequential={b}"
             else:
                 assert a == b, f"Value mismatch for key '{key}': {a} != {b}"
 
@@ -114,13 +114,33 @@ class TestPipelineDeterminism:
 
         results = []
         with (
-            patch("services.intelligence_pipeline_agent._build_features_from_event", return_value={}),
-            patch("services.intelligence_pipeline_agent.apply_quality_gate", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_regime_gate", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_tod_adjustment", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.apply_calibration", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.rank_signals", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
+            patch(
+                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_quality_gate",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_regime_gate",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_tod_adjustment",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.apply_calibration",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.rank_signals",
+                side_effect=lambda sigs, *a, **kw: sigs,
+            ),
+            patch(
+                "services.intelligence_pipeline_agent.select_winner",
+                return_value=(None, [], "no_signal"),
+            ),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             for _ in range(100):
@@ -152,9 +172,9 @@ class TestPipelineDeterminism:
             thread_name_prefix="test_configured_",
         )
 
-        assert agent._executor._max_workers == 64, (
-            f"Expected 64 workers, got {agent._executor._max_workers}"
-        )
+        assert (
+            agent._executor._max_workers == 64
+        ), f"Expected 64 workers, got {agent._executor._max_workers}"
 
 
 if __name__ == "__main__":

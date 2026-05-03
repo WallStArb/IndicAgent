@@ -7,6 +7,8 @@ scope: Full pipeline health from IBKR ingestion through signal lifecycle resolut
 
 # Pipeline Health Audit — 2026-04-10
 
+**Last Updated:** 2026-05-02
+
 Full-stack health check from 1m bar ingestion → HTF aggregation → intelligence pipeline → signal generation → lifecycle resolution.
 
 ## Executive Summary

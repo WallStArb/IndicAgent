@@ -12,7 +12,9 @@ class TestServiceAuditorMetrics:
     def test_service_auditor_service_restarts_total_registered(self):
         """SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL is registered and usable."""
         # Should not raise ValueError for duplicate registration
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name="indicagent-ibkr-provider")
+        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
+            service_name="indicagent-ibkr-provider"
+        )
         metric.inc()
         # If we get here, test passes
 

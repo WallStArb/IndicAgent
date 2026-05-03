@@ -89,8 +89,14 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
     """
     # Map tier prefix to JSONB column
     tier_to_column: dict[str, str] = {
-        "I1": "i1", "I2": "i2", "I3": "i3", "I4": "i4",
-        "I5": "i5", "I6": "i6", "I7": "i7", "SMC": "smc"
+        "I1": "i1",
+        "I2": "i2",
+        "I3": "i3",
+        "I4": "i4",
+        "I5": "i5",
+        "I6": "i6",
+        "I7": "i7",
+        "SMC": "smc",
     }
 
     # Try to find plugin by name in tier lists
@@ -105,8 +111,13 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
     )
 
     all_tiers = {
-        "I1": TIER_I1, "I2": TIER_I2, "I3": TIER_I3, "I4": TIER_I4,
-        "I5": TIER_I5, "I6": TIER_I6, "I7": TIER_I7
+        "I1": TIER_I1,
+        "I2": TIER_I2,
+        "I3": TIER_I3,
+        "I4": TIER_I4,
+        "I5": TIER_I5,
+        "I6": TIER_I6,
+        "I7": TIER_I7,
     }
 
     # Find which tier this plugin belongs to
@@ -130,7 +141,7 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
 
         base_name = name_parts[1].lower()
         # Convert camelCase to snake_case
-        base_name = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
+        base_name = re.sub(r"(?<!^)(?=[A-Z])", "_", base_name).lower()
 
         # Try module import
         module_path = f"src.intelligence.{subdir}.{base_name}"
@@ -154,7 +165,9 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
                 "import_alias": import_alias,
                 # Will be filled from hints or defaults
                 "signal_type": PLUGIN_HINTS.get(plugin_name, {}).get("signal_type", "directional"),
-                "n_bars_by_tf": PLUGIN_HINTS.get(plugin_name, {}).get("n_bars_by_tf", {"1m": 5, "default": 3}),
+                "n_bars_by_tf": PLUGIN_HINTS.get(plugin_name, {}).get(
+                    "n_bars_by_tf", {"1m": 5, "default": 3}
+                ),
                 "secondary_patch": PLUGIN_HINTS.get(plugin_name, {}).get("secondary_patch"),
             }
         except (ImportError, AttributeError):
@@ -177,8 +190,13 @@ def list_known_plugins() -> dict[str, dict[str, Any]]:
 
     all_plugins = {}
     for tier_name, tier_list in [
-        ("I1", TIER_I1), ("I2", TIER_I2), ("I3", TIER_I3), ("I4", TIER_I4),
-        ("I5", TIER_I5), ("I6", TIER_I6), ("I7", TIER_I7)
+        ("I1", TIER_I1),
+        ("I2", TIER_I2),
+        ("I3", TIER_I3),
+        ("I4", TIER_I4),
+        ("I5", TIER_I5),
+        ("I6", TIER_I6),
+        ("I7", TIER_I7),
     ]:
         for plugin_name in tier_list:
             metadata = _discover_plugin_metadata(plugin_name)
@@ -657,7 +675,7 @@ async def run_validation(
         if len(name_parts) == 2:
             # Convert CamelCase to snake_case for field
             base_name = name_parts[1]
-            effective_field = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
+            effective_field = re.sub(r"(?<!^)(?=[A-Z])", "_", base_name).lower()
 
     if effective_field is None:
         print(f"ERROR: Cannot determine field for plugin '{plugin}'. Use --field <field_name>.")
@@ -685,7 +703,9 @@ async def run_validation(
                 check=False,
             )
             # Re-count after backfill
-            row_count = await _count_qualifying_rows(db, column, effective_field, days, symbol_filter)
+            row_count = await _count_qualifying_rows(
+                db, column, effective_field, days, symbol_filter
+            )
             print(f"  After backfill: {row_count} qualifying bars.")
 
         # --- Fetch data ---
@@ -901,7 +921,7 @@ def main() -> None:
             name_parts = args.plugin.split("_", 1)
             if len(name_parts) == 2:
                 base_name = name_parts[1]
-                effective_field = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
+                effective_field = re.sub(r"(?<!^)(?=[A-Z])", "_", base_name).lower()
 
         if effective_field is None:
             print(
@@ -948,14 +968,16 @@ def main() -> None:
         )
         sys.exit(0)
 
-    result = asyncio.run(run_validation(
-        plugin=args.plugin,
-        days=args.days,
-        symbol_filter=symbol_filter,
-        promote=args.promote,
-        field=args.field,
-        report_dir=report_dir,
-    ))
+    result = asyncio.run(
+        run_validation(
+            plugin=args.plugin,
+            days=args.days,
+            symbol_filter=symbol_filter,
+            promote=args.promote,
+            field=args.field,
+            report_dir=report_dir,
+        )
+    )
 
     # Exit code: 0 = PASS, 1 = FAIL
     if result["verdict"] != "PASS":

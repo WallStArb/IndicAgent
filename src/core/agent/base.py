@@ -36,9 +36,13 @@ from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
     AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
-    OTelCounter as _Counter,
-    OTelHistogram as _Histogram,
     PERSISTENCE_CONSUMER_LAG,
+)
+from src.observability.metrics import (
+    OTelCounter as _Counter,
+)
+from src.observability.metrics import (
+    OTelHistogram as _Histogram,
 )
 from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
@@ -47,28 +51,22 @@ from src.observability.otel import get_meter, get_tracer, init_otel_providers
 # ---------------------------------------------------------------------------
 
 AGENT_CRASH_TOTAL = _Counter(
-    "agent_crash_total",
-    "Agent crashes (uncaught exceptions) from BaseAgent._run()",
-    ["agent"]
+    "agent_crash_total", "Agent crashes (uncaught exceptions) from BaseAgent._run()", ["agent"]
 )
 
 AGENT_SETUP_SUCCESS_TOTAL = _Counter(
-    "agent_setup_success_total",
-    "Successful BaseAgent._setup() completions",
-    ["agent"]
+    "agent_setup_success_total", "Successful BaseAgent._setup() completions", ["agent"]
 )
 
 AGENT_SETUP_FAILURE_TOTAL = _Counter(
-    "agent_setup_failure_total",
-    "Failed BaseAgent._setup() completions",
-    ["agent", "error_type"]
+    "agent_setup_failure_total", "Failed BaseAgent._setup() completions", ["agent", "error_type"]
 )
 
 AGENT_SETUP_LATENCY_SECONDS = _Histogram(
     "agent_setup_latency_seconds",
     "BaseAgent._setup() execution time in seconds",
     ["agent"],
-    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0]
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
 # Module-level flag to ensure init_tracing() is called only once per process
@@ -96,7 +94,8 @@ class BaseAgent(abc.ABC):
         # Configure logging BEFORE creating logger using convention-over-configuration
         # Convert PascalCase agent names to snake_case for log files
         import re
-        log_name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+        log_name = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
         log_path = f"logs/{log_name}.log"
         # Guard: only configure if this exact path has not already been set up.
         # Multiple agent instantiations (e.g., in tests) would otherwise redirect
@@ -142,9 +141,12 @@ class BaseAgent(abc.ABC):
         """
         if name == "_meter":
             from src.observability.otel import get_meter
+
             return get_meter("test-noop")
         if name == "_metrics_port":
             return None
+        if name == "_shadow_cache":
+            return {}
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
@@ -186,6 +188,7 @@ class BaseAgent(abc.ABC):
 
         # Set up OTLP log bridge (additive to file logging)
         from src.observability.log_bridge import setup_otlp_logging
+
         setup_otlp_logging(service_name=self.name)
 
         self.logger.info("agent.starting", agent=self.name)
@@ -200,7 +203,9 @@ class BaseAgent(abc.ABC):
         except Exception as exc:
             # Log setup failure AND track metric
             self.logger.exception("agent.setup_failed")
-            AGENT_SETUP_FAILURE_TOTAL.labels(agent=self._agent_label, error_type=type(exc).__name__).inc()
+            AGENT_SETUP_FAILURE_TOTAL.labels(
+                agent=self._agent_label, error_type=type(exc).__name__
+            ).inc()
             raise
 
         lag_task = asyncio.create_task(self._report_consumer_lag())
@@ -375,7 +380,9 @@ class BaseAgent(abc.ABC):
                 await self._kafka_producer.publish(dlq_topic, dlq_payload.model_dump())
                 # Emit metrics
                 DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
-                DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
+                DLQ_MESSAGES_TOTAL.labels(
+                    agent=self.name, topic=dlq_topic, error_type=type(error).__name__
+                ).inc()
                 self.logger.info(
                     "agent.dlq_routed",
                     agent=self.name,
@@ -386,7 +393,9 @@ class BaseAgent(abc.ABC):
                 # Some agents use self._producer instead of self._kafka_producer
                 await self._producer.publish(dlq_topic, dlq_payload.model_dump())
                 DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
-                DLQ_MESSAGES_TOTAL.labels(agent=self.name, topic=dlq_topic, error_type=type(error).__name__).inc()
+                DLQ_MESSAGES_TOTAL.labels(
+                    agent=self.name, topic=dlq_topic, error_type=type(error).__name__
+                ).inc()
                 self.logger.info(
                     "agent.dlq_routed",
                     agent=self.name,
@@ -414,7 +423,7 @@ class BaseAgent(abc.ABC):
         return None
 
     async def _send_alert(self, severity: str, message: str, context: dict | None = None) -> None:
-        """Send alert to AlertingAgent via Kafka.
+        """Send alert to AlertingComputeAgent via Kafka.
 
         Args:
             severity: "CRITICAL" | "HIGH" | "MEDIUM"
@@ -422,7 +431,7 @@ class BaseAgent(abc.ABC):
             context: Optional structured context (symbol, tf, error details, etc.)
 
         No-op if producer not configured (agents without Kafka output).
-        AlertingAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
+        AlertingComputeAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
         """
         if not hasattr(self, "_producer") or self._producer is None:
             return
@@ -461,7 +470,7 @@ class BaseAgent(abc.ABC):
             except Exception as exc:
                 if attempt == _attempts - 1:
                     raise
-                backoff = _backoff_base ** attempt
+                backoff = _backoff_base**attempt
                 self.logger.warning(
                     "agent.setup_retry",
                     attempt=attempt + 1,

@@ -7,7 +7,8 @@ agent that runs the full intelligence pipeline without Kafka between I6 and I7.
 Key design decisions:
 - I6 output feeds directly into I7 in-process (no Kafka round-trip)
 - Async output buffer (asyncio.Queue maxsize=500) — hot path never blocks
-- State checkpointing via JSON-tagged dict to compacted Kafka topic
+- Hot state (plugin_states, kalman, tod_priors) checkpointed to local file on shutdown
+- Bar history seeded from TimescaleDB (intelligence_features) on startup
 - Attribution capture: pre_quality_confidence + pre_calibration_confidence
 - Shadow mode via INTELLIGENCE_PIPELINE_SHADOW env var
 """
@@ -27,7 +28,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
-from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
@@ -38,7 +38,9 @@ from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.ml.transform_recorder import TransformRecorder
+
+# TransformRecorder archived in Phase 78 (D-04) — import deferred to _setup()
+# to avoid top-level production import of archived module.
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
     TF_SECONDS,
@@ -54,7 +56,6 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_intelligence_journal,
     topic_intelligence_pipeline_dlq,
-    topic_intelligence_pipeline_state,
     topic_intelligence_shadow,
     topic_macro_signals,
     topic_market_bars,
@@ -91,6 +92,7 @@ from src.intelligence.register_plugins import (
     TIER_I6,
     TIER_I7,
     TIER_SMC,
+    enroll_all_plugins,
     register_all_plugins,
 )
 from src.intelligence.schemas import (
@@ -103,8 +105,8 @@ from src.intelligence.schemas import (
     I6Confluence,
     IntelligenceEvent,
     OHLCVBar,
-    RankedSignal,
     SMCContext,
+    signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
@@ -116,56 +118,6 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# Fields consumed by explicit keyword args in _signal_dict_to_ranked — excluded from **extras.
-_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset(
-    {
-        "signal_id",
-        "setup_plugin",
-        "direction",
-        "pre_quality_confidence",
-        "confidence",
-        "calibrated_confidence",
-        "regime_eligible",
-        "quality_score",
-        "tod_multiplier",
-        "adjusted_rank",
-        "was_selected",
-    }
-)
-
-
-def _signal_dict_to_ranked(sig: dict) -> RankedSignal:
-    """Map a pipeline signal dict to a RankedSignal model.
-
-    Signal dicts use different field names than RankedSignal schema:
-      setup_plugin → plugin
-      pre_quality_confidence (or confidence) → raw_confidence
-      was_selected → is_winner
-    calibrated_confidence may be None — fall back to confidence.
-    """
-    return RankedSignal(
-        signal_id=str(sig.get("signal_id") or uuid4()),
-        plugin=sig.get("setup_plugin", "unknown"),
-        direction=int(sig.get("direction", 0)),
-        raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
-        calibrated_confidence=float(
-            sig.get("calibrated_confidence")
-            if sig.get("calibrated_confidence") is not None
-            else sig.get("confidence", 0.0)
-        ),
-        regime_eligible=bool(sig.get("regime_eligible", True)),
-        quality_score=float(sig.get("quality_score", 1.0)),
-        tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
-        adjusted_rank=float(sig.get("adjusted_rank", 0.0)),
-        is_winner=bool(sig.get("was_selected", False)),
-        **{k: v for k, v in sig.items() if k not in _RANKED_CONSUMED_KEYS},
-    )
-
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -212,7 +164,7 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
     Config file can override defaults for specific timeframes, but "default"
     key is always guaranteed via merge with hardcoded defaults.
     """
-    config_path = Path(__file__).parent.parent / "config" / "kalman_parameters.json"
+    config_path = Path(__file__).parent.parent / "src" / "config" / "kalman_parameters.json"
     try:
         data = json.loads(config_path.read_text())
         config_params = data.get("cis_kalman", {})
@@ -341,6 +293,14 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 # ---------------------------------------------------------------------------
 
 _AGENT_VERSION = "v1"
+_CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
+_CHECKPOINT_FIELDS: tuple[str, ...] = (
+    "plugin_states",
+    "kalman_state",
+    "tod_priors",
+    "last_bar_offset",
+    "setup_last_fire",
+)
 
 
 def _restore_tuple_key(k: Any) -> Any:
@@ -353,11 +313,6 @@ def _restore_tuple_key(k: Any) -> Any:
         except (ValueError, SyntaxError):
             pass
     return k
-
-
-_STATE_TOPIC_PARTITIONS = 1
-_STATE_TOPIC_REPLICATION = 1
-_STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
 
 
 _OUTPUT_QUEUE_MAXSIZE = 500
@@ -375,7 +330,7 @@ def _timed_plugin_call(plugin, frames):
     on every bar for stateful plugins like BOCPD and HMMRegime.
     """
     t0 = time.perf_counter()
-    if getattr(plugin, 'supports_incremental', False) and plugin._state:
+    if getattr(plugin, "supports_incremental", False) and plugin._state:
         result = plugin.compute_next(frames)
     else:
         result = plugin.compute_full(frames)
@@ -450,6 +405,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         from src.core.plugin_validator import PluginValidator
 
         PluginValidator().validate_all()
+
+        # Shadow governance cache (loaded from shadow_registry at startup, refreshed every 5 min)
+        self._shadow_cache: dict[str, bool] = {}
 
         # Plugin caches
         self._plugin_cache: dict[str, Any] = {}
@@ -528,18 +486,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "intelligence_pipeline_output_publish_failures_total",
             "Output buffer publish failures",
         )
-        self._state_checkpoint_fallback_total = counter(
-            "intelligence_pipeline_state_checkpoint_fallback_total",
-            "State checkpoint fallback to BarHistorySeeder",
-        )
-        self._state_checkpoint_failures_total = counter(
-            "intelligence_pipeline_state_checkpoint_failures_total",
-            "State checkpoint encode/decode failures",
-        )
-        self._state_offset_reset_total = counter(
-            "intelligence_pipeline_state_offset_reset_total",
-            "Consumer offset resets after checkpoint restore",
-        )
         self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
             "Bars processed through I1-I7 pipeline",
@@ -600,6 +546,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._plugin_states_locks[key] = threading.Lock()
         return self._plugin_states_locks[key]
 
+    def _is_shadow(self, plugin_name: str) -> bool:
+        """Look up shadow state from cache. Returns False (live) if not enrolled."""
+        return self._shadow_cache.get(plugin_name, False)
+
     # ------------------------------------------------------------------
     # _setup: DB connect, state restore, Kafka setup, cache loading
     # ------------------------------------------------------------------
@@ -633,16 +583,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
-        # 3. Restore state from checkpoint topic
-        restored = await self._restore_state_checkpoint()
+        # 3. Ensure checkpoint dir exists, restore hot indicator state from local file
+        _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        await self._read_local_checkpoint()
 
-        # 4. Fallback to BarHistorySeeder if checkpoint miss
-        if not restored:
-            self._state_checkpoint_fallback_total.inc()
-            self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
-            await self._seed_bar_history_from_db()
+        # 4. Seed bar_history from DB — always authoritative, not a fallback
+        await self._seed_bar_history_from_db()
 
         # 5. Construct TransformRecorder (shared across all pipeline runs)
+        # Deferred import: TransformRecorder archived in Phase 78 (D-04).
+        # Will be replaced by LineageRecorder in a future plan.
+        from src.core.ml.transform_recorder import TransformRecorder  # noqa: PLC0415
+
         self._transform_recorder = TransformRecorder(
             pool=self._db.pool, batch_size=100, flush_interval_s=2.0
         )
@@ -655,8 +607,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._load_tod_multipliers()
         self._pattern_reliability = await _load_pattern_reliability_weights(self._db)
 
-        # Create compacted state topic if needed
-        await self._ensure_state_topic()
+        # 7. Shadow governance: enroll all TIER_I7 plugins, then load cache
+        async with self._db.pool.acquire() as conn:
+            await enroll_all_plugins(conn)
+        await self._load_shadow_cache()
 
         self.logger.info(
             "agent.setup_complete",
@@ -664,39 +618,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             symbols=self._symbols,
             timeframes=self._timeframes,
         )
-
-    async def _ensure_state_topic(self) -> None:
-        """Create the compacted state checkpoint topic if it doesn't exist."""
-        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
-        try:
-            import subprocess
-
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [
-                    "docker",
-                    "exec",
-                    "redpanda",
-                    "rpk",
-                    "topic",
-                    "create",
-                    state_topic,
-                    "--partitions",
-                    str(_STATE_TOPIC_PARTITIONS),
-                    "--replicas",
-                    str(_STATE_TOPIC_REPLICATION),
-                    "--topic-config",
-                    "cleanup.policy=compact",
-                    "--topic-config",
-                    f"retention.ms={_STATE_TOPIC_RETENTION_MS}",
-                ],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode != 0 and b"already exists" not in result.stderr:
-                self.logger.warning("state_topic.create_failed", stderr=result.stderr.decode())
-        except Exception:
-            self.logger.debug("state_topic.create_skipped", reason="rpk unavailable")
 
     async def _seed_bar_history_from_db(self) -> None:
         """Seed BarHistory from intelligence_features (fallback)."""
@@ -708,87 +629,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await seeder.seed(self._bar_history)
         except Exception as exc:
             self.logger.warning("bar_history.seed_failed", error=str(exc))
-
-    # ------------------------------------------------------------------
-    # State checkpoint restore
-    # ------------------------------------------------------------------
-
-    async def _restore_state_checkpoint(self) -> bool:
-        """Consume compacted state topic and restore all five state fields."""
-        state_topic = topic_intelligence_pipeline_state(self.settings.env_name)
-        consumer = None
-        try:
-            consumer = KafkaConsumerClient(
-                state_topic,
-                bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                group_id=f"{self._consumer_group}_state_restore",
-                auto_offset_reset="earliest",
-            )
-            await consumer.start()
-
-            result: list[bool] = [False]
-
-            async def _drain() -> None:
-                async for _topic, key_str, payload in consumer.messages():  # type: ignore[union-attr]
-                    if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
-                        self._state_checkpoint_fallback_total.inc()
-                        continue
-                    if not isinstance(payload, dict):
-                        continue
-                    try:
-                        _ensure_default_models_registered()
-                        state = _untag_value(payload)
-                    except Exception:
-                        self._state_checkpoint_failures_total.inc()
-                        continue
-
-                    parts = key_str.split(":")
-                    if len(parts) != 3:
-                        continue
-                    _, symbol, tf = parts  # noqa: F841
-
-                    if "_plugin_states" in state:
-                        for k, v in state["_plugin_states"].items():
-                            self._plugin_states[_restore_tuple_key(k)] = v
-                    if "_kalman_state" in state:
-                        for k, v in state["_kalman_state"].items():
-                            self._kalman_state[_restore_tuple_key(k)] = v
-                    if "_tod_priors" in state:
-                        for k, v in state["_tod_priors"].items():
-                            self._tod_priors[_restore_tuple_key(k)] = v
-                    if "_bar_history" in state:
-                        for k, v in state["_bar_history"].items():
-                            self._bar_history._data[k] = v
-                    if "_last_bar_offset" in state:
-                        for k, v in state["_last_bar_offset"].items():
-                            self._last_bar_offset[_restore_tuple_key(k)] = v
-                    if "_setup_last_fire" in state:
-                        for k, v in state["_setup_last_fire"].items():
-                            self._setup_last_fire[_restore_tuple_key(k)] = v
-                    result[0] = True
-
-            try:
-                await asyncio.wait_for(_drain(), timeout=5.0)
-            except TimeoutError:
-                pass  # normal — drained all available messages
-
-            restored_any = result[0]
-            if restored_any and self._last_bar_offset:
-                self._state_offset_reset_total.inc()
-                self.logger.info("state.restored", offsets=self._last_bar_offset)
-
-            return restored_any
-
-        except Exception as exc:
-            self.logger.warning("state.restore_failed", error=str(exc))
-            self._state_checkpoint_failures_total.inc()
-            return False
-        finally:
-            if consumer is not None:
-                try:
-                    await consumer.stop()
-                except Exception:
-                    pass
 
     # ------------------------------------------------------------------
     # _run: main event loop
@@ -807,6 +647,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
+            asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task exceptions (swallowed by return_exceptions=True)
@@ -820,6 +661,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_load_cis_weights",
             "_load_calibration_curves",
             "_load_tod_multipliers",
+            "_load_shadow_cache",
         ]
         for name, result in zip(task_names, results):
             if isinstance(result, Exception):
@@ -830,15 +672,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     error_type=type(result).__name__,
                 )
 
-
     async def _teardown(self) -> None:
-        """Drain output queue, close connections."""
+        """Drain output queue, persist hot state, close connections."""
         self._stop_event.set()
         # Wait for output queue to drain (10s timeout)
         try:
             await asyncio.wait_for(self._output_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
+        self._write_local_checkpoint()
         if hasattr(self, "_kafka_consumer"):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
@@ -986,12 +828,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Publish BarIntelligenceRecord to journal (after I7 so ranked_signals are available)
         self._enqueue_intel_journal(bar, intel_event, t0, msg_key, i7_result)
-
-        # 7. State checkpoint (best-effort — non-serializable state is skipped)
-        try:
-            await self._checkpoint_state(bar)
-        except Exception:
-            self._state_checkpoint_failures_total.inc()
 
         self._bars_processed.inc()
 
@@ -1492,16 +1328,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["pre_regime_confidence"] = sig.get("confidence", 0.0)
 
         regime_gated = await apply_regime_gate(
-            quality_gated, features,
-            prob_min=self._regime_prob_min, dur_min=self._regime_dur_min,
-            tf=tf, recorder=self._transform_recorder,
+            quality_gated,
+            features,
+            prob_min=self._regime_prob_min,
+            dur_min=self._regime_dur_min,
+            tf=tf,
+            recorder=self._transform_recorder,
         )
 
         # Regime suppression metric
         for sig in regime_gated:
             if not sig.get("regime_eligible", True):
                 REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
-                    reason="regime_type", plugin=sig.get("setup_plugin", ""), tf=tf,
+                    reason="regime_type",
+                    plugin=sig.get("setup_plugin", ""),
+                    tf=tf,
                 ).inc()
 
         # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
@@ -1522,12 +1363,18 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
         calibrated = await apply_calibration(
-            tod_adjusted, self._calibration_curves, tf,
-            symbol=symbol, recorder=self._transform_recorder,
+            tod_adjusted,
+            self._calibration_curves,
+            tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
         )
         ranked = await rank_signals(
-            calibrated, self._perf_weights, tf,
-            symbol=symbol, recorder=self._transform_recorder,
+            calibrated,
+            self._perf_weights,
+            tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
         )
 
         # Annotate each ranked signal with ledger metadata before publishing
@@ -1539,11 +1386,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["status"] = "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
             # Regime context — regime_type already set from plugin class attribute above
             sig["hmm_regime_at_fire"] = features.get("hmm_regime")
-            # is_shadow: check plugin class attribute via _plugin_cache
-            plugin_inst = self._plugin_cache.get(sig.get("setup_plugin", ""))
-            sig["is_shadow"] = bool(
-                plugin_inst is not None and getattr(plugin_inst, "IS_SHADOW", False)
-            )
+            sig["is_shadow"] = self._is_shadow(sig.get("setup_plugin", ""))
             # Stamp CIS fields (bar-level score, same for all signals in this bar)
             sig["raw_cis_score"] = round(raw_cis, 4)
             sig["filtered_cis_score"] = round(filtered_cis, 4)
@@ -1605,26 +1448,46 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         }
 
     # ------------------------------------------------------------------
-    # State checkpointing
+    # Local file checkpoint (hot indicator state only — bar history from DB)
     # ------------------------------------------------------------------
 
-    async def _checkpoint_state(self, bar: BarMessage) -> None:
-        """Encode current state and enqueue to compacted state topic."""
-        state = {
-            "_plugin_states": self._plugin_states,
-            "_kalman_state": self._kalman_state,
-            "_tod_priors": self._tod_priors,
-            "_bar_history": self._bar_history._data,
-            "_last_bar_offset": self._last_bar_offset,
-            "_setup_last_fire": self._setup_last_fire,
-        }
-        tagged = _tag_value(state)
-        checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
-        self._enqueue(
-            topic_intelligence_pipeline_state(self.settings.env_name),
-            checkpoint_key,
-            tagged,
-        )
+    def _write_local_checkpoint(self) -> None:
+        """Write hot indicator state to local file. Best-effort — never raises."""
+        try:
+            payload: dict = {"version": _AGENT_VERSION, "ts": datetime.now(UTC).isoformat()}
+            for field in _CHECKPOINT_FIELDS:
+                payload[field] = _tag_value(getattr(self, f"_{field}"))
+            tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload))
+            tmp.rename(_CHECKPOINT_PATH)
+            self.logger.info("state.checkpoint_written", path=str(_CHECKPOINT_PATH))
+        except Exception as exc:
+            self.logger.warning("state.checkpoint_write_failed", error=str(exc))
+
+    async def _read_local_checkpoint(self) -> bool:
+        """Restore hot indicator state from local file. Returns True on success."""
+        try:
+            raw_text = _CHECKPOINT_PATH.read_text()
+        except FileNotFoundError:
+            self.logger.info("state.checkpoint_miss — starting fresh")
+            return False
+        try:
+            _ensure_default_models_registered()
+            raw = json.loads(raw_text)
+            if raw.get("version") != _AGENT_VERSION:
+                self.logger.warning("state.checkpoint_version_mismatch", found=raw.get("version"))
+                return False
+            for field in _CHECKPOINT_FIELDS:
+                target = getattr(self, f"_{field}")
+                for k, v in _untag_value(raw.get(field, {})).items():
+                    target[_restore_tuple_key(k)] = v
+            self.logger.info(
+                "state.checkpoint_restored", ts=raw.get("ts"), path=str(_CHECKPOINT_PATH)
+            )
+            return True
+        except Exception as exc:
+            self.logger.warning("state.checkpoint_read_failed", error=str(exc))
+            return False
 
     def _publish_signals_or_dlq(
         self,
@@ -1695,7 +1558,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         winner: dict | None = i7.get("winner")
         i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
 
-        ranked_signals = [_signal_dict_to_ranked(s) for s in ranked_dicts]
+        ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
 
         record = BarIntelligenceRecord(
             intelligence=event,
@@ -1836,6 +1699,17 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
         except Exception as exc:
             self.logger.warning("perf_weights.load_failed", error=str(exc))
+
+    async def _load_shadow_cache(self) -> None:
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT component_name, is_shadow FROM shadow_registry"
+            )
+            self._shadow_cache = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
+        except Exception as exc:
+            self.logger.warning("shadow_cache.load_failed", error=str(exc))
 
     async def _refresh_drift_penalties(self) -> None:
         """Refresh drift penalties from DRIFT_PENALTIES config."""

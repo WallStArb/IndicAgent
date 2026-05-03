@@ -1,5 +1,7 @@
 # Alpha Promotion Protocol: From Swarm (Path B) to Kernel (Path A)
 
+**Last Updated:** 2026-05-02
+
 ## 1. Objective
 To maintain the integrity of our real-time trading kernel by ensuring that only statistically validated, performant, and audit-ready intelligence ("Alphas") are promoted from the experimental swarm (Path B) to the production kernel (Path A).
 

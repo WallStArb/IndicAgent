@@ -13,9 +13,11 @@ from typing import Any
 @dataclass
 class StreamState:
     """Represents a partially accumulated BarIntelligenceRecord."""
+
     sequence_id: str
     tiers: dict[str, Any] = field(default_factory=dict)
     ts: datetime = field(default_factory=lambda: datetime.now(UTC))
+
 
 class StreamMerger:
     """Manages tiered message convergence with in-memory buffering."""
@@ -59,11 +61,13 @@ class StreamMerger:
         now = datetime.now(UTC)
         for seq, state in list(self._buffer.items()):
             if (now - state.ts).total_seconds() >= self._ttl_seconds:
-                expired.append({
-                    "sequence_id": seq,
-                    "tiers": state.tiers,
-                    "is_complete": False,
-                    "missing_tiers": list(self.EXPECTED_TIERS - set(state.tiers.keys()))
-                })
+                expired.append(
+                    {
+                        "sequence_id": seq,
+                        "tiers": state.tiers,
+                        "is_complete": False,
+                        "missing_tiers": list(self.EXPECTED_TIERS - set(state.tiers.keys())),
+                    }
+                )
                 del self._buffer[seq]
         return expired

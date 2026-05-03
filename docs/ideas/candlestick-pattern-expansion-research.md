@@ -1,5 +1,7 @@
 # Candlestick Pattern Expansion Research
 
+**Last Updated:** 2026-05-02
+
 **Created:** 2026-03-03
 **Status:** Research / Pre-implementation
 **Related todo:** `.planning/todos/pending/2026-03-03-expand-i5-candlestickpatterns-and-i7-candlestickpatternsetup-with-additional-high-reliability-patterns.md`

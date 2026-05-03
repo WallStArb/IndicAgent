@@ -1,5 +1,7 @@
 # Configuration Reference
 
+**Last Updated:** 2026-05-02
+
 Settings, environment variables, contracts.
 
 ---

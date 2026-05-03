@@ -86,13 +86,25 @@ def _make_mock_provider_for_stream(instrument: Instrument) -> MagicMock:
     ts1 = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
     ts2 = datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC)
     bar1 = OHLCVBar(
-        symbol=instrument.symbol, timeframe="1m", timestamp=ts1,
-        open=100.0, high=101.0, low=99.0, close=100.5, volume=100,
+        symbol=instrument.symbol,
+        timeframe="1m",
+        timestamp=ts1,
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=100,
         source=SOURCE_IBKR_GENERIC,
     )
     bar2 = OHLCVBar(
-        symbol=instrument.symbol, timeframe="1m", timestamp=ts2,
-        open=100.5, high=101.5, low=99.5, close=101.0, volume=120,
+        symbol=instrument.symbol,
+        timeframe="1m",
+        timestamp=ts2,
+        open=100.5,
+        high=101.5,
+        low=99.5,
+        close=101.0,
+        volume=120,
         source=SOURCE_IBKR_GENERIC,
     )
 
@@ -162,9 +174,7 @@ class TestStreamBars:
 
 class TestFetchHistorical:
     @pytest.mark.asyncio
-    async def test_fetch_historical_returns_list_of_bar_message(
-        self, adapter, instrument_es
-    ):
+    async def test_fetch_historical_returns_list_of_bar_message(self, adapter, instrument_es):
         """fetch_historical must return list[BarMessage]."""
         from src.providers.base import OHLCVBar
 
@@ -184,18 +194,14 @@ class TestFetchHistorical:
 
         start = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
         end = datetime(2026, 3, 28, 15, 0, 0, tzinfo=UTC)
-        result = await adapter.fetch_historical(
-            symbol="ESM6", tf="1m", start=start, end=end
-        )
+        result = await adapter.fetch_historical(symbol="ESM6", tf="1m", start=start, end=end)
 
         assert isinstance(result, list)
         assert len(result) >= 1
         assert isinstance(result[0], BarMessage)
 
     @pytest.mark.asyncio
-    async def test_fetch_historical_source_is_ibkr_named(
-        self, adapter, instrument_es
-    ):
+    async def test_fetch_historical_source_is_ibkr_named(self, adapter, instrument_es):
         """fetch_historical bars must have source == SOURCE_IBKR_NAMED."""
         from src.providers.base import OHLCVBar
 
@@ -215,9 +221,7 @@ class TestFetchHistorical:
 
         start = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
         end = datetime(2026, 3, 28, 15, 0, 0, tzinfo=UTC)
-        result = await adapter.fetch_historical(
-            symbol="ESM6", tf="1m", start=start, end=end
-        )
+        result = await adapter.fetch_historical(symbol="ESM6", tf="1m", start=start, end=end)
 
         assert result[0].source == SOURCE_IBKR_NAMED
 
@@ -229,9 +233,7 @@ class TestFetchHistorical:
 
 class TestQualifyInstrument:
     @pytest.mark.asyncio
-    async def test_qualify_instrument_reads_nested_meta(
-        self, adapter, instrument_vx
-    ):
+    async def test_qualify_instrument_reads_nested_meta(self, adapter, instrument_vx):
         """qualify_instrument must read provider_meta['ibkr']['trading_class']."""
         adapter._provider = MagicMock()
         adapter._provider.qualify_instrument = AsyncMock(return_value=True)
@@ -272,10 +274,8 @@ class TestSettingsNestedProviderMeta:
         from src.config.settings import Settings
 
         settings = Settings()
-        vx = next(
-            (c for c in settings.contracts if c.symbol == "VIX"), None
-        )
+        vx = next((c for c in settings.contracts if c.symbol == "VIX"), None)
         assert vx is not None, "VIX not found in default contracts"
-        assert vx.provider_meta == {"ibkr": {"trading_class": "VX"}}, (
-            f"Expected nested provider_meta, got {vx.provider_meta!r}"
-        )
+        assert vx.provider_meta == {
+            "ibkr": {"trading_class": "VX"}
+        }, f"Expected nested provider_meta, got {vx.provider_meta!r}"

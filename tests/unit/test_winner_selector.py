@@ -65,8 +65,10 @@ class TestCISAggregationNoBoost:
 
     def test_cis_aggregate_no_boost_with_many_agreeing(self):
         """Even with 5 agreeing signals, confidence is not boosted."""
-        signals = [_make_signal(plugin=f"Trend{i}", direction=1, confidence=0.5 + i * 0.05)
-                   for i in range(5)]
+        signals = [
+            _make_signal(plugin=f"Trend{i}", direction=1, confidence=0.5 + i * 0.05)
+            for i in range(5)
+        ]
         cis_result = _make_cis_result(direction=1)
         selected, method = _aggregate_via_cis(signals, cis_result, signals)
 
@@ -207,4 +209,5 @@ class TestSelectWinnerKwarg:
     def test_no_confidence_boost_import(self):
         """_CONFIDENCE_BOOST_PER_AGREE is NOT imported in winner_selector."""
         import src.intelligence.pipeline.winner_selector as ws
+
         assert not hasattr(ws, "_CONFIDENCE_BOOST_PER_AGREE")

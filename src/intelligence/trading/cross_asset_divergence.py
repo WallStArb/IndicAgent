@@ -30,6 +30,7 @@ from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # Spread z-score threshold for signal to fire.
@@ -178,9 +179,7 @@ class CrossAssetDivergencePlugin:
         entry_price = float(df["close"].iloc[-1])
 
         signal_type = (
-            "cross_asset_divergence_long"
-            if direction == 1
-            else "cross_asset_divergence_short"
+            "cross_asset_divergence_long" if direction == 1 else "cross_asset_divergence_short"
         )
         tf = frame_trade(
             setup_type=signal_type,
@@ -192,9 +191,6 @@ class CrossAssetDivergencePlugin:
 
         if not tf.viable:
             return no_signal()
-
-        stop_loss = float(tf.stop)
-        targets = [float(t.price) for t in tf.targets]
 
         # regime_context as str (not dict)
         regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
@@ -214,20 +210,27 @@ class CrossAssetDivergencePlugin:
 
         # exhaustion: not applicable — spike/divergence signals are regime-independent;
         # Phase 49 will learn gate behavior from shadow data
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "confidence": confidence,
-            "entry_price": round(entry_price, 2),
-            "stop_loss": stop_loss,
-            "targets": targets,
-            "regime_context": regime_context,
-            "stop_basis": tf.stop_basis,
-            "setup_variant": setup_variant,
-            "supporting_factors": supporting_factors,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_context,
+            confluence_score=0.0,
+            supporting_factors=supporting_factors,
+            invalidation_conditions=[],
+        )
+        signal["stop_basis"] = tf.stop_basis
+        signal["setup_variant"] = setup_variant
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "microstructure",
+            signal["confidence"],
         )
         return signal
 

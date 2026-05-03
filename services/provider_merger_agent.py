@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ProviderMergerAgent — canonical gateway from raw provider topics to market.bars.
+"""ProviderMergerComputeAgent — canonical gateway from raw provider topics to market.bars.
 
 Subscribes to all configured `market.bars.raw.<provider>` topics.
 Routes bars from the authoritative provider to `market.bars`.
@@ -52,7 +52,7 @@ from src.observability.metrics import (
 )
 
 
-class ProviderMergerAgent(BaseAgent):
+class ProviderMergerComputeAgent(BaseAgent):
     """Canonical gateway agent that routes raw provider bars to market.bars.
 
     Single source of truth for the market.bars topic — all 8 downstream
@@ -70,12 +70,8 @@ class ProviderMergerAgent(BaseAgent):
         self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
             raise ValueError("provider_raw_topics must be non-empty")
-        self._provider_routing_config: dict[str, str] = (
-            self.settings.provider_routing_config
-        )
-        self._provider_silence_bars_threshold: int = (
-            self.settings.provider_silence_bars_threshold
-        )
+        self._provider_routing_config: dict[str, str] = self.settings.provider_routing_config
+        self._provider_silence_bars_threshold: int = self.settings.provider_silence_bars_threshold
 
         # Failover state: symbol -> promoted provider (set on failover, cleared on recovery)
         self._promoted: dict[str, str] = {}
@@ -86,14 +82,12 @@ class ProviderMergerAgent(BaseAgent):
 
         # Cache topic string -> provider name to avoid rsplit on every bar
         self._topic_to_provider: dict[str, str] = {
-            topic_market_bars_raw(self.env_name, p): p
-            for p in self._provider_raw_topics
+            topic_market_bars_raw(self.env_name, p): p for p in self._provider_raw_topics
         }
 
         # Instrument asset_class lookup: symbol -> asset_class string
         self._symbol_to_asset_class: dict[str, str] = {
-            instr.symbol: instr.asset_class.value
-            for instr in self.settings.contracts
+            instr.symbol: instr.asset_class.value for instr in self.settings.contracts
         }
 
         # Pre-cache labeled metric children to avoid dict lookup on every bar
@@ -101,25 +95,16 @@ class ProviderMergerAgent(BaseAgent):
         self._dropped_lbl: dict[str, object] = {}
         self._latency_lbl: dict[str, object] = {}
         for provider in self._provider_raw_topics:
-            self._routed_lbl[provider] = MERGER_BARS_ROUTED_TOTAL.labels(
-                provider=provider
-            )
-            self._dropped_lbl[provider] = MERGER_BARS_DROPPED_TOTAL.labels(
-                provider=provider
-            )
-            self._latency_lbl[provider] = MERGER_BAR_LATENCY_SECONDS.labels(
-                provider=provider
-            )
+            self._routed_lbl[provider] = MERGER_BARS_ROUTED_TOTAL.labels(provider=provider)
+            self._dropped_lbl[provider] = MERGER_BARS_DROPPED_TOTAL.labels(provider=provider)
+            self._latency_lbl[provider] = MERGER_BAR_LATENCY_SECONDS.labels(provider=provider)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
 
     @property
     def topics_consumed(self) -> list[str]:
-        return [
-            topic_market_bars_raw(self.env_name, p)
-            for p in self._provider_raw_topics
-        ]
+        return [topic_market_bars_raw(self.env_name, p) for p in self._provider_raw_topics]
 
     @property
     def topics_produced(self) -> list[str]:
@@ -353,4 +338,4 @@ class ProviderMergerAgent(BaseAgent):
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(ProviderMergerAgent().start())
+    asyncio.run(ProviderMergerComputeAgent().start())

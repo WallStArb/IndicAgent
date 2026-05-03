@@ -11,6 +11,7 @@ from typing import Any
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _SPIKE_THRESHOLD: float = 2.0
@@ -21,6 +22,7 @@ def detect_spike_signal(
     spike_feature_key: str,
     signal_name_prefix: str,
     min_lookback: int = 20,
+    setup_plugin: str = "",
 ) -> dict[str, Any]:
     """Detect microstructure spike signals (OFI or CVD).
 
@@ -32,6 +34,7 @@ def detect_spike_signal(
         spike_feature_key: Feature key to check ("ofi_spike_z" or "cvd_spike_z")
         signal_name_prefix: Prefix for signal_type ("ofi_spike" or "cvd_spike")
         min_lookback: Minimum bars required (default 20)
+        setup_plugin: Plugin name for signal attribution
 
     Returns:
         Signal dict with standard I7 outputs, or empty dict if no signal
@@ -69,9 +72,6 @@ def detect_spike_signal(
     if not tf.viable:
         return no_signal()
 
-    stop_loss = tf.stop
-    targets = [t.price for t in tf.targets]
-
     hmm_regime = features.get("hmm_regime")
     regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
     supporting: list[str] = [
@@ -80,17 +80,21 @@ def detect_spike_signal(
 
     # Exhaustion not applicable — spike signals are regime-independent;
     # Phase 49 will learn gate behavior from shadow data
-    signal = {
-        "signal_type": sig_type,
-        "direction": direction,
-        "entry_price": round(entry, 2),
-        "stop_loss": float(stop_loss),
-        "targets": [float(t) for t in targets],
-        "confidence": confidence,
-        "regime_context": regime_context,
-        "supporting_factors": supporting,
-    }
-    signal["_shadow"] = capture_signal_features(
+    signal = make_signal_from_frame(
+        tf,
+        symbol=frames.get("symbol", ""),
+        timeframe=features.get("timeframe", ""),
+        timestamp=features.get("timestamp", ""),
+        signal_type=sig_type,
+        setup_plugin=setup_plugin,
+        direction=direction,
+        confidence=confidence,
+        regime_context=regime_context,
+        confluence_score=0.0,
+        supporting_factors=supporting,
+        invalidation_conditions=[],
+    )
+    signal["features_snapshot"] = capture_signal_features(
         features, direction, "microstructure", signal["confidence"]
     )
     return signal

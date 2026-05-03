@@ -8,6 +8,8 @@ date: 2026-04-10
 
 # Pipeline Health Fixes — Design
 
+**Last Updated:** 2026-05-02
+
 Fix the three critical blockers identified in the 2026-04-10 pipeline health audit by applying existing architectural patterns. No new patterns invented.
 
 ## Problem

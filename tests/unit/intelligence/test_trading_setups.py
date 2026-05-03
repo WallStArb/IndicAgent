@@ -1183,28 +1183,34 @@ class TestHMMGradientContinuity:
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = SupplyDemandSetupPlugin()
         r_70 = plugin.compute_full(
-            {"main": df, "features": {
-                "in_demand_zone": 1.0,
-                "in_supply_zone": 0.0,
-                "demand_freshness": 0.70,
-                "demand_strength": 0.5,
-                "nearest_demand_high": 5010.0,
-                "nearest_demand_low": 4990.0,
-                "atr_14": 10.0,
-                "price_in_premium": 0.0,
-            }}
+            {
+                "main": df,
+                "features": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+            }
         )
         r_60 = plugin.compute_full(
-            {"main": df, "features": {
-                "in_demand_zone": 1.0,
-                "in_supply_zone": 0.0,
-                "demand_freshness": 0.60,
-                "demand_strength": 0.5,
-                "nearest_demand_high": 5010.0,
-                "nearest_demand_low": 4990.0,
-                "atr_14": 10.0,
-                "price_in_premium": 0.0,
-            }}
+            {
+                "main": df,
+                "features": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+            }
         )
         if r_70.get("direction") == 1 and r_60.get("direction") == 1:
             # Higher freshness should produce higher confidence
@@ -1228,10 +1234,26 @@ class TestHMMGradientContinuity:
         }
         plugin = MomentumBreakoutPlugin()
         r_high = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_trending_up": 0.9, "hmm_prob_trending_down": 0.05, "hmm_prob_ranging": 0.05}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+            }
         )
         r_mid = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_trending_up": 0.5, "hmm_prob_trending_down": 0.3, "hmm_prob_ranging": 0.2}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+            }
         )
         if r_high.get("direction") == 1 and r_mid.get("direction") == 1:
             # Higher trending probability should give higher confidence
@@ -1242,8 +1264,10 @@ class TestHMMGradientContinuity:
         from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
 
         close = np.concatenate(
-            [np.full(80, 5050.0) + np.random.default_rng(30).normal(0, 2, 80),
-             np.linspace(5055, 5090, 20)]
+            [
+                np.full(80, 5050.0) + np.random.default_rng(30).normal(0, 2, 80),
+                np.linspace(5055, 5090, 20),
+            ]
         )
         volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
         df = make_ohlcv(close, volume)
@@ -1284,10 +1308,26 @@ class TestHMMGradientContinuity:
             "atr_14": 10.0,
         }
         r_strong = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_trending_up": 0.9, "hmm_prob_trending_down": 0.05, "hmm_prob_ranging": 0.05}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+            }
         )
         r_weak = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_trending_up": 0.2, "hmm_prob_trending_down": 0.5, "hmm_prob_ranging": 0.3}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+            }
         )
         if r_strong.get("direction") == 1 and r_weak.get("direction") == 1:
             assert r_strong["confidence"] > r_weak["confidence"]
@@ -1307,15 +1347,34 @@ class TestHMMGradientContinuity:
         }
         # Close near PDH = fade variant
         r_ranging = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_ranging": 0.9, "hmm_prob_trending_up": 0.05, "hmm_prob_trending_down": 0.05}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+            }
         )
         r_trending = plugin.compute_full(
-            {"main": df, "features": {**base, "hmm_prob_ranging": 0.1, "hmm_prob_trending_up": 0.6, "hmm_prob_trending_down": 0.3}}
+            {
+                "main": df,
+                "features": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+            }
         )
         # Both should produce signals (near PDH)
         # Fade variant: ranging boosts, trending penalises
         if r_ranging.get("direction") and r_trending.get("direction"):
-            if r_ranging.get("setup_variant") == "fade" and r_trending.get("setup_variant") == "fade":
+            if (
+                r_ranging.get("setup_variant") == "fade"
+                and r_trending.get("setup_variant") == "fade"
+            ):
                 assert r_ranging["confidence"] > r_trending["confidence"]
 
     def test_second_leg_untouched(self):
@@ -1327,13 +1386,16 @@ class TestHMMGradientContinuity:
         plugin = SecondLegContinuationPlugin()
         # Ranging regime (hmm_regime=0) → should return no signal (eligibility gate)
         result = plugin.compute_full(
-            {"main": df, "features": {
-                "hmm_regime": 0.0,
-                "hmm_regime_prob": 0.9,
-                "atr_14": 10.0,
-                "swing_pattern": 1.0,
-                "trend_regime": 0.5,
-            }}
+            {
+                "main": df,
+                "features": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+            }
         )
         assert result.get("signal_type", "none") == "none" or result.get("direction", 0) == 0
 
@@ -1346,10 +1408,13 @@ class TestHMMGradientContinuity:
         plugin = VCPPlugin()
         # Ranging regime (hmm_regime=0) → should return no signal (eligibility gate)
         result = plugin.compute_full(
-            {"main": df, "features": {
-                "hmm_regime": 0.0,
-                "hmm_regime_prob": 0.9,
-                "atr_14": 10.0,
-            }}
+            {
+                "main": df,
+                "features": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+            }
         )
         assert result.get("signal_type", "none") == "none" or result.get("direction", 0) == 0

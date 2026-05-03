@@ -8,6 +8,7 @@ are skipped by the WHERE clause.
 Usage:
     .venv/bin/python production/scripts/repair_cis_nulls.py [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,7 +53,10 @@ async def _repair_chunk(
               AND sl.feature_ts >= $3 AND sl.feature_ts < $4
               AND sl.raw_cis_score IS NULL
             """,
-            symbol, tf, day_start, day_end,
+            symbol,
+            tf,
+            day_start,
+            day_end,
         )
         return count or 0
 
@@ -74,7 +78,10 @@ async def _repair_chunk(
           AND inff.i7 IS NOT NULL
           AND inff.i7 ? 'raw_cis_score'
         """,
-        symbol, tf, day_start, day_end,
+        symbol,
+        tf,
+        day_start,
+        day_end,
     )
     # asyncpg returns "UPDATE N" — parse the integer
     if not result:
@@ -120,12 +127,8 @@ async def _amain(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Back-fill CIS null scores in signal_ledger"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Count rows without updating"
-    )
+    parser = argparse.ArgumentParser(description="Back-fill CIS null scores in signal_ledger")
+    parser.add_argument("--dry-run", action="store_true", help="Count rows without updating")
     args = parser.parse_args()
     asyncio.run(_amain(args))
 

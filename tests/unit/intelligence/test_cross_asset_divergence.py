@@ -687,7 +687,9 @@ class TestSupportingFactors:
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
         assert isinstance(sf, list), f"supporting_factors must be list, got {type(sf)}"
-        assert any("active_pair=ES_NQ" in s for s in sf), f"active_pair not in supporting_factors: {sf}"
+        assert any(
+            "active_pair=ES_NQ" in s for s in sf
+        ), f"active_pair not in supporting_factors: {sf}"
 
     def test_supporting_factors_includes_spread_z_values(self):
         # supporting_factors is now a list[str] (standardized in 44-04)
@@ -721,7 +723,9 @@ class TestSupportingFactors:
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
         assert isinstance(sf, list), f"supporting_factors must be list, got {type(sf)}"
-        assert any("pairs_confirming=2" in s for s in sf), f"pairs_confirming not in supporting_factors: {sf}"
+        assert any(
+            "pairs_confirming=2" in s for s in sf
+        ), f"pairs_confirming not in supporting_factors: {sf}"
 
 
 # ---------------------------------------------------------------------------

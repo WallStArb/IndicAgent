@@ -1,22 +1,34 @@
-"""TransformRecorder — async batch writer for signal_transform_log.
+"""ARCHIVED in Phase 78 (D-04). TransformRecorder is preserved for historical reference only.
 
+After Phase 78 the swarm writes via src.core.ai.lineage.LineageRecorder. Do NOT import
+this module from production code. The class body below is retained verbatim so that
+historical migrations and tests can still inspect the old contract.
+
+Original purpose: async batch writer for signal_transform_log.
 Called by each pipeline transform stage (quality_gate, regime_gate, tod_adjuster,
 calibrator, ranker) and swarm agents (skeptic, correlation, volume).
 Zero per-transform boilerplate: just call await recorder.record(...).
 Batched writes with configurable size + flush interval via asyncio.
-
 Mirrors ShadowRecorder pattern exactly (src/core/ml/shadow.py).
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-from datetime import UTC, datetime
-from typing import Any
-from uuid import UUID
+import warnings
 
-import structlog
+warnings.warn(
+    "TransformRecorder is archived (Phase 78 D-04). Use LineageRecorder.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+import asyncio  # noqa: E402
+import json  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+from typing import Any  # noqa: E402
+from uuid import UUID  # noqa: E402
+
+import structlog  # noqa: E402
 
 logger = structlog.get_logger(__name__)
 

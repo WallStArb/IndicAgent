@@ -1,5 +1,7 @@
 # Pipeline Health Fixes — Implementation Plan
 
+**Last Updated:** 2026-05-02
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Unblock the signal tracker (decompression, orphans) and separate compute from persistence following the DAG pattern.

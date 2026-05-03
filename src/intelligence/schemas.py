@@ -19,11 +19,12 @@ Field names are extracted from each plugin's outputs frozenset — no guesswork.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
-from typing import Any, Literal
-from uuid import UUID
+from typing import Literal
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from src.core.schemas.bar_message import SessionType
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
@@ -786,7 +787,9 @@ class I6Confluence(BaseModel):
     # CrossTFRegimeAgreement: HMM regime agreement across TFs
     # NOTE: named ctf_hmm_regime_* to avoid conflict with ctf_regime_agreement
     # (CrossTimeframeConfluencePlugin) which scores regime consensus differently
-    ctf_hmm_regime_agreement: float | None = None  # [-1, +1] HMM regime agreement (+trending/-ranging)
+    ctf_hmm_regime_agreement: float | None = (
+        None  # [-1, +1] HMM regime agreement (+trending/-ranging)
+    )
     # Label: all_trending/all_ranging/mostly_trending/mostly_ranging/mixed
     ctf_hmm_regime_label: str | None = None
 
@@ -867,6 +870,47 @@ class RankedSignal(BaseModel):
     is_winner: bool = False
 
 
+# Fields consumed by explicit kwargs in signal_dict_to_ranked — excluded from **extras.
+_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "setup_plugin",
+        "direction",
+        "pre_quality_confidence",
+        "confidence",
+        "calibrated_confidence",
+        "regime_eligible",
+        "quality_score",
+        "tod_multiplier",
+        "adjusted_rank",
+        "was_selected",
+    }
+)
+
+
+def signal_dict_to_ranked(sig: dict) -> RankedSignal:
+    """Map a raw pipeline signal dict to RankedSignal, translating field names.
+
+    Key renames: setup_plugin→plugin, pre_quality_confidence→raw_confidence,
+    was_selected→is_winner. calibrated_confidence falls back to confidence when absent.
+    All other keys pass through via extra="allow".
+    """
+    _cc = sig.get("calibrated_confidence")
+    return RankedSignal(
+        signal_id=str(sig.get("signal_id") or uuid4()),
+        plugin=sig.get("setup_plugin", "unknown"),
+        direction=int(sig.get("direction", 0)),
+        raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
+        calibrated_confidence=float(_cc if _cc is not None else sig.get("confidence", 0.0)),
+        regime_eligible=bool(sig.get("regime_eligible", True)),
+        quality_score=float(sig.get("quality_score", 1.0)),
+        tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
+        adjusted_rank=float(sig.get("adjusted_rank", 0.0)),
+        is_winner=bool(sig.get("was_selected", False)),
+        **{k: v for k, v in sig.items() if k not in _RANKED_CONSUMED_KEYS},
+    )
+
+
 class BarIntelligenceRecord(BaseModel):
     """Atomic record of a single bar's full intelligence pipeline output.
 
@@ -895,55 +939,6 @@ class BarIntelligenceRecord(BaseModel):
     pipeline_latency_ms: float
 
 
-# ---------------------------------------------------------------------------
-# Alpha Multiplier — swarm / I8 shadow layer
-# Moved here from src/intelligence/schemas/alpha_multiplier.py to avoid
-# the Python namespace collision (schemas.py vs schemas/ package).
-# ---------------------------------------------------------------------------
-
-MIN_MULTIPLIER: float = 0.0
-MAX_MULTIPLIER: float = 2.0
-
-
-class AgentResult(BaseModel):
-    """Result from a single swarm agent. Immutable."""
-
-    model_config = ConfigDict(frozen=True)
-
-    agent_id: str
-    path: Literal["deterministic", "llm_swarm"]
-    multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    shadow_only: bool = True
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    latency_ms: float = 0.0
-    error: str | None = None
-
-
-class AlphaMultiplier(BaseModel):
-    """Assembled alpha multiplier for a signal. Published to swarm.alpha.* topics."""
-
-    model_config = ConfigDict(frozen=True)
-
-    signal_id: UUID
-    symbol: str
-    timeframe: str
-    ts: datetime
-
-    path_a_multiplier: float | None
-    path_b_multiplier: float | None
-    path_b_discount: float = 0.3
-
-    contributors: dict[str, Any]  # AgentOutput.model_dump() — untyped at schema level
-    final_alpha_multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
-    production_multiplier: float
-    shadow_only: bool
-
-    @property
-    def is_production_ready(self) -> bool:
-        """Returns True only when all contributors are production-ready (not shadow-only)."""
-        return not self.shadow_only
-
 class MacroSignals(BaseModel):
     """Macro factor signals from MacroComputeAgent.
 
@@ -970,3 +965,22 @@ class MacroSignals(BaseModel):
     # usd_strength_score: float | None = None
     # usd_strength_regime: str | None = None
 
+
+@dataclasses.dataclass
+class ShadowTransitionEvent:
+    """Published to topic_shadow_transitions on any promotion or demotion.
+
+    Fields match shadow_transition_log columns for easy DB audit correlation.
+    triggered_at is UTC ISO-8601 string with Z suffix (e.g., '2026-04-28T12:00:00.000Z').
+    """
+
+    component_name: str
+    component_type: str  # 'i7_plugin' | 'swarm_agent'
+    from_state: str  # 'shadow' | 'live'
+    to_state: str  # 'shadow' | 'live'
+    trigger_reason: str  # 'promotion_gate_cleared' | 'demotion_ev_r_degraded'
+    n: int
+    ev_r: float
+    ci_lower: float
+    win_rate: float
+    triggered_at: str  # UTC ISO-8601 with Z suffix

@@ -166,7 +166,6 @@ class SignalMetricsComputeAgent(BaseAgent):
             tick_sizes=len(self._tick_sizes),
         )
 
-
     async def _teardown(self) -> None:
         """Stop producer and close DB pool."""
         if self._producer is not None:

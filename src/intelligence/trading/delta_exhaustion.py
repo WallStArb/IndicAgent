@@ -19,6 +19,7 @@ from ..plugins import InputSpec
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
@@ -107,9 +108,6 @@ class DeltaExhaustionPlugin:
         if not tf.viable:
             return no_signal()
 
-        stop_loss = tf.stop
-        targets = [t.price for t in tf.targets]
-
         hmm_regime = features.get("hmm_regime")
         regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
@@ -120,18 +118,25 @@ class DeltaExhaustionPlugin:
         ]
 
         # exempt from exhaustion shadow: this plugin IS the exhaustion detector (D-09)
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": float(stop_loss),
-            "targets": [float(t) for t in targets],
-            "confidence": confidence,
-            "regime_context": regime_context,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "exempt_exhaustion", signal["confidence"],
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=sig_type,
+            setup_plugin="trad_DeltaExhaustion",
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_context,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
+        signal["features_snapshot"] = capture_signal_features(
+            features,
+            direction,
+            "exempt_exhaustion",
+            signal["confidence"],
         )
         return signal
 

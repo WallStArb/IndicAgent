@@ -55,11 +55,11 @@ class PluginRegistry:
     def register_pattern(self, plugin: PatternPlugin) -> None:
         self.patterns[plugin.name] = plugin
 
-    def get_indicator(self, name: str) -> IndicatorPlugin:
-        return self.indicators[name]
+    def get_indicator(self, name: str) -> IndicatorPlugin | None:
+        return self.indicators.get(name)
 
-    def get_pattern(self, name: str) -> PatternPlugin:
-        return self.patterns[name]
+    def get_pattern(self, name: str) -> PatternPlugin | None:
+        return self.patterns.get(name)
 
     def list_indicators(self) -> list[str]:
         return list(self.indicators.keys())
@@ -94,7 +94,7 @@ class PluginRegistry:
                     raise ValueError(
                         f"I7 plugin '{name}' missing regime_type declaration. "
                         f"Add: regime_type: ClassVar[str] = "
-                        f"\"trend\" | \"mean_reversion\" | \"any\""
+                        f'"trend" | "mean_reversion" | "any"'
                     )
                 regime = plugin.regime_type
                 if regime not in valid_regimes:

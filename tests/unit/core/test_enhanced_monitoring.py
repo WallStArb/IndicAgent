@@ -219,9 +219,7 @@ class TestPluginCircuitBreaker:
 
         # First two should fail and use fallback
         for _ in range(2):
-            result = await cb.execute_with_fallback(
-                "UNRELIABLE", unreliable_plugin, fallback
-            )
+            result = await cb.execute_with_fallback("UNRELIABLE", unreliable_plugin, fallback)
             results.append(result)
 
         # Circuit should be open now
@@ -231,9 +229,7 @@ class TestPluginCircuitBreaker:
         await asyncio.sleep(1.1)
 
         # Next execution should recover
-        result = await cb.execute_with_fallback(
-            "UNRELIABLE", unreliable_plugin, fallback
-        )
+        result = await cb.execute_with_fallback("UNRELIABLE", unreliable_plugin, fallback)
         results.append(result)
 
         # Verify results

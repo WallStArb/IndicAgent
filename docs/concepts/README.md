@@ -1,5 +1,7 @@
 # Concepts — Architectural Deep Dives
 
+**Last Updated:** 2026-05-02
+
 Understand the architectural decisions and design patterns.
 
 ---

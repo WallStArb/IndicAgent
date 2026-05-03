@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTrackerCompute
+from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_succeeds_on_first_attempt():
     """Bootstrap loads 3 signals on first DB attempt."""
-    agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
+    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
@@ -87,9 +87,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
         else:
             return mock_rows  # Return all 3 signal rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -111,7 +109,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
 @pytest.mark.asyncio
 async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
     """Bootstrap retries 3 times when DB returns empty but ledger has rows."""
-    agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
+    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
@@ -172,9 +170,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
         else:
             return mock_rows  # Return rows on 3rd call
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -188,15 +184,13 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
         assert "sig1" in agent._signal_ids
         assert "sig2" in agent._signal_ids
         # Verify retry happened (check log calls)
-        assert any(
-            "bootstrap_empty_retry" in str(call) for call in agent.logger.method_calls
-        )
+        assert any("bootstrap_empty_retry" in str(call) for call in agent.logger.method_calls)
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_succeeds_immediately_on_empty_ledger():
     """Bootstrap completes immediately when ledger is provably empty."""
-    agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
+    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
@@ -217,9 +211,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
         else:
             return []  # No rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -232,15 +224,13 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
         assert len(agent._signal_ids) == 0
         assert len(agent._active_symbols) == 0
         # Should not log retry warnings
-        assert not any(
-            "bootstrap_retry" in str(call) for call in agent.logger.method_calls
-        )
+        assert not any("bootstrap_retry" in str(call) for call in agent.logger.method_calls)
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_exhausted_publishes_health_event():
     """Bootstrap publishes health event after 3 failed attempts."""
-    agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
+    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
@@ -259,9 +249,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
         else:
             return []  # But query always returns empty
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute
@@ -291,7 +279,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
     # sd_notify before _bootstrap_active_signals completes.
     # The actual implementation moves READY=1 to after bootstrap in _setup().
 
-    agent = SignalTrackerCompute.__new__(SignalTrackerCompute)
+    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()
@@ -332,9 +320,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
         else:
             return mock_rows
 
-    with patch(
-        "services.signal_tracker_compute_agent.DatabaseManager"
-    ) as mock_db_cls:
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
         mock_db = AsyncMock()
         mock_db.initialize = AsyncMock()
         mock_db.execute_query = mock_execute

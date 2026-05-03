@@ -1,7 +1,6 @@
 [Unit]
 Description=IndicAgent Signal Metrics Writer Agent — persists signal metrics events to DB
-Requires=indicagent-redpanda-ready.service
-After=network-online.target indicagent-redpanda-ready.service
+After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5

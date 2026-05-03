@@ -59,10 +59,7 @@ class ProcessManifest:
 
     def health(self) -> dict:
         """Per-agent health snapshot. Suitable for a /health HTTP endpoint."""
-        return {
-            name: {"running": agent.running}
-            for name, agent in self._agents.items()
-        }
+        return {name: {"running": agent.running} for name, agent in self._agents.items()}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 

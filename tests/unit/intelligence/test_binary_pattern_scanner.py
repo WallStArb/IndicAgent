@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ def _find_python(root: Path) -> Path:
         candidate = parent / ".venv" / "bin" / "python"
         if candidate.is_file():
             return candidate
-    raise FileNotFoundError(f"Cannot find .venv/bin/python from {root}")
+    return Path(sys.executable)
 
 
 def test_zero_binary_violations():

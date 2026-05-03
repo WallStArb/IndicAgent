@@ -1,0 +1,13 @@
+[Unit]
+Description=IndicAgent Shadow Governance Auditor
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/shadow_auditor_agent.py
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+
+[Install]
+WantedBy=multi-user.target

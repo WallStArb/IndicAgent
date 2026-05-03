@@ -15,6 +15,7 @@ from src.intelligence.utils.common import (
 
 # --- import path ---
 
+
 def test_import_from_utils_common():
     """Import succeeds from the new tier-agnostic path."""
     from src.intelligence.utils.common import (  # noqa: F401
@@ -26,6 +27,7 @@ def test_import_from_utils_common():
 
 
 # --- is_num ---
+
 
 def test_is_num_int():
     assert is_num(1) is True
@@ -52,6 +54,7 @@ def test_is_num_zero():
 
 
 # --- crossover_detect ---
+
 
 def test_crossover_detect_bullish():
     """a crosses above b from below."""
@@ -80,6 +83,7 @@ def test_crossover_detect_non_numeric():
 
 # --- threshold_cross ---
 
+
 def test_threshold_cross_up():
     assert threshold_cross(0.9, 1.1, 1.0, "up") == 1
 
@@ -101,6 +105,7 @@ def test_threshold_cross_non_numeric():
 
 
 # --- track_bars_ago ---
+
 
 def test_track_bars_ago_event():
     state: dict = {}

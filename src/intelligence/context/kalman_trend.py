@@ -9,7 +9,7 @@ import numpy as np
 
 from ..plugins import InputSpec
 
-_CONFIG_PATH = Path("config/kalman_parameters.json")
+_CONFIG_PATH = Path(__file__).resolve().parents[3] / "src" / "config" / "kalman_parameters.json"
 
 # Scale factor for converting garch_sigma (log-return units) to price-unit R.
 # garch_sigma is typically 0.001–0.02; squaring and scaling maps to R range 0.1–40.

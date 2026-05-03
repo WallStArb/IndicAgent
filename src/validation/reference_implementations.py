@@ -5,7 +5,6 @@ Use these to validate production code is mathematically correct.
 All implementations follow original paper formulas exactly.
 """
 
-
 import numpy as np
 
 
@@ -48,12 +47,14 @@ def rsi_reference(prices: list[float], period: int = 14) -> np.ndarray:
 
     # First `period` values are undefined (warmup)
     result = np.full(len(prices), np.nan)
-    result[period:] = rsi[period - 1:]
+    result[period:] = rsi[period - 1 :]
 
     return result
 
 
-def macd_reference(prices: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, np.ndarray]:
+def macd_reference(
+    prices: list[float], fast: int = 12, slow: int = 26, signal: int = 9
+) -> dict[str, np.ndarray]:
     """
     Reference MACD implementation.
 
@@ -96,7 +97,9 @@ def macd_reference(prices: list[float], fast: int = 12, slow: int = 26, signal: 
     }
 
 
-def atr_reference(high: list[float], low: list[float], close: list[float], period: int = 14) -> np.ndarray:
+def atr_reference(
+    high: list[float], low: list[float], close: list[float], period: int = 14
+) -> np.ndarray:
     """
     Reference ATR implementation (Wilder's smoothing).
 
@@ -133,12 +136,14 @@ def atr_reference(high: list[float], low: list[float], close: list[float], perio
 
     # First `period` values are undefined (need `period` bars for first ATR)
     result = np.full(len(close), np.nan)
-    result[period:] = atr[period - 1:-1]  # Shift by 1: first ATR at index `period`
+    result[period:] = atr[period - 1 : -1]  # Shift by 1: first ATR at index `period`
 
     return result
 
 
-def vwap_reference(high: list[float], low: list[float], close: list[float], volume: list[float]) -> np.ndarray:
+def vwap_reference(
+    high: list[float], low: list[float], close: list[float], volume: list[float]
+) -> np.ndarray:
     """
     Reference VWAP implementation.
 
@@ -195,7 +200,7 @@ def volatility_reference(prices: list[float], period: int = 20) -> np.ndarray:
     volatility = np.full(len(prices), np.nan)
 
     for i in range(period, len(prices)):
-        window = returns[i - period:i]
+        window = returns[i - period : i]
         volatility[i] = np.std(window) * np.sqrt(252)
 
     return volatility

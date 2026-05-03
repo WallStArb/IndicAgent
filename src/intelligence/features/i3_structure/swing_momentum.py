@@ -99,9 +99,7 @@ class SwingMomentumPlugin:
         )
 
         swing_amplitude_intensity = (
-            linear_ramp(amplitude_ratio, 1.0, 2.0)
-            if swing_amplitude_expanding == 1
-            else 0.0
+            linear_ramp(amplitude_ratio, 1.0, 2.0) if swing_amplitude_expanding == 1 else 0.0
         )
 
         # --- Velocity outputs -----------------------------------------

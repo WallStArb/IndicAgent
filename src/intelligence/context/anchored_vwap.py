@@ -113,9 +113,7 @@ class AnchoredVWAPPlugin:
             if swing_std > 0:
                 swing_vwap_upper_band: float | None = swing_vwap + 2.0 * swing_std
                 swing_vwap_lower_band: float | None = swing_vwap - 2.0 * swing_std
-                swing_vwap_deviation_sigma: float | None = (
-                    current_close - swing_vwap
-                ) / swing_std
+                swing_vwap_deviation_sigma: float | None = (current_close - swing_vwap) / swing_std
             else:
                 swing_vwap_upper_band = swing_vwap
                 swing_vwap_lower_band = swing_vwap
@@ -163,9 +161,7 @@ class AnchoredVWAPPlugin:
         prev_sigmas = self._state.get(key, {}).get("prev_sigmas", [])
         prev_sigmas = (prev_sigmas + [session_vwap_deviation_sigma])[-3:]
         session_vwap_deviation_velocity = (
-            (prev_sigmas[-1] - prev_sigmas[0]) / len(prev_sigmas)
-            if len(prev_sigmas) > 1
-            else 0.0
+            (prev_sigmas[-1] - prev_sigmas[0]) / len(prev_sigmas) if len(prev_sigmas) > 1 else 0.0
         )
         self._state[key] = {"prev_sigmas": prev_sigmas}
 

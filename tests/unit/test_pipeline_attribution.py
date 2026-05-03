@@ -3,7 +3,7 @@
 Verifies:
 - pre_quality_confidence >= pre_calibration_confidence >= calibrated_confidence
 - Edge case: confidence 0.0 satisfies invariant
-- LedgerEntry includes both attribution fields in 60-element tuple
+- LedgerEntry includes both attribution fields in 64-element tuple
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from src.persistence.repository.signal_ledger_repository import LedgerEntry
 # ---------------------------------------------------------------------------
 
 
-def _apply_stage_reduction(signals: list[dict], quality_factor: float = 0.9,
-                           calibration_factor: float = 0.8) -> list[dict]:
+def _apply_stage_reduction(
+    signals: list[dict], quality_factor: float = 0.9, calibration_factor: float = 0.8
+) -> list[dict]:
     """Simulate pipeline stages that reduce confidence.
 
     Mirrors the production pipeline:
@@ -65,7 +66,7 @@ class TestAttributionInvariant:
         assert sig["calibrated_confidence"] == 0.0
 
     def test_attribution_fields_on_ledger_entry(self) -> None:
-        """LedgerEntry with attribution fields returns 60-element tuple."""
+        """LedgerEntry with attribution fields returns 64-element tuple."""
         entry = LedgerEntry(
             signal_id="test-123",
             timestamp=datetime.now(UTC),
@@ -91,6 +92,6 @@ class TestAttributionInvariant:
             pre_calibration_confidence=0.68,
         )
         params = entry.to_insert_params()
-        assert len(params) == 60, f"Expected 60 params, got {len(params)}"
+        assert len(params) == 64, f"Expected 64 params, got {len(params)}"
         assert params[58] == 0.80, "pre_quality_confidence should be $59 (index 58)"
         assert params[59] == 0.68, "pre_calibration_confidence should be $60 (index 59)"

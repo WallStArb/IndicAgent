@@ -5,6 +5,7 @@ No I/O, no LLM calls, no Kafka — fully testable without infrastructure.
 
 TODO: Update to accept AIContext instead of BarIntelligenceRecord (future plan).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

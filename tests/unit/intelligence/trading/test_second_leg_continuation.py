@@ -36,9 +36,11 @@ def _base_features(**kwargs):
 
 # ─── Guard tests ────────────────────────────────────────────────────────────
 
+
 def test_no_signal_in_ranging_regime():
     """hmm_regime=0.0 (ranging) -> no_signal (regime gate)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
     features = _base_features(hmm_regime=0.0)
@@ -50,6 +52,7 @@ def test_no_signal_in_ranging_regime():
 def test_no_signal_when_amplitude_below_atr():
     """swing_high - swing_low < atr_14 -> no_signal (amplitude gate)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5005.0)
     # amplitude=10, atr=50 -> amplitude < 1.0*atr
@@ -66,6 +69,7 @@ def test_no_signal_when_amplitude_below_atr():
 def test_no_signal_when_swing_data_missing():
     """swing_high=None -> no_signal (guard for missing data)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
     features = _base_features(swing_high=None, swing_low=None)
@@ -76,6 +80,7 @@ def test_no_signal_when_swing_data_missing():
 def test_no_signal_when_stale_swing():
     """swing_high_age_bars > 50 AND swing_low_age_bars > 50 -> no_signal (stale data)."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     close = np.full(60, 5050.0)
     features = _base_features(swing_high_age_bars=60.0, swing_low_age_bars=55.0)
@@ -86,6 +91,7 @@ def test_no_signal_when_stale_swing():
 def test_no_signal_when_price_outside_fib_zone():
     """close above 61.8% retracement (already past ideal zone) -> no_signal."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     # swing_high=5100, swing_low=5000, amplitude=100
     # 38.2% retracement from high = 5100 - 0.382*100 = 5061.8
@@ -106,6 +112,7 @@ def test_no_signal_when_price_outside_fib_zone():
 def test_no_signal_insufficient_lookback():
     """len(df) < min_lookback -> empty dict."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     close = np.full(5, 5050.0)
     result = plugin.compute_full(_make_frames(close, _base_features()))
@@ -114,9 +121,11 @@ def test_no_signal_insufficient_lookback():
 
 # ─── Fire tests ─────────────────────────────────────────────────────────────
 
+
 def test_fires_in_fib_zone_long():
     """close at 50% retracement (5050), swing_high=5100, swing_low=5000, hmm_regime=1.0 -> direction=1."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     # 50% retracement is midpoint: (5100+5000)/2 = 5050
     # This is within the 38.2%-61.8% fib zone (5038.2-5061.8)
@@ -139,6 +148,7 @@ def test_fires_in_fib_zone_long():
 def test_fires_in_fib_zone_short():
     """close in upper fib zone, hmm_regime=2.0 -> direction=-1."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     # For bearish: swing_high=5100 (peak of downward leg 1), swing_low=5000
     # For short: retracement is upward; fib zone between 5038.2 and 5061.8 from below
@@ -160,9 +170,11 @@ def test_fires_in_fib_zone_short():
 
 # ─── Target accuracy test ───────────────────────────────────────────────────
 
+
 def test_targets_match_measured_move():
     """Targets should approximate entry + 1.0x, 1.272x, 1.618x amplitude."""
     from src.intelligence.trading.second_leg_continuation import SecondLegContinuationPlugin
+
     plugin = SecondLegContinuationPlugin()
     # swing_high=5100, swing_low=5000, amplitude=100
     # Entry = fib_50 = 5050. Targets: 5050+100=5150, 5050+127.2=5177.2, 5050+161.8=5211.8
@@ -193,6 +205,7 @@ def test_plugin_instance_exists():
         SecondLegContinuationPlugin,
         plugin,
     )
+
     assert isinstance(plugin, SecondLegContinuationPlugin)
     assert plugin.name == "trad_SecondLegContinuation"
     assert plugin.regime_type == "trend"

@@ -12,6 +12,7 @@ from src.core.ai.output import AgentOutput
 
 class ConcreteAgent(BaseAIAgent):
     """Concrete implementation for testing — provides _run() no-op."""
+
     agent_id = "concrete"
     group = "alpha"
     tiers_needed = frozenset()

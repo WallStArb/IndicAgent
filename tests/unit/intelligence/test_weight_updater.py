@@ -52,8 +52,7 @@ def _varied_signals(n: int, symbol: str = "ES", timeframe: str = "1m") -> list[d
     """Generate n signals with varied outcomes (cycles win/loss/loss)."""
     outcomes = ["target_1", "stopped_in_trade", "ttl_expired_behind"]
     return [
-        _make_signal(outcome=outcomes[i % 3], symbol=symbol, timeframe=timeframe)
-        for i in range(n)
+        _make_signal(outcome=outcomes[i % 3], symbol=symbol, timeframe=timeframe) for i in range(n)
     ]
 
 
@@ -182,9 +181,19 @@ class TestComputeNewWeightsBinaryLabels:
     def test_filters_signals_with_no_outcome(self):
         """Signals without outcome are filtered out."""
         valid = _varied_signals(60)
-        missing = [{"bucket_scores": {"trend": 0.1, "momentum": 0.1, "structure": 0.1,
-                                      "pattern": 0.1, "institutional": 0.1, "regime": 0.1}}
-                   for _ in range(20)]
+        missing = [
+            {
+                "bucket_scores": {
+                    "trend": 0.1,
+                    "momentum": 0.1,
+                    "structure": 0.1,
+                    "pattern": 0.1,
+                    "institutional": 0.1,
+                    "regime": 0.1,
+                }
+            }
+            for _ in range(20)
+        ]
         result = compute_new_weights(valid + missing)
         if result is not None:
             assert result.n_resolved == 60
@@ -245,10 +254,16 @@ class TestComputeNewWeightsBinaryLabels:
 
     def test_bucket_scores_as_json_string(self):
         """bucket_scores may arrive as a JSON string from asyncpg JSONB rows."""
-        bs = json.dumps({
-            "trend": 0.4, "momentum": 0.3, "structure": 0.2,
-            "pattern": 0.05, "institutional": 0.2, "regime": 0.15,
-        })
+        bs = json.dumps(
+            {
+                "trend": 0.4,
+                "momentum": 0.3,
+                "structure": 0.2,
+                "pattern": 0.05,
+                "institutional": 0.2,
+                "regime": 0.15,
+            }
+        )
         signals_a = [{"bucket_scores": bs, "outcome": "target_1"} for _ in range(30)]
         signals_b = [{"bucket_scores": bs, "outcome": "stopped_in_trade"} for _ in range(30)]
         result = compute_new_weights(signals_a + signals_b)
@@ -286,8 +301,14 @@ class TestWeightUpdateResultHasWinRate:
         result = WeightUpdateResult(
             n_resolved=100,
             weights_type="learned",
-            weights={"trend": 0.2, "momentum": 0.2, "structure": 0.15,
-                     "pattern": 0.05, "institutional": 0.25, "regime": 0.15},
+            weights={
+                "trend": 0.2,
+                "momentum": 0.2,
+                "structure": 0.15,
+                "pattern": 0.05,
+                "institutional": 0.25,
+                "regime": 0.15,
+            },
             win_rate=0.55,
             did_retrain=True,
             asset_cluster="global",
@@ -367,24 +388,32 @@ class TestRunWeightUpdate:
 
         # Build 120 ES signals + 30 BTC signals, all with valid outcomes (non-degenerate)
         es_signals = [
-            _make_signal(outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                         symbol="ES", timeframe="1m")
+            _make_signal(
+                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
+                symbol="ES",
+                timeframe="1m",
+            )
             for i in range(120)
         ]
         btc_signals = [
-            _make_signal(outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                         symbol="BTC", timeframe="1m")
+            _make_signal(
+                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
+                symbol="BTC",
+                timeframe="1m",
+            )
             for i in range(30)
         ]
         all_rows = es_signals + btc_signals
 
         db = MagicMock()
         # First call: return all rows; subsequent calls: version queries → return empty
-        execute_query_mock = AsyncMock(side_effect=[
-            all_rows,  # main query
-            [{"max_v": 0}],  # version for global
-            [{"max_v": 0}],  # version for eq_index,1m
-        ])
+        execute_query_mock = AsyncMock(
+            side_effect=[
+                all_rows,  # main query
+                [{"max_v": 0}],  # version for global
+                [{"max_v": 0}],  # version for eq_index,1m
+            ]
+        )
         execute_command_mock = AsyncMock(return_value=None)
         db.execute_query = execute_query_mock
         db.execute_command = execute_command_mock
@@ -429,16 +458,21 @@ class TestRunWeightUpdate:
 
         # 60 signals, non-degenerate
         rows = [
-            _make_signal(outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
-                         symbol="ES", timeframe="1m")
+            _make_signal(
+                outcome="target_1" if i % 2 == 0 else "stopped_in_trade",
+                symbol="ES",
+                timeframe="1m",
+            )
             for i in range(60)
         ]
 
         db = MagicMock()
-        db.execute_query = AsyncMock(side_effect=[
-            rows,
-            [{"max_v": 0}],  # version for global
-        ])
+        db.execute_query = AsyncMock(
+            side_effect=[
+                rows,
+                [{"max_v": 0}],  # version for global
+            ]
+        )
         db.execute_command = AsyncMock(return_value=None)
 
         await run_weight_update(db)

@@ -16,6 +16,7 @@ import pytest
 
 def _make_agent():
     from services.service_auditor_agent import ServiceAuditorAgent
+
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
     agent.name = "service_auditor_agent"
     agent._stop_event = asyncio.Event()
@@ -30,21 +31,33 @@ def _make_agent():
 
 # -- DAG order ────────────────────────────────────────────────────────────────
 
+
 def test_dag_order_covers_required_services():
     from services.service_auditor_agent import _DAG_ORDER
+
     required = {
-        "indicagent-ibkr-provider", "indicagent-provider-merger",
-        "indicagent-bar-aggregator", "indicagent-bar-writer",
-        "indicagent-bar-auditor", "indicagent-intelligence-pipeline",
-        "indicagent-signal-tracker-compute", "indicagent-signal-writer",
-        "indicagent-ai-narrative", "indicagent-feature-writer",
-        "indicagent-llm-writer", "indicagent-cross-asset",
-        "indicagent-lifecycle-writer", "indicagent-contract-metadata-writer",
-        "indicagent-roll-compute", "indicagent-macro-compute",
-        "indicagent-swarm-orchestrator", "indicagent-swarm-writer",
-        "indicagent-signal-metrics-compute", "indicagent-signal-metrics-writer",
-        "indicagent-signal-auditor", "indicagent-parity-auditor",
-        "indicagent-feature-snapshot-writer", "indicagent-graduation-writer",
+        "indicagent-ibkr-provider",
+        "indicagent-provider-merger",
+        "indicagent-bar-aggregator",
+        "indicagent-bar-writer",
+        "indicagent-bar-auditor",
+        "indicagent-intelligence-pipeline",
+        "indicagent-signal-tracker-compute",
+        "indicagent-signal-writer",
+        "indicagent-feature-writer",
+        "indicagent-llm-writer",
+        "indicagent-cross-asset",
+        "indicagent-lifecycle-writer",
+        "indicagent-contract-metadata-writer",
+        "indicagent-roll-compute",
+        "indicagent-macro-compute",
+        "indicagent-alpha-swarm",
+        "indicagent-signal-metrics-compute",
+        "indicagent-signal-metrics-writer",
+        "indicagent-signal-auditor",
+        "indicagent-parity-auditor",
+        "indicagent-feature-snapshot-writer",
+        "indicagent-graduation-writer",
     }
     units = set(_DAG_ORDER.keys())
     assert not required - units, f"Missing from _DAG_ORDER: {required - units}"
@@ -52,11 +65,13 @@ def test_dag_order_covers_required_services():
 
 def test_dag_order_has_at_least_20_entries():
     from services.service_auditor_agent import _DAG_ORDER
+
     assert len(_DAG_ORDER) >= 20
 
 
 def test_dag_order_sources_before_sinks():
     from services.service_auditor_agent import _DAG_ORDER
+
     assert _DAG_ORDER["indicagent-ibkr-provider"] < _DAG_ORDER["indicagent-provider-merger"]
     assert _DAG_ORDER["indicagent-provider-merger"] < _DAG_ORDER["indicagent-bar-aggregator"]
     assert _DAG_ORDER["indicagent-bar-aggregator"] < _DAG_ORDER["indicagent-intelligence-pipeline"]
@@ -65,24 +80,29 @@ def test_dag_order_sources_before_sinks():
 
 # -- systemctl parsing ─────────────────────────────────────────────────────────
 
+
 def test_parse_systemctl_show_active():
     from services.service_auditor_agent import _parse_systemctl_show
+
     active, sub = _parse_systemctl_show("ActiveState=active\nSubState=running\n")
     assert active == "active" and sub == "running"
 
 
 def test_parse_systemctl_show_start_limit_hit():
     from services.service_auditor_agent import _parse_systemctl_show
+
     active, sub = _parse_systemctl_show("ActiveState=failed\nSubState=start-limit-hit\n")
     assert active == "failed" and sub == "start-limit-hit"
 
 
 def test_parse_systemctl_show_empty():
     from services.service_auditor_agent import _parse_systemctl_show
+
     assert _parse_systemctl_show("") == ("unknown", "unknown")
 
 
 # -- Dynamic discovery ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_discover_services_returns_sorted_list():
@@ -91,10 +111,10 @@ async def test_discover_services_returns_sorted_list():
 
     # Mock systemctl output: bar-writer (dag 4) before ibkr-provider (dag 1)
     mock_stdout = (
-        "indicagent-bar-writer.service loaded active running\n"
-        "indicagent-ibkr-provider.service loaded active running\n"
-        "indicagent-intelligence-pipeline.service loaded active running\n"
-    ).encode()
+        b"indicagent-bar-writer.service loaded active running\n"
+        b"indicagent-ibkr-provider.service loaded active running\n"
+        b"indicagent-intelligence-pipeline.service loaded active running\n"
+    )
 
     mock_proc = AsyncMock()
     mock_proc.communicate = AsyncMock(return_value=(mock_stdout, b""))
@@ -125,6 +145,7 @@ async def test_discover_services_empty_output():
 
 # -- SERVICE_UP_GAUGE ──────────────────────────────────────────────────────────
 
+
 def test_service_up_gauge_exists():
     """SERVICE_UP_GAUGE is a module-level OTelGauge with unit label."""
     from services.service_auditor_agent import SERVICE_UP_GAUGE
@@ -138,9 +159,11 @@ def test_service_up_gauge_exists():
 
 # -- Graduated response ────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_healthy_service_no_action():
     from services.service_auditor_agent import ServiceState
+
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
     agent._emit_health_event = AsyncMock()
@@ -156,6 +179,7 @@ async def test_healthy_service_no_action():
 @pytest.mark.asyncio
 async def test_dead_service_triggers_restart():
     from services.service_auditor_agent import ServiceState
+
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
     agent._emit_health_event = AsyncMock()
@@ -170,6 +194,7 @@ async def test_dead_service_triggers_restart():
 @pytest.mark.asyncio
 async def test_high_lag_degrades_after_two_checks():
     from services.service_auditor_agent import ServiceState
+
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
     agent._emit_health_event = AsyncMock()
@@ -194,6 +219,7 @@ async def test_high_lag_degrades_after_two_checks():
 @pytest.mark.asyncio
 async def test_escalates_after_three_restarts_in_window():
     from services.service_auditor_agent import ServiceState
+
     agent = _make_agent()
     now = datetime.now(UTC)
     state = ServiceState()
@@ -219,6 +245,7 @@ async def test_escalates_after_three_restarts_in_window():
 @pytest.mark.asyncio
 async def test_recovery_emits_recovered_event_with_duration():
     from services.service_auditor_agent import ServiceState
+
     agent = _make_agent()
     state = ServiceState()
     state.last_known_state = "degraded"
@@ -240,14 +267,17 @@ async def test_recovery_emits_recovered_event_with_duration():
 
 # -- DB persistence ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_emit_health_event_inserts_correct_schema():
     agent = _make_agent()
     mock_conn = AsyncMock()
-    agent._db_pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=mock_conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    agent._db_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
     agent._kafka_producer = AsyncMock()
 
     await agent._emit_health_event(
@@ -269,9 +299,11 @@ async def test_emit_health_event_inserts_correct_schema():
 
 # -- Data stoppage detection ──────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
-    from services.service_auditor_agent import ServiceState, _SVC_DATA_PROVIDER
+    from services.service_auditor_agent import _SVC_DATA_PROVIDER, ServiceState
+
     agent = _make_agent()
     agent._service_states[_SVC_DATA_PROVIDER] = ServiceState()
     agent._emit_health_event = AsyncMock()
