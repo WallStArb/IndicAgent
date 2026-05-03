@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.38.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77 shipped; Phase 78 at 6/7 (078-07 pending). Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: 078-07 (NarrativeComputeAgent → API endpoint) + ~May 10 data gate.
+Version: 5.38.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77+78 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: Phase 70 (ML Scoring) + 03C/04 after ~May 10 data gate.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -135,8 +135,8 @@ L6  feature-writer, signal-writer,
     signal-tracker-compute, lifecycle-
     writer, lineage-writer,
     contract-metadata-writer             — persistence writers (parallel)
-L7  alpha-swarm, ai-narrative,
-    llm-writer                           — AI/LLM layer
+L7  alpha-swarm,
+    llm-writer                           — AI/LLM layer (narrative on-demand: GET /api/signals/{signal_id}/narrative, Phase 78)
 L8  roll-compute, signal-metrics-*,
     graduation-*, feature-snapshot-writer — analytics + rolling metrics
 L9  signal-auditor, parity-auditor,
