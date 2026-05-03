@@ -704,3 +704,14 @@ def record_redis_stream_event(
     EVENT_PROCESSING_DURATION.labels(event_type=event_type, workflow_name="redis_streams").observe(
         processing_time
     )
+
+
+# ---------------------------------------------------------------------------
+# Signal quality metrics (Phase 79)
+# ---------------------------------------------------------------------------
+
+SIGNAL_OUTCOME_TOTAL = OTelCounter(
+    "signal_outcome_total",
+    "Signal outcomes by plugin and result",
+    labelnames=["setup_plugin", "outcome"],
+)
