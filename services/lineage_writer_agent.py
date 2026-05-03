@@ -11,6 +11,7 @@ import asyncpg
 
 from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.stream_keys import topic_signal_lineage, topic_signal_lineage_dlq
 
 
@@ -25,7 +26,7 @@ class LineageWriterAgent(BaseWriterAgent):
         self._pool: asyncpg.Pool | None = None
 
     async def _setup(self) -> None:
-        self._pool = await asyncpg.create_pool(
+        self._pool = await create_db_pool(
             self.settings.database_url,
             min_size=2,
             max_size=5,

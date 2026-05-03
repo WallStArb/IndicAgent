@@ -136,12 +136,12 @@ JOIN intelligence_features f ON f.symbol = sl.symbol
 **Why split:** Signal tracker previously violated the compute→Kafka→writer DAG by reading and writing signal_ledger in the same process. The split enforces the core principle: compute agents are DB-ignorant.
 
 ### 8. Plugin state — in-memory per-service
-Stateful plugins are managed via in-memory dicts (not Redis-backed):
+Stateful plugins are managed via in-memory dicts:
 - `_plugin_cache` — plugin singletons built at service init, reused per bar
 - `_plugin_states` — `dict[tuple[str,str,str], dict]` keyed by `(plugin_name, symbol, timeframe)`; state is swapped onto `p._state` before `compute_full()` and written back after
 - `_plugin_call_counts` — Prometheus metrics sampling (every `PLUGIN_METRICS_SAMPLE_RATE=10` calls)
 
-The `PluginStateManager` (Redis-backed) in `src/core/plugin_state_manager.py` exists but is not used in the hot path. Plugin state resets on service restart (warm-up: ~50 1m bars for I1 incremental state).
+The `PluginStateManager` in `src/core/plugin_state_manager.py` exists but is not used in the hot path. Plugin state resets on service restart (warm-up: ~50 1m bars for I1 incremental state).
 
 ### 9. Consumer group naming convention
 ```

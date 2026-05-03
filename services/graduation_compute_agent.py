@@ -21,6 +21,7 @@ import asyncpg
 import pandas as pd
 
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import (
     topic_lifecycle_transitions,
@@ -128,7 +129,7 @@ class GraduationComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Open DB pool, start Kafka clients, seed counters from transform_graduation."""
-        self._pool = await asyncpg.create_pool(
+        self._pool = await create_db_pool(
             self.settings.database_url,
             min_size=2,
             max_size=5,

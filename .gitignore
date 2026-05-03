@@ -276,22 +276,11 @@ dashboard/.next/
 dashboard/build/
 dashboard/dist/
 
-# Screenshots (root-level dashboard shots are tracked for README)
+# Screenshots and images
 *.png
-!/landing-full.png
-!/landing-v2.png
-!/landing-desktop.png
-!/landing-v3-full.png
-!/hero-final.png
-!/hero-hook.png
-!/hero-tagline.png
-!/hero-v3.png
-!/hero-readme.png
-!/dashboard-readme.png
-.worktrees/
+.claude/worktrees/
 plugin_validator
 plugin_validator.*
-calibrator
 quality_gate
 ranker
 regime_gate

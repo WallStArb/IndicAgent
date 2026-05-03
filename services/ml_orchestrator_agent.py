@@ -27,6 +27,7 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_ml_orchestrator_dlq
@@ -65,7 +66,7 @@ class MLOrchestratorComputeAgent(BaseAgent):
         )
 
     async def _setup(self) -> None:
-        self._pool = await asyncpg.create_pool(self.settings.database_url)
+        self._pool = await create_db_pool(self.settings.database_url)
 
     async def _teardown(self) -> None:
         if self._pool:

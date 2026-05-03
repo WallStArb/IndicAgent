@@ -21,6 +21,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stats_utils import bootstrap_ci_lower
@@ -312,7 +313,7 @@ async def _publish(
 async def _amain() -> None:
     setup_service_logging("logs/shadow_auditor_agent.log")
     settings = Settings()
-    pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=5)
+    pool = await create_db_pool(settings.database_url, min_size=2, max_size=5)
     producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
     await producer.start()
     try:

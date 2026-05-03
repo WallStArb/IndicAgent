@@ -24,6 +24,7 @@ import asyncpg
 
 from src.config.settings import Settings, get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import Instrument
 from src.core.schemas.bar_message import BarMessage
@@ -129,7 +130,7 @@ class BaseProviderAgent(BaseAgent):
 
     async def _setup(self) -> None:
         """Connect Kafka producer and the provider adapter, then qualify all instruments."""
-        self._db_pool = await asyncpg.create_pool(self.settings.database_url)
+        self._db_pool = await create_db_pool(self.settings.database_url)
 
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers

@@ -20,6 +20,11 @@ async def _setup_codecs(conn):
     await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
 
+async def create_pool(database_url: str, **kwargs) -> asyncpg.Pool:
+    """Create an asyncpg pool with JSONB codecs pre-configured."""
+    return await asyncpg.create_pool(database_url, init=_setup_codecs, **kwargs)
+
+
 class DatabaseManager:
     """Simplified database manager for core operations."""
 
@@ -33,8 +38,8 @@ class DatabaseManager:
         if self.pool is not None:
             return
         try:
-            self.pool = await asyncpg.create_pool(
-                self.database_url, min_size=2, max_size=10, command_timeout=30, init=_setup_codecs
+            self.pool = await create_pool(
+                self.database_url, min_size=2, max_size=10, command_timeout=30
             )
             logger.info("✅ Database pool initialized")
         except Exception as e:

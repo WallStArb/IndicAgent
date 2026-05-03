@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.37.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: MacroComputeAgent prod deploy + ~May 10 data gate.
+Version: 5.38.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77 shipped; Phase 78 at 6/7 (078-07 pending). Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: 078-07 (NarrativeComputeAgent → API endpoint) + ~May 10 data gate.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
