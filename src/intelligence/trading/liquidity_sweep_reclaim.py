@@ -11,6 +11,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -130,15 +131,22 @@ class LiquiditySweepReclaimPlugin:
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "supporting_factors": supporting,
-        }
+        signal = make_signal(
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin="trad_LiquiditySweepReclaim",
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            targets=targets,
+            confidence=confidence,
+            regime_context="any",
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
         signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
