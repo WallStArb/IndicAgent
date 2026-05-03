@@ -182,7 +182,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Plugin System
 
-128 plugins + 2 aggregation across tiers I1–I7 (I1=27, I2=10, I3=8, I4=12, I5=16, SMC=13, I6=6, I7=36). See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+129 plugins + 2 aggregation across tiers I1–I7 (I1=28, I2=10, I3=8, I4=12, I5=16, SMC=13, I6=6, I7=36). See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
