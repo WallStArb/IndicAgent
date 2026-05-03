@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # ---------------------------------------------------------------------------
@@ -219,8 +220,6 @@ class DivergenceStackPlugin:
                     "confidence": 0.0,
                     "supporting_factors": [],
                 }
-            stop = tf.stop
-            targets = [round(t.price, 2) for t in tf.targets]
 
             supporting = [name for name, s in per_input_scores.items() if s > 0]
             supporting_factors = [f"div_{name}" for name in supporting]
@@ -231,18 +230,22 @@ class DivergenceStackPlugin:
             )
             confidence = compose_confidence(raw_div_conf)
 
-            signal = {
-                **base_output,
-                "signal_type": signal_type,
-                "direction": direction,
-                "confidence": confidence,
-                "supporting_factors": supporting_factors,
-                "entry_price": round(entry, 2),
-                "stop_loss": round(stop, 2),
-                "targets": targets,
-                "regime_context": "any",
-                "ttl_bars": 10,
-            }
+            signal = make_signal_from_frame(
+                tf,
+                symbol=frames.get("symbol", ""),
+                timeframe=features.get("timeframe", ""),
+                timestamp=features.get("timestamp", ""),
+                signal_type=signal_type,
+                setup_plugin="trad_DivergenceStack",
+                direction=direction,
+                confidence=confidence,
+                regime_context="any",
+                confluence_score=0.0,
+                supporting_factors=supporting_factors,
+                invalidation_conditions=[],
+            )
+            # Merge always-logged scoring fields on top of the framed signal
+            signal.update(base_output)
             signal["features_snapshot"] = capture_signal_features(
                 features,
                 direction,

@@ -17,6 +17,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
+from .signal_schema import make_signal
 
 
 @dataclass
@@ -182,15 +183,22 @@ class LiquidityHuntPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "liquidity_hunt_long" if direction == 1 else "liquidity_hunt_short"
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": [round(t1, 2), round(t2, 2)],
-            "confidence": confidence,
-            "supporting_factors": supporting,
-        }
+        signal = make_signal(
+            symbol=frames.get("symbol", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=sig_type,
+            setup_plugin="trad_LiquidityHunt",
+            direction=direction,
+            entry_price=entry,
+            stop_loss=stop,
+            targets=[round(t1, 2), round(t2, 2)],
+            confidence=confidence,
+            regime_context="any",
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+        )
         signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
