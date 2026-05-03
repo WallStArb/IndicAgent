@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-04-28
 **Status:** Ready for planning
-**Source:** PRD Express Path (docs/superpowers/specs/2026-04-28-shadow-governance-design.md)
+**Source:** PRD Express Path (docs/plans/2026-04-28-shadow-governance-design.md)
 
 <domain>
 ## Phase Boundary
@@ -79,7 +79,7 @@ Remove stale: "Shadow modes: CROSS_ASSET active; ROLL_MONITOR disabled; trad_Dua
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design Spec (primary source)
-- `docs/superpowers/specs/2026-04-28-shadow-governance-design.md` — Full approved design with data model, architecture, and component list
+- `docs/plans/2026-04-28-shadow-governance-design.md` — Full approved design with data model, architecture, and component list
 
 ### Existing Shadow Code to Modify/Remove
 - `src/intelligence/weight_updater.py` — `compute_shadow_plugin_stats()`, `_bootstrap_ci_lower()`, `SHADOW_PLUGINS` to remove
