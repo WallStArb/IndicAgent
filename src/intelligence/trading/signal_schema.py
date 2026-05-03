@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.intelligence.trading.trade_framer import TradeFrame
+
 REQUIRED_SIGNAL_FIELDS = frozenset(
     {
         "type",
@@ -105,4 +110,75 @@ def make_signal(
         sig["rr_t2"] = round(rr_t2, 2)
     if rr_t3 is not None:
         sig["rr_t3"] = round(rr_t3, 2)
+    return sig
+
+
+def make_signal_from_frame(
+    tf: TradeFrame,
+    *,
+    symbol: str,
+    timeframe: str,
+    timestamp: str,
+    signal_type: str,
+    setup_plugin: str,
+    direction: int,
+    confidence: float,
+    regime_context: str,
+    confluence_score: float,
+    supporting_factors: list[str],
+    invalidation_conditions: list[str],
+    ttl_bars: int = 10,
+    features_snapshot: dict | None = None,
+) -> dict:
+    """Build a signal.v1 dict from a TradeFrame, auto-extracting all framing fields.
+
+    Auto-extracts: entry_price (tf.entry, NOT raw close), stop_loss, targets,
+    zone_low, zone_high, entry_type, stop_type, rr_t1/t2/t3, target_labels,
+    target_types, framing_method. Adds signal_schema_version="v1".
+
+    Raises ValueError if tf.viable is False.
+    """
+    if not tf.viable:
+        raise ValueError(
+            f"Cannot build signal from non-viable TradeFrame: "
+            f"{tf.rejection_reason or 'unknown'}"
+        )
+
+    target_prices = [t.price for t in tf.targets]
+    target_labels = [t.label for t in tf.targets]
+    target_types = [t.level_type for t in tf.targets]
+
+    sig = make_signal(
+        symbol=symbol,
+        timeframe=timeframe,
+        timestamp=timestamp,
+        signal_type=signal_type,
+        setup_plugin=setup_plugin,
+        direction=direction,
+        entry_price=tf.entry,
+        stop_loss=tf.stop,
+        targets=target_prices,
+        confidence=confidence,
+        regime_context=regime_context,
+        confluence_score=confluence_score,
+        supporting_factors=supporting_factors,
+        invalidation_conditions=invalidation_conditions,
+        ttl_bars=ttl_bars,
+        entry_type=tf.entry_type,
+        stop_type=tf.stop_type,
+        target_labels=target_labels,
+        target_types=target_types,
+        rr_t1=tf.rr_t1 if tf.rr_t1 else None,
+        rr_t2=tf.rr_t2 if tf.rr_t2 else None,
+        rr_t3=tf.rr_t3 if tf.rr_t3 else None,
+        framing_method=tf.method,
+    )
+
+    sig["zone_low"] = tf.zone_low
+    sig["zone_high"] = tf.zone_high
+    sig["signal_schema_version"] = "v1"
+
+    if features_snapshot is not None:
+        sig["features_snapshot"] = features_snapshot
+
     return sig
