@@ -35,3 +35,23 @@ When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`
 - **Second Derivative Indicators — Current & Future** — expansion ideas beyond Phase 08 baseline. See `docs/ideas/second-derivative-indicators-current-and-future.md`.
 - **Intelligence Confluence Patterns** — Renaissance-aligned confluence framework concepts beyond Phase 46 baseline. See `docs/ideas/intelligence-confluence-patterns.md`.
 - **Renaissance Framing** — foundational philosophy from Simons/Medallion approach. See `docs/ideas/renaissance-framing.md`.
+
+## Vision Docs (Reference)
+- **AegisAgent — Independent Risk Management** — real-time risk overlay, position sizing, portfolio-level constraints. See `docs/ideas/aegisagent-vision.md`.
+- **PrimeAgent — Unified Portfolio Management** — portfolio construction, allocation, rebalancing, performance attribution. See `docs/ideas/primeagent-vision.md`.
+- **Platform Architecture — Unified Intelligence & Execution Suite** — full product vision, component map, deployment topology. See `docs/ideas/platform-architecture.md`.
+- **Intelligence Swarm Manifest** — "The Renaissance Loop" — core swarm architecture principles and agent interaction model. See `docs/ideas/intelligence-swarm-manifest.md`.
+- **Jim Simons / Renaissance Principles** — research notes distilled from external sources. Foundational reference. See `docs/ideas/jim-simons-renaissance-principles.md`.
+- **Regime-Adaptive Trading** — how regime classification should modulate signal gating, position sizing, and strategy selection. See `docs/ideas/regime-adaptive-trading.md`.
+- **Orderflow-Based Setups** — delta divergence, imbalance continuation, absorption detection. Requires orderflow integration. See `docs/ideas/orderflow-based-setups.md`.
+
+## Research & Design (Active)
+- **AI Integration Paths** — LLM provider chain, prompt engineering patterns, cost/latency tradeoffs. See `docs/ideas/ai-integration-paths.md`.
+- **BI Analytics Layer — Apache Superset** — SQL analytics against TimescaleDB read-only. Approved design, in progress. See `docs/ideas/bi-analytics-layer-design.md`.
+- **Intelligence Stack Latency Reduction** — hot/cold path separation, plugin optimization, throughput targets. See `docs/ideas/intelligence-stack-latency-reduction.md`.
+- **Kubernetes Evaluation** — pros/cons analysis for IndicAgent deployment. Current verdict: systemd is correct for now. See `docs/ideas/kubernetes-evaluation.md`.
+- **Latency & Persistence Audit Design** — sub-ms signal latency via Kafka-first fire-and-forget. See `docs/ideas/latency-and-persistence-audit-design.md`.
+- **MLAgent — Renaissance-Style Learning Machine** — architecture for the ML scoring/training layer. See `docs/ideas/ml-agent-architecture.md`.
+- **ML/AI Technology Palette** — research-backed analysis of ML/AI tech choices (PyTorch, scikit-learn, XGBoost, etc). See `docs/ideas/ml-ai-palette.md`.
+- **ML Classification & Pattern Recognition** — applying ML to pattern recognition, regime classification, signal quality. See `docs/ideas/ml-classification-pattern-recognition.md`.
+- **Tech Stack — Decisions & Migration Path** — current and planned technology choices with rationale. See `docs/ideas/tech-stack.md`.
