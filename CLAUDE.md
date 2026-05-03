@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.38.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77+78 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: Phase 70 (ML Scoring) + 03C/04 after ~May 10 data gate.
+Version: 5.39.0 | Status: v2.5 PARTIAL — Phases 69+71+72+73+74+75+76+77+78+79 shipped; Phase 70 deferred (~May 10 data gate). Phase 64 core complete; 03C+04 deferred (~May 10 data gate). Next: Phase 70 (ML Scoring) + 03C/04 after ~May 10 data gate. Phase 79 signal quality fix deployed — activation rate should jump from 0.3% to meaningful levels on next trading day.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -186,7 +186,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
-- **I7 utilities** (check before creating new): `atr_utils.py` (get_atr), `confidence_utils.py` (compose_confidence, capture_signal_features), `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`, `signal_schema.py`, `state_utils.py`, `volume_profile_utils.py`
+- **I7 utilities** (check before creating new): `atr_utils.py` (get_atr), `confidence_utils.py` (compose_confidence, capture_signal_features), `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`, `signal_schema.py` (`make_signal_from_frame` — **all I7 plugins MUST use this**, never build signal dicts manually — manual construction skips zone propagation and may use wrong entry_price), `state_utils.py`, `volume_profile_utils.py`
 - **Signal identity:** Never merge informationally distinct signals (OFI ≠ CVD, VWAP variants separate)
 - **Shadow governance:** `shadow_registry` DB table is the single source of truth for shadow state. All TIER_I7 plugins auto-enroll at startup (`SHADOW_SKIP: ClassVar[bool] = True` to opt out). Promotion gate: `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r, alpha=0.05) > 0.0`. Demotion gate: EV[R] < -0.05 for 3 consecutive 30-min audit cycles. `ShadowAuditorAgent` runs every 30 min. ML capture key: `signal["features_snapshot"]` (renamed from `signal["_shadow"]` in Phase 75).
 - **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores (trend→ctf_trend_alignment, mean-reversion→ctf_regime_agreement, SMC/FVG→ctf_fvg_alignment/ctf_ob_alignment)
@@ -265,6 +265,9 @@ at startup so the graduation loop tracks it.
 - **Disable compression order**: Must `SELECT decompress_chunk(...)` on all compressed chunks BEFORE `ALTER TABLE SET (timescaledb.compress = false)` — the ALTER fails if any chunk is still compressed.
 - **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Primary time column is `timestamp` (not `ts` or `feature_ts`).
 - **signal_ledger garbage cleanup**: When lifecycle tracker bootstrap fails, pending signals accumulate forever. Clean up with direct DELETE — never expire+mark. `DELETE FROM signal_ledger WHERE exit_reason IN ('bulk_startup_expire', 'orphaned_pre_restart');` then `DELETE FROM signal_ledger WHERE status = 'pending' AND exit_at IS NULL;`. Rule: always hard DELETE garbage rows, never leave stale data.
+- **signal_schema_version column**: `'v0'` = pre-Phase-79 signals (zero-width zones, potentially wrong entry_price for at_pullback/at_limit entries). `'v1'` = post-fix signals with proper zones and resolved entry_price. **ML training queries MUST filter `WHERE signal_schema_version = 'v1'`** — v0 data is contaminated.
+- **entry_type column**: Populated by `make_signal_from_frame()`. Values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
+- **co_fire_count / co_fire_partners columns**: Signals firing on the same bar with identical entry/stop/target levels. Count > 1 means multiple plugins co-fired. Partners lists the other plugin names. This is information, not noise — ML model decides if co-firing is predictive.
 - **signal_ledger valid exit_reason values**: `ttl_expired`, `stop_loss`, `bulk_startup_expire`, `orphaned_pre_restart`. Valid outcome values: `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind` (see `chk_signal_ledger_outcome` constraint).
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 - **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `intelligence_pipeline_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
