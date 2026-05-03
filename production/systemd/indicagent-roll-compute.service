@@ -13,8 +13,6 @@ Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/roll_compute_agent.py
 Restart=always
-WatchdogSec=60
-NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
