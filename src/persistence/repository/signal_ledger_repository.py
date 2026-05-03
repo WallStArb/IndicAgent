@@ -138,9 +138,14 @@ class LedgerEntry:
     # Phase 57: per-stage confidence attribution
     pre_quality_confidence: float | None = None  # confidence before apply_quality_gate()
     pre_calibration_confidence: float | None = None  # confidence before apply_calibration()
+    # Phase 79: Signal quality fix — lineage + entry_type + co-fire
+    signal_schema_version: str = "v0"
+    entry_type: str | None = None
+    co_fire_count: int = 1
+    co_fire_partners: list = field(default_factory=list)
 
     def to_insert_params(self) -> tuple:
-        """Return a 60-element tuple ready for batch INSERT.
+        """Return a 64-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores,
         trailing_stop_price) are passed as Python dicts/lists; asyncpg serializes
@@ -209,6 +214,11 @@ class LedgerEntry:
             self.regime_type_at_fire,  # $58
             self.pre_quality_confidence,  # $59 — Phase 57 attribution
             self.pre_calibration_confidence,  # $60 — Phase 57 attribution
+            # Phase 79: Signal quality fix
+            self.signal_schema_version,  # $61
+            self.entry_type,  # $62
+            self.co_fire_count,  # $63
+            self.co_fire_partners,  # $64::jsonb
         )
 
 
@@ -240,7 +250,8 @@ INSERT INTO signal_ledger (
     shadow_tracking_start_ts,
     shadow_mae, shadow_mfe, shadow_outcome,
     raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
-    pre_quality_confidence, pre_calibration_confidence
+    pre_quality_confidence, pre_calibration_confidence,
+    signal_schema_version, entry_type, co_fire_count, co_fire_partners
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -264,7 +275,8 @@ INSERT INTO signal_ledger (
     $51,
     $52, $53, $54,
     $55, $56, $57, $58,
-    $59, $60
+    $59, $60,
+    $61, $62, $63, $64::jsonb
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
@@ -416,7 +428,11 @@ SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direc
        is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
        structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
        chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae,
+       shadow_mfe, shadow_outcome,
+       raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
+       pre_quality_confidence, pre_calibration_confidence,
+       signal_schema_version, entry_type, co_fire_count, co_fire_partners
 FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND exit_at IS NULL
 ORDER BY timestamp DESC
@@ -438,7 +454,11 @@ SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direc
        is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
        structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
        chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae,
+       shadow_mfe, shadow_outcome,
+       raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
+       pre_quality_confidence, pre_calibration_confidence,
+       signal_schema_version, entry_type, co_fire_count, co_fire_partners
 FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1 AND exit_at IS NULL
 ORDER BY timestamp DESC
@@ -689,7 +709,11 @@ SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direc
        is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
        structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
        chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae,
+       shadow_mfe, shadow_outcome,
+       raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
+       pre_quality_confidence, pre_calibration_confidence,
+       signal_schema_version, entry_type, co_fire_count, co_fire_partners
 FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed')
   AND symbol = $1

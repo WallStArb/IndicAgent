@@ -66,7 +66,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
+        assert len(params) == 64  # 58 prior + 2 Phase 57 + 4 Phase 79 fields
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -102,7 +102,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 60  # 60 total fields in to_insert_params tuple
+        assert len(params) == 64  # 60 prior + 4 Phase 79 fields in to_insert_params tuple
         assert params[24] == pytest.approx(0.47)  # $25 cis_score
         # index 25 (0-based) = $26 (1-based) = bucket_scores as dict (asyncpg serializes to jsonb)
         bucket_scores = params[25]
@@ -178,7 +178,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
+        assert len(params) == 64  # 58 prior + 2 Phase 57 + 4 Phase 79 fields
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -233,7 +233,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
+    assert len(params) == 64  # 58 prior + 2 Phase 57 + 4 Phase 79 fields
     # cis_attribution field at position 36 - checks nested dict structure
     assert params[36] == {"trend": {"psar_direction": 0.05}}
 
@@ -538,9 +538,9 @@ class TestIsShadowField:
         entry = _make_entry()
         assert entry.is_shadow is False
 
-    def test_to_insert_params_length_60(self):
+    def test_to_insert_params_length_64(self):
         entry = _make_entry()
-        assert len(entry.to_insert_params()) == 60  # 58 prior + 2 Phase 57 attribution fields
+        assert len(entry.to_insert_params()) == 64  # 60 prior + 4 Phase 79 fields
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
@@ -642,13 +642,11 @@ class TestLedgerEntryPhase35CalibrationFields:
         assert entry.calibrated_confidence is None
         assert entry.regime_type_at_fire is None
 
-    def test_to_insert_params_returns_60_elements(self):
-        """to_insert_params() must return 60 elements after Phase 57 extension (was 58)."""
+    def test_to_insert_params_returns_64_elements(self):
+        """to_insert_params() must return 64 elements after Phase 79 extension (was 60)."""
         entry = _make_entry()
         params = entry.to_insert_params()
-        assert (
-            len(params) == 60
-        ), f"Expected 60 elements (58 prior + 2 Phase 57 attribution), got {len(params)}"
+        assert len(params) == 64, f"Expected 64 elements (60 prior + 4 Phase 79), got {len(params)}"
 
     def test_to_insert_params_calibration_fields_at_positions_55_to_58(self):
         """Phase 35 fields are at $55-$58 (0-indexed: 54-57)."""
@@ -659,7 +657,7 @@ class TestLedgerEntryPhase35CalibrationFields:
             regime_type_at_fire="trend",
         )
         params = entry.to_insert_params()
-        assert len(params) == 60
+        assert len(params) == 64
         assert params[54] == pytest.approx(0.72)  # $55 raw_cis_score
         assert params[55] == pytest.approx(0.68)  # $56 filtered_cis_score
         assert params[56] == pytest.approx(0.61)  # $57 calibrated_confidence
