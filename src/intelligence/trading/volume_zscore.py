@@ -32,7 +32,8 @@ class VolumeZscorePlugin:
     """
 
     name: str = "volume_zscore"
-    SHADOW_SKIP: ClassVar[bool] = True  # I1 measurement, not signal
+    regime_type: ClassVar[str] = "any"  # I1 measurement, not signal — satisfies I7 directory guard
+    SHADOW_SKIP: ClassVar[bool] = True
     outputs: frozenset[str] = frozenset({"volume_z_score"})
     min_lookback: int = _WINDOW + 1
     supports_incremental: bool = True
