@@ -188,6 +188,35 @@ services:
       - timescaledb
     restart: unless-stopped
 
+  # IB Gateway — headless, live trading via Docker
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    container_name: ib-gateway
+    restart: always
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: live
+      API_PORT: 4001
+      SOCAT_PORT: 4004
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      BYPASS_WARNING: "yes"
+      ExistingSessionDetectedAction: primaryoverride
+      TWS_ACCEPT_INCOMING: accept
+      READ_ONLY_API: "no"
+      VNC_SERVER_PASSWORD: indicagent
+      GATEWAY_OR_TWS: gateway
+      IB_GATEWAY_VERSION: "10.45.1d"
+      AUTO_RESTART_TIME: "11:59 PM"
+      TIME_ZONE: Etc/UTC
+      TZ: Etc/UTC
+    ports:
+      - "127.0.0.1:7497:4003"
+      - "127.0.0.1:5900:5900"
+    volumes:
+      - ib-gateway-settings:/home/ibgateway/Jts
+
 volumes:
   timescale-data:
   redpanda-data:
@@ -197,6 +226,7 @@ volumes:
   tempo-data:
   mlflow_data:
   loki-data:
+  ib-gateway-settings:
 
 
 
