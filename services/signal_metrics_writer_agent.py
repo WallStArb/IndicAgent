@@ -13,7 +13,6 @@ until Plan 60-03 updates it to read signal_metrics directly.
 
 The shim only activates for: track='market', regime_type='all', window_days=30.
 
-Metrics port: :9127
 
 Version: 1.0.0
 Last Updated: 2026-04-05
@@ -46,7 +45,6 @@ _WRITE_ERRORS = Counter(
 )
 
 _AGENT_NAME = "signal_metrics_writer"
-_METRICS_PORT = 9127
 _CONSUMER_GROUP = "signal_metrics_writer_consumer"
 
 
@@ -182,7 +180,7 @@ class SignalMetricsWriterAgent(BaseAgent):
     """Consumes intelligence.signal_metrics and writes to DB."""
 
     def __init__(self) -> None:
-        super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
+        super().__init__(name=_AGENT_NAME)
         self._db: DatabaseManager | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
 

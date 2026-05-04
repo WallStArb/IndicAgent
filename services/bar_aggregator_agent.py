@@ -5,7 +5,6 @@ Consumes 1m bars from topic_market_bars, runs BarAccumulator,
 publishes completed HTF bars to topic_market_bars_htf.
 
 DB-ignorant ComputeAgent — no database access.
-Metrics port: :9120
 
 Golden Signals (D-16):
 - Traffic: events_consumed_total, htf_bars_produced_total{tf}
@@ -117,7 +116,7 @@ class BarAggregatorComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="bar_aggregator_agent", metrics_port=9120, max_idle_seconds=300)
+        super().__init__(name="bar_aggregator_agent", max_idle_seconds=300)
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None

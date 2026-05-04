@@ -12,6 +12,7 @@ import structlog
 from src.core.agent.base import BaseAgent
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
+from src.observability.metrics import AI_AGENT_DURATION_MS, AI_AGENT_INVOCATIONS_TOTAL
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +50,6 @@ class BaseAIAgent(BaseAgent, ABC):
     Inherits from BaseAgent for full lifecycle:
     - SIGTERM/SIGINT handling
     - Structured logging (self.logger)
-    - Prometheus metrics (if metrics_port set)
     - OTel tracing (self.tracer)
 
     D-51: Latency budgets configurable via latency_budget_ms class attribute.
@@ -82,11 +82,13 @@ class BaseAIAgent(BaseAgent, ABC):
                 timeout=self._timeout_s,
             )
             latency_ms = (time.monotonic() - t0) * 1000
+            self._record_metrics("success", latency_ms)
             # D-45: Timer context manager — latency captured via model_copy
             return result.model_copy(update={"latency_ms": latency_ms})
 
         except TimeoutError:
             latency_ms = (time.monotonic() - t0) * 1000
+            self._record_metrics("timeout", latency_ms)
             logger.warning(
                 "ai_agent.timeout",
                 agent_id=self.agent_id,
@@ -100,6 +102,7 @@ class BaseAIAgent(BaseAgent, ABC):
 
         except Exception as exc:
             latency_ms = (time.monotonic() - t0) * 1000
+            self._record_metrics("error", latency_ms)
             logger.exception(
                 "ai_agent.exception",
                 agent_id=self.agent_id,
@@ -127,6 +130,17 @@ class BaseAIAgent(BaseAgent, ABC):
         payload dict containing agent-specific results.
         """
         ...
+
+    def _record_metrics(self, status: str, latency_ms: float) -> None:
+        AI_AGENT_INVOCATIONS_TOTAL.labels(
+            agent_id=self.agent_id,
+            group=self.group,
+            status=status,
+        ).inc()
+        AI_AGENT_DURATION_MS.labels(
+            agent_id=self.agent_id,
+            group=self.group,
+        ).observe(latency_ms)
 
     def _neutral(self, error: str, latency_ms: float) -> AgentOutput:
         """Return neutral AgentOutput for error/timeout cases."""

@@ -6,7 +6,6 @@ BaseProviderAgent. This file only describes what makes IBKR unique:
 - agent name, metrics port, provider name string
 - how to build the IBKRAdapter
 
-Metrics port: :9129
 """
 
 from __future__ import annotations
@@ -27,9 +26,6 @@ class IBKRProviderAgent(BaseProviderAgent):
 
     def _agent_name(self) -> str:
         return "ibkr_provider_agent"
-
-    def _agent_metrics_port(self) -> int:
-        return 9129
 
     def _provider_name_str(self) -> str:
         return "ibkr"

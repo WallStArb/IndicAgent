@@ -8,7 +8,6 @@ Stage 3 (PROMOTE): Consumes RollEvents and atomically promotes the front-month
 Consumes: market.events.roll
 Produces: contract_metadata (DB), market.events.contract_update (Kafka), market.events.roll.dlq
 
-Metrics port: :9124
 
 Golden Signals:
 - Traffic: contract_writer_rolls_processed_total, contract_writer_seeds_inserted_total
@@ -90,7 +89,7 @@ class ContractMetadataWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         self._dry_run: bool = os.environ.get("DRY_RUN", "false").lower() == "true"
-        super().__init__(name="contract_metadata_writer_agent", metrics_port=9124)
+        super().__init__(name="contract_metadata_writer_agent")
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
