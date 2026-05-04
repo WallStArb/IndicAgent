@@ -398,6 +398,9 @@ class BaseProviderAgent(BaseAgent):
                         )
                         continue
 
+                    if not self._adapter.is_connected():
+                        await self._adapter.connect()
+
                     # IBKR historical-data pacing guard: 5 req/s sustained.
                     # Prevents Error 162 when multiple gap requests stack up.
                     async with self._gap_fetch_sem:
