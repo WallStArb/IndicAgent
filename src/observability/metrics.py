@@ -529,6 +529,32 @@ AI_AGENT_DURATION_MS = OTelHistogram(
 )
 
 
+# ---------------------------------------------------------------------------
+# Zone engine metrics — direct API (counter() helper lacks label support)
+# ---------------------------------------------------------------------------
+
+ZONE_TIER_USED = Counter(
+    "zone_tier_used_total",
+    "Zone engine resolution tier selected per call",
+    ["tier"],
+)
+ZONE_CANDIDATE_COUNT = Histogram(
+    "zone_candidate_count",
+    "Structural candidates evaluated per zone resolution",
+    buckets=[0, 1, 2, 3, 5, 8, 12, 20],
+)
+ZONE_CLUSTER_DENSITY = Histogram(
+    "zone_cluster_density",
+    "Cluster quality score (strength × diversity / width_atr)",
+    buckets=[0.5, 1, 2, 5, 10, 20, 50],
+)
+ZONE_WIDTH_ATR = Histogram(
+    "zone_width_atr",
+    "Final zone width in ATR units",
+    buckets=[0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0],
+)
+
+
 def record_llm_call(
     provider: str,
     call_type: str,
