@@ -107,6 +107,56 @@ class AIContext(BaseModel):
 AIContext.model_rebuild()
 
 
+# ---------------------------------------------------------------------------
+# Shared context rendering — used by all prompt builders (skeptic, narrative)
+# ---------------------------------------------------------------------------
+
+_CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "symbol",
+        "timeframe",
+        "ts",
+        "trigger",
+        "bar",
+        "i7",
+        "lead_context",
+        "volume_profile",
+    }
+)
+
+
+def render_full_context(ctx: AIContext) -> str:
+    """Render every non-None pipeline tier as deterministic LLM-friendly text.
+
+    Open-ended: iterates ctx.model_fields, NOT a hardcoded tier list.
+    Any new tier added to AIContext automatically appears with zero prompt changes.
+    """
+    from pydantic import BaseModel
+
+    lines: list[str] = []
+    for field_name in sorted(ctx.__class__.model_fields):
+        if field_name in _CONTEXT_NON_TIER_FIELDS:
+            continue
+        value = getattr(ctx, field_name, None)
+        if value is None:
+            continue
+        if not isinstance(value, BaseModel):
+            continue
+        tier_dict = value.model_dump()
+        if not tier_dict:
+            continue
+        lines.append(f"## {field_name}")
+        for k, v in sorted(tier_dict.items()):
+            if v is None:
+                lines.append(f"- {k}: null")
+            elif isinstance(v, float):
+                lines.append(f"- {k}: {v:.4f}")
+            else:
+                lines.append(f"- {k}: {v}")
+    return "\n".join(lines) if lines else "(no features available)"
+
+
 class AIContextCache:
     """asyncio-safe in-memory context cache (NOT thread-safe).
 
