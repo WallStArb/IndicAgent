@@ -218,7 +218,7 @@ class LedgerEntry:
             self.signal_schema_version,  # $61
             self.entry_type,  # $62
             self.co_fire_count,  # $63
-            self.co_fire_partners,  # $64::jsonb
+            self.co_fire_partners,  # $64::text[]
         )
 
 
@@ -276,7 +276,7 @@ INSERT INTO signal_ledger (
     $52, $53, $54,
     $55, $56, $57, $58,
     $59, $60,
-    $61, $62, $63, $64::jsonb
+    $61, $62, $63, $64::text[]
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """

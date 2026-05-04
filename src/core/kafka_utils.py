@@ -43,6 +43,9 @@ class _KafkaHeadersCarrier:
     def set(self, key: str, value: str) -> None:
         self._headers[key] = value
 
+    def __setitem__(self, key: str, value: str) -> None:
+        self._headers[key] = value
+
     def keys(self) -> list[str]:
         return list(self._headers.keys())
 
