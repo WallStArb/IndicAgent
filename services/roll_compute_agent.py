@@ -20,7 +20,6 @@ Golden Signals (D-17):
 - detection_latency_seconds: time to run check_roll() per bar
 - detection_errors_total: exceptions during bar processing
 
-Metrics port: 9122
 
 Version: 1.0.0
 Last Updated: 2026-03-28
@@ -358,8 +357,7 @@ class RollComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         settings = Settings()
-        metrics_port = 9122  # config-before-super pattern
-        super().__init__(name="roll_compute_agent", metrics_port=metrics_port)
+        super().__init__(name="roll_compute_agent")
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
         self._roll_monitor = RollMonitor(settings)
         self._calendar_scheduler = CalendarRollScheduler()

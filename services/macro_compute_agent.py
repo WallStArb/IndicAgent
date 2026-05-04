@@ -88,7 +88,6 @@ class MacroComputeAgent(BaseAgent):
 
         super().__init__(
             name="MacroComputeAgent",
-            metrics_port=settings.macro_metrics_port,
             max_idle_seconds=300,  # 5 minutes stall detection
             settings=settings,
         )

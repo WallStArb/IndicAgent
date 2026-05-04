@@ -38,7 +38,6 @@ def _make_service():
     svc._stop_event = asyncio.Event()  # running property reads this
     svc.settings = MagicMock(env_name="development")
     svc._window_bars = _WINDOW
-    svc._metrics_port = 9118
     svc._kafka_bootstrap = "localhost:19092"
     svc._database_url = "postgresql://localhost/indicagent"
     svc._groups = _GROUPS

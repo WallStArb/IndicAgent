@@ -10,7 +10,6 @@ ProviderQualityEvent published to `market.data.quality` on every routed bar,
 failover, and recovery.
 
 DB-ignorant ProviderAgent — no database access.
-Metrics port: :9130
 
 Golden Signals (D-16):
 - Traffic: merger_bars_routed_total, merger_bars_dropped_total
@@ -66,7 +65,7 @@ class ProviderMergerComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="provider_merger_agent", metrics_port=9130)
+        super().__init__(name="provider_merger_agent")
         self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
             raise ValueError("provider_raw_topics must be non-empty")

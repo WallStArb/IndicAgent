@@ -7,7 +7,6 @@ Publishes BarGapRequest events to topic_gap_requests for DataProviderAgent
 to consume and fetch from IBKR.
 
 DB-aware (reads market_data_ohlcv). Not a ComputeAgent — an AuditorAgent.
-Metrics port: :9123
 
 Golden Signals (D-14):
 - Traffic: audits_run_total, gap_requests_published_total
@@ -113,11 +112,10 @@ class BarAuditorAgent(BaseAgent):
     to topic_gap_requests for DataProviderAgent to fulfill.
 
     DB-aware (reads market_data_ohlcv). Not DB-ignorant.
-    Metrics port: :9123
     """
 
     def __init__(self) -> None:
-        super().__init__(name="bar_auditor_agent", metrics_port=9123, max_idle_seconds=300)
+        super().__init__(name="bar_auditor_agent", max_idle_seconds=300)
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None

@@ -213,10 +213,8 @@ class FeatureWriterAgent(BaseWriterAgent):
         self.start_time = datetime.now(tz=UTC)
 
         config = self._load_config(config_file)
-        metrics_port = config.get("service", {}).get("metrics_port", 9116)
         super().__init__(
             name="feature_writer_agent",
-            metrics_port=metrics_port,
             max_idle_seconds=300,
         )
         self.config = config
@@ -352,7 +350,6 @@ class FeatureWriterAgent(BaseWriterAgent):
                 "symbols": get_active_symbols(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.01,
-                "metrics_port": 9116,
                 "health_check_interval": 30,
             },
             "logging": {

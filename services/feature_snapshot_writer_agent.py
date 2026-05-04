@@ -37,7 +37,6 @@ from src.persistence.repository.feature_repository import FeatureRepository
 
 CONSUMER_GROUP: str = "feature_snapshot_writer_group"
 SHADOW_TABLE: str = "feature_snapshots_shadow"
-METRICS_PORT: int = 9132
 
 
 class FeatureSnapshotWriterAgent(BaseWriterAgent):
@@ -54,7 +53,6 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
     def __init__(self) -> None:
         super().__init__(
             name="FeatureSnapshotWriterAgent",
-            metrics_port=METRICS_PORT,
         )
 
         self._expiry_map: dict = {}

@@ -7,7 +7,6 @@ metrics for zone and market tracks, and publishes events to
 intelligence.signal_metrics topic for SignalMetricsWriterAgent to persist.
 
 DB-aware (reads signal_ledger) but publishes DB-ignorant events.
-Metrics port: :9126
 
 Golden Signals:
 - Traffic: compute_cycles_total
@@ -69,7 +68,6 @@ _DQ_FAILURES = Counter(
 _AGENT_NAME = "signal_metrics_compute"
 _INTERVAL_SECONDS = 900  # 15 minutes
 _LOOKBACK_DAYS = 90  # max window — query covers full 90d
-_METRICS_PORT = 9126
 
 _QUERY = """
     SELECT
@@ -110,7 +108,7 @@ class SignalMetricsComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name=_AGENT_NAME, metrics_port=_METRICS_PORT)
+        super().__init__(name=_AGENT_NAME)
         self._db: DatabaseManager | None = None
         self._producer: KafkaProducerClient | None = None
         self._interval_seconds = _INTERVAL_SECONDS

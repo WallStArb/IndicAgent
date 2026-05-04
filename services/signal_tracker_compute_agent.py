@@ -86,7 +86,7 @@ class SignalTrackerComputeAgent(BaseAgent):
     _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
 
     def __init__(self) -> None:
-        super().__init__(name="SignalTrackerComputeAgent", metrics_port=9133, max_idle_seconds=300)
+        super().__init__(name="SignalTrackerComputeAgent", max_idle_seconds=300)
         self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         # In-memory active signal index: (symbol, timeframe) -> [signal dicts]

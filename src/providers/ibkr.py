@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,8 @@ from src.observability.metrics import (  # noqa: E402
     CIRCUIT_BREAKER_OPEN_SECONDS,
     CIRCUIT_BREAKER_SUCCESSES_TOTAL,
     CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
+    IBKR_CLIENT_ID_CURRENT,
+    IBKR_ERROR_326_TOTAL,
     PROVIDER_BARS_DROPPED_TOTAL,
 )
 from src.providers.base import OHLCVBar, Tick  # noqa: E402
@@ -105,95 +108,217 @@ _ibkr_circuit_breaker = PluginCircuitBreaker(
 # Track when IBKR circuit breaker entered OPEN — used to observe duration on recovery.
 _ibkr_open_since: float | None = None
 
+# Error 326 hardening: cross-thread signal for clientId collision detection.
+# ib_insync fires errorEvent from its internal thread; the asyncio connect path
+# waits on this Event to detect Error 326 within seconds of connectAsync() returning.
+_error_326_detected: threading.Event = threading.Event()
+_MAX_CLIENT_ID = 50
+_IB_GATEWAY_CONTAINER = "ib-gateway"
+
+
+def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None:
+    """ib_insync errorEvent handler. Runs on ib_insync's internal thread."""
+    if errorCode == 326:
+        _error_326_detected.set()
+        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="detected").inc()
+        logger.error(
+            "ibkr.error_326_detected",
+            extra={"reqId": reqId, "errorString": errorString},
+        )
+    elif errorCode >= 2100 and errorCode < 2200:
+        logger.warning(
+            "ibkr.ib_warning",
+            extra={"reqId": reqId, "errorCode": errorCode, "errorString": errorString},
+        )
+
+
+async def _restart_ib_gateway() -> bool:
+    """Restart the ib-gateway Docker container to clear stale clientId sessions."""
+    logger.warning("ibkr.restarting_gateway_container", extra={"container": _IB_GATEWAY_CONTAINER})
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "restart",
+            _IB_GATEWAY_CONTAINER,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        if proc.returncode == 0:
+            IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="gateway_restarted").inc()
+            logger.info(
+                "ibkr.gateway_container_restarted", extra={"container": _IB_GATEWAY_CONTAINER}
+            )
+            await asyncio.sleep(45)
+            return True
+        logger.error(
+            "ibkr.gateway_restart_failed",
+            extra={
+                "container": _IB_GATEWAY_CONTAINER,
+                "returncode": proc.returncode,
+                "stderr": stderr.decode()[:500],
+            },
+        )
+        return False
+    except TimeoutError:
+        logger.error("ibkr.gateway_restart_timeout", extra={"container": _IB_GATEWAY_CONTAINER})
+        return False
+    except Exception as exc:
+        logger.error(
+            "ibkr.gateway_restart_error",
+            extra={"container": _IB_GATEWAY_CONTAINER, "error": str(exc)},
+        )
+        return False
+
 
 async def _connect_with_circuit_breaker(
     host: str, port: int, client_id: int, timeout: float
-) -> IB | None:
-    """Connect to IBKR with circuit breaker tracking and metrics."""
+) -> tuple[IB | None, int]:
+    """Connect to IBKR with circuit breaker, Error 326 detection, and clientId rotation.
+
+    Returns (ib_instance, actual_client_id) or (None, client_id) on failure.
+    On Error 326, rotates clientId upward. After exhaustion, restarts the
+    ib-gateway container and retries with the original clientId.
+    """
     global _ibkr_open_since
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
     previous_state = plugin_state.state
 
-    async def _try_connect() -> IB:
-        """Single connection attempt."""
+    async def _try_connect(cid: int) -> IB:
+        """Single connection attempt with Error 326 post-connect guard."""
+        _error_326_detected.clear()
         ib_instance = IB()
-        await ib_instance.connectAsync(
-            host=host,
-            port=port,
-            clientId=client_id,
-            timeout=timeout,
-            readonly=False,
-        )
-        if not ib_instance.isConnected():
-            raise ConnectionError("IBKR connection established but not connected")
-        return ib_instance
+        ib_instance.errorEvent += _on_ib_error
+        try:
+            await ib_instance.connectAsync(
+                host=host,
+                port=port,
+                clientId=cid,
+                timeout=timeout,
+                readonly=False,
+            )
+            if not ib_instance.isConnected():
+                raise ConnectionError("IBKR connection established but not connected")
 
-    try:
-        # Use retry_with_backoff for exponential backoff + jitter
-        ib_instance = await retry_with_backoff(
-            _try_connect,
-            max_attempts=3,
-            base_delay=2.0,  # Longer base for IBKR
-            max_delay=15.0,
-            jitter_factor=0.5,
-        )
+            # Post-connect guard: Error 326 fires within ~100-500ms of TCP
+            # handshake. 2s is a generous upper bound that keeps total connect
+            # time under the 20s ib_timeout_sec.
+            # asyncio.to_thread() avoids blocking the event loop.
+            if await asyncio.to_thread(_error_326_detected.wait, 2.0):
+                ib_instance.disconnect()
+                raise ConnectionError(f"Error 326: clientId {cid} already in use")
 
-        # Record success metrics
+            IBKR_CLIENT_ID_CURRENT.labels(provider="ibkr").set(cid)
+            return ib_instance
+        finally:
+            ib_instance.errorEvent -= _on_ib_error
+
+    def _record_success():
+        global _ibkr_open_since
         CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
-
-        # Record success in circuit breaker
         plugin_state.success_count += 1
         plugin_state.last_success_time = datetime.now()
         plugin_state.total_calls += 1
-
-        # Record state transition if recovered from non-closed state
         if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
             CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
                 plugin_name=provider_id,
                 from_state=previous_state.name.lower(),
                 to_state="closed",
             ).inc()
-            # Observe how long the circuit was OPEN before recovery
             if _ibkr_open_since is not None:
                 CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
                     time.monotonic() - _ibkr_open_since
                 )
                 _ibkr_open_since = None
 
-        logger.info(
-            "IBKR connected",
-            extra={"host": host, "port": port, "client_id": client_id},
-        )
-        return ib_instance
-
-    except Exception as exc:
-        # Record failure metrics
+    def _record_failure(error_type: str):
+        global _ibkr_open_since
         CIRCUIT_BREAKER_FAILURES_TOTAL.labels(
             plugin_name=provider_id,
-            error_type=type(exc).__name__,
+            error_type=error_type,
         ).inc()
-
-        # Record failure in circuit breaker
         plugin_state.failure_count += 1
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
-
-        # Record state transition if tripped to OPEN
         if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
             CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
                 plugin_name=provider_id,
                 from_state=previous_state.name.lower(),
                 to_state="open",
             ).inc()
-            # Start timing how long the circuit stays OPEN
             _ibkr_open_since = time.monotonic()
 
+    # Phase 1: clientId rotation (client_id → client_id+1 → ... → _MAX_CLIENT_ID)
+    current_cid = client_id
+    deadline = time.monotonic() + 120  # 2 min outer deadline to prevent unbounded runtime
+    while current_cid <= _MAX_CLIENT_ID and time.monotonic() < deadline:
+        try:
+            ib_instance = await retry_with_backoff(
+                lambda cid=current_cid: _try_connect(cid),
+                max_attempts=3,
+                base_delay=2.0,
+                max_delay=15.0,
+                jitter_factor=0.5,
+            )
+            _record_success()
+            logger.info(
+                "IBKR connected",
+                extra={"host": host, "port": port, "client_id": current_cid},
+            )
+            return ib_instance, current_cid
+
+        except ConnectionError as exc:
+            if "Error 326" in str(exc):
+                IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="client_id_rotated").inc()
+                logger.warning(
+                    "ibkr.error_326_rotating_client_id",
+                    extra={
+                        "old_cid": current_cid,
+                        "new_cid": current_cid + 1,
+                        "max": _MAX_CLIENT_ID,
+                    },
+                )
+                current_cid += 1
+                continue
+            _record_failure(type(exc).__name__)
+            break
+        except Exception as exc:
+            _record_failure(type(exc).__name__)
+            break
+
+    # Phase 2: all clientIds exhausted → restart gateway container
+    if current_cid > _MAX_CLIENT_ID:
+        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="rotation_exhausted").inc()
         logger.error(
-            "IBKR connect failed",
-            extra={"host": host, "port": port, "client_id": client_id, "error": str(exc)},
+            "ibkr.client_id_rotation_exhausted",
+            extra={"base_client_id": client_id, "max_client_id": _MAX_CLIENT_ID},
         )
-        return None
+        restarted = await _restart_ib_gateway()
+        if restarted:
+            current_cid = client_id
+            _error_326_detected.clear()
+            try:
+                ib_instance = await retry_with_backoff(
+                    lambda cid=current_cid: _try_connect(cid),
+                    max_attempts=3,
+                    base_delay=5.0,
+                    max_delay=30.0,
+                    jitter_factor=0.5,
+                )
+                _record_success()
+                logger.info(
+                    "IBKR connected after gateway restart", extra={"client_id": current_cid}
+                )
+                return ib_instance, current_cid
+            except Exception as exc:
+                _record_failure(type(exc).__name__)
+
+    logger.error(
+        "IBKR connect failed",
+        extra={"host": host, "port": port, "client_id": client_id},
+    )
+    return None, client_id
 
 
 def _normalize_ib_bar_ts(raw_date) -> datetime:
@@ -275,13 +400,16 @@ class IBKRProvider:
             )
             return False
 
-        # Use circuit breaker for connection attempt
-        self._ib = await _connect_with_circuit_breaker(
+        # Use circuit breaker for connection attempt (returns tuple with rotated clientId)
+        self._ib, active_client_id = await _connect_with_circuit_breaker(
             host=self._host,
             port=self._port,
             client_id=self._client_id,
             timeout=self._settings.ib_timeout_sec,
         )
+        if self._ib is not None:
+            # Persist rotated clientId so subsequent reconnects start from it
+            self._client_id = active_client_id
         return self._ib is not None
 
     async def ping(self) -> bool:

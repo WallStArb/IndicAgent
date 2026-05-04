@@ -26,16 +26,10 @@ _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     # General
     env_name: str = Field(default="", validation_alias="INDICAGENT_ENV")
-    metrics_port: int = Field(default=9108, validation_alias="INDICAGENT_METRICS_PORT")
     intelligence_thread_pool_workers: int = Field(
         default=0,
         validation_alias="INTELLIGENCE_THREAD_POOL_WORKERS",
         description="Thread pool worker count for intelligence pipeline. 0 = cpu_count * 2 (auto).",
-    )
-    pipeline_metrics_port: int = Field(
-        default=9125,
-        validation_alias="METRICS_PORT",
-        description="Prometheus metrics port for intelligence pipeline instances.",
     )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
@@ -135,11 +129,9 @@ class Settings(BaseSettings):
 
     # Cross-asset intelligence (always active — feature flag removed Phase 47-04)
     cross_asset_window_bars: int = Field(default=20, validation_alias="CROSS_ASSET_WINDOW_BARS")
-    cross_asset_metrics_port: int = Field(default=9118, validation_alias="CROSS_ASSET_METRICS_PORT")
 
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
-    macro_metrics_port: int = Field(default=9135, validation_alias="MACRO_METRICS_PORT")
 
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
     # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
