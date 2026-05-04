@@ -99,7 +99,7 @@ class TestRenderFullContext:
         """The implementation must reference model_fields, not a hardcoded tier list."""
         import pathlib
 
-        content = pathlib.Path("src/intelligence/ai/alpha/skeptic_prompts.py").read_text()
+        content = pathlib.Path("src/core/ai/context.py").read_text()
         assert (
             "model_fields" in content
         ), "render_full_context must iterate ctx.__class__.model_fields"
