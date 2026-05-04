@@ -65,7 +65,7 @@ def _select_vp(features: dict[str, Any], tf: str, session_key: str, rolling_key:
 
 
 # (feature_key, display_name, default_strength, source_tier, source_family)
-_SUPPORT_SPECS: list[tuple[str, str, float, str, str]] = [
+_SUPPORT_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
     ("nearest_support", "support", 0.7, "i3", "sr"),
     ("sr_nearest_support", "sr_support", 0.7, "i3", "sr"),
     ("swing_low", "swing_low", 0.6, "i3", "swing"),
@@ -74,9 +74,9 @@ _SUPPORT_SPECS: list[tuple[str, str, float, str, str]] = [
     ("sma_50", "sma50", 0.6, "i1", "ma_sma"),
     ("ssl_level", "ssl", 0.7, "smc", "smc_ssl"),
     ("overnight_low", "overnight", 0.6, "i3", "overnight"),
-]
+)
 
-_RESISTANCE_SPECS: list[tuple[str, str, float, str, str]] = [
+_RESISTANCE_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
     ("nearest_resistance", "resistance", 0.7, "i3", "sr"),
     ("sr_nearest_resistance", "sr_resist", 0.7, "i3", "sr"),
     ("swing_high", "swing_high", 0.6, "i3", "swing"),
@@ -85,7 +85,7 @@ _RESISTANCE_SPECS: list[tuple[str, str, float, str, str]] = [
     ("sma_50", "sma50", 0.6, "i1", "ma_sma"),
     ("bsl_level", "bsl", 0.7, "smc", "smc_bsl"),
     ("overnight_high", "overnight", 0.6, "i3", "overnight"),
-]
+)
 
 _STRENGTH_FIELD: dict[str, str] = {
     "support": "support_strength",
@@ -113,26 +113,29 @@ def _resolve_strength(features: dict, name: str, default: float) -> float:
 
 
 def _dedup(candidates: list[ZoneCandidate], atr: float) -> list[ZoneCandidate]:
-    """Within each source_family, keep only the candidate with highest strength.
+    """Within each source_family, collapse same-price duplicates (within 1 ATR) keeping strongest.
 
-    Two candidates in the same family within 1 ATR of each other are the same
-    underlying level expressed by different feature keys.
+    1 ATR tolerance is intentional — wider than CLUSTER_RADIUS_ATR to suppress
+    duplicate-level noise from feature keys that reference the same structural level.
+    Distinct prices in the same family (e.g. two sr levels far apart) are both kept.
     """
-    tol = atr * 1.0
-    # bucket by family; within family keep best strength within tolerance
-    by_family: dict[str, ZoneCandidate] = {}
-    overflow: list[ZoneCandidate] = []
+    tol = atr  # 1 ATR dedup radius
+    by_family: dict[str, list[ZoneCandidate]] = {}
     for c in candidates:
-        existing = by_family.get(c.source_family)
-        if existing is None:
-            by_family[c.source_family] = c
-        elif abs(c.price - existing.price) < tol:
-            if c.strength > existing.strength:
-                by_family[c.source_family] = c
-        else:
-            overflow.append(existing)
-            by_family[c.source_family] = c
-    return overflow + list(by_family.values())
+        by_family.setdefault(c.source_family, []).append(c)
+
+    result: list[ZoneCandidate] = []
+    for family_cands in by_family.values():
+        sorted_cands = sorted(family_cands, key=lambda c: c.price)
+        cluster: list[ZoneCandidate] = [sorted_cands[0]]
+        for c in sorted_cands[1:]:
+            if c.price - cluster[-1].price < tol:
+                cluster.append(c)
+            else:
+                result.append(max(cluster, key=lambda x: x.strength))
+                cluster = [c]
+        result.append(max(cluster, key=lambda x: x.strength))
+    return result
 
 
 def collect_candidates(
@@ -179,7 +182,7 @@ def collect_candidates(
                         name=name,
                         strength=0.8 if name == "poc" else 0.7,
                         source_tier="i4",
-                        source_family="vp",
+                        source_family=f"vp_{name}",
                     )
                 )
     else:
@@ -194,7 +197,7 @@ def collect_candidates(
                         name=name,
                         strength=0.8 if name == "poc" else 0.7,
                         source_tier="i4",
-                        source_family="vp",
+                        source_family=f"vp_{name}",
                     )
                 )
 
