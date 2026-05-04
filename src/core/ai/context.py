@@ -57,6 +57,10 @@ class I7Context(TierContext):
     winner_plugin: str | None = None
     winner_direction: int | None = None
     winner_confidence: float | None = None
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    entry_type: str | None = None
 
 
 class BarContext(TierContext):
@@ -121,7 +125,6 @@ _CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset(
         "bar",
         "i7",
         "lead_context",
-        "volume_profile",
     }
 )
 
@@ -132,8 +135,6 @@ def render_full_context(ctx: AIContext) -> str:
     Open-ended: iterates ctx.model_fields, NOT a hardcoded tier list.
     Any new tier added to AIContext automatically appears with zero prompt changes.
     """
-    from pydantic import BaseModel
-
     lines: list[str] = []
     for field_name in sorted(ctx.__class__.model_fields):
         if field_name in _CONTEXT_NON_TIER_FIELDS:
