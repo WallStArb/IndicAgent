@@ -6,6 +6,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
+from opentelemetry.trace import SpanContext, TraceFlags, set_span_in_context
+from opentelemetry.trace.span import NonRecordingSpan
 
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient, _KafkaHeadersCarrier
 
@@ -111,11 +114,6 @@ async def test_publish_sends_headers() -> None:
     client._bootstrap = "localhost:9092"
     client._producer = AsyncMock()
     client._producer.send_and_wait = AsyncMock()
-
-    # Create a real span context and activate it so inject writes traceparent
-    from opentelemetry import context as otel_context
-    from opentelemetry.trace import SpanContext, TraceFlags, set_span_in_context
-    from opentelemetry.trace.span import NonRecordingSpan
 
     span_ctx = SpanContext(
         trace_id=0x0123456789ABCDEF0123456789ABCDEF,

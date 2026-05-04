@@ -41,7 +41,7 @@ class _KafkaHeadersCarrier:
         return [val] if val is not None else default
 
     def set(self, key: str, value: str) -> None:
-        self._headers[key] = value
+        self[key] = value
 
     def __setitem__(self, key: str, value: str) -> None:
         self._headers[key] = value
