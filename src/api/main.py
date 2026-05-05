@@ -17,7 +17,6 @@ from .routes import (
     drift,
     features,
     health,
-    indicators,
     instruments,
     market_data,
     narrative,
@@ -128,7 +127,6 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, prefix="/health", tags=["health"])
-app.include_router(indicators.router, prefix="/indicators", tags=["indicators"])
 app.include_router(market_data.router, prefix="/api", tags=["market-data"])
 app.include_router(instruments.router, prefix="/api", tags=["instruments"])
 app.include_router(sse.router, prefix="/api/sse", tags=["sse"])
