@@ -23,6 +23,7 @@ class TransitionType(StrEnum):
     CHANDELIER_UPDATE = "chandelier_update"
     MAE_MFE_UPDATE = "mae_mfe_update"
     SHADOW_OUTCOME = "shadow_outcome"
+    MARKET_RESOLUTION = "market_resolution"
 
 
 @dataclass
