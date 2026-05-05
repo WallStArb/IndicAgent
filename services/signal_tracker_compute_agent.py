@@ -38,7 +38,9 @@ from src.core.stream_keys import (
 )
 from src.intelligence.trading.lifecycle_tracker import (
     STALENESS_SCORE_THRESHOLD,
+    MarketTransition,
     compute_staleness_score,
+    evaluate_market_entry,
     evaluate_signal,
 )
 from src.intelligence.trading.lifecycle_transitions import (
@@ -86,7 +88,7 @@ class SignalTrackerComputeAgent(BaseAgent):
     _BOOTSTRAP_BACKOFF_SECONDS = (2, 4, 8)
 
     def __init__(self) -> None:
-        super().__init__(name="SignalTrackerComputeAgent", metrics_port=9133, max_idle_seconds=300)
+        super().__init__(name="SignalTrackerComputeAgent", max_idle_seconds=300)
         self._kafka_bootstrap = self.settings.kafka_bootstrap_servers
 
         # In-memory active signal index: (symbol, timeframe) -> [signal dicts]
@@ -98,6 +100,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._signal_ids: set[str] = set()
         self._mae: dict[str, float] = {}
         self._mfe: dict[str, float] = {}
+        self._market_mae: dict[str, float] = {}
+        self._market_mfe: dict[str, float] = {}
         self._chandelier_state: dict[str, dict] = {}
         self._staleness_consecutive: dict[str, int] = {}
         self._activated_at: dict[str, datetime] = {}
@@ -372,6 +376,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._signal_ids.discard(signal_id)
         self._mae.pop(signal_id, None)
         self._mfe.pop(signal_id, None)
+        self._market_mae.pop(signal_id, None)
+        self._market_mfe.pop(signal_id, None)
         self._chandelier_state.pop(signal_id, None)
         self._staleness_consecutive.pop(signal_id, None)
         self._activated_at.pop(signal_id, None)
@@ -513,10 +519,6 @@ class SignalTrackerComputeAgent(BaseAgent):
 
             await self._publish_transition(lifecycle_t)
 
-            # Clean up on exit
-            if transition.exit_reason:
-                self._remove_signal(sid, symbol, timeframe)
-
             self._transitions_total.inc()
             self.logger.info(
                 "signal_transition",
@@ -525,6 +527,43 @@ class SignalTrackerComputeAgent(BaseAgent):
                 exit_reason=transition.exit_reason,
                 pnl_r=transition.pnl_r,
             )
+
+            # Clean up on exit
+            if transition.exit_reason:
+                self._remove_signal(sid, symbol, timeframe)
+                continue
+
+            # --- Market-entry dual track ---
+            mep = sig.get("market_entry_price")
+            if mep and float(mep) > 0:
+                market_entry_price = float(mep)
+                m_mae = self._market_mae.get(sid, 0.0)
+                m_mfe = self._market_mfe.get(sid, 0.0)
+                try:
+                    mkt = evaluate_market_entry(
+                        sig_with_extras,
+                        market_entry_price=market_entry_price,
+                        high=float(bar["high"]),
+                        low=float(bar["low"]),
+                        close=float(bar["close"]),
+                        current_mae=m_mae,
+                        current_mfe=m_mfe,
+                    )
+                    if mkt.outcome is not None:
+                        await self._publish_market_resolution(mkt, bar_time)
+                        self._market_mae.pop(sid, None)
+                        self._market_mfe.pop(sid, None)
+                    else:
+                        pnl_now = (float(bar["close"]) - market_entry_price) * int(sig["direction"])
+                        risk_m = abs(
+                            market_entry_price - float(sig.get("stop_loss", market_entry_price))
+                        )
+                        if risk_m > 0:
+                            pnl_r = pnl_now / risk_m
+                            self._market_mae[sid] = min(m_mae, pnl_r)
+                            self._market_mfe[sid] = max(m_mfe, pnl_r)
+                except Exception as exc:
+                    self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(exc))
 
     # ------------------------------------------------------------------
     # Transition mapping
@@ -602,6 +641,28 @@ class SignalTrackerComputeAgent(BaseAgent):
                 signal_id=lt.signal_id,
                 error=str(exc),
             )
+
+    async def _publish_market_resolution(self, mkt: MarketTransition, bar_time: datetime) -> None:
+        """Publish market-track resolution as a LifecycleTransition to Kafka."""
+        lt = LifecycleTransition(
+            transition_type=TransitionType.MARKET_RESOLUTION,
+            signal_id=mkt.signal_id,
+            symbol="",
+            timeframe="",
+            bar_ts=bar_time,
+            data={
+                "market_entry_at": bar_time,
+                "market_entry_exit_price": mkt.exit_price,
+                "market_entry_exit_at": bar_time,
+                "market_entry_pnl_r": mkt.pnl_r,
+                "market_entry_mae": mkt.mae,
+                "market_entry_mfe": mkt.mfe,
+                "market_entry_bars_in_trade": None,
+                "market_entry_outcome": mkt.outcome,
+                "market_entry_gap_bars": mkt.gap_bars,
+            },
+        )
+        await self._publish_transition(lt)
 
     # ------------------------------------------------------------------
     # Helpers

@@ -1,44 +1,44 @@
 const HIGHLIGHTS: { label: string; value: string; desc: string; accent: "cyan" | "amber" }[] = [
   {
-    label: "The Bus is the Contract",
-    value: "IntelligenceEvent",
+    label: "Agentic Swarm Architecture",
+    value: "Asynchronous Intelligence",
     desc:
-      "Every tick, every signal, every AI narrative flows through one shared, durable, replayable event bus. No service calls another directly. Producers publish. Consumers subscribe. A new downstream system (execution engine, ML scorer, alert bot) subscribes to the existing stream with zero changes to the producers.",
+      "Our swarm of agents functions as a unified, high-performance intelligence engine. By decoupling every component through a durable, replayable event bus, the system scales effortlessly, allowing our intelligence capabilities to evolve in lockstep with the market’s complexity.",
     accent: "cyan",
   },
   {
-    label: "Signal Lifecycle Tracking",
-    value: "8-class outcome",
+    label: "Validated Alpha Lifecycle",
+    value: "8-Class Hypothesis Tracking",
     desc:
-      "Every signal is tracked from fire to resolution: activation at entry zone, MAE/MFE per bar, 8-class outcome (stopped at entry, stopped in trade, T1/T2/full target, TTL expired). Shadow signals under regime suppression are tracked identically, building a labeled dataset for every market condition the system sees.",
+      "Every signal is treated as a data-proven hypothesis. We track performance from the moment of activation through to final resolution, recording granular MAE/MFE metrics against an 8-class outcome model to turn every market move into a labeled training sample.",
     accent: "amber",
   },
   {
-    label: "Regime-Aware Intelligence",
-    value: "HMM · GARCH · Kalman",
+    label: "Regime-Aware Predictive Modeling",
+    value: "Multi-Model Consensus",
     desc:
-      "I4 classifies the current market regime using GARCH volatility modelling, a Kalman trend filter, HMM hidden state detection, and BOCPD changepoint detection. I7 setup plugins declare a regime_type (trend / mean-reversion / any) and are gated by the slow-clock regime of the next higher timeframe. Suppressed signals become regime_suppressed shadow signals, not dropped data.",
+      "Our system dynamically adapts to the current market environment by synthesizing GARCH volatility modeling, Kalman filters, HMM state detection, and BOCPD changepoint identification. This provides a multi-dimensional view of market regime, ensuring our intelligence is always contextually relevant.",
     accent: "cyan",
   },
   {
-    label: "Self-Improving Feedback Loop",
-    value: "Outcome → Weights → CIS",
+    label: "Self-Optimizing Alpha Loop",
+    value: "Evidence-Gated Feedback",
     desc:
-      "Every signal carries the CIS weight version that produced it. Every outcome is written back to the feature store alongside the full I1–I8 signal vector that triggered it. When 30+ samples accumulate per setup type, setup_performance rolls up win rate, avg pnl_r, and Sharpe, feeding back into CIS perf_multiplier weights without code changes.",
+      "The loop from outcome to optimization is closed. System performance multipliers are automatically adjusted based on verified PnL and Sharpe ratio roll-ups, allowing our agentic intelligence to self-sharpen its edge without requiring manual code changes.",
     accent: "amber",
   },
   {
-    label: "AI Narrative Synthesis",
-    value: "3-tier LLM chain",
+    label: "Predictive AI Narrative",
+    value: "3-Tier Chain Synthesis",
     desc:
-      "I8 runs a 3-tier LLM chain: ZAI GLM-5 (primary, <70ms), OpenRouter with 100+ model fallback, and Ollama local for offline operation. Every signal with confidence > 0.70 gets a per-signal narrative. Every 60s, a 6-group cross-asset synthesis narrative is generated from the full active signal set. All LLM calls, including failures, are logged with outcome back-fill.",
+      "Beyond technical triggers, our I8 intelligence layer synthesizes complex market conditions into actionable AI narratives. By chaining specialized LLMs, we generate per-signal context and cross-asset reports that bridge the gap between algorithmic execution and human intuition.",
     accent: "cyan",
   },
   {
-    label: "Feature Store as Training Set",
-    value: "TimescaleDB · Forever",
+    label: "Ground-Truth Feature Store",
+    value: "Universal Intelligence Vector",
     desc:
-      "The intelligence_features hypertable is the ground truth training dataset. Every bar across every instrument and timeframe writes the full I1–I8 feature vector including JSONB tiers. Signal outcomes JOIN back via (symbol, feature_ts, feature_tf). Nothing is discarded. Storage is cheap. Every output is a labeled training sample.",
+      "Our feature store is the backbone of our Alpha generation. It maintains a persistent record of every instrument's state across every timeframe and tier, creating a labeled, high-resolution dataset that ensures every output acts as a training sample for the next iteration.",
     accent: "amber",
   },
 ];

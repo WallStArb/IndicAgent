@@ -35,7 +35,7 @@ class AlertingComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         settings = get_settings()
-        super().__init__(name="alerting_agent", metrics_port=9132, settings=settings)
+        super().__init__(name="alerting_agent", settings=settings)
         self._http_session: aiohttp.ClientSession | None = None
         self._consumer: KafkaConsumerClient | None = None
 

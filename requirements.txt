@@ -41,6 +41,8 @@ numpy>=2.4.0
 opentelemetry-api>=1.20.0
 opentelemetry-exporter-otlp-proto-grpc>=1.20.0
 opentelemetry-exporter-otlp-proto-http>=1.20.0
+opentelemetry-instrumentation>=0.45b0
+opentelemetry-instrumentation-logging>=0.45b0
 opentelemetry-sdk>=1.20.0
 pandas-market-calendars>=4.3
 pandas>=3.0.0
@@ -63,7 +65,6 @@ pytest>=8.4.0
 pytz==2026.1.post1
 ruff>=0.15.0
 scikit-learn>=1.5.0
-scipy==1.17.1
 scipy>=1.15.0
 sdnotify>=0.3.2
 seaborn==0.13.2

@@ -45,6 +45,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .zone_engine import resolve_structural_zone
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -309,17 +311,19 @@ def _resolve_zone_bounds(
     setup_type: str,
     direction: int,
     entry: float,
+    stop: float,
     features: dict[str, Any],
     atr: float,
-) -> tuple[float, float]:
-    """Return (zone_low, zone_high) for the entry zone.
+) -> tuple[float, float, str]:
+    """Return (zone_low, zone_high, zone_source) for the entry zone.
 
-    Uses structural levels when available; falls back to entry ± ATR multiples.
+    Preserves setup-specific geometry first; calls structural zone engine
+    only when no setup-specific bounds are available.
     zone_low < zone_high always (independent of direction).
     """
     st = setup_type.lower()
 
-    # Supply/Demand zone entries — use the demand/supply zone bounds
+    # Supply/Demand zone entries — use exact zone bounds (highest precision)
     if st.startswith("supply_demand"):
         if direction == 1:
             low = _fval(features, "nearest_demand_low")
@@ -328,28 +332,41 @@ def _resolve_zone_bounds(
             low = _fval(features, "nearest_supply_low")
             high = _fval(features, "nearest_supply_high")
         if EPSILON_TOLERANCE < low < high:
-            return low, high
+            return low, high, "setup:supply_demand_zone"
 
     # FVG fill — use FVG bottom/top
     if st.startswith("fvg"):
         fvg_bottom = _fval(features, "fvg_bottom")
         fvg_top = _fval(features, "fvg_top")
         if EPSILON_TOLERANCE < fvg_bottom < fvg_top:
-            return fvg_bottom, fvg_top
+            return fvg_bottom, fvg_top, "setup:fvg_zone"
 
     # Order block entries — use OB bottom/top
     if st.startswith("choch") or "ob" in st:
         ob_bottom = _fval(features, "ob_bottom")
         ob_top = _fval(features, "ob_top")
         if EPSILON_TOLERANCE < ob_bottom < ob_top:
-            return ob_bottom, ob_top
+            return ob_bottom, ob_top, "setup:ob_zone"
 
-    # Sweep/reclaim — tight zone ± 0.5×ATR around entry
+    # Sweep/reclaim — tight zone ± 0.5 ATR around entry (price already moved through)
     if st.startswith("sweep") or st.startswith("liquidity_hunt"):
-        return entry - atr * ATR_ZONE_SWEEP_MULTIPLIER, entry + atr * ATR_ZONE_SWEEP_MULTIPLIER
+        return (
+            entry - atr * ATR_ZONE_SWEEP_MULTIPLIER,
+            entry + atr * ATR_ZONE_SWEEP_MULTIPLIER,
+            "setup:sweep_band",
+        )
 
-    # ATR fallback — standard ±ATR band
-    return entry - atr * ATR_ZONE_LOW_MULTIPLIER, entry + atr * ATR_ZONE_HIGH_MULTIPLIER
+    # All other setups: try structural confluence engine
+    result = resolve_structural_zone(features, direction, entry, stop, atr)
+    if result.tier != "atr":
+        return result.zone_low, result.zone_high, result.source
+
+    # Final ATR fallback
+    return (
+        entry - atr * ATR_ZONE_LOW_MULTIPLIER,
+        entry + atr * ATR_ZONE_HIGH_MULTIPLIER,
+        "atr_fallback",
+    )
 
 
 def _resolve_entry(
@@ -468,6 +485,12 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
         stop = swing_low - atr * ATR_STOP_SWING_MULTIPLIER
         return min(stop, min_stop), "swing_low"
 
+    # Priority 4b: EMA 21 below entry as structural support stop
+    ema_21 = _fval(features, "ema_21")
+    if ema_21 > EPSILON_TOLERANCE and ema_21 < entry:
+        stop = ema_21 - atr * ATR_STOP_SWING_MULTIPLIER
+        return min(stop, min_stop), "ema_21_support"
+
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > EPSILON_TOLERANCE and sr_support < entry:
@@ -518,6 +541,12 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     if swing_high > EPSILON_TOLERANCE and swing_high > entry:
         stop = swing_high + atr * ATR_STOP_SWING_MULTIPLIER
         return max(stop, max_stop), "swing_high"
+
+    # Priority 4b: EMA 21 above entry as structural resistance stop
+    ema_21 = _fval(features, "ema_21")
+    if ema_21 > EPSILON_TOLERANCE and ema_21 > entry:
+        stop = ema_21 + atr * ATR_STOP_SWING_MULTIPLIER
+        return max(stop, max_stop), "ema_21_resistance"
 
     # Priority 5: S/R nearest resistance
     sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(
@@ -595,6 +624,16 @@ def _collect_targets_long(
                 "demand_zone",
             )
         )
+
+    # Prior day high as target for longs
+    prior_day_high = _fval(features, "prior_day_high")
+    if prior_day_high > entry:
+        candidates.append((prior_day_high, f"Prior Day H {prior_day_high:.2f}", "prior_day"))
+
+    # Session high (overnight) as target
+    overnight_high = _fval(features, "overnight_high")
+    if overnight_high > entry:
+        candidates.append((overnight_high, f"Overnight H {overnight_high:.2f}", "overnight"))
 
     # Volume Profile priority candidates — bypass standard ATR range filter
     # (VP levels are meaningful even when < 0.5 ATR from entry because
@@ -695,6 +734,16 @@ def _collect_targets_short(
                 "supply_zone",
             )
         )
+
+    # Prior day low as target for shorts
+    prior_day_low = _fval(features, "prior_day_low")
+    if EPSILON_TOLERANCE < prior_day_low < entry:
+        candidates.append((prior_day_low, f"Prior Day L {prior_day_low:.2f}", "prior_day"))
+
+    # Session low (overnight) as target
+    overnight_low = _fval(features, "overnight_low")
+    if EPSILON_TOLERANCE < overnight_low < entry:
+        candidates.append((overnight_low, f"Overnight L {overnight_low:.2f}", "overnight"))
 
     # Volume Profile priority candidates for shorts — bypass standard ATR range filter
     priority_candidates: list[tuple[float, str, str]] = []
@@ -838,9 +887,10 @@ def frame_trade(
         candidates = _collect_targets_short(resolved_entry, stop, effective_atr, features)
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
-    zone_low, zone_high = _resolve_zone_bounds(
-        setup_type, direction, resolved_entry, features, effective_atr
+    zone_low, zone_high, zone_source = _resolve_zone_bounds(
+        setup_type, direction, resolved_entry, stop, features, effective_atr
     )
+    features["zone_source"] = zone_source
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:

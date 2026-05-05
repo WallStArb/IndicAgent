@@ -21,7 +21,6 @@ from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 
 def _mock_base_agent_attributes(agent):
     """Set up BaseAgent attributes for __new__ bypass pattern."""
-    agent._metrics_port = None
     agent.max_idle_seconds = 0
     agent._agent_label = agent.name.lower().replace(" ", "_")
     agent._crash_total = AGENT_CRASH_TOTAL.labels(agent=agent._agent_label)

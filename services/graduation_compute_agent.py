@@ -7,7 +7,6 @@ topic_transform_graduation.
 
 Phase 72 Plan 09.
 Consumer group: graduation_compute_group
-Metrics port: 9135
 """
 
 from __future__ import annotations
@@ -95,7 +94,7 @@ class GraduationComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="GraduationComputeAgent", metrics_port=9135)
+        super().__init__(name="GraduationComputeAgent")
 
         # Kafka clients (initialized in _setup)
         self._consumer: KafkaConsumerClient | None = None

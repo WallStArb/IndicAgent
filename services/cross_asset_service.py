@@ -146,7 +146,6 @@ class CrossAssetComputeAgent(BaseAgent):
         # max_idle_seconds=300 (5 minutes) - no intelligence messages for 5min = stall
         super().__init__(
             name="CrossAssetComputeAgent",
-            metrics_port=settings.cross_asset_metrics_port,
             max_idle_seconds=300,
         )
 

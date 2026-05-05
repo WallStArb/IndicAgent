@@ -26,7 +26,7 @@ class StubWriterAgent(BaseWriterAgent):
     MAX_BUFFER_SIZE = 50
 
     def __init__(self) -> None:
-        super().__init__(name="stub_writer", metrics_port=None)
+        super().__init__(name="stub_writer")
         self.flushed_batches: list[list[Any]] = []
         self.dlq_payloads: list[tuple[Any, Any]] = []
         self._topic = "test.topic"
@@ -70,7 +70,7 @@ class TestBaseWriterAgentAbstract:
 
     def test_cannot_instantiate_directly(self):
         with pytest.raises(TypeError):
-            BaseWriterAgent(name="test", metrics_port=None)  # type: ignore[abstract]
+            BaseWriterAgent(name="test")  # type: ignore[abstract]
 
     def test_concrete_subclass_instantiates(self):
         agent = StubWriterAgent()

@@ -91,6 +91,8 @@ class TestRemoveFromIndex:
         svc._signal_ids = {"aaa", "bbb"}
         svc._mae = {}
         svc._mfe = {}
+        svc._market_mae = {}
+        svc._market_mfe = {}
         svc._chandelier_state = {}
         svc._staleness_consecutive = {}
         svc._activated_at = {}
@@ -119,6 +121,8 @@ class TestRemoveFromIndex:
         svc._signal_ids = set()
         svc._mae = {}
         svc._mfe = {}
+        svc._market_mae = {}
+        svc._market_mfe = {}
         svc._chandelier_state = {}
         svc._staleness_consecutive = {}
         svc._activated_at = {}

@@ -191,7 +191,13 @@ class BaseGroupService(BaseAgent, ABC):
                 break
             self._record_message_consumed()
             try:
-                event = IntelligenceEvent.model_validate(payload)
+                # Pipeline publishes {"event": "<json_string>"}
+                raw = payload.get("event", payload)
+                if isinstance(raw, str):
+                    import json
+
+                    raw = json.loads(raw)
+                event = IntelligenceEvent.model_validate(raw)
                 self._context_cache.update(event)
             except Exception as exc:
                 self.logger.warning(

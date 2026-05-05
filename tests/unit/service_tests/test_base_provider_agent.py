@@ -87,19 +87,7 @@ def test_agent_name_is_abstract():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: _agent_metrics_port is abstract
-# ---------------------------------------------------------------------------
-
-
-def test_agent_metrics_port_is_abstract():
-    """_agent_metrics_port() must be abstract."""
-    from src.providers.base_provider_agent import BaseProviderAgent
-
-    assert "_agent_metrics_port" in BaseProviderAgent.__abstractmethods__
-
-
-# ---------------------------------------------------------------------------
-# Test 5: _provider_name_str is abstract
+# Test 4: _provider_name_str is abstract
 # ---------------------------------------------------------------------------
 
 
@@ -122,9 +110,6 @@ def _make_concrete_agent():
     class _TestAgent(BaseProviderAgent):
         def _agent_name(self) -> str:
             return "test_provider_agent"
-
-        def _agent_metrics_port(self) -> int:
-            return 9199
 
         def _provider_name_str(self) -> str:
             return "test"
@@ -337,9 +322,6 @@ def test_metrics_have_provider_label():
     class _TestAgent2(BaseProviderAgent):
         def _agent_name(self) -> str:
             return "test_provider_agent"
-
-        def _agent_metrics_port(self) -> int:
-            return 9199
 
         def _provider_name_str(self) -> str:
             return "test_metrics"

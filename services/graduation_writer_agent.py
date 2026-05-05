@@ -6,7 +6,6 @@ transform_graduation table.
 
 WriterAgent role: DB-only, zero compute.
 Consumer group: graduation_writer_group
-Metrics port: 9136
 """
 
 from __future__ import annotations
@@ -55,7 +54,6 @@ class GraduationWriterAgent(BaseWriterAgent):
     def __init__(self) -> None:
         super().__init__(
             name="graduation_writer_agent",
-            metrics_port=9136,
             max_idle_seconds=300,
         )
         self._db: DatabaseManager | None = None

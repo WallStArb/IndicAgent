@@ -6,7 +6,6 @@ groups by type, and batch-writes to signal_ledger via execute_batch().
 
 WriterAgent role: DB-only, zero compute. No lifecycle evaluation.
 Consumer group: lifecycle_writer_group
-Metrics port: 9128
 """
 
 from __future__ import annotations
@@ -72,7 +71,6 @@ class LifecycleWriterAgent(BaseWriterAgent):
     def __init__(self) -> None:
         super().__init__(
             name="lifecycle_writer_agent",
-            metrics_port=9128,
             max_idle_seconds=300,
         )
 

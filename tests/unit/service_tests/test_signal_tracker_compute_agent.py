@@ -33,6 +33,8 @@ def _make_agent() -> SignalTrackerComputeAgent:
     agent._signal_ids: set[str] = set()
     agent._mae: dict[str, float] = {}
     agent._mfe: dict[str, float] = {}
+    agent._market_mae: dict[str, float] = {}
+    agent._market_mfe: dict[str, float] = {}
     agent._chandelier_state: dict[str, dict] = {}
     agent._staleness_consecutive: dict[str, int] = {}
     agent._activated_at: dict[str, datetime] = {}

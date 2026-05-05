@@ -1,18 +1,9 @@
 """
 Prometheus metrics registry for IndicAgent.
 
-Version: 1.1.0
-Last Updated: 2026-04-29
-Status: Current ✅
-
-MIGRATION NOTE: The prometheus_client metric definitions below are preserved for
-incremental migration. They will be migrated to OTelCounter/OTelGauge/OTelHistogram
-wrappers in follow-up work. The HTTP scrape server has been removed — all metrics
-are now exported via the OTel Collector push pipeline.
-
-New metrics added in Phase 67+ use OTelCounter/OTelGauge/OTelHistogram wrappers
-(defined at the bottom of this file). Base class metrics (base.py, base_writer.py)
-have already been migrated to OTel wrappers.
+Legacy prometheus_client metrics coexist with OTel wrappers (OTelCounter,
+OTelGauge, OTelHistogram) defined at the bottom. All metrics are exported
+via the OTel Collector push pipeline — no HTTP scrape server.
 """
 
 from __future__ import annotations
@@ -20,8 +11,7 @@ from __future__ import annotations
 from opentelemetry import metrics as otel_metrics
 from prometheus_client import Counter, Gauge, Histogram
 
-# Helper function caches — preserved for callers that use counter()/gauge() helpers.
-# TODO: migrate callers to OTelCounter/OTelGauge in follow-up work.
+# Helper function caches — used by services that create metrics dynamically.
 _counter_helpers: dict[str, Counter] = {}
 _gauge_helpers: dict[str, Gauge] = {}
 
@@ -42,24 +32,13 @@ def gauge(name: str, documentation: str) -> Gauge:
     return g
 
 
-# Core engine metrics
-STREAM_READ_TOTAL = Counter("stream_messages_read_total", "Messages read", ["stream", "group"])
-STREAM_READ_LAT = Histogram("stream_read_seconds", "XREADGROUP time", ["stream", "group"])
-DB_BATCH_WRITE = Histogram("db_batch_write_seconds", "Timescale batch write time")
-ENGINE_THROUGHPUT = Gauge("engine_bars_processed", "Bars processed total")
-ENGINE_THROUGHPUT_RATE = Gauge("engine_throughput_per_sec", "Bars per second")
+# ---------------------------------------------------------------------------
+# Plugin pipeline metrics
+# ---------------------------------------------------------------------------
 
-# Service orchestrator metrics
-SERVICE_HEALTH_GAUGE = Gauge("indicagent_service_health", "Service health status", ["service"])
-SERVICE_START_TOTAL = Counter(
-    "indicagent_service_starts_total", "Total service starts", ["service"]
+PLUGIN_FALLBACK_TOTAL = Counter(
+    "plugin_fallbacks_total", "Plugin fallbacks to direct calculation", ["plugin_name", "reason"]
 )
-SERVICE_STOP_TOTAL = Counter("indicagent_service_stops_total", "Total service stops", ["service"])
-SERVICE_RESTART_TOTAL = Counter(
-    "indicagent_service_restarts_total", "Total service restarts", ["service"]
-)
-
-# Plugin execution metrics
 PLUGIN_EXECUTION_TOTAL = Counter(
     "plugin_executions_total",
     "Total plugin executions",
@@ -68,19 +47,6 @@ PLUGIN_EXECUTION_TOTAL = Counter(
 PLUGIN_EXECUTION_TIME = Histogram(
     "plugin_execution_seconds", "Plugin execution time", ["plugin_name", "intelligence_tier"]
 )
-PLUGIN_FALLBACK_TOTAL = Counter(
-    "plugin_fallbacks_total", "Plugin fallbacks to direct calculation", ["plugin_name", "reason"]
-)
-PLUGIN_ACCURACY_GAUGE = Gauge(
-    "plugin_accuracy_percentage",
-    "Plugin vs direct calculation accuracy",
-    ["plugin_name", "symbol", "timeframe"],
-)
-PLUGIN_STATE_SIZE_GAUGE = Gauge(
-    "plugin_state_size_bytes", "Plugin state size in bytes", ["plugin_name", "symbol", "timeframe"]
-)
-
-# Per-plugin pipeline metrics
 PLUGIN_DURATION_MS = Histogram(
     "intelligence_pipeline_plugin_duration_ms",
     "Per-plugin execution latency",
@@ -97,7 +63,6 @@ THREAD_POOL_WORKERS = Gauge(
     "Current thread pool worker count",
 )
 
-# LangGraph workflow metrics
 LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = Counter(
     "langgraph_workflow_executions_total",
     "Total LangGraph workflow executions",
@@ -108,48 +73,16 @@ LANGGRAPH_WORKFLOW_DURATION = Histogram(
     "LangGraph workflow execution time",
     ["workflow_name", "intelligence_tier"],
 )
-LANGGRAPH_NODE_EXECUTION_TOTAL = Counter(
-    "langgraph_node_executions_total",
-    "Total LangGraph node executions",
-    ["workflow_name", "node_name", "status"],
-)
-LANGGRAPH_NODE_DURATION = Histogram(
-    "langgraph_node_duration_seconds",
-    "LangGraph node execution time",
-    ["workflow_name", "node_name"],
-)
-LANGGRAPH_AGENT_INVOCATIONS_TOTAL = Counter(
-    "langgraph_agent_invocations_total",
-    "Total agent invocations in LangGraph workflows",
-    ["agent_name", "workflow_name", "status"],
-)
-LANGGRAPH_EVENT_ROUTING_TOTAL = Counter(
-    "langgraph_event_routing_total",
-    "Total events routed by LangGraph conditional edges",
-    ["workflow_name", "source_node", "target_node", "condition"],
-)
-LANGGRAPH_STATE_SIZE_GAUGE = Gauge(
-    "langgraph_workflow_state_size_bytes",
-    "LangGraph workflow state size in bytes",
-    ["workflow_name", "symbol", "timeframe"],
-)
-LANGGRAPH_PARALLEL_EXECUTION_GAUGE = Gauge(
-    "langgraph_parallel_executions_active",
-    "Number of parallel workflow executions active",
-    ["workflow_name"],
-)
 
-# Hybrid processing metrics
-HYBRID_MODE_GAUGE = Gauge(
-    "hybrid_processing_active", "Whether hybrid mode is active", ["service", "symbol", "timeframe"]
-)
+# ---------------------------------------------------------------------------
+# Circuit breaker metrics
+# ---------------------------------------------------------------------------
+
 CIRCUIT_BREAKER_STATE = Gauge(
     "plugin_circuit_breaker_state",
     "Circuit breaker state (0=closed, 1=open, 2=half-open)",
     ["plugin_name"],
 )
-
-# Circuit breaker additional metrics
 CIRCUIT_BREAKER_FAILURES_TOTAL = Counter(
     "circuit_breaker_failures_total",
     "Total circuit breaker failures",
@@ -172,132 +105,31 @@ CIRCUIT_BREAKER_OPEN_SECONDS = Histogram(
     buckets=[1.0, 5.0, 10.0, 60.0, 300.0, 600.0, 1800.0],
 )
 
-# Event-driven processing metrics
-REDIS_STREAM_EVENT_TOTAL = Counter(
-    "redis_stream_events_total",
-    "Total Redis Stream events processed",
-    ["stream_name", "consumer_group", "status"],
-)
-REDIS_STREAM_LAG_GAUGE = Gauge(
-    "redis_stream_consumer_lag_messages",
-    "Redis Stream consumer lag in messages",
-    ["stream_name", "consumer_group"],
-)
+# ---------------------------------------------------------------------------
+# Persistence metrics
+# ---------------------------------------------------------------------------
 
-# Persistence Agent Metrics
 PERSISTENCE_BATCH_LATENCY = Histogram(
     "persistence_batch_latency_seconds",
     "Time taken to persist batch to database in seconds",
     ["agent_id"],
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
 )
-
 PERSISTENCE_CONSUMER_LAG = Gauge(
     "persistence_consumer_lag_records",
     "Current consumer lag in records",
     ["agent_id"],
 )
 
-EVENT_PROCESSING_DURATION = Histogram(
-    "event_processing_duration_seconds",
-    "Time to process Redis Stream events",
-    ["event_type", "workflow_name"],
-)
-MARKET_CONDITIONS_GAUGE = Gauge(
-    "market_conditions_detected",
-    "Current market condition classification (0=ranging, 1=trending, 2=volatile)",
-    ["symbol", "timeframe"],
-)
+# ---------------------------------------------------------------------------
+# Provider metrics
+# ---------------------------------------------------------------------------
+
 PROVIDER_ACTIVE_SUBSCRIPTIONS = Gauge(
     "provider_active_subscriptions",
     "Active data subscriptions per provider",
     ["provider"],
 )
-
-# Asset-class filtering metrics
-PLUGIN_SKIPPED_TOTAL = Counter(
-    "plugin_skipped_total",
-    "Total plugin invocations skipped due to asset class",
-    ["plugin_name", "asset_class"],
-)
-
-# Per-symbol/timeframe bar processing counters (labeled)
-INDICATOR_BARS_PROCESSED_LABELED_TOTAL = Counter(
-    "indicator_bars_processed_labeled_total",
-    "Bars processed by indicator service (labeled by symbol and tf)",
-    ["symbol", "tf"],
-)
-MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL = Counter(
-    "market_analysis_bars_processed_labeled_total",
-    "Bars processed by market analysis service (labeled by symbol and tf)",
-    ["symbol", "tf"],
-)
-
-# Pipeline timing — bar-close to each stage latency (live events only)
-BAR_TO_I1_LATENCY = Histogram(
-    "indic_bar_to_i1_latency_seconds",
-    "Seconds from bar close to I1 computation complete",
-    ["symbol", "tf"],
-    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
-)
-BAR_TO_INTELLIGENCE_LATENCY = Histogram(
-    "indic_bar_to_intelligence_latency_seconds",
-    "Seconds from bar close to I3-I6 intelligence event published",
-    ["symbol", "tf"],
-    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
-)
-BAR_TO_SIGNAL_LATENCY = Histogram(
-    "indic_bar_to_signal_latency_seconds",
-    "Seconds from bar close to I7 signal generated",
-    ["symbol", "tf"],
-    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
-)
-
-
-# Shadow plugin monitoring (Phase 47 — SHADOW-04)
-SHADOW_N_RESOLVED = Gauge("shadow_n_resolved", "Resolved shadow signals", ["plugin"])
-SHADOW_WIN_RATE = Gauge("shadow_win_rate", "Shadow plugin win rate", ["plugin"])
-SHADOW_EV_R = Gauge("shadow_ev_r", "Shadow plugin E[PnL_R]", ["plugin"])
-SHADOW_EV_CI_LOWER = Gauge(
-    "shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]", ["plugin"]
-)
-SHADOW_DAYS_TO_GATE = Gauge("shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"])
-SHADOW_PROMOTION_READY = Gauge(
-    "shadow_promotion_ready", "1 when all gate conditions met", ["plugin"]
-)
-
-
-# Agent liveness — last message timestamp per agent (stall detection)
-AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = Gauge(
-    "agent_last_message_timestamp_seconds",
-    "Unix timestamp of last successfully processed Kafka message per agent",
-    ["agent"],
-)
-
-# Parity Auditor metrics (Phase 52.5)
-PARITY_MATCH_RATE = Gauge(
-    "parity_match_rate",
-    "Fraction of rows matching between primary and shadow (0.0-1.0)",
-    ["symbol", "tf"],
-)
-SHADOW_AHEAD_ROWS_TOTAL = Counter(
-    "shadow_ahead_rows_total",
-    "Rows present in shadow but not yet in primary (timing race)",
-    ["symbol", "tf"],
-)
-PARITY_VIOLATIONS_TOTAL = Counter(
-    "parity_violations_total",
-    "Total field-level parity violations detected",
-    ["symbol", "tf"],
-)
-PARITY_CYCLES_TOTAL = Counter(
-    "parity_cycles_total",
-    "Total comparison cycles executed by ParityAuditorAgent",
-)
-
-
-# Provider abstraction layer metrics (Phase 54)
-# Golden Signals for DataProviderAdapter implementations and MergerAgent.
 PROVIDER_BARS_PRODUCED_TOTAL = Counter(
     "provider_bars_produced_total",
     "Total bars produced and published to raw topic per provider",
@@ -325,10 +157,24 @@ PROVIDER_GAPS_FILLED_TOTAL = Counter(
 )
 PROVIDER_BARS_DROPPED_TOTAL = Counter(
     "provider_bars_dropped_total",
-    "Bars dropped at the provider edge, labeled by reason (queue full, "
-    "duplicate, callback error)",
+    "Bars dropped at the provider edge, labeled by reason",
     ["provider", "agent", "reason"],
 )
+IBKR_ERROR_326_TOTAL = Counter(
+    "ibkr_error_326_total",
+    "Error 326 (clientId collision) detections and recovery actions",
+    ["provider", "action"],
+)
+IBKR_CLIENT_ID_CURRENT = Gauge(
+    "ibkr_client_id_current",
+    "Current IBKR clientId in use (value > base signals rotation)",
+    ["provider"],
+)
+
+# ---------------------------------------------------------------------------
+# Merger metrics
+# ---------------------------------------------------------------------------
+
 MERGER_BARS_ROUTED_TOTAL = Counter(
     "merger_bars_routed_total",
     "Total bars routed by MergerAgent to canonical market.bars topic",
@@ -351,46 +197,57 @@ MERGER_BAR_LATENCY_SECONDS = Histogram(
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
 )
 
+# ---------------------------------------------------------------------------
+# Shadow plugin metrics
+# ---------------------------------------------------------------------------
+
+SHADOW_N_RESOLVED = Gauge("shadow_n_resolved", "Resolved shadow signals", ["plugin"])
+SHADOW_WIN_RATE = Gauge("shadow_win_rate", "Shadow plugin win rate", ["plugin"])
+SHADOW_EV_R = Gauge("shadow_ev_r", "Shadow plugin E[PnL_R]", ["plugin"])
+SHADOW_EV_CI_LOWER = Gauge(
+    "shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]", ["plugin"]
+)
+SHADOW_DAYS_TO_GATE = Gauge("shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"])
+SHADOW_PROMOTION_READY = Gauge(
+    "shadow_promotion_ready", "1 when all gate conditions met", ["plugin"]
+)
 
 # ---------------------------------------------------------------------------
-# LLM Infrastructure Metrics (Phase 56-01)
+# Agent liveness
 # ---------------------------------------------------------------------------
 
-LLM_CALL_DURATION = Histogram(
-    "llm_call_duration_seconds",
-    "LLM call latency per provider and call_type",
-    ["provider", "call_type", "status"],
-    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = Gauge(
+    "agent_last_message_timestamp_seconds",
+    "Unix timestamp of last successfully processed Kafka message per agent",
+    ["agent"],
 )
-
-LLM_TOKENS_USED = Counter(
-    "llm_tokens_used_total",
-    "Total tokens consumed per provider and call_type",
-    ["provider", "call_type"],
-)
-
-LLM_CACHE_HITS = Counter(
-    "llm_cache_hit_total",
-    "Semantic cache hits per call_type",
-    ["call_type"],
-)
-
-LLM_GUARDRAILS_REJECTIONS = Counter(
-    "llm_guardrails_rejections_total",
-    "LLM responses rejected by guardrails schema validation",
-    ["call_type"],
-)
-
-LLM_RATE_LIMIT_WAIT = Histogram(
-    "llm_rate_limit_wait_seconds",
-    "Time spent waiting for rate limit token bucket",
-    ["provider"],
-    buckets=[0.01, 0.1, 0.5, 1.0, 5.0, 15.0, 30.0],
-)
-
 
 # ---------------------------------------------------------------------------
-# ML Observability Metrics (Phase 56-04)
+# Parity auditor metrics
+# ---------------------------------------------------------------------------
+
+PARITY_MATCH_RATE = Gauge(
+    "parity_match_rate",
+    "Fraction of rows matching between primary and shadow (0.0-1.0)",
+    ["symbol", "tf"],
+)
+SHADOW_AHEAD_ROWS_TOTAL = Counter(
+    "shadow_ahead_rows_total",
+    "Rows present in shadow but not yet in primary (timing race)",
+    ["symbol", "tf"],
+)
+PARITY_VIOLATIONS_TOTAL = Counter(
+    "parity_violations_total",
+    "Total field-level parity violations detected",
+    ["symbol", "tf"],
+)
+PARITY_CYCLES_TOTAL = Counter(
+    "parity_cycles_total",
+    "Total comparison cycles executed by ParityAuditorAgent",
+)
+
+# ---------------------------------------------------------------------------
+# ML observability metrics
 # ---------------------------------------------------------------------------
 
 FEATURE_IC_SCORE = Gauge(
@@ -398,20 +255,13 @@ FEATURE_IC_SCORE = Gauge(
     "Information coefficient per feature per regime (updated weekly by MLDiscoveryComputeAgent)",
     ["feature_name", "regime"],
 )
-
 DATA_QUALITY_SCORE = Gauge(
     "data_quality_score",
     "Training data quality score 0-1 (updated by MLDataQualityAuditorAgent)",
 )
 
-ML_DISCOVERY_FEATURES_EXTRACTED = Gauge(
-    "ml_discovery_features_extracted",
-    "Number of tsfresh features extracted in last discovery run",
-)
-
-
 # ---------------------------------------------------------------------------
-# Observability & Alerting Metrics (Phase 67)
+# Service auditor & alerting metrics
 # ---------------------------------------------------------------------------
 
 SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL = Counter(
@@ -419,18 +269,15 @@ SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL = Counter(
     "Total service restarts triggered by ServiceAuditorAgent",
     ["service_name"],
 )
-
 BAR_AUDITOR_GAP_FILL_DLQ_DEPTH = Counter(
     "bar_auditor_gap_fill_dlq_depth",
     "Total gap-fill requests routed to DLQ after retry exhaustion",
 )
-
 ALERTING_DISPATCH_TOTAL = Counter(
     "alerting_dispatch_total",
     "Alerts dispatched by channel and status",
     ["channel", "severity", "status"],
 )
-
 ALERTING_LATENCY_SECONDS = Histogram(
     "alerting_latency_seconds",
     "Alert dispatch latency in seconds",
@@ -438,9 +285,8 @@ ALERTING_LATENCY_SECONDS = Histogram(
     buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
-
 # ---------------------------------------------------------------------------
-# DLQ Metrics (Phase 067-07)
+# DLQ metrics
 # ---------------------------------------------------------------------------
 
 DLQ_DEPTH = Gauge(
@@ -448,16 +294,14 @@ DLQ_DEPTH = Gauge(
     "Number of messages in Dead Letter Queue",
     ["agent", "topic"],
 )
-
 DLQ_MESSAGES_TOTAL = Counter(
     "dlq_messages_total",
     "Total messages routed to Dead Letter Queue",
     ["agent", "topic", "error_type"],
 )
 
-
 # ---------------------------------------------------------------------------
-# Regime gate suppression metrics (Phase 68-01)
+# Regime gate suppression metrics
 # ---------------------------------------------------------------------------
 
 REGIME_GATE_SUPPRESSIONS_TOTAL = Counter(
@@ -467,11 +311,36 @@ REGIME_GATE_SUPPRESSIONS_TOTAL = Counter(
 )
 
 
+def record_plugin_execution(
+    plugin_name: str,
+    symbol: str,
+    timeframe: str,
+    duration_seconds: float,
+    status: str = "success",
+    intelligence_tier: str = "I1",
+) -> None:
+    PLUGIN_EXECUTION_TOTAL.labels(
+        plugin_name=plugin_name, symbol=symbol, timeframe=timeframe, status=status
+    ).inc()
+    PLUGIN_EXECUTION_TIME.labels(
+        plugin_name=plugin_name, intelligence_tier=intelligence_tier
+    ).observe(duration_seconds)
+
+
+def record_langgraph_workflow(
+    workflow_name: str,
+    duration_seconds: float,
+    status: str = "success",
+    intelligence_tier: str = "I5",
+) -> None:
+    LANGGRAPH_WORKFLOW_EXECUTION_TOTAL.labels(workflow_name=workflow_name, status=status).inc()
+    LANGGRAPH_WORKFLOW_DURATION.labels(
+        workflow_name=workflow_name, intelligence_tier=intelligence_tier
+    ).observe(duration_seconds)
+
+
 # ---------------------------------------------------------------------------
-# OTel metric wrapper classes (Phase 77-02)
-# Drop-in replacements for prometheus_client.Counter/Gauge/Histogram.
-# Preserve the .labels(**kwargs).inc()/.set()/.observe() API while delegating
-# to the OTel SDK internally.
+# OTel metric wrapper classes
 # ---------------------------------------------------------------------------
 
 
@@ -479,8 +348,6 @@ class _OTelLabeledCounter:
     def __init__(self, counter, labels: dict):
         self._counter = counter
         self._labels = labels
-        # Cumulative value tracker — used by tests that inspect counter increments.
-        # Not exported; the real export goes through self._counter.add().
         self._total: float = 0.0
 
     def inc(self, amount: float = 1.0) -> None:
@@ -488,24 +355,17 @@ class _OTelLabeledCounter:
         self._counter.add(amount, self._labels)
 
     def get(self) -> float:
-        """Return the accumulated total. Mirrors prometheus_client Child.get() for tests."""
         return self._total
 
 
 class OTelCounter:
-    """Drop-in replacement for prometheus_client.Counter.
-
-    Preserves .labels(x="y").inc() API while delegating to OTel SDK Counter.add().
-    """
+    """Drop-in replacement for prometheus_client.Counter."""
 
     def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None):
         self._name = name
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
-        self._counter = self._meter.create_counter(
-            name,
-            description=documentation,
-        )
+        self._counter = self._meter.create_counter(name, description=documentation)
         self._labeled: dict[tuple, _OTelLabeledCounter] = {}
 
     def labels(self, **kwargs) -> _OTelLabeledCounter:
@@ -519,7 +379,6 @@ class OTelCounter:
         self._counter.add(amount, {})
 
     def get(self) -> float:
-        """Return accumulated total for unlabeled counter. Used by tests."""
         return getattr(self, "_total", 0.0)
 
 
@@ -534,29 +393,21 @@ class _OTelLabeledGauge:
         self._gauge.set(value, self._labels)
 
     def get(self) -> float:
-        """Return the last set value. Used by tests that inspect gauge state."""
         return self._last_value
 
     def inc(self, amount: float = 1.0) -> None:
-        # Gauge.inc() pattern -- accumulate locally, OTel gauge.set() with running total
         self._last_value += amount
         self._gauge.set(self._last_value, self._labels)
 
 
 class OTelGauge:
-    """Drop-in replacement for prometheus_client.Gauge.
-
-    Preserves .labels(x="y").set(v) API while delegating to OTel SDK Gauge.set().
-    """
+    """Drop-in replacement for prometheus_client.Gauge."""
 
     def __init__(self, name: str, documentation: str, labelnames: list[str] | None = None):
         self._name = name
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
-        self._gauge = self._meter.create_gauge(
-            name,
-            description=documentation,
-        )
+        self._gauge = self._meter.create_gauge(name, description=documentation)
         self._labeled: dict[tuple, _OTelLabeledGauge] = {}
 
     def labels(self, **kwargs) -> _OTelLabeledGauge:
@@ -570,7 +421,6 @@ class OTelGauge:
         self._gauge.set(value, {})
 
     def get(self) -> float:
-        """Return the last set value. Used by tests."""
         return getattr(self, "_last_value", 0.0)
 
 
@@ -585,15 +435,11 @@ class _OTelLabeledHistogram:
         self._histogram.record(value, self._labels)
 
     def get_count(self) -> int:
-        """Return number of observations. Used by tests inspecting histogram activity."""
         return self._count
 
 
 class OTelHistogram:
-    """Drop-in replacement for prometheus_client.Histogram.
-
-    Preserves .labels(x="y").observe(v) API while delegating to OTel SDK Histogram.record().
-    """
+    """Drop-in replacement for prometheus_client.Histogram."""
 
     def __init__(
         self,
@@ -605,10 +451,7 @@ class OTelHistogram:
         self._name = name
         self._labelnames = labelnames or []
         self._meter = otel_metrics.get_meter("indicagent")
-        self._histogram = self._meter.create_histogram(
-            name,
-            description=documentation,
-        )
+        self._histogram = self._meter.create_histogram(name, description=documentation)
         self._labeled: dict[tuple, _OTelLabeledHistogram] = {}
 
     def labels(self, **kwargs) -> _OTelLabeledHistogram:
@@ -622,92 +465,11 @@ class OTelHistogram:
         self._histogram.record(value, {})
 
     def get_count(self) -> int:
-        """Return number of observations. Used by tests."""
         return getattr(self, "_count", 0)
 
 
-def record_plugin_execution(
-    plugin_name: str,
-    symbol: str,
-    timeframe: str,
-    duration_seconds: float,
-    status: str = "success",
-    intelligence_tier: str = "I1",
-) -> None:
-    """Record plugin execution metrics."""
-    PLUGIN_EXECUTION_TOTAL.labels(
-        plugin_name=plugin_name, symbol=symbol, timeframe=timeframe, status=status
-    ).inc()
-
-    PLUGIN_EXECUTION_TIME.labels(
-        plugin_name=plugin_name, intelligence_tier=intelligence_tier
-    ).observe(duration_seconds)
-
-
-def record_langgraph_workflow(
-    workflow_name: str,
-    duration_seconds: float,
-    status: str = "success",
-    intelligence_tier: str = "I5",
-) -> None:
-    """Record LangGraph workflow execution metrics."""
-    LANGGRAPH_WORKFLOW_EXECUTION_TOTAL.labels(workflow_name=workflow_name, status=status).inc()
-
-    LANGGRAPH_WORKFLOW_DURATION.labels(
-        workflow_name=workflow_name, intelligence_tier=intelligence_tier
-    ).observe(duration_seconds)
-
-
-def record_langgraph_node(
-    workflow_name: str, node_name: str, duration_seconds: float, status: str = "success"
-) -> None:
-    """Record LangGraph node execution metrics."""
-    LANGGRAPH_NODE_EXECUTION_TOTAL.labels(
-        workflow_name=workflow_name, node_name=node_name, status=status
-    ).inc()
-
-    LANGGRAPH_NODE_DURATION.labels(workflow_name=workflow_name, node_name=node_name).observe(
-        duration_seconds
-    )
-
-
-def record_event_routing(
-    workflow_name: str, source_node: str, target_node: str, condition: str
-) -> None:
-    """Record LangGraph conditional edge routing."""
-    LANGGRAPH_EVENT_ROUTING_TOTAL.labels(
-        workflow_name=workflow_name,
-        source_node=source_node,
-        target_node=target_node,
-        condition=condition,
-    ).inc()
-
-
-def record_redis_stream_event(
-    stream_name: str, consumer_group: str, processing_time: float, status: str = "success"
-) -> None:
-    """Record Redis Stream event processing metrics."""
-    REDIS_STREAM_EVENT_TOTAL.labels(
-        stream_name=stream_name, consumer_group=consumer_group, status=status
-    ).inc()
-
-    # Determine event type from stream name
-    if "market:" in stream_name:
-        event_type = "market_data"
-    elif "indicators:" in stream_name:
-        event_type = "indicators"
-    elif "patterns:" in stream_name:
-        event_type = "patterns"
-    else:
-        event_type = "unknown"
-
-    EVENT_PROCESSING_DURATION.labels(event_type=event_type, workflow_name="redis_streams").observe(
-        processing_time
-    )
-
-
 # ---------------------------------------------------------------------------
-# Signal quality metrics (Phase 79)
+# Signal quality metrics (Phase 79 — uses OTel wrapper)
 # ---------------------------------------------------------------------------
 
 SIGNAL_OUTCOME_TOTAL = OTelCounter(
@@ -715,3 +477,95 @@ SIGNAL_OUTCOME_TOTAL = OTelCounter(
     "Signal outcomes by plugin and result",
     labelnames=["setup_plugin", "outcome"],
 )
+
+# ---------------------------------------------------------------------------
+# LLM infrastructure metrics
+# ---------------------------------------------------------------------------
+
+LLM_CALL_DURATION = OTelHistogram(
+    "llm_call_duration_seconds",
+    "LLM call latency per provider and call_type",
+    labelnames=["provider", "call_type", "status"],
+)
+
+LLM_TOKENS_USED = OTelCounter(
+    "llm_tokens_used_total",
+    "Total tokens consumed per provider and call_type",
+    labelnames=["provider", "call_type"],
+)
+
+LLM_CACHE_HITS = OTelCounter(
+    "llm_cache_hit_total",
+    "Semantic cache hits per call_type",
+    labelnames=["call_type"],
+)
+
+LLM_GUARDRAILS_REJECTIONS = OTelCounter(
+    "llm_guardrails_rejections_total",
+    "LLM responses rejected by guardrails schema validation",
+    labelnames=["call_type"],
+)
+
+LLM_RATE_LIMIT_WAIT = OTelHistogram(
+    "llm_rate_limit_wait_seconds",
+    "Time spent waiting for rate limit token bucket",
+    labelnames=["provider"],
+)
+
+# ---------------------------------------------------------------------------
+# AI agent execution metrics
+# ---------------------------------------------------------------------------
+
+AI_AGENT_INVOCATIONS_TOTAL = OTelCounter(
+    "ai_agent_invocations_total",
+    "Total AI agent invocations by agent, group, and status",
+    labelnames=["agent_id", "group", "status"],
+)
+
+AI_AGENT_DURATION_MS = OTelHistogram(
+    "ai_agent_duration_ms",
+    "AI agent execution latency in ms",
+    labelnames=["agent_id", "group"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Zone engine metrics — direct API (counter() helper lacks label support)
+# ---------------------------------------------------------------------------
+
+ZONE_TIER_USED = Counter(
+    "zone_tier_used_total",
+    "Zone engine resolution tier selected per call",
+    ["tier"],
+)
+ZONE_CANDIDATE_COUNT = Histogram(
+    "zone_candidate_count",
+    "Structural candidates evaluated per zone resolution",
+    buckets=[0, 1, 2, 3, 5, 8, 12, 20],
+)
+ZONE_CLUSTER_DENSITY = Histogram(
+    "zone_cluster_density",
+    "Cluster quality score (strength × diversity / width_atr)",
+    buckets=[0.5, 1, 2, 5, 10, 20, 50],
+)
+ZONE_WIDTH_ATR = Histogram(
+    "zone_width_atr",
+    "Final zone width in ATR units",
+    buckets=[0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0],
+)
+
+
+def record_llm_call(
+    provider: str,
+    call_type: str,
+    latency_s: float,
+    status: str = "success",
+    tokens: int = 0,
+) -> None:
+    LLM_CALL_DURATION.labels(
+        provider=provider,
+        call_type=call_type,
+        status=status,
+    ).observe(latency_s)
+    if status == "success":
+        LLM_TOKENS_USED.labels(provider=provider, call_type=call_type).inc(tokens)

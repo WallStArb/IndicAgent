@@ -71,6 +71,27 @@ class LineageRecorder:
         if len(self._batch) >= self._batch_size:
             asyncio.create_task(self.flush())
 
+    async def start(self) -> None:
+        """Start the periodic flush background task."""
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush_loop())
+
+    async def stop(self) -> None:
+        """Cancel periodic flush and drain remaining records."""
+        if self._flush_task is not None:
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        await self.flush()
+
+    async def _flush_loop(self) -> None:
+        """Periodically flush buffered records on flush_interval_s cadence."""
+        while True:
+            await asyncio.sleep(self._flush_interval_s)
+            await self.flush()
+
     async def flush(self) -> None:
         """Flush buffered records to Kafka topic_signal_lineage()."""
         if not self._batch:
@@ -80,7 +101,7 @@ class LineageRecorder:
         topic = topic_signal_lineage(self._env_name)
         for row in batch:
             try:
-                await self._producer.publish(topic, value=row)
+                await self._producer.publish(topic, msg=row)
             except Exception:
                 logger.exception("lineage_recorder.publish_failed", source=row.get("source"))
         self._last_flush = time.monotonic()

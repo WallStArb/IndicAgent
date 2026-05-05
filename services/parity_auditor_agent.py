@@ -49,7 +49,6 @@ NUMERIC_TOLERANCE: float = 1e-9
 CERTIFICATION_THRESHOLD: int = 12  # 12 × 5 min = 60 consecutive clean minutes
 COMPARISON_INTERVAL_SECS: int = 300  # 5 minutes
 PARITY_ALERT_THRESHOLD: float = 0.95
-METRICS_PORT: int = 9133  # port :9133 (9119/9120 already taken by signal_writer/bar_aggregator)
 
 # Join keys — not comparison targets
 _SKIP_COLUMNS: tuple[str, ...] = ("ts", "symbol", "tf")
@@ -185,7 +184,7 @@ class ParityAuditorAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="ParityAuditorAgent", metrics_port=METRICS_PORT, max_idle_seconds=600)
+        super().__init__(name="ParityAuditorAgent", max_idle_seconds=600)
 
         self._pool: asyncpg.Pool | None = None
         self._repo: ParityRepository | None = None

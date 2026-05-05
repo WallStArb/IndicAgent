@@ -389,13 +389,10 @@ class LLMWriterAgent(BaseWriterAgent):
     def __init__(self, config_file: str | None = None):
         self.start_time = datetime.now(tz=UTC)
 
-        # Load config before super().__init__() to extract metrics_port
         self.config = self._load_config(config_file)
-        metrics_port = self.config.get("service", {}).get("metrics_port", 9117)
 
         super().__init__(
             name="llm_writer_agent",
-            metrics_port=metrics_port,
             max_idle_seconds=300,
         )
 
@@ -499,7 +496,6 @@ class LLMWriterAgent(BaseWriterAgent):
             "database": {"dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"},
             "service": {
                 "processing_interval": 0.01,
-                "metrics_port": 9117,
                 "health_check_interval": 30,
             },
             "logging": {

@@ -16,6 +16,11 @@ from src.core.llm.providers import LLMChain, OllamaCloudProvider, OllamaProvider
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
+from src.observability.metrics import (
+    LLM_CACHE_HITS,
+    LLM_GUARDRAILS_REJECTIONS,
+    record_llm_call,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -101,6 +106,7 @@ class LLMProviderChain:
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
+                LLM_CACHE_HITS.labels(call_type=self._call_type).inc()
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
@@ -121,11 +127,13 @@ class LLMProviderChain:
             response = await LLMChain(ollama_providers).generate(
                 prompt, system, max_tokens=max_tokens, timeout=timeout
             )
-            latency_ms = (time.monotonic() - t0) * 1000
+            latency_s = time.monotonic() - t0
             if response is None:
+                record_llm_call("ollama", self._call_type, latency_s, status="failure")
                 return None
             estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
             _budget.record(call_type=self._call_type, provider="ollama", tokens=estimated_tokens)
+            record_llm_call("ollama", self._call_type, latency_s, tokens=estimated_tokens)
             if self._cache_ttl > 0:
                 _cache.put(
                     system=system,
@@ -141,15 +149,21 @@ class LLMProviderChain:
         response = await self._inner.generate(
             prompt, system, max_tokens=max_tokens, timeout=timeout
         )
-        latency_ms = (time.monotonic() - t0) * 1000
+        latency_s = time.monotonic() - t0
+        provider_id = getattr(self._inner, "last_provider_id", "unknown") or "unknown"
 
         if response is None:
+            record_llm_call(provider_id, self._call_type, latency_s, status="failure")
             return None
 
         # D-05: Use public has_schema() method instead of private _schemas access
         if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
+                LLM_GUARDRAILS_REJECTIONS.labels(call_type=self._call_type).inc()
+                record_llm_call(
+                    provider_id, self._call_type, latency_s, status="guardrails_rejected"
+                )
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
@@ -162,12 +176,13 @@ class LLMProviderChain:
             # Fallback: character-count estimate (Gemini review suggestion)
             tokens = max(1, len(prompt) // 4 + (len(response) // 4 if response else 0))
 
-        provider_id = getattr(self._inner, "last_provider_id", "unknown") or "unknown"
         _budget.record(
             call_type=self._call_type,
             provider=provider_id,
             tokens=tokens,
         )
+
+        record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
 
         # 6. Store in cache
         if self._cache_ttl > 0:
@@ -202,6 +217,6 @@ class LLMProviderChain:
             "llm_chain.generated",
             call_type=self._call_type,
             provider=provider_id,
-            latency_ms=round(latency_ms, 1),
+            latency_ms=round(latency_s * 1000, 1),
         )
         return response

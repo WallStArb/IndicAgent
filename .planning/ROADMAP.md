@@ -1050,3 +1050,18 @@ Plans:
 5. ✅ `co_fire_count` / `co_fire_partners` columns for co-occurring signals
 6. ✅ Signal quality metrics in pipeline
 7. ✅ ML training queries MUST filter `WHERE signal_schema_version = 'v1'`
+
+
+### Phase 80: Renaissance Swarm Intelligence Layer
+
+**Goal:** Expand the alpha swarm from a single Skeptic agent into a multi-agent intelligence overlay with outcome-learned per-TF weights. Build BaseMultiplierAgent foundation in src/core/ai/, four orthogonal agents (Skeptic refactor + Correlation + RegimeCoherence + Counterfactual), automated TF gate (≥5m), Spearman-learned weight store, signal_ledger adjusted_confidence column, and full Prometheus observability. Every agent starts shadow_only=True; weights and graduation are fully automated. Design spec: docs/plans/2026-05-05-swarm-intelligence-design.md.
+
+**Status:** 🔵 Planning
+
+**Depends on:** Phase 78 (BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment), Phase 79 (signal_schema_version v1 gate)
+
+**Design doc:** `docs/plans/2026-05-05-swarm-intelligence-design.md`
+
+**Requirements:** P80-BASE, P80-SKEPTIC, P80-CORRELATION, P80-REGIME, P80-COUNTERFACTUAL, P80-DISPATCH, P80-WEIGHTS, P80-SCHEMA, P80-OBSERVABILITY
+
+Plans:

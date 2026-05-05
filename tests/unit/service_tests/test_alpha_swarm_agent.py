@@ -163,8 +163,8 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
     assert (
         call_args[0][0] == expected_topic or call_args.args[0] == expected_topic
     ), f"Published to wrong topic: {call_args}"
-    row = call_args[1].get("value") or (call_args[0][1] if len(call_args[0]) > 1 else None)
-    assert row is not None, f"No value kwarg in publish call: {call_args}"
+    row = call_args[1].get("msg") or (call_args[0][1] if len(call_args[0]) > 1 else None)
+    assert row is not None, f"No msg kwarg in publish call: {call_args}"
     assert row["event_type"] == "agent_prediction", f"event_type mismatch: {row['event_type']}"
 
 
@@ -192,7 +192,7 @@ async def test_record_swarm_result_segment_key_numeric():
     await agent._lineage.flush()
 
     call_args = fake_producer.publish.call_args
-    row = call_args[1].get("value") or (call_args[0][1] if len(call_args[0]) > 1 else None)
+    row = call_args[1].get("msg") or (call_args[0][1] if len(call_args[0]) > 1 else None)
     segment_key = row.get("metadata", {}).get("segment_key") or row.get("segment_key", "")
     # segment_key may be in metadata JSONB — check both locations
     assert re.match(
@@ -293,7 +293,7 @@ async def test_segment_key_uses_numeric_regime():
     await agent._lineage.flush()
 
     call_args = fake_producer.publish.call_args
-    row = call_args[1].get("value") or (call_args[0][1] if len(call_args[0]) > 1 else None)
+    row = call_args[1].get("msg") or (call_args[0][1] if len(call_args[0]) > 1 else None)
     # segment_key stored in metadata JSONB
     segment_key = row.get("metadata", {}).get("segment_key", "")
     assert segment_key == "1.5m", f"Expected segment_key='1.5m', got {segment_key!r}"
