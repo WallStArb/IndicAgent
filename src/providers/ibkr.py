@@ -42,7 +42,6 @@ from src.core.plugin_circuit_breaker import (  # noqa: E402
     CircuitState,
     PluginCircuitBreaker,
 )
-from src.core.retry_utils import retry_with_backoff  # noqa: E402
 
 # Circuit breaker metrics
 from src.observability.metrics import (  # noqa: E402
@@ -250,17 +249,13 @@ async def _connect_with_circuit_breaker(
             _ibkr_open_since = time.monotonic()
 
     # Phase 1: clientId rotation (client_id → client_id+1 → ... → _MAX_CLIENT_ID)
+    # Error 326 is deterministic — retrying the same clientId is pointless.
+    # Try each once and rotate immediately. The while/else fires Phase 2 only when
+    # all clientIds are exhausted by 326 (not on non-326 errors, which break early).
     current_cid = client_id
-    deadline = time.monotonic() + 120  # 2 min outer deadline to prevent unbounded runtime
-    while current_cid <= _MAX_CLIENT_ID and time.monotonic() < deadline:
+    while current_cid <= _MAX_CLIENT_ID:
         try:
-            ib_instance = await retry_with_backoff(
-                lambda cid=current_cid: _try_connect(cid),
-                max_attempts=3,
-                base_delay=2.0,
-                max_delay=15.0,
-                jitter_factor=0.5,
-            )
+            ib_instance = await _try_connect(current_cid)
             _record_success()
             logger.info(
                 "IBKR connected",
@@ -286,9 +281,8 @@ async def _connect_with_circuit_breaker(
         except Exception as exc:
             _record_failure(type(exc).__name__)
             break
-
-    # Phase 2: all clientIds exhausted → restart gateway container
-    if current_cid > _MAX_CLIENT_ID:
+    else:
+        # Phase 2: all clientIds returned 326 → restart gateway to clear stale sessions
         IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="rotation_exhausted").inc()
         logger.error(
             "ibkr.client_id_rotation_exhausted",
@@ -296,23 +290,23 @@ async def _connect_with_circuit_breaker(
         )
         restarted = await _restart_ib_gateway()
         if restarted:
-            current_cid = client_id
             _error_326_detected.clear()
-            try:
-                ib_instance = await retry_with_backoff(
-                    lambda cid=current_cid: _try_connect(cid),
-                    max_attempts=3,
-                    base_delay=5.0,
-                    max_delay=30.0,
-                    jitter_factor=0.5,
-                )
-                _record_success()
-                logger.info(
-                    "IBKR connected after gateway restart", extra={"client_id": current_cid}
-                )
-                return ib_instance, current_cid
-            except Exception as exc:
-                _record_failure(type(exc).__name__)
+            for cid in range(client_id, _MAX_CLIENT_ID + 1):
+                try:
+                    ib_instance = await _try_connect(cid)
+                    _record_success()
+                    logger.info("IBKR connected after gateway restart", extra={"client_id": cid})
+                    return ib_instance, cid
+                except ConnectionError as exc:
+                    if "Error 326" in str(exc):
+                        continue
+                    _record_failure(type(exc).__name__)
+                    break
+                except Exception as exc:
+                    _record_failure(type(exc).__name__)
+                    break
+            else:
+                _record_failure("326_post_restart")
 
     logger.error(
         "IBKR connect failed",
