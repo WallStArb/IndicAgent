@@ -26,6 +26,9 @@ CLUSTER_RADIUS_ATR = 0.5
 ZONE_BUFFER_ATR = 0.15
 MIN_ZONE_WIDTH_ATR = 0.25
 SINGLE_LEVEL_RADIUS_ATR = 0.25
+DEDUP_TOLERANCE_ATR = 1.0  # wider than CLUSTER_RADIUS_ATR to suppress same-level noise
+_SINGLE_STRENGTH_WEIGHT = 0.6
+_SINGLE_PROXIMITY_WEIGHT = 0.4
 
 
 @dataclass
@@ -99,6 +102,12 @@ _STRENGTH_FIELD: dict[str, str] = {
     "supply": "supply_strength",
 }
 
+# Direction-specific VP companion fields: (session_key, rolling_key, name, hvn_key, hvn_name)
+_VP_DIRECTION: dict[int, tuple[str, str, str, str, str]] = {
+    1: ("val", "val_rolling", "val", "nearest_hvn_below", "hvn_below"),
+    -1: ("vah", "vah_rolling", "vah", "nearest_hvn_above", "hvn_above"),
+}
+
 
 def _resolve_strength(features: dict, name: str, default: float) -> float:
     key = _STRENGTH_FIELD.get(name)
@@ -113,13 +122,14 @@ def _resolve_strength(features: dict, name: str, default: float) -> float:
 
 
 def _dedup(candidates: list[ZoneCandidate], atr: float) -> list[ZoneCandidate]:
-    """Within each source_family, collapse same-price duplicates (within 1 ATR) keeping strongest.
+    """Within each source_family, collapse same-price duplicates keeping strongest.
 
-    1 ATR tolerance is intentional — wider than CLUSTER_RADIUS_ATR to suppress
-    duplicate-level noise from feature keys that reference the same structural level.
-    Distinct prices in the same family (e.g. two sr levels far apart) are both kept.
+    Tolerance of DEDUP_TOLERANCE_ATR (1.0 ATR) is intentionally wider than
+    CLUSTER_RADIUS_ATR (0.5 ATR) to suppress noise from multiple feature keys
+    referencing the same structural level. Distinct prices in the same family
+    (e.g. two sr levels far apart) are both kept.
     """
-    tol = atr  # 1 ATR dedup radius
+    tol = atr * DEDUP_TOLERANCE_ATR
     by_family: dict[str, list[ZoneCandidate]] = {}
     for c in candidates:
         by_family.setdefault(c.source_family, []).append(c)
@@ -169,37 +179,22 @@ def collect_candidates(
             )
         )
 
-    # Volume profile (session vs rolling based on TF)
-    if direction == 1:
-        poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
-        val = _select_vp(features, tf, "val", "val_rolling")
-        hvn = _fval(features, "nearest_hvn_below")
-        for price, name in [(poc, "poc"), (val, "val"), (hvn, "hvn_below")]:
-            if price > EPSILON and lo < price < hi:
-                raw.append(
-                    ZoneCandidate(
-                        price=price,
-                        name=name,
-                        strength=0.8 if name == "poc" else 0.7,
-                        source_tier="i4",
-                        source_family=f"vp_{name}",
-                    )
+    # Volume profile (session vs rolling based on TF; poc is common, companion varies by direction)
+    poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
+    c_sess, c_roll, c_name, hvn_key, hvn_name = _VP_DIRECTION[direction]
+    companion = _select_vp(features, tf, c_sess, c_roll)
+    hvn = _fval(features, hvn_key)
+    for price, name in [(poc, "poc"), (companion, c_name), (hvn, hvn_name)]:
+        if price > EPSILON and lo < price < hi:
+            raw.append(
+                ZoneCandidate(
+                    price=price,
+                    name=name,
+                    strength=0.8 if name == "poc" else 0.7,
+                    source_tier="i4",
+                    source_family=f"vp_{name}",
                 )
-    else:
-        poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
-        vah = _select_vp(features, tf, "vah", "vah_rolling")
-        hvn = _fval(features, "nearest_hvn_above")
-        for price, name in [(poc, "poc"), (vah, "vah"), (hvn, "hvn_above")]:
-            if price > EPSILON and lo < price < hi:
-                raw.append(
-                    ZoneCandidate(
-                        price=price,
-                        name=name,
-                        strength=0.8 if name == "poc" else 0.7,
-                        source_tier="i4",
-                        source_family=f"vp_{name}",
-                    )
-                )
+            )
 
     return sorted(_dedup(raw, atr), key=lambda c: c.price)
 
@@ -254,7 +249,7 @@ def _pick_single_best(
     for c in candidates:
         dist_atr = abs(c.price - entry) / atr if atr > EPSILON else 2.0
         proximity = max(0.0, 1.0 - dist_atr / 2.0)
-        score = c.strength * 0.6 + proximity * 0.4
+        score = c.strength * _SINGLE_STRENGTH_WEIGHT + proximity * _SINGLE_PROXIMITY_WEIGHT
         if score > best_score:
             best_score = score
             best = c
@@ -281,6 +276,68 @@ def _emit_metrics(result: ZoneResult, atr: float) -> None:
             ZONE_CLUSTER_DENSITY.observe(density)
 
 
+def _resolve_zone(
+    features: dict[str, Any],
+    direction: int,
+    entry: float,
+    stop: float,
+    atr: float,
+) -> ZoneResult:
+    candidates = collect_candidates(features, direction, entry, stop)
+
+    if not candidates:
+        return ZoneResult(
+            zone_low=0.0,
+            zone_high=0.0,
+            tier="atr",
+            source="atr_fallback",
+            candidate_count=0,
+            cluster_members=0,
+        )
+
+    # Tier 1: Confluence cluster (requires ≥2 distinct source_tiers)
+    clusters = _find_clusters(candidates, atr)
+    diverse = [cl for cl in clusters if _source_diversity(cl) >= 2]
+    if diverse:
+        best = max(diverse, key=lambda cl: _score_cluster(cl, atr))
+        low = best[0].price - atr * ZONE_BUFFER_ATR
+        high = best[-1].price + atr * ZONE_BUFFER_ATR
+        low, high = _expand_to_min_width(low, high, atr)
+        names = "+".join(c.name for c in best)
+        return ZoneResult(
+            zone_low=low,
+            zone_high=high,
+            tier="confluence",
+            source=f"confluence:{names}",
+            candidate_count=len(candidates),
+            cluster_members=len(best),
+        )
+
+    # Tier 2: Single best level
+    best_single = _pick_single_best(candidates, entry, atr)
+    if best_single is not None:
+        r = atr * SINGLE_LEVEL_RADIUS_ATR
+        low, high = _expand_to_min_width(best_single.price - r, best_single.price + r, atr)
+        return ZoneResult(
+            zone_low=low,
+            zone_high=high,
+            tier="single",
+            source=f"single:{best_single.name}",
+            candidate_count=len(candidates),
+            cluster_members=0,
+        )
+
+    # Tier 3: No usable structure — caller applies ATR bounds
+    return ZoneResult(
+        zone_low=0.0,
+        zone_high=0.0,
+        tier="atr",
+        source="atr_fallback",
+        candidate_count=len(candidates),
+        cluster_members=0,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -298,64 +355,6 @@ def resolve_structural_zone(
     Returns ZoneResult.tier = "atr" when no usable structure is found.
     The caller (trade_framer) applies its own ATR bounds in that case.
     """
-    candidates = collect_candidates(features, direction, entry, stop)
-
-    if not candidates:
-        result = ZoneResult(
-            zone_low=0.0,
-            zone_high=0.0,
-            tier="atr",
-            source="atr_fallback",
-            candidate_count=0,
-            cluster_members=0,
-        )
-        _emit_metrics(result, atr)
-        return result
-
-    # Tier 1: Confluence cluster (requires ≥2 distinct source_tiers)
-    clusters = _find_clusters(candidates, atr)
-    diverse = [cl for cl in clusters if _source_diversity(cl) >= 2]
-    if diverse:
-        best = max(diverse, key=lambda cl: _score_cluster(cl, atr))
-        low = best[0].price - atr * ZONE_BUFFER_ATR
-        high = best[-1].price + atr * ZONE_BUFFER_ATR
-        low, high = _expand_to_min_width(low, high, atr)
-        names = "+".join(c.name for c in best)
-        result = ZoneResult(
-            zone_low=low,
-            zone_high=high,
-            tier="confluence",
-            source=f"confluence:{names}",
-            candidate_count=len(candidates),
-            cluster_members=len(best),
-        )
-        _emit_metrics(result, atr)
-        return result
-
-    # Tier 2: Single best level
-    best_single = _pick_single_best(candidates, entry, atr)
-    if best_single is not None:
-        r = atr * SINGLE_LEVEL_RADIUS_ATR
-        low, high = _expand_to_min_width(best_single.price - r, best_single.price + r, atr)
-        result = ZoneResult(
-            zone_low=low,
-            zone_high=high,
-            tier="single",
-            source=f"single:{best_single.name}",
-            candidate_count=len(candidates),
-            cluster_members=0,
-        )
-        _emit_metrics(result, atr)
-        return result
-
-    # Tier 3: Signal to caller — no usable structure
-    result = ZoneResult(
-        zone_low=0.0,
-        zone_high=0.0,
-        tier="atr",
-        source="atr_fallback",
-        candidate_count=len(candidates),
-        cluster_members=0,
-    )
+    result = _resolve_zone(features, direction, entry, stop, atr)
     _emit_metrics(result, atr)
     return result
