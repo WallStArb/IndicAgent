@@ -40,7 +40,7 @@ def load_allowlist() -> set[tuple[str, str]]:
 
 def collect() -> tuple[
     dict[str, dict[str, list[str]]],  # dir -> name -> distinct files
-    dict[str, list[int]],              # "rel:name" -> line numbers (intra-file shadows)
+    dict[str, list[int]],  # "rel:name" -> line numbers (intra-file shadows)
 ]:
     dir_name_files: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     intra_shadows: dict[str, list[int]] = defaultdict(list)
@@ -87,9 +87,7 @@ def main() -> int:
     failures = 0
 
     if cross_file:
-        print(
-            f"check_duplicate_tests: FAIL — {len(cross_file)} within-directory duplicate(s)\n"
-        )
+        print(f"check_duplicate_tests: FAIL — {len(cross_file)} within-directory duplicate(s)\n")
         for (dir_key, name), files in sorted(cross_file.items()):
             print(f"  {name}  [{dir_key}]:")
             for f in files:
