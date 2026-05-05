@@ -485,6 +485,12 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
         stop = swing_low - atr * ATR_STOP_SWING_MULTIPLIER
         return min(stop, min_stop), "swing_low"
 
+    # Priority 4b: EMA 21 below entry as structural support stop
+    ema_21 = _fval(features, "ema_21")
+    if ema_21 > EPSILON_TOLERANCE and ema_21 < entry:
+        stop = ema_21 - atr * ATR_STOP_SWING_MULTIPLIER
+        return min(stop, min_stop), "ema_21_support"
+
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > EPSILON_TOLERANCE and sr_support < entry:
@@ -535,6 +541,12 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     if swing_high > EPSILON_TOLERANCE and swing_high > entry:
         stop = swing_high + atr * ATR_STOP_SWING_MULTIPLIER
         return max(stop, max_stop), "swing_high"
+
+    # Priority 4b: EMA 21 above entry as structural resistance stop
+    ema_21 = _fval(features, "ema_21")
+    if ema_21 > EPSILON_TOLERANCE and ema_21 > entry:
+        stop = ema_21 + atr * ATR_STOP_SWING_MULTIPLIER
+        return max(stop, max_stop), "ema_21_resistance"
 
     # Priority 5: S/R nearest resistance
     sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(
@@ -612,6 +624,16 @@ def _collect_targets_long(
                 "demand_zone",
             )
         )
+
+    # Prior day high as target for longs
+    prior_day_high = _fval(features, "prior_day_high")
+    if prior_day_high > entry:
+        candidates.append((prior_day_high, f"Prior Day H {prior_day_high:.2f}", "prior_day"))
+
+    # Session high (overnight) as target
+    overnight_high = _fval(features, "overnight_high")
+    if overnight_high > entry:
+        candidates.append((overnight_high, f"Overnight H {overnight_high:.2f}", "overnight"))
 
     # Volume Profile priority candidates — bypass standard ATR range filter
     # (VP levels are meaningful even when < 0.5 ATR from entry because
@@ -712,6 +734,16 @@ def _collect_targets_short(
                 "supply_zone",
             )
         )
+
+    # Prior day low as target for shorts
+    prior_day_low = _fval(features, "prior_day_low")
+    if EPSILON_TOLERANCE < prior_day_low < entry:
+        candidates.append((prior_day_low, f"Prior Day L {prior_day_low:.2f}", "prior_day"))
+
+    # Session low (overnight) as target
+    overnight_low = _fval(features, "overnight_low")
+    if EPSILON_TOLERANCE < overnight_low < entry:
+        candidates.append((overnight_low, f"Overnight L {overnight_low:.2f}", "overnight"))
 
     # Volume Profile priority candidates for shorts — bypass standard ATR range filter
     priority_candidates: list[tuple[float, str, str]] = []
