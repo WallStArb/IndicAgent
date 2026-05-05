@@ -35,7 +35,7 @@ Consolidated I1-I7 into a single in-process agent:
 - Identified I2-I6 sequential bottleneck (73% of latency) — batch processing is the planned fix
 
 ### v2.3 — Swarm Foundation + ML Infrastructure
-- `SwarmOrchestratorAgent` + `SwarmWriterAgent` — swarm plumbing services live (Phase 56)
+- `AlphaSwarmComputeAgent` + `LineageWriterAgent` — lineage-first swarm foundation; per-agent predictions persist to `signal_lineage`
 - LLM layer extracted into standalone `llm_providers.py` module
 - `BarIntelligenceRecord` — atomic per-bar record on `intelligence.journal` (Phase 44.3 / PIPE-06); single INSERT per bar replaces two-phase UPSERT
 - `RollComputeAgent` + `ContractMetadataWriterAgent` — automated futures roll detection and front-month promotion
@@ -75,8 +75,8 @@ Consolidated I1-I7 into a single in-process agent:
 | AI Narrative | `ai_narrative_service.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
 | Cross Asset | `cross_asset_service.py` | `indicagent-cross-asset` | :9118 | Cross-asset spread dynamics |
 | Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
-| Swarm Orchestrator | `swarm_orchestrator_agent.py` | `indicagent-swarm-orchestrator` | — | Routes swarm tasks to specialist agents |
-| Swarm Writer | `swarm_writer_agent.py` | `indicagent-swarm-writer` | — | Persists swarm outputs to DB |
+| Alpha Swarm | `alpha_swarm_agent.py` | `indicagent-alpha-swarm` | — | Runs alpha agents on I7 signals; emits signal lineage |
+| Lineage Writer | `lineage_writer_agent.py` | `indicagent-lineage-writer` | — | Persists signal-affecting lineage to `signal_lineage` |
 | ML Data Quality | `ml_data_quality_agent.py` | `indicagent-ml-data-quality` (timer) | — | Audits `intelligence_features` for training data quality |
 | ML Discovery | `ml_discovery_agent.py` | `indicagent-ml-discovery` (timer) | — | Discovers ML training signal patterns |
 | ML Orchestrator | `ml_orchestrator_agent.py` | `indicagent-ml-orchestrator` (timer) | — | Orchestrates ML training pipeline |
@@ -181,6 +181,7 @@ Consolidated I1-I7 into a single in-process agent:
 | `market_data_ohlcv` | Raw OHLCV ground truth | Forever |
 | `intelligence_features` | Full I1-I7 feature vectors (ML training) | Forever |
 | `signal_ledger` | ALL I7 signals + lifecycle outcomes | Forever |
+| `signal_lineage` | Signal-affecting transforms and agent predictions | Forever |
 | `llm_calls` | LLM audit log + outcomes | Forever |
 | `llm_model_scores` | Per-model win rates | 15min refresh |
 | `instruments` | Active contracts | Current |

@@ -107,15 +107,15 @@ function GroupedSymbolGrid({
   }, [symbols]);
 
   return (
-    <div className="p-1.5 space-y-3">
+    <div className="p-4 space-y-6">
       {grouped.map((group) => (
         <section key={group.key}>
           {/* Section header */}
-          <div className="flex items-center gap-2 mb-1.5 px-0.5">
-            <span className="text-[0.6rem] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+          <div className="flex items-center gap-3 mb-3 px-1">
+            <span className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-[var(--text-muted)]">
               {group.label}
             </span>
-            <span className="text-[0.55rem] text-[var(--border-bright)]">
+            <span className="text-[0.55rem] font-mono text-[var(--border-bright)]">
               {group.symbols.length}
             </span>
             <div className="flex-1 h-px bg-[var(--border-subtle)]" />
@@ -123,8 +123,8 @@ function GroupedSymbolGrid({
 
           {/* Card grid */}
           <div
-            className="grid gap-1.5 content-start"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}
+            className="grid gap-3 content-start"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))" }}
           >
             {group.symbols.map((sym) => {
               const data = symbolData[sym];
@@ -229,36 +229,43 @@ export default function TradingDashboard() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-base)] overflow-hidden">
+    <div className="h-full flex flex-col bg-[var(--bg-base)] overflow-hidden">
       {/* ── Top Bar ── */}
       <header
-        className="flex items-center justify-between px-5 py-2.5 border-b border-[var(--border-subtle)] shrink-0"
+        className="flex items-center justify-between px-6 py-3 border-b border-[var(--border-subtle)] shrink-0"
         style={{
-          background: "rgba(10, 14, 20, 0.85)",
-          backdropFilter: "blur(8px)",
+          background: "rgba(6, 9, 15, 0.95)",
+          backdropFilter: "blur(12px)",
         }}
       >
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
-            <IndicAgentLogo size={22} />
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <IndicAgentLogo size={24} />
             <span style={{
               fontFamily: "var(--font-display)",
               fontWeight: 800,
-              fontSize: "0.95rem",
-              letterSpacing: "-0.01em",
+              fontSize: "1rem",
+              letterSpacing: "-0.02em",
               color: "var(--text-primary)",
             }}>
               Indic<span style={{ color: "var(--accent-cyan)" }}>Agent</span>
             </span>
           </div>
 
-          <Link
-            href="/signals"
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.62rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
-          >
-            <BarChart2 size={10} />
-            Signals
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/dashboard/hub"
+              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            >
+              Hub
+            </Link>
+            <Link
+              href="/signals"
+              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            >
+              Signals
+            </Link>
+          </div>
 
           {/* Profile switcher */}
           <ProfileSwitcher
@@ -266,24 +273,20 @@ export default function TradingDashboard() {
             active={activeProfile}
             onChange={handleProfileChange}
           />
-
-          <span className="text-[0.6rem] text-[var(--text-muted)]">
-            {symbols.length} instruments
-          </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {/* Timeframe pills */}
-          <div className="flex items-center gap-0.5 bg-[var(--bg-base)] rounded p-0.5">
+          <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-0.5">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.value}
                 onClick={() => setTimeframe(tf.value)}
                 className={`
-                  px-2 py-0.5 rounded text-[0.65rem] font-semibold transition-colors
+                  px-3 py-1 rounded-md text-[0.65rem] font-semibold transition-all
                   ${
                     timeframe === tf.value
-                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                      ? "bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm"
                       : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                   }
                 `}

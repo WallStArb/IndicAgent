@@ -127,23 +127,27 @@ The I8 AI Narrative layer is the exception (generates human-readable explanation
 
 ---
 
-## Intelligence Swarm (Path B — Async, Out-of-Band)
+## Intelligence Swarm (Async, Out-of-Band)
 
-The swarm runs alongside the deterministic I1-I7 pipeline without ever blocking it. When an I7 signal fires, `SwarmOrchestratorComputeAgent` fans out to specialist agents that reason about the signal context and produce an `AlphaMultiplier` — applied downstream, after the fact.
+The swarm runs alongside the deterministic I1-I7 pipeline without ever blocking it. When an I7 signal fires, `AlphaSwarmComputeAgent` fans out to specialist agents that reason about the signal context and produce confidence multipliers. Per-agent predictions are recorded to `signal_lineage`; any `signal_ledger` swarm fields are writer-owned projections.
 
 ```
-I7 signal → SwarmOrchestratorComputeAgent
-                ├── Path A: deterministic contributors (parallel, <5ms each)
-                └── Path B: LLM reasoning agents (async, shadow-only until promoted)
+I7 signal → AlphaSwarmComputeAgent
+                ├── SkepticAgentComputeAgent
+                ├── CorrelationAgentComputeAgent
+                ├── RegimeCoherenceAgentComputeAgent
+                └── CounterfactualAgentComputeAgent
                           ↓
-                    SwarmAggregator → AlphaMultiplier [0.7–1.3 clamped]
+                    LineageRecorder → topic_signal_lineage
                           ↓
-                    SwarmWriterAgent → alpha_multiplier_shadow (DB)
+                    LineageWriterAgent → signal_lineage
+                          ↓
+                    writer-owned projection → signal_ledger swarm columns
 ```
 
-Every agent implements `IAlphaContributor` (`src/core/agents/alpha_contributor.py`). Each receives a `SwarmContext` — a typed, immutable snapshot of I1/I4/I6 features at signal time, built from in-memory cache with no DB access. `SafeSwarmWrapper` enforces a hard timeout and exception isolation around every agent — a failing agent returns `multiplier=1.0, confidence=0.0` and is invisible to the aggregator.
+Every agent extends `BaseMultiplierAgent` and receives an `AIContext` built from requested tiers. `BaseAIAgent.compute()` enforces timeout and exception isolation; a failing agent returns a neutral `AgentOutput` and does not break dispatch.
 
-No swarm agent affects production signal confidence until `ρ > 0.4` AND `N ≥ 100` AND `p < 0.05` over a 14-day rolling window. All agents start `shadow_only=True`.
+No swarm agent affects production signal confidence until it graduates through shadow governance. All agents start `shadow_only=True`, and all agents continue writing lineage whether shadow or live. Shadow/live controls production influence, not data capture.
 
 **See:** `docs/intelligence/swarm-architecture.md` — full swarm architecture, data contract, agent registry, and validation gate.
 
@@ -161,6 +165,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,# intelligence.i7.signals — Winner I7 signal
     topic_narratives,            # narratives:*:* — I8 LLM narrative per symbol/TF
     topic_llm_calls,             # llm.calls — Full LLM audit log
+    topic_signal_lineage,         # signal_lineage — Agent prediction lineage
 )
 ```
 
@@ -181,6 +186,8 @@ from src.core.stream_keys import (
 | Signal Tracker | `indicagent-signal-tracker` | :9115 | Signal lifecycle (activation, MAE/MFE, outcome) |
 | AI Narrative | `indicagent-ai-narrative` | :9113 | I8 LLM analysis → `narratives:*:*` |
 | LLM Writer | `indicagent-llm-writer` | :9117 | `llm.calls` → `llm_calls` (DB) + outcome back-fill |
+| Alpha Swarm | `indicagent-alpha-swarm` | — | I7 signals → alpha agent lineage |
+| Lineage Writer | `indicagent-lineage-writer` | — | `signal_lineage` → `signal_lineage` (DB) |
 
 ---
 
@@ -190,6 +197,7 @@ from src.core.stream_keys import (
 - `market_data_ohlcv` — Raw OHLCV ground truth (keep forever)
 - `intelligence_features` — Full I1-I7 feature vectors per bar (ML training dataset, keep forever)
 - `signal_ledger` — ALL I7 signals + lifecycle outcomes (keep forever)
+- `signal_lineage` — Signal-affecting transforms and agent predictions (keep forever)
 - `llm_calls` — LLM audit log + outcomes (keep forever)
 
 **Design Principle:** Never drop data that could contain signal. Storage is cheapest, data is irreplaceable.
