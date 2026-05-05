@@ -109,3 +109,50 @@ async def test_consumer_client_messages_yields_tuples() -> None:
         assert topic2 == "dev.llm.calls"
         assert key2 is None
         assert payload2 == {"model": "qwen"}
+
+
+# ---------------------------------------------------------------------------
+# _KafkaHeadersCarrier unit tests (merged from tests/unit/test_kafka_utils.py)
+# ---------------------------------------------------------------------------
+
+from src.core.kafka_utils import _KafkaHeadersCarrier
+
+
+def test_carrier_set_and_get() -> None:
+    """set()/get() round-trip stores and retrieves a single header value."""
+    carrier = _KafkaHeadersCarrier()
+    carrier.set("traceparent", "00-abc-def-01")
+    assert carrier.get("traceparent") == ["00-abc-def-01"]
+
+
+def test_carrier_setitem_used_by_otel_default_setter() -> None:
+    """__setitem__ must work — OTel default_setter calls carrier[key] = value."""
+    carrier = _KafkaHeadersCarrier()
+    carrier["traceparent"] = "00-abc-def-01"
+    assert carrier.get("traceparent") == ["00-abc-def-01"]
+    assert carrier.to_aiokafka_headers() == [("traceparent", b"00-abc-def-01")]
+
+
+def test_carrier_get_missing_key() -> None:
+    """get() returns None for a key that was never set."""
+    carrier = _KafkaHeadersCarrier()
+    assert carrier.get("nonexistent") is None
+
+
+def test_carrier_keys() -> None:
+    """keys() returns all set header names."""
+    carrier = _KafkaHeadersCarrier()
+    carrier.set("traceparent", "00-abc-def-01")
+    carrier.set("tracestate", "rojo=00f067aa0ba902b7")
+    keys = carrier.keys()
+    assert "traceparent" in keys
+    assert "tracestate" in keys
+    assert len(keys) == 2
+
+
+def test_carrier_to_aiokafka_headers() -> None:
+    """to_aiokafka_headers() encodes str values as UTF-8 bytes."""
+    carrier = _KafkaHeadersCarrier()
+    carrier.set("traceparent", "00-abc-def-01")
+    headers = carrier.to_aiokafka_headers()
+    assert headers == [("traceparent", b"00-abc-def-01")]
