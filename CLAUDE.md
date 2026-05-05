@@ -282,7 +282,7 @@ at startup so the graduation loop tracks it.
 
 ## Infrastructure
 
-- **Server IP:** `192.168.68.53` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157`.
+- **Server IP:** `192.168.68.53` (Ethernet, `enp2s0`). IB Gateway runs locally via Docker (`ib-gateway` container, `localhost:7497`).
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only.
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons. Always via `stream_keys.py`.
 - **Redpanda topic retention**: Redpanda is transport, not storage — once persisted to TimescaleDB, data is redundant. Retention tiers defined in `production/scripts/kafka_init_topics.py`: `_HOT_MS` (2h, ticks), `_BUFFER_MS` (1 day, everything persisted to DB), `_HTF_MS` (3 days, HTF bars need accumulation window). At 55 symbols, 7-day retention on intelligence topics consumed 89 GB — keep retention minimal.
