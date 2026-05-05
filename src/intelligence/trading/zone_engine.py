@@ -181,6 +181,8 @@ def collect_candidates(
 
     # Volume profile (session vs rolling based on TF; poc is common, companion varies by direction)
     poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
+    if direction not in _VP_DIRECTION:
+        raise ValueError(f"zone_engine: direction must be 1 or -1, got {direction!r}")
     c_sess, c_roll, c_name, hvn_key, hvn_name = _VP_DIRECTION[direction]
     companion = _select_vp(features, tf, c_sess, c_roll)
     hvn = _fval(features, hvn_key)
