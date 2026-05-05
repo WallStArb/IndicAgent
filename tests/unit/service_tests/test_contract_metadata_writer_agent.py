@@ -180,3 +180,37 @@ async def test_duplicate_roll_event_writes_non_authoritative_to_roll_events():
 
     assert len(roll_inserts) == 1
     assert False in roll_inserts[0]
+
+
+# ---------------------------------------------------------------------------
+# Topic property tests (merged from tests/unit/test_contract_metadata_writer_agent.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _agent_for_topics():
+    from services.contract_metadata_writer_agent import ContractMetadataWriterAgent
+
+    a = ContractMetadataWriterAgent.__new__(ContractMetadataWriterAgent)
+    a.settings = MagicMock(env_name="")
+    return a
+
+
+def test_topics_consumed_returns_roll_events(_agent_for_topics):
+    """topics_consumed includes the roll events topic."""
+    from services.contract_metadata_writer_agent import ContractMetadataWriterAgent
+
+    topics = ContractMetadataWriterAgent.topics_consumed.fget(_agent_for_topics)
+    assert len(topics) == 1
+    assert "roll" in topics[0]
+
+
+def test_topics_produced_returns_contract_updates_and_dlq(_agent_for_topics):
+    """topics_produced includes both contract_update and roll.dlq topics."""
+    from services.contract_metadata_writer_agent import ContractMetadataWriterAgent
+
+    topics = ContractMetadataWriterAgent.topics_produced.fget(_agent_for_topics)
+    assert len(topics) == 2
+    topic_str = " ".join(topics)
+    assert "contract_update" in topic_str
+    assert "dlq" in topic_str
