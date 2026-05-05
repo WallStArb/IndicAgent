@@ -1,0 +1,34 @@
+# Allowlist for check_duplicate_tests.py
+#
+# Format: DIRECTORY_PREFIX TEST_NAME
+# (directory is relative to project root, matched as a prefix)
+#
+# Entries here are structural boilerplate: the same test appears in multiple files
+# within the same directory by design (plugin family conventions, service interface
+# contracts). Each entry should have a brief comment explaining why it's intentional.
+
+# Every trading plugin test file checks the module-level plugin singleton
+tests/unit/intelligence/trading test_module_level_plugin_instance
+tests/unit/intelligence/trading test_plugin_module_instance
+tests/unit/intelligence/trading test_plugin_instance_exists
+
+# ORB15 and ORB30 are variants of the same strategy; shared behavior tests are expected
+tests/unit/intelligence/trading test_fires_on_breakout_long
+tests/unit/intelligence/trading test_fires_on_breakout_short
+tests/unit/intelligence/trading test_no_signal_before_range_complete
+tests/unit/intelligence/trading test_no_signal_without_volume_expansion
+tests/unit/intelligence/trading test_no_signal_when_frame_not_viable
+tests/unit/intelligence/trading test_min_lookback_guard
+
+# All mean-reversion trading plugins check regime_type and TF guard
+tests/unit/intelligence/trading test_regime_type_is_mean_reversion
+tests/unit/intelligence/trading test_tf_guard_returns_no_signal_on_1h
+
+# I4 context plugin convention checks (every I4 plugin validates name + output set)
+tests/unit/intelligence test_name_follows_i4_convention
+tests/unit/intelligence test_outputs_frozenset_correct
+
+# Service interface contracts: every service test validates wiring
+tests/unit/service_tests test_inherits_base_agent
+tests/unit/service_tests test_topics_consumed
+tests/unit/service_tests test_topics_produced
