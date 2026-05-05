@@ -12,6 +12,7 @@ Renaissance design:
 """
 
 import hashlib
+import json
 import time
 from functools import lru_cache
 from uuid import UUID
@@ -21,7 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ...config.settings import Settings
-from ...core.ai.context import AIContext, BarContext
+from ...core.ai.context import AIContext, BarContext, I7Context
+from ...core.ai.context import Tier as _Tier
 from ...core.database_manager import DatabaseManager
 from ...core.llm.chain import LLMProviderChain
 from ...intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
@@ -40,6 +42,9 @@ from ..utils import parse_jsonb as _parse_jsonb
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+# Tier values used by _prompt_hash (excludes non-pipeline Tier members)
+_HASH_TIERS = tuple(t.value for t in _Tier if t.value not in ("bar", "i7"))
 
 
 class NarrativeResponse(BaseModel):
@@ -69,8 +74,6 @@ def _maybe_validate(model_cls, payload):
     if payload is None or payload == {} or payload == "":
         return None
     if isinstance(payload, str):
-        import json
-
         try:
             payload = json.loads(payload)
         except (ValueError, TypeError):
@@ -93,6 +96,17 @@ def _build_context_from_row(row) -> AIContext:
             volume=bar_data.get("v") or bar_data.get("volume"),
         )
 
+    targets = row.get("targets") or []
+    i7_ctx = I7Context(
+        winner_plugin=row.get("setup_plugin"),
+        winner_direction=row.get("direction"),
+        winner_confidence=row.get("confidence"),
+        entry_price=row.get("entry_price"),
+        stop_price=row.get("stop_loss"),
+        target_price=targets[0] if targets else None,
+        entry_type=row.get("entry_type"),
+    )
+
     return AIContext(
         signal_id=row["signal_id"],
         symbol=row["symbol"],
@@ -106,6 +120,7 @@ def _build_context_from_row(row) -> AIContext:
         i5=_maybe_validate(I5Patterns, _parse_jsonb(row.get("i5"), default=None)),
         i6=_maybe_validate(I6Confluence, _parse_jsonb(row.get("i6"), default=None)),
         smc=_maybe_validate(SMCContext, _parse_jsonb(row.get("smc"), default=None)),
+        i7=i7_ctx,
     )
 
 
@@ -113,7 +128,7 @@ def _prompt_hash(context: AIContext) -> str:
     """Deterministic hash of AIContext for cache invalidation detection."""
     h = hashlib.sha256()
     h.update(f"{context.symbol}|{context.timeframe}".encode())
-    for tier in ("i1", "i2", "i3", "i4", "i5", "i6", "smc"):
+    for tier in _HASH_TIERS:
         val = getattr(context, tier, None)
         if val is not None:
             h.update(str(val.model_dump(sorted_keys=True)).encode())
@@ -122,7 +137,10 @@ def _prompt_hash(context: AIContext) -> str:
 
 _SIGNAL_QUERY = """
     SELECT sl.signal_id, sl.symbol, sl.timestamp, sl.feature_tf,
-           f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
+           sl.setup_plugin, sl.direction, sl.confidence,
+           sl.entry_price, sl.stop_loss, sl.targets,
+           sl.regime_type_at_fire, sl.entry_type,
+           f.bar, f.i1, f.i2, f.i3, f.i4, f.i5, f.smc, f.i6
     FROM signal_ledger sl
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
@@ -188,6 +206,7 @@ async def get_narrative(
 
             # 4. Persist (idempotent upsert)
             phash = _prompt_hash(context)
+            prompt_version = output.payload.get("prompt_version", "")
             await conn.execute(
                 _NARRATIVE_UPSERT,
                 signal_id,
@@ -196,7 +215,7 @@ async def get_narrative(
                 narrative_text,
                 model_name,
                 output.agent_id,
-                "",
+                prompt_version,
                 phash,
                 round(latency_ms, 1),
             )

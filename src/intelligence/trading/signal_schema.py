@@ -176,7 +176,8 @@ def make_signal_from_frame(
 
     sig["zone_low"] = tf.zone_low
     sig["zone_high"] = tf.zone_high
-    sig["signal_schema_version"] = "v1"
+    sig["zone_source"] = (features_snapshot or {}).get("zone_source")
+    sig["signal_schema_version"] = "v2"
 
     if features_snapshot is not None:
         sig["features_snapshot"] = features_snapshot

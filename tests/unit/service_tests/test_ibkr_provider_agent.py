@@ -55,20 +55,7 @@ def test_agent_name():
 
 
 # ---------------------------------------------------------------------------
-# Test 15: _agent_metrics_port returns 9129
-# ---------------------------------------------------------------------------
-
-
-def test_metrics_port():
-    """_agent_metrics_port() must return 9129."""
-    from services.ibkr_provider_agent import IBKRProviderAgent
-
-    agent = IBKRProviderAgent.__new__(IBKRProviderAgent)
-    assert agent._agent_metrics_port() == 9129
-
-
-# ---------------------------------------------------------------------------
-# Test 16: _provider_name_str returns "ibkr"
+# Test 15: _provider_name_str returns "ibkr"
 # ---------------------------------------------------------------------------
 
 

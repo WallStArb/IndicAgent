@@ -4,15 +4,15 @@
 
 :root {
   /* Base surfaces (blue-gray undertone, not pure black) */
-  --bg-base: #080b11;
-  --bg-surface: #0f1219;
-  --bg-elevated: #171c28;
-  --bg-hover: #1e2436;
+  --bg-base: #06090f;
+  --bg-surface: #0c1017;
+  --bg-elevated: #131720;
+  --bg-hover: #1b212f;
 
   /* Borders */
-  --border-subtle: #1a2030;
-  --border-default: #242d3f;
-  --border-bright: #2f3a50;
+  --border-subtle: #181e2b;
+  --border-default: #21293a;
+  --border-bright: #2d384d;
 
   /* Text hierarchy */
   --text-primary: #e4e8ef;

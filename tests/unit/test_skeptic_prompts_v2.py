@@ -1,7 +1,7 @@
 """Tests for skeptic_v2 prompt — typed AIContext rendering.
 
 Plan 078-05, Task 2:
-- _render_full_context iterates model_fields (open-ended, D-16)
+- render_full_context iterates model_fields (open-ended, D-16)
 - skeptic_v2 registered as ACTIVE_VERSION (D-17)
 - v1 preserved for rollback
 """
@@ -14,11 +14,10 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
-from src.core.ai.context import AIContext, I7Context
+from src.core.ai.context import AIContext, I7Context, render_full_context
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
-    _render_full_context,
     build_skeptic_prompt,
 )
 from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence
@@ -45,27 +44,27 @@ def _make_ctx(
 
 
 class TestRenderFullContext:
-    """Tests for _render_full_context helper (D-16 open-ended iteration)."""
+    """Tests for render_full_context helper (D-16 open-ended iteration)."""
 
     def test_renders_i1_section_when_present(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
-        result = _render_full_context(ctx)
+        result = render_full_context(ctx)
         assert "## i1" in result
 
     def test_renders_rsi_14_field_correctly(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
-        result = _render_full_context(ctx)
+        result = render_full_context(ctx)
         assert "- rsi_14: 55.0000" in result
 
     def test_renders_none_fields_as_null(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0, atr_14=None))
-        result = _render_full_context(ctx)
+        result = render_full_context(ctx)
         assert "- atr_14: null" in result
 
     def test_skips_i5_section_when_none(self) -> None:
         """When i5 is None, no ## i5 section appears."""
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
-        result = _render_full_context(ctx)
+        result = render_full_context(ctx)
         assert "## i5" not in result
 
     def test_open_ended_new_tier_automatically_appears(self) -> None:
@@ -91,7 +90,7 @@ class TestRenderFullContext:
         with patch.object(AIContext, "model_fields", patched_fields):
             # Add the attribute to the frozen model via object.__setattr__
             object.__setattr__(ctx, "synthetic_tier", SyntheticTierModel(fancy_signal=99.0))
-            result = _render_full_context(ctx)
+            result = render_full_context(ctx)
 
         assert "## synthetic_tier" in result
         assert "- fancy_signal: 99.0000" in result
@@ -100,17 +99,17 @@ class TestRenderFullContext:
         """The implementation must reference model_fields, not a hardcoded tier list."""
         import pathlib
 
-        content = pathlib.Path("src/intelligence/ai/alpha/skeptic_prompts.py").read_text()
+        content = pathlib.Path("src/core/ai/context.py").read_text()
         assert (
             "model_fields" in content
-        ), "_render_full_context must iterate ctx.__class__.model_fields"
+        ), "render_full_context must iterate ctx.__class__.model_fields"
         # Should NOT have hardcoded 'i1', 'i2' tier list inside the function
         # (checking for a list literal that enumerates all six tiers)
         assert '"i1", "i2"' not in content
 
     def test_empty_context_returns_no_features_message(self) -> None:
         ctx = _make_ctx()  # all tiers None
-        result = _render_full_context(ctx)
+        result = render_full_context(ctx)
         assert result == "(no features available)"
 
 

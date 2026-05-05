@@ -151,7 +151,7 @@ def _make_bar_payload(tf: str = "1m", symbol: str = "ESM6") -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_init_name_and_metrics_port():
+def test_init_name():
     """BarWriterAgent must inherit from BaseWriterAgent (and BaseAgent)."""
     from services.bar_writer_agent import BarWriterAgent
     from src.core.agent.base import BaseAgent

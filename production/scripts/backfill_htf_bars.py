@@ -133,7 +133,7 @@ async def _amain(args: argparse.Namespace) -> None:
     for row in rows:
         by_symbol.setdefault(row["symbol"], []).append(row)
 
-    htf_topic = topic_market_bars_htf(settings.env_prefix)
+    htf_topic = topic_market_bars_htf(settings.env_name)
     producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
     await producer.start()
     try:

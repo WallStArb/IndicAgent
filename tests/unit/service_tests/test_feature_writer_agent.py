@@ -564,7 +564,6 @@ class TestFeatureWriterAgentLifecycle:
         self.agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
         self.agent.name = "feature_writer_agent"
         self.agent._stop_event = asyncio.Event()
-        self.agent._metrics_port = 9116
         self.agent.logger = MagicMock()
         self.agent.tracer = MagicMock()
         self.agent.settings = MagicMock(env_name="development")

@@ -89,10 +89,9 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
     def __init__(
         self,
         name: str,
-        metrics_port: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(name=name, metrics_port=metrics_port, **kwargs)
+        super().__init__(name=name, **kwargs)
         self._buffer: list[Any] = []
         self._last_flush: float = 0.0
         self._consumer: Any = None  # Set in subclass _setup() — MUST be assigned for offset commits

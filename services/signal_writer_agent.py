@@ -7,7 +7,6 @@ batch-inserts to signal_ledger via SignalLedgerRepository.
 
 WriterAgent role: DB-only, zero compute. No plugin execution.
 Consumer group: signal_writer_group
-Metrics port: 9119
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ class SignalWriterAgent(BaseWriterAgent):
     def __init__(self) -> None:
         super().__init__(
             name="signal_writer_agent",
-            metrics_port=9119,
             max_idle_seconds=300,
         )
 

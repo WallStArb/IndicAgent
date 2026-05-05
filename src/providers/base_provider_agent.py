@@ -48,7 +48,6 @@ class BaseProviderAgent(BaseAgent):
     routing generically. Subclasses must implement four abstract methods:
 
     - _agent_name()        → str, e.g. "ibkr_provider_agent"
-    - _agent_metrics_port() → int, e.g. 9129
     - _provider_name_str() → str, e.g. "ibkr" (used in topic keys + metric labels)
     - _create_adapter()    → DataProviderAdapter implementation
 
@@ -69,7 +68,6 @@ class BaseProviderAgent(BaseAgent):
         _settings = settings or get_settings()
         super().__init__(
             name=self._agent_name(),
-            metrics_port=self._agent_metrics_port(),
             settings=_settings,
         )
 
@@ -105,10 +103,6 @@ class BaseProviderAgent(BaseAgent):
     @abc.abstractmethod
     def _agent_name(self) -> str:
         """Return the agent name, e.g. 'ibkr_provider_agent'."""
-
-    @abc.abstractmethod
-    def _agent_metrics_port(self) -> int:
-        """Return the Prometheus metrics port, e.g. 9129."""
 
     @abc.abstractmethod
     def _provider_name_str(self) -> str:
@@ -397,6 +391,9 @@ class BaseProviderAgent(BaseAgent):
                             expected_bars=expected_bars,
                         )
                         continue
+
+                    if not self._adapter.is_connected():
+                        await self._adapter.connect()
 
                     # IBKR historical-data pacing guard: 5 req/s sustained.
                     # Prevents Error 162 when multiple gap requests stack up.

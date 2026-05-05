@@ -6,7 +6,6 @@ to market_data_ohlcv with ON CONFLICT DO NOTHING for idempotent writes.
 
 Decouples bar persistence from the feature compute hot path (D-02 through D-07).
 
-Metrics port: :9121
 
 Golden Signals (D-06):
 - Traffic: events_consumed_total, bars_written_total{tf}
@@ -117,7 +116,7 @@ class BarWriterAgent(BaseWriterAgent):
     FLUSH_INTERVAL_SECS = 5.0
 
     def __init__(self) -> None:
-        super().__init__(name="bar_writer_agent", metrics_port=9121)
+        super().__init__(name="bar_writer_agent")
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 

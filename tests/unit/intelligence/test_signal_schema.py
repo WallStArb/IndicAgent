@@ -165,7 +165,7 @@ class TestMakeSignalFromFrame:
     def test_make_signal_from_frame_schema_version(self):
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())
-        assert sig["signal_schema_version"] == "v1"
+        assert sig["signal_schema_version"] == "v2"
 
     def test_make_signal_from_frame_propagates_stop_type_and_targets(self):
         tf = _viable_frame()

@@ -6,6 +6,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from opentelemetry import context as otel_context
+from opentelemetry.trace import SpanContext, TraceFlags, set_span_in_context
+from opentelemetry.trace.span import NonRecordingSpan
 
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient, _KafkaHeadersCarrier
 
@@ -66,6 +69,14 @@ def test_carrier_set_and_get() -> None:
     assert carrier.get("traceparent") == ["00-abc-def-01"]
 
 
+def test_carrier_setitem_used_by_otel_default_setter() -> None:
+    """__setitem__ must work — OTel default_setter calls carrier[key] = value."""
+    carrier = _KafkaHeadersCarrier()
+    carrier["traceparent"] = "00-abc-def-01"
+    assert carrier.get("traceparent") == ["00-abc-def-01"]
+    assert carrier.to_aiokafka_headers() == [("traceparent", b"00-abc-def-01")]
+
+
 def test_carrier_get_missing_key() -> None:
     """get() returns None for a key that was never set."""
     carrier = _KafkaHeadersCarrier()
@@ -98,24 +109,35 @@ def test_carrier_to_aiokafka_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_publish_sends_headers() -> None:
-    """publish() passes headers kwarg to send_and_wait containing injected traceparent."""
+    """publish() injects trace context via real OTel inject (exercises __setitem__)."""
     client = KafkaProducerClient.__new__(KafkaProducerClient)
     client._bootstrap = "localhost:9092"
     client._producer = AsyncMock()
     client._producer.send_and_wait = AsyncMock()
 
-    def mock_inject(carrier, context=None):
-        carrier.set("traceparent", "00-tid-sid-01")
-
-    with patch("src.core.kafka_utils.inject", side_effect=mock_inject):
+    span_ctx = SpanContext(
+        trace_id=0x0123456789ABCDEF0123456789ABCDEF,
+        span_id=0xFEDCBA9876543210,
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
+    span = NonRecordingSpan(span_ctx)
+    ctx = set_span_in_context(span)
+    token = otel_context.attach(ctx)
+    try:
         await client.publish("test.topic", {"key": "val"}, key="k")
+    finally:
+        otel_context.detach(token)
 
     client._producer.send_and_wait.assert_called_once()
     call_kwargs = client._producer.send_and_wait.call_args[1]
     assert "headers" in call_kwargs
     headers_dict = dict(call_kwargs["headers"])
     assert "traceparent" in headers_dict
-    assert headers_dict["traceparent"] == b"00-tid-sid-01"
+    # Verify format: version-traceid-spanid-flags
+    parts = headers_dict["traceparent"].decode().split("-")
+    assert len(parts) == 4
+    assert parts[0] == "00"  # version
 
 
 @pytest.mark.asyncio

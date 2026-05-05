@@ -218,7 +218,7 @@ class LedgerEntry:
             self.signal_schema_version,  # $61
             self.entry_type,  # $62
             self.co_fire_count,  # $63
-            self.co_fire_partners,  # $64::jsonb
+            self.co_fire_partners,  # $64::text[]
         )
 
 
@@ -276,7 +276,7 @@ INSERT INTO signal_ledger (
     $52, $53, $54,
     $55, $56, $57, $58,
     $59, $60,
-    $61, $62, $63, $64::jsonb
+    $61, $62, $63, $64::text[]
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
@@ -503,6 +503,8 @@ SET market_entry_at            = $2,
     market_entry_gap_bars      = $10
 WHERE signal_id = $1::uuid
 """
+
+_BATCH_MARKET_RESOLUTION_SQL = _RECORD_MARKET_RESOLUTION_SQL
 
 _RECORD_ZONE_WITH_ACTIVATION_SQL = """
 UPDATE signal_ledger
@@ -943,11 +945,28 @@ WHERE signal_id = $1::uuid
                 )
                 for d in items
             ]
+        elif transition_type == "market_resolution":
+            sql = _BATCH_MARKET_RESOLUTION_SQL
+            params = [
+                (
+                    d["signal_id"],
+                    d.get("market_entry_at"),
+                    d.get("market_entry_exit_price"),
+                    d.get("market_entry_exit_at"),
+                    d.get("market_entry_pnl_r"),
+                    d.get("market_entry_mae"),
+                    d.get("market_entry_mfe"),
+                    d.get("market_entry_bars_in_trade"),
+                    d.get("market_entry_outcome"),
+                    d.get("market_entry_gap_bars"),
+                )
+                for d in items
+            ]
         else:
             raise ValueError(
                 f"Unknown transition_type '{transition_type}'. "
                 "Must be one of: activation, exit, chandelier_update, "
-                "mae_mfe_update, shadow_outcome"
+                "mae_mfe_update, shadow_outcome, market_resolution"
             )
 
         await self._db_manager.execute_batch(sql, params)

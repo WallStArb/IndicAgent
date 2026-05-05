@@ -2,7 +2,7 @@
 
 Uses __new__ pattern to bypass __init__ and isolate tested behaviour.
 Tests cover:
-- Constructor attributes (name, metrics_port)
+- Constructor attributes (name)
 - topics_consumed/topics_produced contract
 - _expected_bars_for_date for crypto_24_7, nyse, futures_24_5
 - _detect_gaps with mocked asyncpg pool
@@ -24,17 +24,15 @@ from src.core.stream_keys import topic_gap_requests
 class TestBarAuditorAgentInit:
     """Test constructor attributes and property contracts."""
 
-    def test_name_and_metrics_port(self):
-        """BarAuditorAgent sets name='bar_auditor_agent' and metrics_port=9123."""
+    def test_name(self):
+        """BarAuditorAgent sets name='bar_auditor_agent'."""
         from services.bar_auditor_agent import BarAuditorAgent
 
         agent = BarAuditorAgent.__new__(BarAuditorAgent)
         agent.name = "bar_auditor_agent"
-        agent._metrics_port = 9123
         agent.settings = MagicMock(env_name="development")
 
         assert agent.name == "bar_auditor_agent"
-        assert agent._metrics_port == 9123
 
     def test_topics_consumed_returns_empty_list(self):
         """topics_consumed returns contract_update + roll_events topics."""

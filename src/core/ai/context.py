@@ -57,6 +57,10 @@ class I7Context(TierContext):
     winner_plugin: str | None = None
     winner_direction: int | None = None
     winner_confidence: float | None = None
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    entry_type: str | None = None
 
 
 class BarContext(TierContext):
@@ -105,6 +109,53 @@ class AIContext(BaseModel):
 
 # Enable self-referential lead_context field
 AIContext.model_rebuild()
+
+
+# ---------------------------------------------------------------------------
+# Shared context rendering — used by all prompt builders (skeptic, narrative)
+# ---------------------------------------------------------------------------
+
+_CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "symbol",
+        "timeframe",
+        "ts",
+        "trigger",
+        "bar",
+        "i7",
+        "lead_context",
+    }
+)
+
+
+def render_full_context(ctx: AIContext) -> str:
+    """Render every non-None pipeline tier as deterministic LLM-friendly text.
+
+    Open-ended: iterates ctx.model_fields, NOT a hardcoded tier list.
+    Any new tier added to AIContext automatically appears with zero prompt changes.
+    """
+    lines: list[str] = []
+    for field_name in sorted(ctx.__class__.model_fields):
+        if field_name in _CONTEXT_NON_TIER_FIELDS:
+            continue
+        value = getattr(ctx, field_name, None)
+        if value is None:
+            continue
+        if not isinstance(value, BaseModel):
+            continue
+        tier_dict = value.model_dump()
+        if not tier_dict:
+            continue
+        lines.append(f"## {field_name}")
+        for k, v in sorted(tier_dict.items()):
+            if v is None:
+                lines.append(f"- {k}: null")
+            elif isinstance(v, float):
+                lines.append(f"- {k}: {v:.4f}")
+            else:
+                lines.append(f"- {k}: {v}")
+    return "\n".join(lines) if lines else "(no features available)"
 
 
 class AIContextCache:

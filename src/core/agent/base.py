@@ -5,7 +5,6 @@ Provides the Renaissance Agentic DAG standard lifecycle:
 - Structured logging via structlog bound with agent name (configured before logger creation)
 - Consumer lag reporting scaffolding (override in concrete agents)
 - OTel MeterProvider + TracerProvider via init_otel_providers(name) — graceful degradation
-- metrics_port parameter kept for backward compat but IGNORED — OTel push replaces HTTP server
 - _setup()/_teardown() lifecycle hooks (no-op by default, override in subclasses)
 - running property derived from stop_event state
 - topics_consumed/topics_produced/lag_threshold_messages for ProcessManifest (Plan 03)
@@ -87,7 +86,6 @@ class BaseAgent(abc.ABC):
     def __init__(
         self,
         name: str,
-        metrics_port: int | None = None,
         max_idle_seconds: int = 0,
         settings: Settings | None = None,
     ) -> None:
@@ -105,7 +103,6 @@ class BaseAgent(abc.ABC):
             BaseAgent._log_configured_path = log_path
 
         self.name = name
-        # metrics_port kept for backward compat but IGNORED — OTel push replaces HTTP server
         self.max_idle_seconds = max_idle_seconds
         self._stop_event: asyncio.Event = asyncio.Event()
         self._last_message_ts: float | None = None
@@ -143,8 +140,6 @@ class BaseAgent(abc.ABC):
             from src.observability.otel import get_meter
 
             return get_meter("test-noop")
-        if name == "_metrics_port":
-            return None
         if name == "_shadow_cache":
             return {}
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
@@ -170,7 +165,6 @@ class BaseAgent(abc.ABC):
         Order (D-06):
         1. Register signal handlers.
         2. Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins).
-           metrics_port is accepted for backward compat but ignored — OTel push replaces HTTP.
         3. Log agent.starting.
         4. Call _setup() — connect Kafka, seed history, etc.
         5. Launch lag reporter as background task.
@@ -178,7 +172,6 @@ class BaseAgent(abc.ABC):
         7. finally: cancel lag task, await _teardown(), call stop().
         """
         self._register_signal_handlers()
-        # metrics_port parameter kept for backward compat but ignored — OTel push replaces HTTP
 
         # Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins)
         global _tracing_initialized

@@ -43,7 +43,6 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._signals_generated = MagicMock()
     agent.settings = MagicMock(env_name="dev")
     agent.settings.intelligence_thread_pool_workers = 0
-    agent.settings.pipeline_metrics_port = 9125
     agent._bar_history = BarHistory(maxlen=200)
     agent._kalman_state = {}
     agent._cis_scorer = CISScorer()

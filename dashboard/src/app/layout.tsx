@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Outfit, JetBrains_Mono, Syne } from "next/font/google";
+import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -33,7 +34,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${outfit.variable} ${jetbrains.variable} ${syne.variable} antialiased`}>
-        {children}
+        <AppShell>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

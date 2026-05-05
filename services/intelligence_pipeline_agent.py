@@ -378,7 +378,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         _settings = get_settings()
         super().__init__(
             name="intelligence_pipeline_agent",
-            metrics_port=_settings.pipeline_metrics_port,
             max_idle_seconds=300,
             settings=_settings,
         )
