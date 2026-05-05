@@ -23,19 +23,19 @@ TEST_DIR = ROOT / "tests" / "unit"
 ALLOWLIST_FILE = Path(__file__).parent / "duplicate_test_allowlist.txt"
 
 
-def load_allowlist() -> set[tuple[str, str]]:
-    """Return set of (directory_prefix, test_name) pairs that are exempt."""
+def load_allowlist() -> dict[str, list[str]]:
+    """Return {test_name: [directory_prefix, ...]} for exempt duplicates."""
     if not ALLOWLIST_FILE.exists():
-        return set()
-    allowed: set[tuple[str, str]] = set()
+        return {}
+    allowed: dict[str, list[str]] = defaultdict(list)
     for line in ALLOWLIST_FILE.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split()
         if len(parts) == 2:
-            allowed.add((parts[0], parts[1]))
-    return allowed
+            allowed[parts[1]].append(parts[0])
+    return dict(allowed)
 
 
 def collect() -> tuple[
@@ -51,7 +51,6 @@ def collect() -> tuple[
         name_lines: dict[str, list[int]] = defaultdict(list)
 
         for lineno, line in enumerate(path.read_text().splitlines(), 1):
-            stripped = line.strip()
             # Only bare module-level defs (not indented inside a class)
             if line.startswith("def test_") and "(" in line:
                 name = line.split("(")[0][4:]  # strip "def "
@@ -76,8 +75,7 @@ def main() -> int:
         (dir_key, name): files
         for dir_key, name_map in dir_name_files.items()
         for name, files in name_map.items()
-        if len(files) > 1
-        and not any(dir_key.startswith(prefix) for prefix, n in allowlist if n == name)
+        if len(files) > 1 and not any(dir_key.startswith(p) for p in allowlist.get(name, []))
     }
 
     if not cross_file and not intra_shadows:
