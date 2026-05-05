@@ -96,7 +96,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
               lineHeight: 1.4,
             }}
           >
-            Instrument everything · Signal with evidence · Learn from every outcome
+            Instrument everything · Trace every signal · Learn from every outcome
           </span>
           <div className="h-px flex-1 shrink-0" style={{ background: "var(--border-bright)" }} />
         </div>
@@ -130,10 +130,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
             color: "var(--text-secondary)",
           }}
         >
-          Ninety-one intelligence plugins process every bar, tier by tier, from raw indicators
-          to regime models to Smart Money Concepts to AI narrative. Every signal is gated by
-          six-bucket evidence convergence. Every outcome is recorded and fed back.
-          The system doesn&apos;t need to be told what works. It learns from what it produces.
+          Our swarm of ninety-one intelligence agents processes every bar, layer by layer—from raw market microstructure to AI-driven regime shifts. Our native Command Center provides end-to-end traceability, illuminating the precise path your signals take from ingestion to final execution. We don't just generate signals; we provide the evidence-based mastery you need to dominate the market’s underlying mechanics.
         </p>
 
         {/* Stats */}

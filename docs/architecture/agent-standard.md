@@ -156,8 +156,8 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 
 | Agent Class | File | Systemd Unit | Role | Publishes To |
 | :--- | :--- | :--- | :--- | :--- |
-| `SwarmOrchestratorComputeAgent` | `services/swarm_orchestrator_agent.py` | `indicagent-swarm-orchestrator` | `ComputeAgent` | `swarm.alpha.*`, `swarm.world_state` |
-| `SwarmWriterAgent` | `services/swarm_writer_agent.py` | `indicagent-swarm-writer` | `WriterAgent` | swarm outputs (DB) |
+| `AlphaSwarmComputeAgent` | `services/alpha_swarm_agent.py` | `indicagent-alpha-swarm` | `ComputeAgent` | `topic_signal_lineage()` |
+| `LineageWriterAgent` | `services/lineage_writer_agent.py` | `indicagent-lineage-writer` | `WriterAgent` | `signal_lineage` (DB) |
 
 **Provider abstraction layer (Phase 54):**
 - `BaseProviderAgent` (`src/providers/base_provider_agent.py`) — abstract base for all providers. Handles instrument qualification, gap-fill loop via `market.events.gap_requests`, Kafka producer/consumer lifecycle, and Prometheus metrics. All provider agents extend this class.

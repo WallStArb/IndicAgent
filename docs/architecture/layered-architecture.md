@@ -127,8 +127,8 @@ All plugins use `compute_next()` for incremental, stateful, O(1) computation.
 ## Cross-Cutting Services
 
 - `services/service_auditor_agent.py` (`ServiceAuditorAgent`) — monitors all pipeline services, publishes health state transitions to `system.health.events`, triggers restarts on lag/error threshold breach; escalation DLQ: `intelligence.service_auditor.journal.dlq`. `:9131`
-- `services/swarm_orchestrator_agent.py` (`SwarmOrchestratorAgent`) — routes swarm tasks to specialist agents, assembles `AlphaMultiplier` from Path A (deterministic) + Path B (LLM swarm); DLQ: `swarm.orchestrator.dlq`
-- `services/swarm_writer_agent.py` (`SwarmWriterAgent`) — persists swarm outputs to DB; DLQ: `swarm.writer.dlq`
+- `services/alpha_swarm_agent.py` (`AlphaSwarmComputeAgent`) — runs alpha agents on I7 signals, emits signal lineage; DB-ignorant compute service
+- `services/lineage_writer_agent.py` (`LineageWriterAgent`) — persists `topic_signal_lineage()` events to `signal_lineage`; writer-owned projections may materialize swarm fields onto `signal_ledger`
 - `services/cross_asset_service.py` (`CrossAssetService`) — cross-asset spread dynamics; publishes to `cross_asset`. `:9118`
 - `indicagent-api` — FastAPI + SSE on :8000; fans out all streams to dashboard clients
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB connection pooling (used only by WriterAgents and API)
@@ -165,6 +165,9 @@ IBKR TWS
                                 ├─ narratives / narratives.group
                                 └─ llm.calls
                                      └─ LLMWriterAgent → llm_calls
+                           └─ AlphaSwarmComputeAgent
+                                └─ topic_signal_lineage()
+                                     └─ LineageWriterAgent → signal_lineage
 ```
 
 ---
@@ -183,7 +186,7 @@ All persistence is handled by dedicated WriterAgents. No compute agent writes to
 | `LifecycleWriterAgent` | `lifecycle.transitions` | `signal_ledger` (lifecycle updates) |
 | `SignalMetricsWriterAgent` | `intelligence.signal_metrics` | `signal_metrics*` tables |
 | `LLMWriterAgent` | `llm.calls`, `llm.outcomes` | `llm_calls`, `llm_model_scores` |
-| `SwarmWriterAgent` | `intelligence.swarm` | swarm output tables |
+| `LineageWriterAgent` | `topic_signal_lineage()` | `signal_lineage` |
 
 ---
 

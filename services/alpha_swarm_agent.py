@@ -28,6 +28,7 @@ import structlog
 from scipy.stats import spearmanr
 
 from src.config.settings import Settings
+from src.core.ai.base_agent import BaseAIAgent
 from src.core.ai.base_group_service import BaseGroupService
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.lineage import LineageRecorder
@@ -91,13 +92,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.settings = settings
         self._lineage: LineageRecorder | None = None
         self._demotion_streak: int = 0  # consecutive negative-rho cycles (D-25)
-
-        # Agent registry -- pure compute, no infrastructure.
-        # Phase 78 Plan 06: single agent; CorrelationAgent + VolumeAgent replaced
-        # by deterministic pipeline-tier features (corr_z in I4, volume_z_score in I1).
-        self._agents = [
-            SkepticAgentComputeAgent(llm_chain=self._llm_chain),
-        ]
+        self._agents: list[BaseAIAgent] = []  # populated in _setup() after LLM chain is ready
 
     @property
     def agents(self) -> list:
@@ -128,12 +123,18 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         """
         await super()._setup()
 
-        # Single LineageRecorder for all swarm prediction events
+        # Agents require _llm_chain which is wired by super()._setup() — construct here.
+        self._agents = [
+            SkepticAgentComputeAgent(llm_chain=self._llm_chain),
+        ]
+
+        # Single LineageRecorder for all swarm prediction events.
         # self._producer and self.env_name are set by BaseGroupService._setup()
         self._lineage = LineageRecorder(
             producer=self._producer,
             env_name=self.env_name,
         )
+        await self._lineage.start()
 
         # D-23: idempotent enrollment — guarantees row exists even if migration missed
         if self._pool is not None:
@@ -197,6 +198,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 JOIN signal_ledger s ON l.signal_id = s.signal_id
                 WHERE l.event_type = 'agent_prediction'
                   AND l.source = 'skeptic_v1'
+                  AND l.multiplier IS NOT NULL
                   AND s.outcome IS NOT NULL
                 ORDER BY l.ts DESC
                 LIMIT 5000
@@ -328,9 +330,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         )
 
     async def _teardown(self) -> None:
-        """Flush lineage recorder before base teardown."""
+        """Stop lineage recorder (drains buffer) before base teardown."""
         if self._lineage is not None:
-            await self._lineage.flush()
+            await self._lineage.stop()
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:
@@ -465,7 +467,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             return
 
         segment_key = f"{int(hmm_regime)}.{enriched.timeframe}"
-        multiplier = result.payload.get("multiplier", 1.0)
+        # None on LLM failure — graduation loop excludes NULL multipliers from Spearman
+        # so failed calls don't contaminate the evaluation dataset.
+        multiplier = None if result.error else result.payload.get("multiplier", 1.0)
 
         self._lineage.record(
             signal_id=signal_id,
@@ -477,6 +481,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 "confidence": result.payload.get("confidence", 0.0),
                 "group": result.group,
                 "payload": result.payload,
+                "error": result.error,
             },
             symbol=enriched.symbol,
             tf=enriched.timeframe,

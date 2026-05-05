@@ -542,7 +542,7 @@ The analytical layer is the gap in the current stack. As `signal_ledger` and `in
 
 **Architecture:** read-only TimescaleDB user → Superset Docker container (:8088) → Explore (drag-and-drop) + SQL Lab (ad-hoc) + saved dashboards. TimescaleDB `time_bucket()` functions available in SQL Lab for time-series aggregations.
 
-→ [BI Analytics Layer Design](docs/ideas/bi-analytics-layer.md)
+→ [BI Analytics Layer Design](docs/ideas/bi-analytics-layer-design.md)
 
 ---
 
@@ -609,7 +609,7 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 **→ [Data Pipeline](docs/concepts/data-pipeline.md)**
 **→ [Signal Lifecycle](docs/concepts/signal-lifecycle.md)** - Zone activation, MAE/MFE, 8-class outcomes
 **→ [ML/AI Architecture](docs/ideas/ml-agent-architecture.md)** - Multi-agent orchestrator and swarm intelligence
-**→ [BI Analytics Layer](docs/ideas/bi-analytics-layer.md)** - Superset, signal outcome visualization, planned dashboards
+**→ [BI Analytics Layer](docs/ideas/bi-analytics-layer-design.md)** - Superset, signal outcome visualization, planned dashboards
 
 **For AI Assistants:** [CLAUDE.md](CLAUDE.md)
 

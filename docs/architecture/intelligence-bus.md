@@ -43,8 +43,8 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 │       └─ SignalMetricsWriterAgent → signal_metrics tables (DB)
                 ├─ AINarrativeAgent (I8) → narratives → LLMWriterAgent → llm_calls (DB)
                 ├─ ServiceAuditorAgent → system.health.events (health monitor + self-healer)
-                ├─ SwarmOrchestratorAgent → swarm.alpha.path_a / swarm.alpha.path_b
-                │       └─ SwarmWriterAgent → swarm_outputs (DB)
+                ├─ AlphaSwarmComputeAgent → topic_signal_lineage()
+                │       └─ LineageWriterAgent → signal_lineage (DB)
                 └─ REST API (:8000) → SSE → Next.js Dashboard (:3000)
 ```
 
@@ -249,13 +249,9 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 {env}.signal.audit.dlq
 {env}.signal.tracker.dlq
 
-# Swarm (Phase 56)
-{env}.intelligence.swarm               # per-AgentResult fan-out (SwarmWriterAgent)
-{env}.swarm.alpha.path_a               # deterministic contributor output
-{env}.swarm.alpha.path_b               # LLM swarm contributor output
-{env}.swarm.world_state                # compacted world state (cleanup.policy=compact)
-{env}.swarm.orchestrator.dlq
-{env}.swarm.writer.dlq
+# Swarm / lineage
+{env}.signal_lineage                   # signal-affecting transforms + agent predictions
+{env}.signal_lineage.dlq               # failed lineage persistence
 
 # ML (Phase 56)
 {env}.ml.data_quality.alerts
@@ -306,8 +302,8 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 | `services/llm_writer_service.py` | LLMWriterAgent — llm.calls → llm_calls; outcome back-fill; model score refresh |
 | `services/cross_asset_service.py` | CrossAssetService — cross-asset spread dynamics → cross_asset |
 | `services/service_auditor_agent.py` | ServiceAuditorAgent — pipeline health monitor and self-healer |
-| `services/swarm_orchestrator_agent.py` | SwarmOrchestratorAgent — routes swarm tasks to specialist agents |
-| `services/swarm_writer_agent.py` | SwarmWriterAgent — persists swarm outputs to DB |
+| `services/alpha_swarm_agent.py` | AlphaSwarmComputeAgent — runs alpha agents on I7 signals, emits lineage |
+| `services/lineage_writer_agent.py` | LineageWriterAgent — persists signal lineage to DB |
 | `src/core/database_manager.py` | PostgreSQL/TimescaleDB connection pooling (WriterAgents + API only) |
 | `src/api/routes/sse.py` | SSE endpoint → dashboard |
 | `production/scripts/historical_backfill.py` | Historical IBKR fetch + I1-I7 replay |
