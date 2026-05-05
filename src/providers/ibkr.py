@@ -113,6 +113,7 @@ _ibkr_open_since: float | None = None
 _error_326_detected: threading.Event = threading.Event()
 _MAX_CLIENT_ID = 50
 _IB_GATEWAY_CONTAINER = "ib-gateway"
+_ERR_326 = "Error 326"  # IBKR clientId-already-in-use sentinel string
 
 
 def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None:
@@ -206,7 +207,7 @@ async def _connect_with_circuit_breaker(
             # asyncio.to_thread() avoids blocking the event loop.
             if await asyncio.to_thread(_error_326_detected.wait, 2.0):
                 ib_instance.disconnect()
-                raise ConnectionError(f"Error 326: clientId {cid} already in use")
+                raise ConnectionError(f"{_ERR_326}: clientId {cid} already in use")
 
             IBKR_CLIENT_ID_CURRENT.labels(provider="ibkr").set(cid)
             return ib_instance
@@ -264,7 +265,7 @@ async def _connect_with_circuit_breaker(
             return ib_instance, current_cid
 
         except ConnectionError as exc:
-            if "Error 326" in str(exc):
+            if _ERR_326 in str(exc):
                 IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="client_id_rotated").inc()
                 logger.warning(
                     "ibkr.error_326_rotating_client_id",
@@ -290,7 +291,6 @@ async def _connect_with_circuit_breaker(
         )
         restarted = await _restart_ib_gateway()
         if restarted:
-            _error_326_detected.clear()
             for cid in range(client_id, _MAX_CLIENT_ID + 1):
                 try:
                     ib_instance = await _try_connect(cid)
@@ -298,7 +298,7 @@ async def _connect_with_circuit_breaker(
                     logger.info("IBKR connected after gateway restart", extra={"client_id": cid})
                     return ib_instance, cid
                 except ConnectionError as exc:
-                    if "Error 326" in str(exc):
+                    if _ERR_326 in str(exc):
                         continue
                     _record_failure(type(exc).__name__)
                     break
