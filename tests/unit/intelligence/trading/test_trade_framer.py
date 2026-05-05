@@ -42,10 +42,9 @@ class TestZoneBounds:
         assert frame.zone_high == 452.0
 
     def test_atr_fallback_zone_when_no_structural(self):
-        """at_close entry with no structural zone: fallback = entry ± ATR multiples."""
-        features = {"atr_14": 5.0, "swing_low": 444.0}
+        """at_close entry with no structural levels: zone engine returns atr tier → ATR fallback."""
+        features = {"atr_14": 5.0}  # no structural levels → zone engine returns atr tier
         frame = frame_trade("trend_long", 1, 450.0, features, atr=5.0)
-        # At-close entry, no demand zone → ATR fallback
         assert frame.zone_low == pytest.approx(450.0 - 5.0 * 1.0)
         assert frame.zone_high == pytest.approx(450.0 + 5.0 * 0.5)
 
