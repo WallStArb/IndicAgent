@@ -280,7 +280,7 @@ async def get_recent_signals(
     resolved_symbol = _resolve_contract(symbol) if symbol else None
 
     try:
-        main_query = """
+        main_query = f"""
             SELECT
                 sl.signal_id,
                 sl.setup_plugin,
