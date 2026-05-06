@@ -394,7 +394,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           const next = { ...prev };
           for (const row of body.signals) {
             const sym = contractToBase(row.symbol);
-            if (!next[sym] || row.direction === 0) continue;
+            if (row.direction === 0) continue;
+            if (!next[sym]) next[sym] = emptySymbolData(sym);
             const tf = row.timeframe;
             const signal = buildSignal(row, sym);
             const tfSignal = {

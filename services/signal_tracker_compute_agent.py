@@ -289,8 +289,9 @@ class SignalTrackerComputeAgent(BaseAgent):
                 continue
             sig_dict = {
                 **sig,
-                "symbol": sig.get("symbol", symbol),
-                "timeframe": sig.get("timeframe", tf),
+                "symbol": sig.get("symbol") or symbol,
+                # sig["timeframe"] is "" in pipeline payloads — fall back to top-level tf
+                "timeframe": sig.get("timeframe") or tf,
             }
             self._ingest_signal_payload(sig_dict)
 

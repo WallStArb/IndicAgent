@@ -1525,7 +1525,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 )
                 return False
 
-        # Assertion passed — publish all ranked signals to i7.signals
+        # Assertion passed — stamp bar close as market_entry_price for dual-track lifecycle.
+        # bar.close is the fill price for an "at signal" entry; ask/bid from _live_quotes
+        # would be more precise but that feed is not yet wired.
+        close_price = bar.close
+        for sig in ranked:
+            sig["market_price_at_signal"] = close_price
+            sig["market_entry_price"] = close_price
+
         self._enqueue(
             topic_intelligence_i7_signals(self.settings.env_name),
             message_key(symbol, tf),

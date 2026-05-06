@@ -193,7 +193,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT l.prediction, s.pnl_r
+                SELECT l.multiplier, s.pnl_r
                 FROM signal_lineage l
                 JOIN signal_ledger s ON l.signal_id = s.signal_id
                 WHERE l.event_type = 'agent_prediction'
@@ -205,24 +205,15 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 """,
             )
 
-        # Extract (prediction_score, pnl_r) pairs, filtering malformed rows (T-78-08)
+        # Extract (multiplier, pnl_r) pairs, filtering malformed rows (T-78-08)
         predictions: list[float] = []
         pnl_rs: list[float] = []
         dropped = 0
         for row in rows:
-            pred_raw = row["prediction"]
-            pnl_r_raw = row["pnl_r"]
-
-            # prediction is JSONB dict from asyncpg — extract the scalar score value
-            if isinstance(pred_raw, dict):
-                score_raw = pred_raw.get("score") or pred_raw.get("multiplier")
-            else:
-                score_raw = pred_raw
-
             # Filter non-numeric or missing values
             try:
-                score = float(score_raw)
-                pnl_r = float(pnl_r_raw)
+                score = float(row["multiplier"])
+                pnl_r = float(row["pnl_r"])
             except (TypeError, ValueError):
                 dropped += 1
                 continue
