@@ -1,14 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.5
-milestone_name: milestone
-status: active
-last_updated: "2026-05-04T13:45:49.002Z"
+milestone: v2.3
+milestone_name: candidates
+status: unknown
+last_updated: "2026-05-06T11:40:40.439Z"
 progress:
-  total_phases: 28
+  total_phases: 29
   completed_phases: 0
-  total_plans: 0
+  total_plans: 9
   completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -253,5 +254,5 @@ Recent additions:
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
 
-**Planned Phase:** 70 (ML Scoring Model) — deferred ~May 10 (30-day data gate)
+**Planned Phase:** 80 (Renaissance Swarm Intelligence Layer) — 9 plans — 2026-05-06T11:40:40.430Z
 **Next Phase:** Phase 72 Phases 2-4 — Signal Transform graduation (gated ~May 25)
