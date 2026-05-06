@@ -134,7 +134,7 @@ def make_signal_from_frame(
 
     Auto-extracts: entry_price (tf.entry, NOT raw close), stop_loss, targets,
     zone_low, zone_high, entry_type, stop_type, rr_t1/t2/t3, target_labels,
-    target_types, framing_method. Adds signal_schema_version="v1".
+    target_types, framing_method. Adds signal_schema_version="v2".
 
     Raises ValueError if tf.viable is False.
     """

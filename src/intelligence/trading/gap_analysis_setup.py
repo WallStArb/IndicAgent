@@ -10,7 +10,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import TradeFrame, TradeTarget
 
 
 @dataclass
@@ -152,26 +153,44 @@ class GapAnalysisSetupPlugin:
             "session",
             confidence,
         )
-        signal = make_signal(
+        _risk = abs(float(entry) - float(stop)) or 1e-9
+        _t_objs = [
+            TradeTarget(
+                price=float(t),
+                label=f"t{i+1}",
+                level_type="atr",
+                rr=abs(float(t) - float(entry)) / _risk,
+            )
+            for i, t in enumerate(targets)
+        ]
+        _tf = TradeFrame(
+            entry=float(entry),
+            entry_type=entry_type,
+            stop=float(stop),
+            stop_type="atr",
+            targets=_t_objs,
+            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
+            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
+            zone_low=float(entry) - 0.2 * atr,
+            zone_high=float(entry) + 0.2 * atr,
+        )
+        signal = make_signal_from_frame(
+            _tf,
             symbol="",
             timeframe="",
             timestamp="",
             signal_type=signal_type,
-            setup_plugin="trad_GapAnalysisSetup",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=float(entry),
-            stop_loss=float(stop),
-            targets=targets,
             confidence=confidence,
             regime_context="gap_open",
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
-            entry_type=entry_type,
+            features_snapshot=features_snapshot,
         )
         signal["bias"] = bias
         signal["gap_size_atr"] = round(gap_size_atr, 4)
-        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
