@@ -50,6 +50,8 @@ Consolidated I1-I7 into a single in-process agent:
 - DLQ topics standardized across all payload-parsing agents (Plan 067-07)
 - `bar_id` UUID traceability end-to-end from bar ingestion through signal generation (Phase 68-03)
 
+**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). LLM call observability via Langfuse; ML experiment tracking via MLflow. Full pipeline: `docs/architecture/observability.md`.
+
 ## Active Services
 
 | Service | File | Systemd Unit | Metrics Port | Purpose |

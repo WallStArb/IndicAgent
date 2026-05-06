@@ -4,6 +4,34 @@
 
 Operational details moved from CLAUDE.md to reduce context size.
 
+## Observability Stack
+
+All telemetry is push-based — services push OTLP to the Collector, no per-service scrape endpoints.
+
+| Container | Port(s) | Purpose |
+|-----------|---------|---------|
+| `otel-collector` | `:4317` (gRPC), `:4318` (HTTP), `:8889` (Prometheus exporter) | Central telemetry hub — receives metrics/traces/logs from all services, fans out to Prometheus/Tempo/Loki |
+| `indicagent-prometheus` | `:9090` | Scrapes OTel Collector `:8889` only; evaluates alert rules |
+| `indicagent-grafana` | `:3001` | Dashboards — datasources: Prometheus, Tempo, Loki |
+| `indicagent-loki` | `:3100` | Log aggregation (receives from OTel Collector) |
+| `indicagent-tempo` | `:3200` (HTTP), `:4317` (OTLP) | Distributed traces (receives from OTel Collector) |
+| `indicagent-alertmanager` | `:9093` | Alert routing — receives from Prometheus |
+| `indicagent-mlflow` | `:5000` | ML experiment tracking |
+| `indicagent-langfuse` | `:3000` (internal) | LLM call observability |
+
+**Verify Prometheus rules loaded:**
+```bash
+docker exec indicagent-prometheus wget -qO- http://localhost:9090/api/v1/rules
+```
+
+**Check OTel Collector is receiving:**
+```bash
+docker logs indicagent-otel-collector --tail 20
+```
+
+**Grafana datasources config:** `production/grafana/provisioning/datasources/`
+**Alert rules:** `production/alertmanager-rules.yml` (must be volume-mounted — Prometheus silently loads zero rules if missing)
+
 ## Data Pipeline Debugging
 
 When investigating "service not writing to database":
