@@ -435,7 +435,9 @@ async def get_signals_stats(
                           AND signal_computed_at >= NOW() - INTERVAL '7 days'
                     )::numeric, 4
                 ) AS avg_confidence_7d,
-                -- Pipeline latency: signal_computed_at - timestamp (bar close time)
+                -- Pipeline latency: bar close → signal computed (live signals only).
+                -- Exclude catch-up signals (pipeline restart replaying stale bars) by
+                -- capping to signals fired within 5 minutes of their bar close.
                 ROUND(
                     PERCENTILE_CONT(0.5) WITHIN GROUP (
                         ORDER BY EXTRACT(EPOCH FROM (signal_computed_at - timestamp))
@@ -443,6 +445,7 @@ async def get_signals_stats(
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
                           AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
                     )::numeric, 2
                 ) AS latency_p50,
                 ROUND(
@@ -452,6 +455,7 @@ async def get_signals_stats(
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
                           AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
                     )::numeric, 2
                 ) AS latency_p95,
                 -- Rolling pnl_r
