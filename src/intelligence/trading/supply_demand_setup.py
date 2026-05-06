@@ -17,7 +17,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import TradeFrame, TradeTarget
 
 
 @dataclass
@@ -182,30 +183,41 @@ class SupplyDemandSetupPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
-        features_snapshot = capture_signal_features(
-            features,
-            direction,
-            "smc",
-            confidence,
+        _risk = abs(entry - stop) or 1e-9
+        _targets = [round(t1, 2), round(t2, 2)]
+        _t_objs = [
+            TradeTarget(
+                price=float(t), label=f"t{i+1}", level_type="atr", rr=abs(float(t) - entry) / _risk
+            )
+            for i, t in enumerate(_targets)
+        ]
+        _stop_type = "demand_zone" if direction == 1 else "supply_zone"
+        _tf = TradeFrame(
+            entry=entry,
+            entry_type="at_close",
+            stop=stop,
+            stop_type=_stop_type,
+            targets=_t_objs,
+            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
+            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
+            zone_low=zone_low,
+            zone_high=zone_high,
         )
-        signal = make_signal(
+        return make_signal_from_frame(
+            _tf,
             symbol="",
             timeframe="",
             timestamp="",
             signal_type=sig_type,
-            setup_plugin="trad_SupplyDemandSetup",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=entry,
-            stop_loss=stop,
-            targets=[round(t1, 2), round(t2, 2)],
             confidence=confidence,
             regime_context="",
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
+            features_snapshot=capture_signal_features(features, direction, "smc", confidence),
         )
-        signal["features_snapshot"] = features_snapshot
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

@@ -11,7 +11,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import TradeFrame, TradeTarget
 
 
 @dataclass
@@ -131,29 +132,39 @@ class LiquiditySweepReclaimPlugin:
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
 
-        signal = make_signal(
+        _risk = abs(entry - stop) or 1e-9
+        _t_objs = [
+            TradeTarget(
+                price=float(t), label=f"t{i+1}", level_type="atr", rr=abs(float(t) - entry) / _risk
+            )
+            for i, t in enumerate(targets)
+        ]
+        _tf = TradeFrame(
+            entry=entry,
+            entry_type="at_close",
+            stop=stop,
+            stop_type="sweep_level",
+            targets=_t_objs,
+            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
+            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
+            zone_low=entry - 0.2 * atr,
+            zone_high=entry + 0.2 * atr,
+        )
+        return make_signal_from_frame(
+            _tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
-            setup_plugin="trad_LiquiditySweepReclaim",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=entry,
-            stop_loss=stop,
-            targets=targets,
             confidence=confidence,
             regime_context="any",
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
+            features_snapshot=capture_signal_features(features, direction, "smc", confidence),
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "smc",
-            signal["confidence"],
-        )
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
