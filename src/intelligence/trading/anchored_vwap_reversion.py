@@ -21,8 +21,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
-from .signal_schema import make_signal
-from .trade_framer import frame_trade
+from .signal_schema import make_signal_from_frame
+from .trade_framer import TradeTarget, frame_trade
 
 
 @dataclass
@@ -179,28 +179,38 @@ class AnchoredVWAPReversionPlugin:
 
         regime_ctx = "ranging"
 
-        signal = make_signal(
+        _risk = abs(frame.entry - frame.stop) or 1e-9
+        _t_objs = [
+            TradeTarget(
+                price=float(t),
+                label=f"t{i+1}",
+                level_type="atr",
+                rr=abs(float(t) - frame.entry) / _risk,
+            )
+            for i, t in enumerate(targets)
+        ]
+        from dataclasses import replace as _dc_replace
+
+        _frame = _dc_replace(
+            frame,
+            targets=_t_objs,
+            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
+            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
+        )
+        signal = make_signal_from_frame(
+            _frame,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),
             signal_type=setup_type,
             setup_plugin=self.name,
             direction=direction,
-            entry_price=frame.entry,
-            stop_loss=frame.stop,
-            targets=targets,
             confidence=confidence,
             regime_context=regime_ctx,
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
-            entry_type=frame.entry_type,
-            stop_type=frame.stop_type,
-            framing_method=frame.method,
         )
-        signal["zone_low"] = frame.zone_low
-        signal["zone_high"] = frame.zone_high
-        signal["signal_schema_version"] = "v1"
         signal["features_snapshot"] = capture_signal_features(
             features,
             direction,
