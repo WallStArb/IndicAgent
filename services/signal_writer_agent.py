@@ -179,6 +179,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 entry_type=sig.get("entry_type"),
                 co_fire_count=sig.get("co_fire_count", 1),
                 co_fire_partners=sig.get("co_fire_partners", []),
+                market_price_at_signal=sig.get("market_price_at_signal"),
+                market_entry_price=sig.get("market_entry_price"),
             )
         )
     return entries
