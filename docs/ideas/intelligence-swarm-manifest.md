@@ -5,6 +5,7 @@
 **Updated:** 2026-05-02
 **Related:** 
 - `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
+- `docs/ideas/2026-05-06-evolvable-ai-agents.md` — Long-horizon vision: agents that evolve via Darwinian selection (birth, shadow testing, breeding, promotion, gene bank)
 
 ---
 

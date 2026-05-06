@@ -181,7 +181,7 @@ async def get_active_signals(
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE sl.status IN ('pending', 'active')
-              AND sl.is_shadow = false
+              -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
             ORDER BY sl.symbol, sl.timeframe, sl.signal_computed_at DESC
             LIMIT 500

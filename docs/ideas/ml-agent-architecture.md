@@ -7,6 +7,10 @@
 
 ---
 
+**See also:** `docs/ideas/2026-05-06-evolvable-ai-agents.md` — Long-horizon extension of this architecture: agents that evolve via Darwinian selection across prompts, weights, config, and code. The eAI doc describes the fitness function, lifecycle (birth → shadow → breeding → promotion → gene bank), and governance model.
+
+---
+
 ## Philosophy
 
 This isn't a model — it's a **learning machine**. Three compounding layers:
