@@ -6,6 +6,9 @@ used across all prompt modules (skeptic, narrative, future risk).
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Callable
 from typing import Any
 
 DIRECTION_LABELS: dict[int, str] = {1: "LONG", -1: "SHORT", 0: "FLAT"}
@@ -17,3 +20,34 @@ def fmt(val: Any, spec: str) -> str:
     if isinstance(val, (int, float)):
         return format(val, spec)
     return "N/A"
+
+
+JSON_BLOCK_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
+
+
+def parse_llm_json(raw: str, validator_fn: Callable[[dict], dict | None]) -> dict | None:
+    """Try direct JSON parse → regex extract fallback → None on failure.
+
+    Single source of truth for all multiplier agents (moved from skeptic_agent.py).
+    validator_fn receives the parsed dict and returns either a normalized dict or None.
+    """
+    try:
+        data = json.loads(raw.strip())
+        return validator_fn(data)
+    except json.JSONDecodeError:
+        pass
+
+    match = JSON_BLOCK_RE.search(raw)
+    if match:
+        try:
+            data = json.loads(match.group())
+            return validator_fn(data)
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
+def clamp(val: Any, lo: float, hi: float) -> float:
+    """Clamp val to [lo, hi]. max(lo, min(hi, float(val)))."""
+    return max(lo, min(hi, float(val)))
