@@ -1065,12 +1065,12 @@ Plans:
 **Requirements:** P80-BASE, P80-SKEPTIC, P80-CORRELATION, P80-REGIME, P80-COUNTERFACTUAL, P80-DISPATCH, P80-WEIGHTS, P80-SCHEMA, P80-OBSERVABILITY
 
 Plans:
-- [ ] 080-01-PLAN.md — BaseMultiplierAgent + prompt_utils + Settings + Metrics + AIContextCache I7 fix
-- [ ] 080-02-PLAN.md — Migration 082: signal_ledger swarm columns + swarm_agent_weights table
-- [ ] 080-03-PLAN.md — Skeptic refactor onto BaseMultiplierAgent + TEMPLATE_agent.py update
-- [ ] 080-04-PLAN.md — CorrelationAgentComputeAgent + prompts + tests
-- [ ] 080-05-PLAN.md — RegimeCoherenceAgentComputeAgent + prompts + tests
-- [ ] 080-06-PLAN.md — CounterfactualAgentComputeAgent + prompts + tests
-- [ ] 080-07-PLAN.md — Dispatch refactor: typed agent list, gates, semaphore, weighted aggregation, weight learning
-- [ ] 080-08-PLAN.md — SwarmLedgerWriterAgent + topic_swarm_alpha (existing) + DAG registration
-- [ ] 080-09-PLAN.md — Integration tests + VERIFICATION.md
+- [x] 080-01-PLAN.md — BaseMultiplierAgent + prompt_utils + Settings + Metrics + AIContextCache I7 fix
+- [x] 080-02-PLAN.md — Migration 082: signal_ledger swarm columns + swarm_agent_weights table
+- [x] 080-03-PLAN.md — Skeptic refactor onto BaseMultiplierAgent + TEMPLATE_agent.py update
+- [x] 080-04-PLAN.md — CorrelationAgentComputeAgent + prompts + tests
+- [x] 080-05-PLAN.md — RegimeCoherenceAgentComputeAgent + prompts + tests
+- [x] 080-06-PLAN.md — CounterfactualAgentComputeAgent + prompts + tests
+- [x] 080-07-PLAN.md — Dispatch refactor: typed agent list, gates, semaphore, weighted aggregation, weight learning
+- [x] 080-08-PLAN.md — SwarmLedgerWriterAgent + topic_swarm_alpha (existing) + DAG registration
+- [x] 080-09-PLAN.md — Integration tests + VERIFICATION.md
