@@ -152,7 +152,7 @@ def render_full_context(ctx: AIContext) -> str:
             if v is None:
                 lines.append(f"- {k}: null")
             elif isinstance(v, float):
-                lines.append(f"- {k}: {v:.4f}")
+                lines.append(f"- {k}: {v:.6g}")
             else:
                 lines.append(f"- {k}: {v}")
     return "\n".join(lines) if lines else "(no features available)"
