@@ -133,6 +133,33 @@ class Settings(BaseSettings):
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
 
+    # Swarm intelligence configuration (Phase 80)
+    SWARM_MIN_TF_MINUTES: int = Field(
+        default=5,
+        validation_alias="SWARM_MIN_TF_MINUTES",
+        description="Minimum timeframe in minutes for swarm enrichment (gate: skip 1m bars)",
+    )
+    SWARM_WEIGHT_MIN_SAMPLES: int = Field(
+        default=30,
+        validation_alias="SWARM_WEIGHT_MIN_SAMPLES",
+        description="Minimum resolved predictions before weight learning activates",
+    )
+    SWARM_WEIGHT_FLOOR: float = Field(
+        default=0.05,
+        validation_alias="SWARM_WEIGHT_FLOOR",
+        description="Minimum agent weight before formal demotion",
+    )
+    SWARM_MAX_CONCURRENT_CALLS: int = Field(
+        default=8,
+        validation_alias="SWARM_MAX_CONCURRENT_CALLS",
+        description="Max concurrent LLM calls (asyncio.Semaphore capacity)",
+    )
+    SWARM_QUEUE_TIMEOUT_MS: int = Field(
+        default=250,
+        validation_alias="SWARM_QUEUE_TIMEOUT_MS",
+        description="Timeout in ms to acquire semaphore before skipping enrichment",
+    )
+
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
     # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
     # maximize labeled training data for Phase 49 ML. Phase 49 learns optimal thresholds

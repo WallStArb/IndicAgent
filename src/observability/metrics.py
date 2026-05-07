@@ -569,3 +569,66 @@ def record_llm_call(
     ).observe(latency_s)
     if status == "success":
         LLM_TOKENS_USED.labels(provider=provider, call_type=call_type).inc(tokens)
+
+
+# ---------------------------------------------------------------------------
+# Swarm intelligence metrics (Phase 80)
+# Duplicate-safe: module reload (e.g., in tests) must not raise ValueError.
+# ---------------------------------------------------------------------------
+
+from prometheus_client import REGISTRY as _REGISTRY  # noqa: E402
+
+
+def _safe_counter(name: str, doc: str, labelnames: list[str]) -> Counter:
+    """Register a prometheus_client Counter, returning existing if already registered."""
+    try:
+        return Counter(name, doc, labelnames)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[f"{name}_total"]  # type: ignore[return-value]
+
+
+def _safe_histogram(name: str, doc: str, labelnames: list[str], buckets: list[float]) -> Histogram:
+    """Register a prometheus_client Histogram, returning existing if already registered."""
+    try:
+        return Histogram(name, doc, labelnames, buckets=buckets)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[f"{name}_count"]  # type: ignore[return-value]
+
+
+def _safe_gauge(name: str, doc: str, labelnames: list[str]) -> Gauge:
+    """Register a prometheus_client Gauge, returning existing if already registered."""
+    try:
+        return Gauge(name, doc, labelnames)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[name]  # type: ignore[return-value]
+
+
+_SWARM_BUCKETS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
+
+SWARM_INVOCATIONS_TOTAL: Counter = _safe_counter(
+    "swarm_invocations_total",
+    "Per-agent swarm call rate, error rate, and capacity skips",
+    ["agent_id", "timeframe", "status"],
+)
+SWARM_MULTIPLIER_DISTRIBUTION: Histogram = _safe_histogram(
+    "swarm_multiplier_distribution",
+    "Per-agent multiplier output distribution over time",
+    ["agent_id"],
+    _SWARM_BUCKETS,
+)
+SWARM_AGGREGATED_MULTIPLIER: Histogram = _safe_histogram(
+    "swarm_aggregated_multiplier",
+    "Final combined multiplier distribution per timeframe",
+    ["timeframe"],
+    _SWARM_BUCKETS,
+)
+SWARM_AGENT_WEIGHT: Gauge = _safe_gauge(
+    "swarm_agent_weight",
+    "Per-agent learned weight by timeframe — key Renaissance health signal",
+    ["agent_id", "timeframe"],
+)
+SWARM_SIGNAL_LEDGER_UPDATE_TOTAL: Counter = _safe_counter(
+    "swarm_signal_ledger_update_total",
+    "Writer-owned signal_ledger materialization outcomes",
+    ["status"],
+)
