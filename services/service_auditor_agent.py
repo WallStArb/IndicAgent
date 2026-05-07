@@ -68,6 +68,7 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 7,
     "indicagent-llm-writer": 7,
+    "indicagent-swarm-ledger-writer": 7,  # L7: DB projection of swarm aggregate adjustments
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-roll-compute": 8,
     "indicagent-signal-metrics-compute": 8,
@@ -100,6 +101,7 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-contract-metadata-writer": 500,
     "indicagent-alpha-swarm": 200,
     "indicagent-llm-writer": 500,
+    "indicagent-swarm-ledger-writer": 500,
     "indicagent-signal-metrics-writer": 500,
     "indicagent-graduation-writer": 500,
     "indicagent-feature-snapshot-writer": 500,
@@ -125,6 +127,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_metrics_compute": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
     "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
+    "swarm_ledger_writer": "indicagent-swarm-ledger-writer",
     "roll_compute_agent": "indicagent-roll-compute",
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
