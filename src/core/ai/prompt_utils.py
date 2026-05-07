@@ -7,7 +7,6 @@ used across all prompt modules (skeptic, narrative, future risk).
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -22,14 +21,17 @@ def fmt(val: Any, spec: str) -> str:
     return "N/A"
 
 
-JSON_BLOCK_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
-
-
 def parse_llm_json(raw: str, validator_fn: Callable[[dict], dict | None]) -> dict | None:
-    """Try direct JSON parse → regex extract fallback → None on failure.
+    """Try direct JSON parse → brace-counting extract fallback → None on failure.
 
     Single source of truth for all multiplier agents (moved from skeptic_agent.py).
     validator_fn receives the parsed dict and returns either a normalized dict or None.
+
+    Uses brace-counting instead of a flat regex so nested JSON structures (arrays,
+    nested objects) produced by agents like counterfactual_v1 are matched correctly.
+    The old JSON_BLOCK_RE = r"\\{[^{}]*\\}" only matched non-nested objects and
+    silently returned None whenever the LLM wrapped JSON in explanation text AND
+    the JSON contained nested braces.
     """
     try:
         data = json.loads(raw.strip())
@@ -37,14 +39,22 @@ def parse_llm_json(raw: str, validator_fn: Callable[[dict], dict | None]) -> dic
     except json.JSONDecodeError:
         pass
 
-    match = JSON_BLOCK_RE.search(raw)
-    if match:
-        try:
-            data = json.loads(match.group())
-            return validator_fn(data)
-        except json.JSONDecodeError:
-            pass
-
+    # Scan for first '{' then walk chars tracking brace depth.
+    start = raw.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i, ch in enumerate(raw[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    data = json.loads(raw[start : i + 1])
+                    return validator_fn(data)
+                except json.JSONDecodeError:
+                    pass
     return None
 
 
