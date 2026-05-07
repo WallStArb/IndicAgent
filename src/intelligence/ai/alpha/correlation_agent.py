@@ -63,7 +63,7 @@ class CorrelationAgentComputeAgent(BaseMultiplierAgent):
 
     agent_id = "correlation_v1"
     group = "alpha"
-    tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7})
+    tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
     latency_budget_ms = 5000.0
     shadow_only = True
 

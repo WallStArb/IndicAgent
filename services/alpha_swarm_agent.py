@@ -66,8 +66,12 @@ _GRAD_MIN_N = 100  # minimum resolved signals before Spearman is computed
 _GRAD_DEMOTION_STREAK = 3  # consecutive negative-rho cycles to trigger demotion
 
 # Agent-to-transform mapping for LineageRecorder attribution (D-22).
+# Maps agent_id -> (transform_name, tier_level) for all four swarm agents.
 _SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
     "skeptic_v1": ("swarm_skeptic", 6),
+    "correlation_v1": ("swarm_correlation", 6),
+    "regime_coherence_v1": ("swarm_regime_coherence", 6),
+    "counterfactual_v1": ("swarm_counterfactual", 6),
 }
 
 # Lead index mapping: ES -> NQ (per D-36 / D-37)
@@ -347,6 +351,8 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         for tf, items in per_tf.items():
             total = sum(w for _, w in items)
             n = len(items)
+            # SWARM_WEIGHT_FLOOR (default 0.05) guarantees total > 0 when items is non-empty.
+            # If floor is ever set to 0.0, this branch silently falls back to default_w in dispatch.
             if total > 0:
                 for aid, w in items:
                     normalized[(aid, tf)] = (w / total) * n
@@ -576,6 +582,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             return
 
         # Build segment_key from SMC hmm_regime (numeric) + timeframe.
+        # When hmm_regime is None (HMM model not yet converged, e.g. session warm-up),
+        # use a sentinel key rather than dropping the lineage record — D-07 requires
+        # lineage for every result. Dropping records here excludes early-session bars
+        # from the Spearman weight learning dataset, violating the "never drop data
+        # that could contain signal" Renaissance principle.
         hmm_regime = enriched.smc.hmm_regime if enriched.smc is not None else None
         if hmm_regime is None:
             self.logger.warning(
@@ -586,9 +597,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 symbol=enriched.symbol,
                 tf=enriched.timeframe,
             )
-            return
-
-        segment_key = f"{int(hmm_regime)}.{enriched.timeframe}"
+            segment_key = f"unknown.{enriched.timeframe}"  # sentinel — HMM not yet converged
+        else:
+            segment_key = f"{int(hmm_regime)}.{enriched.timeframe}"
         is_error = not isinstance(result, AgentOutput) or bool(result.error)
         multiplier = None if is_error else result.payload.get("multiplier", 1.0)
 
