@@ -1,4 +1,4 @@
-"""skeptic_agent.py -- SkepticAgentComputeAgent (BaseAIAgent subclass).
+"""skeptic_agent.py -- SkepticAgentComputeAgent (BaseMultiplierAgent subclass).
 
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
 No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
@@ -6,18 +6,17 @@ No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.base_agent import BaseAIAgent
 from src.core.ai.context import AIContext, Tier
+from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
+    _validate_skeptic_fields,
     build_skeptic_prompt,
 )
 
@@ -30,15 +29,21 @@ _SYSTEM_MESSAGE = (
     '"risk_factors": [str], "reasoning": str}'
 )
 
-_JSON_BLOCK_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 
-
-class SkepticAgentComputeAgent(BaseAIAgent):
+class SkepticAgentComputeAgent(BaseMultiplierAgent):
     """Devil's advocate alpha agent -- predicts signal failure probability.
 
-    Per D-34: extends BaseAIAgent, returns AgentOutput.
+    Per D-03: extends BaseMultiplierAgent, declares output_schema ClassVar.
+    Per D-34: returns AgentOutput via _build_multiplier_output.
     Pure compute class -- dispatch layer owns infrastructure.
     """
+
+    output_schema: ClassVar[dict] = {
+        "failure_probability": float,
+        "confidence": float,
+        "risk_factors": list,
+        "reasoning": str,
+    }
 
     agent_id = "skeptic_v1"
     group = "alpha"
@@ -72,7 +77,7 @@ class SkepticAgentComputeAgent(BaseAIAgent):
         if not response:
             return self._neutral(error="LLM returned empty response", latency_ms=0.0)
 
-        parsed = _parse_skeptic_response(response)
+        parsed = self._parse_multiplier_response(response, _validate_skeptic_fields)
         if parsed is None:
             logger.warning(
                 "skeptic_agent.json_parse_failed",
@@ -81,84 +86,21 @@ class SkepticAgentComputeAgent(BaseAIAgent):
             )
             return self._neutral(error="JSON parse failed", latency_ms=0.0)
 
-        failure_prob = parsed["failure_probability"]
+        failure_probability = parsed["failure_probability"]
         llm_confidence = parsed["confidence"]
-        multiplier = (1.0 - failure_prob) * llm_confidence
+        multiplier = (1.0 - failure_probability) * llm_confidence
 
-        return AgentOutput(
-            agent_id=self.agent_id,
-            group=self.group,
-            signal_id=context.signal_id,
-            symbol=context.symbol,
-            timeframe=context.timeframe,
-            ts=context.ts,
-            output_type="multiplier",
+        return self._build_multiplier_output(
+            context=context,
+            multiplier=multiplier,
+            confidence=llm_confidence,
             payload={
-                "multiplier": max(0.0, min(2.0, multiplier)),
-                "confidence": llm_confidence,
-                "failure_probability": failure_prob,
+                "failure_probability": failure_probability,
                 "risk_factors": parsed["risk_factors"],
                 "reasoning": parsed["reasoning"],
-                "prompt_version": ACTIVE_VERSION,
             },
-            shadow_only=self.shadow_only,
+            prompt_version=ACTIVE_VERSION,
         )
-
-
-def _parse_skeptic_response(raw: str) -> dict[str, Any] | None:
-    """Parse structured JSON from LLM response.
-
-    Handles: clean JSON, JSON in markdown code block, JSON with preamble text.
-    Returns dict with keys: failure_probability, confidence, risk_factors, reasoning.
-    Returns None on parse failure.
-    """
-    try:
-        data = json.loads(raw.strip())
-        return _validate_skeptic_fields(data)
-    except json.JSONDecodeError:
-        pass
-
-    match = _JSON_BLOCK_RE.search(raw)
-    if match:
-        try:
-            data = json.loads(match.group())
-            return _validate_skeptic_fields(data)
-        except json.JSONDecodeError:
-            pass
-
-    return None
-
-
-def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
-    """Validate and sanitize the parsed skeptic response fields."""
-    if not isinstance(data, dict):
-        return None
-
-    fp = data.get("failure_probability")
-    conf = data.get("confidence")
-
-    if not isinstance(fp, (int, float)) or not isinstance(conf, (int, float)):
-        return None
-
-    fp = max(0.0, min(1.0, float(fp)))
-    conf = max(0.0, min(1.0, float(conf)))
-
-    risk_factors = data.get("risk_factors", [])
-    if not isinstance(risk_factors, list):
-        risk_factors = [str(risk_factors)]
-    else:
-        risk_factors = [str(rf) for rf in risk_factors]
-
-    reasoning = data.get("reasoning", "")
-    if not isinstance(reasoning, str):
-        reasoning = str(reasoning)
-
-    return {
-        "failure_probability": fp,
-        "confidence": conf,
-        "risk_factors": risk_factors,
-        "reasoning": reasoning,
-    }
 
 
 def _context_to_dict(context: AIContext) -> dict:

@@ -98,6 +98,42 @@ Rules:
 """
 
 
+def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
+    """Validate and sanitize the parsed skeptic response fields.
+
+    Moved here from skeptic_agent.py per D-03: field validators belong in the
+    prompts file alongside the prompt content they validate.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    fp = data.get("failure_probability")
+    conf = data.get("confidence")
+
+    if not isinstance(fp, (int, float)) or not isinstance(conf, (int, float)):
+        return None
+
+    fp = max(0.0, min(1.0, float(fp)))
+    conf = max(0.0, min(1.0, float(conf)))
+
+    risk_factors = data.get("risk_factors", [])
+    if not isinstance(risk_factors, list):
+        risk_factors = [str(risk_factors)]
+    else:
+        risk_factors = [str(rf) for rf in risk_factors]
+
+    reasoning = data.get("reasoning", "")
+    if not isinstance(reasoning, str):
+        reasoning = str(reasoning)
+
+    return {
+        "failure_probability": fp,
+        "confidence": conf,
+        "risk_factors": risk_factors,
+        "reasoning": reasoning,
+    }
+
+
 def build_skeptic_prompt(ctx: Any) -> str:
     """Build the skeptic prompt.
 
