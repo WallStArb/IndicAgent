@@ -100,7 +100,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                         "swarm_multiplier": swarm_multiplier,
                         "adjusted_confidence": adjusted_confidence,
                     }.items()
-                    if not v and v != 0
+                    if v is None or v == ""
                 ],
             )
             return
