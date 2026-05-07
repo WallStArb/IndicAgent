@@ -1,6 +1,4 @@
-"""Tests for src/core/ai/prompt_utils — JSON_BLOCK_RE, parse_llm_json, clamp."""
-
-import re
+"""Tests for src/core/ai/prompt_utils — parse_llm_json, clamp."""
 
 
 def test_parse_llm_json_clean_json():
@@ -12,11 +10,20 @@ def test_parse_llm_json_clean_json():
 
 
 def test_parse_llm_json_regex_fallback():
-    """Garbage prefix with embedded JSON returns dict via regex fallback."""
+    """Garbage prefix with embedded JSON returns dict via brace-counting fallback."""
     from src.core.ai.prompt_utils import parse_llm_json
 
     result = parse_llm_json('garbage {"a": 2} trailing', lambda d: d)
     assert result == {"a": 2}
+
+
+def test_parse_llm_json_nested_braces():
+    """Brace-counting fallback handles nested objects that the old flat regex could not."""
+    from src.core.ai.prompt_utils import parse_llm_json
+
+    raw = 'Here is the result: {"score": 0.8, "conditions": [{"type": "bullish"}]}'
+    result = parse_llm_json(raw, lambda d: d)
+    assert result == {"score": 0.8, "conditions": [{"type": "bullish"}]}
 
 
 def test_parse_llm_json_not_json_returns_none():
@@ -54,19 +61,3 @@ def test_clamp_in_range():
     from src.core.ai.prompt_utils import clamp
 
     assert clamp(0.5, 0, 1) == 0.5
-
-
-def test_json_block_re_is_compiled_pattern():
-    """JSON_BLOCK_RE is a compiled re.Pattern."""
-    from src.core.ai.prompt_utils import JSON_BLOCK_RE
-
-    assert isinstance(JSON_BLOCK_RE, type(re.compile("")))
-
-
-def test_json_block_re_matches_braces():
-    """JSON_BLOCK_RE matches a JSON-like {...} block."""
-    from src.core.ai.prompt_utils import JSON_BLOCK_RE
-
-    match = JSON_BLOCK_RE.search('some text {"key": "value"} more text')
-    assert match is not None
-    assert match.group() == '{"key": "value"}'
