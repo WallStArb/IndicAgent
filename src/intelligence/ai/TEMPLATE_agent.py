@@ -1,37 +1,49 @@
-"""TEMPLATE_agent.py — copy this file when adding a new AI agent.
+"""TEMPLATE_agent.py — canonical skeleton for Phase 80 multiplier agents.
 
-Steps:
-  1. Copy this file to src/intelligence/ai/<group>/<name>_agent.py.
-  2. Rename class to <Name>ComputeAgent.
-  3. Set the five class attributes (agent_id, group, tiers_needed, latency_budget_ms, shadow_only).
-  4. Implement `_compute(context: AIContext) -> AgentOutput`.
-  5. Create matching <name>_prompts.py with PROMPT_REGISTRY + ACTIVE_VERSION.
-  6. Add the agent class to AlphaSwarmComputeAgent._agents (or the relevant group's agent list).
-  7. If shadow_only=True, call shadow_registry_ensure() at startup so the graduation loop sees the agent.
+Copy this file when adding a new swarm agent. Required steps:
+1. Pick a unique agent_id ending in _v1 (lowercase, underscored).
+2. Define output_schema ClassVar with the LLM JSON keys you expect.
+3. Implement _compute(): build prompt → LLM call → parse → return multiplier output.
+4. Pair with a <name>_prompts.py exposing PROMPT_REGISTRY and ACTIVE_VERSION; agent-specific
+   field validators (e.g. _validate_<agent>_fields) belong in the prompts file too.
+5. Register in services/alpha_swarm_agent.py self._agents list.
 
-Required reading:
-  - src/intelligence/ai/AUTHORING.md — full protocol
-  - src/intelligence/ai/alpha/skeptic_agent.py — canonical reference implementation
+Reference implementation: src/intelligence/ai/alpha/skeptic_agent.py
+Authoring protocol: src/intelligence/ai/AUTHORING.md
+
+Always extend BaseMultiplierAgent, never BaseAIAgent directly.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.base_agent import BaseAIAgent
 from src.core.ai.context import AIContext, Tier
+from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 
 logger = structlog.get_logger(__name__)
 
+# Replace with a real system message for the agent's role.
+_SYSTEM_MESSAGE = (
+    "You are a trading analysis agent. Always respond with valid JSON. "
+    '{"score": float, "confidence": float, "reasoning": str}'
+)
 
-class TemplateComputeAgent(BaseAIAgent):
+
+class TemplateComputeAgent(BaseMultiplierAgent):
     """One-line description of what this agent decides and why."""
 
-    # Required class attributes — every AI agent MUST set these five.
+    # Required class attributes — every multiplier agent MUST set these six.
+    output_schema: ClassVar[dict] = {
+        "score": float,  # agent-specific key (rename per agent)
+        "confidence": float,  # always required
+        "reasoning": str,  # always required
+    }
+
     agent_id = "template_v1"  # MUST match shadow_registry.component_name
     group = "alpha"  # one of: "alpha", "narrative", "risk"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6})  # tiers consumed
@@ -43,14 +55,54 @@ class TemplateComputeAgent(BaseAIAgent):
         self._llm = llm_chain
 
     async def _compute(self, context: AIContext) -> AgentOutput:
-        """Build prompt -> call LLM -> parse -> return AgentOutput.
+        """Build prompt -> call LLM -> parse -> return multiplier output.
 
         Contract:
-          - Return AgentOutput.payload as a JSON-serializable dict.
+          - Return AgentOutput via self._build_multiplier_output().
           - On error, return self._neutral(error=..., latency_ms=...).
           - Never raise — BaseAIAgent.compute wraps with neutral fallback,
             but explicit error returns are clearer.
-          - prompt_version (e.g. "template_v1") MUST be included in payload
+          - prompt_version MUST be included via _build_multiplier_output()
             so LineageRecorder attribution is correct.
+
+        Phase 80: discount-only formula — multiplier should be <= 1.0 until
+        calibration data exists. Clamp range [0.0, 2.0] preserved for future boosting.
         """
-        raise NotImplementedError("Replace this body — see skeptic_agent.py")
+        from src.intelligence.ai.alpha.template_prompts import (
+            ACTIVE_VERSION,
+            _validate_template_fields,
+            build_template_prompt,
+        )
+
+        prompt = build_template_prompt(context)
+        response = await self._llm.generate(
+            prompt=prompt,
+            system=_SYSTEM_MESSAGE,
+            max_tokens=500,
+            timeout=self.latency_budget_ms / 1000.0,
+        )
+        if not response:
+            return self._neutral(error="LLM returned empty response", latency_ms=0.0)
+
+        parsed = self._parse_multiplier_response(response, _validate_template_fields)
+        if parsed is None:
+            logger.warning(
+                "template_agent.json_parse_failed",
+                agent_id=self.agent_id,
+                raw_response=response[:200],
+                expected_schema=self.output_schema,
+            )
+            return self._neutral(error="JSON parse failed", latency_ms=0.0)
+
+        score = parsed["score"]
+        confidence = parsed["confidence"]
+        # Phase 80: discount-only formula — multiplier should be <= 1.0 until calibration data exists
+        multiplier = score * confidence
+
+        return self._build_multiplier_output(
+            context=context,
+            multiplier=multiplier,
+            confidence=confidence,
+            payload={"score": score, "reasoning": parsed["reasoning"]},
+            prompt_version=ACTIVE_VERSION,
+        )
