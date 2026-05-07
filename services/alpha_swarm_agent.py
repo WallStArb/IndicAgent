@@ -256,6 +256,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         assert self._pool is not None
         import scipy.stats as stats  # local import to avoid hard dep at module level
 
+        # Single connection for both the SELECT and all INSERT/upsert operations.
+        # Previously a second acquire() was called inside the per-tf loop, causing
+        # 1 + N pool acquisitions per agent per cycle (N = distinct timeframes).
+        # With 4 agents × 6 TFs that's 28 acquisitions per cycle — pool exhaustion
+        # risk under concurrent graduation + signal processing load.
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -273,35 +278,38 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 """,
                 agent_id,
             )
-        if not rows:
-            return
+            if not rows:
+                return
 
-        by_tf: dict[str, list[dict]] = {}
-        for r in rows:
-            by_tf.setdefault(r["timeframe"], []).append(r)
+            by_tf: dict[str, list[dict]] = {}
+            for r in rows:
+                by_tf.setdefault(r["timeframe"], []).append(r)
 
-        min_n = self.settings.SWARM_WEIGHT_MIN_SAMPLES
-        floor = self.settings.SWARM_WEIGHT_FLOOR
-        for tf, group in by_tf.items():
-            n = len(group)
-            if n < min_n:
-                continue
-            multipliers = [g["multiplier"] for g in group]
-            pnl_rs = [g["pnl_r"] for g in group]
-            try:
-                rho_result = stats.spearmanr(multipliers, pnl_rs)
-                rho = float(rho_result.correlation) if rho_result.correlation is not None else 0.0
-            except Exception:
-                rho = 0.0
-            if rho != rho:  # NaN guard
-                rho = 0.0
-            weight = max(floor, 0.5 + rho)
+            min_n = self.settings.SWARM_WEIGHT_MIN_SAMPLES
+            floor = self.settings.SWARM_WEIGHT_FLOOR
+            for tf, group in by_tf.items():
+                n = len(group)
+                if n < min_n:
+                    continue
+                multipliers = [g["multiplier"] for g in group]
+                pnl_rs = [g["pnl_r"] for g in group]
+                try:
+                    rho_result = stats.spearmanr(multipliers, pnl_rs)
+                    rho = (
+                        float(rho_result.correlation) if rho_result.correlation is not None else 0.0
+                    )
+                except Exception:
+                    rho = 0.0
+                if rho != rho:  # NaN guard
+                    rho = 0.0
+                weight = max(floor, 0.5 + rho)
 
-            stated = [g["stated_confidence"] for g in group if g["stated_confidence"] is not None]
-            win_rate = sum(1 for g in group if (g["pnl_r"] or 0) > 0) / n
-            cal_err = abs((sum(stated) / len(stated)) - win_rate) if stated else None
+                stated = [
+                    g["stated_confidence"] for g in group if g["stated_confidence"] is not None
+                ]
+                win_rate = sum(1 for g in group if (g["pnl_r"] or 0) > 0) / n
+                cal_err = abs((sum(stated) / len(stated)) - win_rate) if stated else None
 
-            async with self._pool.acquire() as conn:
                 await conn.execute(
                     """
                     INSERT INTO swarm_agent_weights
@@ -321,7 +329,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                     rho,
                     cal_err,
                 )
-            SWARM_AGENT_WEIGHT.labels(agent_id=agent_id, timeframe=tf).set(weight)
+                SWARM_AGENT_WEIGHT.labels(agent_id=agent_id, timeframe=tf).set(weight)
 
     async def _reload_agent_weights(self) -> None:
         """Reload self._agent_weights cache from swarm_agent_weights table.
