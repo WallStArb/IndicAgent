@@ -592,7 +592,7 @@ def _safe_histogram(name: str, doc: str, labelnames: list[str], buckets: list[fl
     try:
         return Histogram(name, doc, labelnames, buckets=buckets)
     except ValueError:
-        return _REGISTRY._names_to_collectors[f"{name}_count"]  # type: ignore[return-value]
+        return _REGISTRY._names_to_collectors[name]  # type: ignore[return-value]
 
 
 def _safe_gauge(name: str, doc: str, labelnames: list[str]) -> Gauge:
