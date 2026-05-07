@@ -247,13 +247,21 @@ class AIContextCache:
             )
 
         # I7 context — custom I7Context type (signal-specific, not pipeline output)
+        # Accepts both dict (dispatch passes signal.model_dump()) and object inputs.
         i7_ctx = None
         if Tier.I7 in tiers_needed and signal is not None:
-            i7_ctx = I7Context(
-                winner_plugin=getattr(signal, "plugin", None),
-                winner_direction=getattr(signal, "direction", None),
-                winner_confidence=getattr(signal, "calibrated_confidence", None),
-            )
+            if isinstance(signal, dict):
+                i7_ctx = I7Context(
+                    winner_plugin=signal.get("plugin", None),
+                    winner_direction=signal.get("direction", None),
+                    winner_confidence=signal.get("calibrated_confidence", None),
+                )
+            else:
+                i7_ctx = I7Context(
+                    winner_plugin=getattr(signal, "plugin", None),
+                    winner_direction=getattr(signal, "direction", None),
+                    winner_confidence=getattr(signal, "calibrated_confidence", None),
+                )
 
         # Pipeline tiers — direct pass-through (D-13). None-safe by Pydantic.
         return AIContext(
