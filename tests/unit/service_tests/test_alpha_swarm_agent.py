@@ -637,9 +637,7 @@ def test_no_direct_signal_ledger_writes() -> None:
     """services/alpha_swarm_agent.py must contain zero UPDATE/INSERT signal_ledger statements."""
     import pathlib
 
-    path = pathlib.Path(
-        "/home/bg/dev/indicagent/.claude/worktrees/agent-a85de5edfc4a5dc51/services/alpha_swarm_agent.py"
-    )
+    path = pathlib.Path("services/alpha_swarm_agent.py")
     src = path.read_text()
     # Strip comment lines
     non_comment = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
