@@ -9,7 +9,9 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=INDICAGENT_ENV=development
+# INDICAGENT_ENV intentionally unset — matches indicagent-alpha-swarm.service which also
+# omits this variable, so both services resolve the same topic prefix (env_name default "").
+# If env isolation is needed, set the same value in BOTH units or use EnvironmentFile=.
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/swarm_ledger_writer_agent.py
 Restart=always
 RestartSec=10
