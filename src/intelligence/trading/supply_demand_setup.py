@@ -18,7 +18,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import TradeFrame, TradeTarget
+from .trade_framer import TradeFrame, targets_from_floats
 
 
 @dataclass
@@ -183,14 +183,8 @@ class SupplyDemandSetupPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
-        _risk = abs(entry - stop) or 1e-9
         _targets = [round(t1, 2), round(t2, 2)]
-        _t_objs = [
-            TradeTarget(
-                price=float(t), label=f"t{i+1}", level_type="atr", rr=abs(float(t) - entry) / _risk
-            )
-            for i, t in enumerate(_targets)
-        ]
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(_targets, entry, stop)
         _stop_type = "demand_zone" if direction == 1 else "supply_zone"
         _tf = TradeFrame(
             entry=entry,
@@ -198,8 +192,8 @@ class SupplyDemandSetupPlugin:
             stop=stop,
             stop_type=_stop_type,
             targets=_t_objs,
-            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
-            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
             zone_low=zone_low,
             zone_high=zone_high,
         )

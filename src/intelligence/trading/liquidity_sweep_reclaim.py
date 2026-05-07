@@ -12,7 +12,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import TradeFrame, TradeTarget
+from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
 
 
 @dataclass
@@ -132,23 +132,17 @@ class LiquiditySweepReclaimPlugin:
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
 
-        _risk = abs(entry - stop) or 1e-9
-        _t_objs = [
-            TradeTarget(
-                price=float(t), label=f"t{i+1}", level_type="atr", rr=abs(float(t) - entry) / _risk
-            )
-            for i, t in enumerate(targets)
-        ]
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
         _tf = TradeFrame(
             entry=entry,
             entry_type="at_close",
             stop=stop,
             stop_type="sweep_level",
             targets=_t_objs,
-            rr_t1=_t_objs[0].rr if _t_objs else 0.0,
-            rr_t2=_t_objs[1].rr if len(_t_objs) > 1 else 0.0,
-            zone_low=entry - 0.2 * atr,
-            zone_high=entry + 0.2 * atr,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
+            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
         )
         return make_signal_from_frame(
             _tf,
