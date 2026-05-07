@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent Swarm Ledger Writer Agent -- DB projection of swarm aggregate adjustments
+After=network-online.target indicagent-redpanda-ready.service indicagent-alpha-swarm.service
+Requires=indicagent-redpanda-ready.service
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/swarm_ledger_writer_agent.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=75
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-swarm-ledger-writer
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
