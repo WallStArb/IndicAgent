@@ -307,6 +307,7 @@ class BaseProviderAgent(BaseAgent):
         await asyncio.sleep(delay)
 
         try:
+            await self._adapter.disconnect()
             connected = await self._adapter.connect()
             if connected:
                 self._g_connected.set(1)
