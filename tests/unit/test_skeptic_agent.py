@@ -3,13 +3,11 @@
 import json
 from uuid import uuid4
 
-from src.intelligence.ai.alpha.skeptic_agent import (
-    _parse_skeptic_response,
-    _validate_skeptic_fields,
-)
+from src.core.ai.prompt_utils import parse_llm_json
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
+    _validate_skeptic_fields,
     build_skeptic_prompt,
 )
 
@@ -72,7 +70,7 @@ def test_parse_valid_json():
             "reasoning": "test",
         }
     )
-    result = _parse_skeptic_response(raw)
+    result = parse_llm_json(raw, _validate_skeptic_fields)
     assert result is not None
     assert result["failure_probability"] == 0.7
 
@@ -86,14 +84,14 @@ def test_parse_json_with_preamble():
             "reasoning": "looks good",
         }
     )
-    result = _parse_skeptic_response(raw)
+    result = parse_llm_json(raw, _validate_skeptic_fields)
     assert result is not None
     assert result["failure_probability"] == 0.3
 
 
 def test_parse_invalid_returns_none():
-    assert _parse_skeptic_response("not json") is None
-    assert _parse_skeptic_response("") is None
+    assert parse_llm_json("not json", _validate_skeptic_fields) is None
+    assert parse_llm_json("", _validate_skeptic_fields) is None
 
 
 def test_validate_clamps_values():
