@@ -12,6 +12,7 @@ Tests verify:
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -548,3 +549,239 @@ def test_wave1_invariants_preserved():
     assert not hasattr(
         m, "TransformRecorder"
     ), "TransformRecorder still imported (Plan 01 should have removed it)"
+
+
+# ---------------------------------------------------------------------------
+# Plan 80-07: Task 4 — new dispatch tests
+# ---------------------------------------------------------------------------
+
+
+def _make_agent_with_mocks():  # type: ignore[return]
+    """Build AlphaSwarmComputeAgent with mocked dependencies for dispatch tests."""
+    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+
+    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent.settings = MagicMock(
+        SWARM_MIN_TF_MINUTES=5,
+        SWARM_WEIGHT_MIN_SAMPLES=30,
+        SWARM_WEIGHT_FLOOR=0.05,
+        SWARM_MAX_CONCURRENT_CALLS=8,
+        SWARM_QUEUE_TIMEOUT_MS=250,
+        env_name="test",
+    )
+    agent.logger = MagicMock()
+    agent._agents = []
+    agent._agent_weights = {}
+    agent._semaphore = None
+    agent._pool = None
+    agent._lineage = MagicMock(record=MagicMock())
+    agent._producer = MagicMock(publish=MagicMock())
+    return agent
+
+
+def test_compute_final_multiplier_excludes_errors() -> None:
+    """Weighted average uses only non-error agents with valid multipliers."""
+    agent = _make_agent_with_mocks()
+    agents_list = [MagicMock(agent_id="a"), MagicMock(agent_id="b"), MagicMock(agent_id="c")]
+    ok = AgentOutput(
+        agent_id="a",
+        group="alpha",
+        payload={"multiplier": 0.8},
+        shadow_only=True,
+    )
+    err = AgentOutput(
+        agent_id="b",
+        group="alpha",
+        payload={},
+        shadow_only=True,
+        error="fail",
+    )
+    ok2 = AgentOutput(
+        agent_id="c",
+        group="alpha",
+        payload={"multiplier": 0.6},
+        shadow_only=True,
+    )
+    result, count = agent._compute_final_multiplier(agents_list, [ok, err, ok2], {}, "5m")
+    # Default weight 1/3 each but only valid pair used: weighted avg = (0.8+0.6)/2 = 0.7
+    import pytest as _pytest
+
+    assert result == _pytest.approx(0.7)
+    assert count == 2
+
+
+def test_compute_final_multiplier_returns_none_when_all_fail() -> None:
+    """All-error results → (None, 0)."""
+    agent = _make_agent_with_mocks()
+    agents_list = [MagicMock(agent_id="a"), MagicMock(agent_id="b")]
+    err1 = AgentOutput(
+        agent_id="a",
+        group="alpha",
+        payload={},
+        shadow_only=True,
+        error="x",
+    )
+    err2 = AgentOutput(
+        agent_id="b",
+        group="alpha",
+        payload={},
+        shadow_only=True,
+        error="y",
+    )
+    result, count = agent._compute_final_multiplier(agents_list, [err1, err2], {}, "5m")
+    assert result is None
+    assert count == 0
+
+
+def test_no_direct_signal_ledger_writes() -> None:
+    """services/alpha_swarm_agent.py must contain zero UPDATE/INSERT signal_ledger statements."""
+    import pathlib
+
+    path = pathlib.Path(
+        "/home/bg/dev/indicagent/.claude/worktrees/agent-a85de5edfc4a5dc51/services/alpha_swarm_agent.py"
+    )
+    src = path.read_text()
+    # Strip comment lines
+    non_comment = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
+    assert "UPDATE signal_ledger" not in non_comment
+    assert "INSERT INTO signal_ledger" not in non_comment
+
+
+@pytest.mark.asyncio
+async def test_shadow_enrollment_loops_all_agents() -> None:
+    """_shadow_registry_ensure_swarm inserts each agent_id in self._agents."""
+    agent = _make_agent_with_mocks()
+    agent._agents = [
+        MagicMock(agent_id="skeptic_v1"),
+        MagicMock(agent_id="correlation_v1"),
+        MagicMock(agent_id="regime_coherence_v1"),
+        MagicMock(agent_id="counterfactual_v1"),
+    ]
+    # Mock the pool.acquire context manager
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock()
+    mock_pool = MagicMock()
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_pool.acquire = MagicMock(return_value=ctx)
+    agent._pool = mock_pool
+    await agent._shadow_registry_ensure_swarm()
+    called_ids = [call.args[1] for call in mock_conn.execute.call_args_list]
+    assert "correlation_v1" in called_ids
+    assert "regime_coherence_v1" in called_ids
+    assert "counterfactual_v1" in called_ids
+    assert "skeptic_v1" in called_ids
+
+
+@pytest.mark.asyncio
+async def test_tf_gate_skips_signals_below_min_minutes() -> None:
+    """1m signals (1 minute < SWARM_MIN_TF_MINUTES=5) must not invoke any agent."""
+    agent = _make_agent_with_mocks()
+    # Set semaphore so we'd know if it was acquired
+    agent._semaphore = asyncio.Semaphore(8)
+    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
+    agent._agents = [mock_agent]
+
+    raw_signal = {
+        "signal_id": str(uuid4()),
+        "symbol": "ESM6",
+        "tf": "1m",  # below SWARM_MIN_TF_MINUTES=5
+        "setup_plugin": "vwap_reversion",
+        "direction": 1,
+        "pre_quality_confidence": 0.75,
+        "signal_schema_version": "v1",
+    }
+    await agent._process_one_signal(raw_signal)
+    # No agent should have been called
+    mock_agent.compute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_schema_gate_skips_v0_signals() -> None:
+    """signal_schema_version='v0' must not invoke any agent."""
+    agent = _make_agent_with_mocks()
+    agent._semaphore = asyncio.Semaphore(8)
+    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
+    agent._agents = [mock_agent]
+
+    raw_signal = {
+        "signal_id": str(uuid4()),
+        "symbol": "ESM6",
+        "tf": "5m",
+        "setup_plugin": "vwap_reversion",
+        "direction": 1,
+        "pre_quality_confidence": 0.75,
+        "signal_schema_version": "v0",  # schema gate should reject this
+    }
+    await agent._process_one_signal(raw_signal)
+    mock_agent.compute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_capacity_skip_increments_metric() -> None:
+    """When semaphore is already full, status='capacity_skip' counter increments."""
+    import asyncio as _asyncio
+
+    from prometheus_client import REGISTRY
+
+    agent = _make_agent_with_mocks()
+    # Use capacity=1 and pre-acquire so dispatch times out
+    agent._semaphore = _asyncio.Semaphore(1)
+    # Settings: very short timeout for test speed
+    agent.settings.SWARM_QUEUE_TIMEOUT_MS = 10  # 10ms
+
+    # Pre-acquire the semaphore so dispatch can't get it
+    await agent._semaphore.acquire()
+
+    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
+    agent._agents = [mock_agent]
+
+    # Mock context cache to return something
+    from datetime import UTC, datetime
+
+    from src.core.ai.context import AIContext
+    from src.intelligence.schemas import SMCContext
+
+    mock_context = AIContext(
+        symbol="ESM6",
+        timeframe="5m",
+        ts=datetime.now(UTC),
+        smc=SMCContext(hmm_regime=1),
+    )
+    agent._context_cache = MagicMock()
+    agent._context_cache.build.return_value = mock_context
+    agent._enrich_context = AsyncMock(side_effect=lambda ctx: ctx)
+
+    raw_signal = {
+        "signal_id": str(uuid4()),
+        "symbol": "ESM6",
+        "tf": "5m",
+        "setup_plugin": "vwap_reversion",
+        "direction": 1,
+        "pre_quality_confidence": 0.75,
+        "signal_schema_version": "v1",
+    }
+
+    # Get counter value before
+    before = (
+        REGISTRY.get_sample_value(
+            "swarm_invocations_total",
+            {"agent_id": "all", "timeframe": "5m", "status": "capacity_skip"},
+        )
+        or 0.0
+    )
+
+    await agent._process_one_signal(raw_signal)
+
+    after = (
+        REGISTRY.get_sample_value(
+            "swarm_invocations_total",
+            {"agent_id": "all", "timeframe": "5m", "status": "capacity_skip"},
+        )
+        or 0.0
+    )
+    assert (
+        after > before
+    ), f"capacity_skip counter did not increment: before={before}, after={after}"
+    mock_agent.compute.assert_not_called()
