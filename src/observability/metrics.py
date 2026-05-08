@@ -658,3 +658,18 @@ SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = Counter(
     "Backfill signals where TTL elapsed at ingest; published TTL-expired and skipped active index",
     ["symbol", "timeframe"],
 )
+
+# ---------------------------------------------------------------------------
+# Bar replay provider metrics (Phase 81)
+# ---------------------------------------------------------------------------
+
+BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL = Counter(
+    "bar_replay_provider_bars_published_total",
+    "Bars published by BarReplayProviderAgent (progress tracking)",
+    labelnames=("symbol", "timeframe"),
+)
+
+BAR_REPLAY_PROVIDER_LAG_SECONDS = Gauge(
+    "bar_replay_provider_lag_seconds",
+    "Seconds between last_replayed_ts and NOW(); drops to 0 on completion",
+)
