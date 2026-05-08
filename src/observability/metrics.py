@@ -642,3 +642,19 @@ INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL: Counter = _safe_counter(
     "Signals published to intelligence.i7.signals with is_backfill=True (catch-up payloads)",
     ["symbol", "timeframe"],
 )
+
+# ---------------------------------------------------------------------------
+# Signal tracker intake metrics (Phase 81)
+# ---------------------------------------------------------------------------
+
+SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL = Counter(
+    "signal_tracker_invalid_signal_total",
+    "Signals rejected by _load_signal() (missing/invalid required fields) and routed to DLQ",
+    ["reason"],
+)
+
+SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = Counter(
+    "signal_tracker_backfill_fast_path_total",
+    "Backfill signals where TTL elapsed at ingest; published TTL-expired and skipped active index",
+    ["symbol", "timeframe"],
+)
