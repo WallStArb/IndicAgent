@@ -1,9 +1,8 @@
 """
 Stream key helpers and Kafka topic builders.
 
-Version: 3.1.0
-Last Updated: 2026-03-28
-Status: v2.2 DAG complete — all pipeline stage topics are in-process audit snapshots.
+Version: 3.2.0
+Last Updated: 2026-05-07
 
 Kafka topic builder functions (topic_*) are the primary API.
 Legacy Redis key helpers retained for sse.py backward compat:
@@ -18,12 +17,34 @@ Removed in Phase 30 (no remaining callers in services or API):
   intelligence_pattern, intelligence_i7_pattern, intelligence_i8_pattern,
   signals_pattern, narratives_pattern
 
-Removed in v2.2 (dead after Phase 44.2 in-process consolidation + Phase 44.3):
-  topic_intelligence_i7 — SSE now consumes intelligence.record
-  topic_winner, topic_attribution — Phase 40 6-stage microservice DAG retired
+Removed in v2.2 (Phase 44.2 in-process consolidation + Phase 44.3):
+  topic_intelligence_i7, topic_winner, topic_attribution
+
+Removed in v3.2 (Phase 44.2 DAG retirement + Phase 80 spec cleanup):
+  topic_indicators, topic_signals, topic_audit — retired topics, no live consumers
+  topic_quality_gated, topic_regime_gated, topic_tod_adjusted,
+  topic_calibrated, topic_ranked — Phase 40 6-stage microservice DAG retired
+  topic_data_quality — pipeline.data_quality never created, unused
+  topic_intelligence_pipeline_state — topic deleted (Kafka is transport not state store)
 """
 
 from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Canonical timeframe → seconds mapping.
+# Used by publishers (intelligence_pipeline_agent) to compute is_backfill,
+# by consumers (signal_tracker_compute_agent) to compute bars_elapsed,
+# and by replay auditor (signal_replay_auditor_agent) to size OHLCV windows.
+# Keep in sync with services/bar_aggregator_agent.py BarAccumulator._TF_MINUTES.
+# ---------------------------------------------------------------------------
+TF_SECONDS: dict[str, int] = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
+}
 
 # ---------------------------------------------------------------------------
 # Kafka topic builders (Phase 30+)
@@ -96,11 +117,6 @@ def topic_roll_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.events.roll.dlq"
 
 
-def topic_indicators(env_name: str) -> str:
-    """Kafka topic for I1 technical indicator output."""
-    return f"{env_prefix(env_name)}indicators"
-
-
 def topic_intelligence(env_name: str) -> str:
     """Kafka topic for I3–I6 intelligence pipeline output (IntelligenceEvent)."""
     return f"{env_prefix(env_name)}intelligence"
@@ -109,11 +125,6 @@ def topic_intelligence(env_name: str) -> str:
 def topic_intelligence_i8(env_name: str) -> str:
     """Kafka topic for I8 AI narrative metadata per bar."""
     return f"{env_prefix(env_name)}intelligence.i8"
-
-
-def topic_signals(env_name: str) -> str:
-    """Kafka topic for individual I7 signals (pre-aggregation)."""
-    return f"{env_prefix(env_name)}signals"
 
 
 def topic_signals_aggregated(env_name: str) -> str:
@@ -151,36 +162,6 @@ def topic_cross_asset(env_name: str) -> str:
     return f"{env_prefix(env_name)}cross_asset"
 
 
-def topic_quality_gated(env_name: str) -> str:
-    """Kafka topic for QualityGate stage output."""
-    return f"{env_prefix(env_name)}pipeline.quality_gated"
-
-
-def topic_regime_gated(env_name: str) -> str:
-    """Kafka topic for RegimeGate stage output."""
-    return f"{env_prefix(env_name)}pipeline.regime_gated"
-
-
-def topic_tod_adjusted(env_name: str) -> str:
-    """Kafka topic for TODAdjuster stage output."""
-    return f"{env_prefix(env_name)}pipeline.tod_adjusted"
-
-
-def topic_calibrated(env_name: str) -> str:
-    """Kafka topic for Calibrator stage output."""
-    return f"{env_prefix(env_name)}pipeline.calibrated"
-
-
-def topic_ranked(env_name: str) -> str:
-    """Kafka topic for Ranker stage output."""
-    return f"{env_prefix(env_name)}pipeline.ranked"
-
-
-def topic_data_quality(env_name: str) -> str:
-    """Kafka topic for data quality monitoring side channel."""
-    return f"{env_prefix(env_name)}pipeline.data_quality"
-
-
 def topic_intelligence_journal(env_name: str) -> str:
     """Kafka topic for atomic IntelligenceJournal records (all provenance/audit/state)."""
     return f"{env_prefix(env_name)}intelligence.journal"
@@ -196,27 +177,12 @@ def topic_intelligence_i7_signals(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.i7.signals"
 
 
-def topic_intelligence_pipeline_state(env_name: str) -> str:
-    """Kafka compacted topic for IntelligencePipelineComputeAgent state checkpoints.
-
-    Key format: {agent_version}:{symbol}:{tf} (e.g. 'v1:ESM6:1m')
-    Value: msgpack-encoded state dict (plugin_state, kalman_state, tod_priors,
-           bar_history, last_bar_offset).
-    Topic config: cleanup.policy=compact, min.cleanable.dirty.ratio=0.1,
-                  segment.ms=3600000 — set on topic creation, not in code.
-    """
-    return f"{env_prefix(env_name)}intelligence.pipeline.state"
-
-
 def topic_intelligence_shadow(env_name: str) -> str:
     """Kafka topic for shadow rollout output from IntelligencePipelineComputeAgent.
 
-    Used during Plan 4 shadow validation only. The new agent publishes to this
-    topic (instead of the canonical intelligence topic) while running in shadow
-    mode with consumer group 'intelligence_pipeline_shadow'. After cutover
-    validation passes, this topic is deleted and this function is removed.
-
-    NOTE: Do not add consumers for this topic — it is for manual inspection only.
+    Activated via INTELLIGENCE_PIPELINE_SHADOW=1 env var. The agent publishes
+    here instead of the canonical intelligence topic while running in shadow mode.
+    Consumer group: intelligence_pipeline_shadow (manual inspection only).
     """
     return f"{env_prefix(env_name)}intelligence.shadow"
 
@@ -228,11 +194,6 @@ def topic_shadow_transitions(env_name: str) -> str:
     Consumers: dashboard (future), audit tooling.
     """
     return f"{env_prefix(env_name)}intelligence.shadow.transitions"
-
-
-def topic_audit(env_name: str) -> str:
-    """Kafka topic for structured audit events (parity violations, certification events)."""
-    return f"{env_prefix(env_name)}audit"
 
 
 def topic_market_bars_raw(env_name: str, provider: str) -> str:
