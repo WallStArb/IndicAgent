@@ -386,36 +386,6 @@ class SignalTrackerComputeAgent(BaseAgent):
         if sid in self._signal_ids:
             return
 
-        # D-05: Activation probability gate -- skip hopeless signals
-        # If zone is very far from current close AND most of TTL has elapsed,
-        # this signal is extremely unlikely to activate. Skip tracking it.
-        entry = sig.get("entry_price")
-        stop = sig.get("stop_loss")
-        zone_low_val = sig.get("entry_zone_low")
-        zone_high_val = sig.get("entry_zone_high")
-        ttl_val = sig.get("ttl_bars", 10)
-        bars_val = sig.get("bars_elapsed", 0)
-
-        if entry and stop and zone_low_val and zone_high_val and ttl_val > 0:
-            risk = abs(float(entry) - float(stop))
-            if risk > 0:
-                direction = sig.get("direction", 1)
-                if direction == 1:
-                    zone_distance = abs(float(zone_low_val) - float(entry))
-                else:
-                    zone_distance = abs(float(zone_high_val) - float(entry))
-                zone_distance_risk = zone_distance / risk
-                ttl_remaining_pct = max(0, (ttl_val - bars_val) / ttl_val)
-
-                if zone_distance_risk > 3.0 and ttl_remaining_pct < 0.20:
-                    self.logger.debug(
-                        "activation_gate_filtered",
-                        signal_id=sid,
-                        zone_distance_risk=round(zone_distance_risk, 2),
-                        ttl_remaining_pct=round(ttl_remaining_pct, 2),
-                    )
-                    return  # Skip -- don't add to active index
-
         self._signal_ids.add(sid)
         key = (symbol, tf)
         self._active_index[key].append(sig)
@@ -801,23 +771,6 @@ class SignalTrackerComputeAgent(BaseAgent):
         db = DatabaseManager(self.settings.database_url)
         await db.initialize()
         try:
-            # D-03: Pre-filter to expire signals past reasonable TTL before bootstrap.
-            # Reduces bootstrap from 29k accumulated signals to manageable set.
-            # Most I7 plugins have TTL of 10-60 bars. At 1m (dominant timeframe),
-            # signals pending >4 hours are certainly past TTL.
-            # Keep 3-day SELECT window for HTF signals (1h, 4h, 1d).
-            await db.execute_command("""
-                UPDATE signal_ledger
-                SET status = 'expired',
-                    exit_at = NOW(),
-                    exit_reason = 'ttl_expired',
-                    outcome = 'never_activated'
-                WHERE status = 'pending'
-                  AND exit_at IS NULL
-                  AND timestamp < NOW() - INTERVAL '4 hours'
-            """)
-            self.logger.info("bootstrap_ttl_sweep_complete")
-
             for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):
                 rows = await db.execute_query("""
                     SELECT signal_id, timestamp, symbol, timeframe, status, direction,
