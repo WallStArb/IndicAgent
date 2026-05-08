@@ -898,10 +898,11 @@ class TestTemporalGuard:
 
 @pytest.mark.unit
 class TestTTLOutcomeWithActivatedAt:
-    """D-02: TTL outcome uses activated_at as source of truth."""
+    """Phase 81-03: D-02 compensating logic removed. PENDING+activated_at -> never_activated
+    (violation is counted via _LABELING_VIOLATIONS counter, not auto-corrected)."""
 
-    def test_pending_with_activated_at_gets_ttl_expired_ahead(self):
-        """Signal is PENDING in memory but has activated_at -> treat as activated."""
+    def test_pending_with_activated_at_gets_never_activated(self):
+        """D-02 removed: PENDING + activated_at is a labeling violation, outcome = never_activated."""
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10
         sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
@@ -913,28 +914,12 @@ class TestTTLOutcomeWithActivatedAt:
             current_mfe=0.3,
         )
         assert t is not None
-        assert t.outcome == "ttl_expired_ahead"
-
-    def test_pending_with_activated_at_gets_ttl_expired_behind(self):
-        """Signal is PENDING in memory but has activated_at, mfe <= 0 -> behind."""
-        sig = _pending_with_zone()
-        sig["bars_elapsed"] = 10
-        sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
-        t = evaluate_signal(
-            sig,
-            high=5090.0,
-            low=5080.0,
-            close=5085.0,
-            current_mfe=0.0,
-        )
-        assert t is not None
-        assert t.outcome == "ttl_expired_behind"
+        assert t.outcome == "never_activated"
 
     def test_pending_without_activated_at_still_never_activated(self):
-        """Signal is PENDING and no activated_at -> never_activated (existing behavior)."""
+        """Signal is PENDING and no activated_at -> never_activated."""
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10
-        # No activated_at set
         t = evaluate_signal(sig, high=5080.0, low=5075.0, close=5078.0)
         assert t is not None
         assert t.outcome == "never_activated"
