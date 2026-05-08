@@ -33,6 +33,7 @@ def _make_agent():
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
     agent._settings.env_name = "development"
     agent._db = MagicMock()
+    agent._db.execute_command = AsyncMock(return_value="UPDATE 1")
     agent._consumer = AsyncMock()
     agent._repo = MagicMock()
     agent._repo.batch_execute = AsyncMock()
