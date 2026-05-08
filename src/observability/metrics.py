@@ -632,3 +632,13 @@ SWARM_SIGNAL_LEDGER_UPDATE_TOTAL: Counter = _safe_counter(
     "Writer-owned signal_ledger materialization outcomes",
     ["status"],
 )
+
+# ---------------------------------------------------------------------------
+# Intelligence pipeline publisher metrics (Phase 81)
+# ---------------------------------------------------------------------------
+
+INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL: Counter = _safe_counter(
+    "intelligence_pipeline_backfill_signals_total",
+    "Signals published to intelligence.i7.signals with is_backfill=True (catch-up payloads)",
+    ["symbol", "timeframe"],
+)
