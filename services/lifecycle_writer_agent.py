@@ -26,6 +26,7 @@ from src.core.stream_keys import (
 )
 from src.intelligence.trading.lifecycle_transitions import from_dict
 from src.observability.metrics import (
+    LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL,
     PERSISTENCE_BATCH_LATENCY,
     counter,
 )
@@ -111,6 +112,63 @@ class LifecycleWriterAgent(BaseWriterAgent):
             return None
         return [payload]
 
+    # ------------------------------------------------------------------
+    # Exit-specific idempotency guard
+    # ------------------------------------------------------------------
+
+    # Idempotency guard SQL: WHERE signal_id = $1 AND exit_at IS NULL
+    # "First writer wins" — replay auditor and live tracker can both emit
+    # EXIT transitions; only the first one that finds exit_at IS NULL wins.
+    # The second write is a no-op (UPDATE 0 rows) and increments the counter.
+    _EXIT_IDEMPOTENT_SQL = """
+UPDATE signal_ledger
+   SET status = $2,
+       exit_at = $3,
+       exit_price = $4,
+       exit_reason = $5,
+       pnl_r = $6,
+       pnl_dollars = $7,
+       signal_quality = $8,
+       mae = $9,
+       mfe = $10,
+       bars_in_trade = $11,
+       outcome = $12
+ WHERE signal_id = $1::uuid
+   AND exit_at IS NULL
+"""
+
+    async def _flush_exit_items(self, items: list[dict]) -> None:
+        """Write exit transitions one-at-a-time to detect idempotent skips.
+
+        Uses WHERE exit_at IS NULL guard so a second writer (replay auditor
+        vs. live tracker) is always a safe no-op.  When asyncpg returns
+        "UPDATE 0" the skip counter is incremented and a warning logged.
+        """
+        assert self._db is not None
+        for entry in items:
+            result: str = await self._db.execute_command(
+                self._EXIT_IDEMPOTENT_SQL,
+                entry.get("signal_id"),
+                entry.get("status"),
+                entry.get("exit_at"),
+                entry.get("exit_price"),
+                entry.get("exit_reason"),
+                entry.get("pnl_r"),
+                entry.get("pnl_dollars"),
+                entry.get("signal_quality"),
+                entry.get("mae"),
+                entry.get("mfe"),
+                entry.get("bars_in_trade"),
+                entry.get("outcome"),
+            )
+            if result.endswith(" 0"):
+                LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.inc()
+                self.logger.info(
+                    "lifecycle_writer_idempotent_skip",
+                    signal_id=entry.get("signal_id"),
+                    note="exit_at already set; first writer wins",
+                )
+
     async def _flush_batch(self, batch: list) -> None:
         """Group buffered transitions by type, batch-write each group."""
         t0 = time.perf_counter()
@@ -124,7 +182,13 @@ class LifecycleWriterAgent(BaseWriterAgent):
             groups[item["transition_type"]].append(entry)
 
         for ttype, items in groups.items():
-            await self._repo.batch_execute(ttype, items)
+            if ttype == "exit":
+                # Use idempotency-guarded writer (WHERE exit_at IS NULL) so
+                # live tracker and replay auditor can both emit EXIT transitions
+                # without coordination.  Second writer is always a no-op.
+                await self._flush_exit_items(items)
+            else:
+                await self._repo.batch_execute(ttype, items)
 
         self._transitions_written.inc(len(batch))
         self._batch_latency.observe(time.perf_counter() - t0)
