@@ -43,13 +43,13 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 # to avoid top-level production import of archived module.
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
-    TF_SECONDS,
     min_bars_for_tf,
     normalize_session_type,
     should_skip_plugin,
 )
 from src.core.state_serializer import _ensure_default_models_registered, _tag_value, _untag_value
 from src.core.stream_keys import (
+    TF_SECONDS,
     message_key,
     topic_cross_asset,
     topic_intelligence,
@@ -111,6 +111,7 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
+    INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     PLUGIN_DURATION_MS,
     PLUGIN_ERRORS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
@@ -1533,14 +1534,35 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["market_price_at_signal"] = close_price
             sig["market_entry_price"] = close_price
 
+        # Phase 81 D-01: Publisher-side normalization. Consumers no longer infer.
+        bar_ts = bar.ts  # tz-aware UTC datetime; never ""
+        computed_at = datetime.now(UTC)
+        tf_secs = TF_SECONDS.get(tf, 60)
+        try:
+            is_backfill = (computed_at - bar_ts).total_seconds() > tf_secs
+        except Exception:
+            # bar_ts/computed_at must be tz-aware UTC datetimes; if not, default to live
+            is_backfill = False
+        for sig in ranked:
+            sig["timestamp"] = bar_ts  # bar_ts is tz-aware UTC; never ""
+            sig["is_backfill"] = is_backfill
+            # ttl_bars and signal_schema_version come from make_signal_from_frame();
+            # apply defensive defaults if a plugin returned a stripped dict.
+            sig.setdefault("ttl_bars", 10)
+            sig.setdefault("signal_schema_version", "v1")
+        if is_backfill and ranked:
+            INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.labels(symbol=symbol, timeframe=tf).inc(
+                len(ranked)
+            )
+
         self._enqueue(
             topic_intelligence_i7_signals(self.settings.env_name),
             message_key(symbol, tf),
             {
                 "symbol": symbol,
                 "tf": tf,
-                "bar_ts": bar.ts.isoformat(),
-                "computed_at": datetime.now(UTC).isoformat(),
+                "bar_ts": bar_ts.isoformat(),
+                "computed_at": computed_at.isoformat(),
                 "signals": ranked,
             },
         )
