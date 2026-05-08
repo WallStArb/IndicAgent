@@ -27,3 +27,46 @@ groups:
           severity: warning
         annotations:
           summary: "Consumer lag > 1000 records for {{ $labels.agent_id }}"
+
+  - name: phase81-signal-lifecycle
+    interval: 1m
+    rules:
+      - alert: P81_SignalTrackerInvalidSignals
+        expr: increase(signal_tracker_invalid_signal_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: page
+          phase: "81"
+        annotations:
+          summary: "signal_tracker rejecting signals (publisher contract violation)"
+          description: "_load_signal() rejected {{ $value }} signals in last 5m. Reason label indicates which field. Publisher must guarantee timestamp/symbol/timeframe/entry_price/stop_loss."
+
+      - alert: P81_SignalReplayOhlcvGap
+        expr: increase(signal_replay_ohlcv_gap_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: page
+          phase: "81"
+        annotations:
+          summary: "signal_replay_auditor finding signals with no OHLCV data in window"
+          description: "{{ $value }} replay attempts had zero matching bars in market_data_ohlcv. Data integrity issue in OHLCV pipeline."
+
+      - alert: P81_SignalReplayUnresolvedGrowing
+        expr: deriv(signal_replay_unresolved_gauge[15m]) > 0
+        for: 10m
+        labels:
+          severity: page
+          phase: "81"
+        annotations:
+          summary: "signal_replay_unresolved_gauge growing across 2+ cycles (replay auditor stuck)"
+          description: "Unresolved v1 signals trending upward. North star invariant violated. Investigate signal_replay_auditor logs."
+
+      - alert: P81_LifecycleWriterIdempotentSkipHigh
+        expr: increase(lifecycle_writer_idempotent_skip_total[1h]) > 100
+        for: 5m
+        labels:
+          severity: warn
+          phase: "81"
+        annotations:
+          summary: "lifecycle_writer idempotency guard firing frequently (>100/hour)"
+          description: "Two-path collision rate elevated. Investigate whether live tracker and replay auditor are racing on the same signals."

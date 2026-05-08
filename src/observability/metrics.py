@@ -705,3 +705,13 @@ LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL = Counter(
     "lifecycle_writer_idempotent_skip_total",
     "EXIT writes blocked by idempotency guard (WHERE exit_at IS NULL); validates two-path safety",
 )
+
+# ---------------------------------------------------------------------------
+# Signal ledger quality KPI (Phase 81 — Plan 06)
+# Updated periodically by SignalMetricsComputeAgent from signal_ledger query.
+# ---------------------------------------------------------------------------
+
+SIGNAL_LEDGER_BACKFILL_RATIO = Gauge(
+    "signal_ledger_backfill_ratio",
+    "Fraction of signal_ledger rows last 24h with is_backfill=TRUE (training set quality KPI)",
+)
