@@ -228,16 +228,12 @@ def evaluate_signal(
         pnl_ticks = (exit_price - entry) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
         pnl_dollars = round(pnl_ticks * point_value, 2)
-        # D-02: Check activated_at as source of truth, not just in-memory status.
-        # After tracker restart, in-memory status resets to PENDING even though
-        # activated_at was persisted to DB. Use activated_at to determine real state.
         activated_at = signal.get("activated_at")
-        was_activated = status == SignalStatus.ACTIVE or (
-            activated_at is not None and status == SignalStatus.PENDING
-        )
-        # D-06: Detect and count labeling violations
+        # Phase 81: D-02 violation should now be impossible. Counter retained as
+        # assertion. Do NOT auto-correct — surface the bug instead.
         if activated_at is not None and status == SignalStatus.PENDING:
             _LABELING_VIOLATIONS.inc()
+        was_activated = status == SignalStatus.ACTIVE
         if not was_activated:
             outcome = SignalOutcome.NEVER_ACTIVATED
         elif current_mfe > 0:
