@@ -48,7 +48,11 @@ from src.intelligence.trading.lifecycle_transitions import (
     TransitionType,
     to_dict,
 )
-from src.observability.metrics import counter, gauge
+from src.observability.metrics import (
+    SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL,
+    counter,
+    gauge,
+)
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 logger = structlog.get_logger(__name__)
@@ -265,6 +269,79 @@ class SignalTrackerComputeAgent(BaseAgent):
     def _get_signals_for_bar(self, symbol: str, timeframe: str) -> list[dict]:
         """Return only signals matching this bar's timeframe."""
         return list(self._active_index.get((symbol, timeframe), []))
+
+    # ------------------------------------------------------------------
+    # Canonical signal intake
+    # ------------------------------------------------------------------
+
+    def _load_signal(self, raw: dict) -> dict | None:
+        """Canonical signal intake. Returns normalized dict or None (-> DLQ).
+
+        Both the Kafka consumer path and the bootstrap DB-SELECT path route
+        through this function. Output is a single dict shape — downstream
+        code never branches on source.
+
+        Hard rejects (return None + counter increment):
+            - signal_id missing
+            - symbol or timeframe empty
+            - timestamp is None, "", or not a tz-aware datetime
+            - entry_price or stop_loss missing
+        """
+
+        def _reject(reason: str) -> None:
+            SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(reason=reason).inc()
+            self.logger.warning("signal_rejected", reason=reason, signal_id=raw.get("signal_id"))
+            return None
+
+        sid = raw.get("signal_id")
+        if not sid:
+            return _reject("missing_signal_id")
+
+        symbol = raw.get("symbol") or ""
+        tf = raw.get("timeframe") or raw.get("tf") or ""
+        if not symbol or not tf:
+            return _reject("missing_symbol_or_timeframe")
+
+        ts = raw.get("timestamp")
+        if ts is None or ts == "":
+            return _reject("empty_timestamp")
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return _reject("malformed_timestamp")
+        if not isinstance(ts, datetime):
+            return _reject("invalid_timestamp_type")
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+
+        entry_price = raw.get("entry_price")
+        stop_loss = raw.get("stop_loss")
+        if entry_price is None or stop_loss is None:
+            return _reject("missing_entry_or_stop")
+
+        # Optional / defaulted fields
+        canonical = {
+            "signal_id": str(sid),
+            "symbol": symbol,
+            "timeframe": tf,
+            "timestamp": ts,
+            "entry_price": float(entry_price),
+            "stop_loss": float(stop_loss),
+            "is_backfill": bool(raw.get("is_backfill", False)),
+            "ttl_bars": int(raw.get("ttl_bars", 10)),
+            "signal_schema_version": str(raw.get("signal_schema_version", "v0")),
+            "status": raw.get("status", "pending"),
+            "direction": int(raw.get("direction", 1)),
+            "targets": list(raw.get("targets", []) or []),
+            "entry_zone_low": float(raw.get("entry_zone_low") or entry_price),
+            "entry_zone_high": float(raw.get("entry_zone_high") or entry_price),
+            "market_entry_price": raw.get("market_entry_price"),
+            "activated_at": raw.get("activated_at"),
+            "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
+            "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
+        }
+        return canonical
 
     # ------------------------------------------------------------------
     # Signal ingestion (from i7.signals topic)
