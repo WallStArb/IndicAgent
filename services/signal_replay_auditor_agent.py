@@ -232,6 +232,8 @@ class SignalReplayAuditorAgent:
         current_mae = 0.0
         current_mfe = 0.0
         bars_elapsed = 0
+        bars_in_trade = 0  # tracks bars since activation for stop outcome classification
+        activated = False
 
         for bar in bars:
             state["bars_elapsed"] = bars_elapsed
@@ -249,19 +251,36 @@ class SignalReplayAuditorAgent:
             )
 
             if transition is None:
+                # Update MAE/MFE for active signals so TTL outcomes are labeled correctly.
+                # This must be in the transition=None branch (active signal, no exit this bar).
+                if state.get("status") == SignalStatus.ACTIVE:
+                    _entry = float(state["entry_price"])
+                    _stop = float(state["stop_loss"])
+                    _risk = abs(_entry - _stop)
+                    if _risk > 0:
+                        _pnl_r = (float(bar["close"]) - _entry) * int(state["direction"]) / _risk
+                        current_mae = min(current_mae, _pnl_r)
+                        current_mfe = max(current_mfe, _pnl_r)
+                    bars_in_trade += 1
                 bars_elapsed += 1
                 continue
 
             if transition.new_status == SignalStatus.ACTIVE:
                 # Activation — update state and continue
                 state["status"] = SignalStatus.ACTIVE
+                activated = True
                 if transition.activation_price is not None:
                     state["entry_price"] = transition.activation_price
                 bars_elapsed += 1
                 continue
 
-            # Terminal transition
-            if transition.new_status == SignalStatus.EXPIRED:
+            # Terminal transition — any exit_reason is terminal (mirrors live tracker logic).
+            # Note: target hits use new_status="target_N_hit", NOT SignalStatus.EXPIRED,
+            # so checking exit_reason (not new_status) is the correct gate.
+            if transition.exit_reason is not None:
+                # Populate bars_in_trade on the transition for stop outcome classification.
+                if transition.bars_in_trade is None and activated:
+                    transition.bars_in_trade = bars_in_trade
                 return self._build_exit_transition(signal_dict, transition, bar_ts)
 
             bars_elapsed += 1
@@ -315,9 +334,9 @@ class SignalReplayAuditorAgent:
 
             outcome = mt.outcome
             if outcome is None:
-                outcome = str(_classify_stop_outcome(current_mfe, bars_in_trade))
+                outcome = _classify_stop_outcome(current_mfe, bars_in_trade).value
             else:
-                outcome = str(outcome)
+                outcome = outcome.value if hasattr(outcome, "value") else str(outcome)
 
             lt = LifecycleTransition(
                 transition_type=TransitionType.MARKET_RESOLUTION,
@@ -348,7 +367,21 @@ class SignalReplayAuditorAgent:
         bar_ts: datetime,
     ) -> LifecycleTransition:
         """Build an EXIT LifecycleTransition from a Transition object."""
-        outcome = str(t.outcome) if t.outcome is not None else None
+        if t.outcome is not None:
+            outcome = t.outcome.value if hasattr(t.outcome, "value") else str(t.outcome)
+        elif t.exit_reason == "stop_loss":
+            # Stop outcome requires bars_in_trade context — classify from mfe.
+            # bars_in_trade is unavailable in replay (not tracked), so we use
+            # a conservative heuristic: if mfe > 0.05, classify as stopped_in_trade.
+            from src.intelligence.trading.lifecycle_tracker import _classify_stop_outcome
+
+            stop_outcome = _classify_stop_outcome(
+                current_mfe=float(t.mfe or 0.0),
+                bars_in_trade_count=t.bars_in_trade,
+            )
+            outcome = stop_outcome.value if hasattr(stop_outcome, "value") else str(stop_outcome)
+        else:
+            outcome = None
         return LifecycleTransition(
             transition_type=TransitionType.EXIT,
             signal_id=signal_dict["signal_id"],
@@ -356,7 +389,9 @@ class SignalReplayAuditorAgent:
             timeframe=signal_dict.get("timeframe", ""),
             bar_ts=bar_ts,
             data={
-                "status": str(t.new_status),
+                "status": (
+                    t.new_status.value if hasattr(t.new_status, "value") else str(t.new_status)
+                ),
                 "exit_at": bar_ts.isoformat(),
                 "exit_price": t.exit_price,
                 "exit_reason": t.exit_reason,
