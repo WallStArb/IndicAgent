@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re as _re
 import time
 import types
 from enum import Enum
@@ -177,13 +178,11 @@ def render_full_context(ctx: AIContext) -> str:
             continue
         if not isinstance(value, BaseModel):
             continue
-        tier_dict = value.model_dump()
+        tier_dict = value.model_dump(exclude_none=True)
         if not tier_dict:
             continue
         tier_lines: list[str] = []
         for k, v in sorted(tier_dict.items()):
-            if v is None:
-                continue
             if isinstance(v, float):
                 tier_lines.append(f"- {k}: {v:.6g}")
             else:
@@ -284,56 +283,58 @@ class AIContextCache:
             )
 
         # I7 context — QuantSignalContext (signal-specific, not pipeline output)
-        # Accepts both dict (dispatch passes signal.model_dump()) and object inputs.
         i7_ctx = None
         if Tier.I7 in tiers_needed and signal is not None:
-            if isinstance(signal, dict):
-                i7_ctx = QuantSignalContext(
-                    winner_plugin=signal.get("plugin") or signal.get("setup_plugin"),
-                    winner_direction=signal.get("direction"),
-                    winner_confidence=signal.get("calibrated_confidence")
-                    or signal.get("confidence"),
-                    entry_price=signal.get("entry_price"),
-                    stop_price=signal.get("stop_loss"),
-                    target_prices=signal.get("targets"),
-                    entry_type=signal.get("entry_type"),
-                    stop_type=signal.get("stop_type"),
-                    target_types=signal.get("target_types"),
-                    risk_reward_ratio=signal.get("risk_reward_ratio"),
-                    confluence_score=signal.get("confluence_score"),
-                    regime_eligible=signal.get("regime_eligible"),
-                    quality_score=signal.get("quality_score")
-                    or signal.get("pre_quality_confidence"),
-                    adjusted_rank=signal.get("adjusted_rank"),
-                    co_fire_count=signal.get("co_fire_count"),
-                    co_fire_partners=signal.get("co_fire_partners"),
-                    zone_low=signal.get("zone_low"),
-                    zone_high=signal.get("zone_high"),
-                )
-            else:
-                i7_ctx = QuantSignalContext(
-                    winner_plugin=getattr(signal, "plugin", None)
-                    or getattr(signal, "setup_plugin", None),
-                    winner_direction=getattr(signal, "direction", None),
-                    winner_confidence=getattr(signal, "calibrated_confidence", None)
-                    or getattr(signal, "confidence", None),
-                    entry_price=getattr(signal, "entry_price", None),
-                    stop_price=getattr(signal, "stop_loss", None),
-                    target_prices=getattr(signal, "targets", None),
-                    entry_type=getattr(signal, "entry_type", None),
-                    stop_type=getattr(signal, "stop_type", None),
-                    target_types=getattr(signal, "target_types", None),
-                    risk_reward_ratio=getattr(signal, "risk_reward_ratio", None),
-                    confluence_score=getattr(signal, "confluence_score", None),
-                    regime_eligible=getattr(signal, "regime_eligible", None),
-                    quality_score=getattr(signal, "quality_score", None)
-                    or getattr(signal, "pre_quality_confidence", None),
-                    adjusted_rank=getattr(signal, "adjusted_rank", None),
-                    co_fire_count=getattr(signal, "co_fire_count", None),
-                    co_fire_partners=getattr(signal, "co_fire_partners", None),
-                    zone_low=getattr(signal, "zone_low", None),
-                    zone_high=getattr(signal, "zone_high", None),
-                )
+            s = (
+                signal
+                if isinstance(signal, dict)
+                else {
+                    k: getattr(signal, k, None)
+                    for k in (
+                        "plugin",
+                        "setup_plugin",
+                        "direction",
+                        "calibrated_confidence",
+                        "confidence",
+                        "entry_price",
+                        "stop_loss",
+                        "targets",
+                        "entry_type",
+                        "stop_type",
+                        "target_types",
+                        "risk_reward_ratio",
+                        "confluence_score",
+                        "regime_eligible",
+                        "quality_score",
+                        "pre_quality_confidence",
+                        "adjusted_rank",
+                        "co_fire_count",
+                        "co_fire_partners",
+                        "zone_low",
+                        "zone_high",
+                    )
+                }
+            )
+            i7_ctx = QuantSignalContext(
+                winner_plugin=s.get("plugin") or s.get("setup_plugin"),
+                winner_direction=s.get("direction"),
+                winner_confidence=s.get("calibrated_confidence") or s.get("confidence"),
+                entry_price=s.get("entry_price"),
+                stop_price=s.get("stop_loss"),
+                target_prices=s.get("targets"),
+                entry_type=s.get("entry_type"),
+                stop_type=s.get("stop_type"),
+                target_types=s.get("target_types"),
+                risk_reward_ratio=s.get("risk_reward_ratio"),
+                confluence_score=s.get("confluence_score"),
+                regime_eligible=s.get("regime_eligible"),
+                quality_score=s.get("quality_score") or s.get("pre_quality_confidence"),
+                adjusted_rank=s.get("adjusted_rank"),
+                co_fire_count=s.get("co_fire_count"),
+                co_fire_partners=s.get("co_fire_partners"),
+                zone_low=s.get("zone_low"),
+                zone_high=s.get("zone_high"),
+            )
 
         # Pipeline tiers — direct pass-through (D-13). None-safe by Pydantic.
         return AIContext(
@@ -372,11 +373,10 @@ class AIContextCache:
         Returns:
             AIContext for lead instrument if found and not stale, None otherwise
         """
-        import re
 
         def _extract_base(sym: str) -> str:
             """Extract base symbol from futures contract."""
-            match = re.match(r"^([A-Z]+)", sym)
+            match = _re.match(r"^([A-Z]+)", sym)
             return match.group(1) if match else sym
 
         base = _extract_base(symbol)
