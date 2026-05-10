@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 
 ## Overview
 
@@ -181,8 +181,20 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Topics:**
   - `narratives` (keyed `SYMBOL:TF`) — per-signal narrative
   - `narratives.group` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
-- **LLM Chain:** OpenRouter (primary, free models) → Ollama gemma4:e4b (offline fallback)
+- **LLM Chain:** OpenRouter (primary) → DeepSeek (low-cost) → Ollama Cloud → Ollama Local (gemma4:e4b, offline). Independent per-provider circuit breakers: 3 failures → open 5 min (remote), 5 failures → open 1 min (local).
 - **Audit:** Every LLM call published to `llm.calls` → `indicagent-llm-writer` persists to `llm_calls` hypertable
+- **Lineage:** `LineageRecorder` tracks prompt version, model, inputs, outputs, and timing per call
+
+### **AI Swarm Overlay (Phase 80)**
+
+Beyond I8 narratives, the AI layer includes a swarm of specialist agents that evaluate signal quality:
+
+- **Service:** `AlphaSwarmComputeAgent` dispatches 4 specialist agents per signal
+- **Agents:** Skeptic (counterfactual challenge), Correlation (independence check), RegimeCoherence (regime consistency), Counterfactual (historical pattern)
+- **Output:** `swarm_multiplier` (range-clamped `[0.0, 2.0]`) applied to `adjusted_confidence`
+- **Weight learning:** Per-agent Spearman correlation with signal outcomes, 30-day rolling window
+- **Shadow governance:** All agents start in shadow mode; promotion gated by statistical significance
+- **See:** [Swarm Intelligence](swarm-intelligence.md)
 
 ---
 

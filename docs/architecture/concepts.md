@@ -1,7 +1,7 @@
 # High-Level Architecture Concepts
 
 **Status:** current
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 
 > Conceptual overview of the *mechanisms* behind the IndicAgent architecture. **North Star rules** are in `principles.md`. **Layer-by-layer service map** is in `layered-architecture.md`. This doc explains the *how* — the design patterns and their consequences.
 
@@ -71,7 +71,7 @@ ComputeAgent → Kafka topic → WriterAgent → TimescaleDB
 
 WriterAgents use a **Convergence Gate** (`StreamMerger`) to merge events from multiple upstream sources before writing. This guarantees atomic batch INSERTs: all fields from all contributing compute agents land in the same DB row in a single commit. A Kafka offset commit only advances after the DB write succeeds, so a crash mid-write replays from the last committed offset rather than silently dropping data.
 
-**Active WriterAgents:** `FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`, `BarWriterAgent`, `SwarmWriterAgent`
+**Active WriterAgents:** `FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`, `BarWriterAgent`, `LineageWriterAgent`
 
 ---
 
@@ -181,22 +181,26 @@ Path B (probabilistic):  SwarmOrchestratorAgent → specialist agents
 
 Path A produces signals immediately and unconditionally. Path B runs out-of-band and never blocks signal execution. Path B multipliers adjust position sizing only after clearing the shadow gate (ρ > 0.4 correlation to realized PnL, p < 0.05, 14-day minimum).
 
-### Intelligence Swarm (Path B)
+### Intelligence Swarm (Path B) — Phase 80
 
-Nine specialist agents quantify distinct dimensions of market friction:
+Four specialist agents quantify distinct dimensions of market quality, each built on `BaseAIAgent` and dispatched by `AlphaSwarmComputeAgent`:
 
-| Group | Agents |
-|-------|--------|
-| Regime & Entropy | Regime Sentinel (latent manifold RTP), Volatility Arbiter |
-| SMC & Structural Liquidity | Liquidity Decay Arbiter, SMC Validator, Liquidity Sweep Hunter |
-| Cross-Asset & Macro | Correlation Contagion Agent, Macro Event Observer |
-| Model & System Integrity | Execution Quality Observer, SkepticAgent (counterfactual) |
+| Agent | Analytical Dimension |
+|-------|---------------------|
+| `SkepticAgent` | Counterfactual challenge — argues against every signal |
+| `CorrelationAgent` | Cross-asset dependency — checks signal independence |
+| `RegimeCoherenceAgent` | Regime consistency — does the signal match the current regime? |
+| `CounterfactualAgent` | Historical pattern — would similar setups have paid off? |
 
-Each agent outputs an `AlphaMultiplier` vector. The `SafeSwarmWrapper` range-clamps the final composite multiplier to `[0.0, 2.0]` and defaults to `1.0` on any schema violation. Full design: `docs/ideas/intelligence-swarm-manifest.md`.
+Each agent receives the full signal context via `AIContext` (typed tier data), produces an `AgentOutput` with a multiplier, and is tracked by `LineageRecorder` for full reproducibility.
 
-**Mixture of Agents (MoA) composition:** Each specialist agent operates on an independent information dimension — regime entropy, LOB friction, cross-asset correlation, counterfactual failure probability, etc. Independence is a design requirement: agents that share inputs would produce correlated outputs and false confidence in the composite. The `SwarmOrchestratorAgent` combines their outputs weighted by each agent's shadow-validated ρ score. A schema violation or timeout from any individual agent defaults that agent's contribution to `1.0` (neutral) — a malfunctioning agent degrades gracefully rather than corrupting the composite or blocking execution.
+**Mixture of Agents (MoA) composition:** The `AlphaSwarmComputeAgent` combines specialist outputs using per-agent weights learned from 30-day rolling Spearman correlation with signal outcomes. Weights adapt automatically — agents that produce useful analysis get more influence; agents that don't get demoted. A schema violation or timeout from any agent defaults to `1.0` (neutral) — a malfunctioning agent degrades gracefully.
 
-**Current state (v2.3):** `SwarmOrchestratorAgent` + `SwarmWriterAgent` plumbing is live. Specialist agents (SkepticAgent first) are planned for Phase 66+.
+**Multi-provider LLM chain:** Agents are not bound to a single LLM. The chain runs: OpenRouter → DeepSeek → Ollama Cloud → Ollama Local, with independent per-provider circuit breakers (3 failures → open 5 minutes for remote, 5 failures → open 1 minute for local). No single model or vendor is a dependency.
+
+**Shadow governance:** All swarm agents auto-enroll in shadow mode at startup. Promotion requires `signal_schema_version = 'v1'` and statistically significant weight learning. → [Swarm Intelligence](swarm-intelligence.md)
+
+**Current state (v2.5):** All 4 alpha agents implemented and running in shadow. Weight learning active. Graduation loop operational.
 
 ### ML Pipeline (Path A quality layer)
 
