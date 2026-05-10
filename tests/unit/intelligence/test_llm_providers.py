@@ -20,6 +20,7 @@ from src.core.llm.providers import (
     OpenRouterProvider,
     _call_llm_with_circuit_breaker,
     _llm_circuit_breaker,
+    _ollama_circuit_breaker,
 )
 
 # ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ class TestOllamaProvider:
     @pytest.mark.asyncio
     async def test_generate_success(self):
         """generate() returns message content on success."""
-        _llm_circuit_breaker.plugin_states.clear()
+        _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
         mock_resp = MagicMock()
@@ -206,7 +207,7 @@ class TestOllamaProvider:
     @pytest.mark.asyncio
     async def test_generate_failure_returns_none(self):
         """generate() returns None on network exception."""
-        _llm_circuit_breaker.plugin_states.clear()
+        _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
         with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
@@ -216,14 +217,14 @@ class TestOllamaProvider:
 
     @pytest.mark.asyncio
     async def test_failure_tracked_in_circuit_breaker(self):
-        """Failure increments failure_count for this provider_id."""
-        _llm_circuit_breaker.plugin_states.clear()
+        """Failure increments failure_count in the ollama-specific circuit breaker."""
+        _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
         with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
             await provider.generate("prompt", "system", 100, 30.0)
 
-        state = _llm_circuit_breaker.plugin_states[provider.provider_id]
+        state = _ollama_circuit_breaker.plugin_states[provider.provider_id]
         assert state.failure_count >= 1
 
 
