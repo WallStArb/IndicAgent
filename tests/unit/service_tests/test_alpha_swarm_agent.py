@@ -206,8 +206,8 @@ async def test_record_swarm_result_segment_key_numeric():
 
 
 @pytest.mark.asyncio
-async def test_record_swarm_result_missing_hmm_regime_skips():
-    """If hmm_regime is None, _record_swarm_result must log warning and skip."""
+async def test_record_swarm_result_missing_hmm_regime_uses_sentinel():
+    """If hmm_regime is None, _record_swarm_result must use 'unknown.{tf}' sentinel key."""
     agent, fake_producer = _make_agent(hmm_regime=1)
 
     smc_ctx = SMCContext(hmm_regime=None)
@@ -228,12 +228,12 @@ async def test_record_swarm_result_missing_hmm_regime_skips():
     await agent._record_swarm_result(signal_id, enriched, mock_agent, result)
     await agent._lineage.flush()
 
-    # Should not have published anything
-    assert not fake_producer.publish.called, "LineageRecorder published despite missing hmm_regime"
-    # Logger should have been called with missing_hmm_regime warning
-    assert (
-        agent.logger.warning.called or agent.logger.warn.called
-    ), "No warning logged for missing hmm_regime"
+    # Should publish with sentinel segment_key (never drops lineage data)
+    assert fake_producer.publish.called, "LineageRecorder should publish with sentinel key"
+    call_args = fake_producer.publish.call_args
+    row = call_args[1].get("msg") or (call_args[0][1] if len(call_args[0]) > 1 else None)
+    segment_key = row.get("metadata", {}).get("segment_key") or row.get("segment_key", "")
+    assert segment_key == "unknown.5m", f"Expected sentinel 'unknown.5m', got {segment_key!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -486,21 +486,21 @@ def test_swarm_agents_are_four_typed_agents():
     ), "BaseMultiplierAgent not imported in alpha_swarm_agent"
 
 
-def test_swarm_agent_to_transform_has_only_skeptic():
-    """_SWARM_AGENT_TO_TRANSFORM must map exactly one key: 'skeptic_v1'."""
+def test_swarm_agent_to_transform_has_all_agents():
+    """_SWARM_AGENT_TO_TRANSFORM must map all four Phase 80 multiplier agents."""
     import services.alpha_swarm_agent as m
 
     assert hasattr(
         m, "_SWARM_AGENT_TO_TRANSFORM"
     ), "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
     mapping = m._SWARM_AGENT_TO_TRANSFORM
-    assert set(mapping.keys()) == {
-        "skeptic_v1"
-    }, f"_SWARM_AGENT_TO_TRANSFORM has unexpected keys: {set(mapping.keys())}"
-    assert mapping["skeptic_v1"] == (
-        "swarm_skeptic",
-        6,
-    ), f"Unexpected value for skeptic_v1: {mapping['skeptic_v1']}"
+    expected = {
+        "skeptic_v1": ("swarm_skeptic", 6),
+        "correlation_v1": ("swarm_correlation", 6),
+        "regime_coherence_v1": ("swarm_regime_coherence", 6),
+        "counterfactual_v1": ("swarm_counterfactual", 6),
+    }
+    assert dict(mapping) == expected, f"Unexpected mapping: {dict(mapping)}"
 
 
 @pytest.mark.asyncio
@@ -602,7 +602,7 @@ def test_compute_final_multiplier_excludes_errors() -> None:
         payload={"multiplier": 0.6},
         shadow_only=True,
     )
-    result, count = agent._compute_final_multiplier(agents_list, [ok, err, ok2], {}, "5m")
+    result, count = agent._compute_final_multiplier(agents_list, [ok, err, ok2], "5m")
     # Default weight 1/3 each but only valid pair used: weighted avg = (0.8+0.6)/2 = 0.7
     import pytest as _pytest
 
@@ -628,7 +628,7 @@ def test_compute_final_multiplier_returns_none_when_all_fail() -> None:
         shadow_only=True,
         error="y",
     )
-    result, count = agent._compute_final_multiplier(agents_list, [err1, err2], {}, "5m")
+    result, count = agent._compute_final_multiplier(agents_list, [err1, err2], "5m")
     assert result is None
     assert count == 0
 
