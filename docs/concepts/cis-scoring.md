@@ -1,6 +1,6 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
@@ -184,6 +184,31 @@ Regime conditioning: weights are loaded for current HMM regime_type ('trending' 
 `IntelligencePipelineComputeAgent` loads weights from `signal_metrics` at startup and refreshes every hour via direct DB query. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
 
 **The two systems compose cleanly:** CIS governs which *direction* has cross-tier confirmation; performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
+
+---
+
+## Signal Confidence Calibration Chain
+
+Before signals reach the aggregator, raw I7 confidence passes through a multi-layer calibration chain:
+
+1. **Isotonic Calibration** — raw confidence values are systematically biased. Isotonic regression maps them to empirically calibrated values using historical outcome data. Raw value stored as `pre_calibration_confidence`; output as `calibrated_confidence`.
+
+2. **Time-of-Day (TOD) Multiplier** — signal quality varies by session and regime. A trend setup at RTH open behaves differently than the same setup at 2pm. Per cell: `(regime_type, timeframe, hour_et)` — 120 cells total, computed from rolling historical win rates.
+
+3. **Performance Multiplier** (`perf_multiplier`) — rolling 30-day Sharpe and win rate per setup per regime. Gate: setups with N < 30 use `perf_multiplier = 1.0` — no effect until statistically proven.
+
+4. **KS Drift Monitor** — Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts, its CIS contribution is penalized proportionally.
+
+5. **CUSUM Monitor** — cumulative sum control charts track win rate per setup. Degradation automatically reduces the performance weight. Recovery restores it.
+
+6. **Shadow Mode Gate** — every new plugin runs in shadow before production. Promotion requires p < 0.05 AND N ≥ 100 resolved signals.
+
+```
+Raw confidence → Isotonic calibration → TOD multiplier → Performance weighting
+               → KS drift penalty → CUSUM degradation → Shadow gate
+```
+
+The swarm overlay (Phase 80) applies after calibration: `adjusted_confidence = calibrated_confidence × swarm_multiplier`, where `swarm_multiplier` is the MoA composite from the alpha swarm agents.
 
 ---
 
