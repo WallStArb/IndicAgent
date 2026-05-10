@@ -430,7 +430,7 @@ class OllamaCloudProvider:
         self.api_key = api_key
         self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"ollama-cloud:{model}"
-        self._circuit_breaker = _ollama_circuit_breaker
+        self._circuit_breaker = _llm_circuit_breaker
 
     async def generate(
         self,

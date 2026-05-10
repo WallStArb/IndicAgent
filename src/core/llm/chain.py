@@ -91,13 +91,13 @@ class LLMProviderChain:
                 DeepSeekProvider(model="deepseek-v4-flash", api_key=settings.deepseek_api_key)
             )
 
-        # 3. Ollama Cloud (free tier only — minimax-m2.7 and gemini-3-flash-preview require paid subscription)
+        # 4. Ollama Cloud (free tier only — minimax-m2.7 and gemini-3-flash-preview require paid subscription)
         if settings.ollama_api_key:
             providers.append(
                 OllamaCloudProvider(model="nemotron-3-super", api_key=settings.ollama_api_key)
             )
 
-        # 3. Ollama Local (fallback)
+        # 5. Ollama Local (fallback)
         providers.append(
             OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
         )
