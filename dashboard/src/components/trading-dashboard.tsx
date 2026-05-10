@@ -199,7 +199,6 @@ export default function TradingDashboard() {
   const [activeProfile, setActiveProfile] = useState(
     symbolConfig.getActiveProfile()
   );
-
   const profiles = useMemo(() => symbolConfig.getAllProfiles(), []);
   const symbols = useMemo(
     () => profiles[activeProfile]?.symbols ?? ["ES", "NQ", "RTY"],
