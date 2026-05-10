@@ -468,14 +468,10 @@ def test_swarm_agents_are_four_typed_agents():
     import services.alpha_swarm_agent as m
 
     # All four Phase 80 agents must be importable from the module
-    assert hasattr(m, "CorrelationAgentComputeAgent"), "CorrelationAgentComputeAgent not in module"
-    assert hasattr(
-        m, "RegimeCoherenceAgentComputeAgent"
-    ), "RegimeCoherenceAgentComputeAgent not in module"
-    assert hasattr(
-        m, "CounterfactualAgentComputeAgent"
-    ), "CounterfactualAgentComputeAgent not in module"
-    assert hasattr(m, "SkepticAgentComputeAgent"), "SkepticAgentComputeAgent not in module"
+    assert hasattr(m, "CorrelationComputeAgent"), "CorrelationComputeAgent not in module"
+    assert hasattr(m, "RegimeCoherenceComputeAgent"), "RegimeCoherenceComputeAgent not in module"
+    assert hasattr(m, "CounterfactualComputeAgent"), "CounterfactualComputeAgent not in module"
+    assert hasattr(m, "SkepticComputeAgent"), "SkepticComputeAgent not in module"
     # VolumeAgentComputeAgent (Phase 74 dead code) must remain absent
     assert not hasattr(
         m, "VolumeAgentComputeAgent"

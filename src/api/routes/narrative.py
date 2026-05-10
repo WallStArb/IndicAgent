@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ...config.settings import Settings
-from ...core.ai.context import AIContext, BarContext, I7Context
+from ...core.ai.context import AIContext, BarContext, QuantSignalContext
 from ...core.ai.context import Tier as _Tier
 from ...core.database_manager import DatabaseManager
 from ...core.llm.chain import LLMProviderChain
@@ -97,13 +97,13 @@ def _build_context_from_row(row) -> AIContext:
         )
 
     targets = row.get("targets") or []
-    i7_ctx = I7Context(
+    i7_ctx = QuantSignalContext(
         winner_plugin=row.get("setup_plugin"),
         winner_direction=row.get("direction"),
         winner_confidence=row.get("confidence"),
         entry_price=row.get("entry_price"),
         stop_price=row.get("stop_loss"),
-        target_price=targets[0] if targets else None,
+        target_prices=targets or None,
         entry_type=row.get("entry_type"),
     )
 

@@ -1,4 +1,4 @@
-"""CorrelationAgentComputeAgent — cross-asset coherence multiplier (Phase 80, D-04)."""
+"""CorrelationComputeAgent — cross-asset coherence multiplier (Phase 80, D-04)."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def _validate_correlation_fields(data: dict) -> dict | None:
     }
 
 
-class CorrelationAgentComputeAgent(BaseMultiplierAgent):
+class CorrelationComputeAgent(BaseMultiplierAgent):
     """Cross-asset coherence — does ZN/VIX/ES/CL behavior support this signal?
 
     Per D-04: multiplier = coherence_score × confidence (discount-only, Phase 80).

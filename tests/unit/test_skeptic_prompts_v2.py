@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
-from src.core.ai.context import AIContext, I7Context, render_full_context
+from src.core.ai.context import AIContext, QuantSignalContext, render_full_context
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
@@ -30,7 +30,7 @@ def _make_ctx(
     i1: I1Indicators | None = None,
     i4: I4Context | None = None,
     i6: I6Confluence | None = None,
-    i7: I7Context | None = None,
+    i7: QuantSignalContext | None = None,
 ) -> AIContext:
     return AIContext(
         symbol=symbol,
@@ -49,23 +49,23 @@ class TestRenderFullContext:
     def test_renders_i1_section_when_present(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
         result = render_full_context(ctx)
-        assert "## i1" in result
+        assert "Quantitative Indicators" in result
 
     def test_renders_rsi_14_field_correctly(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
         result = render_full_context(ctx)
-        assert "- rsi_14: 55.0000" in result
+        assert "- rsi_14: 55" in result
 
-    def test_renders_none_fields_as_null(self) -> None:
+    def test_omits_null_fields(self) -> None:
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0, atr_14=None))
         result = render_full_context(ctx)
-        assert "- atr_14: null" in result
+        assert "atr_14" not in result
 
     def test_skips_i5_section_when_none(self) -> None:
-        """When i5 is None, no ## i5 section appears."""
+        """When i5 is None, no Pattern Recognition section appears."""
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
         result = render_full_context(ctx)
-        assert "## i5" not in result
+        assert "Pattern Recognition" not in result
 
     def test_open_ended_new_tier_automatically_appears(self) -> None:
         """A new BaseModel tier added to AIContext auto-appears with no code change.
@@ -92,8 +92,8 @@ class TestRenderFullContext:
             object.__setattr__(ctx, "synthetic_tier", SyntheticTierModel(fancy_signal=99.0))
             result = render_full_context(ctx)
 
-        assert "## synthetic_tier" in result
-        assert "- fancy_signal: 99.0000" in result
+        assert "## synthetic_tier" in result  # unknown tiers use raw field name
+        assert "- fancy_signal: 99" in result
 
     def test_iteration_uses_model_fields_not_hardcoded_list(self) -> None:
         """The implementation must reference model_fields, not a hardcoded tier list."""
@@ -134,7 +134,7 @@ class TestBuildSkepticPromptV2:
         with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"):
             prompt = build_skeptic_prompt(ctx)
 
-        assert "## i4" in prompt
+        assert "Context & Regime" in prompt
 
     def test_v2_raises_type_error_on_dict_input(self) -> None:
         """skeptic_v2 must reject dict input (was v1 contract)."""

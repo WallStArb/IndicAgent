@@ -1,4 +1,4 @@
-"""skeptic_agent.py -- SkepticAgentComputeAgent (BaseMultiplierAgent subclass).
+"""skeptic_agent.py -- SkepticComputeAgent (BaseMultiplierAgent subclass).
 
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
 No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
@@ -30,7 +30,7 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class SkepticAgentComputeAgent(BaseMultiplierAgent):
+class SkepticComputeAgent(BaseMultiplierAgent):
     """Devil's advocate alpha agent -- predicts signal failure probability.
 
     Per D-03: extends BaseMultiplierAgent, declares output_schema ClassVar.
@@ -52,7 +52,7 @@ class SkepticAgentComputeAgent(BaseMultiplierAgent):
     shadow_only = False  # live agent — not in shadow mode
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="SkepticAgentComputeAgent", **kwargs)
+        super().__init__(name="SkepticComputeAgent", **kwargs)
         self._llm = llm_chain
 
     async def _compute(self, context: AIContext) -> AgentOutput:

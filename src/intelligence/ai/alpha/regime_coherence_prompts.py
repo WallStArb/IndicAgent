@@ -1,4 +1,4 @@
-"""regime_coherence_prompts.py -- versioned prompt registry for RegimeCoherenceAgentComputeAgent.
+"""regime_coherence_prompts.py -- versioned prompt registry for RegimeCoherenceComputeAgent.
 
 Per D-05: regime_coherence_v1 assesses whether the I7 winner setup TYPE is appropriate
 for the current HMM regime + trend regime.

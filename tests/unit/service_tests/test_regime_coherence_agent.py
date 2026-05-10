@@ -1,4 +1,4 @@
-"""Unit tests for RegimeCoherenceAgentComputeAgent and _validate_regime_coherence_fields."""
+"""Unit tests for RegimeCoherenceComputeAgent and _validate_regime_coherence_fields."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 
 from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.regime_coherence_agent import (
-    RegimeCoherenceAgentComputeAgent,
+    RegimeCoherenceComputeAgent,
     _validate_regime_coherence_fields,
 )
 
@@ -102,13 +102,13 @@ def test_validator_coerces_list_elements_to_str() -> None:
 
 def test_class_attributes() -> None:
     """Verify mandatory class attributes."""
-    assert RegimeCoherenceAgentComputeAgent.agent_id == "regime_coherence_v1"
-    assert RegimeCoherenceAgentComputeAgent.shadow_only is True
-    assert Tier.I4 in RegimeCoherenceAgentComputeAgent.tiers_needed
-    assert Tier.I7 in RegimeCoherenceAgentComputeAgent.tiers_needed
-    assert Tier.SMC in RegimeCoherenceAgentComputeAgent.tiers_needed
-    assert RegimeCoherenceAgentComputeAgent.latency_budget_ms == 5000.0
-    assert RegimeCoherenceAgentComputeAgent.group == "alpha"
+    assert RegimeCoherenceComputeAgent.agent_id == "regime_coherence_v1"
+    assert RegimeCoherenceComputeAgent.shadow_only is True
+    assert Tier.I4 in RegimeCoherenceComputeAgent.tiers_needed
+    assert Tier.I7 in RegimeCoherenceComputeAgent.tiers_needed
+    assert Tier.SMC in RegimeCoherenceComputeAgent.tiers_needed
+    assert RegimeCoherenceComputeAgent.latency_budget_ms == 5000.0
+    assert RegimeCoherenceComputeAgent.group == "alpha"
 
 
 # ---------------------------------------------------------------------------
