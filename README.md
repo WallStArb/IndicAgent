@@ -1,128 +1,92 @@
-# IndicAgent Market Intelligence Platform
+# IndicAgent — Composable Market Intelligence Platform
 
-**v2.5 · 128 plugins · 60 instruments · <10ms end-to-end**
+**AI-first · API-first · Self-improving · Provider-agnostic**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
 ---
 
-**IndicAgent is a high-frequency, institutional-grade market intelligence platform** that transforms raw market data into evidence-graded trading signals through event-driven microservices, dependency-aware DAG orchestration, and sub-millisecond hot-path isolation.
+IndicAgent is a composable, AI-first market intelligence platform where multiple analysis domains feed multiple application agents — all connected through a unified streaming data bus.
 
-## Core Architectural Concepts
+The platform is built on one architectural bet: that intelligence, execution, and risk should be independent subscribers to a shared event stream — not coupled services calling each other. Every component is a microservice. Every interaction is an event. Every output is an API. New domains and new agents attach by subscribing and publishing — nothing already running changes.
 
-### Plugin-Native Architecture
-The system is an empty shell - intelligence is composed entirely of plugins. Add capabilities via single `@dataclass` without changing pipeline logic. 128 plugins across 8 intelligence tiers (I1-I8), each with `compute_next()` for $O(1)$ incremental updates.
+**Multiple intelligence domains, one data spine:**
 
-### Event-Driven Microservices
-Services never call each other directly. All communication flows through Redpanda streams - producers publish, consumers subscribe. A service going down? Messages queue. Restart? Resume from committed offset. Zero coupling, restart-safe, horizontally scalable.
+| Domain | Status | Scope |
+|--------|--------|-------|
+| **Quantitative** | In production | 8 tiers from raw indicators through regime classification to trading signals and AI synthesis |
+| **Fundamental** | Designed | Earnings, macro data, COT positioning, sector rotation |
+| **Qualitative** | Designed | News NLP, sentiment, prediction markets, macro regime narrative |
+| **Derivatives** | Designed | Vol surface, gamma exposure, skew, options flow |
 
-### DAG Orchestration
-Plugin dependencies are declared once - execution order is derived automatically via topological sort. Circular dependencies detected at startup (hard crash). No execution order files to maintain.
+Each domain is an independent analysis engine that subscribes to market data streams and publishes its own intelligence events. They don't depend on each other to function. Downstream application agents — trade execution, portfolio management, risk management — consume from whichever domains they need, the same way: by subscribing to the bus.
 
-### Hot/Warm/Cold Data Tiers
-```
-Hot (Redpanda)    - Sub-ms tick ingestion, stream fan-out
-Warm (Services)   - <10ms intelligence extraction (I1-I8)
-Cold (TimescaleDB) - Async batch writes, feature store, ML training data
-```
-Real-time pipeline never touches the database directly - persistence is fully asynchronous.
+The quantitative domain runs live on 60 instruments across futures, ETFs, FX, and crypto, transforming raw market data into evidence-graded trading signals in under 10ms. It's been in production since early 2026, accumulating its own labeled training data with every bar.
 
-### Provider-Neutral Data Layer
-Abstracted data source interface enables hot-pluggable broker/data provider support. Stream normalization - all providers emit standardized events to Redpanda. Multi-provider with automatic failover and quality-based routing.
+**The AI layer is independent and non-monolithic.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) with per-provider circuit breakers means no single model or vendor is a dependency. Specialist agents perform analytical tasks — skeptic, correlation, volume analysis — while composite agents perform roles the way a trading desk would. An Evolvable AI (eAI) architecture is designed for agents that don't just learn from data, but evolve through Darwinian selection: mutation, recombination, and fitness-gated promotion, with statistical proof required at every generation.
 
-### Dual-Path ML/AI
-- Path A (Deterministic) - High-performance DAG for real-time signals
-- Path B (LLM Swarm) - Asynchronous agents evaluate market narratives in shadow-mode
-- Automated promotion: shadow models require 14-day correlation validation (p < 0.05) before production
+**What makes this different from a signal pipeline:**
 
-### Evidence-Graded Signals (CIS)
-CIS (Confluence Intelligence Score) requires cross-tier agreement from 3 of 6 evidence buckets. Single dominant bucket cannot override others. Multi-bucket adjudication = institutional-grade signal quality.
-
-### Self-Correcting Pipeline
-KS drift detection + CUSUM performance monitoring automatically discount out-of-distribution signals. System self-adjusts without manual recalibration.
-
-**[High-Level Architecture Concepts](docs/architecture/concepts.md)** - Complete patterns: dynamic clustering, modularity, API-first, multi-agent orchestrator, Renaissance principles
-
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals - regime-classified, institutionally contextualized, AI-narrated, and drift-corrected - in under 10ms. 128 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
-
-Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score) requires cross-tier agreement from at least 3 of 6 independent evidence buckets; regime conflicts veto, and signals lose confidence explicitly as they age. Every winner and every rejected counterfactual lands in the feature store with its full I1–I8 context, ensuring the system accumulates its own high-fidelity labeled training dataset with every bar it processes.
-
-Designed for resilience, reproducibility, and massive scale, our pipeline processes 128 plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
-
-IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
-
----
-
----
-
-## Design Principles
-
-Our platform is built on 8 foundational principles that ensure institutional-grade reliability, modularity, and operational simplicity.
-
-**→ [Read the full Foundational Principles](docs/architecture/principles.md)**
-
-| Principle | Summary |
-| :--- | :--- |
-| **Plugin-Native Shell** | Modular intelligence: the system is an empty container for self-describing plugins. |
-| **Event-Driven Microservices** | No direct service calls; all communication is via durable, replayable Redpanda streams. |
-| **Hot Path Isolation** | Real-time pipelines never touch the DB directly; persistence is fully async. |
-| **Topological Orchestration** | Plugin dependencies are declared; execution order is derived automatically (DAG). |
-| **Incremental-First** | $O(1)$ computation per bar via `compute_next()` for sub-ms execution. |
-| **Data Contracts Over APIs** | Typed schemas (`IntelligenceEvent`) are the only contract; logic is opaque. |
-| **Institutional Rigor** | Evidence-graded signals require multi-bucket (CIS) consensus. |
-| **Self-Correcting Pipeline** | Live drift detection and CUSUM feedback loops ensure continuous integrity. |
+- **Self-improving** — CIS weights auto-refine from signal outcomes. ML models retrain on their own labeled data. Drift detection adjusts feature contributions in real time.
+- **Self-healing** — services auto-restart in DAG order. A bar auditor detects and fills data gaps. A signal replay auditor resolves orphaned lifecycles.
+- **Counterfactual recording** — every ranked candidate is recorded, not just winners. The system preserves the full decision boundary — what CIS selected and what it rejected — creating a training dataset that captures the rejections, not just the outcomes.
+- **Full signal lifecycle** — signals tracked through zone activation to 8-class outcome resolution with MAE and MFE per signal. Portfolio-level risk analytics embedded in signal tracking, not a win/loss tally.
+- **Statistical rigor throughout** — bootstrap confidence intervals for win rates, not point estimates. p < 0.05 promotion gates with minimum N. KS drift detection. CUSUM control charts. The system uses proof, not thresholds.
+- **Provider-agnostic by design** — the intelligence pipeline has zero knowledge of where data comes from. It consumes typed events from the bus. Any real-time source plugs in the same way.
+- **Full lineage and reproducibility** — every AI agent call tracked with prompt version, model, inputs, outputs, and timing. Every signal traces back through every transformation to raw data.
+- **Evolvable** — eAI framework applies natural selection to AI agents. Genome mutation, sexual recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency. Statistical gates at every lifecycle transition.
+- **API-first** — every output immediately available over REST and SSE. Any HTTP client subscribes without pipeline changes.
 
 ---
 
 ## The Unified Data Bus
 
-The central architectural decision: **event-driven microservices over a shared stream. Services never call each other directly.**
+The central architectural decision: **services never call each other directly.** All communication flows through a durable, replayable event stream. Producers publish typed events; consumers subscribe to topics. A service going down means messages queue on the stream. On restart, it resumes from its committed offset — nothing lost, nothing re-requested. No service needs to know any other service exists.
 
-This is what makes the microservices split real rather than cosmetic. In a conventional microservices setup, services still call each other via REST or gRPC - they are decoupled in name but coupled in operation: if service B is down, service A fails. Here, the coupling is eliminated entirely. Services are producers and consumers on a durable event stream. A service going down means messages queue on the stream. When it restarts, it resumes from its committed offset - nothing lost, nothing re-requested. No service needs to know any other service exists.
+This is what makes the microservices split real rather than cosmetic. In a conventional setup, services call each other via REST or gRPC — decoupled in name but coupled in operation. Here, the coupling is eliminated entirely. The bus is the only contract between producers and consumers, and that contract is a typed schema — `IntelligenceEvent`.
 
-The unified data bus is the data spine of the platform - the single structure everything attaches to and everything flows through. Every tick ingested, every indicator computed, every regime classified, every signal fired, every AI narrative generated: all of it moves as messages on the bus. No service calls another. No shared database in the hot path. The bus is the only contract between producers and consumers, and that contract is a typed schema.
+### Hot / Warm / Cold Data Tiers
 
-**Redpanda** (Kafka-compatible) on the hot path - sub-millisecond tick ingestion and stream fan-out to all downstream services. Raw market data enters here; every intelligence service reads from here. No database touches the hot path. Durable, partitioned, replayable logs - consumer groups ensure at-least-once delivery: if a service disconnects, messages queue. On reconnect, it resumes from its committed offset - nothing lost, nothing skipped.
+```
+Hot:  Market Data → Redpanda Streams → Services           (sub-ms ingestion)
+Warm: Services → Intelligence Pipeline (I1–I8)            (<10ms extraction)
+Cold: Writers → TimescaleDB (feature store, signal ledger) (async batch)
+```
 
-### Replay from offset 0
+**Redpanda** (Kafka-compatible) on the hot path — sub-millisecond tick ingestion and stream fan-out to all downstream services. Raw market data enters here; every intelligence service reads from here. No database touches the hot path. Durable, partitioned, replayable logs — consumer groups ensure at-least-once delivery.
 
-The most operationally powerful property of this architecture: **a new consumer gets the full intelligence history on day one.** A trading bot, ML model, alert engine, or downstream product bootstraps by replaying the stream from the beginning. No data migration. No special onboarding. No pipeline changes. The history is already there.
+**The operational superpower: replay from offset 0.** A new consumer — a trading bot, ML model, alert engine, or downstream product — bootstraps by replaying the stream from the beginning. No data migration. No special onboarding. No pipeline changes. The history is already there.
 
-### Zero coupling between services - Separation of Concerns in practice
+### Zero Coupling Between Services
 
-This is Separation of Concerns (SoC) as an architectural invariant, not a coding guideline. Each service has exactly one responsibility:
+Each service has exactly one responsibility:
 
 | Service | Owns |
 |---------|------|
-| TWS Daemon | Data collection from market feed |
-| Intelligence Pipeline | Unified I1–I7 in-process computation - indicators, structure, regime, patterns, SMC, confluence, trading signals |
-| Signal Writer | I7 signal persistence to signal_ledger (all ranked signals) |
+| Data Provider | Bar formation from high-frequency ticks (100–500+ ticks/sec), multi-timeframe aggregation |
+| Intelligence Pipeline | Unified I1–I7 in-process computation — indicators, structure, regime, patterns, SMC, confluence, trading signals |
+| Signal Writer | I7 signal persistence to signal_ledger (all ranked candidates) |
 | Signal Tracker Compute | Zone activation, MAE/MFE, outcome classification (DB-ignorant; publishes LifecycleTransition events) |
 | Lifecycle Writer | Persists LifecycleTransition events to signal_ledger |
-| Signal Metrics Compute | Computes rolling 30d Sharpe/win-rate per setup per regime from signal_ledger |
-| Signal Metrics Writer | Persists signal_metrics; feeds perf_weights back into IntelligencePipelineComputeAgent |
-| Feature Writer | Persistence of intelligence features to TimescaleDB |
+| Signal Metrics Compute | Rolling 30d Sharpe/win-rate per setup per regime |
+| Feature Writer | Intelligence feature persistence to TimescaleDB |
 | LLM Writer | LLM call audit trail with outcome back-fill |
-| AI Narrative | I8 LLM analysis and group synthesis |
 | Alpha Swarm | Routes analytical tasks to specialist swarm agents |
+| AI Narrative | I8 LLM analysis and group synthesis |
 | API | SSE fan-out and REST delivery to clients |
 
-Producers publish. Consumers subscribe. No service knows the others exist.
-
-Restart `intelligence_pipeline_service` to deploy a new plugin: zero effect on `signal_tracker_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
-
 ```
-IBKR TWS ──► [Redpanda topics] ──► intelligence_pipeline_agent (I1–I7, unified in-process)
-                                    ──► signal_writer_agent (signal_ledger persistence)
-                                    ──► feature_writer_agent (intelligence_features)
-                                    ──► ai_narrative_service (I8)
-                                    ──► alpha_swarm_agent (shadow analysis)
-                                    ──► api_service ──► SSE ──► any HTTP client
+Data Source ──► [Redpanda topics] ──► intelligence_pipeline_agent (I1–I7, unified in-process)
+                                       ──► signal_writer_agent (signal_ledger persistence)
+                                       ──► feature_writer_agent (intelligence_features)
+                                       ──► alpha_swarm_agent (shadow analysis)
+                                       ──► ai_narrative_service (I8)
+                                       ──► api_service ──► SSE ──► any HTTP client
 ```
 
 Each arrow is a Redpanda topic. The topics are the API between services.
 
-### Stream keys
+### Stream Keys
 
 Every stream is namespaced and typed:
 
@@ -137,150 +101,106 @@ Every stream is namespaced and typed:
 | `{env}.llm.calls` | Every LLM invocation (success, failure, model used) |
 | `{env}.llm.outcomes` | Signal lifecycle exits with outcome, P&L R, MAE, MFE |
 
----
+### The Service DAG
 
-## The Plugin System
-
-### 128 plugins in a dependency DAG (+ 2 aggregation)
-
-Every output in the pipeline is produced by a plugin. Plugins are stateless workers that read from the typed bus and write back to it. The dependency graph is declared, not hardcoded: each plugin specifies what it reads, and the DAG engine derives execution order automatically at startup using topological sort.
-
-This means:
-- **RSI always completes before RSI Divergence reads it.** Guaranteed by the graph, not by convention.
-- **Circular dependencies are impossible to ship.** The engine detects them at startup and hard-crashes before any live data flows.
-- **Adding a plugin means declaring its inputs.** Ordering is inferred. No execution order file to maintain.
+The service DAG runs in 10 layers. Dependencies are declared, not hardcoded — the execution engine derives order via topological sort at startup. Circular dependencies are detected and hard-crash before any live data flows.
 
 ```
-Raw OHLCV
-  └─► I1 Indicators (27 plugins, no dependencies)
-        └─► I2 Composite Events (depend on I1)
-  └─► I3 Structure (reads OHLCV directly)
-        └─► I4 Context / Regime (reads I3 + OHLCV)
-  └─► I5 Patterns (reads I1 features)
-  └─► I6 SMC + Confluence (reads I1–I5, cross-timeframe)
-        └─► I7 Setups (reads I2–I6, regime-gated)
-              └─► I8 AI Narrative (reads I7 signals)
+L1   data-provider                                    — data ingestion
+L2   provider-merger                                  — stream merge
+L3   bar-aggregator, bar-auditor                      — bar processing
+L4   bar-writer                                       — OHLCV persistence
+L5   intelligence-pipeline, cross-asset, macro-compute — I1–I7 compute + context
+L6   feature-writer, signal-writer, signal-tracker,
+     lifecycle-writer, lineage-writer                  — persistence writers (parallel)
+L7   alpha-swarm, llm-writer                          — AI/LLM layer
+L8   roll-compute, signal-metrics, graduation-writer   — analytics + rolling metrics
+L9   signal-auditor, parity-auditor, alerting-agent    — audit, parity, alerting
+L10  service-auditor                                   — meta: monitors + restarts all above
 ```
 
-### Plugin count by tier
-
-| Tier | Count | Role |
-|------|-------|------|
-| I1 | 27 | Raw technical indicators - RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, OFI, CVD, and 17 more |
-| I2 | 10 | Discrete events derived from I1 - crossovers, threshold crossings, volume surges, momentum acceleration (2 waves) |
-| I3 | 8 | Market structure + MACDEvents - swing detection, S/R zones, Market Profile, Fibonacci, session levels |
-| I4 | 12 | Regime classification - GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, VolumeProfile, AnchoredVWAP, VIXRegime, CrossAssetContext (2 waves) |
-| I5 | 16 | Pattern detection - MTFVolatility, RSI/MACD/CMF divergence, squeeze, chart patterns, trend confluence, key level reactions |
-| I6 SMC | 13 | Smart Money Concepts - BOS/CHoCH, FVG, order blocks, liquidity pools, ICT killzones, AMD cycles, BOCPD (2 waves) |
-| I6 confluence | 6 | Cross-timeframe confluence (SMC synthesis + Phase 64 plugins) |
-| I7 setups | 36 | 36 setup plugins — core 9 + CIS contributors + session/structure + ORB15/30 + volume profile + OFI/CVD microstructure + cross-asset divergence |
-| Aggregation | 2 | CIS scorer + signal aggregator |
-
-### Plugin Validation Layer
-
-Comprehensive validation runs at service startup to ensure system integrity before processing any data.
-
-**Location:** `src/core/plugin_validator.py`
-
-**Validations:**
-
-- Tier list registration - all `TIER_*` plugins must be in registry
-- Required attributes - I7 plugins must have `regime_type` attribute; all plugins need `name`, `outputs`, `inputs`
-- Schema coverage - verifies all plugin outputs are covered by `IntelligenceEvent` schema
-- Orphaned plugins - detects imported plugin modules with missing `.py` files
-- TREND_SETUPS sync - ensures hardcoded trend setups match TIER_I7 plugins with `regime_type="trend"`
-
-**Integration:** Called at startup of `intelligence_pipeline_service` before the service begins processing.
-
-**Error handling:** Raises `RuntimeError` with `sys.exit(1)` if any validation fails, preventing services from starting with misconfigured plugins.
-
-→ [DAG Execution](docs/concepts/dag-execution.md)
+A meta-service at L10 monitors all others, restarts in DAG order, and escalates after repeated failures. Each service is independently deployable, restartable, and observable — systemd-managed with Prometheus lag monitoring.
 
 ---
 
 ## Intelligence Pipeline: I1–I8
 
-
-The pipeline is organized as four layers. Each tier builds on the outputs of the tiers below it - no tier skips a level.
+The quantitative domain processes data through 8 tiers. Each builds on the outputs of the tiers below it — no tier skips a level. A multi-timeframe aggregator rolls 1m bars forward to 5m, 15m, 1h, 4h, and 1d; each timeframe runs the full pipeline independently, giving every signal a multi-timeframe context.
 
 ### Layer 1: Data Foundation
 
-A daemon connects to IBKR TWS and forms **1m bars from high-frequency ticks** (100–500+ ticks/sec). These bar-close events trigger the full I1–I8 pipeline. A multi-timeframe aggregator rolls 1m bars forward to 5m, 15m, 1h, 4h, and 1d - each timeframe runs the full pipeline independently, giving every signal a multi-timeframe context. Real-time tick streams feed price display separately.
+A data provider daemon connects to a real-time market feed and forms 1m bars from high-frequency ticks. Bar-close events trigger the full I1–I8 pipeline. The provider is an implementation detail — the pipeline consumes typed events from the bus, not from any specific broker.
 
 ### Layer 2: Mathematical Intelligence
 
-**I1 - Raw Indicators (27 plugins)**
+**I1 — Raw Indicators**
 
-Incremental computation - each bar updates indicator state without recomputing history. RSI, MACD, Bollinger Bands, ATR, VWAP, Supertrend, Parabolic SAR, Stochastic RSI, Chaikin Money Flow, Aroon, SMA, EMA, OBV, ADX/DI, ROC, Awesome Oscillator, Accelerator Oscillator, Donchian Channels, CCI, Williams %R, MFI, Keltner Channels, Historical Volatility, Chandelier Exit, HMA. Every value published once per bar per symbol per timeframe.
+Incremental computation — each bar updates indicator state without recomputing history. RSI, MACD, Bollinger Bands, ATR, VWAP, Supertrend, Parabolic SAR, Stochastic RSI, Chaikin Money Flow, Aroon, SMA, EMA, OBV, ADX/DI, ROC, Awesome Oscillator, Accelerator Oscillator, Donchian Channels, CCI, Williams %R, MFI, Keltner Channels, Historical Volatility, Chandelier Exit, HMA, OFI, CVD. Every value published once per bar per symbol per timeframe.
 
-**I2 - Composite Events (11 plugins)**
+**I2 — Composite Events**
 
-Discrete events derived from I1 outputs - crossovers, threshold crossings, volume surges. The standout plugins here are second-derivative: **MomentumAcceleration** detects inflection points *before* they complete using rate-of-change on RSI, MACD, and ROC; **ExhaustionScore** composites volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel - a leading indicator for regime transition.
+Discrete events derived from I1 outputs. The standout plugins are second-derivative: **MomentumAcceleration** detects inflection points *before* they complete using rate-of-change on RSI, MACD, and ROC; **ExhaustionScore** composites volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel — a leading indicator for regime transition.
 
-**I3 - Market Structure (7 plugins)**
+**I3 — Market Structure**
 
-Price action context above the indicator level: swing detection, S/R zones, Market Profile (volume distribution → POC, value area), Anchored VWAP, Fibonacci, session levels. **SwingMomentum** links live momentum readings directly to structural swing context - giving I5 divergence plugins a richer foundation to confirm or reject.
+Price action context above the indicator level: swing detection, S/R zones, Market Profile (volume distribution → POC, value area), Anchored VWAP, Fibonacci, session levels. **SwingMomentum** links live momentum readings directly to structural swing context — giving I5 divergence plugins a richer foundation.
 
-**I4 - Regime Classification (11 plugins)**
+**I4 — Regime Classification**
 
-The statistical core. Six models answer distinct questions about market state - see the [regime model stack](#the-regime-model-stack) below for the full breakdown. The two v1.8 additions are the most distinctive:
+The statistical core. Six models answer distinct questions about market state:
 
-- **Hurst Exponent** - quantifies regime *persistence*. H > 0.6 = trending market; H < 0.4 = mean-reverting. Signals running against their persistence class are filtered before reaching I7.
-- **Shannon Entropy** - quantifies market *predictability* from an information-theoretic standpoint. High entropy = noisy, low-conviction environment. Feeds a quality multiplier into CIS ranking that discounts signals generated when the market is least predictable.
+| Model | Question | Output |
+|-------|----------|--------|
+| **GARCH** | Is volatility expanding or contracting? | Volatility regime (low/normal/elevated/extreme) + sigma estimate |
+| **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope — adapts to current signal-to-noise ratio |
+| **HMM** | Which hidden market state is most probable? | Probability *distribution* over 3 states — not just an argmax |
+| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar — detects transitions before HMM confirms |
+| **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class — gates signal direction vs. regime |
+| **Shannon Entropy** | How predictable is the current price series? | Entropy score — feeds CIS quality multiplier |
 
 ### Layer 3: Pattern Intelligence
 
-**I5 - Pattern Detection (15 plugins)**
+**I5 — Pattern Detection**
 
-Discrete pattern recognition on the mathematical foundation: RSI divergence (price and RSI diverging - a leading reversal signal), volatility squeeze (Bollinger Bands inside Keltner Channels - compression that precedes expansion), and completed chart patterns (H&S, double top/bottom, triangles, flags, cup and handle, measured move). All 14 feed directly into I6 confluence scoring.
+Discrete pattern recognition on the mathematical foundation: RSI divergence, volatility squeeze (Bollinger Bands inside Keltner Channels — compression that precedes expansion), chart patterns (H&S, double top/bottom, triangles, flags, cup and handle, measured move). All feed directly into I6 confluence scoring.
 
-**I6 SMC - Smart Money Concepts (13 plugins + 1 confluence aggregator)**
+**I6 — Smart Money Concepts + Confluence**
 
-Institutional order flow analysis - the interpretation of price action as the footprint of large participants. The most analytically significant plugins:
+Institutional order flow analysis — the interpretation of price action as the footprint of large participants:
 
-- **BOS/CHoCH** - Break of Structure (trend continuation confirmed) vs. Change of Character (swing structure broken *against* the trend - the earliest structural reversal signal in the pipeline)
-- **FVG** (Fair Value Gap) - a 3-candle price imbalance where liquidity was left unfilled. Tracked by type, fill status, and freshness; price has a measurable tendency to return and fill them
-- **BOCPD** (Bayesian Online Changepoint Detection) - detects the moment the *statistical properties* of the price series shift, in real time and without hindsight. Unlike HMM which classifies into known states, BOCPD detects the transition event itself - before a new regime is confirmed
-- **Liquidity pools · Order blocks · ICT Killzones · AMD cycles** - complete institutional order flow model; cross-timeframe confluence aggregates all 6 timeframes into a single directional score
+- **BOS/CHoCH** — Break of Structure (trend continuation) vs. Change of Character (swing structure broken *against* the trend — the earliest structural reversal signal)
+- **FVG** (Fair Value Gap) — 3-candle price imbalance where liquidity was left unfilled. Tracked by type, fill status, and freshness
+- **BOCPD** — Bayesian Online Changepoint Detection. Detects the moment statistical properties shift in real time — before HMM confirms a new regime
+- **Liquidity pools · Order blocks · ICT Killzones · AMD cycles** — complete institutional order flow model, aggregated across 6 timeframes into a single directional score
 
-**I7 - Trading Setups (36 plugins + CIS aggregator)**
+**I7 — Trading Setups**
 
-Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic:
+Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic: `TrendFollowing` · `MeanReversion` · `LiquiditySweepReclaim` · `SqueezeExpansion` · `VWAPDeviation` · `FVGFill` · `PatternCompletion` · `DivergenceStack` · `CHoCHReversal` · `OFIContinuation` · `OFIDivergence` · `CVDDivergence` · `CrossAssetDivergence` · `AnchoredVWAPReversion` · `POCRejection` · `ORB15` · `ORB30` · `VCP` — 36 setups in total.
 
-`TrendFollowing` · `MeanReversion` · `LiquiditySweepReclaim` · `MTFAlignment` · `SqueezeExpansion` · `VWAPDeviation` · `MomentumBreakout` · `LiquidityHunt` · `SupplyDemandSetup` · `CHoCHReversal` · `FVGFill` · `PatternCompletion` · `DivergenceStack` · `RegimeTransition` · `GapAnalysisSetup` · `CandlestickPatternSetup` · `SessionExtremesSetup` · `FailedBreakout` · `ORB15` · `ORB30` · `PrevDayLevelTest` · `SecondLegContinuation` · `VCP` · `AnchoredVWAPReversion` · `VWAPReclaim` · `POCRejection` · `HVNRejection` · `LVNBreakout` · `OFIContinuation` · `OFIDivergence` · `OFISpike` · `CVDDivergence` · `CVDSpike` · `DeltaExhaustion` · `DualDivergence` · `CrossAssetDivergence`
+When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see below). Selected signals pass two gates:
+1. **RR gate** — viable risk:reward based on zone quality and distance to target
+2. **Regime gate** — HMM confidence threshold, regime stability, direction match. Direction mismatches are suppressed and recorded as shadow signals for counterfactual tracking
 
-When multiple setups fire on the same bar, the **CIS scorer** selects the winner (see below). The selected signal passes two gates before reaching the bus:
-
-1. **RR gate** - viable risk:reward based on zone quality and distance to target. Fails → dropped.
-2. **Regime gate** - HMM confidence ≥ `REGIME_PROB_MIN` (default 0.30), regime stable ≥ `REGIME_DUR_MIN` bars (default 1). Direction mismatch → suppressed and written as shadow signal for counterfactual tracking.
-
-All ranked candidates - winner and counterfactuals - are written to `signal_ledger` as labeled training data.
-
-**Renaissance quality gates - I7 (v1.8):**
-
-- **Alpha decay** - signal confidence degrades over time after firing. A signal 10 bars old carries less weight than one 2 bars old. Modeled explicitly as a decay curve, not assumed constant.
-- **Freshness decay** - separate from alpha decay: signal value drops as the bar context that generated it ages. Both decay curves are logged per signal.
-- **Per-setup cooldown gate** - prevents the same setup firing repeatedly within the same regime window. Statistically justified deduplication, not a simple timer.
+Quality gates on every signal:
+- **Alpha decay** — confidence degrades over time. Modeled explicitly as a decay curve, not assumed constant
+- **Freshness decay** — signal value drops as the bar context that generated it ages
+- **Per-setup cooldown** — prevents the same setup firing repeatedly within the same regime window
 
 ### Layer 4: AI Intelligence
 
-**I8 - AI Narrative (LLM chain)**
+**I8 — AI Narrative & Synthesis**
 
-For every signal above confidence 0.7 (on 5m, 15m, 1h timeframes), the AI Narrative Service generates a structured natural language analysis of the full signal context - tier state, regime, SMC context, setup rationale, entry/stop/target. The LLM receives the full `IntelligenceEvent` payload, not a template.
+For every signal above confidence 0.7, the AI Narrative Service generates a structured analysis of the full signal context — tier state, regime, SMC context, setup rationale, entry/stop/target. The LLM receives the full `IntelligenceEvent` payload, not a template. Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
 
-Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
-
-LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama local** (gemma4:e4b, offline, AMD ROCm GPU). Every call - successful and failed - is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
+The multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter, DeepSeek) runs with per-provider circuit breakers — no single model is a dependency. Every call logged to `llm_calls` for full audit. Outcomes are back-filled as signals resolve, linking every LLM call to its eventual result.
 
 ---
 
-## The CIS Aggregator
+## CIS: Confluence Intelligence Score
 
-The Composite Intelligence Score is the decision engine. When 5–8 setup plugins fire simultaneously on the same bar, CIS adjudicates by aggregating evidence from the *entire* pipeline into a single directional score.
+The decision engine. When multiple I7 setups fire simultaneously on the same bar, CIS adjudicates by aggregating evidence from the entire pipeline into a single directional score.
 
-**Pipeline position:** `I5/SMC outputs → I6 CTF sub-scores → CISScorer → I7 setup plugins → SignalAggregator → ranked signal`
-
-### Six evidence buckets
+### Six Evidence Buckets
 
 | Bucket | Reads from | Weight |
 |--------|-----------|--------|
@@ -291,20 +211,16 @@ The Composite Intelligence Score is the decision engine. When 5–8 setup plugin
 | **Institutional** | Order blocks, FVG activity, supply/demand zones | 0.25 |
 | **Regime** | HMM state probabilities, BOCPD changepoint, vol regime | 0.15 |
 
-CIS fires only when `|score| > 0.35` **and** at least 3 of 6 buckets agree on direction. A single dominant bucket cannot override the rest - cross-tier confirmation is structurally required.
+CIS fires only when `|score| > 0.35` **and** at least 3 of 6 buckets agree on direction. A single dominant bucket cannot override the rest — cross-tier confirmation is structurally required.
 
-### Constituent contributions (v1.8)
+Each bucket returns `(score, contribution)` — not just the aggregate. The breakdown is logged per signal and exposed via the API. You can see exactly which buckets drove a CIS election and by how much.
 
-Each of the 6 buckets now returns `(score, contribution)` - not just the aggregate. The breakdown is logged per signal and exposed via the API. You can see exactly which buckets drove a CIS election and by how much - full transparency into every signal decision.
+### The Learning Loop
 
-### The learning loop
-
-Every CIS result is tagged with a `weights_version`. Every signal lifecycle outcome lands in `signal_ledger` as a labeled row, pairing the full CIS bucket vector at signal time with its eventual outcome. All ranked candidates - not just winners - are recorded, giving a complete view of the decision boundary including the counterfactuals CIS rejected.
-
-The learning path: logistic regression on this dataset fits per-bucket weights that maximize outcome prediction. When updated weights are present, the scorer loads them at startup. CIS improves without code changes.
+Every CIS result is tagged with a `weights_version`. Every signal lifecycle outcome pairs the full CIS bucket vector at signal time with its eventual outcome. All ranked candidates — not just winners — are recorded, giving a complete view of the decision boundary including the counterfactuals CIS rejected.
 
 ```
-Signal fires → CIS tags result with weights_version=N
+Signal fires → CIS tags with weights_version=N
      │
      ▼
 Signal lifecycle: activation · zone_entry_pct · bars_to_activation · MAE · MFE
@@ -319,248 +235,208 @@ Logistic regression → new cis_weights (version N+1)
 → better selection → more outcome data → loop
 ```
 
-→ [CIS Scoring](docs/concepts/cis-scoring.md)
+The learning path: logistic regression on this dataset fits per-bucket weights that maximize outcome prediction. When updated weights are present, the scorer loads them at startup. CIS improves without code changes.
 
 ---
 
 ## Self-Correcting Pipeline
 
-> *The pipeline monitors its own signal quality and self-adjusts at six independent layers — no manual recalibration required.*
-
-Signals that were valid under last month's market regime may be noise in this one. The system detects this and responds autonomously at every stage of the signal lifecycle.
+The pipeline monitors its own signal quality and self-adjusts at six independent layers — no manual recalibration required.
 
 ```
 Raw confidence (I7 plugin output)
     → [1] Isotonic calibration    → calibrated_confidence
     → [2] TOD multiplier          → time-adjusted confidence
-    → [3] perf_multiplier         → performance-weighted rank in all_ranked
+    → [3] perf_multiplier         → performance-weighted rank
     → [4] KS drift penalty        → distribution-aware CIS bucket weights
     → [5] CUSUM monitor           → feedback loop back into perf_multiplier
     → [6] Shadow mode gate        → statistical proof before production eligibility
 ```
 
-### [1] Isotonic Calibration
+**[1] Isotonic Calibration** — raw confidence values are systematically biased. Isotonic regression maps them to empirically calibrated values using historical outcome data. Raw value stored alongside calibrated value for audit.
 
-Raw I7 confidence values are systematically biased — plugins over- or under-estimate confidence depending on regime. Isotonic regression maps raw confidence to empirically calibrated values using historical outcome data from `signal_ledger`. Raw value stored as `pre_calibration_confidence`; output as `calibrated_confidence`.
+**[2] Time-of-Day Multiplier** — signal quality varies by session and regime. A trend setup at RTH open behaves differently than the same setup at 2pm. Per cell: `(regime_type, timeframe, hour_et)` — 120 cells total.
 
-### [2] Time-of-Day (TOD) Multiplier
+**[3] Performance Multiplier** — rolling 30-day Sharpe and win rate per setup per regime. Gate: setups with N < 30 use `perf_multiplier = 1.0` — no effect until statistically proven.
 
-Signal quality is session- and regime-dependent. A trend setup at RTH open behaves differently than the same setup in the 2pm lull. Multiplier is per cell: `(regime_type, timeframe, hour_et)` — 120 cells total. Computed from rolling historical win rates, applied after isotonic calibration, stored per signal for audit.
+**[4] KS Drift Monitor** — Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts significantly, its CIS contribution is penalized. The signal doesn't disappear — it gets discounted proportionally to how far out-of-distribution it is.
 
-### [3] Performance Multiplier (`perf_multiplier`)
+**[5] CUSUM Performance Monitor** — cumulative sum control charts track win rate per setup. When cumulative performance crosses the degradation threshold, `perf_multiplier` is automatically reduced. Recovery restores it. The loop closes itself.
 
-The signal aggregator reads the `signal_metrics` table (computed by `indicagent-signal-metrics-compute`, refreshed hourly) and applies a Sharpe-ranked multiplier based on each setup's rolling 30-day stats per regime. Gate: setups with `n < 30` use `perf_multiplier = 1.0` — no effect until statistically proven. `active` signal is always derived from `all_ranked`, never from the raw `signals` list.
+**[6] Shadow Mode Gate** — every new feature or plugin runs in shadow mode before production. Shadow signals are generated, tracked through full lifecycle, and scored — but never published live. Promotion requires p < 0.05 AND N ≥ 100 resolved signals. `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met.
 
-### [4] KS Drift Monitor
+---
 
-Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts significantly (e.g., a volatility regime shift changes the OFI distribution), its contribution to CIS bucket weights is penalized. Provides early warning *before* CUSUM detects outcome-level degradation. The signal doesn't disappear — it gets discounted proportionally to how far out-of-distribution its feature context is.
+## Signal Lifecycle
 
-### [5] CUSUM Performance Monitor
+Every signal is tracked through its complete lifecycle — not fired and forgotten.
 
-Cumulative Sum control charts track signal win-rate over time per setup. When a setup's cumulative performance crosses the degradation threshold, `perf_multiplier` is automatically reduced — closing the loop with layer [3]. Recovery restores it as outcomes improve. No manual intervention required at any point.
+**Zone-based activation.** Signals define entry zones (proximal, distal) rather than single price levels. The tracker monitors price relative to these zones and records `zone_entry_pct` — how deep into the zone price penetrated before activating or expiring. This provides granular data on entry quality that a simple "price crossed X" model cannot.
 
-### [6] Shadow Mode Gate
+**MAE and MFE per signal.** Maximum Adverse Excursion and Maximum Favorable Excursion are tracked from activation through exit. These are portfolio-level risk analytics embedded directly in signal tracking — the basis for optimal stop and target placement in position sizing.
 
-Every new feature or plugin runs in shadow mode before it can affect production signals. Shadow signals are generated, tracked through full lifecycle, and scored — but never published to the live stream. Promotion requires `p < 0.05` **and** `N ≥ 100` resolved signals. `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met. Permanent record of shadow vs production performance in `signal_ledger`.
+**8-class outcome taxonomy:**
 
-### Drift API
+| Outcome | Meaning |
+|---------|---------|
+| `never_activated` | Price never entered the signal zone before TTL expired |
+| `stopped_at_entry` | Stop hit at or near entry, before meaningful trade developed |
+| `stopped_in_trade` | Stop hit after activation, during the trade |
+| `target_1` | First profit target reached |
+| `target_1_2` | First and second targets reached |
+| `target_full` | All targets reached |
+| `ttl_expired_ahead` | TTL expired while in profit |
+| `ttl_expired_behind` | TTL expired while at a loss |
 
-```
-GET /api/drift    →  current KS + CUSUM state per symbol/timeframe, externally observable
-```
+**Counterfactual recording.** All ranked candidates — not just winners — are written to `signal_ledger`. The system records the full I1–I8 feature vector, the CIS bucket breakdown, and the eventual outcome for every signal the pipeline considered. This is the decision boundary: the dataset tells the ML model not just what worked, but what *almost* worked and what was correctly rejected.
 
-Drift state is a first-class API endpoint — any external consumer can observe the pipeline's current confidence in its own signals.
+**Signal schema versioning.** A `signal_schema_version` column distinguishes signal generations. ML training queries filter to the current schema version — contaminated data from earlier pipeline versions is excluded by construction.
+
+---
+
+## The AI Swarm & Evolvable Intelligence
+
+### Specialist Agents and Composite Agents
+
+The AI layer is organized the way a trading desk is organized: **specialist agents perform tasks, composite agents perform roles.**
+
+A skeptic agent challenges every signal. A correlation agent checks whether the signal is genuinely independent or a restating of existing positions. A volume agent analyzes whether order flow confirms or contradicts the setup. These are specialists — focused, fast, replaceable.
+
+Composite agents orchestrate multiple specialists into a coherent view — the same way a senior trader synthesizes input from a technical analyst, a risk manager, and a flow trader. The output isn't a single model's opinion; it's a structured multi-perspective assessment with dissent recorded.
+
+Every agent call is traced. A `LineageRecorder` tracks prompt version, model, inputs, outputs, and timing per call. Full reproducibility — you can reconstruct why any agent made any decision at any point in history.
+
+### Evolvable AI (eAI) — Agents That Evolve
+
+Beyond learning from data, the platform is designed for agents that evolve through Darwinian selection. Inspired by research in evolvable AI (PNAS 2025) and Renaissance Technologies' approach to model management.
+
+Three epochs of AI:
+
+1. **Intelligence by design** — handcrafted rules, logic, expert systems
+2. **Intelligence by learning** — training on data, gradient descent, RLHF
+3. **Intelligence by evolution** — agents that improve their own capacity for improvement
+
+Markets are non-stationary. Manual agent design produces agents that reflect current mental models. An evolutionary system discovers edges that exist beyond those models.
+
+**The agent genome** — each agent's "DNA" is a composite of independently heritable components:
+
+| Chromosome | What evolves |
+|------------|-------------|
+| System prompts | Reasoning strategy, analytical frame, chain-of-thought structure |
+| Configuration parameters | Thresholds, timeframe weights, scoring coefficients |
+| Tool sets | Which data sources and analysis tools the agent can access |
+| Model adapters | Fine-tuned weights for task-specific specialization |
+| Guardrails | Constraints and behavioral boundaries |
+
+**Three reproductive operators:**
+
+- **Mutation** — blind perturbation of genome components. Exploration. Escape local optima.
+- **Recombination** — two fit parents contribute genome segments via crossover. Prompt from parent A + config from parent B + tool set blend. Novel combinations neither parent could produce alone.
+- **LLM-directed mutation** — an LLM analyzes a parent's genome and performance, then proposes targeted improvements. Directed search with access to the full corpus of trading research as its gene pool. The most powerful operator, reserved for high-fitness parents.
+
+**Lifecycle: birth → shadow incubation → breeding → promotion → live.**
+
+Every newborn agent enters shadow mode — observing live data, producing analysis, zero production impact. Fitness is measured out-of-sample across multiple regimes. The system tracks which reproductive operator produces the fittest offspring and dynamically shifts budget toward better operators — meta-optimization of the search itself.
+
+**Composite fitness = accuracy × novelty × calibration × regime specificity × efficiency.**
+
+An agent that's right for the wrong reasons, or that duplicates an existing agent's edge, doesn't promote. The statistical gate: bootstrap CI > 0 at 95% confidence. Unique, calibrated, regime-aware alpha — nothing less clears the gate.
+
+Promotion requires both automated gates (sustained fitness across ≥ 3 regimes, stability, novelty) and human review — the *why* matters, not just the *what*. On promotion, full genome + ancestry chain is recorded permanently, traceable to generation 0.
+
+---
+
+## Machine Learning Layer (MLAgent)
+
+> The feature store and signal ledger are already accumulating the labeled training data this consumes.
+
+The ML layer closes the learning loop at the model level — replacing hand-tuned weights with a full ensemble trained on labeled signal outcomes. Five agents, orchestrated by LangGraph:
+
+| Agent | Role |
+|-------|------|
+| **Orchestrator** | Routes work, decides retrain / promote / escalate based on monitoring signals |
+| **Data Quality Agent** | Validates training data integrity before any model runs |
+| **Discovery Agent** | tsfresh feature extraction, Pearson IC analysis, regime-conditional IC, cross-asset lag correlation |
+| **Training Agent** | LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate |
+| **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker |
+
+No model reaches production without p < 0.05 with sufficient N. Borderline p-values pause the graph and require human approval — a dashboard alert presents the full model comparison; 4-hour timeout defaults to reject.
+
+**The dataset — already accumulating:**
+
+| Table | Stores | ML role |
+|-------|--------|---------|
+| `intelligence_features` | Full I1–I8 feature vector per bar (tiered JSONB) | Training inputs |
+| `signal_ledger` | Signal + 8-class lifecycle outcome, MAE, MFE, bars-in-trade | Training targets |
+| `llm_calls` | Every LLM invocation with back-filled signal outcome | LLM model scoring |
+| `signal_metrics` | Per-setup rolling 30d win rate, avg P&L R, Sharpe per regime | Performance baseline |
+| `cis_weights` | Adaptive bucket weights, versioned | Model deployment output |
+
+Every bar the pipeline processes adds a row to `intelligence_features`. Every signal that resolves adds an outcome row to `signal_ledger`. The ML layer consumes this dataset — the platform has been building it since day one.
+
+**ML stack:** `langgraph` + `langchain` · `langfuse` (self-hosted observability) · `guardrails-ai` (LLM output validation) · `scipy` + `tsfresh` (700+ statistical features) · `evidently` (drift detection) · `polars` (Rust dataframes) · `lightgbm` (tabular champion) · `shap` (TreeSHAP explainability) · `optuna` (Bayesian hyperparameter optimization) · `mlflow` (model registry) · `river` (online/incremental learning).
 
 ---
 
 ## API Layer: Intelligence as Output
 
-The API is the product. Every signal, indicator value, regime classification, and AI narrative the pipeline produces is immediately available over standard HTTP - REST for pull-based access, SSE for real-time push.
+The API is the product. Every signal, indicator value, regime classification, and AI narrative is immediately available over standard HTTP.
 
-### REST endpoints
+### REST Endpoints
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /api/signals` | Signal history with optional full I1–I8 feature context at signal time |
-| `GET /api/signals/recent` | Recent signals with setup performance JOIN (win rate, avg P&L R, sample size) |
+| `GET /api/signals` | Signal history with full I1–I8 feature context |
+| `GET /api/signals/recent` | Recent signals with setup performance JOIN |
 | `GET /api/features` | Full I1–I8 feature vectors per bar, per symbol, per timeframe |
 | `GET /api/market-data` | OHLCV history for any instrument/timeframe |
 | `GET /api/instruments` | Active instrument list with contract metadata |
-| `GET /api/drift` | Live KS + CUSUM drift state - pipeline confidence in its own signals |
-| `GET /indicators/available` | All 128 plugins and their tier assignments |
+| `GET /api/drift` | Live KS + CUSUM drift state — pipeline confidence in its own signals |
 
-### SSE streams
+### SSE Streams
 
 Persistent HTTP connections. No polling. Events push as they happen.
 
 | Stream | Pushes |
 |--------|--------|
-| `intelligence` | Full typed `IntelligenceEvent` per bar - complete I1–I8 payload |
-| `signals` | I7 aggregated signals as they fire, with CIS score and constituent contributions |
-| `signal_scorecard` | All ranked I7 candidates per bar - not just the winner |
-| `indicators` | Raw I1 indicator values per bar |
+| `intelligence` | Full typed `IntelligenceEvent` per bar — complete I1–I8 payload |
+| `signals` | Aggregated signals as they fire, with CIS score and constituent contributions |
+| `signal_scorecard` | All ranked I7 candidates per bar — not just the winner |
 | `narratives` | I8 LLM narrative text per signal |
 | `ticks` | Live tick stream for price display |
 
-Any HTTP client - a Python trading bot, a Jupyter notebook, an alert engine, a downstream product - connects to an SSE endpoint and receives the same intelligence the internal pipeline produces, in real time, with zero effect on pipeline throughput.
-
----
-
-## AI & Statistical Intelligence
-
-### The regime model stack
-
-Six models run across I4 and I6, each answering a distinct question about market state:
-
-| Model | Question | Output |
-|-------|----------|--------|
-| **GARCH** | Is volatility expanding or contracting? | Volatility regime (low / normal / elevated / extreme) + sigma estimate |
-| **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope - adapts to current signal-to-noise ratio |
-| **HMM** | Which hidden market state is most probable? | Probability *distribution* over 3 states - not just an argmax |
-| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar - detects transitions before HMM confirms |
-| **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class - gates signal direction vs. regime |
-| **Shannon Entropy** | How predictable is the current price series? | Entropy score - feeds CIS quality multiplier |
-
-### The LLM chain
-
-1. **Ollama local** (primary): gemma4:e4b (per-signal) + phi4-mini:3.8b (group synthesis), AMD ROCm GPU, fully offline
-2. **OpenRouter** (planned): free models, 100+ model catalogue, per-regime model routing
-
-Every call - success or failure - written to `llm_calls` (TimescaleDB hypertable). Per-model win rates and average P&L ratios tracked in `llm_model_scores`, refreshed every 15 minutes.
-
-### Machine Learning Layer (MLAgent)
-
-> **Planned - next milestone.** The feature store and signal ledger are already accumulating the labeled training data this will consume.
-
-The CIS learning loop closes at the weight level. MLAgent closes it at the model level - replacing hand-tuned weights with a full ensemble trained on labeled signal outcomes.
-
-**Three compounding layers:**
-
-```
-Layer 1: Discovery     - automated IC analysis finds which features actually predict outcomes
-Layer 2: Scoring       - per-regime × per-setup LightGBM ensemble scores every signal
-Layer 3: Feedback Loop - outcomes retrain the model; drift triggers automatic retraining
-```
-
-**The dataset it consumes - already accumulating:**
-
-| Table | Stores | MLAgent role |
-|-------|--------|-------------|
-| `intelligence_features` | Full I1–I8 feature vector per bar (tiered JSONB) | Training inputs |
-| `signal_ledger` | I7 signal + 8-class lifecycle outcome, MAE, MFE, bars-in-trade | Training targets |
-| `llm_calls` | Every LLM invocation with back-filled signal outcome | LLM model scoring |
-| `drift_monitor` | KS statistics + CUSUM state per setup/TF | Drift detection source |
-| `signal_metrics` | Per-setup rolling 30d win rate, avg P&L R, Sharpe per regime | Performance baseline |
-| `cis_weights` | Adaptive bucket weights, versioned | Model deployment output |
-
-Every bar the live pipeline processes adds a row to `intelligence_features`. Every signal that resolves adds an outcome row to `signal_ledger`. MLAgent consumes this dataset - the platform has been building it since day one.
-
-**Five-agent LangGraph architecture:**
-
-| Agent | Role | Type |
-|-------|------|------|
-| **Orchestrator** | Routes work, decides retrain / promote / escalate based on monitoring signals | Deterministic |
-| **Data Quality Agent** | Validates training data integrity before any model runs | Deterministic |
-| **Discovery Agent** | tsfresh feature extraction, Pearson IC analysis, regime-conditional IC, cross-asset lag correlation | LLM-guided |
-| **Training Agent** | LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate | Deterministic |
-| **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker | Event-driven |
-
-No model reaches production without `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()` - a dashboard alert presents the full model comparison; 4-hour timeout defaults to reject. Every HITL decision logged with approver, timestamp, and reasoning.
-
-**ML stack:** `langgraph` + `langchain` (agent orchestration, already in stack) · `langfuse` self-hosted (agent observability, OTEL bridge to Grafana) · `guardrails-ai` (LLM output validation against Pydantic schemas) · `scipy` + `tsfresh` (IC analysis + 700+ statistical features extracted automatically from any time series) · `evidently` (KS/PSI/Wasserstein drift detection, self-hosted) · `polars` (Rust dataframes, 10–100× faster than pandas for feature matrix construction) · `lightgbm` (the model - tabular data champion) · `shap` (TreeSHAP explainability per signal) · `optuna` (Bayesian hyperparameter optimisation) · `statsmodels` (CUSUM, time-series statistics) · `mlflow` self-hosted (model registry, experiment tracking) · `river` (online/incremental learning between retrains).
-
-**Explicitly not added:** PyTorch/TensorFlow (tree ensembles dominate tabular benchmarks) · Feast (TimescaleDB is the feature store) · Weights & Biases (cloud/paid - MLflow is the open standard) · Ray/Dask (overkill for current data volume).
-
-→ [MLAgent Design](docs/ideas/ml-learning-machine.md)
+Any HTTP client — a Python trading bot, a Jupyter notebook, an alert engine, a downstream product — connects to an SSE endpoint and receives the same intelligence the internal pipeline produces, in real time, with zero effect on pipeline throughput.
 
 ---
 
 ## Observability
 
-Every service exposes a Prometheus-compatible metrics endpoint:
+Every service exposes a Prometheus-compatible metrics endpoint. Grafana dashboards cover pipeline throughput per symbol/TF, per-service P50/P95/P99 latency, signal generation and regime gate drop rates, LLM call success and fallback rates, per-plugin error rates.
 
-| Service | Metrics |
-|---------|---------|
-| `ibkr_provider_agent` | :9129 |
-| `provider_merger_agent` | :9130 |
-| `bar_aggregator_agent` | :9120 |
-| `bar_writer_agent` | :9121 |
-| `bar_auditor_agent` | :9123 |
-| `roll_compute_agent` | :9122 |
-| `contract_metadata_writer_agent` | :9124 |
-| `intelligence_pipeline_agent` | :9125 |
-| `signal_writer_agent` | :9119 |
-| `signal_tracker_compute_agent` | :9115 |
-| `signal_metrics_compute_agent` | :9126 |
-| `signal_metrics_writer_agent` | :9127 |
-| `signal_auditor_agent` | :9128 |
-| `feature_writer_agent` | :9116 |
-| `feature_snapshot_writer_agent` | :9132 |
-| `parity_auditor_agent` | :9133 |
-| `llm_writer_service` | :9117 |
-| `ai_narrative_service` | :9113 |
-| `cross_asset_service` | :9118 |
-| `service_auditor_agent` | :9131 |
+Four visualization layers serve different audiences and time horizons:
 
-Grafana dashboards: pipeline throughput per symbol/TF · per-service P50/P95/P99 latency · signal generation and regime gate drop rates · LLM call success and fallback rates · per-plugin error rates.
-
-A new plugin that causes latency spikes is visible within seconds. A regime gate filtering too aggressively shows up as a signal rate drop before it affects any downstream consumer.
+| Layer | Tool | Purpose |
+|-------|------|---------|
+| **Operational** | Grafana + Prometheus | Pipeline health, latency, throughput, service status |
+| **Market Intelligence** | Next.js dashboard (SSE) | Live signals, price panels, AI narratives, SMC context, signal scorecard |
+| **Analytics** | Apache Superset (planned) | Signal outcome analysis, setup performance, regime patterns |
+| **ML Observability** | Langfuse (self-hosted) | AI agent traces, prompt versions, model comparisons |
 
 ---
 
-## Visualization Layers
+## Application Agents & Platform Extensibility
 
-Three distinct visualization layers serve different audiences and time horizons:
+The same bus architecture that decouples intelligence domains from each other also decouples intelligence from application:
 
-| Layer | Tool | Purpose | Time horizon |
-|-------|------|---------|--------------|
-| **Operational** | Grafana + Prometheus | Pipeline health, latency, throughput, service status | Real-time (seconds) |
-| **Market Intelligence** | Next.js dashboard (SSE) | Live signals, price panels, AI narratives, SMC context, signal scorecard | Real-time (sub-second) |
-| **Analytics** | Apache Superset *(planned)* | Signal outcome analysis, setup performance, regime patterns, ML training data quality | Historical (minutes to months) |
+| Agent | Role | Attaches via |
+|-------|------|-------------|
+| **TradeAgent** | Directional execution, position sizing, order management | Subscribes to signal streams |
+| **PortfolioAgent** | Capital allocation, Kelly sizing, performance attribution | Subscribes to execution events |
+| **RiskAgent** | VaR, drawdown enforcement, margin monitoring, emergency halt | Subscribes to portfolio state; publishes binding halt instructions |
 
-### Analytics Layer (Superset)
+Risk enforcement is a stream subscriber — not a wrapper around execution code. Portfolio management is a stream subscriber — not a shared database. The bus is the architecture.
 
-The analytical layer is the gap in the current stack. As `signal_ledger` and `intelligence_features` accumulate months of labeled outcomes, exploratory analysis requires a Tableau-like environment — drag-and-drop filtering, time-range selectors, grouping, chart types — without writing raw SQL every time.
-
-**Apache Superset** is the recommended tool: open source, self-hosted Docker, direct TimescaleDB connection, no ETL.
-
-**Key datasets already in TimescaleDB — no data movement required:**
-
-| Dataset | Analytics use |
-|---------|--------------|
-| `signal_ledger` | Win rate by setup × regime × TF × hour; MAE/MFE distributions; outcome class balance |
-| `signal_metrics` | Sharpe evolution per setup; regime-conditioned performance ranking history |
-| `intelligence_features` | Feature distributions over time; entropy/Hurst trends; CIS bucket score analysis |
-| `llm_calls` + `llm_model_scores` | Model win rates; narrative-to-outcome correlation; provider fallback rates |
-| `market_data_ohlcv` | Price context for signal analysis; session volume profiles |
-
-**Planned dashboards:**
-- **Signal Performance** — win rate heatmap (setup × regime), MAE/MFE scatter by outcome class, signal frequency by symbol
-- **Regime Analysis** — HMM state distribution, GARCH sigma bands, Hurst exponent by instrument, regime duration histograms
-- **ML Training Data Quality** — feature null rates, outcome class balance over time, `intelligence_features` coverage vs resolved signals
-- **CIS Deep Dive** — bucket weight contributions per signal, CIS score vs outcome correlation, suppression rates by regime
-
-**Architecture:** read-only TimescaleDB user → Superset Docker container (:8088) → Explore (drag-and-drop) + SQL Lab (ad-hoc) + saved dashboards. TimescaleDB `time_bucket()` functions available in SQL Lab for time-series aggregations.
-
-→ [BI Analytics Layer Design](docs/ideas/bi-analytics-layer-design.md)
-
----
-
-## Extension Model
-
-The stream architecture makes extension explicit. New data domains and product layers attach the same way: **subscribe to the streams you need, publish what you produce.** Nothing already running changes.
-
-### Planned product layers
-
-| Product | Role | Attaches via |
-|---------|------|-------------|
-| **QualAgent** | Macro regime, COT positioning, news NLP, sentiment, prediction markets | Subscribes to market streams; publishes `qual:regime`, `qual:score` |
-| **DerivAgent** | Vol surface, gamma exposure, VRP, skew, options execution | Subscribes to intelligence streams; publishes `deriv:vol_regime`, `deriv:gex` |
-| **TradeAgent** | Directional execution, position sizing, order management | Subscribes to `signals:SYMBOL:TF:aggregated` |
-| **PrimeAgent** | Unified P&L, capital allocation, Kelly sizing, performance attribution | Subscribes to execution events from all strategies |
-| **AegisAgent** | Independent risk: VaR, drawdown enforcement, margin monitoring, emergency halt | Subscribes to portfolio state; publishes binding halt instructions |
-
-Risk enforcement is a stream subscriber - not a wrapper around execution code. Portfolio management is a stream subscriber - not a shared database. The bus is the architecture.
+New domains attach the same way. The fundamental analysis engine subscribes to market data, publishes `fundamental:earnings`, `fundamental:sector_rotation`. The derivatives engine publishes `deriv:vol_regime`, `deriv:gex`. Downstream agents consume from whichever domains they need. Nothing already running changes.
 
 ---
 
@@ -568,51 +444,27 @@ Risk enforcement is a stream subscriber - not a wrapper around execution code. P
 
 | | |
 |---|---|
-| **Version** | v2.5 - Data Quality & AI Foundation |
-| **Instruments** | 60 - equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
-| **Plugins** | 128 across I1–I7 + 2 aggregation components |
-| **Latency** | <10ms bar-to-intelligence, feed-provider bound |
-| **Data in** | Real-time market data: 100–500+ ticks/sec per instrument |
-| **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
-| **Hot/Warm path** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
-| **Cold path** | TimescaleDB on PostgreSQL 15 (feature store, signal ledger, LLM audit) |
-| **Services** | 25+ systemd services, `Restart=always` |
-| **Stack** | Python 3.11+ · FastAPI · asyncpg · LangGraph · Next.js / React · Tailwind · Prometheus · Grafana · Superset *(planned)* |
-| **Analytics** | Apache Superset → TimescaleDB (planned) |
+| **Intelligence tiers** | I1–I8 (indicators through AI synthesis) |
+| **Instruments** | 60 — futures, ETFs, FX, crypto |
+| **Latency** | <10ms bar-to-intelligence |
+| **Data bus** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
+| **Persistence** | TimescaleDB (feature store, signal ledger, LLM audit) |
+| **Services** | 25+ systemd microservices, DAG-orchestrated |
+| **AI providers** | Ollama (local GPU), OpenRouter, DeepSeek — per-provider circuit breakers |
+| **Stack** | Python · FastAPI · asyncpg · Next.js · Prometheus · Grafana |
 
----
-
-## Current Status
-
-**v2.5 - Data Quality & AI Foundation.**
-
-- **I1–I8 pipeline:** Fully operational. 128 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
-- **v2.3 ML Foundation (deferred):** Phases 64–66 awaiting 30+ day data gate (collection since ~2026-04-11).
-- **v2.5 complete:** Data Quality (Phases 69+71+72+73+74+75+76+77) · Shadow governance · Signal transform lineage · OTel observability unification · corr_z + swarm simplification · legacy agent removal.
-- **Cross-asset intelligence:** OFI/CVD microstructure (I1) + I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
-- **CIS pipeline:** Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`. Full audit trail per signal.
-- **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
-- **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
-- **AI Narratives:** Ollama gemma4:e4b (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
-- **Observability:** Prometheus + Grafana dashboards — pipeline throughput, latency, signal rates, LLM success rates, per-plugin errors.
+**Current state:** Quantitative domain in production since early 2026. Fundamental, qualitative, and derivatives domains designed. Application agents architecturally defined. ML layer designed, awaiting data gate. eAI framework designed.
 
 ---
 
 ## Documentation
 
-**→ [Full Documentation](docs/README.md)**
-**→ [High-Level Architecture Concepts](docs/architecture/concepts.md)** - DAG, clustering, microservices, ML/AI layers
-**→ [Roadmap](.planning/ROADMAP.md)**
-**→ [Intelligence Tiers](docs/concepts/intelligence-tiers.md)** - I1–I8 plugin catalog
-**→ [DAG Execution](docs/concepts/dag-execution.md)**
-**→ [CIS Scoring](docs/concepts/cis-scoring.md)**
-**→ [Data Pipeline](docs/concepts/data-pipeline.md)**
-**→ [Signal Lifecycle](docs/concepts/signal-lifecycle.md)** - Zone activation, MAE/MFE, 8-class outcomes
-**→ [ML/AI Architecture](docs/ideas/ml-agent-architecture.md)** - Multi-agent orchestrator and swarm intelligence
-**→ [BI Analytics Layer](docs/ideas/bi-analytics-layer-design.md)** - Superset, signal outcome visualization, planned dashboards
-
-**For AI Assistants:** [CLAUDE.md](CLAUDE.md)
-
----
-
-**v2.5 · 128 plugins · 60 instruments**
+- [Architecture Concepts](docs/architecture/concepts.md)
+- [Intelligence Tiers](docs/concepts/intelligence-tiers.md)
+- [CIS Scoring](docs/concepts/cis-scoring.md)
+- [Signal Lifecycle](docs/concepts/signal-lifecycle.md)
+- [DAG Execution](docs/concepts/dag-execution.md)
+- [ML Architecture](docs/ideas/ml-agent-architecture.md)
+- [eAI Design](docs/ideas/2026-05-06-evolvable-ai-agents.md)
+- [Roadmap](.planning/ROADMAP.md)
+- [CLAUDE.md](CLAUDE.md) — AI assistant instructions
