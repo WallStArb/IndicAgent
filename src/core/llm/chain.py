@@ -12,7 +12,13 @@ from typing import Any
 import structlog
 
 from src.core.llm.guardrails import GuardrailsValidator
-from src.core.llm.providers import LLMChain, OllamaCloudProvider, OllamaProvider, OpenRouterProvider
+from src.core.llm.providers import (
+    DeepSeekProvider,
+    LLMChain,
+    OllamaCloudProvider,
+    OllamaProvider,
+    OpenRouterProvider,
+)
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -79,12 +85,17 @@ class LLMProviderChain:
                         OpenRouterProvider(model=slug, api_key=settings.openrouter_api_key)
                     )
 
-        # 2. Ollama Cloud (free tier models, if API key configured)
+        # 2. DeepSeek (low-cost, high-quality — if API key configured)
+        if settings.deepseek_api_key:
+            providers.append(
+                DeepSeekProvider(model="deepseek-v4-flash", api_key=settings.deepseek_api_key)
+            )
+
+        # 3. Ollama Cloud (free tier only — minimax-m2.7 and gemini-3-flash-preview require paid subscription)
         if settings.ollama_api_key:
-            # Prioritize by speed + quality (nemotron-3-super fastest at 1.83s avg)
-            cloud_models = ["nemotron-3-super", "minimax-m2.7", "gemini-3-flash-preview"]
-            for model in cloud_models:
-                providers.append(OllamaCloudProvider(model=model, api_key=settings.ollama_api_key))
+            providers.append(
+                OllamaCloudProvider(model="nemotron-3-super", api_key=settings.ollama_api_key)
+            )
 
         # 3. Ollama Local (fallback)
         providers.append(
