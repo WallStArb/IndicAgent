@@ -1,4 +1,4 @@
-"""RegimeCoherenceAgentComputeAgent — setup-vs-regime fit multiplier (Phase 80, D-05)."""
+"""RegimeCoherenceComputeAgent — setup-vs-regime fit multiplier (Phase 80, D-05)."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _validate_regime_coherence_fields(data: dict) -> dict[str, Any] | None:
     }
 
 
-class RegimeCoherenceAgentComputeAgent(BaseMultiplierAgent):
+class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
     """Setup TYPE vs regime fit — is mean-reversion firing in a strong trend?"""
 
     output_schema: ClassVar[dict] = {

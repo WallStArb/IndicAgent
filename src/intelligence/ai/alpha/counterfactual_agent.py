@@ -1,4 +1,4 @@
-"""CounterfactualAgentComputeAgent — validation/invalidation reasoning multiplier (Phase 80, D-06)."""
+"""CounterfactualComputeAgent — validation/invalidation reasoning multiplier (Phase 80, D-06)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class CounterfactualAgentComputeAgent(BaseMultiplierAgent):
+class CounterfactualComputeAgent(BaseMultiplierAgent):
     """Counterfactual reasoning — what must be true for this signal to work?"""
 
     output_schema: ClassVar[dict] = {
@@ -42,7 +42,7 @@ class CounterfactualAgentComputeAgent(BaseMultiplierAgent):
     shadow_only = True
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="CounterfactualAgentComputeAgent", **kwargs)
+        super().__init__(name="CounterfactualComputeAgent", **kwargs)
         self._llm = llm_chain
 
     async def _compute(self, context: AIContext) -> AgentOutput:

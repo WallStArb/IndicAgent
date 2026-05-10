@@ -1,4 +1,4 @@
-"""counterfactual_prompts.py -- versioned prompt registry for CounterfactualAgentComputeAgent.
+"""counterfactual_prompts.py -- versioned prompt registry for CounterfactualComputeAgent.
 
 Per D-03: prompt version tracked in every alpha_multiplier_shadow row via features JSONB.
 Per D-16: render_full_context iterates AIContext.model_fields -- open-ended, future-proof.

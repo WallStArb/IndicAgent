@@ -47,10 +47,10 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_swarm_alpha,
 )
-from src.intelligence.ai.alpha.correlation_agent import CorrelationAgentComputeAgent
-from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualAgentComputeAgent
-from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAgentComputeAgent
-from src.intelligence.ai.alpha.skeptic_agent import SkepticAgentComputeAgent
+from src.intelligence.ai.alpha.correlation_agent import CorrelationComputeAgent
+from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualComputeAgent
+from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
+from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.observability.metrics import (
     SWARM_AGENT_WEIGHT,
@@ -156,10 +156,10 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         # Agents require _llm_chain which is wired by super()._setup() — construct here.
         self._agents = [
-            SkepticAgentComputeAgent(llm_chain=self._llm_chain),
-            CorrelationAgentComputeAgent(llm_chain=self._llm_chain),
-            RegimeCoherenceAgentComputeAgent(llm_chain=self._llm_chain),
-            CounterfactualAgentComputeAgent(llm_chain=self._llm_chain),
+            SkepticComputeAgent(llm_chain=self._llm_chain),
+            CorrelationComputeAgent(llm_chain=self._llm_chain),
+            RegimeCoherenceComputeAgent(llm_chain=self._llm_chain),
+            CounterfactualComputeAgent(llm_chain=self._llm_chain),
         ]
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
 
