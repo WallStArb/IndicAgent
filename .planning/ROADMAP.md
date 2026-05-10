@@ -1074,3 +1074,28 @@ Plans:
 - [x] 080-07-PLAN.md — Dispatch refactor: typed agent list, gates, semaphore, weighted aggregation, weight learning
 - [x] 080-08-PLAN.md — SwarmLedgerWriterAgent + topic_swarm_alpha (existing) + DAG registration
 - [x] 080-09-PLAN.md — Integration tests + VERIFICATION.md
+
+### Phase 81: Signal Lifecycle Hardening
+
+**Goal:** Eliminate six structural defects in the signal lifecycle subsystem — publisher ships `timestamp=""`, three divergent signal loading paths, `SignalTrackerComputeAgent` DB writes on startup (contract violation), D-05 training data discard gate, no `is_backfill` provenance, and missing `ttl_bars`/`is_backfill` columns. After this phase: every `signal_schema_version='v1'` signal has a complete, correct outcome label; `signal_replay_unresolved_gauge=0` is the permanent health invariant; and the ML training set is provably clean via `WHERE signal_schema_version='v1' AND is_backfill=FALSE`.
+
+**Status:** ✅ Complete (2026-05-10)
+
+**Depends on:** Phase 79 (signal_schema_version v1, make_signal_from_frame), Phase 76 (SignalTrackerComputeAgent architecture)
+
+**Design doc:** `docs/plans/2026-05-08-signal-lifecycle-hardening-design.md`
+
+**Requirements:** P81-PUBLISHER, P81-LOADER, P81-TRACKER, P81-REPLAY, P81-BARREPLAY, P81-MIGRATION, P81-METRICS, P81-TESTS
+
+Plans:
+- [x] 081-01-PLAN.md — DB migration 083: TRUNCATE signal_ledger + add is_backfill, ttl_bars columns
+- [x] 081-02-PLAN.md — Publisher normalization: inject timestamp/is_backfill/ttl_bars at intelligence_pipeline_agent publish site
+- [x] 081-03-PLAN.md — Tracker refactor: _load_signal canonical intake, backfill fast-path, delete D-03 sweep + D-05 gate; remove D-02 workaround in lifecycle_tracker
+- [x] 081-04-PLAN.md — BarReplayProviderAgent (L1 one-shot) + systemd unit
+- [x] 081-05-PLAN.md — SignalReplayAuditorAgent (L9 periodic) + lifecycle_writer idempotency guard + systemd unit
+- [x] 081-06-PLAN.md — signal_ledger_backfill_ratio gauge + 4 Phase 81 Prometheus alert rules
+- [x] 081-07-PLAN.md — 16 unit tests covering loader, fast-path, publisher, replay, bar replay, D-02, no-DB-writes
+- [x] 081-08-PLAN.md — DAG registration for both new services + 4 integration tests (north-star: test_all_signals_resolved)
+
+**Plans:** 8 plans (8 complete)
+
