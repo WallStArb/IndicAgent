@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.core.ai.context import render_full_context
-from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.core.ai.prompt_utils import DIRECTION_LABELS, clamp, fmt
 
 ACTIVE_VERSION = "skeptic_v2"
 
@@ -113,8 +113,8 @@ def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
     if not isinstance(fp, (int, float)) or not isinstance(conf, (int, float)):
         return None
 
-    fp = max(0.0, min(1.0, float(fp)))
-    conf = max(0.0, min(1.0, float(conf)))
+    fp = clamp(float(fp), 0.0, 1.0)
+    conf = clamp(float(conf), 0.0, 1.0)
 
     risk_factors = data.get("risk_factors", [])
     if not isinstance(risk_factors, list):

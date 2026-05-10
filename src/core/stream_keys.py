@@ -30,21 +30,7 @@ Removed in v3.2 (Phase 44.2 DAG retirement + Phase 80 spec cleanup):
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Canonical timeframe → seconds mapping.
-# Used by publishers (intelligence_pipeline_agent) to compute is_backfill,
-# by consumers (signal_tracker_compute_agent) to compute bars_elapsed,
-# and by replay auditor (signal_replay_auditor_agent) to size OHLCV windows.
-# Keep in sync with services/bar_aggregator_agent.py BarAccumulator._TF_MINUTES.
-# ---------------------------------------------------------------------------
-TF_SECONDS: dict[str, int] = {
-    "1m": 60,
-    "5m": 300,
-    "15m": 900,
-    "1h": 3600,
-    "4h": 14400,
-    "1d": 86400,
-}
+from src.core.service_utils import TF_SECONDS  # noqa: F401 — re-exported for consumers
 
 # ---------------------------------------------------------------------------
 # Kafka topic builders (Phase 30+)
