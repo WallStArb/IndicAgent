@@ -1,11 +1,13 @@
 # AI/ML Tech Stack — Consolidated Reference
 
 **Purpose:** Single reference for all AI/ML technology choices. What we use, why we chose it, how it fits together.
-**Last Updated:** 2026-04-21
-**Status:** Living document — reflects current v2.4 state + v2.3 ML Foundation plans
+**Last Updated:** 2026-05-10
+**Status:** Living document — reflects current v2.5 state + eAI/MCP expansion plans
 
 **Deep dives:**
 - Agent system: `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
+- MCP server: `../ideas/mcp-intelligence-server.md` — Tool use design for agents
+- eAI evolution: `../concepts/evolvable-ai.md` — Darwinian agent evolution framework
 - Validation: `../ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
 - Platform stack: `../ideas/tech-stack.md` — Full infrastructure decisions
 
@@ -15,340 +17,551 @@
 
 **Our AI/ML philosophy:** Renaissance-grade rigor, simplest tool that works, statistical proof over intuition.
 
+**Three AI epochs on our roadmap:**
+
+| Epoch | Status | What |
+|-------|--------|------|
+| **Intelligence by design** | Live | Handcrafted I1-I7 plugins, deterministic signal pipeline |
+| **Intelligence by learning** | Partially live | LLM swarm agents (I8), ML scoring (Phase 70, deferred) |
+| **Intelligence by evolution** | Design phase | eAI — agents that evolve their own architecture (genome) |
+
 **Core principles:**
-- **Show Me the Data** — No model acts on capital until p < 0.05, ρ > 0.4
-- **Shadow-First Validation** — 14-day correlation gate before production
+- **Show Me the Data** — No model acts on capital until p < 0.05, N >= 100
+- **Shadow-First Validation** — Bootstrap CI > 0 at 95% confidence before promotion
 - **Tabular > Deep Learning** — Gradient boosting wins on our data type
-- **Research/Production Separation** — LLMs offline-only, deterministic code in hot path
 - **Self-Hosted Everything** — No vendor lock-in, no cloud ML services
+- **MCP as Protocol** — Intelligence data is portable, framework is interchangeable
+- **Evolve, Don't Hardcode** — Agent genome (prompts, config, tools) is data, not code
+- **Leverage OSS Frameworks** — Use open-source frameworks wherever they fit; get community updates, bug fixes, and features for free. Only hand-roll when the framework genuinely conflicts with our architecture (not just because we can)
 
 ---
 
-## 2. What We Use (Organized by Layer)
+## 2. Current State — What We Have (v2.5, May 2026)
 
-### 2.1 Observability (Active — All Installed)
+### 2.1 LLM Provider Chain (Active)
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| **OpenTelemetry** | Distributed tracing | `opentelemetry-api/sdk/exporter-otlp-proto-http` v1.41.0 — wired into `BaseAgent` via `src/observability/otel.py`; every agent gets a tracer; exports to OTLP endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT`, default `localhost:4318`) |
-| **Prometheus** | Metrics collection | `prometheus-client` v0.25.0 — per-service exporters on ports :9113–:9130; registry helper in `src/observability/metrics.py` prevents duplicate registration |
-| **structlog** | Structured logging | v25.5.0 — all service logs → `logs/<service>.log` via `setup_service_logging()`; JSON-structured with `timestamp`, `service`, `symbol`, `timeframe`, `level` fields |
+**File:** `src/core/llm/providers.py`
 
-**OTel wiring:** `BaseAgent.__init__` calls `get_tracer(name)` and `init_tracing()` is called at `run()` time. Signal metrics agents (`signal_metrics_compute_agent`, `signal_metrics_writer_agent`) explicitly call `init_tracing()` at startup. OTel traces are no-op when no endpoint is configured — safe to deploy without a collector.
+| Provider | Type | Models | Circuit Breaker | Cost |
+|----------|------|--------|----------------|------|
+| **OpenRouterProvider** | Cloud (primary) | `google/gemma-4-31b-it:free`, `nvidia/nemotron-super-49b-v1:free`, `z-ai/glm-4.5-air:free`, etc. | 3 failures → 5 min | Free tier |
+| **DeepSeekProvider** | Cloud (low-cost) | `deepseek-v4-flash` ($0.14/1M), `deepseek-v4-pro` ($0.435/1M) | Inherits OpenAI compat | $0.14-0.87/1M tokens |
+| **OllamaCloudProvider** | Cloud (free) | `minimax-m2.7`, `nemotron-3-super`, `gemini-3-flash-preview` | Inherits OpenAI compat | Free (OLLAMA_API_KEY) |
+| **OllamaProvider** | Local (fallback) | `gemma4:e4b` (AMD ROCm GPU), `phi4-mini:3.8b` | 5 failures → 1 min | Free (self-hosted) |
 
-### 2.2 LLM Stack (Active — I8 Narrative + Research)
+**Chain order:** OpenRouter → DeepSeek → Ollama Cloud → Ollama Local (always available)
 
-**Provider chain** (`src/core/llm/`):
+All 4 providers are OpenAI-compatible (`/chat/completions` payload). This is the foundation for MCP tool calling — no new API format needed.
 
-| Component | Purpose | Notes |
-|-----------|---------|-------|
-| **OpenRouter** | Cloud LLM aggregation | Primary tier — 100+ models via single API; default model roster in `settings.openrouter_models`; env: `OPENROUTER_API_KEY`, `OPENROUTER_MODELS` |
-| **Ollama** | Local LLM inference | Offline fallback — always available; default model `gemma4:e4b`; env: `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
-| **LangGraph** | Agent orchestration | `langgraph>=1.0.0` (v1.1.6 installed) — Supervisor + domain agents; state machines for ML swarm (Phase 56+) |
-| **LangFuse** | Agent observability | Configured in `Settings.LANGFUSE_HOST` (`localhost:3010`); NOT yet wired — no `langfuse` pip package installed. To be connected when swarm agents reach stable state. |
+### 2.2 Custom LLM Middleware (Active)
 
-**Custom LLM middleware** (all in `src/core/llm/`, no pip deps):
+**File:** `src/core/llm/chain.py` + `src/core/llm/`
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| `LLMProviderChain` | `chain.py` | High-level facade: SemanticCache → RateLimiter → TokenBudget → LLMChain → GuardrailsValidator |
-| `SemanticCache` | `semantic_cache.py` | LRU + TTL cache for LLM responses; key = SHA-256(system + prompt[:200] + model); max 500 entries |
-| `RateLimiter` | `rate_limiter.py` | Per-provider RPM/TPM rate limiting; configurable via `settings.LLM_RATE_LIMITS` |
-| `TokenBudget` | `token_budget.py` | Daily token budget enforcement; routes to Ollama-only when cloud budget exceeded |
-| `GuardrailsValidator` | `guardrails.py` | Pydantic-based schema validation of LLM responses — custom impl, NOT the `guardrails-ai` pip package |
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| `LLMProviderChain` | High-level facade: cache → rate limit → budget → chain → guardrails | Active |
+| `SemanticCache` | LRU + TTL (5 min) cache; key = SHA-256(system + prompt[:200] + model); 500 entries max | Active |
+| `RateLimiter` | Per-provider RPM/TPM rate limiting | Active |
+| `TokenBudget` | Daily token budget; routes to Ollama-only when cloud budget exceeded | Active |
+| `GuardrailsValidator` | Pydantic-based schema validation of LLM responses (custom, NOT `guardrails-ai` pip) | Active |
+| Circuit Breakers | Per-provider with configurable thresholds and recovery | Active |
 
-**Key decision:** No `guardrails-ai` pip dependency — custom Pydantic validator in `src/core/llm/guardrails.py` gives the same output schema enforcement without the heavy dependency chain.
+### 2.3 Agent Framework (Active)
 
-### 2.3 Models & Algorithms (Planned — ML Foundation v2.3)
+**Files:** `src/core/ai/base_agent.py`, `src/core/ai/base_group_service.py`
 
-These tools are **planned for Phase 64+ (ML Foundation)** — not yet installed.
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| `BaseAIAgent` | Universal base: wall-clock timing, timeout enforcement, exception handling, Prometheus metrics, OTel tracing, graceful shutdown | Active |
+| `BaseGroupService` | Shared dispatcher: Kafka consumer/producer, DB pool, `AIContextCache`, `LLMProviderChain`, agent dispatch, graduation loop | Active |
+| `IAIAgent` Protocol | Interface: `agent_id`, `group`, `tiers_needed`, `shadow_only`, `latency_budget_ms` | Active |
+| `AIContext` / `AIContextCache` | Tiered context (I1-I7, SMC) per bar; in-memory cache with 5-min TTL; `render_full_context()` for LLM prompts | Active |
+| `LineageRecorder` | Full ancestry tracking per agent call; periodic Kafka flush | Active |
 
-| Tool | Purpose | Why | Status |
-|------|---------|-----|--------|
-| **LightGBM** `>=4.6.0` | Production ML model | Dominates tabular benchmarks; DART mode for correlated features; fast on 50k-200k rows | Planned Phase 64+ |
-| **XGBoost** `>=3.2.0` | Shadow challenger | Level-wise growth more stable for small per-regime N; run as A/B baseline | Planned Phase 64+ |
-| **scikit-learn** `>=1.5.0` | Preprocessing, CV | Already installed — isotonic regression, logistic regression in use for calibration | ✅ Installed |
-| **optuna** `>=4.3.0` | Bayesian hyperparameter search | TPE sampler + LightGBMTuner integration; run at model init, not every retrain | Planned Phase 64+ |
+**Phase 80 planned upgrades** (branch `feat/phase80-swarm-observability-ux`):
+- `_llm_generate()` — calls `self._llm.generate()`, handles empty response
+- `_parse_json()` — fence stripping + backward brace matching for reasoning model output
+- `_make_output()` — constructs `AgentOutput` with fixed fields
+- Fix `_seed_context_cache()` to include I2/I3/I5/SMC columns
 
-**Key decision:** LightGBM over PyTorch/TF. Our data is tabular time-series features — tree ensembles dominate tabular benchmarks. PyTorch only if we add unstructured data (news text, options surface).
+### 2.4 Swarm Agents (Active)
 
-### 2.4 Statistics & Validation
+| Agent | File | Group | Dimension | Output | Status |
+|-------|------|-------|-----------|--------|--------|
+| **Skeptic** | `alpha/skeptic_agent.py` | alpha | Counterfactual challenge | `failure_probability`, `confidence`, `risk_factors` → multiplier | Live |
+| **Correlation** | `alpha/correlation_agent.py` | alpha | Cross-asset coherence | `coherence_score`, `confidence`, `contradicting_assets` → multiplier | Shadow |
+| **Regime Coherence** | `alpha/regime_coherence_agent.py` | alpha | Regime consistency | Regime validation → multiplier | Shadow |
+| **Counterfactual** | `alpha/counterfactual_agent.py` | alpha | Historical pattern matching | Similar setup outcomes → multiplier | Shadow |
+| **Narrative** | `narrative/narrative_agent.py` | narrative | Market narrative | Prose + action bias (on-demand HTTP) | Live |
+
+**Agent protocol:** All agents implement `_compute(context: AIContext) -> AgentOutput`. Alpha agents return a multiplier (0.0-1.0) applied to signal confidence. Narrative agents return prose for display.
+
+### 2.5 Observability (Active)
 
 | Tool | Purpose | Status |
 |------|---------|--------|
-| **scipy.stats** | Pearson r, p-values, ADF | ✅ Installed (v1.17.1) — promotion gate foundation |
-| **statsmodels** `>=0.14.4` | Stationarity tests, CUSUM, OLS | ✅ Installed — ADF stationarity + promotion gate p-values |
-| **SHAP** `>=0.51.0` | Per-signal feature attribution | Planned Phase 64+ — TreeExplainer for GBDT; top-5 SHAP features per signal to `signal_ledger` |
-| **alphalens-reloaded** | IC/ICIR analysis | Planned — quant-standard metrics; prevents lookahead bugs |
-| **evidently** | Drift detection (KS/PSI) | Planned — automated model degradation triggers |
+| **OpenTelemetry** | Distributed tracing via `src/observability/otel.py` | Active — every `BaseAIAgent` gets a tracer |
+| **Prometheus** | Metrics collection; per-service exporters on :9113-:9130 | Active — `AI_AGENT_DURATION_MS`, `AI_AGENT_INVOCATIONS_TOTAL` |
+| **structlog** | Structured JSON logs → `logs/<service>.log` | Active |
+| **Tempo** | Distributed trace storage | Active (Docker) |
+| **OTel Collector** | Trace/metric pipeline | Active (Docker) |
+| **Loki** | Log aggregation | Active (Docker) |
+| **Grafana** | Dashboards :3001 | Active (Docker) |
+| **Alertmanager** | Alert routing (Prometheus → Slack/email) | Active (Docker :9093) |
+| **Apache Superset** | SQL analytics against TimescaleDB (:8088) | Designed, not deployed — see `docs/ideas/bi-analytics-layer-design.md` |
 
-**Key decision:** IC (Information Coefficient) over accuracy/AUC. Quant standard — measures predictive power per feature.
+### 2.6 LLM Audit Trail (Active)
 
-### 2.5 Feature Engineering
+| Table | Purpose | Status |
+|-------|---------|--------|
+| `llm_calls` | Full audit per call: prompt, response, provider, latency, token usage, agent_id | Active |
+| `llm_model_scores` | Per-model win rate, calibration, significance; refreshed every 15 min | Active |
+| `signal_lineage` | Agent ancestry per signal | Active |
+| `shadow_registry` | Shadow state for all I7 plugins + swarm agents; statistical promotion/demotion gates | Active |
 
-| Tool | Purpose | Status |
-|------|---------|--------|
-| **NumPy** `>=2.4.0` | Real-time inference arrays | ✅ Installed — <5ms SLA for per-signal predictions |
-| **pandas** `>=3.0.0` | Batch data manipulation | ✅ Installed |
-| **tsfresh** `==0.21.1` | Auto feature extraction (700+ features) | ✅ Installed — ML discovery phase |
-| **polars** | Batch data processing | Planned — 10-100× faster than pandas for feature matrix building at scale |
+### 2.7 Dashboard AI Features (Active)
 
-**Key decision:** NumPy for real-time inference (already in hot path), polars for batch training (weekly retraining at scale). NumPy arrays ARE tensors — no PyTorch overhead needed.
+| Feature | File | Purpose |
+|---------|------|---------|
+| Narrative display | `dashboard/src/components/signal/narrative-elevated.tsx` | Two-tier AI narratives for hero signals |
+| Narrative API | `src/api/routes/narrative.py` | On-demand narrative generation, DB-first, idempotent |
+| Swarm multipliers | Dashboard signal display | AI confidence adjustments shown per signal |
 
-### 2.6 Signal Analysis Libraries (Installed — Available for Use)
-
-These are installed in the venv but not yet wired into production code. Available for plugin development and research:
+### 2.8 Signal Analysis Libraries (Installed, Available)
 
 | Tool | Version | Purpose | When to Use |
 |------|---------|---------|-------------|
-| **stumpy** | 1.14.1 | Matrix Profile — time-series motif discovery | Pattern matching in I5; anomaly detection; find recurring microstructure patterns |
-| **numba** | 0.65.0 | JIT compilation for NumPy-heavy loops | Hot-path plugins where vectorization isn't enough; compile inner loops that process all symbols |
-| **PyWavelets (pywt)** | 1.9.0 | Wavelet transforms for signal decomposition | Multi-resolution analysis; denoising price series; regime transition detection |
-| **empyrical-reloaded** | 0.5.12 | Performance metrics (Sharpe, Sortino, Calmar, max drawdown) | Signal performance reporting; setup_performance table stats; ML training evaluation |
-
-**stumpy** is particularly relevant for I5/I7 pattern plugins — matrix profiles find shape-based matches across historical bars without manual rule authoring.
-
-**empyrical-reloaded** is the natural fit for `setup_performance` stats and the ML scoring evaluation pipeline.
-
-### 2.7 Infrastructure & Orchestration
-
-| Tool | Purpose | Status |
-|------|---------|--------|
-| **MLflow** | Experiment tracking, model registry | Wired in `src/core/ml/registry.py` (lazy import); self-hosted at `localhost:5000`; configured via `MLFLOW_TRACKING_URI` — add `mlflow` to requirements.txt before Phase 64 |
-| **LangGraph** | ML swarm orchestration | ✅ Installed v1.1.6 — Supervisor + domain agents; Phase 56 Swarm Foundation |
+| **stumpy** | 1.14.1 | Matrix Profile — time-series motif discovery | I5 pattern matching, anomaly detection |
+| **numba** | 0.65.0 | JIT compilation for NumPy-heavy loops | Hot-path plugin optimization |
+| **PyWavelets** | 1.9.0 | Wavelet transforms for signal decomposition | Multi-resolution analysis, regime detection |
+| **empyrical-reloaded** | 0.5.12 | Performance metrics (Sharpe, Sortino, Calmar) | Signal performance stats, ML evaluation |
+| **tsfresh** | 0.21.1 | Auto feature extraction (700+ features) | ML discovery phase |
 
 ---
 
-## 3. How It Fits Together
+## 3. Gap Analysis — What We Need for Expansion
 
-### 3.1 Architecture Overview
+### 3.1 MCP Intelligence Server (Tool Use)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    ML Swarm (Phase 56+)                      │
-│         LangGraph Supervisor → DataQuality → Discovery       │
-│              → Training (LightGBM) → Monitoring             │
-│         LangFuse observability (planned)                     │
-└──────────────────┬──────────────────┬──────────────────────┘
-                   │                  │
-        ┌──────────┴───┐     ┌───────┴────────┐
-        │   MLflow      │     │   evidently    │
-        │  (registry)   │     │  (drift, plan) │
-        └──────────────┘     └────────────────┘
+**Design doc:** `docs/ideas/mcp-intelligence-server.md`
 
-┌─────────────────────────────────────────────────────────────┐
-│             I8 LLM Layer (Active)                            │
-│  LLMProviderChain: SemanticCache → RateLimiter →            │
-│    TokenBudget → LLMChain (OpenRouter → Ollama) →           │
-│    GuardrailsValidator                                      │
-└─────────────────────────────────────────────────────────────┘
+MCP enables agents to pull historical data on demand instead of relying solely on pre-loaded `AIContext`. It's also the substrate for eAI tool set evolution.
 
-┌─────────────────────────────────────────────────────────────┐
-│           Observability Layer (Active)                       │
-│  OTel traces (BaseAgent) + Prometheus metrics per service    │
-│  + structlog JSON logs → logs/<service>.log                 │
-└─────────────────────────────────────────────────────────────┘
-```
+| Gap | What's Needed | Effort | Depends On |
+|-----|--------------|--------|------------|
+| MCP server | `mcp` Python package (FastMCP); new `src/mcp/` module exposing 6+ intelligence tools | ~2-3 days | Nothing |
+| Tool calling in providers | Extend `_OpenAICompatProvider` JSON payload with `tools`/`tool_choice`; parse `tool_calls` response | ~1 day | All 4 providers are OpenAI-compatible |
+| Agent tool loop | LLM returns tool calls → execute → feed results → continue (in `BaseAIAgent._compute()`) | ~1 day | Tool calling in providers |
+| MCP tool implementations | `query_setup_performance`, `query_signal_history`, `query_features`, `query_ohlcv`, `query_llm_scores`, `get_service_status` | ~2 days | MCP server |
+| Wire alpha agents | Skeptic queries setup win rate; Correlation queries signal history; etc. | ~1 day | Tool loop + MCP tools |
 
-### 3.2 Data Flow (ML Path)
+**Only new dependency: `mcp` package (FastMCP).** No LangChain, no new framework.
 
-```
-TimescaleDB (intelligence_features + signal_ledger)
-    ↓ JOIN on (symbol, feature_ts, feature_tf)
-polars (feature matrix — planned)
-    ↓
-LightGBM (train per regime × setup × TF — planned)
-    ↓
-MLflow (log run, register model)
-    ↓
-Shadow Mode (shadow_ml_predictions table)
-    ↓
-14-Day Correlation Gate (scipy.stats.pearsonr + statsmodels ADF)
-    ↓
-Production (if ρ > 0.4, p < 0.05, N ≥ 100)
-    ↓
-NumPy (real-time inference <5ms)
-    ↓
-Signal Scoring (ml_win_prob → signal_ledger)
-```
+### 3.2 Evolvable AI (eAI) Substrate
 
-### 3.3 Shadow-First Lifecycle
+**Design doc:** `docs/concepts/evolvable-ai.md`, `docs/ideas/2026-05-06-evolvable-ai-agents.md`
 
-Every alpha source (ML model, rule-based heuristic, LLM-derived pattern) follows:
+| Gap | What's Needed | Effort | Depends On |
+|-----|--------------|--------|------------|
+| Agent genome model | Data model: prompts, config params, tool sets, guardrails as heritable/mutable units | ~2 days | BaseAIAgent refactor (Phase 80) |
+| Gene bank storage | `agent_genomes` table + `genome_archive` for frozen variants | ~1 day | Genome model |
+| Reproductive operators | Mutation (blind perturbation), recombination (crossover), LLM-directed mutation | ~3-5 days | Gene bank |
+| Composite fitness function | Accuracy, novelty, calibration, regime specificity, efficiency scoring | ~3-5 days | More outcome data (30+ day signal ledger) |
+| Population management | Birth → shadow → breeding → promotion → soft death → frozen archive lifecycle | ~3 days | Fitness function |
+| Novelty measurement | `pgvector` extension on PostgreSQL for embedding similarity | ~1 day | pgvector install |
+| Tool set chromosome | Agents inherit different MCP tool permissions | ~2 days | MCP server |
+| LLM-directed mutation | LLM analyzes parent genome + performance, proposes targeted improvements | ~2 days | Reproductive operators |
 
-1. **Shadow Mode** — Write predictions to shadow table, no production impact
-2. **Correlation Analysis** — Daily job: `Pearson(predictions, realized_pnl_r)`
-3. **Promotion** — Auto-promote if ρ > 0.4, N ≥ 100, p < 0.05
-4. **Production** — Multipliers feed into signal scoring
-5. **Continuous Monitoring** — Daily correlation checks continue
-6. **Degradation** — Auto-disable if ρ < 0.2 for 7 consecutive days
+**Implementation phases:**
+1. LLM-directed prompt mutation (lowest risk, leverages existing framework)
+2. Composite fitness function (build and stress-test evaluation substrate)
+3. Config parameter mutation + gene bank (persistent population management)
+4. Code/logic evolution (highest risk, LLM-generated analysis variants)
 
-**This applies to everything:** I1-I7 plugins, ML models, LLM-derived heuristics. No exceptions.
+### 3.3 LLM Expansion — General Gaps
+
+| Gap | What's Needed | Status | Why |
+|-----|--------------|--------|-----|
+| **Langfuse wiring** | Add `langfuse` SDK to `LLMProviderChain`; trace every LLM call | Container deployed (:3010), SDK not installed | Full LLM observability: token usage per agent, prompt/response traces, cost tracking |
+| **MLflow wiring** | Add `mlflow` to requirements.txt; wire `src/core/ml/registry.py` | Container deployed (:5000), lazy import exists | Experiment tracking for eAI genome evaluation, ML model versioning |
+| **Prompt management** | Structured A/B testing beyond `prompt_version` string | Design needed | eAI needs to mutate prompts systematically; current versioning is manual |
+| **Multi-model routing** | Route simpler tasks to cheaper/faster models | Not started | DeepSeek flash for routine evaluations, pro for complex reasoning; cost optimization |
+| **Agent evaluation framework** | Automated evaluation beyond shadow mode win rate | Not started | eAI needs composite fitness scoring across 5 dimensions |
+
+### 3.4 `ctx` Substrate (Qualitative Intelligence)
+
+**Design doc:** `docs/plans/2026-05-02-unified-intelligence-design.md`
+
+| Gap | What's Needed | Depends On |
+|-----|--------------|------------|
+| `ctx_events` Kafka topic | New topic for qualitative events (macro, earnings, news) | Nothing |
+| `ctx_snapshots` table | Materialized context snapshots per bar | `ctx_events` |
+| `intelligence_features.ctx` column | JSONB column for additive qual context | `ctx_snapshots` |
+| `CtxWriterAgent` skeleton | Writer that materializes qual context into features | Table + topic |
+| One deterministic qual lane | Macro calendar or earnings (not news first — too many NLP concerns) | `CtxWriterAgent` |
+
+**Build order:** `ctx` substrate → one qual lane → additional lanes → shadow evaluation gate
 
 ---
 
-## 4. Why These Choices
+## 4. Tech Stack Decisions — Evaluating Frameworks
 
-### 4.1 OpenTelemetry Over Custom Tracing
+### 4.1 LangChain vs Extend Our Own
 
-OTel is the CNCF standard for distributed tracing. It gives us:
-- Vendor-neutral traces exportable to Jaeger, Tempo, or any OTLP collector
-- No-op behavior when no endpoint is configured — zero overhead in development
-- Standard span/trace context propagation across async boundaries
+**Decision: extend our stack.** LangChain would bypass or duplicate:
+- Circuit breakers, semantic cache, token budgets, guardrails
+- Kafka audit pipeline (`llm_calls` table)
+- `BaseAIAgent` / `BaseGroupService` framework
+- Shadow mode governance
 
-### 4.2 Custom LLM Middleware Over guardrails-ai
+All 4 providers are OpenAI-compatible — tool calling is just `tools` param + `tool_calls` response parsing. ~50 lines of code vs. a heavy abstraction layer.
 
-`guardrails-ai` is a heavy dependency with its own validator ecosystem. Our needs are simpler: validate that LLM JSON output matches a Pydantic schema. The custom `GuardrailsValidator` in `src/core/llm/guardrails.py` does this with zero external dependencies.
+### 4.2 Langfuse vs Local Audit vs Alternatives
 
-### 4.3 LightGBM Over PyTorch/TF (Planned)
+**Decision: wire Langfuse alongside local audit.** Not either/or:
+- **Local audit** (`llm_calls` table): Already capturing every call. Keep for SQL queries, ML training data, long-term retention.
+- **Langfuse** (v3, MIT, 19k stars): Real-time trace visualization, cost dashboards, prompt playground, annotation workflows, evaluation suites. OTEL-native SDK v3. Deployed at :3010.
+- **Why both**: Langfuse for operational visibility, local tables for statistical analysis and ML training samples.
 
-| Aspect | LightGBM | PyTorch/TF |
-|--------|----------|------------|
-| Tabular benchmarks | Wins 95% of time | Loses |
-| Training time | Minutes | Hours-days |
-| Explainability | SHAP (exact) | Black box |
-| Categorical support | Native | Requires encoding |
-| Overfitting risk | Lower | Higher (noisy data) |
-| Compute | CPU sufficient | GPU required |
+**Evaluated alternatives:**
+- **Arize Phoenix** (8k stars, Apache 2.0): Stronger embedding drift detection, but less complete for agent tracing + prompt management. Worth monitoring for drift features.
+- **LangSmith**: Proprietary, self-hosting requires Enterprise license. Hard pass.
+- **OpenLIT**: Niche OTEL-only layer, Langfuse does everything it does plus more.
+- **Helicone**: Interesting AI Gateway (model routing) but less mature observability.
+- **Braintrust**: Evaluation-focused, not full observability.
 
-**When we'd add PyTorch:** Unstructured data (news sentiment, options chain surface).
+**Langfuse v3 note:** Requires ClickHouse in addition to PostgreSQL. Our v2 container is Postgres-only. Upgrading to v3 adds one more Docker container.
 
-### 4.4 Self-Hosted Over Cloud
+### 4.3 MCP Framework
 
-| Tool | Self-Hosted | Cloud Alternative |
-|------|-------------|-------------------|
-| MLflow | MLflow (Docker) | Weights & Biases ($$) |
-| LangFuse | LangFuse (Docker, planned) | LangSmith ($$$) |
-| Ollama | Local LLM | OpenAI API ($$) |
+**Decision: `fastmcp` v3.2.4** (includes `mcp` SDK v1.27.1). 25k stars, Apache 2.0.
+
+Use FastMCP for both server AND client:
+- **Server**: MCP endpoint for external consumers (Claude Code, research)
+- **Client**: In-process tool execution for internal agents (no HTTP overhead, direct async calls)
+- **Tool definitions**: Single `@mcp.tool` decorator serves both paths
+
+The LLM↔tool bridge is ~50 lines of glue code. Everything else (schema generation, tool discovery, error handling, middleware) comes from FastMCP. This follows the "leverage OSS frameworks" principle — we get community updates and features for free.
+
+Rejected: LangChain (bypasses our chain), pydantic-ai (owns LLM lifecycle), litellm (replaces our chain).
+
+### 4.4 eAI Evolution Engine
+
+**Decision: custom framework + DSPy/GEPA for prompt chromosome.**
+
+No off-the-shelf framework fits our 6-chromosome genome model with shadow governance and statistical gates. The landscape:
+
+| Tool | What it does | Fits our model? |
+|------|-------------|----------------|
+| **DSPy/GEPA** (20k stars, MIT) | Genetic-Pareto prompt optimization. Treats prompts as textual genome, evolves with mutation + crossover + Pareto selection. | **Partial** — covers prompt chromosome only. Use for 1 of 6 chromosomes. |
+| **EvoAgentX** (2.9k stars) | Generates whole multi-agent workflows from NL descriptions. | No — wrong granularity. Generates workflows; we evolve individual agent parameters. |
+| **TextGrad** (3.4k stars) | LLM feedback as "gradients" for text optimization. Nature paper. | No — v0.1.6, last release Dec 2024. Software-immature. Subsumed by GEPA. |
+| **AdalFlow** | PyTorch-like prompt optimization. | No — no evolutionary model. |
+| **OpenELM / OpenEvolve** | LLM-guided genetic programming for code synthesis. | No — code synthesis, not agent config evolution. |
+
+**Hybrid approach (maximize OSS leverage):**
+1. Use **DSPy** as the evolution framework — its `Module` abstraction, `teleprompter` optimizers, and evaluation harness handle much of the infrastructure we'd otherwise hand-roll
+2. Use **GEPA** (Genetic-Pareto) optimizer for prompt evolution — state-of-the-art, maintains population, applies mutation + crossover + Pareto selection
+3. Build custom chromosomes for config, tool-set, guardrails as DSPy-compatible modules where possible
+4. Our shadow governance, statistical gates, and `signal_ledger` fitness data plug in as DSPy evaluation metrics
+5. Only custom-code what DSPy genuinely cannot do (shadow mode lifecycle, per-signal outcome tracking, population management across market regimes)
+
+The substrate already exists:
+- Shadow mode with statistical promotion gates (Phase 75)
+- Signal ledger outcome tracking (fitness data accumulating)
+- Lineage recording (ancestry tracking)
+- `BaseAIAgent` framework (genome mutations = parameter variations)
+
+### 4.5 Deep Learning (PyTorch/TF)
+
+**Decision: not now.** Our data is tabular time-series features — tree ensembles dominate. LightGBM wins 95% of tabular benchmarks with minutes of training vs. hours for neural nets.
+
+**When we'd add PyTorch:** Unstructured data (news text embeddings, options surface images, audio from earnings calls).
 
 ---
 
-## 5. What We Don't Use (And Why)
+## 5. Architecture Overview (Current + Planned)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                    eAI Evolution Engine (Planned)                     │
+│   Gene Bank → Mutation/Recombination/LLM-directed → Population Mgmt  │
+│   Fitness: Accuracy × Novelty × Calibration × Regime × Efficiency   │
+│   Tool Set Chromosome via MCP permissions                             │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │ evolves
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                    MCP Intelligence Server (Planned)                  │
+│   FastMCP → query_setup_performance, query_signal_history,           │
+│   query_features, query_ohlcv, query_llm_scores, get_service_status  │
+│   Dual use: internal agents + external Claude/research               │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │ tools
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                    Swarm Agent Layer (Active)                         │
+│   Alpha: Skeptic, Correlation, RegimeCoherence, Counterfactual       │
+│   Narrative: NarrativeComputeAgent (on-demand prose)                  │
+│   Risk: (placeholder)                                                 │
+│   Shadow governance: auto-promote/demote via bootstrap CI gates      │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │ uses
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                    LLM Provider Chain (Active)                        │
+│   SemanticCache → RateLimiter → TokenBudget →                        │
+│   [OpenRouter → DeepSeek → OllamaCloud → Ollama Local] →            │
+│   GuardrailsValidator                                                 │
+│   Circuit breakers per provider                                       │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │ calls
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                    Context Layer (Active)                             │
+│   AIContext (I1-I7, SMC, BarContext, QuantSignalContext)              │
+│   AIContextCache (in-memory, 5-min TTL, per-bar refresh)             │
+│   render_full_context() → LLM-friendly text (null-filtered)         │
+│   Future: ctx substrate for qualitative intelligence                 │
+└────────────────────────────┬─────────────────────────────────────────┘
+                             │ feeds
+┌────────────────────────────┴─────────────────────────────────────────┐
+│                    Observability (Active)                             │
+│   OTel traces + Prometheus metrics + structlog logs                  │
+│   Langfuse (:3010, deploying) + Grafana (:3001, live)                │
+│   llm_calls table (full audit) + llm_model_scores (calibration)      │
+└──────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                Visualization Stack (4 Layers)                         │
+│   Grafana (:3001) — ops/time-series (Prometheus metrics, health)     │
+│   Next.js (:3000) — real-time intelligence (SSE, signals, AI)        │
+│   Superset (:8088) — SQL analytics (TimescaleDB read-only, planned)  │
+│   Python (matplotlib/plotly) — research/analytical output            │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Dependency Status
+
+### Active (Installed + Wired)
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `langgraph` | >=1.0.0 | Agent orchestration (installed, limited use) |
+| `pydantic` | >=2.12.0 | Schema validation everywhere |
+| `scipy` | 1.17.1 | Statistics, promotion gates |
+| `statsmodels` | — | ADF stationarity, CUSUM |
+| `scikit-learn` | — | Calibration, preprocessing |
+| `numpy` | >=2.4.0 | Real-time inference arrays |
+| `pandas` | >=3.0.0 | Data manipulation |
+| `tsfresh` | 0.21.1 | Auto feature extraction |
+| `structlog` | 25.5.0 | Structured logging |
+| `prometheus-client` | 0.25.0 | Metrics |
+| `opentelemetry-api/sdk` | 1.41.0 | Distributed tracing |
+| `asyncpg` | — | Async DB (all new DB code) |
+| `aiokafka` | — | Kafka consumer/producer |
+
+### Available (Installed, Not Wired)
+
+| Package | Purpose | Wiring Gate |
+|---------|---------|-------------|
+| `stumpy` 1.14.1 | Matrix profile motif discovery | I5/I7 plugin research |
+| `numba` 0.65.0 | JIT compilation for hot paths | Plugin optimization |
+| `PyWavelets` 1.9.0 | Wavelet decomposition | Regime transition detection |
+| `empyrical-reloaded` 0.5.12 | Performance metrics (Sharpe, etc.) | ML evaluation pipeline |
+
+### Deployed (Docker Container, SDK Not Wired)
+
+| Service | Port | Purpose | Wiring Gate |
+|---------|------|---------|-------------|
+| Langfuse | :3010 | LLM observability, prompt traces | Add `langfuse` SDK to `LLMProviderChain` |
+| MLflow | :5000 | Experiment tracking, model registry | Add `mlflow` to requirements.txt, wire registry.py |
+| Apache Superset | :8088 | SQL analytics against TimescaleDB (read-only) | Design complete, not deployed — see `docs/ideas/bi-analytics-layer-design.md` |
+
+### Planned (Not Installed)
+
+| Package | Purpose | Install Gate |
+|---------|---------|--------------|
+| `fastmcp` >=3.2.0 | MCP intelligence server (includes `mcp` SDK v1.27.1) | MCP Phase 1 — immediate research value |
+| `dspy` >=3.0.0 | Prompt chromosome optimization (GEPA optimizer) | eAI Phase 1 — prompt evolution only |
+| `lightgbm` >=4.6.0 | ML scoring model | Phase 70 / data gate |
+| `xgboost` >=3.2.0 | Shadow challenger | Phase 70 |
+| `optuna` >=4.3.0 | Bayesian hyperparameter search | Phase 64 |
+| `shap` >=0.51.0 | Feature attribution | Phase 64 |
+| `polars` | Batch feature matrix building | Phase 64 |
+| `pgvector` | Vector similarity for eAI novelty | eAI Phase 2 |
+
+### Explicitly Rejected
 
 | Technology | Why Not | When We'd Reconsider |
 |------------|---------|---------------------|
-| **PyTorch/TensorFlow** | Overkill for tabular; gradient boosting wins | Unstructured data added (news, options) |
-| **Ray/Dask** | Overkill for current scale (<1M rows) | Data volume >10M rows or training >4h |
-| **Feast** | TimescaleDB IS our feature store | Multi-service feature sharing (swarm agents) |
-| **Temporal** | LangGraph sufficient | Multi-day workflows requiring restart persistence |
+| **LangChain** | Our provider chain has circuit breakers, cache, budgets, guardrails — LangChain duplicates or bypasses all | Never — our stack is purpose-built |
+| **pydantic-ai** | Owns the LLM call lifecycle — conflicts with `BaseAIAgent._compute()` and our `LLMProviderChain` | Never — hand-roll the ~40-line tool loop instead |
+| **litellm** | Replaces our provider chain — loses circuit breakers + rate limiting | Never — our chain is better for our needs |
+| **instructor** | Output validation only, not a tool loop framework; our `GuardrailsValidator` already does schema validation | If we need retry-based structured extraction |
+| **guardrails-ai** | Custom Pydantic validator in `src/core/llm/guardrails.py` suffices | If we need Rail specs or multi-step validation |
+| **PyTorch/TF** | Overkill for tabular; gradient boosting wins | Unstructured data added (news, options) |
+| **Ray/Dask** | Overkill for current scale (<1M rows) | Data volume >10M rows |
+| **Feast** | TimescaleDB IS our feature store | Multi-service feature sharing |
 | **Weights & Biases** | Cloud, paid; MLflow is open-source | Never — self-hosted principle |
-| **guardrails-ai** | Custom Pydantic validator suffices | If we need Rail specs or complex multi-step validation |
-| **river** | Online learning overkill | N > 500k rows with strong non-stationarity |
+| **Temporal** | LangGraph sufficient for near-term | Institutional multi-day workflows |
+| **TextGrad** | Academic (Nature paper) but software-immature (v0.1.6, last release Dec 2024). Subsumed by DSPy GEPA | Never — use DSPy/GEPA instead |
+| **EvoAgentX** | Generates whole multi-agent workflows — wrong granularity for our genome model | Never — custom evolution engine |
 
 ---
 
-## 6. Quick Reference (Tool List)
+## 7. Data Flow — AI/ML Path
 
-**Active — Observability:**
-- OpenTelemetry (traces), Prometheus (metrics), structlog (logs)
+### 7.1 Current (Live)
 
-**Active — LLM Stack:**
-- OpenRouter (cloud), Ollama (local), LangGraph (orchestration)
-- Custom: LLMProviderChain, SemanticCache, RateLimiter, TokenBudget, GuardrailsValidator
+```
+IBKR TWS → 1m bars → Redpanda → intelligence_pipeline_agent (I1-I7)
+                                                ↓
+                                    IntelligenceEvent (typed bus)
+                                                ↓
+                              ┌───── feature_writer → TimescaleDB
+                              └───── signal_ledger → TimescaleDB
+                              └───── alpha_swarm_service (I8 LLM layer)
+                                          ↓
+                              AIContextCache.build() → AIContext
+                                          ↓
+                              Skeptic/Correlation/RegimeCoherence/Counterfactual
+                              (BaseGroupService dispatches in parallel)
+                                          ↓
+                              LLMProviderChain → multiplier per agent
+                                          ↓
+                              Aggregated multiplier → signal confidence
+                                          ↓
+                              Narrative (on-demand HTTP, DB-cached)
+```
 
-**Active — Statistics/ML Utilities:**
-- scipy.stats, statsmodels, scikit-learn, tsfresh, NumPy, pandas
+### 7.2 With MCP (Planned)
 
-**Installed — Available but not yet wired:**
-- stumpy (matrix profiles), numba (JIT), PyWavelets (wavelet transforms), empyrical-reloaded (performance metrics)
+```
+Same as above, but agents can also:
+  ┌──→ MCP tool call: query_setup_performance(symbol, setup, regime)
+  │   └──→ Returns historical win_rate, sharpe, avg_pnl_r
+  ├──→ MCP tool call: query_signal_history(symbol, setup, outcome, limit=20)
+  │   └──→ Returns recent signals with outcomes
+  └──→ MCP tool call: query_features(symbol, ts, tf)
+      └──→ Returns raw feature vector for any past bar
 
-**Planned — ML Foundation (Phase 64+):**
-- LightGBM, XGBoost, SHAP, optuna, polars, alphalens-reloaded, evidently
+External access: Claude Code / any MCP client → same MCP server
+```
 
-**Planned — Observability Wiring:**
-- LangFuse (self-hosted, configured but not yet imported)
-- MLflow (lazy import exists in registry.py — add to requirements.txt before Phase 64)
+### 7.3 With eAI (Planned)
 
----
-
-## 7. Integration Points
-
-### 7.1 Promotion Gate (Active)
-- `scipy.stats.pearsonr` — Correlation coefficient + p-value
-- `statsmodels.tsa.stattools.adfuller` — Stationarity check before training
-- `asyncpg` — Query shadow table, compute stats in SQL where possible
-- Daily cron job — Automated correlation checks
-
-### 7.2 ML Scoring Model (Phase 64+)
-- `polars.DataFrame` — Build feature matrix from `intelligence_features`
-- `lightgbm.train()` — Fit per-regime × per-setup × per-TF models
-- `shap.TreeExplainer` — Compute feature attributions; top-5 to `signal_ledger.ml_top_features`
-- `optuna` — Hyperparameter search at model init + major regime shifts
-- MLflow model registry — Version and track all trained models
-
-### 7.3 Discovery Pipeline (Phase 64+)
-- `tsfresh.extract_features()` — Auto-generate candidate features
-- `alphalens-reloaded` — Compute IC/ICIR per feature candidate
-- `evidently.DriftDetector` — Catch distribution shifts before model corruption
-
-### 7.4 Plugin Research (Available Now)
-- `stumpy.stump()` — Matrix profile for bar pattern matching
-- `numba.njit` — JIT-compile NumPy inner loops in CPU-bound plugins
-- `pywt.wavedec()` — Wavelet decomposition for regime transition signals
-- `empyrical.sharpe_ratio()` / `empyrical.max_drawdown()` — Signal performance stats
-
----
-
-## 8. Performance Boundaries
-
-| Scale | Tool | Performance |
-|-------|------|-------------|
-| Single signal (<5ms) | NumPy + LightGBM (planned) | Real-time inference |
-| 100K rows (<5 min) | polars + LightGBM (planned) | Weekly retraining |
-| 1M rows (<30 min) | polars + LightGBM (planned) | Full historical backfill |
-| 10M rows | Consider Ray/Dask | Future multi-product scale |
+```
+Gene Bank (agent_genomes table)
+  ↓ reproduction operators (mutation / recombination / LLM-directed)
+  ↓
+New genome variant → instantiate as shadow BaseAIAgent
+  ↓ shadow evaluation (n >= 100 resolved signals)
+  ↓
+Composite fitness scoring:
+  accuracy × novelty (pgvector) × calibration × regime_specificity × efficiency
+  ↓
+Statistical gate: bootstrap CI lower > 0 at 95% confidence
+  ↓
+Promotion: genome becomes live agent variant
+  ↓
+Continuous monitoring: decay triggers soft death → frozen archive
+```
 
 ---
 
-## 9. Decision Log
+## 8. Build Order — Recommended Sequence
 
-| Date | Tool | Decision | Rationale |
-|------|------|----------|-----------|
-| 2026-04-21 | stumpy/numba/PyWavelets/empyrical | Installed, not yet wired | Available for plugin dev and research; no wiring risk |
-| 2026-04-21 | guardrails-ai | Replaced by custom impl | No pip dep needed; Pydantic validator suffices |
-| 2026-04-21 | LangFuse | Configured, not yet wired | Self-hosted plan stands; connect when swarm stable |
-| 2026-04-21 | OTel | Added to docs | Already active in BaseAgent + signal metrics agents |
-| 2026-03-24 | LightGBM | Chosen (planned) | Dominates tabular benchmarks |
-| 2026-03-24 | PyTorch/TF | Rejected | Overkill for our data type |
-| 2026-03-24 | MLflow | Chosen | Self-hosted experiment tracking |
-| 2026-03-15 | optuna | Chosen (planned) | Bayesian optimization |
-| 2026-03-15 | alphalens-reloaded | Chosen (planned) | Quant-standard IC/ICIR |
-| 2026-03-15 | tsfresh | Chosen | Auto feature extraction |
+Based on the strategy in memory (`project_ai_foundation_strategy.md`):
+
+### Now (no blockers)
+1. **BaseAIAgent refactor** (Phase 80) — extract shared LLM plumbing before more agents
+2. **MCP server** — immediate research value; query our stack from Claude/external tools
+3. **Wire Langfuse SDK** — container is running, just needs `pip install langfuse` + wiring
+
+### After Phase 80 + MCP
+4. **Tool calling in providers** — extend `_OpenAICompatProvider` with `tools` param
+5. **Agent tool loop** — `BaseAIAgent._compute()` handles tool calls
+6. **Wire alpha agents** — Skeptic queries setup win rate, etc.
+
+### After data gate (~May 10 = now, 30-day signal data available)
+7. **`ctx` substrate** — `ctx_events`, `ctx_snapshots`, `CtxWriterAgent`
+8. **LightGBM signal scoring** (Phase 70) — ML-scored signals
+9. **One deterministic qual lane** — macro calendar or earnings
+
+### After substrate + ML scoring proven
+10. **eAI Phase 1** — LLM-directed prompt mutation (lowest risk)
+11. **eAI Phase 2** — Composite fitness function + gene bank
+12. **Additional qual lanes** — earnings, macro, news
+13. **Wire MLflow** — experiment tracking for eAI genome evaluation
+
+### Later (needs outcome data to evaluate)
+14. **eAI Phase 3** — Config parameter mutation + population management
+15. **MoA + adversarial patterns** — prove they improve over single-model baseline first
+16. **eAI Phase 4** — Code/logic evolution (highest risk)
 
 ---
 
-## 10. Related Documentation
+## 9. Shadow-First Lifecycle (Universal)
+
+Every AI output follows this path — no exceptions:
+
+```
+1. SHADOW MODE — Observe live data, produce analysis, zero production impact
+2. FITNESS EVALUATION — Measure out-of-sample across multiple market regimes
+3. STATISTICAL GATE — Bootstrap CI lower > 0 at 95%, N >= 100 resolved
+4. PROMOTION — Multiplier feeds into signal scoring
+5. PRODUCTION — Continuous monitoring continues
+6. DEGRADATION — Auto-disable if EV[R] < -0.05 for 3 consecutive 30-min cycles
+```
+
+Applies to: I7 plugins, swarm agents, ML models, LLM-derived heuristics, eAI-evolved variants.
+
+---
+
+## 10. Decision Log
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-05-10 | Added MCP + eAI sections, updated provider chain | Reflect v2.5 state with DeepSeek, Ollama Cloud, Phase 80 work |
+| 2026-05-10 | DeepSeek as second provider | $0.14/1M tokens, 1M context, OpenAI-compatible, tool call support |
+| 2026-05-10 | Ollama Cloud as third provider | Free cloud models with OLLAMA_API_KEY, another fallback |
+| 2026-05-10 | MCP with FastMCP only | No LangChain; all providers are OpenAI-compatible; ~50 lines for tool calling |
+| 2026-05-10 | Custom eAI engine (no framework) | Our genome model + shadow governance + statistical gates have no off-the-shelf match |
+| 2026-05-10 | Langfuse alongside local audit | Not either/or — Langfuse for ops visibility, local tables for ML training |
+| 2026-04-21 | LightGBM over PyTorch/TF | Dominates tabular benchmarks |
+| 2026-04-21 | Custom guardrails over `guardrails-ai` | Pydantic validator suffices, no heavy dep chain |
+| 2026-03-24 | MLflow for experiment tracking | Self-hosted, open source |
+| 2026-03-15 | optuna for hyperparameter search | Bayesian optimization with LightGBMTuner |
+| 2026-03-15 | tsfresh for feature discovery | 700+ auto features, feeds IC analysis |
+| 2026-03-10 | LangFuse over LangSmith | Self-hosted, open source, no vendor lock-in |
+
+---
+
+## 11. Related Documentation
 
 **Core architecture:**
 - `ai-intelligence-architecture.md` — Full I1-I8 pipeline architecture
 - `ai-intelligence-resources.md` — LLM provider chain usage patterns
 - `../architecture/current-state.md` — Active services, data flow, performance
 
+**Design docs (MCP + eAI):**
+- `../ideas/mcp-intelligence-server.md` — MCP server + tool use design
+- `../concepts/evolvable-ai.md` — eAI concept overview
+- `../ideas/2026-05-06-evolvable-ai-agents.md` — Full eAI design document
+- `../ideas/agent-orchestration-patterns.md` — MoA, adversarial, dynamic leadership (future)
+
 **Deep dives:**
 - `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
-- `../ideas/renaissance-alpha-pipeline.md` — Validation framework (shadow-first gates)
+- `../ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
 - `../ideas/tech-stack.md` — Full platform stack (Redpanda, TimescaleDB, etc.)
-- `.planning/research/ML-SCORING.md` — LightGBM/XGBoost decision + training architecture
+- `../ideas/ai-integration-paths.md` — Tier 1/2/3 dependency chain
+
+**Code reference:**
+- `src/core/ai/AUTHORING.md` — Agent authoring protocol
+- `src/core/ai/TEMPLATE_agent.py` — Skeleton for new agents
+- `src/intelligence/ai/alpha/skeptic_agent.py` — Canonical agent reference
 
 ---
 
-## 11. How to Update This Document
-
-When adding/removing tools:
-
-1. Update section 2 with new tool + status (Active / Installed / Planned)
-2. Add decision to section 9 (Decision Log) with date and rationale
-3. Cross-reference `.planning/research/` if an analysis doc exists
-4. Commit with: `docs: add/remove/update [tool] in AI tech stack`
-
-**Before adding:**
-- Verify it's not already covered by an installed library
-- Check Renaissance alignment — simplest tool, proven, minimal
-- Document "Why not [existing tool]?"
-- Mark status clearly: Active (wired), Installed (available), or Planned (not yet installed)
-
----
-
-**Version:** 2.0.0
-**Last Updated:** 2026-04-21
-**Milestone:** v2.4 Observability Hardening / v2.3 ML Foundation (planned)
+**Version:** 3.0.0
+**Last Updated:** 2026-05-10
+**Milestone:** v2.5 Data Quality / Phase 80 Swarm Observability
