@@ -9,6 +9,7 @@ import structlog
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
+from src.core.ai.prompt_utils import clamp
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.counterfactual_prompts import (
     ACTIVE_VERSION,
@@ -107,8 +108,8 @@ def _validate_counterfactual_fields(data: dict) -> dict[str, Any] | None:
     if not isinstance(plausibility, (int, float)) or not isinstance(confidence, (int, float)):
         return None
 
-    plausibility = max(0.0, min(1.0, float(plausibility)))
-    confidence = max(0.0, min(1.0, float(confidence)))
+    plausibility = clamp(float(plausibility), 0.0, 1.0)
+    confidence = clamp(float(confidence), 0.0, 1.0)
 
     validation_conditions = data.get("validation_conditions", [])
     if not isinstance(validation_conditions, list):

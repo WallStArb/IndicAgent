@@ -362,14 +362,13 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self,
         agents: list,
         results: list,
-        agent_weights: dict[tuple[str, str], float],
         tf: str,
     ) -> tuple[float | None, int]:
         """Compute normalized weighted average multiplier from non-error agent results.
 
         Returns (final_multiplier, valid_agent_count).
         Returns (None, 0) when all agents failed or produced no multiplier.
-        Default weight when (agent_id, tf) absent from agent_weights is 1/N.
+        Default weight when (agent_id, tf) absent from self._agent_weights is 1/N.
         """
         weighted_sum = 0.0
         weight_sum = 0.0
@@ -380,7 +379,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                 m = result.payload.get("multiplier")
                 if m is None:
                     continue
-                w = agent_weights.get((agent.agent_id, tf), default_w)
+                w = self._agent_weights.get((agent.agent_id, tf), default_w)
                 weighted_sum += w * m
                 weight_sum += w
                 valid_count += 1
@@ -524,7 +523,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         # Weighted aggregation
         final_multiplier, agent_count = self._compute_final_multiplier(
-            agents_with_context, list(results), self._agent_weights, tf
+            agents_with_context, list(results), tf
         )
 
         if final_multiplier is None:

@@ -647,13 +647,13 @@ INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL: Counter = _safe_counter(
 # Signal tracker intake metrics (Phase 81)
 # ---------------------------------------------------------------------------
 
-SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL = Counter(
+SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL: Counter = _safe_counter(
     "signal_tracker_invalid_signal_total",
     "Signals rejected by _load_signal() (missing/invalid required fields) and routed to DLQ",
     ["reason"],
 )
 
-SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = Counter(
+SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL: Counter = _safe_counter(
     "signal_tracker_backfill_fast_path_total",
     "Backfill signals where TTL elapsed at ingest; published TTL-expired and skipped active index",
     ["symbol", "timeframe"],
@@ -663,15 +663,16 @@ SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = Counter(
 # Bar replay provider metrics (Phase 81)
 # ---------------------------------------------------------------------------
 
-BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL = Counter(
+BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL: Counter = _safe_counter(
     "bar_replay_provider_bars_published_total",
     "Bars published by BarReplayProviderAgent (progress tracking)",
     labelnames=("symbol", "timeframe"),
 )
 
-BAR_REPLAY_PROVIDER_LAG_SECONDS = Gauge(
+BAR_REPLAY_PROVIDER_LAG_SECONDS: Gauge = _safe_gauge(
     "bar_replay_provider_lag_seconds",
     "Seconds between last_replayed_ts and NOW(); drops to 0 on completion",
+    [],
 )
 
 # ---------------------------------------------------------------------------
@@ -679,31 +680,34 @@ BAR_REPLAY_PROVIDER_LAG_SECONDS = Gauge(
 # North-star metric: signal_replay_unresolved_gauge should converge to 0.
 # ---------------------------------------------------------------------------
 
-SIGNAL_REPLAY_UNRESOLVED_GAUGE = Gauge(
+SIGNAL_REPLAY_UNRESOLVED_GAUGE: Gauge = _safe_gauge(
     "signal_replay_unresolved_gauge",
     "v1 signals with exit_at IS NULL past TTL (north star — target = 0)",
+    [],
 )
 
-SIGNAL_REPLAY_ATTEMPTED_TOTAL = Counter(
+SIGNAL_REPLAY_ATTEMPTED_TOTAL: Counter = _safe_counter(
     "signal_replay_attempted_total",
     "Signals queried for replay each auditor cycle",
+    [],
 )
 
-SIGNAL_REPLAY_RESOLVED_TOTAL = Counter(
+SIGNAL_REPLAY_RESOLVED_TOTAL: Counter = _safe_counter(
     "signal_replay_resolved_total",
     "Outcomes successfully computed and published by replay auditor",
     labelnames=("outcome",),
 )
 
-SIGNAL_REPLAY_OHLCV_GAP_TOTAL = Counter(
+SIGNAL_REPLAY_OHLCV_GAP_TOTAL: Counter = _safe_counter(
     "signal_replay_ohlcv_gap_total",
     "Replay attempts where market_data_ohlcv had zero bars in the signal window",
     labelnames=("symbol", "timeframe"),
 )
 
-LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL = Counter(
+LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL: Counter = _safe_counter(
     "lifecycle_writer_idempotent_skip_total",
     "EXIT writes blocked by idempotency guard (WHERE exit_at IS NULL); validates two-path safety",
+    [],
 )
 
 # ---------------------------------------------------------------------------
@@ -711,7 +715,8 @@ LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL = Counter(
 # Updated periodically by SignalMetricsComputeAgent from signal_ledger query.
 # ---------------------------------------------------------------------------
 
-SIGNAL_LEDGER_BACKFILL_RATIO = Gauge(
+SIGNAL_LEDGER_BACKFILL_RATIO: Gauge = _safe_gauge(
     "signal_ledger_backfill_ratio",
     "Fraction of signal_ledger rows last 24h with is_backfill=TRUE (training set quality KPI)",
+    [],
 )

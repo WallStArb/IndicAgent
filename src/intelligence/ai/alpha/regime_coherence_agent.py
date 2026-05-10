@@ -9,6 +9,7 @@ import structlog
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
+from src.core.ai.prompt_utils import clamp
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.regime_coherence_prompts import (
     ACTIVE_VERSION,
@@ -37,10 +38,8 @@ def _validate_regime_coherence_fields(data: dict) -> dict[str, Any] | None:
     if not isinstance(regime_fit, (int, float)) or not isinstance(confidence, (int, float)):
         return None
 
-    from src.core.ai.prompt_utils import clamp
-
-    regime_fit = clamp(regime_fit, 0.0, 1.0)
-    confidence = clamp(confidence, 0.0, 1.0)
+    regime_fit = clamp(float(regime_fit), 0.0, 1.0)
+    confidence = clamp(float(confidence), 0.0, 1.0)
 
     mismatches = data.get("mismatches", [])
     if not isinstance(mismatches, list):
