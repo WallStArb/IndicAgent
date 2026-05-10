@@ -1,6 +1,6 @@
 # DAG Execution
 
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 
 ## What Is a DAG?
 
@@ -123,6 +123,31 @@ To wire a new plugin into the execution graph:
 4. The DAG engine automatically places it in topological order
 
 No manual ordering required. The graph infers the right position from declared dependencies.
+
+---
+
+## Service-Level DAG (10 Layers)
+
+Beyond the plugin DAG, the system as a whole is a DAG of 25+ microservices connected via Kafka topics. The canonical service registry is `_DAG_ORDER` in `services/service_auditor_agent.py`:
+
+```
+L1   data-provider                                    — data ingestion
+L2   provider-merger                                  — stream merge + failover
+L3   bar-aggregator, bar-auditor                      — bar processing + gap detection
+L4   bar-writer                                       — OHLCV persistence
+L5   intelligence-pipeline, cross-asset, macro-compute — I1–I7 compute + context
+L6   feature-writer, signal-writer, signal-tracker,
+     lifecycle-writer, lineage-writer                  — persistence writers (parallel)
+L7   alpha-swarm, llm-writer                          — AI/LLM layer
+L8   roll-compute, signal-metrics, graduation-writer   — analytics + rolling metrics
+L9   signal-auditor, signal-replay, parity-auditor,
+     alerting-agent                                    — audit, replay, parity, alerting
+L10  service-auditor                                   — meta: monitors + restarts all above
+```
+
+The service auditor at L10 auto-discovers units, monitors Prometheus lag, restarts in DAG order, and escalates after 3 failures in 10 min. No manual intervention required for transient failures.
+
+**Self-healing at L1 and L9:** `BarReplayProviderAgent` (L1) replays historical bars for bootstrap/recovery. `SignalReplayAuditorAgent` (L9) resolves orphaned signal lifecycles every 5 minutes. Both use the same evaluation logic as their live counterparts.
 
 ---
 
