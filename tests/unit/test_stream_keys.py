@@ -5,7 +5,6 @@ from src.core.stream_keys import (
     message_key,
     narratives_group,
     system_events,
-    topic_indicators,
     topic_intelligence,
     topic_intelligence_i8,
     topic_llm_calls,
@@ -13,7 +12,6 @@ from src.core.stream_keys import (
     topic_market_bars,
     topic_market_ticks,
     topic_narratives,
-    topic_signals,
     topic_signals_aggregated,
 )
 
@@ -68,24 +66,12 @@ def test_topic_market_bars_with_env() -> None:
     assert topic_market_bars("dev") == "dev.market.bars"
 
 
-def test_topic_indicators_with_env() -> None:
-    assert topic_indicators("dev") == "dev.indicators"
-
-
-def test_topic_indicators_no_env() -> None:
-    assert topic_indicators("") == "indicators"
-
-
 def test_topic_intelligence_with_env() -> None:
     assert topic_intelligence("dev") == "dev.intelligence"
 
 
 def test_topic_intelligence_i8_with_env() -> None:
     assert topic_intelligence_i8("dev") == "dev.intelligence.i8"
-
-
-def test_topic_signals_with_env() -> None:
-    assert topic_signals("dev") == "dev.signals"
 
 
 def test_topic_signals_aggregated_with_env() -> None:
@@ -137,12 +123,6 @@ def test_topic_market_data_quality() -> None:
     from src.core.stream_keys import topic_market_data_quality
 
     assert topic_market_data_quality("development") == "development.market.data.quality"
-
-
-def test_topic_market_data_quality_distinct_from_pipeline() -> None:
-    from src.core.stream_keys import topic_data_quality, topic_market_data_quality
-
-    assert topic_market_data_quality("development") != topic_data_quality("development")
 
 
 # ---------------------------------------------------------------------------

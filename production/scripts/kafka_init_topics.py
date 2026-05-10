@@ -37,23 +37,14 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     ("market.events.roll", 1, _BUFFER_MS, "delete"),
     ("market.data.quality", 1, _BUFFER_MS, "delete"),
     # --- Intelligence pipeline (all persisted by feature_writer → intelligence_features) ---
-    ("indicators", 1, _BUFFER_MS, "delete"),
     ("intelligence", 1, _BUFFER_MS, "delete"),
     ("intelligence.i8", 1, _BUFFER_MS, "delete"),
     ("intelligence.journal", 1, _BUFFER_MS, "delete"),
-    ("intelligence.record", 1, _BUFFER_MS, "delete"),
     ("intelligence.i7.signals", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal_metrics", 1, _BUFFER_MS, "delete"),
     ("intelligence.signal.audit", 1, _BUFFER_MS, "delete"),
     ("intelligence.service_auditor.journal.dlq", 1, _BUFFER_MS, "delete"),
-    # --- Signal pipeline stages (consumed within seconds, persisted downstream) ---
-    ("pipeline.quality_gated", 1, _BUFFER_MS, "delete"),
-    ("pipeline.regime_gated", 1, _BUFFER_MS, "delete"),
-    ("pipeline.tod_adjusted", 1, _BUFFER_MS, "delete"),
-    ("pipeline.calibrated", 1, _BUFFER_MS, "delete"),
-    ("pipeline.ranked", 1, _BUFFER_MS, "delete"),
     # --- Signals (persisted by signal_writer → signal_ledger) ---
-    ("signals", 1, _BUFFER_MS, "delete"),
     ("signals.aggregated", 1, _BUFFER_MS, "delete"),
     # --- LLM (persisted by llm_writer → llm_calls) ---
     ("llm.calls", 1, _BUFFER_MS, "delete"),
@@ -78,14 +69,16 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     # --- System ---
     ("system.events", 1, _BUFFER_MS, "delete"),
     ("system.health.events", 1, _BUFFER_MS, "delete"),
-    ("audit", 1, _BUFFER_MS, "delete"),
     ("pipeline.data_quality", 1, _BUFFER_MS, "delete"),
+    # --- Alerting ---
+    ("alert.requests", 1, _BUFFER_MS, "delete"),
+    # --- DLQs ---
+    ("gap_fill.dlq", 1, _BUFFER_MS, "delete"),
 ]
 
 # Compacted topics (state snapshots — key-based retention)
 _COMPACTED_TOPICS: list[tuple[str, int]] = [
     # (suffix, num_partitions)
-    ("intelligence.pipeline.state", 1),
     ("bar.aggregator.state", 1),  # Phase 74: BarAggregator state checkpoints
     ("market.events.contract_update", 1),
 ]

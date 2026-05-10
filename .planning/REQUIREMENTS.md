@@ -151,5 +151,30 @@
 | PIPE-06 | Systemd template unit `indicagent-intelligence-pipeline@.service` installed and running as `@1` instance; metrics port configurable via `METRICS_PORT` env var | Phase 58 |
 
 ---
+
+## AI Layer Separation
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| AI-SEP-01 | AI layer never writes to tables owned by intelligence verticals (quant, fundamental, news). AI enrichment (`swarm_multiplier`, `adjusted_confidence`, `i8`, narratives) lives in AI-owned tables (`signal_ai_enrichment`, `intelligence_ai_enrichment`) joined at read time. Quant pipeline must run unaffected if AI layer is down. | Todo: 018 |
+
+---
+---
+
+## Phase 81: Signal Lifecycle Hardening
+
+| ID | Requirement |
+|----|-------------|
+| P81-PUBLISHER | `intelligence_pipeline_agent.py` injects `timestamp=bar_ts`, `is_backfill`, `ttl_bars`, `signal_schema_version` into every signal at publish time; `timestamp=""` is never emitted |
+| P81-LOADER | `_load_signal(raw)` is the single canonical intake function in `signal_tracker_compute_agent.py`; both bootstrap (DB SELECT) and Kafka paths route through it; returns canonical dict or None (→ DLQ); `timestamp=None` or `""` is a hard reject |
+| P81-TRACKER | `SignalTrackerComputeAgent` has zero DB write paths after this phase; D-03 startup DB sweep deleted; D-05 activation probability gate deleted; backfill fast-path (TTL elapsed at ingest → immediate TTL-expired transition) implemented |
+| P81-REPLAY | `SignalReplayAuditorAgent` (L9, periodic 5-min) queries `signal_ledger WHERE exit_at IS NULL AND signal_schema_version='v1'` past TTL; replays bar-by-bar from `market_data_ohlcv`; publishes idempotent `LifecycleTransition` events; `signal_replay_unresolved_gauge=0` is the health invariant |
+| P81-BARREPLAY | `BarReplayProviderAgent` (L1, one-shot) reads `market_data_ohlcv` in chronological order, publishes 1m→`market.bars` and HTF→`market.bars.htf`; checkpoint-based; self-terminating; `ExecStopPost` restarts `ibkr-provider` + `bar-aggregator` |
+| P81-MIGRATION | `TRUNCATE TABLE signal_ledger`; `ADD COLUMN is_backfill BOOLEAN NOT NULL DEFAULT FALSE`; `ADD COLUMN ttl_bars INTEGER NOT NULL DEFAULT 10`; both new services added to `_DAG_ORDER` |
+| P81-METRICS | All 11 metrics from Section 6 of the design spec implemented (counters + gauges); 4 Prometheus alerts configured; `signal_replay_unresolved_gauge` is the north star |
+| P81-TESTS | All 16 unit tests and 4 integration tests from Section 8 pass; `test_replay_outcome_parametric` covers all 8 outcome types × long/short; `test_compute_agent_no_db_writes` passes |
+
+---
+
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-04-01 — Phase 58 PIPE-01/06 requirements added*
+*Last updated: 2026-05-08 — Phase 81 Signal Lifecycle Hardening added*

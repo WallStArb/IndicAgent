@@ -1,46 +1,19 @@
 """
-Unit tests for SSE intelligence.record rewire (Plan 44.3-04).
+Unit tests for SSE topic routing and payload shapes.
 
 Verifies:
-1. _event_name_for_topic maps intelligence.record → signal_scorecard
-2. intelligence.i7 topic removed from _build_topic_list()
-3. intelligence.record topic present in _build_topic_list()
-4. BarIntelligenceRecord.ranked_signals serializes to the expected signal_scorecard payload shape
+1. intelligence.i7 topic not in _build_topic_list() (retired)
+2. intelligence.journal topic present in _build_topic_list() (current scorecard source)
+3. BarIntelligenceRecord.ranked_signals serializes to the expected signal_scorecard payload shape
 """
 
 import json
 from datetime import UTC, datetime
 
-from src.api.routes.sse import _build_topic_list, _event_name_for_topic
+from src.api.routes.sse import _build_topic_list
 from src.core.stream_keys import (
     topic_intelligence_journal,
 )
-
-
-class TestEventNameForTopic:
-    """_event_name_for_topic maps intelligence.record to signal_scorecard."""
-
-    def test_intelligence_record_maps_to_signal_scorecard(self):
-        """development.intelligence.record must map to signal_scorecard."""
-        assert _event_name_for_topic("development.intelligence.record") == "signal_scorecard"
-
-    def test_intelligence_record_bare_maps_to_signal_scorecard(self):
-        """intelligence.record (no env prefix) must map to signal_scorecard."""
-        assert _event_name_for_topic("intelligence.record") == "signal_scorecard"
-
-    def test_intelligence_i7_no_longer_signal_scorecard(self):
-        """intelligence.i7 is retired — should not map to signal_scorecard anymore.
-
-        After the rewire, intelligence.i7 has no consumers. The event name mapping
-        can be anything (or message) — it is no longer the signal_scorecard source.
-        We only verify it does NOT map to signal_scorecard to confirm the switch.
-        Note: this test documents the intent; the mapping may return 'message'
-        or remain as is in the deprecated function.
-        """
-        # After retirement, intelligence.i7 events should not arrive.
-        # This test documents that intelligence.record is now the signal_scorecard source.
-        result = _event_name_for_topic("development.intelligence.record")
-        assert result == "signal_scorecard"
 
 
 class TestBuildTopicList:

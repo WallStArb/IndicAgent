@@ -177,7 +177,7 @@ def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
 _configured_log_file: str | None = None
 
 
-def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
+def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 3) -> None:
     """Configure structlog and stdlib logging for a service.
 
     Creates the log directory if it does not exist, attaches a
