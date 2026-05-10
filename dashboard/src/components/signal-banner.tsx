@@ -46,6 +46,7 @@ export function SignalBanner({ signal, onDrillDown, isLoading }: SignalBannerPro
     <div className={signal.resolved ? "opacity-50" : undefined}>
       <button
         onClick={onDrillDown}
+        aria-label={`Drill down into ${isLong ? "long" : "short"} signal details`}
         className={`w-full flex flex-col px-2 py-1 cursor-pointer rounded-sm border-b transition-colors ${
           isLong 
             ? "bg-green-50 border-green-200 hover:bg-green-100" 
