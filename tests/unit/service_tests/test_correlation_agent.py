@@ -1,11 +1,11 @@
-"""Unit tests for CorrelationAgentComputeAgent (Phase 80, D-04)."""
+"""Unit tests for CorrelationComputeAgent (Phase 80, D-04)."""
 
 from __future__ import annotations
 
 import pytest
 
 from src.intelligence.ai.alpha.correlation_agent import (
-    CorrelationAgentComputeAgent,
+    CorrelationComputeAgent,
     _validate_correlation_fields,
 )
 
@@ -63,11 +63,11 @@ def test_validator_coerces_non_list_contradicting_assets() -> None:
 def test_class_attributes() -> None:
     from src.core.ai.context import Tier
 
-    assert CorrelationAgentComputeAgent.agent_id == "correlation_v1"
-    assert CorrelationAgentComputeAgent.group == "alpha"
-    assert CorrelationAgentComputeAgent.shadow_only is True
-    assert CorrelationAgentComputeAgent.latency_budget_ms == 5000.0
-    assert Tier.I6 in CorrelationAgentComputeAgent.tiers_needed
+    assert CorrelationComputeAgent.agent_id == "correlation_v1"
+    assert CorrelationComputeAgent.group == "alpha"
+    assert CorrelationComputeAgent.shadow_only is True
+    assert CorrelationComputeAgent.latency_budget_ms == 5000.0
+    assert Tier.I6 in CorrelationComputeAgent.tiers_needed
 
 
 def test_multiplier_formula_semantics() -> None:

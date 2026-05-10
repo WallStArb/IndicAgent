@@ -57,7 +57,7 @@ Rules:
 
 
 def build_correlation_prompt(ctx: Any) -> str:
-    """Build the correlation prompt for CorrelationAgentComputeAgent.
+    """Build the correlation prompt for CorrelationComputeAgent.
 
     ctx must be a typed AIContext object (correlation_v1 path).
     Raises TypeError if ctx is not an AIContext.
