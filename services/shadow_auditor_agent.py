@@ -100,7 +100,6 @@ async def _check_promotion(
             SELECT outcome, pnl_r, signal_computed_at
             FROM signal_ledger
             WHERE setup_plugin = $1
-              AND signal_schema_version = 'v2'
               AND outcome IS NOT NULL
               AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
             """,
@@ -217,7 +216,6 @@ async def _check_demotion(
             """
             SELECT pnl_r FROM signal_ledger
             WHERE setup_plugin = $1
-              AND signal_schema_version = 'v2'
               AND outcome IS NOT NULL
               AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
               AND signal_computed_at > NOW() - INTERVAL '1 day' * $2

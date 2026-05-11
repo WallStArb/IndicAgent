@@ -48,6 +48,7 @@ from src.intelligence.trading.lifecycle_transitions import (
     TransitionType,
     to_dict,
 )
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL,
     SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL,
@@ -331,7 +332,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             "stop_loss": float(stop_loss),
             "is_backfill": bool(raw.get("is_backfill", False)),
             "ttl_bars": int(raw.get("ttl_bars", 10)),
-            "signal_schema_version": str(raw.get("signal_schema_version", "v0")),
+            "signal_schema_version": raw.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
             "status": raw.get("status", "pending"),
             "direction": int(raw.get("direction", 1)),
             "targets": list(raw.get("targets", []) or []),

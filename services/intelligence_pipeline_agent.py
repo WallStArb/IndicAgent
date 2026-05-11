@@ -43,6 +43,7 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 # to avoid top-level production import of archived module.
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
+    format_iso_ts,
     min_bars_for_tf,
     normalize_session_type,
     should_skip_plugin,
@@ -109,6 +110,7 @@ from src.intelligence.schemas import (
     signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
@@ -1544,12 +1546,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             # bar_ts/computed_at must be tz-aware UTC datetimes; if not, default to live
             is_backfill = False
         for sig in ranked:
-            sig["timestamp"] = bar_ts  # bar_ts is tz-aware UTC; never ""
+            sig["timestamp"] = format_iso_ts(bar_ts)
             sig["is_backfill"] = is_backfill
             # ttl_bars and signal_schema_version come from make_signal_from_frame();
             # apply defensive defaults if a plugin returned a stripped dict.
             sig.setdefault("ttl_bars", 10)
-            sig.setdefault("signal_schema_version", "v1")
+            sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
         if is_backfill and ranked:
             INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.labels(symbol=symbol, timeframe=tf).inc(
                 len(ranked)
@@ -1561,8 +1563,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             {
                 "symbol": symbol,
                 "tf": tf,
-                "bar_ts": bar_ts.isoformat(),
-                "computed_at": computed_at.isoformat(),
+                "bar_ts": format_iso_ts(bar_ts),
+                "computed_at": format_iso_ts(computed_at),
                 "signals": ranked,
             },
         )

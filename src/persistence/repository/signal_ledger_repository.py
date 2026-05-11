@@ -13,6 +13,8 @@ from typing import Any
 
 import structlog
 
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -139,7 +141,7 @@ class LedgerEntry:
     pre_quality_confidence: float | None = None  # confidence before apply_quality_gate()
     pre_calibration_confidence: float | None = None  # confidence before apply_calibration()
     # Phase 79: Signal quality fix — lineage + entry_type + co-fire
-    signal_schema_version: str = "v0"
+    signal_schema_version: str = SIGNAL_SCHEMA_VERSION
     entry_type: str | None = None
     co_fire_count: int = 1
     co_fire_partners: list[str] = field(default_factory=list)

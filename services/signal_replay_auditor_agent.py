@@ -82,7 +82,7 @@ class SignalReplayAuditorAgent:
     # ------------------------------------------------------------------
 
     async def _fetch_unresolved(self) -> list[asyncpg.Record]:
-        """Fetch v1 signals with exit_at IS NULL that are past a 2-minute hold."""
+        """Fetch unresolved signals past a 2-minute hold."""
         query = """
             SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
                    direction, targets, entry_zone_low, entry_zone_high,
@@ -90,7 +90,6 @@ class SignalReplayAuditorAgent:
                    hmm_regime_at_fire, garch_sigma_at_fire, point_value
             FROM signal_ledger
             WHERE exit_at IS NULL
-              AND signal_schema_version = 'v1'
               AND timestamp < NOW() - INTERVAL '2 minutes'
         """
         assert self._pool is not None
@@ -122,7 +121,6 @@ class SignalReplayAuditorAgent:
             cnt = await conn.fetchval("""
                 SELECT COUNT(*) FROM signal_ledger
                 WHERE exit_at IS NULL
-                  AND signal_schema_version = 'v1'
                   AND timestamp < NOW() - INTERVAL '2 minutes'
                 """)
         return int(cnt or 0)
