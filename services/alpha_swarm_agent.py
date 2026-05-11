@@ -18,7 +18,7 @@ Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 Plan 80-07 changes:
 - self._agents is list[BaseMultiplierAgent] with Skeptic, Correlation, RegimeCoherence, Counterfactual
 - TF gate: SWARM_MIN_TF_MINUTES settings-driven (replaces frozenset lookup)
-- Schema gate: signal_schema_version == 'v1' required
+- No schema version gate — all signals from the pipeline are accepted
 - Capacity semaphore: asyncio.Semaphore(SWARM_MAX_CONCURRENT_CALLS) with SWARM_QUEUE_TIMEOUT_MS
 - Weighted aggregation: _compute_final_multiplier normalized over non-error agents
 - Shadow enrollment loops over self._agents
@@ -42,6 +42,7 @@ from src.core.ai.context import AIContext, Tier
 from src.core.ai.lineage import LineageRecorder
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
+from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7_signals,
@@ -97,7 +98,7 @@ def _resolve_lead(symbol: str) -> str:
 
 def _now_utc_iso() -> str:
     """Return current UTC time as ISO-8601 string with Z suffix."""
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    return format_iso_ts(datetime.now(UTC))
 
 
 class AlphaSwarmComputeAgent(BaseGroupService):
@@ -403,19 +404,14 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         Plan 80-07 gates (in order, cheapest first):
         1. TF gate: timeframe_minutes < SWARM_MIN_TF_MINUTES -> skip
-        2. Schema gate: signal_schema_version != 'v1' -> skip
-        3. Capacity gate: asyncio.Semaphore acquire with SWARM_QUEUE_TIMEOUT_MS timeout
-        4. Parallel asyncio.gather over self._agents
-        5. Weighted aggregation -> aggregate event on topic_swarm_alpha
+        2. Capacity gate: asyncio.Semaphore acquire with SWARM_QUEUE_TIMEOUT_MS timeout
+        3. Parallel asyncio.gather over self._agents
+        4. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
         # TF gate — before any LLM context build (zero cost for ineligible signals)
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
         tf_minutes = _TF_MINUTES.get(tf, 0)
         if tf_minutes < self.settings.SWARM_MIN_TF_MINUTES:
-            return
-
-        # Schema gate
-        if raw_signal.get("signal_schema_version") != "v1":
             return
 
         try:

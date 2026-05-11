@@ -136,7 +136,7 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
 - **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Time column: `timestamp`.
-- **signal_schema_version**: `'v0'` = pre-Phase-79 (contaminated). `'v1'` = post-fix. **ML queries MUST filter `WHERE signal_schema_version = 'v1'`**.
+- **signal_schema_version**: single canonical constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`. All producers/consumers import from there — no hardcoded version strings.
 - **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` — raw string literals, no enum.
 
