@@ -159,6 +159,11 @@ def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
+def format_iso_ts(dt: datetime) -> str:
+    """Format datetime to ISO-8601 with Z suffix for Kafka/JSON serialization."""
+    return dt.isoformat().replace("+00:00", "Z")
+
+
 def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
     """Parse a typed RollEvent payload into (old_contract, new_contract).
 
