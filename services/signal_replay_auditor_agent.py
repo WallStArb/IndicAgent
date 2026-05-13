@@ -1,0 +1,468 @@
+"""SignalReplayAuditorAgent — L9 periodic outcome recovery.
+
+Phase 81 Plan 05. Every 5 minutes, finds v1 signals with exit_at IS NULL
+past their TTL window and replays them bar-by-bar against market_data_ohlcv
+to compute outcomes that the live tracker missed (restart, edge cases, gaps).
+
+Two-path safety contract:
+  - Live tracker is fast and usually correct.
+  - Replay catches everything the live tracker missed.
+  - LifecycleWriterAgent EXIT guard (WHERE exit_at IS NULL) ensures the
+    second writer is always a safe no-op (first writer wins).
+
+North-star metric: signal_replay_unresolved_gauge == 0.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import signal
+import sys
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import _path_bootstrap  # noqa: F401 — project root on sys.path
+import asyncpg
+import structlog
+
+from src.config.settings import Settings
+from src.core.kafka_utils import KafkaProducerClient
+from src.core.service_utils import setup_service_logging
+from src.core.stream_keys import TF_SECONDS, topic_lifecycle_transitions
+
+# Reuse the live tracker's evaluators — never duplicate evaluation logic.
+from src.intelligence.trading.lifecycle_tracker import (
+    evaluate_market_entry,
+    evaluate_signal,
+)
+from src.intelligence.trading.lifecycle_transitions import (
+    LifecycleTransition,
+    TransitionType,
+    to_dict,
+)
+from src.observability.metrics import (
+    SIGNAL_REPLAY_ATTEMPTED_TOTAL,
+    SIGNAL_REPLAY_OHLCV_GAP_TOTAL,
+    SIGNAL_REPLAY_RESOLVED_TOTAL,
+    SIGNAL_REPLAY_UNRESOLVED_GAUGE,
+)
+from src.persistence.repository.signal_ledger_repository import SignalStatus
+
+REPLAY_INTERVAL_SECONDS = 300  # 5-minute audit cycle
+
+
+class SignalReplayAuditorAgent:
+    """L9 periodic: recovers outcome labels for v1 signals the live tracker missed."""
+
+    agent_id = "signal_replay_auditor"
+
+    def __init__(self) -> None:
+        self._log = structlog.get_logger(self.agent_id)
+        self._settings = Settings()
+        self._producer: KafkaProducerClient | None = None
+        self._pool: asyncpg.Pool | None = None
+        self._stop = asyncio.Event()
+
+    async def _setup(self) -> None:
+        self._pool = await asyncpg.create_pool(self._settings.database_url, min_size=1, max_size=3)
+        self._producer = KafkaProducerClient(
+            bootstrap_servers=self._settings.kafka_bootstrap_servers
+        )
+        await self._producer.start()
+        self._log.info("signal_replay_auditor.started")
+
+    async def _teardown(self) -> None:
+        if self._producer:
+            await self._producer.stop()
+        if self._pool:
+            await self._pool.close()
+
+    # ------------------------------------------------------------------
+    # DB helpers
+    # ------------------------------------------------------------------
+
+    async def _fetch_unresolved(self) -> list[asyncpg.Record]:
+        """Fetch unresolved signals past a 2-minute hold."""
+        query = """
+            SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
+                   direction, targets, entry_zone_low, entry_zone_high,
+                   market_entry_price, ttl_bars, status, activated_at,
+                   hmm_regime_at_fire, garch_sigma_at_fire, point_value
+            FROM signal_ledger
+            WHERE exit_at IS NULL
+              AND timestamp < NOW() - INTERVAL '2 minutes'
+              AND signal_schema_version = 'v1'
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            return await conn.fetch(query)
+
+    async def _fetch_window_bars(
+        self, symbol: str, tf: str, start_ts: datetime, end_ts: datetime
+    ) -> list[asyncpg.Record]:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            return await conn.fetch(
+                """
+                SELECT timestamp, open, high, low, close, volume
+                FROM market_data_ohlcv
+                WHERE symbol = $1 AND timeframe = $2
+                  AND timestamp >= $3 AND timestamp <= $4
+                ORDER BY timestamp ASC
+                """,
+                symbol,
+                tf,
+                start_ts,
+                end_ts,
+            )
+
+    async def _count_unresolved(self) -> int:
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            cnt = await conn.fetchval("""
+                SELECT COUNT(*) FROM signal_ledger
+                WHERE exit_at IS NULL
+                  AND timestamp < NOW() - INTERVAL '2 minutes'
+                """)
+        return int(cnt or 0)
+
+    # ------------------------------------------------------------------
+    # Replay logic
+    # ------------------------------------------------------------------
+
+    async def _replay_signal(self, row: asyncpg.Record) -> bool:
+        """Replay a single signal bar-by-bar. Returns True if resolved."""
+        tf = row["timeframe"]
+        tf_secs = TF_SECONDS.get(tf, 60)
+        ttl = int(row["ttl_bars"] or 10)
+        start_ts: datetime = row["timestamp"]
+        end_ts = start_ts + timedelta(seconds=ttl * tf_secs)
+        now_utc = datetime.now(UTC)
+
+        # Skip if still within the live tracker's TTL window.
+        if (now_utc - start_ts).total_seconds() <= ttl * tf_secs:
+            return False
+
+        bars = await self._fetch_window_bars(row["symbol"], tf, start_ts, end_ts)
+        if not bars:
+            SIGNAL_REPLAY_OHLCV_GAP_TOTAL.labels(symbol=row["symbol"], timeframe=tf).inc()
+            self._log.warning(
+                "replay_ohlcv_gap",
+                signal_id=str(row["signal_id"]),
+                symbol=row["symbol"],
+                tf=tf,
+            )
+            return False
+
+        signal_dict = self._build_signal_dict(row)
+        topic = topic_lifecycle_transitions(self._settings.env_name)
+        resolved = False
+
+        # Zone-entry track
+        zone_transition = self._evaluate_zone_track(signal_dict, bars, start_ts)
+        if zone_transition is not None:
+            assert self._producer is not None
+            await self._producer.publish(topic, msg=to_dict(zone_transition))
+            outcome_str = zone_transition.data.get("outcome") or "unknown"
+            SIGNAL_REPLAY_RESOLVED_TOTAL.labels(outcome=outcome_str).inc()
+            resolved = True
+            self._log.info(
+                "replay_zone_resolved",
+                signal_id=str(row["signal_id"]),
+                outcome=outcome_str,
+            )
+
+        # Market-entry parallel track (if market_entry_price was recorded)
+        market_entry_price = row["market_entry_price"]
+        if market_entry_price is not None:
+            market_transition = self._evaluate_market_track(
+                signal_dict, bars, market_entry_price, start_ts
+            )
+            if market_transition is not None:
+                assert self._producer is not None
+                await self._producer.publish(topic, msg=to_dict(market_transition))
+                # Market resolution is informational; only zone counts for north-star.
+
+        return resolved
+
+    def _build_signal_dict(self, row: asyncpg.Record) -> dict[str, Any]:
+        """Build a signal dict from DB record matching evaluate_signal's expected shape."""
+        targets_raw = row["targets"]
+        if isinstance(targets_raw, list):
+            targets = [float(t) for t in targets_raw]
+        else:
+            targets = []
+
+        return {
+            "signal_id": str(row["signal_id"]),
+            "status": row["status"] or SignalStatus.PENDING,
+            "direction": int(row["direction"]),
+            "entry_price": float(row["entry_price"]),
+            "stop_loss": float(row["stop_loss"]),
+            "targets": targets,
+            "ttl_bars": int(row["ttl_bars"] or 10),
+            "bars_elapsed": 0,  # reset for bar-by-bar replay
+            "point_value": float(row["point_value"] or 1.0),
+            "entry_zone_low": (
+                float(row["entry_zone_low"])
+                if row["entry_zone_low"] is not None
+                else float(row["entry_price"])
+            ),
+            "entry_zone_high": (
+                float(row["entry_zone_high"])
+                if row["entry_zone_high"] is not None
+                else float(row["entry_price"])
+            ),
+            "activated_at": row["activated_at"],
+            "hmm_regime_at_fire": row["hmm_regime_at_fire"],
+            "garch_sigma_at_fire": row["garch_sigma_at_fire"],
+            "setup_plugin": "replay",  # placeholder for metrics labels
+        }
+
+    def _evaluate_zone_track(
+        self,
+        signal_dict: dict[str, Any],
+        bars: list[asyncpg.Record],
+        signal_timestamp: datetime,
+    ) -> LifecycleTransition | None:
+        """Run evaluate_signal bar-by-bar; return EXIT LifecycleTransition or None."""
+
+        state = dict(signal_dict)  # mutable copy
+        current_mae = 0.0
+        current_mfe = 0.0
+        bars_elapsed = 0
+        bars_in_trade = 0  # tracks bars since activation for stop outcome classification
+        activated = False
+
+        for bar in bars:
+            state["bars_elapsed"] = bars_elapsed
+            bar_ts: datetime = bar["timestamp"]
+
+            transition = evaluate_signal(
+                state,
+                high=float(bar["high"]),
+                low=float(bar["low"]),
+                close=float(bar["close"]),
+                current_mae=current_mae,
+                current_mfe=current_mfe,
+                signal_timestamp=signal_timestamp,
+                bar_time=bar_ts,
+            )
+
+            if transition is None:
+                # Update MAE/MFE for active signals so TTL outcomes are labeled correctly.
+                # This must be in the transition=None branch (active signal, no exit this bar).
+                if state.get("status") == SignalStatus.ACTIVE:
+                    _entry = float(state["entry_price"])
+                    _stop = float(state["stop_loss"])
+                    _risk = abs(_entry - _stop)
+                    if _risk > 0:
+                        _pnl_r = (float(bar["close"]) - _entry) * int(state["direction"]) / _risk
+                        current_mae = min(current_mae, _pnl_r)
+                        current_mfe = max(current_mfe, _pnl_r)
+                    bars_in_trade += 1
+                bars_elapsed += 1
+                continue
+
+            if transition.new_status == SignalStatus.ACTIVE:
+                # Activation — update state and continue
+                state["status"] = SignalStatus.ACTIVE
+                activated = True
+                if transition.activation_price is not None:
+                    state["entry_price"] = transition.activation_price
+                bars_elapsed += 1
+                continue
+
+            # Terminal transition — any exit_reason is terminal (mirrors live tracker logic).
+            # Note: target hits use new_status="target_N_hit", NOT SignalStatus.EXPIRED,
+            # so checking exit_reason (not new_status) is the correct gate.
+            if transition.exit_reason is not None:
+                # Populate bars_in_trade on the transition for stop outcome classification.
+                if transition.bars_in_trade is None and activated:
+                    transition.bars_in_trade = bars_in_trade
+                return self._build_exit_transition(signal_dict, transition, bar_ts)
+
+            bars_elapsed += 1
+
+        return None
+
+    def _evaluate_market_track(
+        self,
+        signal_dict: dict[str, Any],
+        bars: list[asyncpg.Record],
+        market_entry_price: float,
+        signal_timestamp: datetime,
+    ) -> LifecycleTransition | None:
+        """Run evaluate_market_entry bar-by-bar for the parallel market track."""
+        state = dict(signal_dict)
+        current_mae = 0.0
+        current_mfe = 0.0
+        bars_elapsed = 0
+        bars_in_trade = 0
+
+        for bar in bars:
+            state["bars_elapsed"] = bars_elapsed
+            bar_ts: datetime = bar["timestamp"]
+
+            mt = evaluate_market_entry(
+                state,
+                market_entry_price=market_entry_price,
+                high=float(bar["high"]),
+                low=float(bar["low"]),
+                close=float(bar["close"]),
+                current_mae=current_mae,
+                current_mfe=current_mfe,
+            )
+
+            if mt.outcome is None:
+                # Still running — update excursions
+                entry = market_entry_price
+                risk = abs(entry - float(signal_dict["stop_loss"]))
+                if risk > 0:
+                    pnl_r = round(
+                        (float(bar["close"]) - entry) * int(signal_dict["direction"]) / risk, 4
+                    )
+                    current_mae = min(current_mae, pnl_r)
+                    current_mfe = max(current_mfe, pnl_r)
+                bars_elapsed += 1
+                bars_in_trade += 1
+                continue
+
+            # Terminal outcome
+            from src.intelligence.trading.lifecycle_tracker import _classify_stop_outcome
+
+            outcome = mt.outcome
+            if outcome is None:
+                outcome = _classify_stop_outcome(current_mfe, bars_in_trade).value
+            else:
+                outcome = outcome.value if hasattr(outcome, "value") else str(outcome)
+
+            lt = LifecycleTransition(
+                transition_type=TransitionType.MARKET_RESOLUTION,
+                signal_id=signal_dict["signal_id"],
+                symbol=signal_dict.get("symbol", ""),
+                timeframe=signal_dict.get("timeframe", ""),
+                bar_ts=bar_ts,
+                data={
+                    "market_entry_at": signal_timestamp.isoformat() if signal_timestamp else None,
+                    "market_entry_exit_price": mt.exit_price,
+                    "market_entry_exit_at": bar_ts.isoformat(),
+                    "market_entry_pnl_r": mt.pnl_r,
+                    "market_entry_mae": mt.mae,
+                    "market_entry_mfe": mt.mfe,
+                    "market_entry_bars_in_trade": bars_in_trade,
+                    "market_entry_outcome": outcome,
+                    "market_entry_gap_bars": None,
+                },
+            )
+            return lt
+
+        return None
+
+    def _build_exit_transition(
+        self,
+        signal_dict: dict[str, Any],
+        t: Any,
+        bar_ts: datetime,
+    ) -> LifecycleTransition:
+        """Build an EXIT LifecycleTransition from a Transition object."""
+        if t.outcome is not None:
+            outcome = t.outcome.value if hasattr(t.outcome, "value") else str(t.outcome)
+        elif t.exit_reason == "stop_loss":
+            # Stop outcome requires bars_in_trade context — classify from mfe.
+            # bars_in_trade is unavailable in replay (not tracked), so we use
+            # a conservative heuristic: if mfe > 0.05, classify as stopped_in_trade.
+            from src.intelligence.trading.lifecycle_tracker import _classify_stop_outcome
+
+            stop_outcome = _classify_stop_outcome(
+                current_mfe=float(t.mfe or 0.0),
+                bars_in_trade_count=t.bars_in_trade,
+            )
+            outcome = stop_outcome.value if hasattr(stop_outcome, "value") else str(stop_outcome)
+        else:
+            outcome = None
+        return LifecycleTransition(
+            transition_type=TransitionType.EXIT,
+            signal_id=signal_dict["signal_id"],
+            symbol=signal_dict.get("symbol", ""),
+            timeframe=signal_dict.get("timeframe", ""),
+            bar_ts=bar_ts,
+            data={
+                "status": (
+                    t.new_status.value if hasattr(t.new_status, "value") else str(t.new_status)
+                ),
+                "exit_at": bar_ts.isoformat(),
+                "exit_price": t.exit_price,
+                "exit_reason": t.exit_reason,
+                "pnl_r": t.pnl_r,
+                "pnl_dollars": t.pnl_dollars,
+                "signal_quality": None,
+                "mae": t.mae,
+                "mfe": t.mfe,
+                "bars_in_trade": t.bars_in_trade,
+                "outcome": outcome,
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Cycle / run loop
+    # ------------------------------------------------------------------
+
+    async def _cycle(self) -> None:
+        rows = await self._fetch_unresolved()
+        total = len(rows)
+        SIGNAL_REPLAY_ATTEMPTED_TOTAL.inc(total)
+        self._log.info("replay_cycle_start", total_candidates=total)
+
+        for row in rows:
+            if self._stop.is_set():
+                return
+            tf_secs = TF_SECONDS.get(row["timeframe"], 60)
+            ttl = int(row["ttl_bars"] or 10)
+            elapsed = (datetime.now(UTC) - row["timestamp"]).total_seconds()
+            if elapsed <= ttl * tf_secs:
+                # Still live — skip; let live tracker handle it
+                continue
+            try:
+                await self._replay_signal(row)
+            except Exception as exc:
+                self._log.exception(
+                    "replay_signal_failed",
+                    signal_id=str(row["signal_id"]),
+                    error=str(exc),
+                )
+
+        # Refresh north-star gauge after batch (writes are async, slight lag ok)
+        cnt = await self._count_unresolved()
+        SIGNAL_REPLAY_UNRESOLVED_GAUGE.set(float(cnt))
+        self._log.info("replay_cycle_complete", unresolved_gauge=cnt)
+
+    async def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                await self._cycle()
+            except Exception as exc:
+                self._log.exception("replay_cycle_failed", error=str(exc))
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=REPLAY_INTERVAL_SECONDS)
+            except TimeoutError:
+                pass  # Normal — wake up for next cycle
+
+    def _install_signals(self) -> None:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, self._stop.set)
+
+    async def main(self) -> int:
+        setup_service_logging("logs/signal_replay_auditor_agent.log")
+        self._install_signals()
+        await self._setup()
+        try:
+            await self._run()
+        finally:
+            await self._teardown()
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(SignalReplayAuditorAgent().main()))

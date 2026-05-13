@@ -3,16 +3,20 @@
 Usage:
     chain = LLMChain([
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
-        OllamaCloudProvider("minimax-m2.7", api_key="fe982..."),  # Cloud models
+        DeepSeekProvider("deepseek-v4-flash", api_key="sk-..."),  # Paid, low cost
+        OllamaCloudProvider("glm-4.7:cloud", api_key="fe982..."),  # Cloud models
         OllamaProvider("gemma4:e4b"),  # Local models
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
     # chain.last_provider_id tells you which provider succeeded
 
+DeepSeek models (DEEPSEEK_API_KEY, OpenAI-compatible, base: https://api.deepseek.com):
+    - deepseek-v4-flash: $0.14/1M in, $0.28/1M out — fast, general tasks
+    - deepseek-v4-pro:   $0.435/1M in, $0.87/1M out — complex reasoning (75% off until 2026-05-31)
+    Context: 1M tokens, max output: 384K tokens. Supports thinking mode, tool calls, JSON output.
+
 Cloud models (free tier with OLLAMA_API_KEY):
-    - minimax-m2.7: Coding, agentic workflows, productivity (best)
-    - nemotron-3-super: 120B MoE, complex reasoning
-    - gemini-3-flash-preview: Speed, general tasks
+    - glm-4.7:cloud: General purpose, strong reasoning
 """
 
 from __future__ import annotations
@@ -47,8 +51,8 @@ class ProviderRateLimitError(Exception):
     """Raised when a provider returns HTTP 429 — do not retry, trip circuit immediately."""
 
 
-# Circuit breaker for LLM provider calls — shared across all providers.
-# Uses a 5-minute recovery timeout and 3 consecutive failures threshold.
+# Circuit breaker for remote LLM providers (OpenRouter, Ollama Cloud).
+# 3 failures → open for 5 minutes.
 _llm_circuit_breaker = PluginCircuitBreaker(
     config=CircuitBreakerConfig(
         failure_threshold=3,
@@ -56,7 +60,20 @@ _llm_circuit_breaker = PluginCircuitBreaker(
         success_threshold=2,
         max_half_open_calls=3,
         failure_window=60,
-        performance_threshold_ms=60000.0,  # 60s default timeout
+        performance_threshold_ms=60000.0,
+    )
+)
+
+# Lenient circuit breaker for local Ollama — no rate limits, just warmup latency.
+# Higher threshold + short recovery so a slow model-load on boot doesn't kill the fallback.
+_ollama_circuit_breaker = PluginCircuitBreaker(
+    config=CircuitBreakerConfig(
+        failure_threshold=5,
+        recovery_timeout=60,  # 1 minute — recover fast after model loads
+        success_threshold=1,
+        max_half_open_calls=3,
+        failure_window=120,
+        performance_threshold_ms=120000.0,  # 2 minutes — allow slow first-load
     )
 )
 
@@ -67,35 +84,33 @@ _llm_open_since: dict[str, float] = {}
 async def _call_llm_with_circuit_breaker(
     provider_id: str,
     call_fn: Callable,
+    circuit_breaker: PluginCircuitBreaker | None = None,
 ) -> str | None:
     """Call LLM provider with circuit breaker tracking and retry backoff.
 
     Args:
         provider_id: Unique provider identifier (e.g., "zai:glm-5")
         call_fn: Synchronous callable that performs the LLM HTTP call.
-            Called once per attempt by retry_with_backoff via to_thread.
+        circuit_breaker: Circuit breaker to use. Defaults to _llm_circuit_breaker
+            (remote providers). Pass _ollama_circuit_breaker for local Ollama.
 
     Returns:
         LLM response string or None on failure.
-
-    Note:
-        retry_with_backoff wraps call_fn with exponential backoff.
-        Each retry attempt invokes call_fn fresh (not a pre-built coroutine).
-        Circuit breaker state tracks health and opens after failure_threshold failures.
     """
-    plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
+    cb = circuit_breaker or _llm_circuit_breaker
+    plugin_state = cb.plugin_states[provider_id]
     previous_state = plugin_state.state
 
     # --- Pre-call: enforce OPEN / HALF_OPEN gate ---
     if plugin_state.state == CircuitState.OPEN:
         # Default to current time if key missing — treats unknown state as "just opened"
         elapsed = time.monotonic() - _llm_open_since.get(provider_id, time.monotonic())
-        if elapsed < _llm_circuit_breaker.config.recovery_timeout:
+        if elapsed < cb.config.recovery_timeout:
             logger.warning(
                 "llm_circuit_open.skipping",
                 provider=provider_id,
                 elapsed_s=round(elapsed, 1),
-                recovery_timeout=_llm_circuit_breaker.config.recovery_timeout,
+                recovery_timeout=cb.config.recovery_timeout,
             )
             return None
         # Recovery timeout elapsed — allow one probe (HALF_OPEN)
@@ -157,7 +172,7 @@ async def _call_llm_with_circuit_breaker(
         # Trip circuit to OPEN after failure_threshold consecutive failures
         if (
             plugin_state.state != CircuitState.OPEN
-            and plugin_state.failure_count >= _llm_circuit_breaker.config.failure_threshold
+            and plugin_state.failure_count >= cb.config.failure_threshold
         ):
             plugin_state.state = CircuitState.OPEN
             _llm_open_since[provider_id] = time.monotonic()
@@ -244,21 +259,28 @@ class LLMProvider(Protocol):
         ...
 
 
-class OpenRouterProvider:
-    """Calls OpenRouter /api/v1/chat/completions (OpenAI-compatible)."""
+class _OpenAICompatProvider:
+    """Base for providers using the /chat/completions endpoint (OpenRouter, DeepSeek)."""
+
+    _provider_prefix: str = ""
+    _default_base_url: str = ""
 
     def __init__(
         self,
         model: str,
         api_key: str,
-        base_url: str = "https://openrouter.ai/api/v1",
+        base_url: str | None = None,
         timeout: float | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or self._default_base_url).rstrip("/")
         self.timeout = timeout or _default_llm_timeout()
-        self.provider_id = f"openrouter:{model}"
+        self.provider_id = f"{self._provider_prefix}:{model}"
+        self._circuit_breaker = _llm_circuit_breaker
+
+    def _extra_payload_fields(self) -> dict:
+        return {}
 
     async def generate(
         self,
@@ -267,6 +289,8 @@ class OpenRouterProvider:
         max_tokens: int,
         timeout: float,
     ) -> str | None:
+        _usage: list[dict] = []
+
         def _call() -> str | None:
             payload = {
                 "model": self.model,
@@ -276,6 +300,7 @@ class OpenRouterProvider:
                 ],
                 "max_tokens": max_tokens,
                 "stream": False,
+                **self._extra_payload_fields(),
             }
             data = json.dumps(payload).encode()
             req = urllib.request.Request(
@@ -294,14 +319,56 @@ class OpenRouterProvider:
                     raise ProviderRateLimitError("HTTP 429: Too Many Requests") from exc
                 raise
             choices = result.get("choices") or []
-            # D-07: Extract usage metadata for token counting
             usage = result.get("usage", {})
             if usage:
-                # Store in a place LLMChain can access it
-                LLMChain.last_token_usage = usage  # type: ignore
+                _usage.append(usage)
             return _extract_message_content(choices)
 
-        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
+        result = await _call_llm_with_circuit_breaker(
+            self.provider_id, _call, circuit_breaker=self._circuit_breaker
+        )
+        if _usage:
+            LLMChain.last_token_usage = _usage[0]  # type: ignore
+        return result
+
+
+class OpenRouterProvider(_OpenAICompatProvider):
+    """Calls OpenRouter /api/v1/chat/completions (OpenAI-compatible).
+
+    Suppresses chain-of-thought on reasoning-capable free models so they
+    return clean JSON instead of verbose CoT.
+    """
+
+    _provider_prefix = "openrouter"
+    _default_base_url = "https://openrouter.ai/api/v1"
+
+    def _extra_payload_fields(self) -> dict:
+        return {"include_reasoning": False, "reasoning": {"effort": "none"}}
+
+
+class DeepSeekProvider(_OpenAICompatProvider):
+    """Calls DeepSeek /chat/completions (OpenAI-compatible).
+
+    Models:
+        deepseek-v4-flash — fast, low cost ($0.14/1M in, $0.28/1M out)
+        deepseek-v4-pro   — complex reasoning ($0.435/1M in, $0.87/1M out; 75% off until 2026-05-31)
+
+    Both support 1M context, 384K max output, tool calls, JSON output, and thinking mode.
+    """
+
+    _provider_prefix = "deepseek"
+    _default_base_url = "https://api.deepseek.com"
+
+    def __init__(
+        self,
+        model: str = "deepseek-v4-flash",
+        api_key: str = "",
+        base_url: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        if not api_key:
+            raise ValueError("DeepSeekProvider requires api_key (set DEEPSEEK_API_KEY in .env)")
+        super().__init__(model=model, api_key=api_key, base_url=base_url, timeout=timeout)
 
 
 class OllamaProvider:
@@ -317,6 +384,7 @@ class OllamaProvider:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"ollama:{model}"
+        self._circuit_breaker = _ollama_circuit_breaker
 
     async def generate(
         self,
@@ -347,7 +415,9 @@ class OllamaProvider:
             raw = result.get("message", {}).get("content", "").strip()
             return _strip_thinking_tags(raw) or None
 
-        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
+        return await _call_llm_with_circuit_breaker(
+            self.provider_id, _call, circuit_breaker=self._circuit_breaker
+        )
 
 
 class OllamaCloudProvider:
@@ -355,9 +425,7 @@ class OllamaCloudProvider:
 
     Uses Bearer token authentication (OLLAMA_API_KEY). Bypasses local proxy
     authentication requirements. Supports free-tier cloud models like:
-    - minimax-m2.7 (coding, productivity)
-    - nemotron-3-super (reasoning, agents)
-    - gemini-3-flash-preview (speed, general)
+    - glm-4.7:cloud (general purpose, strong reasoning)
     """
 
     def __init__(
@@ -374,6 +442,7 @@ class OllamaCloudProvider:
         self.api_key = api_key
         self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"ollama-cloud:{model}"
+        self._circuit_breaker = _llm_circuit_breaker
 
     async def generate(
         self,
@@ -403,6 +472,10 @@ class OllamaCloudProvider:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     result = json.loads(resp.read())
                 raw = result.get("response", "").strip()
+                # Some thinking models return content in "thinking"
+                # when "response" is empty — use it as fallback.
+                if not raw:
+                    raw = result.get("thinking", "").strip()
                 return _strip_thinking_tags(raw) or None
             except urllib.error.HTTPError as exc:
                 # Check for subscription requirement
@@ -414,7 +487,9 @@ class OllamaCloudProvider:
                     )
                 raise
 
-        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
+        return await _call_llm_with_circuit_breaker(
+            self.provider_id, _call, circuit_breaker=self._circuit_breaker
+        )
 
 
 class LLMChain:
@@ -423,7 +498,7 @@ class LLMChain:
     def __init__(self, providers: list[LLMProvider]) -> None:
         self.providers = providers
         self.last_provider_id: str | None = None
-        self.last_token_usage: dict | None = None  # D-07: real token counts from provider
+        self.last_token_usage: dict | None = None
 
     async def generate(
         self,

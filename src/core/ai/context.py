@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re as _re
 import time
 import types
 from enum import Enum
@@ -51,16 +52,31 @@ class TierContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-class I7Context(TierContext):
-    """I7 signal context — custom (signal-specific, not a pipeline tier output)."""
+class QuantSignalContext(TierContext):
+    """Quantitative signal parameters — the specific trade setup from the aggregator.
+
+    Populated from the signal dict produced by the aggregator. Fields here
+    are signal-level properties NOT available in pipeline tiers (I1-I6, SMC).
+    """
 
     winner_plugin: str | None = None
     winner_direction: int | None = None
     winner_confidence: float | None = None
     entry_price: float | None = None
     stop_price: float | None = None
-    target_price: float | None = None
+    target_prices: list[float] | None = None
     entry_type: str | None = None
+    stop_type: str | None = None
+    target_types: list[str] | None = None
+    risk_reward_ratio: float | None = None
+    confluence_score: float | None = None
+    regime_eligible: bool | None = None
+    quality_score: float | None = None
+    adjusted_rank: float | None = None
+    co_fire_count: int | None = None
+    co_fire_partners: list[str] | None = None
+    zone_low: float | None = None
+    zone_high: float | None = None
 
 
 class BarContext(TierContext):
@@ -91,7 +107,7 @@ class AIContext(BaseModel):
 
     # Custom contract types — not pipeline tier outputs
     bar: BarContext | None = None
-    i7: I7Context | None = None
+    i7: QuantSignalContext | None = None
 
     # Pipeline tier types — schemas.py is the SINGLE source of truth (D-09).
     # Direct assignment from IntelligenceEvent fields; no field-by-field copy (D-13).
@@ -129,11 +145,29 @@ _CONTEXT_NON_TIER_FIELDS: frozenset[str] = frozenset(
 )
 
 
+_TIER_SECTION_LABELS: dict[str, str] = {
+    "i1": "Quantitative Indicators (i1)",
+    "i2": "Composite Events (i2)",
+    "i3": "Market Structure (i3)",
+    "i4": "Context & Regime (i4)",
+    "i5": "Pattern Recognition (i5)",
+    "i6": "Cross-Timeframe Confluence (i6)",
+    "smc": "Smart Money Concepts (smc)",
+}
+"""Semantic labels for pipeline tiers — tells the LLM what kind of data it's reasoning about.
+
+Unknown tiers (future: qualitative, fundamental) fall through to raw field name.
+This map is the single place to add labels for new intelligence categories.
+"""
+
+
 def render_full_context(ctx: AIContext) -> str:
-    """Render every non-None pipeline tier as deterministic LLM-friendly text.
+    """Render populated pipeline tier fields as deterministic LLM-friendly text.
 
     Open-ended: iterates ctx.model_fields, NOT a hardcoded tier list.
     Any new tier added to AIContext automatically appears with zero prompt changes.
+    Null fields are omitted — only populated values reach the prompt.
+    Section headers use semantic labels from _TIER_SECTION_LABELS.
     """
     lines: list[str] = []
     for field_name in sorted(ctx.__class__.model_fields):
@@ -144,17 +178,19 @@ def render_full_context(ctx: AIContext) -> str:
             continue
         if not isinstance(value, BaseModel):
             continue
-        tier_dict = value.model_dump()
+        tier_dict = value.model_dump(exclude_none=True)
         if not tier_dict:
             continue
-        lines.append(f"## {field_name}")
+        tier_lines: list[str] = []
         for k, v in sorted(tier_dict.items()):
-            if v is None:
-                lines.append(f"- {k}: null")
-            elif isinstance(v, float):
-                lines.append(f"- {k}: {v:.4f}")
+            if isinstance(v, float):
+                tier_lines.append(f"- {k}: {v:.6g}")
             else:
-                lines.append(f"- {k}: {v}")
+                tier_lines.append(f"- {k}: {v}")
+        if tier_lines:
+            label = _TIER_SECTION_LABELS.get(field_name, field_name)
+            lines.append(f"## {label}")
+            lines.extend(tier_lines)
     return "\n".join(lines) if lines else "(no features available)"
 
 
@@ -246,13 +282,58 @@ class AIContextCache:
                 volume=getattr(event.bar, "v", None) or getattr(event.bar, "volume", None),
             )
 
-        # I7 context — custom I7Context type (signal-specific, not pipeline output)
+        # I7 context — QuantSignalContext (signal-specific, not pipeline output)
         i7_ctx = None
         if Tier.I7 in tiers_needed and signal is not None:
-            i7_ctx = I7Context(
-                winner_plugin=getattr(signal, "plugin", None),
-                winner_direction=getattr(signal, "direction", None),
-                winner_confidence=getattr(signal, "calibrated_confidence", None),
+            s = (
+                signal
+                if isinstance(signal, dict)
+                else {
+                    k: getattr(signal, k, None)
+                    for k in (
+                        "plugin",
+                        "setup_plugin",
+                        "direction",
+                        "calibrated_confidence",
+                        "confidence",
+                        "entry_price",
+                        "stop_loss",
+                        "targets",
+                        "entry_type",
+                        "stop_type",
+                        "target_types",
+                        "risk_reward_ratio",
+                        "confluence_score",
+                        "regime_eligible",
+                        "quality_score",
+                        "pre_quality_confidence",
+                        "adjusted_rank",
+                        "co_fire_count",
+                        "co_fire_partners",
+                        "zone_low",
+                        "zone_high",
+                    )
+                }
+            )
+            i7_ctx = QuantSignalContext(
+                winner_plugin=s.get("plugin") or s.get("setup_plugin"),
+                winner_direction=s.get("direction"),
+                winner_confidence=s.get("calibrated_confidence") or s.get("confidence"),
+                entry_price=s.get("entry_price"),
+                stop_price=s.get("stop_loss"),
+                target_prices=s.get("targets"),
+                entry_type=s.get("entry_type"),
+                stop_type=s.get("stop_type"),
+                target_types=s.get("target_types"),
+                risk_reward_ratio=s.get("risk_reward_ratio"),
+                confluence_score=s.get("confluence_score"),
+                regime_eligible=s.get("regime_eligible"),
+                quality_score=s.get("quality_score") or s.get("pre_quality_confidence"),
+                adjusted_rank=s.get("adjusted_rank"),
+                co_fire_count=s.get("co_fire_count"),
+                co_fire_partners=s.get("co_fire_partners"),
+                zone_low=s.get("zone_low"),
+                zone_high=s.get("zone_high"),
             )
 
         # Pipeline tiers — direct pass-through (D-13). None-safe by Pydantic.
@@ -292,11 +373,10 @@ class AIContextCache:
         Returns:
             AIContext for lead instrument if found and not stale, None otherwise
         """
-        import re
 
         def _extract_base(sym: str) -> str:
             """Extract base symbol from futures contract."""
-            match = re.match(r"^([A-Z]+)", sym)
+            match = _re.match(r"^([A-Z]+)", sym)
             return match.group(1) if match else sym
 
         base = _extract_base(symbol)

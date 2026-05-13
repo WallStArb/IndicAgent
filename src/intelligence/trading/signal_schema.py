@@ -1,8 +1,11 @@
-"""Signal v1 schema definition and validation."""
+"""Signal schema definition and validation."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+# Single canonical version tag. All signal producers and consumers reference this.
+SIGNAL_SCHEMA_VERSION = "v2"
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
@@ -134,7 +137,7 @@ def make_signal_from_frame(
 
     Auto-extracts: entry_price (tf.entry, NOT raw close), stop_loss, targets,
     zone_low, zone_high, entry_type, stop_type, rr_t1/t2/t3, target_labels,
-    target_types, framing_method. Adds signal_schema_version="v1".
+    target_types, framing_method. Adds signal_schema_version=SIGNAL_SCHEMA_VERSION.
 
     Raises ValueError if tf.viable is False.
     """
@@ -177,7 +180,7 @@ def make_signal_from_frame(
     sig["zone_low"] = tf.zone_low
     sig["zone_high"] = tf.zone_high
     sig["zone_source"] = (features_snapshot or {}).get("zone_source")
-    sig["signal_schema_version"] = "v2"
+    sig["signal_schema_version"] = SIGNAL_SCHEMA_VERSION
 
     if features_snapshot is not None:
         sig["features_snapshot"] = features_snapshot

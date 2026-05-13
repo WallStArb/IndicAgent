@@ -448,6 +448,17 @@ def main() -> None:
         )
     )
     print(f"      Cleared {n_topics} Kafka topics")
+    # Enforce broker-level default so any topic created outside this script
+    # doesn't silently inherit the 7-day Redpanda default.
+    from production.scripts.enforce_topic_retention import _BROKER_DEFAULT_MS, _set_broker_default
+
+    broker_changed = _set_broker_default(
+        _BROKER_DEFAULT_MS, broker="localhost:9092", dry_run=args.dry_run
+    )
+    if broker_changed:
+        print(f"      Set broker default retention → {_BROKER_DEFAULT_MS // 86_400_000}d")
+    else:
+        print(f"      Broker default retention already {_BROKER_DEFAULT_MS // 86_400_000}d ✓")
 
     # --- Stage 3: Truncate DB ---
     print("\n[2/5] Truncating DB tables...")

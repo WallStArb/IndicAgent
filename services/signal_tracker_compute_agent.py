@@ -48,7 +48,13 @@ from src.intelligence.trading.lifecycle_transitions import (
     TransitionType,
     to_dict,
 )
-from src.observability.metrics import counter, gauge
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+from src.observability.metrics import (
+    SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL,
+    SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL,
+    counter,
+    gauge,
+)
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 logger = structlog.get_logger(__name__)
@@ -267,6 +273,79 @@ class SignalTrackerComputeAgent(BaseAgent):
         return list(self._active_index.get((symbol, timeframe), []))
 
     # ------------------------------------------------------------------
+    # Canonical signal intake
+    # ------------------------------------------------------------------
+
+    def _load_signal(self, raw: dict) -> dict | None:
+        """Canonical signal intake. Returns normalized dict or None (-> DLQ).
+
+        Both the Kafka consumer path and the bootstrap DB-SELECT path route
+        through this function. Output is a single dict shape — downstream
+        code never branches on source.
+
+        Hard rejects (return None + counter increment):
+            - signal_id missing
+            - symbol or timeframe empty
+            - timestamp is None, "", or not a tz-aware datetime
+            - entry_price or stop_loss missing
+        """
+
+        def _reject(reason: str) -> None:
+            SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(reason=reason).inc()
+            self.logger.warning("signal_rejected", reason=reason, signal_id=raw.get("signal_id"))
+            return None
+
+        sid = raw.get("signal_id")
+        if not sid:
+            return _reject("missing_signal_id")
+
+        symbol = raw.get("symbol") or ""
+        tf = raw.get("timeframe") or raw.get("tf") or ""
+        if not symbol or not tf:
+            return _reject("missing_symbol_or_timeframe")
+
+        ts = raw.get("timestamp")
+        if ts is None or ts == "":
+            return _reject("empty_timestamp")
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                return _reject("malformed_timestamp")
+        if not isinstance(ts, datetime):
+            return _reject("invalid_timestamp_type")
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+
+        entry_price = raw.get("entry_price")
+        stop_loss = raw.get("stop_loss")
+        if entry_price is None or stop_loss is None:
+            return _reject("missing_entry_or_stop")
+
+        # Optional / defaulted fields
+        canonical = {
+            "signal_id": str(sid),
+            "symbol": symbol,
+            "timeframe": tf,
+            "timestamp": ts,
+            "entry_price": float(entry_price),
+            "stop_loss": float(stop_loss),
+            "is_backfill": bool(raw.get("is_backfill", False)),
+            "ttl_bars": int(raw.get("ttl_bars", 10)),
+            "signal_schema_version": raw.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
+            "status": raw.get("status", "pending"),
+            "direction": int(raw.get("direction", 1)),
+            "targets": list(raw.get("targets", []) or []),
+            "entry_zone_low": float(raw.get("entry_zone_low") or entry_price),
+            "entry_zone_high": float(raw.get("entry_zone_high") or entry_price),
+            "market_entry_price": raw.get("market_entry_price"),
+            "activated_at": raw.get("activated_at"),
+            "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
+            "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
+        }
+        return canonical
+
+    # ------------------------------------------------------------------
     # Signal ingestion (from i7.signals topic)
     # ------------------------------------------------------------------
 
@@ -287,60 +366,58 @@ class SignalTrackerComputeAgent(BaseAgent):
             status = sig.get("status")
             if status and status not in (SignalStatus.PENDING, SignalStatus.ACTIVE):
                 continue
-            sig_dict = {
+            # Normalize: pipeline payloads may have empty symbol/timeframe/timestamp
+            # at the signal level — fill from top-level envelope before _load_signal
+            raw = {
                 **sig,
-                "symbol": sig.get("symbol", symbol),
-                "timeframe": sig.get("timeframe", tf),
+                "symbol": sig.get("symbol") or symbol,
+                "timeframe": sig.get("timeframe") or tf,
+                # timestamp may be "" in pipeline payloads — bar_ts is authoritative
+                "timestamp": sig.get("timestamp") or payload.get("bar_ts", ""),
             }
-            self._ingest_signal_payload(sig_dict)
+            canonical = self._load_signal(raw)
+            if canonical is None:
+                continue  # rejected -> DLQ counter incremented inside _load_signal
+            self._ingest_signal(canonical)
 
-    def _ingest_signal_payload(self, sig: dict) -> None:
-        """Add a single signal to the active index."""
-        sid = sig.get("signal_id")
-        if not sid:
-            return
+    def _ingest_signal(self, canonical: dict) -> None:
+        """Ingest a canonical signal dict (output of _load_signal) into the active index.
 
-        symbol = sig.get("symbol", "")
-        tf = sig.get("timeframe", "")
-        if not symbol or not tf:
-            return
-
+        Three-branch decision tree:
+          1. dedup: already tracked -> skip
+          2. backfill fast-path: TTL already elapsed -> publish TTL-expired, skip active index
+          3. normal path: enter active index
+        """
+        sid = canonical["signal_id"]
         if sid in self._signal_ids:
+            return  # dedup
+
+        tf = canonical["timeframe"]
+        tf_secs = TF_SECONDS.get(tf, 60)
+        now_utc = datetime.now(UTC)
+        bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
+
+        if canonical["is_backfill"] and bars_elapsed >= canonical["ttl_bars"]:
+            # Backfill fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
+            self._publish_ttl_expired_transition_sync(canonical, bars_elapsed)
+            SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
+                symbol=canonical["symbol"], timeframe=tf
+            ).inc()
+            self._signal_ids.add(sid)
             return
 
-        # D-05: Activation probability gate -- skip hopeless signals
-        # If zone is very far from current close AND most of TTL has elapsed,
-        # this signal is extremely unlikely to activate. Skip tracking it.
-        entry = sig.get("entry_price")
-        stop = sig.get("stop_loss")
-        zone_low_val = sig.get("entry_zone_low")
-        zone_high_val = sig.get("entry_zone_high")
-        ttl_val = sig.get("ttl_bars", 10)
-        bars_val = sig.get("bars_elapsed", 0)
-
-        if entry and stop and zone_low_val and zone_high_val and ttl_val > 0:
-            risk = abs(float(entry) - float(stop))
-            if risk > 0:
-                direction = sig.get("direction", 1)
-                if direction == 1:
-                    zone_distance = abs(float(zone_low_val) - float(entry))
-                else:
-                    zone_distance = abs(float(zone_high_val) - float(entry))
-                zone_distance_risk = zone_distance / risk
-                ttl_remaining_pct = max(0, (ttl_val - bars_val) / ttl_val)
-
-                if zone_distance_risk > 3.0 and ttl_remaining_pct < 0.20:
-                    self.logger.debug(
-                        "activation_gate_filtered",
-                        signal_id=sid,
-                        zone_distance_risk=round(zone_distance_risk, 2),
-                        ttl_remaining_pct=round(ttl_remaining_pct, 2),
-                    )
-                    return  # Skip -- don't add to active index
-
+        # Normal path (live OR backfill with TTL remaining): enter active index
+        self._add_to_active_index(canonical)
         self._signal_ids.add(sid)
+
+    def _add_to_active_index(self, canonical: dict) -> None:
+        """Add a canonical signal to the in-memory active index and initialize tracking."""
+        sid = canonical["signal_id"]
+        symbol = canonical["symbol"]
+        tf = canonical["timeframe"]
+
         key = (symbol, tf)
-        self._active_index[key].append(sig)
+        self._active_index[key].append(canonical)
         self._active_symbols.add(symbol)
 
         if symbol not in self._point_values:
@@ -348,17 +425,70 @@ class SignalTrackerComputeAgent(BaseAgent):
             if pv is not None:
                 self._point_values[symbol] = float(pv)
 
-        # Initialize MAE/MFE for new signals
-        if sid not in self._mae:
-            self._mae[sid] = 0.0
-        if sid not in self._mfe:
-            self._mfe[sid] = 0.0
+        # Initialize MAE/MFE tracking
+        self._mae.setdefault(sid, 0.0)
+        self._mfe.setdefault(sid, 0.0)
+
+        # Restore activated_at for active signals coming from bootstrap
+        if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
+            self._activated_at[sid] = canonical["activated_at"]
 
         self.logger.debug(
             "signal_ingested",
             signal_id=sid,
             symbol=symbol,
             timeframe=tf,
+        )
+
+    def _publish_ttl_expired_transition_sync(self, canonical: dict, bars_elapsed: int) -> None:
+        """Schedule a TTL-expired LifecycleTransition for a backfill signal.
+
+        The transition is scheduled via asyncio so the sync context (_ingest_signal)
+        can publish without blocking. If no event loop is running, the transition is
+        dropped (startup edge case — not critical for correctness).
+        """
+        from datetime import timedelta
+
+        tf = canonical["timeframe"]
+        tf_secs = TF_SECONDS.get(tf, 60)
+        fire_ts = canonical["timestamp"]
+        exit_at = fire_ts + timedelta(seconds=tf_secs * canonical["ttl_bars"])
+
+        lt = LifecycleTransition(
+            transition_type=TransitionType.EXIT,
+            signal_id=canonical["signal_id"],
+            symbol=canonical["symbol"],
+            timeframe=tf,
+            bar_ts=exit_at,
+            data={
+                "signal_id": canonical["signal_id"],
+                "status": SignalStatus.EXPIRED,
+                "exit_at": exit_at,
+                "exit_price": None,
+                "exit_reason": "ttl_expired",
+                "pnl_r": 0.0,
+                "pnl_dollars": None,
+                "signal_quality": None,
+                "mae": 0.0,
+                "mfe": 0.0,
+                "bars_in_trade": canonical["ttl_bars"],
+                "outcome": "ttl_expired_behind",
+            },
+        )
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._publish_transition(lt))
+        except RuntimeError:
+            pass  # No event loop — startup edge case, log and continue
+        self.logger.info(
+            "backfill_ttl_fast_path",
+            signal_id=canonical["signal_id"],
+            symbol=canonical["symbol"],
+            timeframe=tf,
+            bars_elapsed=bars_elapsed,
+            ttl_bars=canonical["ttl_bars"],
         )
 
     # ------------------------------------------------------------------
@@ -723,64 +853,31 @@ class SignalTrackerComputeAgent(BaseAgent):
         db = DatabaseManager(self.settings.database_url)
         await db.initialize()
         try:
-            # D-03: Pre-filter to expire signals past reasonable TTL before bootstrap.
-            # Reduces bootstrap from 29k accumulated signals to manageable set.
-            # Most I7 plugins have TTL of 10-60 bars. At 1m (dominant timeframe),
-            # signals pending >4 hours are certainly past TTL.
-            # Keep 3-day SELECT window for HTF signals (1h, 4h, 1d).
-            await db.execute_command("""
-                UPDATE signal_ledger
-                SET status = 'expired',
-                    exit_at = NOW(),
-                    exit_reason = 'ttl_expired',
-                    outcome = 'never_activated'
-                WHERE status = 'pending'
-                  AND exit_at IS NULL
-                  AND timestamp < NOW() - INTERVAL '4 hours'
-            """)
-            self.logger.info("bootstrap_ttl_sweep_complete")
-
             for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):
                 rows = await db.execute_query("""
-                    SELECT signal_id, timestamp, symbol, timeframe, status, direction,
-                           entry_price, stop_loss, targets, confidence, entry_zone_low,
-                           entry_zone_high, activated_at, market_entry_price
+                    SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
+                           status, direction, targets, entry_zone_low, entry_zone_high,
+                           market_entry_price, activated_at,
+                           ttl_bars, signal_schema_version, garch_sigma_at_fire,
+                           hmm_regime_at_fire, is_backfill
                     FROM signal_ledger
-                    WHERE status IN ('pending', 'active') AND exit_at IS NULL
-                      AND timestamp > NOW() - INTERVAL '3 days'
+                    WHERE exit_at IS NULL
                 """)
 
                 # If we got rows, load them and succeed
                 if rows:
                     for row in rows:
-                        sig = dict(row)
-                        sid = str(sig.get("signal_id", ""))
-                        symbol = sig.get("symbol", "")
-                        tf = sig.get("timeframe", "")
-                        if not sid or not symbol or not tf:
+                        raw = dict(row)
+                        # asyncpg returns datetime objects for timestamptz — pass directly
+                        canonical = self._load_signal(raw)
+                        if canonical is None:
                             continue
 
-                        # Restore point value
-                        if symbol not in self._point_values:
-                            pv = sig.get("point_value")
-                            if pv:
-                                self._point_values[symbol] = float(pv)
-                            else:
-                                pv_setting = get_point_value(symbol)
-                                if pv_setting:
-                                    self._point_values[symbol] = float(pv_setting)
-
-                        # Initialize MAE/MFE
-                        self._mae[sid] = 0.0
-                        self._mfe[sid] = 0.0
-
-                        # Restore activated_at for active signals
-                        if sig.get("status") == SignalStatus.ACTIVE and sig.get("activated_at"):
-                            self._activated_at[sid] = sig["activated_at"]
-
-                        self._signal_ids.add(sid)
-                        self._active_index[(symbol, tf)].append(sig)
-                        self._active_symbols.add(symbol)
+                        # Bootstrap path: these are already-active signals from DB.
+                        # Route directly to _add_to_active_index — do NOT run
+                        # backfill fast-path or dedup check (signal_ids not set yet).
+                        self._add_to_active_index(canonical)
+                        self._signal_ids.add(canonical["signal_id"])
 
                     total = sum(len(v) for v in self._active_index.values())
                     self.logger.info(

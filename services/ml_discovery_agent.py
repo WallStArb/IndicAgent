@@ -24,7 +24,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
 
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -80,7 +80,7 @@ class MLDiscoveryComputeAgent(BaseAgent):
         await self._producer.start()
         self.logger.info("ml_discovery.starting")
         try:
-            for symbol in self.settings.get_active_contracts():
+            for symbol in get_active_contracts(self.settings):
                 sym = symbol if isinstance(symbol, str) else symbol.symbol
                 for tf in ["1m", "5m", "15m"]:
                     await self._run_all_regimes(symbol=sym, tf=tf)

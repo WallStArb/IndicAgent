@@ -36,6 +36,8 @@ When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`
 - **Intelligence Confluence Patterns** — Renaissance-aligned confluence framework concepts beyond Phase 46 baseline. See `docs/ideas/intelligence-confluence-patterns.md`.
 - **Renaissance Framing** — foundational philosophy from Simons/Medallion approach. See `docs/ideas/renaissance-framing.md`.
 
+- **Architectural Weakness Assessment** — top 7 weak links: pipeline god class (1820 lines), settings god object, 64-field ledger tuple, dead AI foundations (LineageRecorder/graduation), silent queue drops, bare excepts, unprotected global state. See `docs/ideas/architectural-weakness-assessment.md`.
+
 ## Vision Docs (Reference)
 - **AegisAgent — Independent Risk Management** — real-time risk overlay, position sizing, portfolio-level constraints. See `docs/ideas/aegisagent-vision.md`.
 - **PrimeAgent — Unified Portfolio Management** — portfolio construction, allocation, rebalancing, performance attribution. See `docs/ideas/primeagent-vision.md`.

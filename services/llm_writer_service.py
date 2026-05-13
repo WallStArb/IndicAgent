@@ -108,10 +108,12 @@ DO UPDATE SET
     score_updated_at = NOW()
 """
 
-_UPDATE_I8_SQL = """
-UPDATE intelligence_features
-SET i8 = $4::jsonb
-WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
+_UPSERT_I8_SQL = """
+INSERT INTO intelligence_ai_enrichment (ts, symbol, tf, i8, enriched_at)
+VALUES ($1::timestamptz, $2, $3, $4::jsonb, NOW())
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET
+    i8          = EXCLUDED.i8,
+    enriched_at = NOW()
 """
 
 _SELECT_OUTCOME_ROWS_SQL = """
@@ -759,18 +761,20 @@ class LLMWriterAgent(BaseWriterAgent):
 
         i8_dict = {
             "model": _field("model") or "unknown",
-            "confidence": _field("confidence") or "0.0",
-            "summary": _field("summary"),
-            "generated_at": _field("generated_at"),
+            "confidence": float(_field("confidence") or 0.0),  # store as float, not str
+            "summary": _field("summary") or None,
+            "generated_at": _field("generated_at") or None,
         }
-        self._i8_buffer.append((ts_dt, symbol, tf, json.dumps(i8_dict)))
+        # Pass dict directly — asyncpg handles JSONB serialisation natively (no json.dumps)
+        self._i8_buffer.append((ts_dt, symbol, tf, i8_dict))
 
     async def _flush_i8(self) -> None:
-        """Flush _i8_buffer via UPDATE intelligence_features SET i8.
+        """Flush _i8_buffer via UPSERT into intelligence_ai_enrichment (AI-SEP-01).
 
-        Plain UPDATE (no INSERT ON CONFLICT) to avoid phantom rows if
-        FeatureWriterAgent hasn't yet written the base row for this (ts, symbol, tf).
-        A 0-row UPDATE is safe — it is counted via i8_update_miss_total for observability.
+        UPSERTs i8 JSONB into the AI-owned intelligence_ai_enrichment table.
+        Enrichment rows are independent of intelligence_features bar rows —
+        the new AI-owned table has no FK dependency on intelligence_features,
+        so phantom rows are allowed by design.
         """
         if not self._i8_buffer:
             return
@@ -779,7 +783,7 @@ class LLMWriterAgent(BaseWriterAgent):
             return
         batch = self._i8_buffer[:]
         try:
-            await self.db_manager.execute_batch(_UPDATE_I8_SQL, batch)
+            await self.db_manager.execute_batch(_UPSERT_I8_SQL, batch)
             self.i8_writes_total.inc(len(batch))
             self._i8_buffer.clear()
         except Exception as e:

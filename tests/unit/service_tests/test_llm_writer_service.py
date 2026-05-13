@@ -198,17 +198,23 @@ def test_build_score_insert_params_high_p_not_significant():
 # ── i8 UPSERT wiring tests (TDD RED — will fail until implementation added) ──
 
 
-def test_upsert_i8_sql_is_update_not_insert():
-    """_UPDATE_I8_SQL must start with UPDATE (not INSERT) to avoid phantom rows."""
-    from services.llm_writer_service import _UPDATE_I8_SQL  # type: ignore[import]
+def test_upsert_i8_sql_is_upsert():
+    """_UPSERT_I8_SQL must be an INSERT ... ON CONFLICT DO UPDATE targeting intelligence_ai_enrichment."""
+    from services.llm_writer_service import _UPSERT_I8_SQL  # type: ignore[import]
 
-    assert _UPDATE_I8_SQL.strip().startswith(
-        "UPDATE"
-    ), "_UPDATE_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
+    assert _UPSERT_I8_SQL.strip().startswith(
+        "INSERT"
+    ), "_UPSERT_I8_SQL must use INSERT ON CONFLICT (AI-SEP-01 separation)"
+    assert "intelligence_ai_enrichment" in _UPSERT_I8_SQL
+    assert "ON CONFLICT" in _UPSERT_I8_SQL
 
 
 def test_process_i8_message_buffers_correctly():
-    """_process_i8_message appends a 4-tuple (ts_dt, symbol, tf, i8_json) to _i8_buffer."""
+    """_process_i8_message appends a 4-tuple (ts_dt, symbol, tf, i8_dict) to _i8_buffer.
+
+    After AI-SEP-01: the 4th element is a dict (not a JSON string) — asyncpg handles
+    JSONB serialization directly so json.dumps() is no longer needed (CLAUDE.md rule).
+    """
     import asyncio
 
     from services.llm_writer_service import LLMWriterService  # type: ignore[import]
@@ -230,13 +236,12 @@ def test_process_i8_message_buffers_correctly():
     asyncio.run(svc._process_i8_message(payload))
 
     assert len(svc._i8_buffer) == 1
-    ts_dt, symbol, tf, i8_json = svc._i8_buffer[0]
+    ts_dt, symbol, tf, i8_dict = svc._i8_buffer[0]
     assert symbol == "ES"
     assert tf == "1m"
-    import json as _json
-
-    parsed = _json.loads(i8_json)
-    assert parsed["model"] == "qwen3.5:9b"
+    # After AI-SEP-01: stored as dict (asyncpg handles JSONB), not JSON string
+    assert isinstance(i8_dict, dict), f"Expected dict, got {type(i8_dict)}"
+    assert i8_dict["model"] == "qwen3.5:9b"
 
 
 def test_process_i8_message_missing_ts_logs_warning():
@@ -287,16 +292,16 @@ def test_process_i8_message_uses_parse_ts():
 
 
 def test_i8_buffer_flushed_on_shutdown():
-    """_flush_i8 calls execute_batch with _UPDATE_I8_SQL and buffer contents."""
+    """_flush_i8 calls execute_batch with _UPSERT_I8_SQL and buffer contents (AI-SEP-01)."""
     import asyncio
     from datetime import UTC, datetime
     from unittest.mock import AsyncMock, MagicMock
 
-    from services.llm_writer_service import _UPDATE_I8_SQL, LLMWriterService  # type: ignore[import]
+    from services.llm_writer_service import _UPSERT_I8_SQL, LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = [
-        (datetime(2026, 3, 21, 10, 0, 0, tzinfo=UTC), "ES", "1m", '{"model": "test"}'),
+        (datetime(2026, 3, 21, 10, 0, 0, tzinfo=UTC), "ES", "1m", {"model": "test"}),
     ]
     svc.logger = __import__("structlog").get_logger()
 
@@ -320,7 +325,7 @@ def test_i8_buffer_flushed_on_shutdown():
 
     mock_db.execute_batch.assert_called_once()
     call_args = mock_db.execute_batch.call_args
-    assert call_args[0][0] == _UPDATE_I8_SQL
+    assert call_args[0][0] == _UPSERT_I8_SQL
     assert len(svc._i8_buffer) == 0, "Buffer should be cleared after flush"
 
 

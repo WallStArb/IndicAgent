@@ -35,10 +35,11 @@ PROMPT_REGISTRY: dict[str, str] = {
 SIGNAL:
 - Symbol: {symbol} {timeframe}
 - Setup: {setup_plugin} ({direction_label}, confidence {confidence})
-- Entry: {entry_price} | Stop: {stop_price} | T1: {target_price} (R:R {rr})
-- Entry type: {entry_type}
+- Entry: {entry_price} ({entry_type}) | Stop: {stop_price} ({stop_type}) | T1: {target_price} (R:R {rr})
+- Zone: [{zone_low}, {zone_high}]
+- Confluence: {confluence_score} | Co-fire: {co_fire_info}
 {regime_line}
-FULL PIPELINE CONTEXT (every non-Null tier from the intelligence pipeline):
+FULL PIPELINE CONTEXT (populated fields from the intelligence pipeline):
 
 {full_context_block}
 
@@ -70,12 +71,15 @@ def build_narrative_prompt(context: AIContext) -> tuple[str, str]:
     direction = (i7.winner_direction if i7 else None) or 0
     entry_price = i7.entry_price if i7 else None
     stop_price = i7.stop_price if i7 else None
-    target_price = i7.target_price if i7 else None
+    targets = i7.target_prices if i7 else None
     entry_type = (i7.entry_type if i7 else None) or "at_close"
+    stop_type = (i7.stop_type if i7 else None) or "atr"
+    co_fire = (i7.co_fire_count if i7 else None) or 0
 
-    # R:R from real levels
-    rr = 0.0
-    if entry_price and stop_price and target_price:
+    # R:R from real levels (use first target)
+    target_price = targets[0] if targets else None
+    rr = i7.risk_reward_ratio if (i7 and i7.risk_reward_ratio) else 0.0
+    if not rr and entry_price and stop_price and target_price:
         rr = round(abs(target_price - entry_price) / max(abs(stop_price - entry_price), 0.01), 1)
 
     # Regime line
@@ -95,6 +99,10 @@ def build_narrative_prompt(context: AIContext) -> tuple[str, str]:
         instruction_block = _MONITOR_INSTRUCTION
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
+    # Co-fire info
+    partners = (i7.co_fire_partners if i7 else None) or []
+    co_fire_info = f"{co_fire} plugins" if co_fire > 0 else "solo"
+
     user_prompt = template.format(
         symbol=context.symbol,
         timeframe=context.timeframe,
@@ -102,10 +110,15 @@ def build_narrative_prompt(context: AIContext) -> tuple[str, str]:
         direction_label=DIRECTION_LABELS.get(direction, "FLAT"),
         confidence=f"{confidence:.0%}",
         entry_price=fmt(entry_price, ".2f"),
+        entry_type=entry_type,
         stop_price=fmt(stop_price, ".2f"),
+        stop_type=stop_type,
         target_price=fmt(target_price, ".2f"),
         rr=f"{rr:.1f}",
-        entry_type=entry_type,
+        zone_low=fmt(i7.zone_low if i7 else None, ".2f"),
+        zone_high=fmt(i7.zone_high if i7 else None, ".2f"),
+        confluence_score=fmt(i7.confluence_score if i7 else None, ".2f"),
+        co_fire_info=co_fire_info,
         regime_line=regime_line,
         full_context_block=render_full_context(context),
         instruction_block=instruction_block,

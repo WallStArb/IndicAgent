@@ -569,3 +569,154 @@ def record_llm_call(
     ).observe(latency_s)
     if status == "success":
         LLM_TOKENS_USED.labels(provider=provider, call_type=call_type).inc(tokens)
+
+
+# ---------------------------------------------------------------------------
+# Swarm intelligence metrics (Phase 80)
+# Duplicate-safe: module reload (e.g., in tests) must not raise ValueError.
+# ---------------------------------------------------------------------------
+
+from prometheus_client import REGISTRY as _REGISTRY  # noqa: E402
+
+
+def _safe_counter(name: str, doc: str, labelnames: list[str]) -> Counter:
+    """Register a prometheus_client Counter, returning existing if already registered."""
+    try:
+        return Counter(name, doc, labelnames)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[f"{name}_total"]  # type: ignore[return-value]
+
+
+def _safe_histogram(name: str, doc: str, labelnames: list[str], buckets: list[float]) -> Histogram:
+    """Register a prometheus_client Histogram, returning existing if already registered."""
+    try:
+        return Histogram(name, doc, labelnames, buckets=buckets)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[name]  # type: ignore[return-value]
+
+
+def _safe_gauge(name: str, doc: str, labelnames: list[str]) -> Gauge:
+    """Register a prometheus_client Gauge, returning existing if already registered."""
+    try:
+        return Gauge(name, doc, labelnames)
+    except ValueError:
+        return _REGISTRY._names_to_collectors[name]  # type: ignore[return-value]
+
+
+_SWARM_BUCKETS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
+
+SWARM_INVOCATIONS_TOTAL: Counter = _safe_counter(
+    "swarm_invocations_total",
+    "Per-agent swarm call rate, error rate, and capacity skips",
+    ["agent_id", "timeframe", "status"],
+)
+SWARM_MULTIPLIER_DISTRIBUTION: Histogram = _safe_histogram(
+    "swarm_multiplier_distribution",
+    "Per-agent multiplier output distribution over time",
+    ["agent_id"],
+    _SWARM_BUCKETS,
+)
+SWARM_AGGREGATED_MULTIPLIER: Histogram = _safe_histogram(
+    "swarm_aggregated_multiplier",
+    "Final combined multiplier distribution per timeframe",
+    ["timeframe"],
+    _SWARM_BUCKETS,
+)
+SWARM_AGENT_WEIGHT: Gauge = _safe_gauge(
+    "swarm_agent_weight",
+    "Per-agent learned weight by timeframe — key Renaissance health signal",
+    ["agent_id", "timeframe"],
+)
+SWARM_SIGNAL_LEDGER_UPDATE_TOTAL: Counter = _safe_counter(
+    "swarm_signal_ledger_update_total",
+    "Writer-owned signal_ledger materialization outcomes",
+    ["status"],
+)
+
+# ---------------------------------------------------------------------------
+# Intelligence pipeline publisher metrics (Phase 81)
+# ---------------------------------------------------------------------------
+
+INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL: Counter = _safe_counter(
+    "intelligence_pipeline_backfill_signals_total",
+    "Signals published to intelligence.i7.signals with is_backfill=True (catch-up payloads)",
+    ["symbol", "timeframe"],
+)
+
+# ---------------------------------------------------------------------------
+# Signal tracker intake metrics (Phase 81)
+# ---------------------------------------------------------------------------
+
+SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL: Counter = _safe_counter(
+    "signal_tracker_invalid_signal_total",
+    "Signals rejected by _load_signal() (missing/invalid required fields) and routed to DLQ",
+    ["reason"],
+)
+
+SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL: Counter = _safe_counter(
+    "signal_tracker_backfill_fast_path_total",
+    "Backfill signals where TTL elapsed at ingest; published TTL-expired and skipped active index",
+    ["symbol", "timeframe"],
+)
+
+# ---------------------------------------------------------------------------
+# Bar replay provider metrics (Phase 81 — Plan 04)
+# ---------------------------------------------------------------------------
+
+BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL: Counter = _safe_counter(
+    "bar_replay_provider_bars_published_total",
+    "Bars published by BarReplayProviderAgent (progress tracking)",
+    labelnames=("symbol", "timeframe"),
+)
+
+BAR_REPLAY_PROVIDER_LAG_SECONDS: Gauge = _safe_gauge(
+    "bar_replay_provider_lag_seconds",
+    "Seconds between last_replayed_ts and NOW(); drops to 0 on completion",
+    [],
+)
+
+# ---------------------------------------------------------------------------
+# Signal replay auditor metrics (Phase 81 — Plan 05)
+# North-star metric: signal_replay_unresolved_gauge should converge to 0.
+# ---------------------------------------------------------------------------
+
+SIGNAL_REPLAY_UNRESOLVED_GAUGE: Gauge = _safe_gauge(
+    "signal_replay_unresolved_gauge",
+    "v1 signals with exit_at IS NULL past TTL (north star — target = 0)",
+    [],
+)
+
+SIGNAL_REPLAY_ATTEMPTED_TOTAL: Counter = _safe_counter(
+    "signal_replay_attempted_total",
+    "Signals queried for replay each auditor cycle",
+    [],
+)
+
+SIGNAL_REPLAY_RESOLVED_TOTAL: Counter = _safe_counter(
+    "signal_replay_resolved_total",
+    "Outcomes successfully computed and published by replay auditor",
+    labelnames=("outcome",),
+)
+
+SIGNAL_REPLAY_OHLCV_GAP_TOTAL: Counter = _safe_counter(
+    "signal_replay_ohlcv_gap_total",
+    "Replay attempts where market_data_ohlcv had zero bars in the signal window",
+    labelnames=("symbol", "timeframe"),
+)
+
+LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL: Counter = _safe_counter(
+    "lifecycle_writer_idempotent_skip_total",
+    "EXIT writes blocked by idempotency guard (WHERE exit_at IS NULL); validates two-path safety",
+    [],
+)
+
+# ---------------------------------------------------------------------------
+# Signal ledger quality KPI (Phase 81 — Plan 06)
+# Updated periodically by SignalMetricsComputeAgent from signal_ledger query.
+# ---------------------------------------------------------------------------
+
+SIGNAL_LEDGER_BACKFILL_RATIO: Gauge = _safe_gauge(
+    "signal_ledger_backfill_ratio",
+    "Fraction of signal_ledger rows last 24h with is_backfill=TRUE (training set quality KPI)",
+    [],
+)

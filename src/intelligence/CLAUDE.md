@@ -1,13 +1,13 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (128 + 2 aggregation)
+## Plugin Tiers
 
 **Tier Flow:**
 ```
 I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → SMC → I6 (confluence) → I7 (signals)
 ```
 
-**I1** (27): Trend/Momentum/Volatility/Volume indicators + OFI + CVD — see `TIER_I1` in `register_plugins.py`
+**I1** (28): Trend/Momentum/Volatility/Volume indicators + OFI + CVD + VolumeZscore — see `TIER_I1` in `register_plugins.py`
 **I2** (10): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
 **I3** (8): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (12): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
 **I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (13): Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) · **I6** (6): CrossTimeframeConfluence + 5 Phase 64 confluence plugins (momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment)
@@ -27,7 +27,7 @@ All live in `src/intelligence/trading/`:
 | `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
 | `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |
-| `signal_schema.py` | `make_signal()`, `validate_signal()` | Signal dict construction + validation |
+| `signal_schema.py` | `SIGNAL_SCHEMA_VERSION`, `make_signal()`, `make_signal_from_frame()`, `validate_signal()` | Canonical version constant, signal dict construction from TradeFrame, validation |
 
 **`regime_type` class attribute** (mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
 
@@ -53,15 +53,16 @@ All live in `src/intelligence/trading/`:
 
 **AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (gemma4:e4b on AMD ROCm iGPU).
 
+**NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): authored but has no systemd service and is not wired into AlphaSwarm. Not deployed.
+
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
-| 1 | `OpenRouterProvider` | free models | Primary |
-| 2 | `OllamaCloudProvider` | cloud models via `OLLAMA_API_KEY` | Optional middle tier |
-| 3 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
+| 1 | `OpenRouterProvider` | pinned free models (see `.env`) | Primary |
+| 2 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
 
 - `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), `ollama_api_key` (enables cloud tier), and the Ollama local settings used for the fallback.
+- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), and the Ollama local settings used for the fallback. `OLLAMA_API_KEY` / `OllamaCloudProvider` removed — was 429-rate-limited at ~155s latency.
 
 **LLM audit streams**: every call → `llm.calls` (Kafka); every signal exit → `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 

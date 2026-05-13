@@ -25,6 +25,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_signal_writer_dlq,
 )
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     counter,
@@ -175,10 +176,13 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 weights_version=sig.get("weights_version"),
                 entry_zone_low=sig.get("zone_low"),
                 entry_zone_high=sig.get("zone_high"),
-                signal_schema_version=sig.get("signal_schema_version", "v0"),
+                signal_schema_version=sig.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
                 entry_type=sig.get("entry_type"),
                 co_fire_count=sig.get("co_fire_count", 1),
                 co_fire_partners=sig.get("co_fire_partners", []),
+                market_price_at_signal=sig.get("market_price_at_signal"),
+                market_entry_price=sig.get("market_entry_price"),
+                features_snapshot=sig.get("features_snapshot") or None,
             )
         )
     return entries

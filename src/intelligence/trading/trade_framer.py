@@ -69,6 +69,9 @@ ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
 ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
 ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5
 ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
+ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER = (
+    0.2  # Narrow fallback zone for plugins that bypass frame_trade()
+)
 ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
     "1m": 3.0,
     "5m": 5.0,
@@ -134,6 +137,20 @@ class TradeFrame:
     stop_structure_age_bars: int | None = None  # bars since structural level formed
     # |structural_stop - atr_fallback| / effective_atr
     structural_stop_distance_atr: float | None = None
+
+
+def targets_from_floats(
+    prices: list[float], entry: float, stop: float
+) -> tuple[list[TradeTarget], float, float]:
+    """Build TradeTarget list with RR pre-computed; returns (targets, rr_t1, rr_t2)."""
+    risk = abs(entry - stop) or 1e-9
+    t_objs = [
+        TradeTarget(price=p, label=f"t{i+1}", level_type="atr", rr=abs(p - entry) / risk)
+        for i, p in enumerate(prices)
+    ]
+    rr_t1 = t_objs[0].rr if t_objs else 0.0
+    rr_t2 = t_objs[1].rr if len(prices) > 1 else 0.0
+    return t_objs, rr_t1, rr_t2
 
 
 def _stop_type_to_structure_type(stop_type: str) -> str:

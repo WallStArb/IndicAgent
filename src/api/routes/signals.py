@@ -181,7 +181,7 @@ async def get_active_signals(
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE sl.status IN ('pending', 'active')
-              AND sl.is_shadow = false
+              -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
             ORDER BY sl.symbol, sl.timeframe, sl.signal_computed_at DESC
             LIMIT 500
@@ -302,7 +302,7 @@ async def get_recent_signals(
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
-            WHERE sl.timestamp >= NOW() - INTERVAL '{_RECENT_SIGNAL_WINDOW_DAYS} days'
+            WHERE sl.timestamp >= NOW() - INTERVAL '90 days'
               AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
@@ -435,7 +435,9 @@ async def get_signals_stats(
                           AND signal_computed_at >= NOW() - INTERVAL '7 days'
                     )::numeric, 4
                 ) AS avg_confidence_7d,
-                -- Pipeline latency: signal_computed_at - timestamp (bar close time)
+                -- Pipeline latency: bar close → signal computed (live signals only).
+                -- Exclude catch-up signals (pipeline restart replaying stale bars) by
+                -- capping to signals fired within 5 minutes of their bar close.
                 ROUND(
                     PERCENTILE_CONT(0.5) WITHIN GROUP (
                         ORDER BY EXTRACT(EPOCH FROM (signal_computed_at - timestamp))
@@ -443,6 +445,7 @@ async def get_signals_stats(
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
                           AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
                     )::numeric, 2
                 ) AS latency_p50,
                 ROUND(
@@ -452,6 +455,7 @@ async def get_signals_stats(
                         WHERE was_selected = true
                           AND signal_computed_at IS NOT NULL
                           AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                          AND signal_computed_at - timestamp <= INTERVAL '5 minutes'
                     )::numeric, 2
                 ) AS latency_p95,
                 -- Rolling pnl_r

@@ -65,6 +65,10 @@ pytest>=8.4.0
 pytz==2026.1.post1
 ruff>=0.15.0
 scikit-learn>=1.5.0
+lightgbm>=4.0
+shap>=0.44
+mlflow>=2.10
+polars>=1.0
 scipy>=1.15.0
 sdnotify>=0.3.2
 seaborn==0.13.2

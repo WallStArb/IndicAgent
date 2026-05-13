@@ -1,6 +1,6 @@
 # Data Pipeline
 
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 
 ## Overview
 
@@ -73,7 +73,17 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 | `indicagent-feature-writer` | `intelligence` | `intelligence_features` (TimescaleDB) |
 | `indicagent-llm-writer` | `llm.calls` + `llm.outcomes` | `llm_calls` hypertable + `llm_model_scores` |
 | `indicagent-swarm-orchestrator` | task requests | swarm agent task topics |
-| `indicagent-swarm-writer` | swarm output topics | swarm results (TimescaleDB) |
+| `indicagent-alpha-swarm` | `intelligence.i7.signals` | `intelligence` (adjusted_confidence/swarm_multiplier) |
+| `indicagent-bar-replay` | `market_data_ohlcv` (DB read) | `market.bars` + `market.bars.htf` (one-shot, self-terminating) |
+| `indicagent-signal-replay` | `signal_ledger` (DB query) | `intelligence.lifecycle` (periodic, every 5 min) |
+
+### Self-Healing Services (Phase 81)
+
+**Bar Auditor** (`indicagent-bar-auditor`) detects gaps in `market_data_ohlcv` and publishes `BarGapRequest` events that trigger gap-filling from the data provider. No manual intervention required.
+
+**BarReplayProviderAgent** (`indicagent-bar-replay`) replays historical OHLCV data into the live pipeline. Used for bootstrap after fresh install, recovery from extended downtime, or reprocessing after signal schema upgrades. Checkpoint-based; self-terminates when caught up. On completion, restarts the live data provider and bar aggregator.
+
+**SignalReplayAuditorAgent** (`indicagent-signal-replay`) resolves orphaned signal lifecycles every 5 minutes. Finds v1 signals with `exit_at IS NULL` past their TTL, replays bar-by-bar against `market_data_ohlcv`, publishes idempotent `LifecycleTransition` events. Health invariant: `signal_replay_unresolved_gauge = 0`.
 
 ### Multi-Stream Reading
 

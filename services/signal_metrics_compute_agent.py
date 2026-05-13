@@ -37,6 +37,7 @@ from src.intelligence.metrics.compute import (
     compute_signal_metrics,
 )
 from src.intelligence.metrics.validator import validate_signal_row
+from src.observability.metrics import SIGNAL_LEDGER_BACKFILL_RATIO
 from src.observability.otel import init_tracing
 
 _COMPUTE_CYCLES = Counter(
@@ -323,6 +324,25 @@ class SignalMetricsComputeAgent(BaseAgent):
             tracks="zone,market",
             new_dq_failures=new_dq_count,
             total_dq_keys_tracked=len(self._published_dq_keys),
+        )
+
+        # Update backfill ratio gauge — fraction of last-24h signal_ledger rows
+        # with is_backfill=TRUE.  NULLIF guard prevents division-by-zero.
+        backfill_rows = await self._db.execute_query("""
+            SELECT
+              COUNT(*) FILTER (WHERE is_backfill = TRUE)::float
+                / NULLIF(COUNT(*), 0)::float AS backfill_ratio
+            FROM signal_ledger
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+            """)
+        if backfill_rows:
+            ratio = float(backfill_rows[0].get("backfill_ratio") or 0.0)
+        else:
+            ratio = 0.0
+        SIGNAL_LEDGER_BACKFILL_RATIO.set(ratio)
+        self.logger.info(
+            "signal_metrics_compute.backfill_ratio_updated",
+            backfill_ratio=ratio,
         )
 
         # Prune DQ keys for signals no longer in the 90-day window.

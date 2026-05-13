@@ -49,6 +49,7 @@ _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 _DAG_ORDER: dict[str, int] = {
     # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,
+    "indicagent-bar-replay": 1,
     "indicagent-provider-merger": 2,
     # Layer 2 — bar processing
     "indicagent-bar-aggregator": 3,
@@ -68,6 +69,7 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 7,
     "indicagent-llm-writer": 7,
+    "indicagent-swarm-ledger-writer": 7,  # L7: DB projection of swarm aggregate adjustments
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-roll-compute": 8,
     "indicagent-signal-metrics-compute": 8,
@@ -75,8 +77,10 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-graduation-compute": 8,
     "indicagent-graduation-writer": 8,
     "indicagent-feature-snapshot-writer": 8,
+    "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,
+    "indicagent-signal-replay": 9,
     "indicagent-parity-auditor": 9,
     "indicagent-alerting-agent": 9,
     # Layer 8 — meta: monitors and restarts all of the above
@@ -100,6 +104,7 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-contract-metadata-writer": 500,
     "indicagent-alpha-swarm": 200,
     "indicagent-llm-writer": 500,
+    "indicagent-swarm-ledger-writer": 500,
     "indicagent-signal-metrics-writer": 500,
     "indicagent-graduation-writer": 500,
     "indicagent-feature-snapshot-writer": 500,
@@ -125,6 +130,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_metrics_compute": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
     "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
+    "swarm_ledger_writer": "indicagent-swarm-ledger-writer",
     "roll_compute_agent": "indicagent-roll-compute",
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
@@ -132,6 +138,8 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "ParityAuditorAgent": "indicagent-parity-auditor",
     "GraduationComputeAgent": "indicagent-graduation-compute",
     "graduation_writer_agent": "indicagent-graduation-writer",
+    "bar_replay_provider": "indicagent-bar-replay",
+    "signal_replay_auditor": "indicagent-signal-replay",
 }
 
 # OTel gauge for per-unit service health (1=active, 0=inactive/failed)

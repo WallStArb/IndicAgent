@@ -19,7 +19,7 @@ import { DrillPanel } from "./drill-panel";
 import { WatchlistRail } from "./watchlist-rail";
 import { SignalAlertStrip } from "./signal-alert-strip";
 import { SkeletonCard } from "./skeleton-card";
-import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData } from "@/lib/types";
+import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData, SignalTier } from "@/lib/types";
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
 import { fmtTimeHMS } from "@/lib/format";
@@ -91,20 +91,45 @@ function GroupedSymbolGrid({
   signalsHistory: Record<string, SignalData[]>;
   setSelectedDrillSignal: (s: SignalData | null) => void;
 }) {
-  // Build groups — preserve original order within each group
+  // Coarse clock — updates every minute so decay scores stay fresh even when no signals arrive
+  const [nowMinute, setNowMinute] = useState(() => Math.floor(Date.now() / 60_000));
+  useEffect(() => {
+    const id = setInterval(() => setNowMinute(Math.floor(Date.now() / 60_000)), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Extract signal-only slice so the sort only re-runs when signals change, not on every tick/bar SSE event
+  const symbolSignals = useMemo(
+    () => Object.fromEntries(symbols.map((s) => [s, symbolData[s]?.signal ?? null])),
+    [symbols, symbolData],
+  );
+
   const grouped = useMemo(() => {
+    const TIER_WEIGHTS: Record<SignalTier, number> = { hero: 100, monitored: 50, candidate: 10 };
+    const now = nowMinute * 60_000;
+    const score = (sym: string): number => {
+      const sig = symbolSignals[sym];
+      if (!sig) return 0;
+      const tsMs = new Date(sig.timestamp).getTime();
+      if (isNaN(tsMs)) return 0;
+      const ageHours = (now - tsMs) / 3_600_000;
+      const decay = Math.max(0, 1 - ageHours / 4);
+      const tierWeight = sig.signal_tier ? (TIER_WEIGHTS[sig.signal_tier] ?? 10) : 10;
+      return (sig.confidence ?? 0) * tierWeight * decay;
+    };
+
+    const sortedSymbols = [...symbols].sort((a, b) => score(b) - score(a));
     const map = new Map<string, string[]>();
-    for (const sym of symbols) {
+    for (const sym of sortedSymbols) {
       const info = symbolConfig.getSymbolInfo(sym);
       const groupKey = getSectorGroup(info?.sector, info?.asset_class);
       if (!map.has(groupKey)) map.set(groupKey, []);
       map.get(groupKey)!.push(sym);
     }
-    // Return in canonical SECTOR_GROUPS order
     return SECTOR_GROUPS
       .map((g) => ({ ...g, symbols: map.get(g.key) ?? [] }))
       .filter((g) => g.symbols.length > 0);
-  }, [symbols]);
+  }, [symbols, symbolSignals, nowMinute]);
 
   return (
     <div className="p-4 space-y-6">
@@ -174,7 +199,6 @@ export default function TradingDashboard() {
   const [activeProfile, setActiveProfile] = useState(
     symbolConfig.getActiveProfile()
   );
-
   const profiles = useMemo(() => symbolConfig.getAllProfiles(), []);
   const symbols = useMemo(
     () => profiles[activeProfile]?.symbols ?? ["ES", "NQ", "RTY"],

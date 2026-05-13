@@ -12,7 +12,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
 
 # Module-level constants — static across all bars, extracted from hot path.
 _FALLBACK_WEIGHTS: dict[str, float] = {
@@ -290,29 +291,33 @@ class CandlestickPatternSetupPlugin:
         signal_type = f"candlestick_{pattern_name}_{suffix}"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        signal = make_signal(
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, float(stop))
+        _tf = TradeFrame(
+            entry=entry,
+            entry_type="at_close",
+            stop=float(stop),
+            stop_type="atr",
+            targets=_t_objs,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
+            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+        )
+        return make_signal_from_frame(
+            _tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
             setup_plugin=self.name,
             direction=direction,
-            entry_price=entry,
-            stop_loss=float(stop),
-            targets=targets,
             confidence=confidence,
             regime_context=regime_ctx,
             confluence_score=float(confluence_score),
             supporting_factors=supporting,
             invalidation_conditions=[],
+            features_snapshot=capture_signal_features(features, direction, "session", confidence),
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "session",
-            signal["confidence"],
-        )
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

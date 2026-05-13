@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import signal
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -113,7 +115,7 @@ _ibkr_open_since: float | None = None
 # waits on this Event to detect Error 326 within seconds of connectAsync() returning.
 _error_326_detected: threading.Event = threading.Event()
 _MAX_CLIENT_ID = 50
-_IB_GATEWAY_CONTAINER = "ib-gateway"
+_IB_GATEWAY_PROC_PATTERN = "ibcalpha.ibc.IbcGateway"
 
 
 def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None:
@@ -132,43 +134,71 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
         )
 
 
-async def _restart_ib_gateway() -> bool:
-    """Restart the ib-gateway Docker container to clear stale clientId sessions."""
-    logger.warning("ibkr.restarting_gateway_container", extra={"container": _IB_GATEWAY_CONTAINER})
+def _find_ib_gateway_pid() -> int | None:
+    """Scan /proc to find the ibgateway Java process PID. No subprocess needed."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker",
-            "restart",
-            _IB_GATEWAY_CONTAINER,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        if proc.returncode == 0:
-            IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="gateway_restarted").inc()
-            logger.info(
-                "ibkr.gateway_container_restarted", extra={"container": _IB_GATEWAY_CONTAINER}
-            )
-            await asyncio.sleep(45)
-            return True
-        logger.error(
-            "ibkr.gateway_restart_failed",
-            extra={
-                "container": _IB_GATEWAY_CONTAINER,
-                "returncode": proc.returncode,
-                "stderr": stderr.decode()[:500],
-            },
-        )
-        return False
-    except TimeoutError:
-        logger.error("ibkr.gateway_restart_timeout", extra={"container": _IB_GATEWAY_CONTAINER})
-        return False
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry.name}/cmdline", "rb") as f:
+                    cmdline = f.read().decode(errors="replace")
+                if _IB_GATEWAY_PROC_PATTERN in cmdline:
+                    return int(entry.name)
+            except (FileNotFoundError, PermissionError):
+                continue
     except Exception as exc:
-        logger.error(
-            "ibkr.gateway_restart_error",
-            extra={"container": _IB_GATEWAY_CONTAINER, "error": str(exc)},
-        )
+        logger.warning("ibkr.find_gateway_pid_failed", extra={"error": str(exc)})
+    return None
+
+
+async def _wait_for_gateway_port(port: int, timeout: float = 90.0) -> bool:
+    """Poll until ibgateway's API port accepts TCP connections."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        await asyncio.sleep(5)
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", port),
+                timeout=2.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            await asyncio.sleep(3)  # brief settle — ibgateway needs a moment after TCP bind
+            return True
+        except (ConnectionRefusedError, OSError, TimeoutError):
+            pass
+    return False
+
+
+async def _restart_ib_gateway(port: int) -> bool:
+    """Kill the ibgateway Java process so IBC auto-restarts it, clearing stale sessions.
+
+    ibgateway runs as a native IBC-managed process (not Docker). IBC's ibcstart.sh
+    detects the process death and relaunches it automatically, typically within 30-60s.
+    """
+    gw_pid = await asyncio.to_thread(_find_ib_gateway_pid)
+    if gw_pid is None:
+        logger.error("ibkr.gateway_process_not_found", extra={"pattern": _IB_GATEWAY_PROC_PATTERN})
         return False
+
+    logger.warning("ibkr.restarting_gateway_process", extra={"pid": gw_pid, "port": port})
+    try:
+        os.kill(gw_pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass  # already gone — proceed to wait for restart
+    except OSError as exc:
+        logger.error("ibkr.gateway_kill_failed", extra={"pid": gw_pid, "error": str(exc)})
+        return False
+
+    ready = await _wait_for_gateway_port(port=port, timeout=90.0)
+    if ready:
+        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="gateway_restarted").inc()
+        logger.info("ibkr.gateway_restart_complete", extra={"port": port})
+        return True
+
+    logger.error("ibkr.gateway_restart_timeout", extra={"port": port, "waited_s": 90})
+    return False
 
 
 async def _connect_with_circuit_breaker(
@@ -294,7 +324,7 @@ async def _connect_with_circuit_breaker(
             "ibkr.client_id_rotation_exhausted",
             extra={"base_client_id": client_id, "max_client_id": _MAX_CLIENT_ID},
         )
-        restarted = await _restart_ib_gateway()
+        restarted = await _restart_ib_gateway(port=port)
         if restarted:
             current_cid = client_id
             _error_326_detected.clear()

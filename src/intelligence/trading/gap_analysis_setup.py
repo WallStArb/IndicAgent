@@ -10,7 +10,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
 
 
 @dataclass
@@ -152,26 +153,35 @@ class GapAnalysisSetupPlugin:
             "session",
             confidence,
         )
-        signal = make_signal(
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, float(entry), float(stop))
+        _tf = TradeFrame(
+            entry=float(entry),
+            entry_type=entry_type,
+            stop=float(stop),
+            stop_type="atr",
+            targets=_t_objs,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
+            zone_low=float(entry) - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+            zone_high=float(entry) + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+        )
+        signal = make_signal_from_frame(
+            _tf,
             symbol="",
             timeframe="",
             timestamp="",
             signal_type=signal_type,
-            setup_plugin="trad_GapAnalysisSetup",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=float(entry),
-            stop_loss=float(stop),
-            targets=targets,
             confidence=confidence,
             regime_context="gap_open",
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
-            entry_type=entry_type,
+            features_snapshot=features_snapshot,
         )
         signal["bias"] = bias
         signal["gap_size_atr"] = round(gap_size_atr, 4)
-        signal["features_snapshot"] = features_snapshot
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

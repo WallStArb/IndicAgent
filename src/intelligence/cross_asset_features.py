@@ -14,6 +14,8 @@ import math
 from collections import deque
 from datetime import datetime
 
+from src.core.service_utils import format_iso_ts
+
 _EQ_INDEX_BASES: frozenset[str] = frozenset({"ES", "NQ", "RTY", "YM"})
 
 # Number of bars used in the 5-bar log-return window
@@ -230,7 +232,7 @@ def compute_eq_index_features(
 
     return {
         "ready": True,
-        "ts": ts.isoformat().replace("+00:00", "Z"),
+        "ts": format_iso_ts(ts),
         "tf": tf,
         "group": "EQ_INDEX",
         "es_nq_spread_z": float(es_nq_z),
