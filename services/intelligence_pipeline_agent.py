@@ -464,6 +464,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # I7 config — wired to Settings (not hardcoded)
         self._regime_prob_min: float = self.settings.regime_prob_min
+        self._regime_prob_soft_max: float = self.settings.REGIME_PROB_SOFT_MAX
         self._regime_dur_min: int = self.settings.regime_dur_min
 
         # Output buffer
@@ -1333,6 +1334,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             quality_gated,
             features,
             prob_min=self._regime_prob_min,
+            prob_soft_max=self._regime_prob_soft_max,
             dur_min=self._regime_dur_min,
             tf=tf,
             recorder=self._transform_recorder,
