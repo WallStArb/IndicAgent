@@ -23,6 +23,7 @@ from .routes import (
     narrative,
     signals,
     sse,
+    validation,
 )
 
 logger = structlog.get_logger(__name__)
@@ -136,6 +137,7 @@ app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(signals.router, prefix="/api", tags=["signals"])
 app.include_router(narrative.router, prefix="/api", tags=["narrative"])
 app.include_router(drift.router, prefix="/api/drift", tags=["drift"])
+app.include_router(validation.router, prefix="/api/validation", tags=["validation"])
 
 
 @app.get("/")
