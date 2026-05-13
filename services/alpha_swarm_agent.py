@@ -460,6 +460,10 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         3. Parallel asyncio.gather over self._agents
         4. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
+        # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
+        if raw_signal.get("signal_schema_version", "v1") != "v1":
+            return
+
         # TF gate — before any LLM context build (zero cost for ineligible signals)
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
         tf_minutes = _TF_MINUTES.get(tf, 0)
