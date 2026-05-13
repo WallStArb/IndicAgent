@@ -81,6 +81,23 @@ class ModelRegistry:
             )
             return None
 
+    async def get_latest_run_id(self, segment: dict[str, Any]) -> str | None:
+        """Return the mlflow_run_id of the latest production model for segment, or None."""
+        import json
+
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT mlflow_run_id FROM ml_models
+                WHERE status = 'production'
+                  AND segment @> $1::jsonb
+                ORDER BY promoted_at DESC
+                LIMIT 1
+                """,
+                json.dumps(segment),
+            )
+        return row["mlflow_run_id"] if row is not None else None
+
     async def promote(self, model_id: str) -> None:
         """Set model status to production."""
         from datetime import UTC, datetime

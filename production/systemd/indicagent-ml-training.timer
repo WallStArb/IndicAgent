@@ -1,0 +1,10 @@
+[Unit]
+Description=ML Training Timer -- nightly 03:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=indicagent-ml-training.service
+
+[Install]
+WantedBy=timers.target
