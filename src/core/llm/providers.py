@@ -4,7 +4,7 @@ Usage:
     chain = LLMChain([
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
         DeepSeekProvider("deepseek-v4-flash", api_key="sk-..."),  # Paid, low cost
-        OllamaCloudProvider("minimax-m2.7", api_key="fe982..."),  # Cloud models
+        OllamaCloudProvider("glm-4.7:cloud", api_key="fe982..."),  # Cloud models
         OllamaProvider("gemma4:e4b"),  # Local models
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
@@ -16,9 +16,7 @@ DeepSeek models (DEEPSEEK_API_KEY, OpenAI-compatible, base: https://api.deepseek
     Context: 1M tokens, max output: 384K tokens. Supports thinking mode, tool calls, JSON output.
 
 Cloud models (free tier with OLLAMA_API_KEY):
-    - minimax-m2.7: Coding, agentic workflows, productivity (best)
-    - nemotron-3-super: 120B MoE, complex reasoning
-    - gemini-3-flash-preview: Speed, general tasks
+    - glm-4.7:cloud: General purpose, strong reasoning
 """
 
 from __future__ import annotations
@@ -281,6 +279,9 @@ class _OpenAICompatProvider:
         self.provider_id = f"{self._provider_prefix}:{model}"
         self._circuit_breaker = _llm_circuit_breaker
 
+    def _extra_payload_fields(self) -> dict:
+        return {}
+
     async def generate(
         self,
         prompt: str,
@@ -288,6 +289,8 @@ class _OpenAICompatProvider:
         max_tokens: int,
         timeout: float,
     ) -> str | None:
+        _usage: list[dict] = []
+
         def _call() -> str | None:
             payload = {
                 "model": self.model,
@@ -297,6 +300,7 @@ class _OpenAICompatProvider:
                 ],
                 "max_tokens": max_tokens,
                 "stream": False,
+                **self._extra_payload_fields(),
             }
             data = json.dumps(payload).encode()
             req = urllib.request.Request(
@@ -317,19 +321,29 @@ class _OpenAICompatProvider:
             choices = result.get("choices") or []
             usage = result.get("usage", {})
             if usage:
-                LLMChain.last_token_usage = usage  # type: ignore
+                _usage.append(usage)
             return _extract_message_content(choices)
 
-        return await _call_llm_with_circuit_breaker(
+        result = await _call_llm_with_circuit_breaker(
             self.provider_id, _call, circuit_breaker=self._circuit_breaker
         )
+        if _usage:
+            LLMChain.last_token_usage = _usage[0]  # type: ignore
+        return result
 
 
 class OpenRouterProvider(_OpenAICompatProvider):
-    """Calls OpenRouter /api/v1/chat/completions (OpenAI-compatible)."""
+    """Calls OpenRouter /api/v1/chat/completions (OpenAI-compatible).
+
+    Suppresses chain-of-thought on reasoning-capable free models so they
+    return clean JSON instead of verbose CoT.
+    """
 
     _provider_prefix = "openrouter"
     _default_base_url = "https://openrouter.ai/api/v1"
+
+    def _extra_payload_fields(self) -> dict:
+        return {"include_reasoning": False, "reasoning": {"effort": "none"}}
 
 
 class DeepSeekProvider(_OpenAICompatProvider):
@@ -411,9 +425,7 @@ class OllamaCloudProvider:
 
     Uses Bearer token authentication (OLLAMA_API_KEY). Bypasses local proxy
     authentication requirements. Supports free-tier cloud models like:
-    - minimax-m2.7 (coding, productivity)
-    - nemotron-3-super (reasoning, agents)
-    - gemini-3-flash-preview (speed, general)
+    - glm-4.7:cloud (general purpose, strong reasoning)
     """
 
     def __init__(
@@ -460,7 +472,7 @@ class OllamaCloudProvider:
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     result = json.loads(resp.read())
                 raw = result.get("response", "").strip()
-                # Some thinking models (nemotron-3-super) return content in "thinking"
+                # Some thinking models return content in "thinking"
                 # when "response" is empty — use it as fallback.
                 if not raw:
                     raw = result.get("thinking", "").strip()

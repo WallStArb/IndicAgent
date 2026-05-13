@@ -66,7 +66,7 @@ def test_class_attributes() -> None:
     assert CorrelationComputeAgent.agent_id == "correlation_v1"
     assert CorrelationComputeAgent.group == "alpha"
     assert CorrelationComputeAgent.shadow_only is True
-    assert CorrelationComputeAgent.latency_budget_ms == 5000.0
+    assert CorrelationComputeAgent.latency_budget_ms == 45000.0
     assert Tier.I6 in CorrelationComputeAgent.tiers_needed
 
 
