@@ -55,7 +55,7 @@ from src.intelligence.features.smc_context.bocpd_changepoint import plugin as bo
 from src.intelligence.features.smc_context.bos_choch import plugin as bos_choch_plugin
 from src.intelligence.features.smc_context.breaker_blocks import plugin as breaker_blocks_plugin
 from src.intelligence.features.smc_context.fair_value_gap import plugin as fvg_plugin
-from src.intelligence.features.smc_context.hmm_regime import plugin as hmm_plugin
+from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.features.smc_context.ict_killzones import plugin as ict_killzones_plugin
 from src.intelligence.features.smc_context.liquidity_pools import plugin as liquidity_pools_plugin
 from src.intelligence.features.smc_context.liquidity_sweeps import plugin as liq_sweep_plugin
@@ -139,6 +139,16 @@ from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
 from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
 
+# Multi-TF HMM instances — one per timeframe with TF-appropriate lookbacks (Phase 82, D-02).
+# Kept in TIER_SMC (not TIER_I4) to minimize schema churn; HMM fields remain in SMCContext.
+hmm_1m_plugin = HMMRegimePlugin(timeframe="1m", lookback=200)
+hmm_5m_plugin = HMMRegimePlugin(timeframe="5m", lookback=200)
+hmm_15m_plugin = HMMRegimePlugin(timeframe="15m", lookback=150)
+hmm_1h_plugin = HMMRegimePlugin(timeframe="1h", lookback=100)
+# Backward-compatible alias: no external importers use this name (confirmed Phase 82),
+# but kept to avoid silent breakage if any script references it.
+hmm_plugin = hmm_1m_plugin
+
 
 def validate_schema_coverage() -> None:
     """Verify every extra='forbid' schema declares all plugin output fields.
@@ -212,7 +222,10 @@ def validate_schema_coverage() -> None:
                 ob_plugin,
                 liq_sweep_plugin,
                 bocpd_plugin,
-                hmm_plugin,
+                hmm_1m_plugin,
+                hmm_5m_plugin,
+                hmm_15m_plugin,
+                hmm_1h_plugin,
                 liquidity_pools_plugin,
                 supply_demand_zones_plugin,
                 ict_killzones_plugin,
@@ -330,7 +343,10 @@ def register_all_plugins() -> None:
     registry.register_pattern(ob_plugin)
     registry.register_pattern(liq_sweep_plugin)
     registry.register_pattern(bocpd_plugin)
-    registry.register_pattern(hmm_plugin)
+    registry.register_pattern(hmm_1m_plugin)
+    registry.register_pattern(hmm_5m_plugin)
+    registry.register_pattern(hmm_15m_plugin)
+    registry.register_pattern(hmm_1h_plugin)
     registry.register_pattern(liquidity_pools_plugin)
     registry.register_pattern(supply_demand_zones_plugin)
     registry.register_pattern(ict_killzones_plugin)
@@ -500,7 +516,10 @@ TIER_SMC: list[str] = [
     ob_plugin.name,
     liq_sweep_plugin.name,
     bocpd_plugin.name,
-    hmm_plugin.name,
+    hmm_1m_plugin.name,
+    hmm_5m_plugin.name,
+    hmm_15m_plugin.name,
+    hmm_1h_plugin.name,
     liquidity_pools_plugin.name,
     supply_demand_zones_plugin.name,
     ict_killzones_plugin.name,
@@ -568,7 +587,10 @@ SMC_WAVE_A: list[str] = [
     ob_plugin.name,
     liq_sweep_plugin.name,
     bocpd_plugin.name,
-    hmm_plugin.name,
+    hmm_1m_plugin.name,
+    hmm_5m_plugin.name,
+    hmm_15m_plugin.name,
+    hmm_1h_plugin.name,
     liquidity_pools_plugin.name,
     ict_killzones_plugin.name,
     amd_cycle_plugin.name,
