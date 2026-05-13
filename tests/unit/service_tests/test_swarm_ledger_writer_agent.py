@@ -50,10 +50,48 @@ def _counter_value(status: str) -> float:
     return REGISTRY.get_sample_value("swarm_signal_ledger_update_total", {"status": status}) or 0.0
 
 
+def _mock_pool_with_fk_errors(fk_error_count: int) -> MagicMock:
+    """Pool mock that raises ForeignKeyViolationError N times then succeeds."""
+    import asyncpg
+
+    call_count = 0
+
+    async def execute_side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= fk_error_count:
+            raise asyncpg.exceptions.ForeignKeyViolationError("signal_ledger row not yet visible")
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(side_effect=execute_side_effect)
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=ctx)
+    return pool
+
+
+def _mock_pool_always_fk_error(attempts: int) -> MagicMock:
+    """Pool mock that always raises ForeignKeyViolationError (simulates row never visible)."""
+    import asyncpg
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(
+        side_effect=asyncpg.exceptions.ForeignKeyViolationError("signal_ledger row not visible")
+    )
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=ctx)
+    return pool
+
+
 @pytest.mark.asyncio
 async def test_projection_success() -> None:
     w = _make_writer()
-    w._pool = _mock_pool(["UPDATE 1"])
+    w._pool = _mock_pool(["INSERT 1"])
     before = _counter_value("success")
     await w._apply_projection("sig-1", 0.8, 0.64, 4)
     assert _counter_value("success") == before + 1
@@ -61,8 +99,9 @@ async def test_projection_success() -> None:
 
 @pytest.mark.asyncio
 async def test_projection_retry_then_success(monkeypatch) -> None:
+    """First attempt raises ForeignKeyViolationError (FK race), second succeeds."""
     w = _make_writer()
-    w._pool = _mock_pool(["UPDATE 0", "UPDATE 1"])
+    w._pool = _mock_pool_with_fk_errors(fk_error_count=1)
     import services.swarm_ledger_writer_agent as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
@@ -75,9 +114,9 @@ async def test_projection_retry_then_success(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_projection_miss_after_all_retries(monkeypatch) -> None:
+    """All attempts raise ForeignKeyViolationError — exhausted retries → miss."""
     w = _make_writer()
-    # All five attempts return UPDATE 0
-    w._pool = _mock_pool(["UPDATE 0"] * 5)
+    w._pool = _mock_pool_always_fk_error(attempts=5)
     import services.swarm_ledger_writer_agent as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
@@ -97,9 +136,12 @@ async def test_invalid_event_skipped() -> None:
 
 def test_original_confidence_column_untouched_in_sql() -> None:
     src = pathlib.Path("services/swarm_ledger_writer_agent.py").read_text()
-    # The UPDATE block must mention only the three new columns
-    assert "adjusted_confidence = $2" in src
-    assert "swarm_multiplier = $3" in src
-    assert "swarm_agent_count = $4" in src
-    # And must NOT modify the original `confidence` column
+    # UPSERT must write the three AI enrichment columns
+    assert "adjusted_confidence" in src
+    assert "swarm_multiplier" in src
+    assert "swarm_agent_count" in src
+    # Must NOT modify the original `confidence` column on signal_ledger
     assert "SET confidence" not in src
+    # Must target signal_ai_enrichment (AI-SEP-01), not signal_ledger
+    assert "signal_ai_enrichment" in src
+    assert "UPDATE signal_ledger" not in src
