@@ -651,6 +651,8 @@ class SMCContext(BaseModel):
     hmm_regime_duration: float | None = None
     hmm_n_dims: int | None = None  # 2 or 5 — emission dimensionality this bar
     hmm_warmed_up: bool | None = None  # False during convergence window post-reset
+    hmm_regime_entropy: float | None = None  # Shannon entropy across 3 state probs
+    hmm_regime_velocity: float | None = None  # Rate of change of dominant state prob
 
     # LiquidityPoolsPlugin outputs
     bsl_level: float | None = None
