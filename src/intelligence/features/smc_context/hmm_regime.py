@@ -44,11 +44,22 @@ _DEFAULT_VARIANCES = np.array(
 
 _CONFIG_PATH = Path("config/hmm_parameters.json")
 
+# TF-adaptive window sizes for hmm_regime_velocity computation.
+# Shorter windows for higher-frequency TFs to stay responsive.
+VELOCITY_WINDOW_BY_TF: dict[str, int] = {
+    "1m": 5,
+    "5m": 5,
+    "15m": 4,
+    "1h": 3,
+}
 
-def _load_parameters() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load parameters from JSON if available, otherwise use defaults."""
-    if _CONFIG_PATH.exists():
-        with open(_CONFIG_PATH) as f:
+
+def _load_parameters_from_path(
+    config_path: Path,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load parameters from a specific JSON path, falling back to defaults."""
+    if config_path.exists():
+        with open(config_path) as f:
             data = json.load(f)
         return (
             np.array(data["transition_matrix"], dtype=float),
@@ -56,6 +67,11 @@ def _load_parameters() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             np.array(data["emission_variances"], dtype=float),
         )
     return _DEFAULT_TRANSITION.copy(), _DEFAULT_MEANS.copy(), _DEFAULT_VARIANCES.copy()
+
+
+def _load_parameters() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load parameters from JSON if available, otherwise use defaults."""
+    return _load_parameters_from_path(_CONFIG_PATH)
 
 
 def _diag_gaussian_log_prob(x: np.ndarray, means: np.ndarray, variances: np.ndarray) -> np.ndarray:
@@ -84,31 +100,64 @@ class HMMRegimePlugin:
     Classifies market into 3 regimes (ranging/trending-up/trending-down)
     using multivariate Gaussian emissions on 5 features. Runs the forward
     algorithm incrementally per bar.
+
+    Multi-TF support: pass ``timeframe`` and ``lookback`` to create TF-specific
+    instances. Each instance loads ``config/hmm_parameters_{tf}.json`` if
+    present, falling back to the base ``config/hmm_parameters.json``.
     """
 
-    name: str = "smc_HMMRegime"
-    outputs: frozenset[str] = frozenset(
-        {
-            "hmm_regime",
-            "hmm_regime_prob",
-            "hmm_prob_ranging",
-            "hmm_prob_trending_up",
-            "hmm_prob_trending_down",
-            "hmm_regime_duration",
-            "hmm_n_dims",
-            "hmm_warmed_up",
-        }
-    )
+    # Init params — drive name, inputs, and parameter file resolution.
+    timeframe: str = "1m"
+    lookback: int = 200
+
+    # Derived fields — set in __post_init__, not passed to __init__.
+    name: str = field(init=False)
+    outputs: frozenset[str] = field(init=False)
+    inputs: tuple[InputSpec, ...] = field(init=False)
+
+    # Static fields
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     vol_window: int = 20  # Rolling window for realized vol
     _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self._A, self._means, self._variances = _load_parameters()
+        self.name = f"smc_HMMRegime_{self.timeframe}"
+        self.inputs = (InputSpec(symbol=".*", timeframe=self.timeframe, lookback=self.lookback),)
+        self.outputs = frozenset(
+            {
+                "hmm_regime",
+                "hmm_regime_prob",
+                "hmm_prob_ranging",
+                "hmm_prob_trending_up",
+                "hmm_prob_trending_down",
+                "hmm_regime_duration",
+                "hmm_n_dims",
+                "hmm_warmed_up",
+                "hmm_regime_entropy",
+                "hmm_regime_velocity",
+            }
+        )
+        self._A, self._means, self._variances = self._load_tf_parameters()
         self._K = self._A.shape[0]  # Number of states (3)
+
+    def _load_tf_parameters(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Load parameters using TF-suffixed path with fallback to base file."""
+        tf_path = Path(f"config/hmm_parameters_{self.timeframe}.json")
+        base_path = _CONFIG_PATH
+        if tf_path.exists():
+            return _load_parameters_from_path(tf_path)
+        return _load_parameters_from_path(base_path)
+
+    def reload_parameters(self) -> None:
+        """Hot-reload HMM parameters from disk (called by SIGUSR1 handler).
+
+        Idempotent — safe to call multiple times. Replaces transition matrix,
+        emission means, and variances. Does NOT reset forward algorithm state.
+        """
+        self._A, self._means, self._variances = self._load_tf_parameters()
+        self._K = self._A.shape[0]
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
@@ -265,6 +314,7 @@ class HMMRegimePlugin:
 
     def _reset_state(self) -> None:
         """Initialize forward algorithm state."""
+        velocity_window = VELOCITY_WINDOW_BY_TF.get(self.timeframe, 5)
         self._state = {
             "alpha": np.full(self._K, 1.0 / self._K),  # Uniform prior
             "prev_close": 0.0,
@@ -273,6 +323,7 @@ class HMMRegimePlugin:
             "regime_duration": 1,
             "bars_processed": 0,
             "n_dims": 2,
+            "prob_history": deque(maxlen=velocity_window),
         }
 
     def _build_output(self) -> dict[str, Any]:
@@ -282,6 +333,26 @@ class HMMRegimePlugin:
         bars_processed = self._state.get("bars_processed", 0)
         warmed_up = bars_processed >= self.min_lookback
         regime_prob = round(float(alpha[regime]), 6)
+
+        # Shannon entropy across 3 state probabilities — high = regime transition window.
+        hmm_regime_entropy = float(-np.sum(alpha * np.log2(alpha + 1e-10)))
+
+        # Velocity: rate of change of dominant-state probability over the history window.
+        prob_history = self._state.get("prob_history")
+        if prob_history is None:
+            # Lazily initialize for instances whose state was restored from checkpoint
+            # without the prob_history key (backward compat).
+            velocity_window = VELOCITY_WINDOW_BY_TF.get(self.timeframe, 5)
+            prob_history = deque(maxlen=velocity_window)
+            self._state["prob_history"] = prob_history
+        prob_history.append(float(regime_prob))
+        if len(prob_history) >= 2:
+            hmm_regime_velocity = float(
+                (prob_history[-1] - prob_history[0]) / max(1, len(prob_history) - 1)
+            )
+        else:
+            hmm_regime_velocity = 0.0
+
         return {
             "hmm_regime": float(regime),
             "hmm_regime_prob": regime_prob if warmed_up else 0.0,
@@ -291,7 +362,9 @@ class HMMRegimePlugin:
             "hmm_regime_duration": float(self._state["regime_duration"]),
             "hmm_n_dims": self._state.get("n_dims", 2),
             "hmm_warmed_up": warmed_up,
+            "hmm_regime_entropy": round(hmm_regime_entropy, 6) if warmed_up else None,
+            "hmm_regime_velocity": round(hmm_regime_velocity, 6) if warmed_up else None,
         }
 
 
-plugin = HMMRegimePlugin()
+plugin = HMMRegimePlugin(timeframe="1m", lookback=200)
