@@ -230,5 +230,3 @@ volumes:
   loki-data:
   ib-gateway-settings:
 
-
-

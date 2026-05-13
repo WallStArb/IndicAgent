@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
-status: unknown
-stopped_at: context exhaustion at 75% (2026-05-13)
-last_updated: "2026-05-13T14:58:55.534Z"
-last_activity: 2026-05-13 -- Phase --phase execution started
+status: between_phases
+stopped_at: cleanup session (2026-05-13)
+last_updated: "2026-05-13T00:00:00.000Z"
+last_activity: 2026-05-13 — phases 070/080/081 complete, awaiting phase 082 planning
 progress:
   total_phases: 30
-  completed_phases: 2
-  total_plans: 17
-  completed_plans: 18
-  percent: 7
+  completed_phases: 3
+  total_plans: 21
+  completed_plans: 21
+  percent: 10
 ---
 
 # Project State
@@ -21,51 +21,31 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase --phase — 70
+**Current focus:** Between phases — 070/080/081 complete, phase 082 not yet planned.
 
 ## Current Position
 
-Phase: --phase (70) — EXECUTING
-Plan: 1 of --name
-Last activity: 2026-05-13 -- Phase --phase execution started
+Phase: N/A — all active phases complete (070, 080, 081)
+Last completed: Phase 081 — Signal Lifecycle Hardening (8 plans)
+Next: Phase 082 — TBD
 
-Progress: [░░░░░░░░░░] 0%
-
-## Performance Metrics
-
-**Velocity:**
-
-- Total plans completed: 10
-- Average duration per plan: n/a
-- Total execution time: n/a
-
-**Recent Trend:**
-
-- Last 5 plans: n/a
-- Trend: n/a
+Progress: [███░░░░░░░] ~10%
 
 ## Accumulated Context
 
 ### Decisions
 
-- Phase 080 is the active shared-memory project for both Codex and Claude.
-- Phase 080 is discount-only: swarm agents extend `BaseMultiplierAgent`; shadow-only by default.
+- Phase 080 swarm agents extend `BaseMultiplierAgent`; shadow-only by default.
+- `signal_replay_unresolved_gauge = 0` is the permanent health invariant post-081.
+- ML training filter: `WHERE signal_schema_version='v1' AND is_backfill=FALSE`.
 - The canonical shared state lives in `.planning/STATE.md`; `PROJECT.md` and `ROADMAP.md` remain the longer-form references.
-- Active phase materials are in `.planning/phases/080-renaissance-swarm-intelligence-layer/`.
-
-### Pending Todos
-
-- 9 plans in phase 080: foundation, schema, skeptic refactor, correlation, regime coherence, counterfactual, dispatch, writer, verification.
 
 ### Blockers/Concerns
 
-- Root `ROADMAP.md` is not yet synchronized with phase 080; the phase directory is the current source of truth for this work.
-- `gsd-health --repair` regenerated a bad stub once, so this file now reflects the real phase manually.
+None.
 
 ## Session Continuity
 
-Last session: 2026-05-13T14:58:55.529Z
-Stopped at: context exhaustion at 75% (2026-05-13)
+Last session: 2026-05-13
+Stopped at: cleanup session — all phases complete
 Resume file: None
-
-**Planned Phase:** 070 (ML Scoring Model) — 4 plans — 2026-05-13T14:24:40.111Z
