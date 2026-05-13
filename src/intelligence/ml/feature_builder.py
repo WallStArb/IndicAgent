@@ -40,7 +40,7 @@ _MIN_SAMPLE_SIZE = 100
 # 2 metadata + 6 I6 CTF confluence + 4 I4 macro + 2 I6 momentum divergence +
 # 2 I6 S/R confluence + 2 I6 HMM regime agreement + 2 I6 volatility divergence +
 # 2 I6 orderflow alignment + 3 exhaustion = 25
-_SHADOW_FEATURE_KEYS: tuple[str, ...] = (
+SHADOW_FEATURE_KEYS: tuple[str, ...] = (
     "profile",
     "existing_confidence",
     "ctf_score",
@@ -67,9 +67,6 @@ _SHADOW_FEATURE_KEYS: tuple[str, ...] = (
     "exhaustion_side",
     "exhaustion_bars",
 )
-
-# Public alias — Plan 04's inference agent imports this to align feature ordering
-SHADOW_FEATURE_KEYS = _SHADOW_FEATURE_KEYS
 
 # Categorical feature keys that require one-hot encoding
 _CATEGORICAL_KEYS: tuple[str, ...] = (
@@ -163,11 +160,8 @@ async def build_training_matrix(pool: Any) -> pl.DataFrame:
             "tod_multiplier": row["tod_multiplier"],
         }
         # Flatten each features_snapshot key into a top-level column
-        seen: set[str] = set()
-        for key in _SHADOW_FEATURE_KEYS:
-            if key not in seen:
-                flat[key] = snapshot.get(key)
-                seen.add(key)
+        for key in SHADOW_FEATURE_KEYS:
+            flat[key] = snapshot.get(key)
         flat_rows.append(flat)
 
     # Build polars DataFrame — asyncpg already returns JSONB as dict (no json.loads needed)

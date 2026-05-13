@@ -35,6 +35,11 @@ logger = structlog.get_logger(__name__)
 # 5 attempts max; total max wait ~3.85s per signal.
 _RETRY_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0, 2.0)
 
+
+class _SignalNotReady(Exception):
+    """signal_ledger row not yet visible; triggers retry backoff."""
+
+
 # AI-SEP-01: UPSERT into AI-owned signal_ai_enrichment table (not signal_ledger UPDATE).
 # FK race condition (enrichment arriving before signal_ledger row) is handled by
 # the _RETRY_BACKOFF_S loop — same race as before, application-layer FK enforcement.
@@ -199,9 +204,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                         str(signal_id),
                     )
                     if not exists:
-                        raise asyncpg.exceptions.ForeignKeyViolationError(
-                            "signal_ledger row not yet visible"
-                        )
+                        raise _SignalNotReady()
 
                     # Base enrichment UPSERT: swarm aggregate fields.
                     # Parameters: ($1 signal_id::uuid, $2 swarm_multiplier,
@@ -231,8 +234,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                 )
                 return
 
-            except asyncpg.exceptions.ForeignKeyViolationError:
-                # signal_ledger row not yet visible — retry with backoff
+            except _SignalNotReady:
                 SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="retry").inc()
                 await asyncio.sleep(delay)
 
