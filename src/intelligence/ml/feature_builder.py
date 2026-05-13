@@ -173,9 +173,20 @@ async def build_training_matrix(pool: Any) -> pl.DataFrame:
     # Build polars DataFrame — asyncpg already returns JSONB as dict (no json.loads needed)
     df = pl.from_dicts(flat_rows, infer_schema_length=500)
 
-    # Defensive: drop any rows where features_snapshot was empty/None (already SQL-filtered)
+    # Defensive: drop any rows where existing_confidence key is absent from features_snapshot.
+    # SQL already filters features_snapshot IS NOT NULL, but older signals may have snapshots
+    # that predate the existing_confidence key. Log any dropped rows so training operators
+    # can detect unexpected training set shrinkage during early Phase 70 deployment.
     if "existing_confidence" in df.columns:
+        pre_filter_len = len(df)
         df = df.filter(pl.col("existing_confidence").is_not_null())
+        dropped = pre_filter_len - len(df)
+        if dropped > 0:
+            logger.warning(
+                "feature_builder.existing_confidence_filter_dropped",
+                dropped=dropped,
+                total=pre_filter_len,
+            )
 
     logger.info(
         "feature_builder.matrix_built",
