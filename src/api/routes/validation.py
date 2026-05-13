@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...core.database_manager import DatabaseManager
+from ...core.service_utils import format_iso_ts
 from ..dependencies import get_db_manager
 
 logger = structlog.get_logger(__name__)
@@ -97,11 +98,7 @@ async def get_validation_results(
                 "n": row["n"],
                 "decision": row["decision"],
                 "bonferroni_corrected": row["bonferroni_corrected"],
-                "computed_at": (
-                    row["computed_at"].isoformat()
-                    if hasattr(row["computed_at"], "isoformat")
-                    else str(row["computed_at"])
-                ),
+                "computed_at": format_iso_ts(row["computed_at"]),
             }
             for row in rows
         ]

@@ -13,7 +13,6 @@ import asyncio
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
-from src.core.service_utils import setup_service_logging
 from src.intelligence.services.feature_validation_compute_agent import (
     FeatureValidationComputeAgent,
 )
@@ -25,7 +24,6 @@ def main() -> None:
     FeatureValidationComputeAgent.start() swallows all exceptions and logs them,
     so asyncio.run() always completes cleanly (systemd oneshot exit code 0).
     """
-    setup_service_logging("logs/feature_validation_agent.log")
     settings = Settings()
     agent = FeatureValidationComputeAgent(settings)
     asyncio.run(agent.start())

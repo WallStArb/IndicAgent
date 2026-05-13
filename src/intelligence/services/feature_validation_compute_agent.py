@@ -23,6 +23,7 @@ Computation/governance separation:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -53,6 +54,11 @@ _REGIME_TYPES: list[str | None] = [None, "trending", "ranging", "volatile"]
 # Field name used for IC correlation — intelligence_features.i6 JSONB sub-key
 # Falls back to the plugin_name for non-I6 plugins (e.g., I7 shadow scores).
 _DEFAULT_FIELD_SUFFIX = "score"
+
+# Canonical decision values — match validation_results CHECK constraint
+_DECISION_VALIDATED = "VALIDATED"
+_DECISION_TWEAK = "TWEAK"
+_DECISION_KILL = "KILL"
 
 
 class FeatureValidationComputeAgent:
@@ -115,28 +121,33 @@ class FeatureValidationComputeAgent:
         plugins = await self._query_plugins()
         logger.info("feature_validation.plugins_found", count=len(plugins))
 
-        all_decisions: list[dict[str, Any]] = []
+        results = await asyncio.gather(
+            *[self._validate_all_slices(p) for p in plugins],
+            return_exceptions=True,
+        )
+        return [d for r in results if isinstance(r, list) for d in r]
 
-        for plugin_name in plugins:
-            for timeframe in _TIMEFRAMES:
-                for regime_type in _REGIME_TYPES:
-                    try:
-                        decision = await self._validate_slice(
-                            plugin_name=plugin_name,
-                            timeframe=timeframe,
-                            regime_type=regime_type,
-                        )
-                        if decision is not None:
-                            all_decisions.append(decision)
-                    except Exception:
-                        logger.exception(
-                            "feature_validation.slice_error",
-                            plugin_name=plugin_name,
-                            timeframe=timeframe,
-                            regime_type=regime_type,
-                        )
-
-        return all_decisions
+    async def _validate_all_slices(self, plugin_name: str) -> list[dict[str, Any]]:
+        """Validate all (tf, regime_type) slices for one plugin."""
+        decisions: list[dict[str, Any]] = []
+        for timeframe in _TIMEFRAMES:
+            for regime_type in _REGIME_TYPES:
+                try:
+                    decision = await self._validate_slice(
+                        plugin_name=plugin_name,
+                        timeframe=timeframe,
+                        regime_type=regime_type,
+                    )
+                    if decision is not None:
+                        decisions.append(decision)
+                except Exception:
+                    logger.exception(
+                        "feature_validation.slice_error",
+                        plugin_name=plugin_name,
+                        timeframe=timeframe,
+                        regime_type=regime_type,
+                    )
+        return decisions
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -170,30 +181,6 @@ class FeatureValidationComputeAgent:
         The feature field queried is the plugin's shadow score stored in
         signal_ledger.features_snapshot JSONB under the plugin_name key.
         """
-        regime_filter = "AND sl.hmm_regime_at_fire = $4::text" if regime_type is not None else ""
-        query = f"""
-            SELECT
-                sl.features_snapshot ->> $1 AS feature_value,
-                sl.pnl_r,
-                sl.hmm_regime_at_fire AS hmm_regime
-            FROM signal_ledger sl
-            WHERE sl.plugin_name = $1
-              AND sl.feature_tf = $2
-              AND sl.outcome IS NOT NULL
-              AND sl.is_backfill IS NOT TRUE
-              AND sl.features_snapshot IS NOT NULL
-              AND sl.features_snapshot ? $1
-              AND (sl.pnl_r IS NOT NULL)
-              {regime_filter}
-            LIMIT 50000
-        """
-        params: list[Any] = [plugin_name, timeframe]
-        if regime_type is not None:
-            params.append(None)  # placeholder for $3 (unused in regime branch)
-            params.append(regime_type)
-
-        # Re-parameterise — the regime branch needs $4 but the base query only
-        # uses $1/$2. Use a cleaner conditional approach:
         if regime_type is not None:
             query = """
                 SELECT
@@ -279,12 +266,12 @@ class FeatureValidationComputeAgent:
         # like "KILL (field missing from backtest output)". Normalise to the three
         # canonical CHECK constraint values.
         raw_decision = result.decision
-        if raw_decision.startswith("VALIDATED"):
-            decision = "VALIDATED"
-        elif raw_decision.startswith("TWEAK"):
-            decision = "TWEAK"
+        if raw_decision.startswith(_DECISION_VALIDATED):
+            decision = _DECISION_VALIDATED
+        elif raw_decision.startswith(_DECISION_TWEAK):
+            decision = _DECISION_TWEAK
         else:
-            decision = "KILL"
+            decision = _DECISION_KILL
 
         computed_at = datetime.now(UTC)
 
