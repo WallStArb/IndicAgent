@@ -141,8 +141,13 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Input:** I1–I6 SMC intelligence across 1m/5m/15m/1h timeframes
 - **Output:** Confluence scores published into IntelligenceEvent `i6` JSONB field
 - **Code Location:** `src/intelligence/confluence/`
-- **Plugins (1):**
+- **Plugins (6):**
   - `CrossTimeframeConfluence` — recency-weighted alignment of trend / structure / regime / pattern / I2 events / SMC BOS sub-score across timeframes; 10 output fields
+  - `CrossTimeframeMomentumDivergence` — momentum divergence across timeframes
+  - `CrossTimeframeSRConfluence` — S/R level confluence across timeframes
+  - `CrossTimeframeRegimeAgreement` — regime agreement scoring across timeframes
+  - `SqueezeExpansionDivergence` — squeeze/expansion divergence across timeframes
+  - `CrossTimeframeOrderflowAlignment` — orderflow alignment across timeframes
 
 #### **I7: Trading Setups & Signal Aggregation**
 **Purpose:** Fire validated trading setup events; aggregate and score them into a single actionable signal
@@ -181,7 +186,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Topics:**
   - `narratives` (keyed `SYMBOL:TF`) — per-signal narrative
   - `narratives.group` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
-- **LLM Chain:** OpenRouter (primary) → DeepSeek (low-cost) → Ollama Cloud → Ollama Local (gemma4:e4b, offline). Independent per-provider circuit breakers: 3 failures → open 5 min (remote), 5 failures → open 1 min (local).
+- **LLM Chain:** OpenRouter (primary) → Ollama Cloud → Ollama Local (gemma4:e4b, offline). Independent per-provider circuit breakers: 3 failures → open 5 min (remote), 5 failures → open 1 min (local).
 - **Audit:** Every LLM call published to `llm.calls` → `indicagent-llm-writer` persists to `llm_calls` hypertable
 - **Lineage:** `LineageRecorder` tracks prompt version, model, inputs, outputs, and timing per call
 
@@ -283,18 +288,18 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 
 | Tier | Plugins | Notes |
 |------|---------|-------|
-| I1 Technical Indicators | 27 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA, OFI, CVD — all incremental `compute_next()` |
+| I1 Technical Indicators | 28 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA, OFI, CVD, VolumeZscore — all incremental `compute_next()` |
 | I2 Composite Events | 10 | RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore, AccelerationRegime |
 | I3 Market Structure | 8 | MACDEvents, SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, FibonacciZones, SwingMomentum |
 | I4 Context / Regime | 12 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, AnchoredVWAP, VolumeProfile, VIXRegime, CrossAssetContext |
 | I5 Patterns | 16 | MTFVolatility, RSIDivergence, BollingerSqueeze, VolumeDivergence, MACDDivergence, CMFDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, KeyLevelReaction |
 | SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
-| I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
+| I6 Confluence | 6 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment |
 | I7 Trading Setups | 36 + 2 agg | 36 setup plugins + CISScorer aggregator + SignalAggregator |
 | I8 AI Narrative | 1 service | `ai_narrative_agent` — OpenRouter primary → Ollama gemma4:e4b fallback; reads `intelligence.journal` |
 
 ### **Totals**
-- **123 registered plugins + 2 aggregation components:** 27 I1 + 10 I2 + 8 I3 + 12 I4 + 16 I5 + 13 SMC + 1 I6 + 36 I7
+- **129 registered plugins + 2 aggregation components:** 28 I1 + 10 I2 + 8 I3 + 12 I4 + 16 I5 + 13 SMC + 6 I6 + 36 I7
 
 ---
 

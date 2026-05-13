@@ -1,6 +1,6 @@
 # Plugin Architecture
 
-**Current Plugin Count:** 123 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py`
+**Current Plugin Count:** 129 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py`
 **Last Updated:** 2026-04-22
 
 ## Executive Summary
@@ -182,20 +182,20 @@ from .indicators.adx import plugin as adx_plugin
 def register_all_plugins() -> None:
     registry.register_indicator(rsi_plugin)
     registry.register_indicator(adx_plugin)
-    # ... 27 I1 indicators total ...
+    # ... 28 I1 indicators total ...
     registry.register_pattern(rsi_div_plugin)
-    # ... 70 patterns/structure/context/SMC/I7 total ...
+    # ... 72 patterns/structure/context/SMC/I7 total ...
 ```
 
 No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (123 Total + 2 Aggregation)
+## Registered Plugins (129 Total + 2 Aggregation)
 
 See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
 
-### I1 Indicator Plugins (27) — All support incremental `compute_next()`
+### I1 Indicator Plugins (28) — All support incremental `compute_next()`
 
 | Plugin | Category | Key Outputs |
 |--------|----------|-------------|
@@ -226,6 +226,7 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | HMA | Trend | `hma_value` (Hull Moving Average) |
 | OFI | Volume/Flow | `ofi_value`, `ofi_cumulative`, `ofi_normalized` (Order Flow Imbalance) |
 | CVD | Volume/Flow | `cvd_value`, `cvd_delta`, `cvd_slope` (Cumulative Volume Delta) |
+| Volume Z-Score | Volume | Volume z-score relative to rolling mean |
 
 ### I2 Composite Event Plugins (10) — detect state changes in I1 outputs
 
@@ -311,9 +312,9 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Mitigation Blocks | Unmitigated order block tracking |
 | Premium/Discount | Price position relative to range equilibrium |
 
-### I6 Cross-Timeframe Confluence (1)
+### I6 Cross-Timeframe Confluence (6)
 
-Single plugin scoring trend/structure/regime/pattern alignment across 1m/5m/15m/1h.
+CrossTimeframeConfluence + 5 Phase 64 confluence plugins: momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment. Score trend/structure/regime/pattern/SMC alignment across 1m/5m/15m/1h.
 
 ---
 
@@ -349,7 +350,7 @@ class Dag:
 
 The DAG determines plugin execution order through topological sorting. Tiers execute sequentially; within each tier, sub-waves allow safe parallelism where intra-tier dependencies allow it:
 
-1. **I1** — all 27 indicators (no dependencies)
+1. **I1** — all 28 indicators (no dependencies)
 2. **I2** — 2 waves: Wave A (base events), Wave B (AccelerationRegime + ExhaustionScore consume Wave A outputs)
 3. **I3** — structure + MACDEvents (requires I1/I2)
 4. **I4** — 2 waves: Wave A (GARCH, VIXRegime, CrossAssetContext, etc.), Wave B (KalmanTrend consumes `garch_sigma`)
@@ -359,13 +360,13 @@ The DAG determines plugin execution order through topological sorting. Tiers exe
 8. **I7** — all 36 setup plugins run after I6
 
 ```
-OHLCV Data ──► I1 (27) ──► I2 (10, 2 waves) ──► I3 (8) ──► I4 (12, 2 waves)
+OHLCV Data ──► I1 (28) ──► I2 (10, 2 waves) ──► I3 (8) ──► I4 (12, 2 waves)
                                                                     │
                                                                     ▼
                                               I5 (16) ──► I6 SMC (13, 2 waves)
                                                                     │
                                                                     ▼
-                                                         I6 Conf (1) ──► I7 (36 + 2 agg)
+                                                         I6 Conf (6) ──► I7 (36 + 2 agg)
 ```
 
 ### Incremental Processing
