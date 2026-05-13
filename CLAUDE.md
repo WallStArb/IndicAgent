@@ -10,7 +10,7 @@ Version: 5.41.0 | Status: v2.5 PARTIAL — Phases 69-79 shipped; Phase 70 deferr
 ## Quick Start
 
 ```bash
-python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+uv venv .venv && source .venv/bin/activate && uv pip install -r requirements.txt
 .venv/bin/pytest tests/unit/ -v
 .venv/bin/ruff check . --fix && .venv/bin/black .
 sudo systemctl start indicagent-intelligence-pipeline
@@ -23,6 +23,7 @@ cd dashboard && npm run dev
 ## Core Commands
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
+**Health check:** `systemctl list-units --all | grep indicagent` · **DB freshness:** `psql -U postgres -d indicagent -c "SELECT symbol, tf, MAX(ts) FROM intelligence_features GROUP BY symbol, tf ORDER BY MAX(ts) DESC LIMIT 5"` · **Logs:** `tail -20 logs/<service>_agent.log`
 **Dashboard:** `cd dashboard && npm run dev` (`:3000`)
 **API:** `uvicorn src.api.main:app` (`:8000`)
 **Service status:** `systemctl list-units --all | grep indicagent`
@@ -72,7 +73,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
-- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`
+- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
 - `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseGroupService, AIContext, AgentOutput)
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
@@ -123,6 +124,8 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 - **`BaseGroupService` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **Kafka is transport, not state store.** Hot state (plugin_states, kalman) → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamps: always UTC.** `datetime.now(UTC)` only. Never `datetime.now()` or `datetime.utcnow()`. All DB columns `timestamptz`; stream timestamps UTC ISO-8601 (`Z` suffix).
+- **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py` for Kafka/JSON. Never inline `.isoformat().replace("+00:00", "Z")`.
+- **`get_active_contracts()`** is a module-level function in `settings.py`, not a method on `Settings`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
 - **asyncpg**: Use for all new DB code. JSONB: asyncpg returns `dict` (no `json.loads()`). Pass dicts for jsonb columns — never `json.dumps()`. Timestamps: asyncpg returns `datetime` objects. UUIDs: always `str()` before JSON/Kafka.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` as keyword — use `signal=`, `payload=`, `data=` instead.
 - **Service registry**: `_DAG_ORDER` in `services/service_auditor_agent.py`. When adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT`.
@@ -131,6 +134,7 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Ruff**: always run `.venv/bin/ruff check .` from project root.
+- **Alpha swarm agent timeouts**: correlation, regime_coherence, counterfactual agents have 5s `latency_budget_ms` vs skeptic's 60s. Local Ollama (gemma4:e4b) cannot meet 5s. Swarm degrades gracefully (uses completing agents only).
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
 
 **Signal Logic**
@@ -142,6 +146,7 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 
 **Services**
 - **Logging**: `structlog` → `logs/<service>.log` via `setup_service_logging()`. NOT journald.
+- **Log file names**: `logs/<agent_snake_case>_agent.log` (e.g. `alpha_swarm_compute_agent.log`, not `alpha_swarm.log`). Check `logs/` for actual names.
 - **`setup_service_logging` requires full path**: `"logs/<name>.log"`, not bare name.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
 - **intelligence_pipeline_agent subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).

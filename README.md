@@ -192,7 +192,25 @@ Quality gates on every signal:
 
 For every signal above confidence 0.7, the AI Narrative Service generates a structured analysis of the full signal context — tier state, regime, SMC context, setup rationale, entry/stop/target. The LLM receives the full `IntelligenceEvent` payload, not a template. Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
 
-The multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter, DeepSeek) runs with per-provider circuit breakers — no single model is a dependency. Every call logged to `llm_calls` for full audit. Outcomes are back-filled as signals resolve, linking every LLM call to its eventual result.
+The multi-provider LLM chain (local Ollama on AMD ROCm GPU, OpenRouter) runs with per-provider circuit breakers — no single model is a dependency. Every call logged to `llm_calls` for full audit. Outcomes are back-filled as signals resolve, linking every LLM call to its eventual result.
+
+### Data Points Tracked
+
+The pipeline tracks **~729 distinct data points** across **129 plugins + 2 aggregators**, from raw math through AI synthesis. Every bar for every instrument on every timeframe produces this full feature vector.
+
+| Tier | Plugins | Data Points | What It Measures |
+|------|---------|-------------|-----------------|
+| **I1** Raw Indicators | 28 | ~50 | Price, momentum, volatility, volume math — RSI, MACD, ATR, Bollinger, VWAP, OFI, CVD, etc. |
+| **I2** Composite Events | 10 | ~20 | Discrete events from I1 — crossovers, threshold breaches, momentum acceleration, exhaustion scoring |
+| **I3** Market Structure | 8 | ~77 | Price geometry — swing points, S/R zones, market profile (POC/VA), session levels, Fibonacci zones |
+| **I4** Regime Context | 12 | ~93 | Statistical state — GARCH vol forecast, Kalman trend, HMM regime probabilities, Hurst persistence, Shannon entropy, volume profile |
+| **I5** Patterns | 16 | ~91 | Discrete patterns — RSI/MACD/CMF divergence, squeeze detection, chart patterns (H&S, triangles, flags, cup & handle) |
+| **SMC** Smart Money | 13 | ~89 | Institutional footprint — BOS/CHoCH, fair value gaps, order blocks, liquidity pools, BOCPD changepoints, AMD cycles |
+| **I6** Confluence | 6 | ~26 | Cross-timeframe alignment — trend, structure, regime, momentum, orderflow, squeeze agreement across 4 timeframes |
+| **I7** Trading Signals | 36 + 2 agg | ~283 | Actionable setups — entry/stop/target, confidence scoring, feature snapshots, CIS bucket breakdown, regime gate metadata |
+| | **129 + 2** | **~729** | |
+
+Each data point is computed incrementally per bar (O(1) via `compute_next()`, not batch), persisted to `intelligence_features` (TimescaleDB), and streamed to subscribers in real-time via SSE.
 
 ---
 
@@ -445,12 +463,14 @@ New domains attach the same way. The fundamental analysis engine subscribes to m
 | | |
 |---|---|
 | **Intelligence tiers** | I1–I8 (indicators through AI synthesis) |
+| **Plugins** | 129 + 2 aggregators across 8 tiers |
+| **Data points** | ~729 distinct fields per bar per symbol per timeframe |
 | **Instruments** | 60 — futures, ETFs, FX, crypto |
 | **Latency** | <10ms bar-to-intelligence |
 | **Data bus** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
 | **Persistence** | TimescaleDB (feature store, signal ledger, LLM audit) |
 | **Services** | 25+ systemd microservices, DAG-orchestrated |
-| **AI providers** | Ollama (local GPU), OpenRouter, DeepSeek — per-provider circuit breakers |
+| **AI providers** | Ollama (local GPU), OpenRouter, Ollama Cloud — per-provider circuit breakers |
 | **Stack** | Python · FastAPI · asyncpg · Next.js · Prometheus · Grafana |
 
 **Current state:** Quantitative domain in production since early 2026. Fundamental, qualitative, and derivatives domains designed. Application agents architecturally defined. ML layer designed, awaiting data gate. eAI framework designed.

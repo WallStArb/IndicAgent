@@ -64,7 +64,7 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
     agent_id = "correlation_v1"
     group = "alpha"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
-    latency_budget_ms = 5000.0
+    latency_budget_ms = 45000.0
     shadow_only = True
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
@@ -76,7 +76,7 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
         response = await self._llm.generate(
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
-            max_tokens=500,
+            max_tokens=2000,
             timeout=self.latency_budget_ms / 1000.0,
         )
         if not response:
