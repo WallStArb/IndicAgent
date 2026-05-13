@@ -1,0 +1,430 @@
+"""HMMTrainingComputeAgent — offline Baum-Welch training pipeline (Phase 082, Plan 03).
+
+Systemd Type=oneshot service invoked by indicagent-hmm-training.timer (monthly).
+
+Responsibilities:
+  1. For each configured timeframe (1m, 5m, 15m, 1h):
+     a. Query intelligence_features excluding is_backfill rows
+     b. Build observation matrix replicating HMMRegimePlugin._build_observation() feature set
+     c. Fit hmmlearn.GaussianHMM (Baum-Welch, n_components=3, covariance_type="diag")
+     d. Atomically write config/hmm_parameters_{tf}.json (transition_matrix, emission_means,
+        emission_variances keys matching HMMRegimePlugin._load_parameters() contract)
+  2. After all TF writes complete, emit SIGUSR1 to indicagent-intelligence-pipeline.service
+     so live HMMRegimePlugin instances hot-reload parameters without service restart.
+
+Separation of concerns: this agent TRAINS only. Inference is handled by the four
+HMMRegimePlugin instances in intelligence_pipeline_agent (TIER_SMC). No runtime state
+is shared — the JSON files are the handoff point.
+
+Minimum row threshold: 500 rows per TF. TFs below threshold are skipped (logged) but
+do not fail the overall run. This prevents training on trivially small datasets.
+
+Error handling: per-TF failures are caught and logged; the agent proceeds to remaining TFs.
+Top-level exception is caught in start() so systemd oneshot exit code remains 0.
+
+Lookback days defaults per TF (used for query window):
+  1m  → 30 days  (~43,200 bars on liquid futures)
+  5m  → 60 days  (~17,280 bars)
+  15m → 90 days  (~8,640 bars)
+  1h  → 180 days (~4,320 bars)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import structlog
+
+from src.config.settings import Settings
+from src.core.service_utils import setup_service_logging
+
+logger = structlog.get_logger(__name__)
+
+# Target timeframes for training (order: high-frequency to low-frequency)
+_DEFAULT_TARGET_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+
+# Lookback days per TF — controls query window
+_LOOKBACK_DAYS_BY_TF: dict[str, int] = {
+    "1m": 30,
+    "5m": 60,
+    "15m": 90,
+    "1h": 180,
+}
+
+# Minimum number of valid (non-NaN) rows required to attempt training
+_MIN_ROWS_FOR_TRAINING = 500
+
+# HMM configuration
+_N_COMPONENTS = 3
+_COVARIANCE_TYPE = "diag"
+_N_ITER = 50
+
+# Systemd unit that receives SIGUSR1 for HMM parameter reload
+_PIPELINE_UNIT = "indicagent-intelligence-pipeline.service"
+
+# Config directory for parameter files
+_CONFIG_DIR = Path("config")
+
+
+class HMMTrainingComputeAgent:
+    """Per-TF HMM training agent.
+
+    Reads intelligence_features from TimescaleDB, fits GaussianHMM via Baum-Welch
+    for each configured timeframe, writes atomic JSON parameter files, and signals
+    the live intelligence pipeline to reload parameters.
+
+    Args:
+        db_manager: DatabaseManager instance with a connection pool.
+        settings: Application settings.
+        target_tfs: Tuple of timeframe strings to train. Defaults to (1m, 5m, 15m, 1h).
+        lookback_days: Override lookback per TF. Uses _LOOKBACK_DAYS_BY_TF if not provided.
+    """
+
+    def __init__(
+        self,
+        db_manager: Any,
+        settings: Settings,
+        target_tfs: tuple[str, ...] = _DEFAULT_TARGET_TFS,
+        lookback_days: dict[str, int] | None = None,
+    ) -> None:
+        setup_service_logging("logs/hmm_training_compute_agent.log")
+        self._db = db_manager
+        self._settings = settings
+        self._target_tfs = target_tfs
+        self._lookback_days = lookback_days or dict(_LOOKBACK_DAYS_BY_TF)
+
+    async def run(self) -> dict[str, str]:
+        """Train GaussianHMM for each TF and write parameter files.
+
+        Returns:
+            Dict mapping TF string to the path of the written parameter file.
+            TFs that were skipped (insufficient data or error) are absent from the dict.
+        """
+        written: dict[str, str] = {}
+
+        for tf in self._target_tfs:
+            try:
+                path = await self._train_tf(tf)
+                if path is not None:
+                    written[tf] = path
+            except Exception:
+                logger.exception("hmm_training.tf_error", tf=tf)
+
+        logger.info(
+            "hmm_training.run_complete",
+            trained_tfs=list(written.keys()),
+            skipped_tfs=[tf for tf in self._target_tfs if tf not in written],
+        )
+        return written
+
+    async def _train_tf(self, tf: str) -> str | None:
+        """Train a single TF and write its parameter file.
+
+        Returns:
+            Path string of written file, or None if skipped.
+        """
+        rows = await self._query_features(tf)
+        if not rows:
+            logger.info("hmm_training.no_rows", tf=tf)
+            return None
+
+        obs_matrix = self._build_obs_matrix(rows)
+        n_rows = obs_matrix.shape[0]
+
+        if n_rows < _MIN_ROWS_FOR_TRAINING:
+            logger.info(
+                "hmm_training.insufficient_rows",
+                tf=tf,
+                n=n_rows,
+                required=_MIN_ROWS_FOR_TRAINING,
+                reason="skipping training",
+            )
+            return None
+
+        logger.info("hmm_training.fitting", tf=tf, n_rows=n_rows)
+        params = self._fit_hmm(obs_matrix, tf)
+        if params is None:
+            return None
+
+        file_path = self._write_params(tf, params)
+        logger.info("hmm_training.params_written", tf=tf, path=file_path, n_rows=n_rows)
+        return file_path
+
+    async def _query_features(self, tf: str) -> list[dict[str, Any]]:
+        """Query intelligence_features for the given TF, excluding backfill rows.
+
+        Selects the columns needed to replicate HMMRegimePlugin._build_observation():
+          - close price (from bar JSONB) for computing log returns + realized vol
+          - rsi_14, adx_14, atr_14, macd_histogram_12_26_9 from i1 JSONB for 5D observations
+
+        Rows are ordered by ts ascending so that return sequences are chronologically correct.
+        The WHERE clause uses is_backfill IS NOT TRUE (Phase 81 gate).
+        """
+        days = self._lookback_days.get(tf, 60)
+        since = datetime.now(UTC) - timedelta(days=days)
+
+        sql = """
+            SELECT
+                ts,
+                (bar->>'close')::float AS close,
+                (i1->>'rsi_14')::float AS rsi_14,
+                (i1->>'adx_14')::float AS adx_14,
+                (i1->>'atr_14')::float AS atr_14,
+                (i1->>'macd_histogram_12_26_9')::float AS macd_hist
+            FROM intelligence_features
+            WHERE tf = $1
+              AND ts >= $2
+              AND is_backfill IS NOT TRUE
+            ORDER BY ts ASC
+        """
+        async with self._db.pool.acquire() as conn:
+            result = await conn.fetch(sql, tf, since)
+
+        return [dict(row) for row in result]
+
+    def _build_obs_matrix(self, rows: list[dict[str, Any]]) -> np.ndarray:
+        """Build numpy observation matrix from DB rows.
+
+        Replicates HMMRegimePlugin._build_observation() logic:
+          - 2D fallback if indicator columns are NULL: [log_return, realized_vol]
+          - 5D if all indicators present: [log_return, realized_vol, rsi_norm, adx_norm, macd_norm]
+
+        NaN rows (any column) are filtered out after construction.
+        Uses the 5D representation when enough indicator data is available (>= 50% of rows
+        have all 4 indicators). Otherwise falls back to 2D.
+
+        Returns:
+            numpy array shape (T, n_features) with NaN rows removed.
+        """
+        closes = np.array([r["close"] for r in rows if r["close"] is not None], dtype=float)
+        if len(closes) < 2:
+            return np.empty((0, 2), dtype=float)
+
+        # Compute log returns
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratios = closes[1:] / closes[:-1]
+            ratios = np.where(ratios > 0, ratios, 1e-10)
+            returns = np.log(ratios)
+
+        # Realized volatility: rolling std with vol_window=20 (match HMMRegimePlugin.vol_window)
+        vol_window = 20
+        realized_vols = np.array(
+            [
+                float(np.std(returns[max(0, i - vol_window + 1) : i + 1])) if i >= 1 else 0.005
+                for i in range(len(returns))
+            ],
+            dtype=float,
+        )
+
+        # Extract indicator columns (aligned to return sequence — drop the first close)
+        # rows[1:] aligns with returns (return[i] = log(close[i+1]/close[i]))
+        valid_rows = [r for r in rows if r["close"] is not None]
+        indicator_rows = valid_rows[1:]  # align with returns
+
+        rsi_vals = np.array(
+            [r["rsi_14"] if r["rsi_14"] is not None else float("nan") for r in indicator_rows],
+            dtype=float,
+        )
+        adx_vals = np.array(
+            [r["adx_14"] if r["adx_14"] is not None else float("nan") for r in indicator_rows],
+            dtype=float,
+        )
+        atr_vals = np.array(
+            [r["atr_14"] if r["atr_14"] is not None else float("nan") for r in indicator_rows],
+            dtype=float,
+        )
+        macd_vals = np.array(
+            [
+                r["macd_hist"] if r["macd_hist"] is not None else float("nan")
+                for r in indicator_rows
+            ],
+            dtype=float,
+        )
+
+        # Decide whether to use 5D or 2D representation
+        # Use 5D if >= 50% of rows have all 4 indicators
+        valid_indicator_mask = ~(
+            np.isnan(rsi_vals) | np.isnan(adx_vals) | np.isnan(atr_vals) | np.isnan(macd_vals)
+        )
+        use_5d = valid_indicator_mask.sum() / max(1, len(returns)) >= 0.5
+
+        if use_5d:
+            # Normalize indicators (match _build_observation)
+            rsi_norm = (rsi_vals - 50.0) / 50.0
+            adx_norm = adx_vals / 50.0
+            # macd / atr — handle atr=0 edge case
+            safe_atr = np.where(atr_vals > 0, atr_vals, 1.0)
+            macd_norm = macd_vals / safe_atr
+
+            obs = np.column_stack([returns, realized_vols, rsi_norm, adx_norm, macd_norm])
+            # Remove rows with any NaN
+            mask = ~np.isnan(obs).any(axis=1)
+            obs = obs[mask]
+        else:
+            obs = np.column_stack([returns, realized_vols])
+            mask = ~np.isnan(obs).any(axis=1)
+            obs = obs[mask]
+
+        return obs
+
+    def _fit_hmm(self, obs: np.ndarray, tf: str) -> dict[str, Any] | None:
+        """Fit GaussianHMM on observation matrix and return serializable parameter dict.
+
+        Returns:
+            Dict with keys transition_matrix, emission_means, emission_variances
+            (matching HMMRegimePlugin._load_parameters() contract), or None on failure.
+        """
+        try:
+            from hmmlearn import hmm as hmmlib  # noqa: PLC0415
+        except ImportError:
+            logger.error("hmm_training.hmmlearn_not_installed", tf=tf)
+            return None
+
+        try:
+            model = hmmlib.GaussianHMM(
+                n_components=_N_COMPONENTS,
+                covariance_type=_COVARIANCE_TYPE,
+                n_iter=_N_ITER,
+            )
+            model.fit(obs)
+
+            # Serialize parameters — keys must match HMMRegimePlugin._load_parameters()
+            # transition_matrix: (K, K)
+            # emission_means: (K, D)
+            # emission_variances: (K, D) — covars_ for "diag" is shape (K, D)
+            params: dict[str, Any] = {
+                "transition_matrix": model.transmat_.tolist(),
+                "emission_means": model.means_.tolist(),
+                "emission_variances": model.covars_.tolist(),  # diag: (K, D)
+                "n_components": _N_COMPONENTS,
+                "covariance_type": _COVARIANCE_TYPE,
+                "n_features": obs.shape[1],
+                "trained_at": datetime.now(UTC).isoformat(),
+                "tf": tf,
+                "n_training_rows": int(obs.shape[0]),
+            }
+
+            convergence_monitor = getattr(model, "monitor_", None)
+            if convergence_monitor is not None:
+                iter_count = getattr(convergence_monitor, "iter", None)
+                converged = getattr(convergence_monitor, "converged", None)
+                params["n_iter_actual"] = iter_count
+                params["converged"] = converged
+                if converged is not None:
+                    logger.info(
+                        "hmm_training.fit_complete",
+                        tf=tf,
+                        converged=converged,
+                        n_iter=iter_count,
+                        n_rows=obs.shape[0],
+                        n_features=obs.shape[1],
+                    )
+
+            return params
+
+        except Exception:
+            logger.exception("hmm_training.fit_error", tf=tf)
+            return None
+
+    def _write_params(self, tf: str, params: dict[str, Any]) -> str:
+        """Atomically write parameter JSON to config/hmm_parameters_{tf}.json.
+
+        Uses write-to-tmp then os.rename for atomicity — live readers never see
+        a half-written file.
+
+        Returns:
+            Final file path string.
+        """
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        final_path = _CONFIG_DIR / f"hmm_parameters_{tf}.json"
+        tmp_path = _CONFIG_DIR / f"hmm_parameters_{tf}.json.tmp"
+
+        try:
+            tmp_path.write_text(json.dumps(params, indent=2))
+            os.rename(tmp_path, final_path)
+        except Exception:
+            # Clean up tmp file on failure
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+
+        return str(final_path)
+
+    def emit_sigusr1(self) -> None:
+        """Send SIGUSR1 to indicagent-intelligence-pipeline.service to trigger HMM reload.
+
+        Uses 'systemctl kill --signal=SIGUSR1' which sends the signal to all processes in
+        the service's cgroup, reaching the asyncio event loop.
+
+        Silently skips if systemctl is unavailable (development environment) but logs a warning.
+        """
+        systemctl = self._find_systemctl()
+        if systemctl is None:
+            logger.warning(
+                "hmm_training.sigusr1_skipped",
+                reason="systemctl not available — development mode",
+                unit=_PIPELINE_UNIT,
+            )
+            return
+
+        result = subprocess.run(
+            [systemctl, "kill", "--signal=SIGUSR1", _PIPELINE_UNIT],
+            capture_output=True,
+            check=False,
+        )
+        logger.info(
+            "hmm_training.sigusr1_sent",
+            unit=_PIPELINE_UNIT,
+            returncode=result.returncode,
+            stderr=result.stderr.decode(errors="ignore"),
+        )
+
+    @staticmethod
+    def _find_systemctl() -> str | None:
+        """Return path to systemctl binary, or None if not found."""
+        import shutil  # noqa: PLC0415
+
+        return shutil.which("systemctl")
+
+    async def start(self) -> None:
+        """Orchestrate training run: run() then emit_sigusr1().
+
+        Top-level entry point for asyncio.run(). Catches all exceptions so the
+        systemd oneshot service exits 0 regardless of failures.
+        """
+        logger.info(
+            "hmm_training.start",
+            target_tfs=list(self._target_tfs),
+            n_components=_N_COMPONENTS,
+            n_iter=_N_ITER,
+        )
+
+        try:
+            written = await self.run()
+
+            if written:
+                self.emit_sigusr1()
+            else:
+                logger.warning(
+                    "hmm_training.no_params_written",
+                    reason="all TFs skipped or errored — skipping SIGUSR1",
+                )
+
+            logger.info(
+                "hmm_training.complete",
+                params_written=len(written),
+                tfs=list(written.keys()),
+            )
+
+        except Exception:
+            logger.exception("hmm_training.error_top_level")
+            # Intentional: swallow so systemd exits 0 and timer fires again next month
