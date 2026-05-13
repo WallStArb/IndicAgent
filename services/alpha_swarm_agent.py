@@ -128,8 +128,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self._semaphore: asyncio.Semaphore | None = None
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
-        # Strong references to background tasks (prevents GC before completion)
-        self._background_tasks: set = set()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     @property
     def agents(self) -> list:
@@ -416,6 +415,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         task = asyncio.create_task(self._reload_ml_models())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+        def _log_exc(t: asyncio.Task[Any]) -> None:
+            if not t.cancelled() and (exc := t.exception()):
+                self.logger.error("alpha_swarm.reload_ml_models_failed", error=str(exc))
+
+        task.add_done_callback(_log_exc)
 
     async def _reload_ml_models(self) -> None:
         """Reload models on all agents that expose _setup_models() (SIGUSR1 trigger).

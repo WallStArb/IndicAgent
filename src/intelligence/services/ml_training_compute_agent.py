@@ -287,6 +287,7 @@ class MLTrainingComputeAgent(BaseAgent):
             # For binary classification, TreeExplainer returns a list[ndarray] (one per class).
             # Take class-1 values; for multi-class or single-output the array is used directly.
             sv = shap_values[1] if isinstance(shap_values, list) else shap_values
+            del shap_values  # release class-0 array (binary classifier) before feature loop
             feature_importance = {
                 col: float(np.abs(sv[:, i]).mean()) for i, col in enumerate(list(final_cols))
             }
