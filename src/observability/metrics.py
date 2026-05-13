@@ -310,6 +310,15 @@ REGIME_GATE_SUPPRESSIONS_TOTAL = Counter(
     labelnames=["reason", "plugin", "tf"],
 )
 
+# Signals flowing through the regime gate's three-band classifier
+# (band in {suppressed, soft, full}). Phase 82 D-04.
+# Registered via Counter directly (defined before _safe_counter helper below).
+REGIME_SOFT_GATE_SIGNALS_TOTAL = Counter(
+    "regime_soft_gate_signals_total",
+    "Signals flowing through the regime gate's three-band classifier (band in {suppressed, soft, full}).",
+    ["band"],
+)
+
 
 def record_plugin_execution(
     plugin_name: str,
