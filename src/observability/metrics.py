@@ -319,6 +319,16 @@ REGIME_SOFT_GATE_SIGNALS_TOTAL = Counter(
     ["band"],
 )
 
+# ---------------------------------------------------------------------------
+# Feature validation metrics (Phase 82 D-05)
+# ---------------------------------------------------------------------------
+
+FEATURE_VALIDATION_DECISIONS_TOTAL = Counter(
+    "feature_validation_decisions_total",
+    "Total validation decisions written to validation_results per decision label.",
+    ["decision"],
+)
+
 
 def record_plugin_execution(
     plugin_name: str,
