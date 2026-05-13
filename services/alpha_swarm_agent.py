@@ -128,6 +128,8 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self._semaphore: asyncio.Semaphore | None = None
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
+        # Strong references to background tasks (prevents GC before completion)
+        self._background_tasks: set = set()
 
     @property
     def agents(self) -> list:
@@ -408,9 +410,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         """Sync SIGUSR1 handler — schedules ML model hot-reload via asyncio task.
 
         Signal handlers must be synchronous; async work is scheduled via create_task.
+        The task is stored in self._background_tasks to prevent GC before completion.
         """
         self.logger.info("alpha_swarm.sigusr1_received")
-        asyncio.create_task(self._reload_ml_models())
+        task = asyncio.create_task(self._reload_ml_models())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _reload_ml_models(self) -> None:
         """Reload models on all agents that expose _setup_models() (SIGUSR1 trigger).
@@ -578,6 +583,18 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             original_confidence = 0.5
         adjusted_confidence = float(original_confidence) * final_multiplier
 
+        # Build agent_outputs list for downstream writers (e.g. swarm_ledger_writer_agent
+        # extracts ml_scorer_v1 payload to populate ml_score / ml_model_id).
+        agent_outputs_list = []
+        for agent, result in zip(agents_with_context, results):
+            if isinstance(result, AgentOutput) and not result.error:
+                agent_outputs_list.append(
+                    {
+                        "agent_id": agent.agent_id,
+                        "payload": result.payload,
+                    }
+                )
+
         # Publish aggregate adjustment event (Plan 08's writer owns signal_ledger projection)
         event_payload = {
             "signal_id": str(signal_id),
@@ -586,6 +603,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             "swarm_multiplier": final_multiplier,
             "adjusted_confidence": adjusted_confidence,
             "swarm_agent_count": agent_count,
+            "agent_outputs": agent_outputs_list,
             "ts": _now_utc_iso(),
         }
         self._producer.publish(
