@@ -1,0 +1,24 @@
+[Unit]
+Description=IndicAgent CTX Writer — batch persist qualitative context events and snapshots
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.ctx_writer_agent
+Restart=on-failure
+TimeoutStopSec=30
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-ctx-writer
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

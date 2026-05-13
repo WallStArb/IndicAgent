@@ -68,7 +68,8 @@ INSERT INTO intelligence_features (
     signals_evaluated, signals_after_quality, signals_after_regime,
     signals_after_tod, signals_after_calibration,
     ledger_written, pipeline_latency_ms,
-    i7_computed_at, session_type, days_to_expiry
+    i7_computed_at, session_type, days_to_expiry,
+    ctx
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
@@ -79,7 +80,14 @@ VALUES (
     $22, $23, $24,
     $25, $26,
     $27, $28,
-    $29, $30, $31
+    $29, $30, $31,
+    (
+        SELECT jsonb_object_agg(event_type, ctx ORDER BY event_type)
+        FROM ctx_snapshots
+        WHERE (symbol = $2 OR symbol IS NULL)
+          AND valid_from <= $1
+          AND (valid_to IS NULL OR valid_to > $1)
+    )
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
