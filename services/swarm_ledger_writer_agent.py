@@ -191,6 +191,18 @@ class SwarmLedgerWriterAgent(BaseAgent):
         for delay in _RETRY_BACKOFF_S:
             try:
                 async with self._pool.acquire() as conn:
+                    # Application-layer FK check: signal_ai_enrichment has no declarative FK
+                    # on signal_id (TimescaleDB limitation), so ForeignKeyViolationError will
+                    # never fire. Enforce the logical constraint explicitly instead.
+                    exists = await conn.fetchval(
+                        "SELECT 1 FROM signal_ledger WHERE signal_id = $1::uuid LIMIT 1",
+                        str(signal_id),
+                    )
+                    if not exists:
+                        raise asyncpg.exceptions.ForeignKeyViolationError(
+                            "signal_ledger row not yet visible"
+                        )
+
                     # Base enrichment UPSERT: swarm aggregate fields.
                     # Parameters: ($1 signal_id::uuid, $2 swarm_multiplier,
                     #              $3 adjusted_confidence, $4 swarm_agent_count)
