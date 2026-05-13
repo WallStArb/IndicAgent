@@ -1106,3 +1106,18 @@ Plans:
 
 **Plans:** 8 plans (8 complete)
 
+### Phase 82: ML Intelligence Quality & Qualitative Foundation
+
+**Goal:** Four targeted improvements now that the May 10 data gate has passed: (1) DATA-02 gate — run `validate_alpha.py` for DerivOsc and ACOsc plugins (N≥30 resolved outcomes required); (2) HMM Multi-TF instances — per-TF HMM plugins (5m/15m/1h with correct lookbacks) + Baum-Welch training on `intelligence_features`; (3) Regime Transition Early Detection — `regime_entropy` + `hmm_regime_velocity` I4 fields, soft confidence multiplier for 0.30–0.55 prob band replacing binary gate; (4) FeatureValidationService — automated daily IC/p-value computation replacing manual `tools/backtest_*.py` CLI; (5) Qualitative CTX Schema Foundation — `ctx_events` + `ctx_snapshots` TimescaleDB tables, `ctx` JSONB column on `intelligence_features`, `CtxWriterAgent`, `AIContextCache` extension.
+
+**Status:** 🔵 Planning
+
+**Depends on:** Phase 081 (clean v1 signal data, is_backfill gate), Phase 070 (ML scoring model exists)
+
+**Design docs:**
+- `docs/ideas/hmm-multi-tf-and-training.md`
+- `docs/ideas/regime-transition-early-detection.md`
+- `docs/plans/2026-05-02-unified-intelligence-design.md`
+
+**Requirements:** P82-DATA02, P82-HMM-MULTITF, P82-REGIME-TRANSITION, P82-FEATURE-VALIDATION, P82-CTX-SCHEMA
+
