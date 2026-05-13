@@ -483,7 +483,7 @@ def test_swarm_agents_are_four_typed_agents():
 
 
 def test_swarm_agent_to_transform_has_all_agents():
-    """_SWARM_AGENT_TO_TRANSFORM must map all four Phase 80 multiplier agents."""
+    """_SWARM_AGENT_TO_TRANSFORM must map all five multiplier agents (Phase 80 + Phase 70 ML scorer)."""
     import services.alpha_swarm_agent as m
 
     assert hasattr(
@@ -495,6 +495,7 @@ def test_swarm_agent_to_transform_has_all_agents():
         "correlation_v1": ("swarm_correlation", 6),
         "regime_coherence_v1": ("swarm_regime_coherence", 6),
         "counterfactual_v1": ("swarm_counterfactual", 6),
+        "ml_scorer_v1": ("swarm_ml_scorer", 6),
     }
     assert dict(mapping) == expected, f"Unexpected mapping: {dict(mapping)}"
 
