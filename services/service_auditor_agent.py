@@ -66,6 +66,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-lifecycle-writer": 6,
     "indicagent-lineage-writer": 6,
     "indicagent-contract-metadata-writer": 6,
+    "indicagent-ctx-writer": 6,
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 7,
     "indicagent-llm-writer": 7,
@@ -108,6 +109,7 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-signal-metrics-writer": 500,
     "indicagent-graduation-writer": 500,
     "indicagent-feature-snapshot-writer": 500,
+    "indicagent-ctx-writer": 500,
 }
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
@@ -138,6 +140,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "ParityAuditorAgent": "indicagent-parity-auditor",
     "GraduationComputeAgent": "indicagent-graduation-compute",
     "graduation_writer_agent": "indicagent-graduation-writer",
+    "ctx_writer_agent": "indicagent-ctx-writer",
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
 }
