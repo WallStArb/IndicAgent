@@ -1,10 +1,16 @@
-"""SwarmLedgerWriterAgent — writer-owned projection of swarm aggregate adjustments into signal_ledger.
+"""SwarmLedgerWriterAgent — writer-owned projection of swarm aggregate adjustments into signal_ai_enrichment.
 
 Phase 80, D-07: strict separation of concerns — AlphaSwarmComputeAgent emits aggregate
 events on the swarm.alpha topic; this writer owns DB persistence of those adjustments.
 
-Updates signal_ledger columns: adjusted_confidence, swarm_multiplier, swarm_agent_count.
-The original signal_ledger.confidence column is NEVER modified.
+AI-SEP-01 (Phase 70, Plan 02): Writes to signal_ai_enrichment (AI-owned table) instead of
+signal_ledger. The quant table signal_ledger is now immutable after the quant writer's INSERT.
+Columns adjusted_confidence, swarm_multiplier, swarm_agent_count on signal_ledger are legacy
+nullable columns preserved for backwards compatibility — they are no longer populated by this
+writer. Downstream readers must LEFT JOIN signal_ai_enrichment instead.
+
+Also populates ml_score / ml_model_id in signal_ai_enrichment when the aggregate swarm event
+contains a ml_scorer_v1 agent payload.
 """
 
 from __future__ import annotations
@@ -29,14 +35,40 @@ logger = structlog.get_logger(__name__)
 # 5 attempts max; total max wait ~3.85s per signal.
 _RETRY_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0, 2.0)
 
+# AI-SEP-01: UPSERT into AI-owned signal_ai_enrichment table (not signal_ledger UPDATE).
+# FK race condition (enrichment arriving before signal_ledger row) is handled by
+# the _RETRY_BACKOFF_S loop — same race as before, application-layer FK enforcement.
+_UPSERT_ENRICHMENT_SQL = """
+INSERT INTO signal_ai_enrichment
+    (signal_id, swarm_multiplier, adjusted_confidence, swarm_agent_count, enriched_at)
+VALUES ($1::uuid, $2, $3, $4, NOW())
+ON CONFLICT (signal_id) DO UPDATE SET
+    swarm_multiplier     = EXCLUDED.swarm_multiplier,
+    adjusted_confidence  = EXCLUDED.adjusted_confidence,
+    swarm_agent_count    = EXCLUDED.swarm_agent_count,
+    enriched_at          = NOW()
+"""
+
+# Secondary UPSERT for ml_score / ml_model_id when ml_scorer_v1 payload is present
+# in the aggregate swarm event. Issued inside the same retry envelope as the base enrichment.
+_UPSERT_ML_SCORE_SQL = """
+INSERT INTO signal_ai_enrichment (signal_id, ml_score, ml_model_id, enriched_at)
+VALUES ($1::uuid, $2, $3::uuid, NOW())
+ON CONFLICT (signal_id) DO UPDATE SET
+    ml_score    = EXCLUDED.ml_score,
+    ml_model_id = EXCLUDED.ml_model_id,
+    enriched_at = NOW()
+"""
+
 
 class SwarmLedgerWriterAgent(BaseAgent):
-    """Consumes swarm.alpha events and projects aggregate adjustments into signal_ledger.
+    """Consumes swarm.alpha events and UPSERTs aggregate adjustments into signal_ai_enrichment.
 
-    Writer responsibilities (D-07):
+    Writer responsibilities (D-07, AI-SEP-01):
     - Subscribe to topic_swarm_alpha(env_name)
-    - UPDATE signal_ledger SET adjusted_confidence, swarm_multiplier, swarm_agent_count
-    - Bounded retry/backoff when signal_ledger row not yet inserted
+    - UPSERT signal_ai_enrichment (swarm_multiplier, adjusted_confidence, swarm_agent_count)
+    - UPSERT ml_score / ml_model_id into signal_ai_enrichment when ml_scorer_v1 payload present
+    - Bounded retry/backoff when signal_ledger row not yet visible (application-layer FK)
     - Emit SWARM_SIGNAL_LEDGER_UPDATE_TOTAL with status=success|retry|miss
     """
 
@@ -84,7 +116,12 @@ class SwarmLedgerWriterAgent(BaseAgent):
             await self._pool.close()
 
     async def _handle_event(self, payload: dict) -> None:
-        """Validate payload and dispatch to _apply_projection."""
+        """Validate payload and dispatch to _apply_projection.
+
+        Extracts aggregate swarm fields (swarm_multiplier, adjusted_confidence,
+        swarm_agent_count) and optionally ml_score / ml_model_id from the
+        ml_scorer_v1 agent payload, if present in the aggregate event.
+        """
         signal_id = payload.get("signal_id")
         swarm_multiplier = payload.get("swarm_multiplier")
         adjusted_confidence = payload.get("adjusted_confidence")
@@ -105,11 +142,29 @@ class SwarmLedgerWriterAgent(BaseAgent):
             )
             return
 
+        # Extract ml_scorer_v1 payload from aggregate agent_outputs list if present.
+        # The AlphaSwarmComputeAgent aggregate event carries individual agent payloads
+        # under "agent_outputs": [{"agent_id": ..., "payload": {...}}, ...].
+        ml_score: float | None = None
+        ml_model_id: str | None = None
+        agent_outputs = payload.get("agent_outputs") or []
+        for agent_out in agent_outputs:
+            if isinstance(agent_out, dict) and agent_out.get("agent_id") == "ml_scorer_v1":
+                agent_payload = agent_out.get("payload") or {}
+                raw_ml_score = agent_payload.get("ml_score")
+                if raw_ml_score is not None:
+                    ml_score = float(raw_ml_score)
+                    raw_model_id = agent_payload.get("model_id")
+                    ml_model_id = str(raw_model_id) if raw_model_id else None
+                break
+
         await self._apply_projection(
             signal_id=signal_id,
             swarm_multiplier=float(swarm_multiplier),
             adjusted_confidence=float(adjusted_confidence),
             swarm_agent_count=int(swarm_agent_count) if swarm_agent_count is not None else None,
+            ml_score=ml_score,
+            ml_model_id=ml_model_id,
         )
 
     async def _apply_projection(
@@ -118,42 +173,67 @@ class SwarmLedgerWriterAgent(BaseAgent):
         swarm_multiplier: float,
         adjusted_confidence: float,
         swarm_agent_count: int | None,
+        ml_score: float | None = None,
+        ml_model_id: str | None = None,
     ) -> None:
-        """UPDATE signal_ledger with swarm aggregate adjustments.
+        """UPSERT swarm aggregate adjustments into signal_ai_enrichment (AI-SEP-01).
 
-        Retries with exponential backoff when signal_ledger row not yet inserted
-        (race condition between signal_writer and swarm_ledger_writer).
+        Retries with exponential backoff — application-layer FK: signal_ai_enrichment
+        references signal_ledger(signal_id) logically; the enrichment INSERT must wait
+        for the signal_ledger row to be visible (race condition between signal_writer
+        and swarm_ledger_writer). The retry loop handles this identically to before.
+
+        If ml_score is provided (ml_scorer_v1 agent payload present in aggregate event),
+        a second UPSERT populates ml_score / ml_model_id in the same row via
+        _UPSERT_ML_SCORE_SQL inside the same connection acquisition.
         """
         assert self._pool is not None
         for delay in _RETRY_BACKOFF_S:
-            async with self._pool.acquire() as conn:
-                result = await conn.execute(
-                    """
-                    UPDATE signal_ledger
-                       SET adjusted_confidence = $2,
-                           swarm_multiplier = $3,
-                           swarm_agent_count = $4
-                     WHERE signal_id = $1
-                    """,
-                    signal_id,
-                    adjusted_confidence,
-                    swarm_multiplier,
-                    swarm_agent_count,
-                )
-            # asyncpg returns "UPDATE N" — parse N to determine row found
             try:
-                rowcount = int(result.split()[-1])
-            except (ValueError, IndexError):
-                rowcount = 0
+                async with self._pool.acquire() as conn:
+                    # Base enrichment UPSERT: swarm aggregate fields.
+                    # Parameters: ($1 signal_id::uuid, $2 swarm_multiplier,
+                    #              $3 adjusted_confidence, $4 swarm_agent_count)
+                    await conn.execute(
+                        _UPSERT_ENRICHMENT_SQL,
+                        str(signal_id),
+                        swarm_multiplier,
+                        adjusted_confidence,
+                        swarm_agent_count,
+                    )
 
-            if rowcount > 0:
+                    # Optional ml_score branch: issued in same connection.
+                    if ml_score is not None:
+                        await conn.execute(
+                            _UPSERT_ML_SCORE_SQL,
+                            str(signal_id),
+                            ml_score,
+                            str(ml_model_id) if ml_model_id else None,
+                        )
+
                 SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="success").inc()
+                self.logger.debug(
+                    "swarm_ledger_writer.enrichment_written",
+                    signal_id=signal_id,
+                    has_ml_score=(ml_score is not None),
+                )
                 return
 
-            SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="retry").inc()
-            await asyncio.sleep(delay)
+            except asyncpg.exceptions.ForeignKeyViolationError:
+                # signal_ledger row not yet visible — retry with backoff
+                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="retry").inc()
+                await asyncio.sleep(delay)
 
-        # Exhausted all retries — row never appeared in signal_ledger
+            except asyncpg.exceptions.InvalidTextRepresentationError:
+                # Malformed UUID — no retry
+                self.logger.warning(
+                    "swarm_ledger_writer.invalid_uuid",
+                    signal_id=signal_id,
+                )
+                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="miss").inc()
+                return
+
+        # Exhausted all retries — signal_ledger row never became visible
         SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="miss").inc()
         self.logger.warning(
             "swarm_ledger_writer.row_missing",
