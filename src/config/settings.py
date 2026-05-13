@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     regime_prob_min: float = Field(default=0.30, validation_alias="REGIME_PROB_MIN")
     regime_dur_min: int = Field(default=1, validation_alias="REGIME_DUR_MIN")
 
+    # Regime gate soft-band upper boundary (Phase 82 D-04).
+    # Signals with prob in [REGIME_PROB_MIN, REGIME_PROB_SOFT_MAX) keep regime_eligible=True
+    # but have calibrated_confidence linearly attenuated toward SOFT_BAND_FLOOR at the low end.
+    # Signals with prob >= REGIME_PROB_SOFT_MAX are unmodified (full confidence).
+    # Set REGIME_PROB_SOFT_MAX in .env to tune without deployment.
+    REGIME_PROB_SOFT_MAX: float = Field(default=0.55, validation_alias="REGIME_PROB_SOFT_MAX")
+
     # Winner selector configuration (Phase 68-01)
     winner_long_bias: bool = Field(default=True, validation_alias="WINNER_LONG_BIAS")
 
