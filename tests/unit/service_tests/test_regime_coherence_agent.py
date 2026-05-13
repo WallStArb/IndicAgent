@@ -107,7 +107,7 @@ def test_class_attributes() -> None:
     assert Tier.I4 in RegimeCoherenceComputeAgent.tiers_needed
     assert Tier.I7 in RegimeCoherenceComputeAgent.tiers_needed
     assert Tier.SMC in RegimeCoherenceComputeAgent.tiers_needed
-    assert RegimeCoherenceComputeAgent.latency_budget_ms == 5000.0
+    assert RegimeCoherenceComputeAgent.latency_budget_ms == 45000.0
     assert RegimeCoherenceComputeAgent.group == "alpha"
 
 
