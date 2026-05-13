@@ -315,8 +315,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
   Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
-- [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
-  LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
+- [ ] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling**
+  **Goal:** Add a statistically-validated LightGBM scoring layer (MLScorerMultiplierAgent in alpha swarm, shadow_only=True) + nightly MLTrainingComputeAgent (L8) + AI-SEP-01 table decoupling (new signal_ai_enrichment and intelligence_ai_enrichment tables; migrate SwarmLedgerWriterAgent and LlmWriterService writes off quant tables). Features: 27-key _shadow dicts from all 36 I7 plugins + bar context. Global + 3 hmm_regime models. Walk-forward 60/20/20 CV, SHAP via MLflow. SIGUSR1 hot-reload after nightly training.
+  **Plans:** 4 plans
+  Plans:
+  - [ ] 070-01-PLAN.md — Migration 084: signal_ai_enrichment + intelligence_ai_enrichment tables + features_snapshot column on signal_ledger; signal_writer_agent.py populates new column
+  - [ ] 070-02-PLAN.md — AI-SEP-01 writer migration: SwarmLedgerWriterAgent and LlmWriterService UPSERT to new AI-owned tables
+  - [ ] 070-03-PLAN.md — Feature builder (src/intelligence/ml/feature_builder.py) + MLTrainingComputeAgent (nightly oneshot, delta-gate, walk-forward CV, MLflow + SHAP, ModelRegistry register, SIGUSR1 swarm reload)
+  - [ ] 070-04-PLAN.md — MLScorerMultiplierAgent + AlphaSwarmComputeAgent integration (SIGUSR1 handler) + service_auditor _DAG_ORDER entry + systemd unit and timer files
+  **Planning:** `.planning/phases/070-ml-scoring-model/`
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
   Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
