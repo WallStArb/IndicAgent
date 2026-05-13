@@ -91,6 +91,7 @@ class SignalReplayAuditorAgent:
             FROM signal_ledger
             WHERE exit_at IS NULL
               AND timestamp < NOW() - INTERVAL '2 minutes'
+              AND signal_schema_version = 'v1'
         """
         assert self._pool is not None
         async with self._pool.acquire() as conn:

@@ -280,7 +280,7 @@ async def get_recent_signals(
     resolved_symbol = _resolve_contract(symbol) if symbol else None
 
     try:
-        main_query = f"""
+        main_query = """
             SELECT
                 sl.signal_id,
                 sl.setup_plugin,
@@ -302,7 +302,7 @@ async def get_recent_signals(
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
-            WHERE sl.timestamp >= NOW() - INTERVAL '{_RECENT_SIGNAL_WINDOW_DAYS} days'
+            WHERE sl.timestamp >= NOW() - INTERVAL '90 days'
               AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
