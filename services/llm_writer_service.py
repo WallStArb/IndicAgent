@@ -761,9 +761,9 @@ class LLMWriterAgent(BaseWriterAgent):
 
         i8_dict = {
             "model": _field("model") or "unknown",
-            "confidence": _field("confidence") or "0.0",
-            "summary": _field("summary"),
-            "generated_at": _field("generated_at"),
+            "confidence": float(_field("confidence") or 0.0),  # store as float, not str
+            "summary": _field("summary") or None,
+            "generated_at": _field("generated_at") or None,
         }
         # Pass dict directly — asyncpg handles JSONB serialisation natively (no json.dumps)
         self._i8_buffer.append((ts_dt, symbol, tf, i8_dict))
