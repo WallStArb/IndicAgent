@@ -1,0 +1,10 @@
+[Unit]
+Description=HMM Training Timer -- monthly Baum-Welch retraining
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+Unit=indicagent-hmm-training.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=IndicAgent HMM Training Compute Agent -- monthly Baum-Welch retraining
+After=network.target
+
+[Service]
+Type=oneshot
+Restart=no
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/hmm_training_agent.py
+TimeoutStartSec=7200
+
+[Install]
+WantedBy=multi-user.target
