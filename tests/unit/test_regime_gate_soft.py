@@ -50,7 +50,7 @@ def _make_signal(prob: float, conf: float = 1.0) -> tuple[list[dict], dict]:
 
 def _run(coro):
     """Run an async function synchronously in tests."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.new_event_loop().run_until_complete(coro)
 
 
 # ---------------------------------------------------------------------------
