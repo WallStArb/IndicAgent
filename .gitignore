@@ -281,6 +281,7 @@ dashboard/dist/
 .claude/worktrees/
 .claude/agents/
 .claude/get-shit-done/
+.claude/scheduled_tasks.lock
 plugin_validator
 plugin_validator.*
 quality_gate

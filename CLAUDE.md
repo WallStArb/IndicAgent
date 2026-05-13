@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.41.0 | Status: v2.5 PARTIAL — Phases 69-79 shipped; Phase 70 deferred (~May 10 data gate). Next: Phase 70 (ML Scoring) after data gate.
+Version: 5.42.0 | Status: v2.3 active — Phases 070 (ML Scoring), 080 (Swarm Intelligence), 081 (Signal Lifecycle Hardening) complete. Next: Phase 082 TBD.
 
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
 **Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. Full table: `docs/naming-conventions.md`.
