@@ -1125,9 +1125,9 @@ Plans:
 
 Plans:
 - [ ] 82-01-PLAN.md — DATA-02 gate check (validate_alpha.py for DerivOsc/ACOsc, shadow_registry decision)
-- [ ] 82-02-PLAN.md — HMM Multi-TF instances (1m/5m/15m/1h) + entropy/velocity fields + SIGUSR1 hot-reload
-- [ ] 82-03-PLAN.md — HMMTrainingComputeAgent (oneshot, Baum-Welch, per-TF param files) + systemd timer
-- [ ] 82-04-PLAN.md — Regime soft gate (three-band multiplier, REGIME_PROB_SOFT_MAX setting, Prometheus counter)
-- [ ] 82-05-PLAN.md — FeatureValidationService (migration 086, compute agent, daily timer, API endpoint)
-- [ ] 82-06-PLAN.md — CTX schema foundation (migration 085, topic_ctx_snapshot, CtxWriterAgent, as-of join)
+- [x] 82-02-PLAN.md — HMM Multi-TF instances (1m/5m/15m/1h) + entropy/velocity fields + SIGUSR1 hot-reload
+- [x] 82-03-PLAN.md — HMMTrainingComputeAgent (oneshot, Baum-Welch, per-TF param files) + systemd timer
+- [x] 82-04-PLAN.md — Regime soft gate (three-band multiplier, REGIME_PROB_SOFT_MAX setting, Prometheus counter)
+- [x] 82-05-PLAN.md — FeatureValidationService (migration 086, compute agent, daily timer, API endpoint)
+- [x] 82-06-PLAN.md — CTX schema foundation (migration 085, topic_ctx_snapshot, CtxWriterAgent, as-of join)
 
