@@ -395,6 +395,16 @@ def topic_transform_graduation_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
+def topic_ctx_snapshot(env_name: str) -> str:
+    """Kafka topic for CTX qualitative context snapshot events.
+
+    Published by external CTX providers (earnings, macro, news lanes — Phase 83+).
+    Consumed by CtxWriterAgent which persists to ctx_events + ctx_snapshots tables.
+    Topic naming: <env>.ctx.snapshot (dots only, no colons — CLAUDE.md rule).
+    """
+    return f"{env_prefix(env_name)}ctx.snapshot"
+
+
 def topic_macro_signals(env_name: str) -> str:
     """Kafka topic for macro factor signals.
 
