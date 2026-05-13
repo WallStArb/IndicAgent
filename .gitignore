@@ -279,6 +279,8 @@ dashboard/dist/
 # Screenshots and images
 *.png
 .claude/worktrees/
+.claude/agents/
+.claude/get-shit-done/
 plugin_validator
 plugin_validator.*
 quality_gate
