@@ -135,8 +135,12 @@ class MLTrainingComputeAgent(BaseAgent):
         )
         tmp.replace(path)
 
-    async def _should_retrain(self) -> bool:
-        """Delta gate: return True only if at least _DELTA_GATE_MIN new resolved signals exist."""
+    async def _should_retrain(self) -> tuple[bool, int]:
+        """Delta gate: return (should_retrain, current_count).
+
+        Caller is responsible for updating self._last_trained_count after a successful
+        training run — mutation is deferred to avoid checkpoint inconsistency on failure.
+        """
         async with self._pool.acquire() as conn:
             current_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM signal_ledger WHERE outcome IS NOT NULL AND is_shadow = FALSE"
@@ -151,13 +155,13 @@ class MLTrainingComputeAgent(BaseAgent):
                 last_trained_count=self._last_trained_count,
                 required=_DELTA_GATE_MIN,
             )
-            return False
-        self._last_trained_count = current_count
-        return True
+            return False, current_count
+        return True, current_count
 
     async def _train_all_segments(self) -> None:
         """Build matrix, train each segment, write checkpoint, optionally signal swarm."""
-        if not await self._should_retrain():
+        should, current_count = await self._should_retrain()
+        if not should:
             return
 
         df = await build_training_matrix(self._pool)
@@ -171,6 +175,8 @@ class MLTrainingComputeAgent(BaseAgent):
             if model_id:
                 promoted_any = True
 
+        # Update count only after all segments complete successfully
+        self._last_trained_count = current_count
         self._write_checkpoint(self._last_trained_count)
 
         if promoted_any:
@@ -221,8 +227,8 @@ class MLTrainingComputeAgent(BaseAgent):
         feature_cols = [c for c in seg_df.columns if c not in _META_COLS]
 
         X_train, y_train, final_cols = encode_features(train_df, feature_cols)
-        X_val, y_val, _ = encode_features(val_df, feature_cols)
-        X_test, y_test, _ = encode_features(test_df, feature_cols)
+        X_val, y_val, val_cols = encode_features(val_df, feature_cols)  # capture val_cols
+        X_test, y_test, test_cols = encode_features(test_df, feature_cols)  # capture test_cols
 
         # Align val/test to same column set as train (one-hot may produce different dummies)
         # encode_features returns columns from the input df — segments may share the same set,
@@ -239,8 +245,6 @@ class MLTrainingComputeAgent(BaseAgent):
                     aligned[:, i] = X[:, j]
             return aligned
 
-        _, _, val_cols = encode_features(val_df, feature_cols)
-        _, _, test_cols = encode_features(test_df, feature_cols)
         X_val = _align_X(X_val, list(val_cols), list(final_cols))
         X_test = _align_X(X_test, list(test_cols), list(final_cols))
 
@@ -280,9 +284,11 @@ class MLTrainingComputeAgent(BaseAgent):
             n_shap = min(500, X_val.shape[0])
             explainer = shap.TreeExplainer(model)
             shap_values = explainer.shap_values(X_val[:n_shap])
+            # For binary classification, TreeExplainer returns a list[ndarray] (one per class).
+            # Take class-1 values; for multi-class or single-output the array is used directly.
+            sv = shap_values[1] if isinstance(shap_values, list) else shap_values
             feature_importance = {
-                col: float(np.abs(shap_values[:, i]).mean())
-                for i, col in enumerate(list(final_cols))
+                col: float(np.abs(sv[:, i]).mean()) for i, col in enumerate(list(final_cols))
             }
             mlflow.log_dict(
                 {"feature_importance": feature_importance, "feature_cols": list(final_cols)},
