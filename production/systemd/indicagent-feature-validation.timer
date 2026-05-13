@@ -1,0 +1,14 @@
+[Unit]
+Description=Feature Validation Timer -- daily 02:00 ET (07:00 UTC)
+
+[Timer]
+# 07:00 UTC = 02:00 ET (EST; during EDT add 1h = 06:00 UTC = 02:00 EDT)
+# Note: systemd OnCalendar timezone support requires systemd >= 240 with TZ= syntax.
+# Using UTC equivalent for maximum compatibility:
+#   02:00:00 America/New_York (standard) ≈ 07:00:00 UTC
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+Unit=indicagent-feature-validation.service
+
+[Install]
+WantedBy=timers.target
