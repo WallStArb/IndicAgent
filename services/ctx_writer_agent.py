@@ -108,10 +108,10 @@ class CtxWriterAgent(BaseWriterAgent):
     # Validation and parse
     # -----------------------------------------------------------------------
 
-    def _parse_payload(self, payload: dict) -> list | None:
-        """Validate and transform incoming CTX message into bufferable rows.
+    def _parse_payload(self, payload: dict) -> dict | None:
+        """Validate incoming CTX message.
 
-        Returns a list containing the validated payload dict on success,
+        Returns the validated payload dict on success,
         or None to route to DLQ on validation failure.
 
         Threat model (from plan threat_model):
@@ -160,7 +160,7 @@ class CtxWriterAgent(BaseWriterAgent):
             self._validation_errors.inc()
             return None
 
-        return [payload]
+        return payload
 
     def _on_message_consumed(self, payload: dict) -> None:
         self._events_consumed.inc()
@@ -180,13 +180,11 @@ class CtxWriterAgent(BaseWriterAgent):
             self._record_message_consumed()
             self._on_message_consumed(payload)
 
-            rows = self._parse_payload(payload)
-            if rows is None:
+            msg = self._parse_payload(payload)
+            if msg is None:
                 self._parse_failures_total.inc()
                 await self._maybe_route_to_dlq(payload, Exception("Validation failed"))
                 continue
-
-            msg = rows[0]
             await self._process_message(msg)
             await self.maybe_flush()
 
@@ -214,8 +212,6 @@ class CtxWriterAgent(BaseWriterAgent):
             self._validation_errors.inc()
             return
 
-        # Buffer ctx_events INSERT
-        # Pass inner_payload as dict (asyncpg JSONB rule — never json.dumps)
         self._event_buffer.append((event_ts, symbol, event_type, source, inner_payload))
 
         # Buffer ctx_snapshots UPSERT if message includes snapshot fields
@@ -241,7 +237,6 @@ class CtxWriterAgent(BaseWriterAgent):
                         event_type=event_type,
                     )
                     return
-                # ctx_data as dict (asyncpg JSONB rule — never json.dumps)
                 self._snapshot_buffer.append((symbol, event_type, valid_from, ctx_data))
 
     def _should_flush(self) -> bool:
