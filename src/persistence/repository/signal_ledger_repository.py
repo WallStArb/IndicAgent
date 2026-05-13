@@ -145,13 +145,16 @@ class LedgerEntry:
     entry_type: str | None = None
     co_fire_count: int = 1
     co_fire_partners: list[str] = field(default_factory=list)
+    # Phase 70: ML training flat feature source — _shadow dict captured at signal fire time.
+    # NULL for legacy rows; always None if not present in incoming payload.
+    features_snapshot: dict | None = None
 
     def to_insert_params(self) -> tuple:
-        """Return a 64-element tuple ready for batch INSERT.
+        """Return a 65-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores,
-        trailing_stop_price) are passed as Python dicts/lists; asyncpg serializes
-        them to jsonb natively via codec.
+        trailing_stop_price, features_snapshot) are passed as Python dicts/lists;
+        asyncpg serializes them to jsonb natively via codec.
         """
         return (
             self.signal_id,
@@ -221,6 +224,8 @@ class LedgerEntry:
             self.entry_type,  # $62
             self.co_fire_count,  # $63
             self.co_fire_partners,  # $64::text[]
+            # Phase 70: ML training feature source
+            self.features_snapshot,  # $65::jsonb — dict or None; asyncpg handles serialisation
         )
 
 
@@ -253,7 +258,8 @@ INSERT INTO signal_ledger (
     shadow_mae, shadow_mfe, shadow_outcome,
     raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
     pre_quality_confidence, pre_calibration_confidence,
-    signal_schema_version, entry_type, co_fire_count, co_fire_partners
+    signal_schema_version, entry_type, co_fire_count, co_fire_partners,
+    features_snapshot
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -278,7 +284,8 @@ INSERT INTO signal_ledger (
     $52, $53, $54,
     $55, $56, $57, $58,
     $59, $60,
-    $61, $62, $63, $64::text[]
+    $61, $62, $63, $64::text[],
+    $65::jsonb
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
