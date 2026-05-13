@@ -37,6 +37,7 @@ def _mock_pool(execute_returns: list[str]) -> MagicMock:
     """Create an asyncpg-pool mock whose conn.execute returns each item in order."""
     results_iter = iter(execute_returns)
     mock_conn = AsyncMock()
+    mock_conn.fetchval = AsyncMock(return_value=1)  # signal_ledger row always visible
     mock_conn.execute = AsyncMock(side_effect=lambda *a, **kw: next(results_iter))
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -51,19 +52,17 @@ def _counter_value(status: str) -> float:
 
 
 def _mock_pool_with_fk_errors(fk_error_count: int) -> MagicMock:
-    """Pool mock that raises ForeignKeyViolationError N times then succeeds."""
-    import asyncpg
-
+    """Pool mock where fetchval returns None N times (row not ready) then 1 (ready)."""
     call_count = 0
 
-    async def execute_side_effect(*args, **kwargs):
+    async def fetchval_side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count <= fk_error_count:
-            raise asyncpg.exceptions.ForeignKeyViolationError("signal_ledger row not yet visible")
+        return None if call_count <= fk_error_count else 1
 
     mock_conn = AsyncMock()
-    mock_conn.execute = AsyncMock(side_effect=execute_side_effect)
+    mock_conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    mock_conn.execute = AsyncMock(return_value=None)
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     ctx.__aexit__ = AsyncMock(return_value=False)
@@ -73,13 +72,10 @@ def _mock_pool_with_fk_errors(fk_error_count: int) -> MagicMock:
 
 
 def _mock_pool_always_fk_error(attempts: int) -> MagicMock:
-    """Pool mock that always raises ForeignKeyViolationError (simulates row never visible)."""
-    import asyncpg
-
+    """Pool mock where fetchval always returns None (row never visible)."""
     mock_conn = AsyncMock()
-    mock_conn.execute = AsyncMock(
-        side_effect=asyncpg.exceptions.ForeignKeyViolationError("signal_ledger row not visible")
-    )
+    mock_conn.fetchval = AsyncMock(return_value=None)
+    mock_conn.execute = AsyncMock(return_value=None)
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     ctx.__aexit__ = AsyncMock(return_value=False)
