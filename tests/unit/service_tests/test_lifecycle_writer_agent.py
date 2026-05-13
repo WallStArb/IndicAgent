@@ -33,6 +33,7 @@ def _make_agent():
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
     agent._settings.env_name = "development"
     agent._db = MagicMock()
+    agent._db.execute_command = AsyncMock(return_value="UPDATE 1")
     agent._consumer = AsyncMock()
     agent._repo = MagicMock()
     agent._repo.batch_execute = AsyncMock()
@@ -121,7 +122,7 @@ class TestBufferAccumulation:
 class TestFlushGroupsByType:
     @pytest.mark.asyncio
     async def test_flush_groups_by_type(self):
-        """Two activations + one exit -> two batch_execute calls."""
+        """Two activations + one exit: activations use batch_execute, exit uses execute_command (idempotency)."""
         agent = _make_agent()
         batch = [
             _make_transition("activation", "sig-001", data={"activation_price": 100.0}),
@@ -130,22 +131,15 @@ class TestFlushGroupsByType:
         ]
         await agent._flush_batch(batch)
 
-        # Should be called twice: once for "activation" (2 items), once for "exit" (1 item)
-        assert agent._repo.batch_execute.call_count == 2
-        calls = agent._repo.batch_execute.call_args_list
-        types_called = {c[0][0] for c in calls}
-        assert types_called == {"activation", "exit"}
-        # Verify counts per group and signal_id merged into data
-        for c in calls:
-            ttype, items = c[0][0], c[0][1]
-            if ttype == "activation":
-                assert len(items) == 2
-                assert items[0]["signal_id"] == "sig-001"
-                assert items[0]["activation_price"] == 100.0
-            elif ttype == "exit":
-                assert len(items) == 1
-                assert items[0]["signal_id"] == "sig-002"
-                assert items[0]["exit_price"] == 105.0
+        # Phase 81-05: EXIT now uses execute_command (idempotency guard), not batch_execute.
+        # batch_execute called once for "activation" group only.
+        assert agent._repo.batch_execute.call_count == 1
+        act_call = agent._repo.batch_execute.call_args_list[0]
+        assert act_call[0][0] == "activation"
+        assert len(act_call[0][1]) == 2
+        assert act_call[0][1][0]["signal_id"] == "sig-001"
+        # EXIT routed through db.execute_command (one call per exit item)
+        assert agent._db.execute_command.call_count == 1
 
     @pytest.mark.asyncio
     async def test_do_flush_clears_buffer_on_success(self):

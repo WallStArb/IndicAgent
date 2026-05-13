@@ -12,7 +12,12 @@ from typing import Any
 import structlog
 
 from src.core.llm.guardrails import GuardrailsValidator
-from src.core.llm.providers import LLMChain, OllamaCloudProvider, OllamaProvider, OpenRouterProvider
+from src.core.llm.providers import (
+    DeepSeekProvider,
+    LLMChain,
+    OllamaProvider,
+    OpenRouterProvider,
+)
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -65,12 +70,18 @@ class LLMProviderChain:
                 )
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list: OpenRouter → Ollama Cloud (if API key) → Ollama Local."""
+        """Build provider list: DeepSeek flash → OpenRouter free → Ollama Local."""
         if settings is None:
             return [OllamaProvider("gemma4:e4b")]
         providers = []
 
-        # 1. OpenRouter (primary, if configured)
+        # 1. DeepSeek flash (primary — fast, clean JSON, low cost)
+        if settings.deepseek_api_key:
+            providers.append(
+                DeepSeekProvider(model="deepseek-v4-flash", api_key=settings.deepseek_api_key)
+            )
+
+        # 2. OpenRouter free models (backup — thinking suppressed via include_reasoning=false)
         if settings.openrouter_api_key:
             for slug in settings.openrouter_models.split(","):
                 slug = slug.strip()
@@ -79,14 +90,7 @@ class LLMProviderChain:
                         OpenRouterProvider(model=slug, api_key=settings.openrouter_api_key)
                     )
 
-        # 2. Ollama Cloud (free tier models, if API key configured)
-        if settings.ollama_api_key:
-            # Prioritize by speed + quality (nemotron-3-super fastest at 1.83s avg)
-            cloud_models = ["nemotron-3-super", "minimax-m2.7", "gemini-3-flash-preview"]
-            for model in cloud_models:
-                providers.append(OllamaCloudProvider(model=model, api_key=settings.ollama_api_key))
-
-        # 3. Ollama Local (fallback)
+        # 3. Ollama Local (offline fallback)
         providers.append(
             OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
         )

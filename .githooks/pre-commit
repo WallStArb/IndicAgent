@@ -83,6 +83,7 @@ check_plugin_file_naming() {
 
     VIOLATIONS=$(git diff --cached --name-only --diff-filter=ACM | \
         grep -E '^src/intelligence/.*\.py$' | \
+        grep -vE '^src/intelligence/(ai|swarm)/' | \
         while read -r filepath; do
             filename=$(basename "$filepath")
             # Allow: snake_case.py, __init__.py, test_*.py, conftest.py

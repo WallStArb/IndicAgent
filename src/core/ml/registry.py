@@ -34,8 +34,6 @@ class ModelRegistry:
         model_type: str = "lightgbm",
     ) -> str:
         """Insert model record, return model_id UUID string."""
-        import json
-
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -44,7 +42,7 @@ class ModelRegistry:
                 RETURNING model_id::text
                 """,
                 model_type,
-                json.dumps(segment),
+                segment,  # pass dict directly — asyncpg handles JSONB serialisation
                 run_id,
                 artifact_path,
             )
@@ -54,8 +52,6 @@ class ModelRegistry:
 
     async def load_latest(self, segment: dict[str, Any]) -> Any | None:
         """Load latest production model artifact for segment. Returns None if none promoted."""
-        import json
-
         import mlflow
 
         mlflow.set_tracking_uri(self._mlflow_uri)
@@ -69,7 +65,7 @@ class ModelRegistry:
                 ORDER BY promoted_at DESC
                 LIMIT 1
                 """,
-                json.dumps(segment),
+                segment,  # pass dict directly — asyncpg handles JSONB serialisation
             )
         if row is None:
             return None
@@ -80,6 +76,21 @@ class ModelRegistry:
                 "model_registry.load_failed", artifact=row["artifact_path"], error=str(exc)
             )
             return None
+
+    async def get_latest_run_id(self, segment: dict[str, Any]) -> str | None:
+        """Return the mlflow_run_id of the latest production model for segment, or None."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT mlflow_run_id FROM ml_models
+                WHERE status = 'production'
+                  AND segment @> $1::jsonb
+                ORDER BY promoted_at DESC
+                LIMIT 1
+                """,
+                segment,  # pass dict directly — asyncpg handles JSONB serialisation
+            )
+        return row["mlflow_run_id"] if row is not None else None
 
     async def promote(self, model_id: str) -> None:
         """Set model status to production."""

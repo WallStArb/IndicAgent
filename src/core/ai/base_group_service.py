@@ -42,6 +42,7 @@ class BaseGroupService(BaseAgent, ABC):
 
     group_id: str = ""
     has_graduation: bool = False
+    llm_cache_ttl: float = 0.0  # 0 = no caching; override in subclasses that benefit from it
 
     @property
     @abstractmethod
@@ -123,7 +124,7 @@ class BaseGroupService(BaseAgent, ABC):
         self._llm_chain = LLMProviderChain(
             call_type=self.group_id,
             settings=self.settings,
-            cache_ttl=300.0,
+            cache_ttl=self.llm_cache_ttl,
         )
 
         # Seed context cache from DB
@@ -139,7 +140,7 @@ class BaseGroupService(BaseAgent, ABC):
         async with self._pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT DISTINCT ON (symbol, tf)
-                    symbol, tf, ts, bar, i1, i4, i6, i7
+                    symbol, tf, ts, bar, i1, i2, i3, i4, i5, i6, i7, smc
                 FROM intelligence_features
                 WHERE ts > NOW() - INTERVAL '7 days'
                   AND i1 IS NOT NULL AND i4 IS NOT NULL

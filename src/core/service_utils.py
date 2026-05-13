@@ -159,6 +159,11 @@ def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
+def format_iso_ts(dt: datetime) -> str:
+    """Format datetime to ISO-8601 with Z suffix for Kafka/JSON serialization."""
+    return dt.isoformat().replace("+00:00", "Z")
+
+
 def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
     """Parse a typed RollEvent payload into (old_contract, new_contract).
 
@@ -177,7 +182,7 @@ def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
 _configured_log_file: str | None = None
 
 
-def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
+def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 3) -> None:
     """Configure structlog and stdlib logging for a service.
 
     Creates the log directory if it does not exist, attaches a

@@ -1,15 +1,16 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-10
 
 ## Overview
 
-A signal in IndicAgent is not a point-in-time event — it is a lifecycle. From the moment I7 fires a setup to the moment it expires or hits a target, the signal passes through a structured sequence of states tracked by the **Signal Lifecycle Service**.
+A signal in IndicAgent is not a point-in-time event — it is a lifecycle. From the moment I7 fires a setup to the moment it expires or hits a target, the signal passes through a structured sequence of states tracked by the **SignalTrackerComputeAgent** (DB-ignorant compute) and persisted by the **LifecycleWriterAgent**.
 
 The lifecycle captures:
 - Whether the signal's entry zone was ever touched (activation)
 - How far price moved in favor and against the trade (MAE/MFE)
 - Which of 8 possible outcomes closed the trade
+- Schema version for data quality gating (`signal_schema_version`)
 
 This data becomes the **labeled training dataset** for the ML scoring model.
 
@@ -17,15 +18,24 @@ This data becomes the **labeled training dataset** for the ML scoring model.
 
 ## Signal Origin: I7 Setup Detection
 
-The I7 tier (36 setup plugins + CISScorer aggregator) fires signals when it detects high-confidence trading setups. Each signal is written to `signal_ledger` (TimescaleDB) with:
+The I7 tier (36 setup plugins + CISScorer aggregator) fires signals when it detects high-confidence trading setups. The publisher (`intelligence_pipeline_agent.py`) normalizes every signal before emission:
+
+- Injects `timestamp=bar_ts` (never empty)
+- Sets `is_backfill` flag (for replay-generated signals)
+- Sets `ttl_bars` (default: 10 — how many bars until expiry)
+- Sets `signal_schema_version` (currently `'v1'` — see [Schema Versioning](#schema-versioning))
+
+Each signal is written to `signal_ledger` (TimescaleDB) with:
 
 - `symbol`, `feature_ts`, `feature_tf` — join key back to `intelligence_features`
 - `direction` — `long` or `short`
-- `entry_low`, `entry_high` — the entry zone (from `TradeFrame.zone_low/zone_high`)
+- `entry_price` — resolved from zone geometry (see Phase 79 fix below)
+- `entry_zone_low`, `entry_zone_high` — the entry zone bounds
 - `stop_loss` — initial stop level
 - `target_1`, `target_2`, `target_full` — profit targets
 - `ttl_bars` — how many bars until the signal expires if never activated
 - `confidence` — CISScorer output (0–1)
+- `signal_schema_version` — `'v0'` or `'v1'` (see below)
 
 Signals start with `status = "pending"`.
 
@@ -59,16 +69,20 @@ The lifecycle pipeline is split into two services following the compute/writer D
 
 The compute agent reads market bars via consumer group (`signal_lifecycle`).
 
+The compute agent reads market bars via consumer group (`signal_lifecycle`). It uses `_load_signal()` as the single canonical intake function — both bootstrap (DB SELECT) and Kafka paths route through it. Signals with missing or invalid timestamps are rejected to the DLQ.
+
 For every pending signal, each new 1m bar checks whether price entered the entry zone:
 
 ```python
 if signal.direction == "long":
-    activated = bar.low <= signal.entry_high  # price dipped into zone
+    activated = bar.low <= signal.entry_zone_high  # price dipped into zone
 elif signal.direction == "short":
-    activated = bar.high >= signal.entry_low  # price rose into zone
+    activated = bar.high >= signal.entry_zone_low  # price rose into zone
 ```
 
 On activation, `status` transitions to `active` and `activated_at` is recorded.
+
+**Backfill fast-path:** Signals that arrive with TTL already elapsed (from replay or delayed processing) are immediately transitioned to `ttl_expired` without entering the active tracking loop.
 
 ---
 
@@ -120,13 +134,13 @@ When a signal closes, the lifecycle service publishes the outcome to `llm_outcom
 
 ## Database Schema
 
-The `signal_ledger` table (migration `015_signal_lifecycle_fields.sql`) carries 14 lifecycle columns alongside the original I7 signal fields:
+The `signal_ledger` table carries lifecycle columns alongside the original I7 signal fields:
 
 ```sql
 -- Lifecycle state
 status          TEXT DEFAULT 'pending'   -- pending|active|closed|regime_suppressed
 activated_at    TIMESTAMPTZ
-closed_at       TIMESTAMPTZ
+exit_at         TIMESTAMPTZ
 bars_in_trade   INTEGER
 
 -- Excursion tracking
@@ -136,12 +150,62 @@ mfe             FLOAT   -- maximum favorable excursion (points)
 -- Outcome
 outcome         TEXT    -- one of 8 outcome classes
 exit_price      FLOAT
-exit_reason     TEXT    -- stop|target_1|target_1_2|target_full|ttl_expired
+exit_reason     TEXT    -- stop_loss|target_1|target_1_2|target_full|ttl_expired
 
 -- Zone bounds (resolved at signal creation)
-zone_low        FLOAT
-zone_high       FLOAT
+entry_zone_low  FLOAT
+entry_zone_high FLOAT
+
+-- Phase 81 fields
+is_backfill     BOOLEAN NOT NULL DEFAULT FALSE
+ttl_bars        INTEGER NOT NULL DEFAULT 10
+
+-- Phase 79/80 fields
+signal_schema_version TEXT DEFAULT 'v0'
+swarm_multiplier      FLOAT
+adjusted_confidence   FLOAT
+swarm_agent_count     INTEGER
 ```
+
+---
+
+## Schema Versioning (Phase 79)
+
+The `signal_schema_version` column distinguishes signal generations:
+
+| Version | Meaning |
+|---------|---------|
+| `v0` | Pre-Phase-79 signals. Entry zones were zero-width or had incorrect entry_price for pullback/limit entry types. **ML training queries MUST exclude v0** (`WHERE signal_schema_version = 'v1'`). |
+| `v1` | Post-fix signals with proper zone geometry, resolved entry_price, and correct zone_low/zone_high bounds. |
+
+The Phase 83 migration (`TRUNCATE TABLE signal_ledger`) removed all contaminated v0 data. The `BarReplayProviderAgent` regenerated v1 signals from clean `market_data_ohlcv` history.
+
+---
+
+## Self-Healing: Bar Replay and Signal Replay (Phase 81)
+
+Two new services ensure signal lifecycle completeness even after outages, restarts, or data gaps:
+
+### BarReplayProviderAgent (L1)
+
+A one-shot service that replays historical market data into the live pipeline:
+- Reads `market_data_ohlcv` chronologically
+- Publishes 1m bars to `market.bars` and HTF bars to `market.bars.htf`
+- Checkpoint-based (resumes from last processed bar)
+- Self-terminates when caught up to `NOW() - 5 minutes`
+- On completion (`ExecStopPost`), restarts the live data provider and bar aggregator
+
+Use case: bootstrap a fresh pipeline, recover from extended downtime, or reprocess data after a signal schema upgrade.
+
+### SignalReplayAuditorAgent (L9)
+
+A periodic auditor (runs every 5 minutes) that resolves orphaned signal lifecycles:
+- Queries `signal_ledger WHERE exit_at IS NULL AND signal_schema_version = 'v1'` for signals past their TTL window
+- Replays each unresolved signal bar-by-bar against `market_data_ohlcv` using the same `evaluate_signal()` logic as the live tracker
+- Publishes idempotent `LifecycleTransition` events (lifecycle writer deduplicates)
+- Health invariant: `signal_replay_unresolved_gauge = 0`
+
+**Two-path safety:** The live `SignalTrackerComputeAgent` handles real-time tracking. The replay auditor catches anything missed — service restarts, data gaps, delayed arrivals. Both use the same evaluation logic.
 
 ---
 

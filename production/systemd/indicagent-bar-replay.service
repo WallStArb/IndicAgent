@@ -1,0 +1,25 @@
+[Unit]
+Description=IndicAgent Bar Replay Provider (one-shot historical OHLCV -> Kafka)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+EnvironmentFile=-/home/bg/dev/indicagent/.env
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.bar_replay_provider_agent
+# On clean exit (caught up), automatically restart live ingestion + HTF aggregation.
+ExecStopPost=/bin/systemctl start indicagent-ibkr-provider.service
+ExecStopPost=/bin/systemctl start indicagent-bar-aggregator.service
+Restart=no
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-bar-replay
+
+[Install]
+WantedBy=multi-user.target

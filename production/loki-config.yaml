@@ -26,10 +26,16 @@ schema_config:
         prefix: index_
         period: 24h
 
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+  retention_enabled: true
+
 ruler:
   alertmanager_url: http://localhost:9093
 
 limits_config:
+  retention_period: 168h
   reject_old_samples: true
   reject_old_samples_max_age: 168h
   max_query_length: 721h

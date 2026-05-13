@@ -12,7 +12,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
 
@@ -140,29 +141,35 @@ class VWAPDeviationPlugin:
         signal_type = "vwap_reversion_long" if direction == 1 else "vwap_reversion_short"
         regime_ctx = "vwap_extended_low" if direction == 1 else "vwap_extended_high"
 
-        signal = make_signal(
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
+        _tf = TradeFrame(
+            entry=entry,
+            entry_type="at_limit",
+            stop=stop,
+            stop_type="atr",
+            targets=_t_objs,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
+            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+        )
+        return make_signal_from_frame(
+            _tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
-            setup_plugin="trad_VWAPDeviation",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=entry,
-            stop_loss=stop,
-            targets=targets,
             confidence=confidence,
             regime_context=regime_ctx,
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
+            features_snapshot=capture_signal_features(
+                features, direction, "mean_reversion", confidence
+            ),
         )
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "mean_reversion",
-            signal["confidence"],
-        )
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

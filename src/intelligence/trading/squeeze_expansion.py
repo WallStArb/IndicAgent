@@ -13,7 +13,8 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
-from .signal_schema import make_signal
+from .signal_schema import make_signal_from_frame
+from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
 
 
 @dataclass
@@ -175,25 +176,33 @@ class SqueezeExpansionPlugin:
         signal_type = "squeeze_long" if direction == 1 else "squeeze_short"
         regime_ctx = "expansion_bullish" if direction == 1 else "expansion_bearish"
 
-        features_snapshot = capture_signal_features(features, direction, "trend", confidence)
-        signal = make_signal(
+        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
+        _tf = TradeFrame(
+            entry=entry,
+            entry_type="at_close",
+            stop=stop,
+            stop_type="atr",
+            targets=_t_objs,
+            rr_t1=_rr_t1,
+            rr_t2=_rr_t2,
+            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
+        )
+        return make_signal_from_frame(
+            _tf,
             symbol="",
             timeframe="",
             timestamp="",
             signal_type=signal_type,
-            setup_plugin="trad_SqueezeExpansion",
+            setup_plugin=self.name,
             direction=direction,
-            entry_price=entry,
-            stop_loss=stop,
-            targets=targets,
             confidence=confidence,
             regime_context=regime_ctx,
             confluence_score=0.0,
             supporting_factors=supporting,
             invalidation_conditions=[],
+            features_snapshot=capture_signal_features(features, direction, "trend", confidence),
         )
-        signal["features_snapshot"] = features_snapshot
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

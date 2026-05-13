@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.core.ai.context import render_full_context
-from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.core.ai.prompt_utils import DIRECTION_LABELS, clamp, fmt
 
 ACTIVE_VERSION = "skeptic_v2"
 
@@ -96,6 +96,42 @@ Rules:
   microstructure divergence (OFI/CVD), regime change risk (BOCPD/HMM), cross-asset
   divergence (corr_z), volume anomaly (volume_z_score).
 """
+
+
+def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
+    """Validate and sanitize the parsed skeptic response fields.
+
+    Moved here from skeptic_agent.py per D-03: field validators belong in the
+    prompts file alongside the prompt content they validate.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    fp = data.get("failure_probability")
+    conf = data.get("confidence")
+
+    if not isinstance(fp, (int, float)) or not isinstance(conf, (int, float)):
+        return None
+
+    fp = clamp(float(fp), 0.0, 1.0)
+    conf = clamp(float(conf), 0.0, 1.0)
+
+    risk_factors = data.get("risk_factors", [])
+    if not isinstance(risk_factors, list):
+        risk_factors = [str(risk_factors)]
+    else:
+        risk_factors = [str(rf) for rf in risk_factors]
+
+    reasoning = data.get("reasoning", "")
+    if not isinstance(reasoning, str):
+        reasoning = str(reasoning)
+
+    return {
+        "failure_probability": fp,
+        "confidence": conf,
+        "risk_factors": risk_factors,
+        "reasoning": reasoning,
+    }
 
 
 def build_skeptic_prompt(ctx: Any) -> str:

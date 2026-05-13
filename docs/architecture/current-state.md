@@ -50,6 +50,8 @@ Consolidated I1-I7 into a single in-process agent:
 - DLQ topics standardized across all payload-parsing agents (Plan 067-07)
 - `bar_id` UUID traceability end-to-end from bar ingestion through signal generation (Phase 68-03)
 
+**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). LLM call observability via Langfuse; ML experiment tracking via MLflow. Full pipeline: `docs/architecture/observability.md`.
+
 ## Active Services
 
 | Service | File | Systemd Unit | Metrics Port | Purpose |
@@ -114,13 +116,13 @@ Consolidated I1-I7 into a single in-process agent:
 │  │ I1: Technical Indicators (28 plugins)                              │   │
 │  │   → ATR, RSI, MACD, ADX, BB, VWAP, Stoch, OFI, CVD, etc.          │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I2: Composite Events (11 plugins)                                  │   │
+│  │ I2: Composite Events (10 plugins)                                  │   │
 │  │   → MACDEvents, RSIEvents, ADXEvents, VolumeEvents, etc.           │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I3: Market Structure (9 plugins)                                   │   │
+│  │ I3: Market Structure (8 plugins)                                   │   │
 │  │   → Swing, S/R, MarketProfile, SessionLevels, FibZones, etc.       │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I4: Context / Regime (13 plugins)                                  │   │
+│  │ I4: Context / Regime (12 plugins)                                  │   │
 │  │   → GARCH, Kalman, HurstExp, VIXRegime, CrossAsset, VWAP, VP       │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
 │  │ I5: Pattern Recognition (16 plugins)                               │   │
@@ -129,10 +131,10 @@ Consolidated I1-I7 into a single in-process agent:
 │  │ SMC: Smart Money Concepts (13 plugins)                             │   │
 │  │   → BOS/CHoCH, FVG, OrderBlocks, HMMRegime, BOCPD, etc.            │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I6: CrossTimeframeConfluence (1 plugin)                            │   │
+│  │ I6: CrossTimeframeConfluence (6 plugins)                           │   │
 │  │   → Multi-TF trend/structure/regime/SMC alignment scores           │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ I7: Signal Generation (37 plugins)                                 │   │
+│  │ I7: Signal Generation (36 + 2 agg)                                 │   │
 │  │   → Directional signals with confidence                            │   │
 │  └────────────────────────────────────────────────────────────────────┘   │
 │                              ↓                         ↓                   │
@@ -207,13 +209,13 @@ Consolidated I1-I7 into a single in-process agent:
 | Tier | Plugins | Output |
 |------|---------|--------|
 | I1 | 28 | Technical indicators + OFI + CVD |
-| I2 | 11 | Composite events (MACD, RSI, ADX, volume, etc.) |
-| I3 | 9 | Market structure (swing, S/R, profile, session, fib) |
-| I4 | 13 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
+| I2 | 10 | Composite events (MACD, RSI, ADX, volume, etc.) |
+| I3 | 8 | Market structure (swing, S/R, profile, session, fib) |
+| I4 | 12 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
 | I5 | 16 | Pattern detection (divergence, squeeze, chart patterns) |
 | SMC | 13 | Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) |
-| I6 | 1 | CrossTimeframeConfluence |
-| I7 | 37 | Trading signals |
+| I6 | 6 | CrossTimeframeConfluence + 5 confluence plugins |
+| I7 | 36 + 2 agg | Trading signals + CISScorer + SignalAggregator |
 | I8 | — | LLM narratives (separate service) |
 
 ## Key Principles
@@ -234,13 +236,13 @@ Consolidated I1-I7 into a single in-process agent:
 |--------|-------|---------|
 | **Throughput** | ~4.5 bars/sec | Single symbol, all timeframes |
 | **Latency** | ~220ms/bar | End-to-end I1→I7 |
-| **Plugin Count** | 128 total | 28 I1, 11 I2, 9 I3, 13 I4, 16 I5, 13 SMC, 1 I6, 37 I7 (+2 aggregation) |
+| **Plugin Count** | 129 + 2 agg | 28 I1, 10 I2, 8 I3, 12 I4, 16 I5, 13 SMC, 6 I6, 36 I7 (+2 aggregation) |
 
 ### Parallelization Architecture
 
 **Tier Parallelization:**
 - **I1 (28 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
-- **I7 (37 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
+- **I7 (36 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
 - **I2-I6** — sequential execution (current bottleneck)
 
 **Latency Breakdown (Per Bar):**

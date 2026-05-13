@@ -315,8 +315,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
   Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
-- [ ] **Phase 70: ML Scoring Model** — DEFERRED ~May 10 (30-day data gate)
-  LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45).
+- [ ] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling**
+  **Goal:** Add a statistically-validated LightGBM scoring layer (MLScorerMultiplierAgent in alpha swarm, shadow_only=True) + nightly MLTrainingComputeAgent (L8) + AI-SEP-01 table decoupling (new signal_ai_enrichment and intelligence_ai_enrichment tables; migrate SwarmLedgerWriterAgent and LlmWriterService writes off quant tables). Features: 27-key _shadow dicts from all 36 I7 plugins + bar context. Global + 3 hmm_regime models. Walk-forward 60/20/20 CV, SHAP via MLflow. SIGUSR1 hot-reload after nightly training.
+  **Plans:** 4 plans
+  Plans:
+  - [ ] 070-01-PLAN.md — Migration 084: signal_ai_enrichment + intelligence_ai_enrichment tables + features_snapshot column on signal_ledger; signal_writer_agent.py populates new column
+  - [ ] 070-02-PLAN.md — AI-SEP-01 writer migration: SwarmLedgerWriterAgent and LlmWriterService UPSERT to new AI-owned tables
+  - [ ] 070-03-PLAN.md — Feature builder (src/intelligence/ml/feature_builder.py) + MLTrainingComputeAgent (nightly oneshot, delta-gate, walk-forward CV, MLflow + SHAP, ModelRegistry register, SIGUSR1 swarm reload)
+  - [ ] 070-04-PLAN.md — MLScorerMultiplierAgent + AlphaSwarmComputeAgent integration (SIGUSR1 handler) + service_auditor _DAG_ORDER entry + systemd unit and timer files
+  **Planning:** `.planning/phases/070-ml-scoring-model/`
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
   Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
@@ -1065,3 +1072,37 @@ Plans:
 **Requirements:** P80-BASE, P80-SKEPTIC, P80-CORRELATION, P80-REGIME, P80-COUNTERFACTUAL, P80-DISPATCH, P80-WEIGHTS, P80-SCHEMA, P80-OBSERVABILITY
 
 Plans:
+- [x] 080-01-PLAN.md — BaseMultiplierAgent + prompt_utils + Settings + Metrics + AIContextCache I7 fix
+- [x] 080-02-PLAN.md — Migration 082: signal_ledger swarm columns + swarm_agent_weights table
+- [x] 080-03-PLAN.md — Skeptic refactor onto BaseMultiplierAgent + TEMPLATE_agent.py update
+- [x] 080-04-PLAN.md — CorrelationAgentComputeAgent + prompts + tests
+- [x] 080-05-PLAN.md — RegimeCoherenceAgentComputeAgent + prompts + tests
+- [x] 080-06-PLAN.md — CounterfactualAgentComputeAgent + prompts + tests
+- [x] 080-07-PLAN.md — Dispatch refactor: typed agent list, gates, semaphore, weighted aggregation, weight learning
+- [x] 080-08-PLAN.md — SwarmLedgerWriterAgent + topic_swarm_alpha (existing) + DAG registration
+- [x] 080-09-PLAN.md — Integration tests + VERIFICATION.md
+
+### Phase 81: Signal Lifecycle Hardening
+
+**Goal:** Eliminate six structural defects in the signal lifecycle subsystem — publisher ships `timestamp=""`, three divergent signal loading paths, `SignalTrackerComputeAgent` DB writes on startup (contract violation), D-05 training data discard gate, no `is_backfill` provenance, and missing `ttl_bars`/`is_backfill` columns. After this phase: every `signal_schema_version='v1'` signal has a complete, correct outcome label; `signal_replay_unresolved_gauge=0` is the permanent health invariant; and the ML training set is provably clean via `WHERE signal_schema_version='v1' AND is_backfill=FALSE`.
+
+**Status:** ✅ Complete (2026-05-10)
+
+**Depends on:** Phase 79 (signal_schema_version v1, make_signal_from_frame), Phase 76 (SignalTrackerComputeAgent architecture)
+
+**Design doc:** `docs/plans/2026-05-08-signal-lifecycle-hardening-design.md`
+
+**Requirements:** P81-PUBLISHER, P81-LOADER, P81-TRACKER, P81-REPLAY, P81-BARREPLAY, P81-MIGRATION, P81-METRICS, P81-TESTS
+
+Plans:
+- [x] 081-01-PLAN.md — DB migration 083: TRUNCATE signal_ledger + add is_backfill, ttl_bars columns
+- [x] 081-02-PLAN.md — Publisher normalization: inject timestamp/is_backfill/ttl_bars at intelligence_pipeline_agent publish site
+- [x] 081-03-PLAN.md — Tracker refactor: _load_signal canonical intake, backfill fast-path, delete D-03 sweep + D-05 gate; remove D-02 workaround in lifecycle_tracker
+- [x] 081-04-PLAN.md — BarReplayProviderAgent (L1 one-shot) + systemd unit
+- [x] 081-05-PLAN.md — SignalReplayAuditorAgent (L9 periodic) + lifecycle_writer idempotency guard + systemd unit
+- [x] 081-06-PLAN.md — signal_ledger_backfill_ratio gauge + 4 Phase 81 Prometheus alert rules
+- [x] 081-07-PLAN.md — 16 unit tests covering loader, fast-path, publisher, replay, bar replay, D-02, no-DB-writes
+- [x] 081-08-PLAN.md — DAG registration for both new services + 4 integration tests (north-star: test_all_signals_resolved)
+
+**Plans:** 8 plans (8 complete)
+

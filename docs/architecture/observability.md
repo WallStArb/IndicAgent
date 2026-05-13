@@ -1,12 +1,73 @@
-# Observability Patterns — Metrics & Monitoring
+# Observability Patterns — Metrics, Traces & Logs
 
-**Version:** 1.1
-**Last Updated:** 2026-04-21
-**Source:** `src/observability/metrics.py`
+**Version:** 1.2
+**Last Updated:** 2026-05-06
+**Sources:** `src/observability/metrics.py`, `src/observability/otel.py`, `src/observability/log_bridge.py`
 
 ## Overview
 
-IndicAgent uses Prometheus for metrics collection and Grafana for visualization. All agents emit the **Golden Signals** (Traffic, Latency, Errors, Saturation) plus domain-specific metrics.
+IndicAgent uses a unified OTel Collector pipeline — services push all telemetry (metrics, traces, logs) via OTLP gRPC to the Collector, which fans out to the appropriate backend. There are no per-service HTTP scrape endpoints.
+
+```
+Services (all)
+  │
+  ├── metrics (OTLP push, every 15s)  ─┐
+  ├── traces  (OTLP push, batched)    ─┼─→  OTel Collector :4317
+  └── logs    (OTLP push, every 5s)   ─┘         │
+                                            ┌─────┼──────┐
+                                            ▼     ▼      ▼
+                                        Prometheus Tempo  Loki
+                                        exporter  traces  logs
+                                        :8889            
+                                            │
+                                      Prometheus :9090
+                                      (scrapes :8889 every 15s)
+                                            │
+                                       Grafana :3001
+                                   (Prometheus + Tempo + Loki)
+```
+
+**Key design decisions:**
+- **Push-only** — `otel.py` initialises a `MeterProvider` with `PeriodicExportingMetricReader` (15s interval) and a `TracerProvider` with `BatchSpanProcessor`, both exporting via OTLP gRPC to `localhost:4317`. Services never open HTTP `/metrics` endpoints.
+- **Single Prometheus scrape target** — Prometheus only scrapes the Collector's `:8889` Prometheus exporter. All service metrics flow through one path.
+- **Graceful degradation** — `init_otel_providers()` wraps all setup in try/except. If the Collector is unreachable, services fall back to no-op providers and continue running.
+- **`deployment.environment` tagged at Collector** — the Collector's `resource` processor injects `INDICAGENT_ENV`, so dev/prod metrics are tagged centrally rather than per-service.
+
+## Initialising Telemetry in a Service
+
+```python
+from src.observability.otel import init_otel_providers
+from src.observability.log_bridge import setup_otlp_logging
+
+# Called automatically by BaseAgent.start() — manual call only needed in non-agent entry points
+init_otel_providers(service_name="my-service")   # metrics + traces
+setup_otlp_logging(service_name="my-service")    # OTLP log bridge (additive to file logging)
+```
+
+`setup_otlp_logging` is additive — structlog still writes to `logs/<service>.log` first; the OTLP bridge forwards to Loki on a best-effort basis.
+
+## Traces (Tempo)
+
+Spans flow: service → OTel Collector → Tempo. Query in Grafana via the Tempo datasource.
+
+```python
+from src.observability.otel import get_tracer
+
+tracer = get_tracer("my-service")
+with tracer.start_as_current_span("compute_i7"):
+    result = self._run_i7_plugins(bar)
+```
+
+`BaseAgent.__init__` sets `self.tracer` automatically — no manual setup needed inside agents.
+
+## Logs (Loki)
+
+Three layers, in order of reliability:
+1. **File** (`logs/<service>.log`) — always on, primary source for debugging
+2. **Loki** (via `log_bridge.py`) — best-effort OTLP push, queryable in Grafana
+3. **journald** — only captures `print()` output, not structlog
+
+## Metric Registry
 
 ## Metric Registry
 
@@ -186,30 +247,20 @@ rate(merger_bars_routed_total[5m])
 increase(merger_failovers_total[1h])
 ```
 
-## Metrics Server Ports
+## Telemetry Endpoints
 
-| Service | Port | Dashboard Path |
-|---------|------|----------------|
-| IBKR Provider | 9129 | `http://localhost:9129/metrics` |
-| Provider Merger | 9130 | `http://localhost:9130/metrics` |
-| Bar Aggregator | 9120 | `http://localhost:9120/metrics` |
-| Bar Writer | 9121 | `http://localhost:9121/metrics` |
-| Bar Auditor | 9123 | `http://localhost:9123/metrics` |
-| Roll Compute | 9122 | `http://localhost:9122/metrics` |
-| Contract Metadata Writer | 9124 | `http://localhost:9124/metrics` |
-| Intelligence Pipeline | 9125 | `http://localhost:9125/metrics` |
-| Signal Writer | 9119 | `http://localhost:9119/metrics` |
-| Signal Tracker | 9115 | `http://localhost:9115/metrics` |
-| Signal Metrics Compute | 9126 | `http://localhost:9126/metrics` |
-| Signal Metrics Writer | 9127 | `http://localhost:9127/metrics` |
-| Signal Auditor | 9128 | `http://localhost:9128/metrics` |
-| Feature Writer | 9116 | `http://localhost:9116/metrics` |
-| Feature Snapshot Writer | 9132 | `http://localhost:9132/metrics` |
-| Parity Auditor | 9133 | `http://localhost:9133/metrics` |
-| LLM Writer | 9117 | `http://localhost:9117/metrics` |
-| AI Narrative | 9113 | `http://localhost:9113/metrics` |
-| Cross Asset | 9118 | `http://localhost:9118/metrics` |
-| Service Auditor | 9131 | `http://localhost:9131/metrics` |
+Services do **not** expose per-service HTTP `/metrics` scrape endpoints. All metrics are pushed via OTLP gRPC to the OTel Collector. To query metrics, use Prometheus (`:9090`) or Grafana (`:3001`).
+
+| Backend | Port | Purpose |
+|---------|------|---------|
+| OTel Collector (gRPC) | `:4317` | Receives OTLP metrics/traces/logs from all services |
+| OTel Collector (HTTP) | `:4318` | Alternative OTLP HTTP endpoint |
+| OTel Collector (Prometheus exporter) | `:8889` | Scraped by Prometheus |
+| Prometheus | `:9090` | Metrics storage + alerting |
+| Grafana | `:3001` | Dashboards (Prometheus + Tempo + Loki) |
+| Loki | `:3100` | Log aggregation |
+| Tempo | `:3200` | Distributed traces |
+| Alertmanager | `:9093` | Alert routing |
 
 ## Recording Rules (Recommended)
 
@@ -331,26 +382,12 @@ These are defined directly in `src/core/agent/base.py` (not in `src/observabilit
 |--------|------|--------|---------|
 | `regime_gate_suppressions_total` | Counter | reason, plugin, tf | Signals suppressed by regime eligibility gate |
 
-## OTel Tracing
+## OTel Configuration
 
-OTel is active. `opentelemetry-sdk` v1.41.0 is installed. Every agent gets `self.tracer` at init — tracing is a no-op when no OTLP endpoint is configured.
-
-```python
-from src.observability.otel import init_tracing, get_tracer
-
-# Called automatically by BaseAgent.start() — manual call only needed in non-agent entry points
-init_tracing(service_name="my-service")
-
-# Usage within any agent (self.tracer is already set by BaseAgent.__init__)
-with self.tracer.start_as_current_span("compute_i1"):
-    result = self._run_i1_plugins(bar)
-```
-
-**Configuration:**
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP HTTP endpoint (default: `http://localhost:4318`)
-- `OTEL_EXPORTER_OTLP_HEADERS` — Comma-separated `key=value` auth headers
+**Environment variables:**
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP gRPC endpoint (default: `http://localhost:4317`)
 - `APP_VERSION` — Sets `service.version` resource attribute
-- `ENV` — Sets `deployment.environment` resource attribute
+- `INDICAGENT_ENV` — Sets `deployment.environment` (also injected by the Collector's resource processor)
 
 ## See Also
 
