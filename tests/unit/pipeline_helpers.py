@@ -54,6 +54,7 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._output_queue = asyncio.Queue(maxsize=500)
     agent._transform_recorder = MagicMock()
     agent._regime_prob_min = 0.7
+    agent._regime_prob_soft_max = 0.55
     agent._regime_dur_min = 12
     cpu_count = os.cpu_count() or 24
     agent._executor = ThreadPoolExecutor(
