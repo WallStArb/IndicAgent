@@ -29,6 +29,7 @@ Plan 80-07 changes:
 from __future__ import annotations
 
 import asyncio
+import signal as _signal
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -50,6 +51,7 @@ from src.core.stream_keys import (
 )
 from src.intelligence.ai.alpha.correlation_agent import CorrelationComputeAgent
 from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualComputeAgent
+from src.intelligence.ai.alpha.ml_scorer_agent import MLScorerMultiplierAgent
 from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
 from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
@@ -73,6 +75,7 @@ _SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
     "correlation_v1": ("swarm_correlation", 6),
     "regime_coherence_v1": ("swarm_regime_coherence", 6),
     "counterfactual_v1": ("swarm_counterfactual", 6),
+    "ml_scorer_v1": ("swarm_ml_scorer", 6),
 }
 
 # Lead index mapping: ES -> NQ (per D-36 / D-37)
@@ -162,6 +165,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             RegimeCoherenceComputeAgent(llm_chain=self._llm_chain),
             CounterfactualComputeAgent(llm_chain=self._llm_chain),
         ]
+        # MLScorerMultiplierAgent: no LLM chain; uses pool for ModelRegistry.
+        # Must be appended after super()._setup() so self._pool is available.
+        self._agents.append(MLScorerMultiplierAgent(pool=self._pool))
+        await self._agents[-1]._setup_models()
+
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
 
         # Single LineageRecorder for all swarm prediction events.
@@ -175,6 +183,14 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         # D-23: idempotent enrollment — guarantees row exists even if migration missed
         if self._pool is not None:
             await self._shadow_registry_ensure_swarm()
+
+        # SIGUSR1 hot-reload: triggered by nightly training agent after model registration.
+        # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is
+        # inside an async function so the running loop is guaranteed to be the right one
+        # (Pitfall 5 in Phase 070 RESEARCH.md).
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(_signal.SIGUSR1, self._on_sigusr1)
+        self.logger.info("alpha_swarm.sigusr1_handler_registered")
 
         agent_ids = [a.agent_id for a in self._agents]
         self.logger.info("alpha_swarm.started", agents=agent_ids)
@@ -387,6 +403,32 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         if weight_sum == 0.0 or valid_count == 0:
             return None, 0
         return weighted_sum / weight_sum, valid_count
+
+    def _on_sigusr1(self) -> None:
+        """Sync SIGUSR1 handler — schedules ML model hot-reload via asyncio task.
+
+        Signal handlers must be synchronous; async work is scheduled via create_task.
+        """
+        self.logger.info("alpha_swarm.sigusr1_received")
+        asyncio.create_task(self._reload_ml_models())
+
+    async def _reload_ml_models(self) -> None:
+        """Reload models on all agents that expose _setup_models() (SIGUSR1 trigger).
+
+        Exceptions per-agent are caught and logged; one agent's reload failure
+        does not abort the rest.
+        """
+        for agent in self._agents:
+            if hasattr(agent, "_setup_models"):
+                try:
+                    await agent._setup_models()
+                except Exception as exc:
+                    self.logger.warning(
+                        "alpha_swarm.model_reload_failed",
+                        agent=agent.__class__.__name__,
+                        error=str(exc),
+                    )
+        self.logger.info("alpha_swarm.ml_models_reloaded_sigusr1")
 
     async def _teardown(self) -> None:
         """Stop lineage recorder (drains buffer) before base teardown."""
