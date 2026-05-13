@@ -19,6 +19,7 @@ import ast
 import asyncio
 import json
 import os
+import signal as _signal
 import threading
 import time
 import zoneinfo
@@ -67,6 +68,9 @@ from src.core.stream_keys import (
 )
 from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
+
+# Re-import I1-I6 tiers from register_plugins (shared source of truth)
+from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.pipeline import (
     apply_calibration,
     apply_quality_gate,
@@ -76,8 +80,6 @@ from src.intelligence.pipeline import (
     select_winner,
 )
 from src.intelligence.plugins import registry
-
-# Re-import I1-I6 tiers from register_plugins (shared source of truth)
 from src.intelligence.register_plugins import (
     I2_WAVE_A,
     I2_WAVE_B,
@@ -475,6 +477,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Consumer group
         self._consumer_group = "intelligence_pipeline_group"
 
+        # Background tasks — prevent GC before completion (matches alpha_swarm pattern)
+        self._background_tasks: set = set()
+
         # --- Prometheus metrics ---
         self._output_buffer_depth = gauge(
             "intelligence_pipeline_output_buffer_depth",
@@ -614,6 +619,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await enroll_all_plugins(conn)
         await self._load_shadow_cache()
 
+        # 8. SIGUSR1 hot-reload: triggered by HMMTrainingAgent after writing new parameter files.
+        # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is
+        # inside an async function so the running loop is guaranteed to be the right one.
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(_signal.SIGUSR1, self._on_hmm_sigusr1)
+        self.logger.info("intelligence_pipeline.sigusr1_handler_registered")
+
         self.logger.info(
             "agent.setup_complete",
             shadow=self._shadow_mode,
@@ -695,6 +707,55 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if hasattr(self, "_db"):
             await self._db.close()
         self.logger.info("agent.teardown_complete")
+
+    # ------------------------------------------------------------------
+    # SIGUSR1 hot-reload for HMM parameters
+    # ------------------------------------------------------------------
+
+    def _on_hmm_sigusr1(self) -> None:
+        """Sync SIGUSR1 handler — schedules HMM parameter hot-reload via asyncio task.
+
+        Signal handlers must be synchronous; async work is scheduled via create_task.
+        The task is stored in self._background_tasks to prevent GC before completion.
+        Matches the pattern used in alpha_swarm_agent.py.
+        """
+        self.logger.info("intelligence_pipeline.sigusr1_received")
+        task = asyncio.create_task(self._reload_hmm_parameters())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+        def _log_exc(t: asyncio.Task) -> None:
+            if not t.cancelled() and (exc := t.exception()):
+                self.logger.error("intelligence_pipeline.hmm_reload_failed", error=str(exc))
+
+        task.add_done_callback(_log_exc)
+
+    async def _reload_hmm_parameters(self) -> None:
+        """Reload parameters on all HMM instances in TIER_SMC (SIGUSR1 trigger).
+
+        Iterates TIER_SMC filtered to HMMRegimePlugin instances, calls
+        reload_parameters() on each. Per-TF failures are caught and logged;
+        a single TF failure does not abort the remaining reloads.
+        """
+        reloaded_tfs: list[str] = []
+        for plugin_name in TIER_SMC:
+            plugin = self._plugin_cache.get(plugin_name)
+            if not isinstance(plugin, HMMRegimePlugin):
+                continue
+            try:
+                plugin.reload_parameters()
+                reloaded_tfs.append(plugin.timeframe)
+            except Exception as exc:
+                self.logger.warning(
+                    "intelligence_pipeline.hmm_reload_tf_failed",
+                    timeframe=plugin.timeframe,
+                    error=str(exc),
+                )
+        self.logger.info(
+            "intelligence_pipeline.hmm_reload_complete",
+            hmm_reload=True,
+            reloaded_tfs=reloaded_tfs,
+        )
 
     # ------------------------------------------------------------------
     # Main processing loop
