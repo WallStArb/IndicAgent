@@ -70,6 +70,17 @@ _ALWAYS_CLEAR = [
     "pattern_reliability",  # Historical pattern reliability
     "llm_calls",  # LLM call audit log
     "llm_model_scores",  # LLM performance scores
+    # W5: signal derivative tables (rebuilt by fixed pipeline)
+    "signal_lineage",
+    "signal_transform_log",
+    "signal_metrics",
+    "signal_metrics_dq_failures",
+    "signal_metrics_ic",
+    # W5: AI/LLM enrichment tables (rebuilt from clean signals)
+    "signal_ai_enrichment",
+    "intelligence_ai_enrichment",
+    "alpha_multiplier_shadow",
+    "swarm_agent_weights",
 ]
 
 # Tables in _ALWAYS_CLEAR that have no symbol column (always TRUNCATE, never per-symbol DELETE)
@@ -83,6 +94,15 @@ _ALWAYS_TRUNCATE = {
     "contract_metadata",
     "llm_calls",
     "llm_model_scores",
+    "signal_lineage",
+    "signal_transform_log",
+    "signal_metrics",
+    "signal_metrics_dq_failures",
+    "signal_metrics_ic",
+    "signal_ai_enrichment",
+    "intelligence_ai_enrichment",
+    "alpha_multiplier_shadow",
+    "swarm_agent_weights",
 }
 
 # Cleared only without --keep-ohlcv

@@ -7,9 +7,7 @@ from typing import TYPE_CHECKING
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 
 # Single canonical version tag. All signal producers and consumers reference this.
-SIGNAL_SCHEMA_VERSION = "v2"
-# Signals produced before v1 have contaminated entry/zone data — skip at consumer boundaries.
-LEGACY_SIGNAL_SCHEMA_VERSION = "v0"
+SIGNAL_SCHEMA_VERSION = "v1"
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame

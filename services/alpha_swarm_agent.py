@@ -55,7 +55,7 @@ from src.intelligence.ai.alpha.ml_scorer_agent import MLScorerMultiplierAgent
 from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
 from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
-from src.intelligence.trading.signal_schema import LEGACY_SIGNAL_SCHEMA_VERSION
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SWARM_AGENT_WEIGHT,
     SWARM_AGGREGATED_MULTIPLIER,
@@ -442,10 +442,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         4. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
         # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
-        if (
-            raw_signal.get("signal_schema_version", LEGACY_SIGNAL_SCHEMA_VERSION)
-            == LEGACY_SIGNAL_SCHEMA_VERSION
-        ):
+        if raw_signal.get("signal_schema_version", SIGNAL_SCHEMA_VERSION) == SIGNAL_SCHEMA_VERSION:
             return
 
         # TF gate — before any LLM context build (zero cost for ineligible signals)
