@@ -207,7 +207,7 @@ class SignalReplayAuditorAgent:
             "targets": targets,
             "ttl_bars": int(row["ttl_bars"] or 10),
             "bars_elapsed": 0,  # reset for bar-by-bar replay
-            "point_value": 1.0,
+            "point_value": 1.0,  # replay assumes single-contract base; multi-contract not tracked here
             "entry_zone_low": (
                 float(row["entry_zone_low"])
                 if row["entry_zone_low"] is not None
