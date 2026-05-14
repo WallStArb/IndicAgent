@@ -1,0 +1,152 @@
+# Signal Quality Hardening — Phase A Design
+
+Date: 2026-05-14
+Status: Approved
+Scope: Fix signal pipeline quality gates, eliminate phantom PnL, start clean
+
+## Problem Statement
+
+The signal pipeline produces ~50K signals/day with 99.98% TTL-expiring as noise. Root causes:
+
+1. **TTL hardcoded at 10 bars** — 10 minutes on 1m TF, too short for structural setups. TF-aware TTL exists in `service_utils.py` but was never wired in.
+2. **Price precision loss** — `signal_schema.py` rounds all prices to 2dp. EURUSD 1.16917 → 1.17, making stop == entry. This is the root cause of all micro-stops and phantom PnL.
+3. **No emission gate** — signals with stop==entry, RR<1.5, or no structural stop pass through unfiltered.
+4. **Market entry track broken** — 406K signals have `market_entry_price` but 0 have `market_entry_pnl_r`. Outcomes never persist.
+5. **TTL check before stop/target** — signals expire even when price is at target on the TTL bar.
+
+## Design
+
+### W1: Wire TF_TTL_BARS into Pipeline
+
+**Current state:** `TF_TTL_BARS` defined in `src/core/service_utils.py` with values `{1m:20, 5m:12, 15m:8, 1h:6}`. Only used by `lifecycle_replay.py`. Pipeline still uses `ttl_bars=10` default.
+
+**Change:**
+- `make_signal_from_frame()` in `signal_schema.py`: accept `timeframe` param, look up `TF_TTL_BARS.get(timeframe, 10)` for `ttl_bars`
+- `make_signal()`: change default from 10 to accept explicit value
+- `intelligence_pipeline_agent.py`: remove `sig.setdefault("ttl_bars", 10)` defensive fallback
+- Each I7 plugin passes `timeframe` through to `make_signal_from_frame()`
+
+**Files:** `signal_schema.py`, `intelligence_pipeline_agent.py`, all 36 I7 plugins (timeframe param)
+
+### W2: Move TTL Check After Stop/Target
+
+**Current state:** `lifecycle_tracker.py:evaluate_signal()` checks TTL at line 226, BEFORE zone activation (257), stop (445), and target (473).
+
+**Change:** Reorder `evaluate_signal()`:
+1. Zone activation (pending → active)
+2. Stop loss check
+3. Target hit check
+4. Chandelier trailing stop
+5. Staleness check
+6. TTL expiry (last)
+
+Same reordering for `evaluate_market_entry()` (lines 549-565).
+
+**Files:** `lifecycle_tracker.py`
+
+### W3: Fix Price Precision
+
+**Current state:** `signal_schema.py:96-98` rounds to 2dp:
+```python
+"entry_price": round(entry_price, 2),
+"stop_loss": round(stop_loss, 2),
+"targets": [round(t, 2) for t in targets],
+```
+
+**Change:**
+- Add `TICK_SIZES` dict to `src/core/service_utils.py` populated from instrument config in `settings.py`
+- Add `round_to_tick(price: float, symbol: str) -> float` utility
+- Replace `round(x, 2)` with `round_to_tick(x, symbol)` in `signal_schema.py`
+- Also round zone_low, zone_high to tick precision
+
+**Tick sizes by instrument group:**
+- FX pairs: 0.00001 (pipette)
+- JPY pairs: 0.001
+- Index futures (ES, NQ, YM, RTY): 0.25
+- Rate futures (ZN, ZB, ZF, ZT): 1/64 or 0.015625
+- Commodity futures (CL, NG, ZW, ZC, ZS): varies (0.01, 0.001, 0.25)
+- Equities/ETFs: 0.01
+
+Default for unknown: preserve full precision (no rounding).
+
+**Files:** `service_utils.py` (TICK_SIZES + round_to_tick), `signal_schema.py`, `settings.py` (instrument config)
+
+### W4: Hard Emission Gate
+
+**Current state:** No validation beyond TradeFrame.viable check. Signals with stop==entry or RR<1.5 pass through.
+
+**Change:** Add validation in `make_signal_from_frame()` AFTER TradeFrame construction:
+1. `abs(entry - stop) >= tick_size` — stop must be at least 1 tick from entry
+2. `rr_t1 >= MIN_RR_T1 (1.5)` — minimum risk/reward
+3. `stop_type != "unknown"` — must have identified a structural stop basis
+4. If any gate fails, raise ValueError (caught by plugin → `no_signal()`)
+
+This is applied at the signal construction boundary — invisible to plugins, enforced universally.
+
+**Files:** `signal_schema.py` (validation in make_signal_from_frame)
+
+### W5: Wipe signal_ledger
+
+**Current state:** 2.5M rows, 99.98% noise, phantom PnL from precision loss.
+
+**Change:**
+- `TRUNCATE signal_ledger CASCADE` — wipes all signals and dependent tables
+- Also truncate: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`
+- Reset `setup_performance` — stats computed from garbage PnL
+- Keep: `intelligence_features`, `market_data_ohlcv`, `shadow_registry`, `instruments`, `contract_metadata` — these are clean
+
+**Execution:** One-time SQL script, run before pipeline restart with fixes.
+
+### W6: Fix Market Entry Track Persistence
+
+**Current state:** 406K signals have `market_entry_price` but 0 have `market_entry_pnl_r`. The `evaluate_market_entry()` function runs per bar but outcomes never persist.
+
+**Change:** Trace the `_publish_market_resolution()` path in `signal_tracker_compute_agent.py` to find where the write fails. Likely issue: the market resolution is published as a Kafka event but the lifecycle_writer doesn't handle market-track updates, OR the update SQL doesn't SET the market_entry columns.
+
+**Files:** `signal_tracker_compute_agent.py`, `lifecycle_writer_agent.py`, `signal_ledger_repository.py`
+
+## Execution Order
+
+1. **W3 (price precision)** — most fundamental, fixes stop calculation
+2. **W4 (emission gate)** — depends on tick sizes from W3
+3. **W1 (wire TTL)** — independent of precision
+4. **W2 (reorder TTL check)** — independent, small change
+5. **W6 (market entry track)** — independent, diagnostic fix
+6. **W5 (wipe data)** — LAST, after all code changes deployed and tested
+7. **Restart pipeline** — with clean code and clean data
+
+## Phase B (Deferred)
+
+After 3-5 days of clean data:
+- Retrain isotonic calibration curves on real outcomes
+- Remove +0.05 per-agreement confidence boost in aggregator
+- Evaluate plugins against n>=30 positive-EV gate
+- Shadow or disable failing plugins
+
+## Success Metrics
+
+After 7 days of clean pipeline:
+- Signal count: <5K/day (from 50K)
+- Actionable rate: >5% hitting stop or target (from 0.02%)
+- No signals with stop==entry
+- No signals with pnl_r > 50 (from micro-stop inflation)
+- Market entry track: >0 signals with market_entry_pnl_r populated
+- Confidence calibration: monotonic (higher confidence → better PnL)
+
+## Files Changed
+
+| File | Changes |
+|------|---------|
+| `src/core/service_utils.py` | Add TICK_SIZES, round_to_tick() |
+| `src/intelligence/trading/signal_schema.py` | Wire TF_TTL_BARS, replace round(x,2), add emission gate |
+| `src/intelligence/trading/lifecycle_tracker.py` | Reorder TTL check after stop/target |
+| `services/intelligence_pipeline_agent.py` | Remove ttl_bars=10 fallback, pass timeframe |
+| `services/signal_tracker_compute_agent.py` | Fix market entry track persistence |
+| All 36 I7 plugins | Pass timeframe to make_signal_from_frame() |
+
+## Rollback
+
+If issues arise:
+- Revert `signal_schema.py` rounding to `round(x, 4)` (safe middle ground)
+- Revert TTL to 10 bars (conservative)
+- All changes are in code, not schema — rollback is `git revert`
