@@ -20,6 +20,27 @@ cd dashboard && npm run dev
 
 **Requires:** Python 3.11+, Docker (TimescaleDB, Redpanda), systemd, Node.js 18+.
 
+## Done-Coding SOP
+
+Run these steps in order when a coding session is complete, before pushing.
+
+```
+1. /simplify               # clean up changed code
+2. /review                 # peer code review (or /coderabbit:code-review)
+3. pytest tests/unit/ -q   # must be green
+4. commit on feature branch
+5. git checkout main && git merge --ff-only <branch>   # fast-forward merge to main
+6. git branch -d <branch>                              # delete local feature branch
+7. git worktree prune                                  # remove stale worktree refs
+8. git push origin main
+```
+
+**Worktree cleanup** — list before/after: `git worktree list`. Remove a specific stale tree: `git worktree remove <path> --force`. If the path is already gone, `git worktree prune` is sufficient.
+
+**Branch cleanup** — list merged branches: `git branch --merged main`. Delete a stale local branch: `git branch -d <branch>`. If unmerged but dead: `git branch -D <branch>`.
+
+If `--ff-only` fails (diverged history), use `git merge --no-ff <branch>` with a merge commit — never rebase shared branches.
+
 ## Core Commands
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
