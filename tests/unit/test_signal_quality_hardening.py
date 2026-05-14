@@ -5,7 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
+from src.intelligence.trading.lifecycle_tracker import evaluate_market_entry, evaluate_signal
 from src.intelligence.trading.signal_schema import make_signal, make_signal_from_frame
+from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 
 class TestTickSizes:
@@ -265,3 +267,71 @@ class TestEmissionGate:
                 supporting_factors=[],
                 invalidation_conditions=[],
             )
+
+
+class TestTTLReorder:
+    """W2: TTL check runs AFTER stop/target, so price-at-target signals don't expire."""
+
+    def _base_signal(self, status=SignalStatus.ACTIVE, bars_elapsed=20, ttl=20):
+        return {
+            "signal_id": "test-001",
+            "status": status,
+            "direction": 1,
+            "entry_price": 100.0,
+            "stop_loss": 98.0,
+            "targets": [104.0],
+            "ttl_bars": ttl,
+            "bars_elapsed": bars_elapsed,
+            "point_value": 1.0,
+            "entry_zone_low": 99.5,
+            "entry_zone_high": 100.5,
+        }
+
+    def test_target_hit_on_ttl_bar_takes_target_not_ttl(self):
+        sig = self._base_signal(bars_elapsed=20, ttl=20)
+        result = evaluate_signal(sig, high=105.0, low=99.0, close=103.0)
+        assert result is not None
+        assert result.exit_reason == "target_1"
+
+    def test_stop_on_ttl_bar_takes_stop_not_ttl(self):
+        sig = self._base_signal(bars_elapsed=20, ttl=20)
+        result = evaluate_signal(sig, high=101.0, low=97.0, close=97.5)
+        assert result is not None
+        assert result.exit_reason == "stop_loss"
+
+    def test_ttl_expired_when_no_hit(self):
+        sig = self._base_signal(bars_elapsed=20, ttl=20)
+        result = evaluate_signal(sig, high=101.0, low=99.5, close=100.5)
+        assert result is not None
+        assert result.exit_reason == "ttl_expired"
+
+
+class TestMarketEntryTTLReorder:
+    """W2: evaluate_market_entry also checks stop/target before TTL."""
+
+    def _base_signal(self, bars_elapsed=20, ttl=20):
+        return {
+            "signal_id": "test-mkt-001",
+            "direction": 1,
+            "entry_price": 100.0,
+            "stop_loss": 98.0,
+            "targets": [104.0],
+            "ttl_bars": ttl,
+            "bars_elapsed": bars_elapsed,
+        }
+
+    def test_target_hit_on_ttl_bar(self):
+        sig = self._base_signal(bars_elapsed=20, ttl=20)
+        result = evaluate_market_entry(
+            sig, market_entry_price=100.0, high=105.0, low=99.0, close=103.0
+        )
+        assert result.outcome is not None
+        assert result.exit_price == 104.0
+
+    def test_ttl_expired_when_no_hit(self):
+        sig = self._base_signal(bars_elapsed=20, ttl=20)
+        result = evaluate_market_entry(
+            sig, market_entry_price=100.0, high=101.0, low=99.5, close=100.5
+        )
+        assert result.outcome is not None
+        assert result.exit_price == 100.5
