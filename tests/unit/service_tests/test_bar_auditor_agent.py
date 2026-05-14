@@ -260,3 +260,35 @@ class TestRunAudit:
             await agent._run_audit()
 
         agent._audit_errors.inc.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Constant contracts (merged from tests/unit/test_bar_auditor_agent.py)
+# ---------------------------------------------------------------------------
+
+from services.bar_auditor_agent import _COMPLETENESS_GATE, _HTF_TIMEFRAME_MINUTES
+from src.core.stream_keys import topic_contract_updates
+
+
+def test_completeness_gate_constant():
+    """_COMPLETENESS_GATE must equal 0.97 — document the threshold contract."""
+    assert _COMPLETENESS_GATE == 0.97
+
+
+def test_htf_timeframe_minutes_constant():
+    """_HTF_TIMEFRAME_MINUTES must include 5m, 15m, 1h, 4h."""
+    assert "5m" in _HTF_TIMEFRAME_MINUTES
+    assert "15m" in _HTF_TIMEFRAME_MINUTES
+    assert "1h" in _HTF_TIMEFRAME_MINUTES
+    assert "4h" in _HTF_TIMEFRAME_MINUTES
+
+
+def test_topics_consumed_includes_contract_updates():
+    """topics_consumed must include the contract_updates topic for cache invalidation."""
+    from services.bar_auditor_agent import BarAuditorAgent
+
+    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent.settings = MagicMock(env_name="")
+    topics = BarAuditorAgent.topics_consumed.fget(agent)
+    expected_topic = topic_contract_updates("")
+    assert expected_topic in topics
