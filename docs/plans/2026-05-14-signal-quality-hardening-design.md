@@ -95,8 +95,9 @@ This is applied at the signal construction boundary — invisible to plugins, en
 
 **Change:** Full wipe — clean slate for the fixed pipeline:
 - `TRUNCATE signal_ledger CASCADE`
-- Truncate: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`, `setup_performance`
-- All signal data and derivatives will be rebuilt from scratch by the fixed pipeline
+- Truncate signal derivatives: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `setup_performance`
+- Truncate AI/LLM tables: `signal_ai_enrichment`, `intelligence_ai_enrichment`, `llm_calls`, `llm_model_scores`, `alpha_multiplier_shadow`, `swarm_agent_weights`
+- All signal and AI data will be rebuilt from scratch by the fixed pipeline
 - Keep: `intelligence_features`, `market_data_ohlcv`, `shadow_registry`, `instruments`, `contract_metadata` — these are clean source data
 
 **Execution:** One-time SQL script, run after all code changes deployed and tested.
