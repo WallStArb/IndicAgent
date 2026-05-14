@@ -93,16 +93,6 @@ class Settings(BaseSettings):
         validation_alias="OLLAMA_BASE_URL",
         description="Ollama server URL",
     )
-    ollama_api_key: str = Field(
-        default="",
-        validation_alias="OLLAMA_API_KEY",
-        description="Ollama Cloud API key for direct https://ollama.com/api access",
-    )
-    deepseek_api_key: str = Field(
-        default="",
-        validation_alias="DEEPSEEK_API_KEY",
-        description="DeepSeek API key — models: deepseek-v4-flash, deepseek-v4-pro",
-    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),

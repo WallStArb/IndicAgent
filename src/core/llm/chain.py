@@ -13,7 +13,6 @@ import structlog
 
 from src.core.llm.guardrails import GuardrailsValidator
 from src.core.llm.providers import (
-    DeepSeekProvider,
     LLMChain,
     OllamaProvider,
     OpenRouterProvider,
@@ -70,18 +69,12 @@ class LLMProviderChain:
                 )
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list: DeepSeek flash → OpenRouter free → Ollama Local."""
+        """Build provider list: OpenRouter free → Ollama local."""
         if settings is None:
-            return [OllamaProvider("gemma4:e4b")]
+            return [OllamaProvider("nemotron-3-nano:4b")]
         providers = []
 
-        # 1. DeepSeek flash (primary — fast, clean JSON, low cost)
-        if settings.deepseek_api_key:
-            providers.append(
-                DeepSeekProvider(model="deepseek-v4-flash", api_key=settings.deepseek_api_key)
-            )
-
-        # 2. OpenRouter free models (backup — thinking suppressed via include_reasoning=false)
+        # 1. OpenRouter free models (thinking suppressed via include_reasoning=false)
         if settings.openrouter_api_key:
             for slug in settings.openrouter_models.split(","):
                 slug = slug.strip()
@@ -90,7 +83,7 @@ class LLMProviderChain:
                         OpenRouterProvider(model=slug, api_key=settings.openrouter_api_key)
                     )
 
-        # 3. Ollama Local (offline fallback)
+        # 2. Ollama local (offline fallback)
         providers.append(
             OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
         )
