@@ -34,7 +34,7 @@ SETUP_PRIORITY: dict[str, int] = {
     "trad_LiquiditySweepReclaim": 5,
 }
 
-_CONFIDENCE_BOOST_PER_AGREE = 0.05
+_CONFIDENCE_BOOST_PER_AGREE = 0.0
 _REGIME_TIEBREAK_THRESHOLD = 0.4
 
 # Trend setup names (I7 plugins that require a trending market for edge).
