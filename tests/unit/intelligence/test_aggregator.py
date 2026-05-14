@@ -91,11 +91,11 @@ class TestAggregateSameDirection:
 
     @pytest.mark.unit
     def test_confidence_boosted_by_agreement(self):
-        """Winner confidence boosted by +0.05 per agreeing signal."""
+        """Winner confidence unchanged (boost disabled — W7)."""
         trend = _signal("trad_TrendFollowing", 1, confidence=0.7)
         squeeze = _signal("trad_SqueezeExpansion", 1, confidence=0.6)
         result = aggregate([trend, squeeze], trend_regime=0.6)
-        assert result.selected_signal["confidence"] == pytest.approx(0.75, abs=0.001)
+        assert result.selected_signal["confidence"] == pytest.approx(0.7, abs=0.001)
 
     @pytest.mark.unit
     def test_supporting_factors_merged(self):

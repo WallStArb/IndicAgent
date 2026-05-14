@@ -112,6 +112,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._staleness_consecutive: dict[str, int] = {}
         self._activated_at: dict[str, datetime] = {}
         self._point_values: dict[str, float] = {}
+        self._active_bars_elapsed: dict[str, int] = {}
 
         # Kafka clients (initialized in _setup)
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -428,6 +429,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         # Initialize MAE/MFE tracking
         self._mae.setdefault(sid, 0.0)
         self._mfe.setdefault(sid, 0.0)
+        self._active_bars_elapsed.setdefault(sid, 0)
 
         # Restore activated_at for active signals coming from bootstrap
         if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
@@ -511,6 +513,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._chandelier_state.pop(signal_id, None)
         self._staleness_consecutive.pop(signal_id, None)
         self._activated_at.pop(signal_id, None)
+        self._active_bars_elapsed.pop(signal_id, None)
 
         # Update symbol filter: remove symbol if no signals remain
         has_any = any(symbol == k[0] and len(v) > 0 for k, v in self._active_index.items())
@@ -543,12 +546,13 @@ class SignalTrackerComputeAgent(BaseAgent):
             if status == SignalStatus.EXPIRED:
                 continue
 
-            # Compute bars_elapsed from timestamps
+            # Active-bar counting: only count bars with actual price range (high != low).
+            # Empty bars (overnight/session gaps) don't decrement TTL.
             sig_ts = sig.get("timestamp")
-            if sig_ts and isinstance(sig_ts, datetime):
-                computed_bars = _bars_elapsed(sig_ts, bar_time, timeframe)
-            else:
-                computed_bars = sig.get("bars_elapsed", 0)
+            is_active_bar = float(bar["high"]) != float(bar["low"])
+            if is_active_bar:
+                self._active_bars_elapsed[sid] = self._active_bars_elapsed.get(sid, 0) + 1
+            computed_bars = self._active_bars_elapsed.get(sid, 0)
 
             sig_with_extras = {
                 **sig,
