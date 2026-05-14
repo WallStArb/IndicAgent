@@ -10,7 +10,7 @@ I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) �
 **I1** (28): Trend/Momentum/Volatility/Volume indicators + OFI + CVD + VolumeZscore — see `TIER_I1` in `register_plugins.py`
 **I2** (10): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
 **I3** (8): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (12): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
-**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (13): Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) · **I6** (6): CrossTimeframeConfluence + 5 Phase 64 confluence plugins (momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment)
+**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (16): Smart Money (BOS/CHoCH, FVG, OB, HMM multi-TF, BOCPD, etc.) · **I6** (6): CrossTimeframeConfluence + 5 Phase 64 confluence plugins (momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment)
 **I7** (36): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
@@ -51,18 +51,18 @@ All live in `src/intelligence/trading/`:
 
 ## LLM Provider Chain (`src/core/llm/chain.py`)
 
-**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (gemma4:e4b on AMD ROCm iGPU).
+**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default gemma4:e4b; `.env` may override `OLLAMA_MODEL`).
 
 **NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): authored but has no systemd service and is not wired into AlphaSwarm. Not deployed.
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
 | 1 | `OpenRouterProvider` | pinned free models (see `.env`) | Primary |
-| 2 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
+| 2 | `OllamaProvider` | gemma4:e4b (default; `.env` may override) | Offline fallback |
 
 - `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), and the Ollama local settings used for the fallback. `OLLAMA_API_KEY` / `OllamaCloudProvider` removed — was 429-rate-limited at ~155s latency.
+- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), `OLLAMA_MODEL` (overrides default). DeepSeek and OllamaCloud providers removed.
 
 **LLM audit streams**: every call → `llm.calls` (Kafka); every signal exit → `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
@@ -80,7 +80,7 @@ All live in `src/intelligence/trading/`:
 ## Gotchas
 
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
-- **Local Ollama models**: gemma4:e4b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
+- **Local Ollama models**: default gemma4:e4b; `.env` may set different model (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 

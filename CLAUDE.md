@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.42.0 | Status: v2.3 active — Phases 070 (ML Scoring), 080 (Swarm Intelligence), 081 (Signal Lifecycle Hardening) complete. Next: Phase 082 TBD.
+Version: 5.42.0 | Status: v2.5 complete — Phases 69–82 shipped. Next: v2.6 Signal Transform Architecture or backlog.
 
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
 **Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. Full table: `docs/naming-conventions.md`.
@@ -56,7 +56,7 @@ If `--ff-only` fails (diverged history), use `git merge --no-ff <branch>` with a
 ## Architecture Overview
 
 ```
-Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama gemma4:e4b
+Layer 4: AI Intelligence (I8)              -> LLM analysis, local Ollama (default gemma4:e4b, .env may override)
 Layer 3: Pattern Intelligence (I5-I7)      -> Pattern detection, confluence, trading signals
 Layer 2: Mathematical Intelligence (I1-I4) -> Technical indicators, context classification
 Layer 1: Data Foundation                   -> HF collection, aggregation, typed event bus
@@ -77,16 +77,17 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor_agent.py`. Never m
 **Live state:** `systemctl list-units --all | grep indicagent` · **Monitoring:** Grafana `:3001`
 
 ```
-L1  ibkr-provider                       — data ingestion
+L1  ibkr-provider, bar-replay            — data ingestion + bar replay
 L2  provider-merger                      — stream merge
 L3  bar-aggregator, bar-auditor          — bar processing
 L4  bar-writer                           — OHLCV persistence
 L5  intelligence-pipeline, cross-asset, macro-compute — I1-I7 compute + context
 L6  feature-writer, signal-writer, signal-tracker-compute, lifecycle-writer,
-    lineage-writer, contract-metadata-writer            — persistence writers (parallel)
-L7  alpha-swarm, llm-writer              — AI/LLM layer
-L8  roll-compute, signal-metrics-*, graduation-*, feature-snapshot-writer — analytics
-L9  signal-auditor, parity-auditor, alerting-agent      — audit, parity, alerting
+    lineage-writer, contract-metadata-writer, ctx-writer — persistence writers (parallel)
+L7  alpha-swarm, narrative-compute, llm-writer, swarm-ledger-writer — AI/LLM layer
+L8  roll-compute, signal-metrics-compute, signal-metrics-writer, graduation-compute,
+    graduation-writer, feature-snapshot-writer, ml-training — analytics
+L9  signal-auditor, signal-replay, parity-auditor, alerting-agent — audit, parity, alerting
 L10 service-auditor                      — meta: monitors + restarts all above
 ```
 
@@ -129,7 +130,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Plugin System
 
-129 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
+132 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - **I7 utilities** (check before creating new): `atr_utils.py`, `confidence_utils.py` (`compose_confidence`), `signal_schema.py` (`make_signal_from_frame` — all I7 MUST use this), `state_utils.py`, `volume_profile_utils.py`, `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`
 - **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
