@@ -442,7 +442,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         4. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
         # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
-        if raw_signal.get("signal_schema_version", SIGNAL_SCHEMA_VERSION) == SIGNAL_SCHEMA_VERSION:
+        if raw_signal.get("signal_schema_version") != SIGNAL_SCHEMA_VERSION:
             return
 
         # TF gate — before any LLM context build (zero cost for ineligible signals)

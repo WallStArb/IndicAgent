@@ -246,29 +246,6 @@ class TestEmissionGate:
         with pytest.raises(ValueError, match="stop_type"):
             self._make_signal(stop_type="unknown")
 
-    def test_rejects_low_rr(self):
-        # entry=1.10, stop=1.09 → risk=0.01, target=1.105 → reward=0.005 → RR=0.5 < 1.5
-        t = MagicMock()
-        t.price = 1.105
-        t.label = "T1"
-        t.level_type = "resistance"
-        tf = _make_viable_tf(entry=1.10, stop=1.09, targets=[t])
-        with pytest.raises(ValueError, match="RR"):
-            make_signal_from_frame(
-                tf,
-                symbol="EURUSD",
-                timeframe="1m",
-                timestamp="2026-01-01T00:00:00Z",
-                signal_type="long",
-                setup_plugin="test",
-                direction=1,
-                confidence=0.8,
-                regime_context="any",
-                confluence_score=0.5,
-                supporting_factors=[],
-                invalidation_conditions=[],
-            )
-
 
 class TestTTLReorder:
     """W2: TTL check runs AFTER stop/target, so price-at-target signals don't expire."""

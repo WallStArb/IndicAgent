@@ -96,6 +96,7 @@ class TestRemoveFromIndex:
         svc._chandelier_state = {}
         svc._staleness_consecutive = {}
         svc._activated_at = {}
+        svc._active_bars_elapsed = {}
         svc._active_signals_gauge = MagicMock()
         svc._active_index[("ES", "1m")] = [
             {"signal_id": "aaa", "symbol": "ES", "timeframe": "1m"},
@@ -126,6 +127,7 @@ class TestRemoveFromIndex:
         svc._chandelier_state = {}
         svc._staleness_consecutive = {}
         svc._activated_at = {}
+        svc._active_bars_elapsed = {}
         svc._active_signals_gauge = MagicMock()
         # Should not raise even if key is absent
         svc._remove_signal("nonexistent", "ES", "1m")
