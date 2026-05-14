@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
+from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
 from src.intelligence.trading.lifecycle_tracker import evaluate_market_entry, evaluate_signal
 from src.intelligence.trading.signal_schema import make_signal, make_signal_from_frame
 from src.persistence.repository.signal_ledger_repository import SignalStatus
@@ -335,3 +336,10 @@ class TestMarketEntryTTLReorder:
         )
         assert result.outcome is not None
         assert result.exit_price == 100.5
+
+
+class TestNoConfidenceBoost:
+    """W7: Confidence boost per agreeing signal is removed."""
+
+    def test_confidence_boost_constant_is_zero(self):
+        assert _CONFIDENCE_BOOST_PER_AGREE == 0.0
