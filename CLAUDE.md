@@ -69,6 +69,13 @@ L9  signal-auditor, parity-auditor, alerting-agent      — audit, parity, alert
 L10 service-auditor                      — meta: monitors + restarts all above
 ```
 
+**ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct — do not treat as failures.
+- `ml-training` — nightly 11pm, LightGBM ensemble training (~9s, exits 0)
+- `ml-orchestrator` — weekly Monday, coordinates full ML pipeline
+- `ml-data-quality` — weekly Monday 1am, validates training data integrity
+- `ml-discovery` — weekly Monday 2am, feature candidate discovery
+Full design: `docs/ideas/ml-agent-architecture.md`
+
 ## Core Runtime Files
 
 - `src/core/stream_keys.py` — all stream/topic key construction

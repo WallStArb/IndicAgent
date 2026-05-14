@@ -88,7 +88,7 @@ class SignalReplayAuditorAgent:
             SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
                    direction, targets, entry_zone_low, entry_zone_high,
                    market_entry_price, ttl_bars, status, activated_at,
-                   hmm_regime_at_fire, garch_sigma_at_fire, point_value
+                   hmm_regime_at_fire, garch_sigma_at_fire
             FROM signal_ledger
             WHERE exit_at IS NULL
               AND timestamp < NOW() - INTERVAL '2 minutes'
@@ -120,11 +120,15 @@ class SignalReplayAuditorAgent:
     async def _count_unresolved(self) -> int:
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            cnt = await conn.fetchval("""
+            cnt = await conn.fetchval(
+                """
                 SELECT COUNT(*) FROM signal_ledger
                 WHERE exit_at IS NULL
                   AND timestamp < NOW() - INTERVAL '2 minutes'
-                """)
+                  AND signal_schema_version = $1
+                """,
+                SIGNAL_SCHEMA_VERSION,
+            )
         return int(cnt or 0)
 
     # ------------------------------------------------------------------
@@ -203,7 +207,7 @@ class SignalReplayAuditorAgent:
             "targets": targets,
             "ttl_bars": int(row["ttl_bars"] or 10),
             "bars_elapsed": 0,  # reset for bar-by-bar replay
-            "point_value": float(row["point_value"] or 1.0),
+            "point_value": 1.0,
             "entry_zone_low": (
                 float(row["entry_zone_low"])
                 if row["entry_zone_low"] is not None

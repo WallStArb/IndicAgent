@@ -11,7 +11,7 @@ WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 Environment=INDICAGENT_ENV=development
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m services.ctx_writer_agent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ctx_writer_agent.py
 Restart=on-failure
 TimeoutStopSec=30
 RestartSec=5

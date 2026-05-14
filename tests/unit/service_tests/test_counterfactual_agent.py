@@ -101,7 +101,7 @@ def test_class_attributes():
     assert Tier.I7 in CounterfactualComputeAgent.tiers_needed
     assert Tier.I1 in CounterfactualComputeAgent.tiers_needed
     assert Tier.I4 in CounterfactualComputeAgent.tiers_needed
-    assert CounterfactualComputeAgent.latency_budget_ms == pytest.approx(45000.0)
+    assert CounterfactualComputeAgent.latency_budget_ms == pytest.approx(120000.0)
     assert CounterfactualComputeAgent.group == "alpha"
 
 
