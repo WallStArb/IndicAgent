@@ -15,7 +15,6 @@ from src.core.llm.guardrails import GuardrailsValidator
 from src.core.llm.providers import (
     LLMChain,
     OllamaProvider,
-    OpenRouterProvider,
 )
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
@@ -69,25 +68,15 @@ class LLMProviderChain:
                 )
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list: OpenRouter free → Ollama local."""
+        """Build provider list: Ollama local only.
+
+        OpenRouter credentials are preserved in settings for future re-enablement
+        but not wired into the active chain — free tier was consistently 429-rate-limited.
+        To re-enable: add OpenRouterProvider blocks here before OllamaProvider.
+        """
         if settings is None:
             return [OllamaProvider("nemotron-3-nano:4b")]
-        providers = []
-
-        # 1. OpenRouter free models (thinking suppressed via include_reasoning=false)
-        if settings.openrouter_api_key:
-            for slug in settings.openrouter_models.split(","):
-                slug = slug.strip()
-                if slug:
-                    providers.append(
-                        OpenRouterProvider(model=slug, api_key=settings.openrouter_api_key)
-                    )
-
-        # 2. Ollama local (offline fallback)
-        providers.append(
-            OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
-        )
-        return providers
+        return [OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)]
 
     async def generate(
         self,
