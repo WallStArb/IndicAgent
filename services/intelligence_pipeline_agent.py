@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
+from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
@@ -1615,6 +1616,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             # apply defensive defaults if a plugin returned a stripped dict.
             sig.setdefault("ttl_bars", 10)
             sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
+            sig.setdefault("signal_id", str(uuid4()))
         if is_backfill and ranked:
             INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.labels(symbol=symbol, timeframe=tf).inc(
                 len(ranked)
