@@ -43,8 +43,8 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
     """Shadow writer: intelligence.journal -> feature_snapshots_shadow.
 
     Inherits BaseWriterAgent for buffer/flush/commit/DLQ pattern.
-    Keeps custom _run() because payloads are raw bytes (not dicts) and
-    the agent filters topics (skipping system.events).
+    Keeps custom _run() because payloads are dicts delivered by Kafka
+    consumer JSON deserializer and the agent filters topics (skipping system.events).
     """
 
     BATCH_SIZE = 50
@@ -84,7 +84,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
         return CONSUMER_GROUP
 
     def _parse_payload(self, payload: dict) -> list | None:
-        """Not used — _run() parses raw bytes directly."""
+        """Not used — _run() parses dict payloads from Kafka consumer."""
         return None
 
     async def _flush_batch(self, batch: list) -> None:
@@ -148,7 +148,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
         )
 
     async def _run(self) -> None:
-        """Custom loop: raw bytes payloads, topic filtering."""
+        """Custom loop: dict payloads from Kafka consumer, topic filtering."""
         assert self._consumer is not None
         _journal_topic = topic_intelligence_journal(self.settings.env_name)
 
