@@ -75,9 +75,65 @@ CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 TF_TTL_BARS: dict[str, int] = {
     "1m": 20,
     "5m": 12,
-    "15m": 8,
-    "1h": 6,
+    "15m": 10,
+    "1h": 8,
+    "4h": 6,
+    "1d": 4,
 }
+
+# Tick sizes per instrument for price rounding.
+# Unknown symbols get full precision (no rounding).
+TICK_SIZES: dict[str, float] = {
+    # FX pairs — pipette (0.00001)
+    "EURUSD": 0.00001,
+    "GBPUSD": 0.00001,
+    "USDCHF": 0.00001,
+    "AUDUSD": 0.00001,
+    "NZDUSD": 0.00001,
+    "USDCAD": 0.00001,
+    # JPY pairs — 0.001
+    "USDJPY": 0.001,
+    "EURJPY": 0.001,
+    "GBPJPY": 0.001,
+    # Index futures — 0.25
+    "ES": 0.25,
+    "NQ": 0.25,
+    "YM": 1.0,
+    "RTY": 0.10,
+    # Rate futures — 1/64
+    "ZN": 0.015625,
+    "ZB": 0.015625,
+    "ZF": 0.015625,
+    "ZT": 0.015625,
+    # Commodity futures
+    "CL": 0.01,
+    "NG": 0.001,
+    "GC": 0.10,
+    "SI": 0.001,
+    "ZW": 0.25,
+    "ZC": 0.25,
+    "ZS": 0.25,
+    # Equities/ETFs — 0.01
+    "SPY": 0.01,
+    "QQQ": 0.01,
+    "IWM": 0.01,
+    "AAPL": 0.01,
+    # VIX
+    "VIX": 0.01,
+    "VX": 0.05,
+}
+
+
+def round_to_tick(price: float, symbol: str) -> float:
+    """Round price to the nearest tick for the given symbol.
+
+    Returns the price unchanged if the symbol is not in TICK_SIZES
+    (preserving full precision for unknown instruments).
+    """
+    tick = TICK_SIZES.get(symbol)
+    if tick is None or tick == 0:
+        return price
+    return round(round(price / tick) * tick, 10)
 
 
 def is_signal_stale(signal_ts: datetime, tf: str, now: datetime, multiplier: int = 2) -> bool:
