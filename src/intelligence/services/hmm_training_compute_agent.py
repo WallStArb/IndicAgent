@@ -349,12 +349,7 @@ class HMMTrainingComputeAgent:
             tmp_path.write_text(json.dumps(params, indent=2))
             os.rename(tmp_path, final_path)
         except Exception:
-            # Clean up tmp file on failure
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            tmp_path.unlink(missing_ok=True)
             raise
 
         return str(final_path)

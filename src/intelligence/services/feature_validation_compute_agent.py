@@ -48,6 +48,9 @@ _PLUGIN_BEARING_TYPES = frozenset({"i7_plugin"})
 # Timeframes to validate per plugin
 _TIMEFRAMES = ["1m", "5m", "15m", "1h"]
 
+# Cap concurrent plugin validations — each acquires a DB connection per slice
+_MAX_CONCURRENT_PLUGINS = 8
+
 # Regime type values to validate (plus None = global slice)
 _REGIME_TYPES: list[str | None] = [None, "trending", "ranging", "volatile"]
 
@@ -121,10 +124,13 @@ class FeatureValidationComputeAgent:
         plugins = await self._query_plugins()
         logger.info("feature_validation.plugins_found", count=len(plugins))
 
-        results = await asyncio.gather(
-            *[self._validate_all_slices(p) for p in plugins],
-            return_exceptions=True,
-        )
+        sem = asyncio.Semaphore(_MAX_CONCURRENT_PLUGINS)
+
+        async def _bounded(p: str) -> list[dict[str, Any]]:
+            async with sem:
+                return await self._validate_all_slices(p)
+
+        results = await asyncio.gather(*[_bounded(p) for p in plugins], return_exceptions=True)
         return [d for r in results if isinstance(r, list) for d in r]
 
     async def _validate_all_slices(self, plugin_name: str) -> list[dict[str, Any]]:

@@ -142,19 +142,16 @@ class TestCtxWriterSnapshotChaining:
         snapshot_batch = agent._snapshot_buffer[:]
         await agent._flush(event_batch, snapshot_batch)
 
-        # execute should be called twice per snapshot: CLOSE_PRIOR + UPSERT
-        assert mock_conn.execute.call_count == 4  # 2 snapshots × 2 SQL statements
+        # executemany called 3×: events, close-prior batch, upsert batch
+        assert mock_conn.executemany.call_count == 3
 
-        # Verify the second snapshot's CLOSE call uses the second valid_from
-        # as the new valid_to for the prior row.
-        execute_calls = mock_conn.execute.call_args_list
-        # First call: close prior for T1 snapshot
-        close_args_t1 = execute_calls[0][0]
-        assert close_args_t1[2] is not None  # valid_from passed as valid_to
+        # Second executemany: close-prior — each row is (symbol, event_type, valid_from)
+        close_batch = mock_conn.executemany.call_args_list[1][0][1]
+        assert all(row[2] is not None for row in close_batch)
 
-        # Third call: close prior for T2 snapshot
-        close_args_t2 = execute_calls[2][0]
-        assert close_args_t2[2] is not None
+        # Third executemany: upsert — each row is (symbol, event_type, valid_from, ctx)
+        upsert_batch = mock_conn.executemany.call_args_list[2][0][1]
+        assert len(upsert_batch) == 2
 
 
 # ---------------------------------------------------------------------------
