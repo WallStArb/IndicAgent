@@ -288,24 +288,12 @@ class CtxWriterAgent(BaseWriterAgent):
                     await conn.executemany(_INSERT_CTX_EVENT_SQL, event_batch)
                     self._events_written.inc(len(event_batch))
 
-                # Upsert ctx_snapshots
+                # Upsert ctx_snapshots — batch close then batch insert (2 roundtrips, not N×2)
                 if snapshot_batch:
-                    for symbol, event_type, valid_from, ctx_data in snapshot_batch:
-                        # Close any currently-open snapshot for this (symbol, event_type)
-                        await conn.execute(
-                            _CLOSE_PRIOR_SNAPSHOT_SQL,
-                            symbol,
-                            event_type,
-                            valid_from,
-                        )
-                        # Insert/update the new snapshot
-                        await conn.execute(
-                            _UPSERT_CTX_SNAPSHOT_SQL,
-                            symbol,
-                            event_type,
-                            valid_from,
-                            ctx_data,
-                        )
+                    close_params = [(s, e, vf) for s, e, vf, _ in snapshot_batch]
+                    upsert_params = list(snapshot_batch)
+                    await conn.executemany(_CLOSE_PRIOR_SNAPSHOT_SQL, close_params)
+                    await conn.executemany(_UPSERT_CTX_SNAPSHOT_SQL, upsert_params)
                     self._snapshots_written.inc(len(snapshot_batch))
 
         self.logger.info(
