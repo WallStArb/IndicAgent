@@ -15,9 +15,9 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
-- [ ] **v2.3 ML Foundation** — Phases 64, 65, 66 (65+66 complete; Phase 64 core complete 2026-04-28 — 03C USD strength + Plan 04 validation deferred ~May 10 data gate; MacroComputeAgent needs prod deploy)
+- ✅ **v2.3 ML Foundation** — Phases 64, 65, 66 (shipped 2026-05-14; Phase 64 03C USD strength deferred)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- [ ] **v2.5 Data Quality & Persistence Reliability** — Phases 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79 (69+71+72+73+74+75+76+77+78+79 complete; Phase 70 deferred ~May 10)
+- ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–82 (shipped 2026-05-14; all phases complete including 70, 80, 81, 82)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -242,14 +242,14 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.3 ML Foundation (Phases 64, 65, 66) — Phase 64 remaining</summary>
+<summary>✅ v2.3 ML Foundation (Phases 64, 65, 66) — SHIPPED 2026-05-14</summary>
 
 **Milestone Goal:** Intelligence pipeline expansion (cross-TF confluence, gradient scoring), and the first swarm agent (SkepticAgent) on Phase 56 infrastructure.
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
-- [x] **Phase 64: I6 Confluence Expansion** — CORE COMPLETE 2026-04-28. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. All 4 BLOCKER code review findings resolved (frame key access, field names, SR pivots, Settings init). 3395/3395 unit tests pass. Deferred to ~May 10: 03C USD strength (gate: YC+FTQ IC > 0.05), Plan 04 backtest validation (ctf_* fields only exist from 2026-04-27). MacroComputeAgent service not yet deployed to prod — deploy to accumulate macro_features data.
+- [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
   Design doc: `docs/ideas/i6-confluence-expansion.md`
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
@@ -281,9 +281,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🔄 v2.5 Data Quality & Persistence Reliability (Phases 69-79) — Phase 70 deferred, all others complete</summary>
+<summary>✅ v2.5 Data Quality & Intelligence Completion (Phases 69-82) — SHIPPED 2026-05-14</summary>
 
-**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, and harden AI/LLM layer reliability. BaseWriterAgent owns consumer creation and consume loop (single pattern, no duplication). Buffer overflow triggers critical alerts + backpressure. Integration tests prove offset commits. Flush latency histograms + batch size auto-tuning foundation. Phase 73 fixes 10 structural defects in AI/LLM layer and creates universal AI agent infrastructure. Phase 74 adds state checkpointing to BarAggregatorComputeAgent to eliminate data loss on restart. Phase 79 fixes zero-width signal zones and wrong entry_price for at_pullback/at_limit entries — activation rate should jump from 0.3% to meaningful levels. Phase 70 adds statistically validated ML scoring layer (LightGBM) with shadow-first validation.
+**Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, harden AI/LLM layer, complete swarm intelligence, harden signal lifecycle, and add ML scoring + qualitative foundation. All 14 phases shipped.
 
 - [x] **Phase 69: Writer Agent Renaissance Refactor** — COMPLETE 2026-04-23
   Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
@@ -315,14 +315,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
   Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
-- [ ] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling**
-  **Goal:** Add a statistically-validated LightGBM scoring layer (MLScorerMultiplierAgent in alpha swarm, shadow_only=True) + nightly MLTrainingComputeAgent (L8) + AI-SEP-01 table decoupling (new signal_ai_enrichment and intelligence_ai_enrichment tables; migrate SwarmLedgerWriterAgent and LlmWriterService writes off quant tables). Features: 27-key _shadow dicts from all 36 I7 plugins + bar context. Global + 3 hmm_regime models. Walk-forward 60/20/20 CV, SHAP via MLflow. SIGUSR1 hot-reload after nightly training.
-  **Plans:** 4 plans
-  Plans:
-  - [ ] 070-01-PLAN.md — Migration 084: signal_ai_enrichment + intelligence_ai_enrichment tables + features_snapshot column on signal_ledger; signal_writer_agent.py populates new column
-  - [ ] 070-02-PLAN.md — AI-SEP-01 writer migration: SwarmLedgerWriterAgent and LlmWriterService UPSERT to new AI-owned tables
-  - [ ] 070-03-PLAN.md — Feature builder (src/intelligence/ml/feature_builder.py) + MLTrainingComputeAgent (nightly oneshot, delta-gate, walk-forward CV, MLflow + SHAP, ModelRegistry register, SIGUSR1 swarm reload)
-  - [ ] 070-04-PLAN.md — MLScorerMultiplierAgent + AlphaSwarmComputeAgent integration (SIGUSR1 handler) + service_auditor _DAG_ORDER entry + systemd unit and timer files
+- [x] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling** — COMPLETE 2026-05-13
+  LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTrainingComputeAgent (L8), AI-SEP-01 table decoupling (signal_ai_enrichment + intelligence_ai_enrichment tables), feature_builder.py with walk-forward CV, SHAP via MLflow, SIGUSR1 hot-reload. 4/4 plans shipped.
   **Planning:** `.planning/phases/070-ml-scoring-model/`
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
@@ -330,7 +324,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
   **Planning:** `.planning/phases/077-otel-observability-unification/`
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
-  Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` ('v1') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version = 'v1'`.
+  Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
   **Design spec:** `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
   **Planning:** `.planning/phases/079-signal-quality-fix/`
 
@@ -348,11 +342,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Signal quality fix: zero-width zones eliminated, make_signal_from_frame() mandatory, signal_schema_version='v1', entry_type, co-fire tracking
 
 **Pending:**
-- ⏸ Phase 70: ML Scoring Model (deferred ~May 10, 30-day data gate)
-- ⏸ Phase 70: ML Scoring Model (deferred ~May 10, 30-day data gate)
+- None — all v2.5 phases shipped.
 
 **Completed (v2.5):**
 - ✅ Phase 69: Writer Agent Renaissance Refactor (2026-04-23)
+- ✅ Phase 70: ML Scoring Model + AI-SEP-01 (2026-05-13)
 - ✅ Phase 71: BaseAgent Infrastructure Alignment (2026-04-14)
 - ✅ Phase 72: Signal Transform Log Phase 1 (2026-04-25)
 - ✅ Phase 73: AI LLM Layer B+ Architecture Refactor (2026-04-29)
@@ -360,8 +354,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Phase 75: Shadow Governance System (2026-04-29, absorbed into Phase 77)
 - ✅ Phase 76: Signal Lifecycle Labeling Fix (2026-04-28)
 - ✅ Phase 77: OTel Observability Unification (2026-04-29)
-- ✅ Phase 79: Signal Quality Fix — Zone Width + Entry Price (2026-05-03)
 - ✅ Phase 78: I8 Alpha Feedback Loop (2026-05-03)
+- ✅ Phase 79: Signal Quality Fix — Zone Width + Entry Price (2026-05-03)
+- ✅ Phase 80: Renaissance Swarm Intelligence Layer (2026-05-07)
+- ✅ Phase 81: Signal Lifecycle Hardening (2026-05-10)
+- ✅ Phase 82: ML Intelligence Quality & Qualitative Foundation (2026-05-14)
 
 </details>
 
@@ -498,11 +495,11 @@ Plans:
 Items decided but not yet scheduled. Pull into a milestone when ready.
 Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 
-### Tier 1 — v2.3 candidates (ML Foundation)
+### Tier 1 — Next candidates
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| **Phase 70: ML Scoring Model** | LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). Shadow-first validation — no arbitrary data gate. | — |
+| ~~Phase 70: ML Scoring Model~~ | Shipped 2026-05-13. | — |
 | **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | — |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | — |
@@ -533,7 +530,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 in progress (64 core+65+66 complete; Phase 64 03C+04 deferred ~May 10 data gate). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 in progress (69+71+72+73+74+75+76+77+79 complete; 78 at 6/7; Phase 70 deferred ~May 10).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-82 shipped 2026-05-14). Next: v2.6 Signal Transform Architecture or backlog items.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -626,7 +623,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 67. Observability, Alerting & Automation | v2.4 | 2/2 | Complete | 2026-04-23 |
 | 68. Pipeline Hardening & Institutional Foundation | v2.4 | 5/5 | Complete | 2026-04-23 |
 | 69. Writer Agent Renaissance Refactor | v2.5 | 5/5 | Complete | 2026-04-23 |
-| 70. ML Scoring Model | v2.5 | 0/? | Not Started | — |
+| 70. ML Scoring Model | v2.5 | 4/4 | Complete | 2026-05-13 |
 | 71. BaseAgent Infrastructure Alignment | v2.5 | 5/5 | Complete | 2026-04-14 |
 | 72. Signal Transform Log (Phase 1 dual-write) | v2.5 | 9/9 | Complete | 2026-04-25 |
 | 73. AI LLM Layer B+ Architecture Refactor | v2.5 | 7/7 | Complete    | 2026-04-29 |
@@ -634,8 +631,11 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 76. Signal Lifecycle Labeling Fix & Activation Gate | v2.5 | 3/3 | Complete | 2026-04-28 |
 | 75. Shadow Governance System | v2.5 | 4/4 | Complete (absorbed into 77) | 2026-04-29 |
 | 77. OTel Observability Unification | v2.5 | 4/4 | Complete | 2026-04-29 |
-| 78. I8 Alpha Feedback Loop | v2.5 | 6/7 | In Progress | — |
+| 78. I8 Alpha Feedback Loop | v2.5 | 7/7 | Complete | 2026-05-03 |
 | 79. Signal Quality Fix — Zone Width + Entry Price | v2.5 | 10/10 | Complete | 2026-05-03 |
+| 80. Renaissance Swarm Intelligence Layer | v2.5 | 9/9 | Complete | 2026-05-07 |
+| 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
+| 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -1052,18 +1052,18 @@ Plans:
 **Success Criteria:**
 1. ✅ `make_signal_from_frame()` helper with zone propagation and resolved entry_price
 2. ✅ All 36 I7 plugins migrated to use `make_signal_from_frame()` — no manual signal dict construction
-3. ✅ `signal_schema_version` column: 'v0' (pre-fix, contaminated) vs 'v1' (post-fix, clean)
+3. ✅ `signal_schema_version` column: 'v0' (pre-fix, contaminated) vs 'v1'/'v2' (post-fix, clean)
 4. ✅ `entry_type` column: at_close, at_pullback, at_limit, at_reclaim, zone_proximal
 5. ✅ `co_fire_count` / `co_fire_partners` columns for co-occurring signals
 6. ✅ Signal quality metrics in pipeline
-7. ✅ ML training queries MUST filter `WHERE signal_schema_version = 'v1'`
+7. ✅ ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`
 
 
-### Phase 80: Renaissance Swarm Intelligence Layer
+### Phase 80: Renaissance Swarm Intelligence Layer — COMPLETE (2026-05-07)
 
 **Goal:** Expand the alpha swarm from a single Skeptic agent into a multi-agent intelligence overlay with outcome-learned per-TF weights. Build BaseMultiplierAgent foundation in src/core/ai/, four orthogonal agents (Skeptic refactor + Correlation + RegimeCoherence + Counterfactual), automated TF gate (≥5m), Spearman-learned weight store, signal_ledger adjusted_confidence column, and full Prometheus observability. Every agent starts shadow_only=True; weights and graduation are fully automated. Design spec: docs/plans/2026-05-05-swarm-intelligence-design.md.
 
-**Status:** 🔵 Planning
+**Status:** ✅ Complete (9/9 verified 2026-05-07)
 
 **Depends on:** Phase 78 (BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment), Phase 79 (signal_schema_version v1 gate)
 
@@ -1106,11 +1106,11 @@ Plans:
 
 **Plans:** 8 plans (8 complete)
 
-### Phase 82: ML Intelligence Quality & Qualitative Foundation
+### Phase 82: ML Intelligence Quality & Qualitative Foundation — COMPLETE (2026-05-14)
 
 **Goal:** Four targeted improvements now that the May 10 data gate has passed: (1) DATA-02 gate — run `validate_alpha.py` for DerivOsc and ACOsc plugins (N≥30 resolved outcomes required); (2) HMM Multi-TF instances — per-TF HMM plugins (5m/15m/1h with correct lookbacks) + Baum-Welch training on `intelligence_features`; (3) Regime Transition Early Detection — `regime_entropy` + `hmm_regime_velocity` I4 fields, soft confidence multiplier for 0.30–0.55 prob band replacing binary gate; (4) FeatureValidationService — automated daily IC/p-value computation replacing manual `tools/backtest_*.py` CLI; (5) Qualitative CTX Schema Foundation — `ctx_events` + `ctx_snapshots` TimescaleDB tables, `ctx` JSONB column on `intelligence_features`, `CtxWriterAgent`, `AIContextCache` extension.
 
-**Status:** 🔵 Planning
+**Status:** ✅ Complete (27/27 verified 2026-05-14)
 
 **Depends on:** Phase 081 (clean v1 signal data, is_backfill gate), Phase 070 (ML scoring model exists)
 
