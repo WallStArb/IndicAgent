@@ -18,9 +18,10 @@ The signal pipeline produces ~50K signals/day with 99.98% TTL-expiring as noise.
 
 ### W1: Wire TF_TTL_BARS into Pipeline
 
-**Current state:** `TF_TTL_BARS` defined in `src/core/service_utils.py` with values `{1m:20, 5m:12, 15m:8, 1h:6}`. Only used by `lifecycle_replay.py`. Pipeline still uses `ttl_bars=10` default.
+**Current state:** `TF_TTL_BARS` defined in `src/core/service_utils.py` with values `{1m:20, 5m:12, 15m:8, 1h:6}`. Only used by `lifecycle_replay.py`. Pipeline still uses `ttl_bars=10` default. Missing 4h and 1d entries.
 
 **Change:**
+- Update `TF_TTL_BARS` values: `{1m:20, 5m:12, 15m:10, 1h:8, 4h:6, 1d:4}`
 - `make_signal_from_frame()` in `signal_schema.py`: accept `timeframe` param, look up `TF_TTL_BARS.get(timeframe, 10)` for `ttl_bars`
 - `make_signal()`: change default from 10 to accept explicit value
 - `intelligence_pipeline_agent.py`: remove `sig.setdefault("ttl_bars", 10)` defensive fallback
@@ -77,25 +78,29 @@ Default for unknown: preserve full precision (no rounding).
 
 **Change:** Add validation in `make_signal_from_frame()` AFTER TradeFrame construction:
 1. `abs(entry - stop) >= tick_size` — stop must be at least 1 tick from entry
-2. `rr_t1 >= MIN_RR_T1 (1.5)` — minimum risk/reward
-3. `stop_type != "unknown"` — must have identified a structural stop basis
-4. If any gate fails, raise ValueError (caught by plugin → `no_signal()`)
+2. `abs(entry - stop) >= effective_atr * MIN_STOP_ATR (1.0)` — stop must be at least 1 ATR from entry (catches instruments where tick < ATR but stop is still too tight)
+3. `rr_t1 >= MIN_RR_T1 (1.5)` — minimum risk/reward
+4. `stop_type != "unknown"` — must have identified a structural stop basis
+5. If any gate fails, raise ValueError (caught by plugin → `no_signal()`)
 
 This is applied at the signal construction boundary — invisible to plugins, enforced universally.
 
 **Files:** `signal_schema.py` (validation in make_signal_from_frame)
 
-### W5: Wipe signal_ledger
+### W5: Clean signal_ledger
 
 **Current state:** 2.5M rows, 99.98% noise, phantom PnL from precision loss.
 
-**Change:**
-- `TRUNCATE signal_ledger CASCADE` — wipes all signals and dependent tables
-- Also truncate: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`
+**Change:** Surgical delete of garbage data, keep real outcomes for calibration baseline:
+- Delete all never-activated TTL-expired signals (~696K rows, 80% of ledger)
+- Delete signals with microscopic stops (`abs(entry - stop) < 0.01`, ~74K rows)
+- Delete orphaned active signals stuck >2h (420 rows)
 - Reset `setup_performance` — stats computed from garbage PnL
+- Truncate empty ancillary tables: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`
+- **Keep:** activated signals with real outcomes (~2,452 rows) and target hits (124 rows) as calibration seed
 - Keep: `intelligence_features`, `market_data_ohlcv`, `shadow_registry`, `instruments`, `contract_metadata` — these are clean
 
-**Execution:** One-time SQL script, run before pipeline restart with fixes.
+**Execution:** One-time SQL script, run after all code changes deployed and tested.
 
 ### W6: Fix Market Entry Track Persistence
 
@@ -111,17 +116,26 @@ This is applied at the signal construction boundary — invisible to plugins, en
 2. **W4 (emission gate)** — depends on tick sizes from W3
 3. **W1 (wire TTL)** — independent of precision
 4. **W2 (reorder TTL check)** — independent, small change
-5. **W6 (market entry track)** — independent, diagnostic fix
-6. **W5 (wipe data)** — LAST, after all code changes deployed and tested
-7. **Restart pipeline** — with clean code and clean data
+5. **W7 (remove confidence boost)** — one-line removal, no risk
+6. **W6 (market entry track)** — independent, diagnostic fix
+7. **W5 (clean data)** — LAST, after all code changes deployed and tested
+8. **Restart pipeline** — with clean code and clean data
+
+### W7: Remove Per-Agreement Confidence Boost
+
+**Current state:** Aggregator adds +0.05 per agreeing signal (`_CONFIDENCE_BOOST_PER_AGREE` in `aggregator.py:37`). This amplifies consensus signals — the ones that are LEAST selective and have the worst PnL.
+
+**Change:** Remove `_CONFIDENCE_BOOST_PER_AGREE` from aggregator. Signals should stand on their own quality, not get boosted because other signals agree.
+
+**Files:** `aggregator.py`
 
 ## Phase B (Deferred)
 
 After 3-5 days of clean data:
 - Retrain isotonic calibration curves on real outcomes
-- Remove +0.05 per-agreement confidence boost in aggregator
 - Evaluate plugins against n>=30 positive-EV gate
 - Shadow or disable failing plugins
+- Lower plugin base confidence floors where appropriate
 
 ## Success Metrics
 
@@ -142,6 +156,7 @@ After 7 days of clean pipeline:
 | `src/intelligence/trading/lifecycle_tracker.py` | Reorder TTL check after stop/target |
 | `services/intelligence_pipeline_agent.py` | Remove ttl_bars=10 fallback, pass timeframe |
 | `services/signal_tracker_compute_agent.py` | Fix market entry track persistence |
+| `src/intelligence/trading/aggregator.py` | Remove _CONFIDENCE_BOOST_PER_AGREE |
 | All 36 I7 plugins | Pass timeframe to make_signal_from_frame() |
 
 ## Rollback
