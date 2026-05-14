@@ -29,7 +29,7 @@ from src.core.stream_keys import (
 )
 from src.intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
-from src.intelligence.trading.signal_schema import LEGACY_SIGNAL_SCHEMA_VERSION
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -87,10 +87,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             await asyncio.gather(*(self._process_one_signal(s, now) for s in signals))
 
     async def _process_one_signal(self, raw_signal: dict, now: datetime) -> None:
-        if (
-            raw_signal.get("signal_schema_version", LEGACY_SIGNAL_SCHEMA_VERSION)
-            == LEGACY_SIGNAL_SCHEMA_VERSION
-        ):
+        if raw_signal.get("signal_schema_version", SIGNAL_SCHEMA_VERSION) == SIGNAL_SCHEMA_VERSION:
             return
 
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
