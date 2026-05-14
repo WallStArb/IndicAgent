@@ -359,7 +359,7 @@ def test_insert_signals_sync_writes_cis_fields():
 
     mock_cur = MagicMock()
 
-    def fake_execute_batch(cur, sql, params_list):
+    def fake_execute_batch(cur, sql, params_list, **kwargs):
         captured_params.extend(params_list)
 
     mock_conn = MagicMock()
@@ -1012,7 +1012,7 @@ class TestCISColumnsInSQL:
         captured = []
         with patch(
             "psycopg2.extras.execute_batch",
-            side_effect=lambda cur, sql, params: captured.extend(params),
+            side_effect=lambda cur, sql, params, **kw: captured.extend(params),
         ):
             _insert_signals_sync(mock_conn, [entry])
         assert len(captured) == 1

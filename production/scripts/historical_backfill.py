@@ -424,10 +424,10 @@ I6_PLUGINS = TIER_I6
 I7_PLUGINS = TIER_I7
 
 MIN_BARS = 50
-DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
+DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
 # Larger than live service batch (50) — replay has no latency pressure and benefits from
 # fewer commits over millions of bars.
-_FEATURE_BATCH_SIZE = 500
+_FEATURE_BATCH_SIZE = 2000
 
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
 #
@@ -464,6 +464,10 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364) sends two
     #     requests (364d + 1d) — no roll adjustment, but data reliably lands for all exchanges.
     "1h": (365, False),
+    # 4h: ~1.625 bars/day/symbol. Same fetch window as 1h — 365 days covers a full calendar year
+    #     of regime cycles with ~593 bars. Continuous aggregate from 1m (migration 005) provides
+    #     the OHLCV; this config is for direct IBKR fetch if needed.
+    "4h": (365, True),
     # 1d: macro regime coverage. 1 bar/day/symbol. 2555 days = 7 years reaches back to 2019 —
     #     the last clean pre-distortion baseline before COVID, zero-rate era, QE infinity,
     #     2022 rate shock, and AI mania. Capturing these distinct macro regimes is essential
@@ -725,7 +729,8 @@ INSERT INTO signal_ledger (
     resolution_method, composite_rank, market_context, status,
     feature_ts, feature_tf,
     cis_score, bucket_scores, weights_version, signal_quality,
-    market_entry_price
+    market_entry_price,
+    is_backfill, signal_schema_version
 ) VALUES (
     %s::uuid, %s, %s, %s, %s, %s,
     %s, %s, %s, %s::jsonb,
@@ -734,7 +739,8 @@ INSERT INTO signal_ledger (
     %s, %s, %s::jsonb, %s,
     %s, %s,
     %s, %s::jsonb, %s, %s,
-    %s
+    %s,
+    TRUE, 'v1'
 ) ON CONFLICT DO NOTHING
 """
 
@@ -846,7 +852,7 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             )
         )
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params)
+        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params, page_size=1000)
     conn.commit()
 
 
