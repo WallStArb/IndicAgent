@@ -64,7 +64,7 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
     agent_id = "correlation_v1"
     group = "alpha"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
-    latency_budget_ms = 45000.0
+    latency_budget_ms = 120000.0
     shadow_only = True
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:

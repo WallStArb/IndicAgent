@@ -1,6 +1,6 @@
 [Unit]
-Description=IndicAgent Signal Replay Auditor (L9 periodic outcome recovery)
-After=network-online.target docker.service indicagent-lifecycle-writer.service
+Description=IndicAgent Narrative Compute (L7 per-signal market narrative generation)
+After=network-online.target docker.service indicagent-alpha-swarm.service
 Wants=network-online.target
 
 [Service]
@@ -11,12 +11,12 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 EnvironmentFile=-/home/bg/dev/indicagent/.env
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_replay_auditor_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/narrative_group_compute_agent.py
 Restart=on-failure
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-signal-replay
+SyslogIdentifier=indicagent-narrative-compute
 LimitNOFILE=65536
 
 [Install]

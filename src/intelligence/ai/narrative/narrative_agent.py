@@ -41,7 +41,7 @@ class NarrativeComputeAgent(BaseAIAgent):
     group = "narrative"
     tiers_needed = frozenset({Tier.I4, Tier.I6, Tier.I7})
     shadow_only = False
-    latency_budget_ms = 60000.0
+    latency_budget_ms = 120000.0
 
     _NARRATIVE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
 

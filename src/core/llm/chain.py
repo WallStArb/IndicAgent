@@ -67,6 +67,11 @@ class LLMProviderChain:
                     tpm=limits.get("tpm", 100_000),
                 )
 
+    @property
+    def last_provider_id(self) -> str | None:
+        """Provider that served the last request — format: 'ollama:qwen3.5:4b'."""
+        return self._inner.last_provider_id
+
     def _build_providers(self, settings: Any) -> list:
         """Build provider list: Ollama local only.
 
