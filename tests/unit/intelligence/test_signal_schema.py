@@ -3,6 +3,7 @@
 import pytest
 
 from src.intelligence.trading.signal_schema import (
+    SIGNAL_SCHEMA_VERSION,
     make_signal,
     make_signal_from_frame,
     validate_signal,
@@ -165,7 +166,7 @@ class TestMakeSignalFromFrame:
     def test_make_signal_from_frame_schema_version(self):
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())
-        assert sig["signal_schema_version"] == "v2"
+        assert sig["signal_schema_version"] == SIGNAL_SCHEMA_VERSION
 
     def test_make_signal_from_frame_propagates_stop_type_and_targets(self):
         tf = _viable_frame()

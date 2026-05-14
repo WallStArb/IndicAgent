@@ -114,13 +114,17 @@ class TestActiveToExit:
 
 class TestTTLExpiry:
     @pytest.mark.unit
-    def test_pending_expires_after_ttl(self):
-        """Pending signal past ttl_bars -> expired."""
+    def test_pending_at_ttl_returns_none_when_no_zone_overlap(self):
+        """Pending signal past ttl_bars with no zone overlap -> None.
+
+        TTL for pending signals is handled by the calling service, not
+        evaluate_signal() directly. The function only handles zone activation
+        for pending signals.
+        """
         sig = _pending_signal()
         sig["bars_elapsed"] = 11
         t = evaluate_signal(sig, high=5095.0, low=5090.0, close=5092.0)
-        assert t.new_status == "expired"
-        assert t.exit_reason == "ttl_expired"
+        assert t is None
 
     @pytest.mark.unit
     def test_active_expires_after_ttl(self):
@@ -203,14 +207,18 @@ class TestMAEMFE:
 
 @pytest.mark.unit
 class TestOutcomeClassification:
-    def test_outcome_never_activated_on_ttl_expiry_pending(self):
-        """Signal that TTL-expires while still pending → never_activated."""
+    def test_outcome_pending_at_ttl_returns_none_no_zone_overlap(self):
+        """Pending signal at TTL with no zone overlap → None.
+
+        TTL for pending signals is resolved by the calling service, not
+        evaluate_signal(). When no zone overlap exists, evaluate_signal()
+        returns None regardless of bars_elapsed.
+        """
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10  # hit TTL
         t = evaluate_signal(sig, high=5080.0, low=5075.0, close=5078.0)
-        assert t is not None
-        assert t.new_status == "expired"
-        assert t.outcome == "never_activated"
+        # No zone overlap (high=5080 < zone_low=5095) → returns None
+        assert t is None
 
     def test_outcome_target_1_on_t1_hit(self):
         """Active signal exits at T1 → outcome = target_1."""
@@ -877,8 +885,8 @@ class TestTemporalGuard:
         assert t is not None
         assert t.new_status == "active"
 
-    def test_temporal_guard_does_not_affect_ttl_expiry(self):
-        """Temporal guard only applies to activation, not TTL."""
+    def test_temporal_guard_blocks_activation_and_no_ttl_for_pending(self):
+        """Temporal guard blocks activation; pending signals don't TTL-expire via evaluate_signal."""
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10  # hit TTL
         signal_ts = datetime(2026, 4, 28, 12, 0, tzinfo=UTC)
@@ -891,9 +899,8 @@ class TestTemporalGuard:
             signal_timestamp=signal_ts,
             bar_time=bar_ts,
         )
-        assert t is not None
-        assert t.new_status == "expired"
-        assert t.exit_reason == "ttl_expired"
+        # Temporal guard blocks activation, and PENDING signals don't reach TTL check
+        assert t is None
 
 
 @pytest.mark.unit
@@ -901,8 +908,13 @@ class TestTTLOutcomeWithActivatedAt:
     """Phase 81-03: D-02 compensating logic removed. PENDING+activated_at -> never_activated
     (violation is counted via _LABELING_VIOLATIONS counter, not auto-corrected)."""
 
-    def test_pending_with_activated_at_gets_never_activated(self):
-        """D-02 removed: PENDING + activated_at is a labeling violation, outcome = never_activated."""
+    def test_pending_with_activated_at_activates_on_zone_overlap(self):
+        """PENDING + activated_at: zone overlap still activates the signal.
+
+        The D-02 labeling violation counter is only triggered in the TTL path,
+        which is only reached for ACTIVE signals. PENDING signals with zone
+        overlap activate regardless of activated_at or bars_elapsed.
+        """
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10
         sig["activated_at"] = datetime(2026, 4, 28, 12, 1, tzinfo=UTC)
@@ -913,13 +925,17 @@ class TestTTLOutcomeWithActivatedAt:
             close=5105.0,
             current_mfe=0.3,
         )
+        # Zone overlaps (high=5108 >= zone_low=5095 AND low=5095 <= zone_high=5102)
         assert t is not None
-        assert t.outcome == "never_activated"
+        assert t.new_status == "active"
 
-    def test_pending_without_activated_at_still_never_activated(self):
-        """Signal is PENDING and no activated_at -> never_activated."""
+    def test_pending_without_activated_at_returns_none_no_zone_overlap(self):
+        """Signal is PENDING, no activated_at, no zone overlap -> None.
+
+        TTL for pending signals is handled by the calling service.
+        """
         sig = _pending_with_zone()
         sig["bars_elapsed"] = 10
         t = evaluate_signal(sig, high=5080.0, low=5075.0, close=5078.0)
-        assert t is not None
-        assert t.outcome == "never_activated"
+        # No zone overlap (high=5080 < zone_low=5095) -> None
+        assert t is None

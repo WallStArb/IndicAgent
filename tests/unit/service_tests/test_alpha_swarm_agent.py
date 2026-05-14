@@ -697,6 +697,8 @@ async def test_schema_gate_skips_v0_signals() -> None:
     """signal_schema_version='v0' must not invoke any agent."""
     agent = _make_agent_with_mocks()
     agent._semaphore = asyncio.Semaphore(8)
+    # Mock _context_cache so the method doesn't crash if it reaches that point
+    agent._context_cache = MagicMock()
     mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
     agent._agents = [mock_agent]
 

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
 # Emission gate thresholds (W4)
-MIN_RR_T1 = 1.5  # minimum risk/reward to first target
+MIN_RR_T1 = 0.0  # disabled — aggregator handles RR ranking; gate only checks structural validity
 
 REQUIRED_SIGNAL_FIELDS = frozenset(
     {

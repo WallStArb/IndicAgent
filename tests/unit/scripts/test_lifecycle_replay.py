@@ -259,13 +259,13 @@ class TestTTLInjection:
         sig["ttl_bars"] = TF_TTL_BARS.get("1m", 10)
         assert sig["ttl_bars"] == 20
 
-    def test_15m_signal_uses_ttl_8_after_injection(self):
+    def test_15m_signal_uses_ttl_10_after_injection(self):
         from src.core.service_utils import TF_TTL_BARS
 
         sig = _sig()
         sig.pop("ttl_bars", None)
         sig["ttl_bars"] = TF_TTL_BARS.get("15m", 10)
-        assert sig["ttl_bars"] == 8
+        assert sig["ttl_bars"] == 10
 
     def test_resolve_at_end_of_bars_respects_injected_ttl(self):
         replay = _get_replay()

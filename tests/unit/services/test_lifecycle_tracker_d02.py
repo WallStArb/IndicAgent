@@ -42,18 +42,24 @@ def _make_signal(status: str, activated_at: datetime | None = None) -> dict:
 
 
 class TestD02ViolationCounter:
-    """D-02 labeling violation counter fires but does NOT mutate signal state."""
+    """D-02 labeling violation counter fires in the TTL block, which is only
+    reached for ACTIVE signals after the TTL reorder. PENDING signals short-circuit
+    to zone activation check and never reach the TTL block.
+
+    For PENDING signals with zone overlap, evaluate_signal returns an activation
+    Transition. The D-02 counter is NOT incremented for these cases — the violation
+    is only detected when an ACTIVE signal reaches the TTL check.
+    """
 
     @pytest.mark.unit
-    def test_d02_violation_counter(self):
-        """activated_at set + status=pending at TTL → counter increments, status unchanged."""
+    def test_d02_pending_with_zone_overlap_activates_instead_of_ttl(self):
+        """PENDING + activated_at at TTL with zone overlap → activation, no violation counter."""
         activated_at = datetime.now(UTC)
         signal = _make_signal(status=SignalStatus.PENDING, activated_at=activated_at)
 
-        # Capture current counter value before calling evaluate_signal
         violations_before = lifecycle_tracker._LABELING_VIOLATIONS._value.get()
 
-        # Call evaluate_signal — with bars_elapsed >= ttl_bars this triggers TTL path
+        # Zone overlap: high=5005 >= zone_low=4998 AND low=4995 <= zone_high=5002
         result = evaluate_signal(
             signal,
             high=5005.0,
@@ -65,17 +71,17 @@ class TestD02ViolationCounter:
 
         violations_after = lifecycle_tracker._LABELING_VIOLATIONS._value.get()
 
-        # D-02 counter must have incremented exactly once
-        assert violations_after == violations_before + 1, (
-            f"D-02 counter should have incremented by 1: "
+        # PENDING with zone overlap activates — D-02 counter NOT incremented
+        assert violations_after == violations_before, (
+            f"D-02 counter should NOT increment for PENDING with zone overlap: "
             f"before={violations_before}, after={violations_after}"
         )
 
-        # evaluate_signal must return a Transition (TTL exit) — this proves the TTL path ran
-        assert result is not None, "evaluate_signal should return a Transition at TTL"
-        assert result.exit_reason == "ttl_expired"
+        # Returns an activation Transition, not TTL expired
+        assert result is not None, "evaluate_signal should return activation Transition"
+        assert result.new_status == SignalStatus.ACTIVE
 
-        # Signal status in the dict must NOT have been mutated by evaluate_signal
+        # Signal status must NOT have been mutated by evaluate_signal
         assert signal["status"] == SignalStatus.PENDING, (
             f"Signal status was mutated from pending to {signal['status']!r}; "
             "evaluate_signal must not mutate the input dict"
