@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 # Single canonical version tag. All signal producers and consumers reference this.
 SIGNAL_SCHEMA_VERSION = "v2"
+# Signals produced before v1 have contaminated entry/zone data — skip at consumer boundaries.
+LEGACY_SIGNAL_SCHEMA_VERSION = "v0"
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame

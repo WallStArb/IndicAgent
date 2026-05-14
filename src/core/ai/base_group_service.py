@@ -93,7 +93,7 @@ class BaseGroupService(BaseAgent, ABC):
                 auto_offset_reset="latest",
             )
             await self._bar_consumer.start()
-            await self._bar_consumer.skip_lag_if_needed(max_lag=100)
+            await self._bar_consumer.skip_lag_if_needed(max_lag=500)
 
         # Wire trigger consumer (for agent dispatch)
         # Subscribe to all trigger topics
@@ -104,7 +104,9 @@ class BaseGroupService(BaseAgent, ABC):
             auto_offset_reset="latest",
         )
         await self._trigger_consumer.start()
-        await self._trigger_consumer.skip_lag_if_needed(max_lag=100)
+        # Drop stale trigger backlog on startup — replaying queued signals from a
+        # prior run against a cold context cache produces low-quality enrichments.
+        await self._trigger_consumer.skip_lag_if_needed(max_lag=500)
 
         # Wire producer (for agent output fan-out)
         self._producer = KafkaProducerClient(
@@ -133,6 +135,25 @@ class BaseGroupService(BaseAgent, ABC):
 
         # D-19: BaseGroupService must call super()._setup() for forward compatibility
         await super()._setup()
+
+    async def _shadow_registry_ensure_agents(self, agents: list[BaseAIAgent]) -> None:
+        """Idempotent enrollment of agents in shadow_registry as component_type='swarm_agent'.
+
+        ON CONFLICT DO NOTHING preserves any manually-tuned gate params.
+        """
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            for agent in agents:
+                await conn.execute(
+                    "INSERT INTO shadow_registry (component_name, component_type, is_shadow) "
+                    "VALUES ($1, 'swarm_agent', TRUE) ON CONFLICT (component_name) DO NOTHING",
+                    agent.agent_id,
+                )
+        self.logger.info(
+            "base_group_service.shadow_enrolled",
+            group_id=self.group_id,
+            agents=[a.agent_id for a in agents],
+        )
 
     async def _seed_context_cache(self) -> None:
         """Seed AIContextCache with recent intelligence_features rows."""

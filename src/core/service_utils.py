@@ -80,6 +80,15 @@ TF_TTL_BARS: dict[str, int] = {
 }
 
 
+def is_signal_stale(signal_ts: datetime, tf: str, now: datetime, multiplier: int = 2) -> bool:
+    """Return True if signal_ts is older than multiplier × TF duration.
+
+    Use to skip signals whose market context has expired before LLM dispatch.
+    """
+    max_age_s = multiplier * TF_SECONDS.get(tf, 300)
+    return (now - signal_ts).total_seconds() > max_age_s
+
+
 def bar_close_ts(ts: datetime, tf: str) -> datetime:
     """Return actual bar close time.
 
