@@ -563,6 +563,41 @@ class SignalTrackerComputeAgent(BaseAgent):
             current_mae = self._mae.get(sid, 0.0)
             current_mfe = self._mfe.get(sid, 0.0)
 
+            # --- Market-entry dual track (evaluate on EVERY bar) ---
+            try:
+                market_entry_price = float(sig.get("market_entry_price") or 0)
+            except (TypeError, ValueError):
+                market_entry_price = 0.0
+            if market_entry_price > 0:
+                m_mae = self._market_mae.get(sid, 0.0)
+                m_mfe = self._market_mfe.get(sid, 0.0)
+                try:
+                    mkt = evaluate_market_entry(
+                        sig_with_extras,
+                        market_entry_price=market_entry_price,
+                        high=float(bar["high"]),
+                        low=float(bar["low"]),
+                        close=float(bar["close"]),
+                        current_mae=m_mae,
+                        current_mfe=m_mfe,
+                    )
+                    if mkt.outcome is not None:
+                        await self._publish_market_resolution(mkt, bar_time)
+                        self._market_mae.pop(sid, None)
+                        self._market_mfe.pop(sid, None)
+                        sig["market_entry_price"] = 0
+                    else:
+                        pnl_now = (float(bar["close"]) - market_entry_price) * int(sig["direction"])
+                        risk_m = abs(
+                            market_entry_price - float(sig.get("stop_loss", market_entry_price))
+                        )
+                        if risk_m > 0:
+                            pnl_r = pnl_now / risk_m
+                            self._market_mae[sid] = min(m_mae, pnl_r)
+                            self._market_mfe[sid] = max(m_mfe, pnl_r)
+                except Exception as exc:
+                    self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(exc))
+
             # --- Chandelier + Staleness state for active signals ---
             staleness_score_val = 0.0
             if status == SignalStatus.ACTIVE:
@@ -666,40 +701,6 @@ class SignalTrackerComputeAgent(BaseAgent):
             if transition.exit_reason:
                 self._remove_signal(sid, symbol, timeframe)
                 continue
-
-            # --- Market-entry dual track ---
-            try:
-                market_entry_price = float(sig.get("market_entry_price") or 0)
-            except (TypeError, ValueError):
-                market_entry_price = 0.0
-            if market_entry_price > 0:
-                m_mae = self._market_mae.get(sid, 0.0)
-                m_mfe = self._market_mfe.get(sid, 0.0)
-                try:
-                    mkt = evaluate_market_entry(
-                        sig_with_extras,
-                        market_entry_price=market_entry_price,
-                        high=float(bar["high"]),
-                        low=float(bar["low"]),
-                        close=float(bar["close"]),
-                        current_mae=m_mae,
-                        current_mfe=m_mfe,
-                    )
-                    if mkt.outcome is not None:
-                        await self._publish_market_resolution(mkt, bar_time)
-                        self._market_mae.pop(sid, None)
-                        self._market_mfe.pop(sid, None)
-                    else:
-                        pnl_now = (float(bar["close"]) - market_entry_price) * int(sig["direction"])
-                        risk_m = abs(
-                            market_entry_price - float(sig.get("stop_loss", market_entry_price))
-                        )
-                        if risk_m > 0:
-                            pnl_r = pnl_now / risk_m
-                            self._market_mae[sid] = min(m_mae, pnl_r)
-                            self._market_mfe[sid] = max(m_mfe, pnl_r)
-                except Exception as exc:
-                    self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(exc))
 
     # ------------------------------------------------------------------
     # Transition mapping
