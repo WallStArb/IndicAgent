@@ -230,8 +230,10 @@ class TestTTLConstants:
 
         assert TF_TTL_BARS["1m"] == 20
         assert TF_TTL_BARS["5m"] == 12
-        assert TF_TTL_BARS["15m"] == 8
-        assert TF_TTL_BARS["1h"] == 6
+        assert TF_TTL_BARS["15m"] == 10
+        assert TF_TTL_BARS["1h"] == 8
+        assert TF_TTL_BARS["4h"] == 6
+        assert TF_TTL_BARS["1d"] == 4
 
     def test_replay_imports_from_service_utils(self):
         """Replay must not define its own TF_TTL_BARS — must import from service_utils."""

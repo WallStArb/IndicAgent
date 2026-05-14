@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from src.core.service_utils import TF_TTL_BARS, round_to_tick
+
 # Single canonical version tag. All signal producers and consumers reference this.
 SIGNAL_SCHEMA_VERSION = "v2"
 # Signals produced before v1 have contaminated entry/zone data — skip at consumer boundaries.
@@ -71,7 +73,7 @@ def make_signal(
     confluence_score: float,
     supporting_factors: list[str],
     invalidation_conditions: list[str],
-    ttl_bars: int = 10,
+    ttl_bars: int | None = None,
     # Optional framing fields — populated by TradeFramer post-aggregation
     entry_type: str = "at_close",
     stop_type: str = "atr",
@@ -83,6 +85,9 @@ def make_signal(
     framing_method: str = "atr_fallback",
 ) -> dict:
     """Construct a validated signal.v1 dict."""
+    if ttl_bars is None:
+        ttl_bars = TF_TTL_BARS.get(timeframe, 10)
+
     risk = abs(entry_price - stop_loss)
     rr = abs(targets[0] - entry_price) / risk if risk > 0 else 0.0
     sig = {
@@ -93,9 +98,9 @@ def make_signal(
         "signal_type": signal_type,
         "setup_plugin": setup_plugin,
         "direction": direction,
-        "entry_price": round(entry_price, 2),
-        "stop_loss": round(stop_loss, 2),
-        "targets": [round(t, 2) for t in targets],
+        "entry_price": round_to_tick(entry_price, symbol),
+        "stop_loss": round_to_tick(stop_loss, symbol),
+        "targets": [round_to_tick(t, symbol) for t in targets],
         "confidence": round(min(1.0, max(0.0, confidence)), 4),
         "risk_reward_ratio": round(rr, 2),
         "regime_context": regime_context,
@@ -132,7 +137,7 @@ def make_signal_from_frame(
     confluence_score: float,
     supporting_factors: list[str],
     invalidation_conditions: list[str],
-    ttl_bars: int = 10,
+    ttl_bars: int | None = None,
     features_snapshot: dict | None = None,
 ) -> dict:
     """Build a signal.v1 dict from a TradeFrame, auto-extracting all framing fields.
@@ -148,6 +153,9 @@ def make_signal_from_frame(
             f"Cannot build signal from non-viable TradeFrame: "
             f"{tf.rejection_reason or 'unknown'}"
         )
+
+    if ttl_bars is None:
+        ttl_bars = TF_TTL_BARS.get(timeframe, 10)
 
     target_prices = [t.price for t in tf.targets]
     target_labels = [t.label for t in tf.targets]
@@ -179,8 +187,8 @@ def make_signal_from_frame(
         framing_method=tf.method,
     )
 
-    sig["zone_low"] = tf.zone_low
-    sig["zone_high"] = tf.zone_high
+    sig["zone_low"] = round_to_tick(tf.zone_low, symbol)
+    sig["zone_high"] = round_to_tick(tf.zone_high, symbol)
     sig["zone_source"] = (features_snapshot or {}).get("zone_source")
     sig["signal_schema_version"] = SIGNAL_SCHEMA_VERSION
 

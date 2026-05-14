@@ -1612,9 +1612,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for sig in ranked:
             sig["timestamp"] = format_iso_ts(bar_ts)
             sig["is_backfill"] = is_backfill
-            # ttl_bars and signal_schema_version come from make_signal_from_frame();
+            # signal_schema_version comes from make_signal_from_frame();
             # apply defensive defaults if a plugin returned a stripped dict.
-            sig.setdefault("ttl_bars", 10)
             sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
             sig.setdefault("signal_id", str(uuid4()))
         if is_backfill and ranked:
