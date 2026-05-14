@@ -183,6 +183,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 market_price_at_signal=sig.get("market_price_at_signal"),
                 market_entry_price=sig.get("market_entry_price"),
                 features_snapshot=sig.get("features_snapshot") or None,
+                is_backfill=bool(sig.get("is_backfill", False)),
+                ttl_bars=sig.get("ttl_bars"),
             )
         )
     return entries

@@ -145,6 +145,8 @@ class LedgerEntry:
     entry_type: str | None = None
     co_fire_count: int = 1
     co_fire_partners: list[str] = field(default_factory=list)
+    is_backfill: bool = False
+    ttl_bars: int | None = None
     # Phase 70: ML training flat feature source — _shadow dict captured at signal fire time.
     # NULL for legacy rows; always None if not present in incoming payload.
     features_snapshot: dict | None = None
@@ -226,6 +228,8 @@ class LedgerEntry:
             self.co_fire_partners,  # $64::text[]
             # Phase 70: ML training feature source
             self.features_snapshot,  # $65::jsonb — dict or None; asyncpg handles serialisation
+            self.is_backfill,  # $66 — BOOLEAN
+            self.ttl_bars,  # $67 — INTEGER, nullable
         )
 
 
@@ -259,7 +263,8 @@ INSERT INTO signal_ledger (
     raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
     pre_quality_confidence, pre_calibration_confidence,
     signal_schema_version, entry_type, co_fire_count, co_fire_partners,
-    features_snapshot
+    features_snapshot,
+    is_backfill, ttl_bars
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -285,7 +290,8 @@ INSERT INTO signal_ledger (
     $55, $56, $57, $58,
     $59, $60,
     $61, $62, $63, $64::text[],
-    $65::jsonb
+    $65::jsonb,
+    $66, $67
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """

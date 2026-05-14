@@ -92,6 +92,6 @@ class TestAttributionInvariant:
             pre_calibration_confidence=0.68,
         )
         params = entry.to_insert_params()
-        assert len(params) == 65, f"Expected 65 params, got {len(params)}"
+        assert len(params) == 67, f"Expected 67 params, got {len(params)}"
         assert params[58] == 0.80, "pre_quality_confidence should be $59 (index 58)"
         assert params[59] == 0.68, "pre_calibration_confidence should be $60 (index 59)"
