@@ -7,12 +7,24 @@ import and validate against a stable contract.
 
 from __future__ import annotations
 
+import json as _json
 from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 import pytest
 
 from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
 from src.core.schemas.bar_message import BarMessage, SessionType
+from src.intelligence.schemas import (
+    I1Indicators,
+    I3Structure,
+    I4Context,
+    I5Patterns,
+    I6Confluence,
+    IntelligenceEvent,
+    OHLCVBar,
+    SMCContext,
+)
 
 
 def _make_bar(**overrides) -> dict:
@@ -131,36 +143,19 @@ class TestBarMessageValidation:
 # bar_id UUID field tests (merged from tests/unit/test_bar_message.py)
 # ---------------------------------------------------------------------------
 
-import json as _json
-from uuid import UUID, uuid4
-
-from src.intelligence.schemas import (
-    I1Indicators,
-    I3Structure,
-    I4Context,
-    I5Patterns,
-    I6Confluence,
-    IntelligenceEvent,
-    OHLCVBar,
-    SMCContext,
-)
-
 
 def _make_bar_with_id(**overrides) -> BarMessage:
-    defaults = dict(
-        ts="2026-04-12T12:00:00+00:00",
-        symbol="ES",
-        tf="1m",
-        open=5800.0,
-        high=5801.0,
-        low=5799.0,
-        close=5800.5,
-        volume=1000,
-        source="ibkr_named",
-        session_type=SessionType.RTH,
+    return BarMessage(
+        **_make_bar(
+            ts="2026-04-12T12:00:00+00:00",
+            open=5800.0,
+            high=5801.0,
+            low=5799.0,
+            close=5800.5,
+            volume=1000,
+            **overrides,
+        )
     )
-    defaults.update(overrides)
-    return BarMessage(**defaults)
 
 
 def _make_intelligence_event(**overrides) -> IntelligenceEvent:

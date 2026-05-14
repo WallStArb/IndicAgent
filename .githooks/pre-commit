@@ -284,6 +284,12 @@ check_black_format() {
 check_duplicate_tests() {
     echo "[6/6] Duplicate test names check..."
 
+    STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+    if [ -z "$STAGED_PY" ]; then
+        echo "  SKIPPED: no Python files staged"
+        return 0
+    fi
+
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
     if [ ! -x "$PYTHON_BIN" ]; then
         PYTHON_BIN=$(which python3 2>/dev/null || echo "")

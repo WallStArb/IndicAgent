@@ -45,6 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .plugin_utils import _fval
 from .zone_engine import resolve_structural_zone
 
 # ---------------------------------------------------------------------------
@@ -233,17 +234,6 @@ def _classify_stop_basis(
     if distance_atr <= STRUCTURE_SNAP_PROXIMITY_ATR:
         return "structure_snap", structure_type, distance_atr
     return "garch_adaptive", structure_type, distance_atr
-
-
-def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
-    """Safe float extraction from features dict."""
-    v = features.get(key)
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
 
 
 def _select_vp(features: dict[str, Any], tf: str) -> tuple[float, float, float] | None:

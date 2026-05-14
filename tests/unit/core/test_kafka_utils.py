@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient, _KafkaHeadersCarrier
 
 
 @pytest.mark.asyncio
@@ -114,8 +114,6 @@ async def test_consumer_client_messages_yields_tuples() -> None:
 # ---------------------------------------------------------------------------
 # _KafkaHeadersCarrier unit tests (merged from tests/unit/test_kafka_utils.py)
 # ---------------------------------------------------------------------------
-
-from src.core.kafka_utils import _KafkaHeadersCarrier
 
 
 def test_carrier_set_and_get() -> None:

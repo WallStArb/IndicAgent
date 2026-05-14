@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.trading.plugin_utils import _fval
 from src.observability.metrics import (
     ZONE_CANDIDATE_COUNT,
     ZONE_CLUSTER_DENSITY,
@@ -48,16 +49,6 @@ class ZoneResult:
     source: str  # e.g. "confluence:swing_low+ema21+poc"
     candidate_count: int
     cluster_members: int
-
-
-def _fval(features: dict[str, Any], key: str) -> float:
-    v = features.get(key)
-    if v is None:
-        return 0.0
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _select_vp(features: dict[str, Any], tf: str, session_key: str, rolling_key: str) -> float:

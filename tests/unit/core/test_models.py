@@ -1,4 +1,10 @@
-from src.core.models import AssetClass, Instrument
+from datetime import UTC, date, datetime
+
+import pytest
+
+from src.core.models import SESSION_REGISTRY, AssetClass, Instrument
+from src.core.schemas.market_events import ContractUpdateEvent
+from src.core.stream_keys import topic_contract_updates, topic_roll_dlq
 
 
 class TestAssetClass:
@@ -54,14 +60,6 @@ class TestInstrument:
 # TradingSession, ContractUpdateEvent, and stream_keys tests
 # (merged from tests/unit/test_models.py)
 # ---------------------------------------------------------------------------
-
-from datetime import UTC, date, datetime
-
-import pytest
-
-from src.core.models import SESSION_REGISTRY
-from src.core.schemas.market_events import ContractUpdateEvent
-from src.core.stream_keys import topic_contract_updates, topic_roll_dlq
 
 
 class TestSessionWindowForDate:
