@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
+import os
 import subprocess
 import sys
 import time
@@ -46,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 
 # Reuse connect_db and replay logic from historical_backfill
 from production.scripts.historical_backfill import (  # noqa: E402
+    _replay_worker,
     connect_db,
     replay_symbol,
     seed_roll_chain,
@@ -422,6 +425,17 @@ def main() -> None:
     )
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     parser.add_argument("--client-id", type=int, default=56, help="IBKR client ID (default: 56)")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 4,
+        help=f"Parallel symbol replay workers (default: {os.cpu_count() or 4})",
+    )
+    parser.add_argument(
+        "--skip-tf",
+        default=None,
+        help="Comma-separated timeframes to skip during replay (e.g., '1m,1d')",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -598,23 +612,54 @@ def main() -> None:
 
     # --- Stage 5: Replay pipeline ---
     register_all_plugins()
+
+    # Build timeframes list, optionally excluding skipped TFs
+    replay_tfs = list(DEFAULT_TIMEFRAMES)
+    if args.skip_tf:
+        skip_set = {tf.strip() for tf in args.skip_tf.split(",") if tf.strip()}
+        replay_tfs = [tf for tf in replay_tfs if tf not in skip_set]
+        if skip_set:
+            print(f"\n  Skipping timeframes: {sorted(skip_set)}")
+
     if args.no_backfill:
         print("\n[4/5] Replaying I1→I6 (seed mode — intelligence_features only, no signals)...")
     else:
-        print("\n[4/5] Replaying I1→I7 pipeline...")
-    for contract in contracts:
-        counts = replay_symbol(
-            symbol=contract.symbol,
-            db_conn=db_conn,
-            timeframes=DEFAULT_TIMEFRAMES,
-            skip_signals=args.no_backfill,
-        )
-        if args.no_backfill:
-            for tf, n in counts.items():
-                print(f"  {contract.symbol}/{tf}: {n:,} feature rows")
-        else:
-            for tf, n in counts.items():
-                print(f"  {contract.symbol}/{tf}: {n:,} signals")
+        print(f"\n[4/5] Replaying I1→I7 pipeline ({args.workers} workers, TFs: {replay_tfs})...")
+
+    if args.workers <= 1 or len(contracts) <= 1:
+        # Sequential fallback for single symbol or --workers 1
+        for contract in contracts:
+            counts = replay_symbol(
+                symbol=contract.symbol,
+                db_conn=db_conn,
+                timeframes=replay_tfs,
+                skip_signals=args.no_backfill,
+            )
+            if args.no_backfill:
+                for tf, n in counts.items():
+                    print(f"  {contract.symbol}/{tf}: {n:,} feature rows")
+            else:
+                for tf, n in counts.items():
+                    print(f"  {contract.symbol}/{tf}: {n:,} signals")
+    else:
+        # Parallel replay — each worker gets its own DB connection
+        worker_args = [
+            (contract.symbol, settings.database_url, replay_tfs, None) for contract in contracts
+        ]
+        grand_total = 0
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = {executor.submit(_replay_worker, arg): arg[0] for arg in worker_args}
+            for future in concurrent.futures.as_completed(futures):
+                symbol = futures[future]
+                try:
+                    sym, total, counts = future.result()
+                    grand_total += total
+                    label = "features" if args.no_backfill else "signals"
+                    print(f"  {sym} done: {total:,} {label}  {dict(counts)}")
+                except Exception as exc:
+                    print(f"  {symbol} FAILED: {exc}")
+        label = "feature rows" if args.no_backfill else "signals"
+        print(f"  Total: {grand_total:,} {label}")
 
     # --- Stage 6: Verify ---
     print("\n[5/5] Verifying dataset...")
