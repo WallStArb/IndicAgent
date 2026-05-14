@@ -89,18 +89,15 @@ This is applied at the signal construction boundary — invisible to plugins, en
 
 **Files:** `signal_schema.py` (validation in make_signal_from_frame)
 
-### W5: Clean signal_ledger
+### W5: Wipe signal_ledger and Derivative Data
 
-**Current state:** 2.5M rows, 99.98% noise, phantom PnL from precision loss.
+**Current state:** 2.5M rows, 99.98% noise, phantom PnL from precision loss. All derivative stats computed on garbage.
 
-**Change:** Surgical delete of garbage data, keep real outcomes for calibration baseline:
-- Delete all never-activated TTL-expired signals (~696K rows, 80% of ledger)
-- Delete signals with microscopic stops (`abs(entry - stop) < 0.01`, ~74K rows)
-- Delete orphaned active signals stuck >2h (420 rows)
-- Reset `setup_performance` — stats computed from garbage PnL
-- Truncate empty ancillary tables: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`
-- **Keep:** activated signals with real outcomes (~2,452 rows) and target hits (124 rows) as calibration seed
-- Keep: `intelligence_features`, `market_data_ohlcv`, `shadow_registry`, `instruments`, `contract_metadata` — these are clean
+**Change:** Full wipe — clean slate for the fixed pipeline:
+- `TRUNCATE signal_ledger CASCADE`
+- Truncate: `signal_lineage`, `signal_transform_log`, `signal_metrics`, `signal_metrics_dq_failures`, `signal_metrics_ic`, `signal_ai_enrichment`, `intelligence_ai_enrichment`, `setup_performance`
+- All signal data and derivatives will be rebuilt from scratch by the fixed pipeline
+- Keep: `intelligence_features`, `market_data_ohlcv`, `shadow_registry`, `instruments`, `contract_metadata` — these are clean source data
 
 **Execution:** One-time SQL script, run after all code changes deployed and tested.
 
