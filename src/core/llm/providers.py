@@ -1,22 +1,12 @@
-"""LLM provider abstraction — OpenRouter (primary), Ollama Cloud, Ollama (local fallback).
+"""LLM provider abstraction — OpenRouter (primary), Ollama local (fallback).
 
 Usage:
     chain = LLMChain([
-        OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
-        DeepSeekProvider("deepseek-v4-flash", api_key="sk-..."),  # Paid, low cost
-        OllamaCloudProvider("glm-4.7:cloud", api_key="fe982..."),  # Cloud models
-        OllamaProvider("gemma4:e4b"),  # Local models
+        OpenRouterProvider("google/gemma-4-31b-it:free", api_key="sk-..."),
+        OllamaProvider("nemotron-3-nano:4b"),
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
     # chain.last_provider_id tells you which provider succeeded
-
-DeepSeek models (DEEPSEEK_API_KEY, OpenAI-compatible, base: https://api.deepseek.com):
-    - deepseek-v4-flash: $0.14/1M in, $0.28/1M out — fast, general tasks
-    - deepseek-v4-pro:   $0.435/1M in, $0.87/1M out — complex reasoning (75% off until 2026-05-31)
-    Context: 1M tokens, max output: 384K tokens. Supports thinking mode, tool calls, JSON output.
-
-Cloud models (free tier with OLLAMA_API_KEY):
-    - glm-4.7:cloud: General purpose, strong reasoning
 """
 
 from __future__ import annotations
@@ -202,12 +192,7 @@ async def _call_llm_with_circuit_breaker(
 
 
 def _strip_thinking_tags(text: str) -> str:
-    """Remove <think>...</think> blocks from LLM output.
-
-    Some reasoning models (DeepSeek, GLM, Qwen when /no_think is ignored) emit
-    their chain-of-thought wrapped in <think> tags inside the content field.
-    Strip those blocks and return only the final answer.
-    """
+    """Remove <think>...</think> blocks from LLM output (Qwen when /no_think is ignored)."""
     import re
 
     # Remove <think>...</think> blocks (possibly multiline, possibly multiple)
@@ -346,31 +331,6 @@ class OpenRouterProvider(_OpenAICompatProvider):
         return {"include_reasoning": False, "reasoning": {"effort": "none"}}
 
 
-class DeepSeekProvider(_OpenAICompatProvider):
-    """Calls DeepSeek /chat/completions (OpenAI-compatible).
-
-    Models:
-        deepseek-v4-flash — fast, low cost ($0.14/1M in, $0.28/1M out)
-        deepseek-v4-pro   — complex reasoning ($0.435/1M in, $0.87/1M out; 75% off until 2026-05-31)
-
-    Both support 1M context, 384K max output, tool calls, JSON output, and thinking mode.
-    """
-
-    _provider_prefix = "deepseek"
-    _default_base_url = "https://api.deepseek.com"
-
-    def __init__(
-        self,
-        model: str = "deepseek-v4-flash",
-        api_key: str = "",
-        base_url: str | None = None,
-        timeout: float | None = None,
-    ) -> None:
-        if not api_key:
-            raise ValueError("DeepSeekProvider requires api_key (set DEEPSEEK_API_KEY in .env)")
-        super().__init__(model=model, api_key=api_key, base_url=base_url, timeout=timeout)
-
-
 class OllamaProvider:
     """Calls local Ollama /api/chat."""
 
@@ -414,78 +374,6 @@ class OllamaProvider:
                 result = json.loads(resp.read())
             raw = result.get("message", {}).get("content", "").strip()
             return _strip_thinking_tags(raw) or None
-
-        return await _call_llm_with_circuit_breaker(
-            self.provider_id, _call, circuit_breaker=self._circuit_breaker
-        )
-
-
-class OllamaCloudProvider:
-    """Calls Ollama Cloud API directly at https://ollama.com/api.
-
-    Uses Bearer token authentication (OLLAMA_API_KEY). Bypasses local proxy
-    authentication requirements. Supports free-tier cloud models like:
-    - glm-4.7:cloud (general purpose, strong reasoning)
-    """
-
-    def __init__(
-        self,
-        model: str,
-        api_key: str,
-        base_url: str = "https://ollama.com/api",
-        timeout: float | None = None,
-    ) -> None:
-        if not api_key:
-            raise ValueError("OllamaCloudProvider requires api_key (set OLLAMA_API_KEY in .env)")
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.timeout = timeout or _default_llm_timeout()
-        self.provider_id = f"ollama-cloud:{model}"
-        self._circuit_breaker = _llm_circuit_breaker
-
-    async def generate(
-        self,
-        prompt: str,
-        system: str,
-        max_tokens: int,
-        timeout: float,
-    ) -> str | None:
-        def _call() -> str | None:
-            payload = {
-                "model": self.model,
-                "prompt": prompt,
-                "system": system,
-                "stream": False,
-                "options": {"num_predict": max_tokens},
-            }
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self.base_url}/generate",
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                },
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    result = json.loads(resp.read())
-                raw = result.get("response", "").strip()
-                # Some thinking models return content in "thinking"
-                # when "response" is empty — use it as fallback.
-                if not raw:
-                    raw = result.get("thinking", "").strip()
-                return _strip_thinking_tags(raw) or None
-            except urllib.error.HTTPError as exc:
-                # Check for subscription requirement
-                if exc.code == 401:
-                    logger.warning(
-                        "ollama_cloud_unauthorized",
-                        model=self.model,
-                        error="Subscription required or invalid API key",
-                    )
-                raise
 
         return await _call_llm_with_circuit_breaker(
             self.provider_id, _call, circuit_breaker=self._circuit_breaker
