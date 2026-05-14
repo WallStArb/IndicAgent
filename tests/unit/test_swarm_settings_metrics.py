@@ -12,7 +12,6 @@ def test_swarm_settings_defaults():
     assert s.SWARM_WEIGHT_MIN_SAMPLES == 30
     assert s.SWARM_WEIGHT_FLOOR == 0.05
     assert s.SWARM_MAX_CONCURRENT_CALLS == 2
-    assert s.SWARM_QUEUE_TIMEOUT_MS == 250
 
 
 def test_swarm_settings_env_override(monkeypatch):

@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     SWARM_QUEUE_TIMEOUT_MS: int = Field(
         default=250,
         validation_alias="SWARM_QUEUE_TIMEOUT_MS",
-        description="Timeout in ms to acquire semaphore before skipping enrichment",
+        description="Deprecated — semaphore timeout removed (D-07). Kafka lag-skip is the backpressure valve. Setting retained for env-var compatibility.",
     )
 
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
