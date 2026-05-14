@@ -125,3 +125,99 @@ class TestBarMessageValidation:
         """session_type accepts string values that match enum (SessionType is str-subclass)."""
         bar = BarMessage(**_make_bar(session_type="eth"))
         assert bar.session_type == SessionType.ETH
+
+
+# ---------------------------------------------------------------------------
+# bar_id UUID field tests (merged from tests/unit/test_bar_message.py)
+# ---------------------------------------------------------------------------
+
+import json as _json
+from uuid import UUID, uuid4
+
+from src.intelligence.schemas import (
+    I1Indicators,
+    I3Structure,
+    I4Context,
+    I5Patterns,
+    I6Confluence,
+    IntelligenceEvent,
+    OHLCVBar,
+    SMCContext,
+)
+
+
+def _make_bar_with_id(**overrides) -> BarMessage:
+    defaults = dict(
+        ts="2026-04-12T12:00:00+00:00",
+        symbol="ES",
+        tf="1m",
+        open=5800.0,
+        high=5801.0,
+        low=5799.0,
+        close=5800.5,
+        volume=1000,
+        source="ibkr_named",
+        session_type=SessionType.RTH,
+    )
+    defaults.update(overrides)
+    return BarMessage(**defaults)
+
+
+def _make_intelligence_event(**overrides) -> IntelligenceEvent:
+    defaults = dict(
+        ts="2026-04-12T12:00:00+00:00",
+        symbol="ES",
+        tf="1m",
+        bar=OHLCVBar(o=5800.0, h=5801.0, l=5799.0, c=5800.5, v=1000),
+        i1=I1Indicators(),
+        i3=I3Structure(),
+        i4=I4Context(),
+        i5=I5Patterns(),
+        smc=SMCContext(),
+        i6=I6Confluence(),
+    )
+    defaults.update(overrides)
+    return IntelligenceEvent(**defaults)
+
+
+def test_bar_id_auto_generated():
+    assert _make_bar_with_id().bar_id is not None
+
+
+def test_bar_id_is_uuid_type():
+    assert isinstance(_make_bar_with_id().bar_id, UUID)
+
+
+def test_two_bars_have_different_bar_ids():
+    assert _make_bar_with_id().bar_id != _make_bar_with_id().bar_id
+
+
+def test_bar_id_serialized_in_model_dump():
+    dumped = _make_bar_with_id().model_dump()
+    assert "bar_id" in dumped
+    assert isinstance(dumped["bar_id"], UUID)
+
+
+def test_bar_id_in_json_serialization():
+    parsed = _json.loads(_make_bar_with_id().model_dump_json())
+    assert "bar_id" in parsed
+    UUID(parsed["bar_id"])
+
+
+def test_explicit_bar_id_preserved():
+    explicit_id = uuid4()
+    assert _make_bar_with_id(bar_id=explicit_id).bar_id == explicit_id
+
+
+def test_intelligence_event_accepts_bar_id():
+    bar = _make_bar_with_id()
+    event = _make_intelligence_event(bar_id=bar.bar_id)
+    assert event.bar_id == bar.bar_id
+
+
+def test_intelligence_event_bar_id_defaults_none():
+    assert _make_intelligence_event().bar_id is None
+
+
+def test_intelligence_event_bar_id_none_explicit():
+    assert _make_intelligence_event(bar_id=None).bar_id is None

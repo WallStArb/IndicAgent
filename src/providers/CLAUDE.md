@@ -53,7 +53,7 @@ docker exec redpanda rpk topic consume market.bars.raw.ibkr --from-end
 ```
 
 ### Troubleshooting
-- **TWS connection refused**: IBKR TWS at `192.168.1.157` — check trusted IPs in TWS API settings if connection fails.
+- **IB Gateway connection refused**: IB Gateway runs locally via Docker (`ib-gateway` container, `localhost:7497`). If connection fails, check the container is running (`docker ps | grep ib-gateway`) and that the API is enabled inside the gateway UI (VNC on `:5900`).
 - **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:
   ```bash
   sudo systemctl restart indicagent-ibkr-provider

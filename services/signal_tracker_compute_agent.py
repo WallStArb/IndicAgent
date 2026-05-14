@@ -664,9 +664,11 @@ class SignalTrackerComputeAgent(BaseAgent):
                 continue
 
             # --- Market-entry dual track ---
-            mep = sig.get("market_entry_price")
-            if mep and float(mep) > 0:
-                market_entry_price = float(mep)
+            try:
+                market_entry_price = float(sig.get("market_entry_price") or 0)
+            except (TypeError, ValueError):
+                market_entry_price = 0.0
+            if market_entry_price > 0:
                 m_mae = self._market_mae.get(sid, 0.0)
                 m_mfe = self._market_mfe.get(sid, 0.0)
                 try:
