@@ -222,38 +222,7 @@ def evaluate_signal(
     zone_high = signal.get("entry_zone_high") or entry
     risk = abs(entry - stop)
 
-    # TTL check first (applies to both pending and active)
-    if bars >= ttl:
-        exit_price = close
-        pnl_ticks = (exit_price - entry) * direction
-        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
-        pnl_dollars = round(pnl_ticks * point_value, 2)
-        activated_at = signal.get("activated_at")
-        # Phase 81: D-02 violation should now be impossible. Counter retained as
-        # assertion. Do NOT auto-correct — surface the bug instead.
-        if activated_at is not None and status == SignalStatus.PENDING:
-            _LABELING_VIOLATIONS.inc()
-        was_activated = status == SignalStatus.ACTIVE
-        if not was_activated:
-            outcome = SignalOutcome.NEVER_ACTIVATED
-        elif current_mfe > 0:
-            outcome = SignalOutcome.TTL_EXPIRED_AHEAD
-        else:
-            outcome = SignalOutcome.TTL_EXPIRED_BEHIND
-        _record_outcome(signal, outcome)
-        return Transition(
-            signal_id=sid,
-            new_status=SignalStatus.EXPIRED,
-            exit_reason="ttl_expired",
-            exit_price=exit_price,
-            pnl_ticks=round(pnl_ticks, 4),
-            pnl_r=pnl_r,
-            pnl_dollars=pnl_dollars,
-            mae=current_mae,
-            mfe=current_mfe,
-            outcome=outcome,
-        )
-
+    # --- Pending: zone activation check (first) ---
     if status == SignalStatus.PENDING:
         return _check_zone_activation(
             sid,
@@ -267,51 +236,60 @@ def evaluate_signal(
             bar_time=bar_time,
         )
 
-    if status == SignalStatus.ACTIVE:
-        # --- Chandelier trailing stop check (before standard stop/target) ---
-        if chandelier_state is not None:
-            trailing_stop = chandelier_state.get("trailing_stop")
-            if trailing_stop is not None:
-                if direction == 1 and low <= trailing_stop:
-                    pnl_ticks = (trailing_stop - entry) * direction
-                    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
-                    pnl_dollars = round(pnl_ticks * point_value, 2)
-                    final_mae = min(current_mae, pnl_r)
-                    final_mfe = max(current_mfe, pnl_r)
-                    _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
-                    return Transition(
-                        signal_id=sid,
-                        new_status=SignalStatus.EXPIRED,
-                        exit_reason="chandelier_stop",
-                        exit_price=trailing_stop,
-                        pnl_ticks=round(pnl_ticks, 4),
-                        pnl_r=pnl_r,
-                        pnl_dollars=pnl_dollars,
-                        mae=round(final_mae, 4),
-                        mfe=round(final_mfe, 4),
-                        outcome=SignalOutcome.STOPPED_IN_TRADE,
-                    )
-                elif direction == -1 and high >= trailing_stop:
-                    pnl_ticks = (trailing_stop - entry) * direction
-                    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
-                    pnl_dollars = round(pnl_ticks * point_value, 2)
-                    final_mae = min(current_mae, pnl_r)
-                    final_mfe = max(current_mfe, pnl_r)
-                    _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
-                    return Transition(
-                        signal_id=sid,
-                        new_status=SignalStatus.EXPIRED,
-                        exit_reason="chandelier_stop",
-                        exit_price=trailing_stop,
-                        pnl_ticks=round(pnl_ticks, 4),
-                        pnl_r=pnl_r,
-                        pnl_dollars=pnl_dollars,
-                        mae=round(final_mae, 4),
-                        mfe=round(final_mfe, 4),
-                        outcome=SignalOutcome.STOPPED_IN_TRADE,
-                    )
+    # --- Active signal checks (in priority order) ---
 
-        # --- Staleness condition_expired check (3-bar confirmation) ---
+    # 1. Standard stop/target exit (conservative: stop before target on same bar)
+    if status == SignalStatus.ACTIVE:
+        exit_result = _check_active_exit(
+            sid,
+            direction,
+            entry,
+            stop,
+            targets,
+            high,
+            low,
+            close,
+            risk,
+            point_value,
+            current_mae,
+            current_mfe,
+        )
+        if exit_result is not None:
+            if exit_result.outcome is not None:
+                _record_outcome(signal, exit_result.outcome)
+            return exit_result
+
+    # 2. Chandelier trailing stop
+    if status == SignalStatus.ACTIVE and chandelier_state is not None:
+        trailing_stop = chandelier_state.get("trailing_stop")
+        if trailing_stop is not None:
+            chandelier_hit = False
+            if direction == 1 and low <= trailing_stop:
+                chandelier_hit = True
+            elif direction == -1 and high >= trailing_stop:
+                chandelier_hit = True
+            if chandelier_hit:
+                pnl_ticks = (trailing_stop - entry) * direction
+                pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+                pnl_dollars = round(pnl_ticks * point_value, 2)
+                final_mae = min(current_mae, pnl_r)
+                final_mfe = max(current_mfe, pnl_r)
+                _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
+                return Transition(
+                    signal_id=sid,
+                    new_status=SignalStatus.EXPIRED,
+                    exit_reason="chandelier_stop",
+                    exit_price=trailing_stop,
+                    pnl_ticks=round(pnl_ticks, 4),
+                    pnl_r=pnl_r,
+                    pnl_dollars=pnl_dollars,
+                    mae=round(final_mae, 4),
+                    mfe=round(final_mfe, 4),
+                    outcome=SignalOutcome.STOPPED_IN_TRADE,
+                )
+
+    # 3. Staleness condition_expired (3-bar confirmation)
+    if status == SignalStatus.ACTIVE:
         if (
             staleness_consecutive_bars >= STALENESS_CONSECUTIVE_THRESHOLD
             and staleness_score > STALENESS_SCORE_THRESHOLD
@@ -335,43 +313,52 @@ def evaluate_signal(
                 outcome="condition_expired",
             )
 
-        # --- Standard stop/target exit ---
-        result = _check_active_exit(
-            sid,
-            direction,
-            entry,
-            stop,
-            targets,
-            high,
-            low,
-            close,
-            risk,
-            point_value,
-            current_mae,
-            current_mfe,
+    # 4. TTL expiry (LAST — only after all price-based checks)
+    if bars >= ttl:
+        exit_price = close
+        pnl_ticks = (exit_price - entry) * direction
+        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+        pnl_dollars = round(pnl_ticks * point_value, 2)
+        activated_at = signal.get("activated_at")
+        if activated_at is not None and status == SignalStatus.PENDING:
+            _LABELING_VIOLATIONS.inc()
+        was_activated = status == SignalStatus.ACTIVE
+        if not was_activated:
+            outcome = SignalOutcome.NEVER_ACTIVATED
+        elif current_mfe > 0:
+            outcome = SignalOutcome.TTL_EXPIRED_AHEAD
+        else:
+            outcome = SignalOutcome.TTL_EXPIRED_BEHIND
+        _record_outcome(signal, outcome)
+        return Transition(
+            signal_id=sid,
+            new_status=SignalStatus.EXPIRED,
+            exit_reason="ttl_expired",
+            exit_price=exit_price,
+            pnl_ticks=round(pnl_ticks, 4),
+            pnl_r=pnl_r,
+            pnl_dollars=pnl_dollars,
+            mae=current_mae,
+            mfe=current_mfe,
+            outcome=outcome,
         )
 
-        if result is not None and result.outcome is not None:
-            _record_outcome(signal, result.outcome)
-
-        # Update Chandelier state in-place (no exit: still running)
-        if result is None and chandelier_state is not None:
-            hh = max(chandelier_state.get("highest_high", high), high)
-            ll = min(chandelier_state.get("lowest_low", low), low)
-            chandelier_state["highest_high"] = hh
-            chandelier_state["lowest_low"] = ll
-            vol = chandelier_state.get("vol", 0.0)
-            if vol > 0:
-                new_stop = compute_chandelier_stop(direction, hh, ll, vol)
-                old_stop = chandelier_state.get("trailing_stop")
-                if old_stop is None:
-                    chandelier_state["trailing_stop"] = new_stop
-                elif direction == 1 and new_stop > old_stop:
-                    chandelier_state["trailing_stop"] = new_stop
-                elif direction == -1 and new_stop < old_stop:
-                    chandelier_state["trailing_stop"] = new_stop
-
-        return result
+    # No transition — update Chandelier state (still running)
+    if chandelier_state is not None:
+        hh = max(chandelier_state.get("highest_high", high), high)
+        ll = min(chandelier_state.get("lowest_low", low), low)
+        chandelier_state["highest_high"] = hh
+        chandelier_state["lowest_low"] = ll
+        vol = chandelier_state.get("vol", 0.0)
+        if vol > 0:
+            new_stop = compute_chandelier_stop(direction, hh, ll, vol)
+            old_stop = chandelier_state.get("trailing_stop")
+            if old_stop is None:
+                chandelier_state["trailing_stop"] = new_stop
+            elif direction == 1 and new_stop > old_stop:
+                chandelier_state["trailing_stop"] = new_stop
+            elif direction == -1 and new_stop < old_stop:
+                chandelier_state["trailing_stop"] = new_stop
 
     return None
 
@@ -546,31 +533,13 @@ def evaluate_market_entry(
     bars = signal.get("bars_elapsed", 0)
     risk = abs(market_entry_price - stop)
 
-    # TTL check first (mirrors evaluate_signal)
-    if bars >= ttl:
-        pnl_ticks = (close - market_entry_price) * direction
-        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
-        outcome = (
-            SignalOutcome.TTL_EXPIRED_AHEAD if current_mfe > 0 else SignalOutcome.TTL_EXPIRED_BEHIND
-        )
-        final_mae = min(current_mae, pnl_r)
-        final_mfe = max(current_mfe, pnl_r)
-        return MarketTransition(
-            signal_id=sid,
-            exit_price=close,
-            pnl_r=pnl_r,
-            mae=round(final_mae, 4),
-            mfe=round(final_mfe, 4),
-            outcome=outcome,
-        )
-
-    # Stop loss check (stop before target on same bar — conservative)
+    # 1. Stop loss check (conservative: stop before target on same bar)
     if (direction == 1 and low <= stop) or (direction == -1 and high >= stop):
         return _make_market_exit(
             sid, stop, market_entry_price, direction, risk, current_mae, current_mfe
         )
 
-    # Target checks (highest target first for maximum credit)
+    # 2. Target checks (highest target first for maximum credit)
     for i in range(len(targets) - 1, -1, -1):
         target = targets[i]
         hit = (direction == 1 and high >= target) or (direction == -1 and low <= target)
@@ -587,6 +556,24 @@ def evaluate_market_entry(
                 mfe=round(final_mfe, 4),
                 outcome=_determine_target_outcome(i),
             )
+
+    # 3. TTL expiry (last — only after price-based checks)
+    if bars >= ttl:
+        pnl_ticks = (close - market_entry_price) * direction
+        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+        outcome = (
+            SignalOutcome.TTL_EXPIRED_AHEAD if current_mfe > 0 else SignalOutcome.TTL_EXPIRED_BEHIND
+        )
+        final_mae = min(current_mae, pnl_r)
+        final_mfe = max(current_mfe, pnl_r)
+        return MarketTransition(
+            signal_id=sid,
+            exit_price=close,
+            pnl_r=pnl_r,
+            mae=round(final_mae, 4),
+            mfe=round(final_mfe, 4),
+            outcome=outcome,
+        )
 
     # Still running
     return MarketTransition(signal_id=sid)
