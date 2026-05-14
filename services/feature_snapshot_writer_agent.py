@@ -109,8 +109,10 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
             self.logger.exception("shadow_write_failed", rows=len(batch))
             self._buffer.clear()  # shadow table — drop on failure, don't retry
 
-    def _parse_record(self, raw: bytes | str) -> BarIntelligenceRecord | None:
+    def _parse_record(self, raw: dict | bytes | str) -> BarIntelligenceRecord | None:
         try:
+            if isinstance(raw, dict):
+                return BarIntelligenceRecord.model_validate(raw)
             return BarIntelligenceRecord.model_validate_json(raw)
         except (ValidationError, ValueError) as exc:
             self.logger.warning("snapshot_writer_parse_failed", error=str(exc))
@@ -157,8 +159,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
                 if topic != _journal_topic:
                     continue  # skip system.events on this consumer
 
-                raw = payload if isinstance(payload, (bytes, str)) else str(payload)
-                record = self._parse_record(raw)
+                record = self._parse_record(payload)
                 if record is None:
                     continue
 
