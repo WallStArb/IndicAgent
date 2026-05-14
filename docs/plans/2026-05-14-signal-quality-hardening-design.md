@@ -29,21 +29,23 @@ The signal pipeline produces ~50K signals/day with 99.98% TTL-expiring as noise.
 
 **Files:** `signal_schema.py`, `intelligence_pipeline_agent.py`, all 36 I7 plugins (timeframe param)
 
-### W2: Move TTL Check After Stop/Target
+### W2: Move TTL Check After Stop/Target + Active-Bar Counting
 
-**Current state:** `lifecycle_tracker.py:evaluate_signal()` checks TTL at line 226, BEFORE zone activation (257), stop (445), and target (473).
+**Current state:** `lifecycle_tracker.py:evaluate_signal()` checks TTL at line 226, BEFORE zone activation (257), stop (445), and target (473). TTL counts every bar including empty bars (high==low, no volume), so overnight/session-gap bars eat TTL without price moving.
 
-**Change:** Reorder `evaluate_signal()`:
-1. Zone activation (pending → active)
-2. Stop loss check
-3. Target hit check
-4. Chandelier trailing stop
-5. Staleness check
-6. TTL expiry (last)
+**Change:**
+1. Reorder `evaluate_signal()`:
+   - Zone activation (pending → active)
+   - Stop loss check
+   - Target hit check
+   - Chandelier trailing stop
+   - Staleness check
+   - TTL expiry (last)
+2. Change `_bars_elapsed()` in `signal_tracker_compute_agent.py` to count **active bars only** — skip bars where `high == low` (no price range). This makes TTL reflect actual trading opportunity, not calendar time. An empty overnight bar doesn't decrement the signal's life.
 
 Same reordering for `evaluate_market_entry()` (lines 549-565).
 
-**Files:** `lifecycle_tracker.py`
+**Files:** `lifecycle_tracker.py`, `signal_tracker_compute_agent.py`
 
 ### W3: Fix Price Precision
 
