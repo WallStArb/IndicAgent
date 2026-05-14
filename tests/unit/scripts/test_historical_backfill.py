@@ -5,9 +5,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).parents[3]))
+sys.path.insert(0, str(Path(__file__).parents[3] / "production" / "scripts"))
 
 from src.core.bar_normalizer import SOURCE_DERIVED_1M
+from src.intelligence.register_plugins import register_all_plugins
 
 
 def test_aggregate_bars_from_1m_5m_groups_correctly():
@@ -583,15 +587,14 @@ def test_replay_worker_closes_connection_on_failure():
 # (merged from tests/unit/test_historical_backfill.py)
 # ---------------------------------------------------------------------------
 
-import sys
-from collections import deque
-from pathlib import Path
 
-import pandas as pd
-
-sys.path.insert(0, str(Path(__file__).parents[3] / "production" / "scripts"))
-
-from src.intelligence.register_plugins import register_all_plugins
+def _make_mock_conn(fetchall_result=None):
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_cursor.fetchall.return_value = fetchall_result or []
+    return mock_conn, mock_cursor
 
 
 def _backfill_bar(ts, o=100.0, h=101.0, low=99.0, c=100.5, v=1000):
@@ -599,8 +602,6 @@ def _backfill_bar(ts, o=100.0, h=101.0, low=99.0, c=100.5, v=1000):
 
 
 def _ts_bf(hour, minute):
-    from datetime import UTC, datetime
-
     return datetime(2026, 2, 1, hour, minute, 0, tzinfo=UTC)
 
 
@@ -718,9 +719,6 @@ class TestBuildLedgerEntries:
 
 class TestFetchAndStoreBars:
     def test_fetch_1m_bars_queries_correct_table(self):
-        from datetime import UTC, datetime
-        from unittest.mock import MagicMock
-
         from historical_backfill import fetch_bars
 
         mock_conn = MagicMock()
@@ -741,8 +739,6 @@ class TestFetchAndStoreBars:
         assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
 
     def test_store_bars_calls_execute_batch(self):
-        from unittest.mock import MagicMock, patch
-
         from historical_backfill import store_bars
 
         mock_conn = MagicMock()
@@ -866,8 +862,6 @@ class TestEventToSyncParams:
         assert len(_event_to_sync_params(self._make_event())) == 13
 
     def test_first_element_is_datetime(self):
-        from datetime import datetime
-
         from historical_backfill import _event_to_sync_params
 
         assert isinstance(_event_to_sync_params(self._make_event())[0], datetime)
@@ -882,16 +876,9 @@ class TestEventToSyncParams:
 
 class TestInsertFeaturesSync:
     def _mock_conn(self):
-        from unittest.mock import MagicMock
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        return mock_conn, mock_cursor
+        return _make_mock_conn()
 
     def test_calls_execute_values_with_correct_sql(self):
-        from unittest.mock import patch
-
         from historical_backfill import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
 
         mock_conn, mock_cursor = self._mock_conn()
@@ -901,8 +888,6 @@ class TestInsertFeaturesSync:
         assert mock_ev.call_args[0][1] == _INSERT_FEATURE_SYNC_SQL
 
     def test_commits_connection(self):
-        from unittest.mock import patch
-
         from historical_backfill import _insert_features_sync
 
         mock_conn, _ = self._mock_conn()
@@ -945,8 +930,6 @@ class TestBuildLedgerEntriesFeatureTs:
         )
 
     def test_feature_ts_passes_through(self):
-        from datetime import UTC, datetime
-
         from historical_backfill import _build_ledger_entries
 
         feature_ts = datetime(2026, 2, 1, 9, 30, 0, tzinfo=UTC)
@@ -994,9 +977,6 @@ class TestCISColumnsInSQL:
         assert len(cols) == len(vals)
 
     def test_insert_signals_sync_params_include_cis_nulls(self):
-        from datetime import UTC, datetime
-        from unittest.mock import MagicMock, patch
-
         from historical_backfill import _insert_signals_sync
 
         from src.persistence.repository.signal_ledger_repository import LedgerEntry
@@ -1049,18 +1029,10 @@ class TestCISColumnsInSQL:
 
 class TestDetectGaps:
     def _mock_conn(self, fetchall_result=None):
-        from unittest.mock import MagicMock
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
-        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-        mock_cursor.fetchall.return_value = fetchall_result or []
+        mock_conn, _ = _make_mock_conn(fetchall_result)
         return mock_conn
 
     def test_cme_futures_over_weekend_no_gaps(self):
-        from datetime import UTC, datetime
-
         from historical_backfill import detect_gaps
 
         gaps = detect_gaps(
@@ -1075,9 +1047,6 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_over_weekend_no_gaps(self):
-        from datetime import UTC, datetime
-        from unittest.mock import patch
-
         from historical_backfill import detect_gaps
 
         with patch("historical_backfill.generate_session_slots", return_value=[]):
@@ -1093,9 +1062,6 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_on_holiday_no_gaps(self):
-        from datetime import UTC, datetime
-        from unittest.mock import patch
-
         from historical_backfill import detect_gaps
 
         with patch("historical_backfill.generate_session_slots", return_value=[]):
@@ -1111,9 +1077,6 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_genuine_intraday_gap_detected(self):
-        from datetime import UTC, datetime
-        from unittest.mock import patch
-
         from historical_backfill import detect_gaps
 
         slots = [datetime(2026, 1, 2, h, 0, tzinfo=UTC) for h in range(15, 19)]

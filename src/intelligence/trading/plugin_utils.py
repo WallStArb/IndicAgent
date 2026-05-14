@@ -61,3 +61,14 @@ def signal_type_for_direction(prefix: str, direction: int) -> str:
         direction: +1 for long, -1 for short.
     """
     return f"{prefix}_long" if direction == 1 else f"{prefix}_short"
+
+
+def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
+    """Null-safe float extraction from a features dict."""
+    v = features.get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
