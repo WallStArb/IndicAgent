@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.core.service_utils import TF_TTL_BARS, round_to_tick
+from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 
 # Single canonical version tag. All signal producers and consumers reference this.
 SIGNAL_SCHEMA_VERSION = "v2"
@@ -13,6 +13,9 @@ LEGACY_SIGNAL_SCHEMA_VERSION = "v0"
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
+
+# Emission gate thresholds (W4)
+MIN_RR_T1 = 1.5  # minimum risk/reward to first target
 
 REQUIRED_SIGNAL_FIELDS = frozenset(
     {
@@ -157,7 +160,31 @@ def make_signal_from_frame(
     if ttl_bars is None:
         ttl_bars = TF_TTL_BARS.get(timeframe, 10)
 
+    # W4: Emission gate — reject structurally invalid signals at construction boundary
+    tick = TICK_SIZES.get(symbol, 0)
+    entry = tf.entry
+    stop = tf.stop
+    stop_distance = abs(entry - stop)
+
+    # Gate 1: stop must be at least 1 tick from entry
+    if stop_distance < tick:
+        raise ValueError(
+            f"Emission gate: stop ({stop}) is within 1 tick ({tick}) of entry ({entry})"
+        )
+
+    # Gate 2: stop_type must be identified (not "unknown")
+    if tf.stop_type == "unknown":
+        raise ValueError("Emission gate: stop_type is 'unknown' — structural stop basis required")
+
+    # Gate 3: minimum risk/reward to first target
     target_prices = [t.price for t in tf.targets]
+    if target_prices:
+        reward = abs(target_prices[0] - entry)
+        rr_t1_actual = reward / stop_distance if stop_distance > 0 else 0
+        if rr_t1_actual < MIN_RR_T1:
+            raise ValueError(
+                f"Emission gate: RR to T1 ({rr_t1_actual:.2f}) below minimum ({MIN_RR_T1})"
+            )
     target_labels = [t.label for t in tf.targets]
     target_types = [t.level_type for t in tf.targets]
 

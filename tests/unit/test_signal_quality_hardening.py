@@ -1,7 +1,11 @@
 """Tests for signal quality hardening: W1-W7."""
 
+from unittest.mock import MagicMock
+
+import pytest
+
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
-from src.intelligence.trading.signal_schema import make_signal
+from src.intelligence.trading.signal_schema import make_signal, make_signal_from_frame
 
 
 class TestTickSizes:
@@ -172,3 +176,92 @@ class TestTFTTLBars:
             ttl_bars=99,
         )
         assert sig["ttl_bars"] == 99
+
+
+def _make_viable_tf(
+    entry=1.10, stop=1.09, targets=None, stop_type="atr", rr_t1=2.0, zone_low=None, zone_high=None
+):
+    """Build a mock TradeFrame that passes tf.viable."""
+    tf = MagicMock()
+    tf.viable = True
+    tf.entry = entry
+    tf.stop = stop
+    tf.entry_type = "at_close"
+    tf.stop_type = stop_type
+    tf.method = "atr_fallback"
+    tf.rr_t1 = rr_t1
+    tf.rr_t2 = None
+    tf.rr_t3 = None
+    tf.zone_low = zone_low or entry
+    tf.zone_high = zone_high or entry
+
+    if targets is None:
+        t = MagicMock()
+        t.price = entry + abs(entry - stop) * 2.0
+        t.label = "T1"
+        t.level_type = "resistance"
+        targets = [t]
+    tf.targets = targets
+    return tf
+
+
+class TestEmissionGate:
+    """W4: Emission gate rejects invalid signals."""
+
+    def _make_signal(self, entry=1.10, stop=1.09, stop_type="atr"):
+        tf = _make_viable_tf(entry=entry, stop=stop, stop_type=stop_type)
+        return make_signal_from_frame(
+            tf,
+            symbol="EURUSD",
+            timeframe="1m",
+            timestamp="2026-01-01T00:00:00Z",
+            signal_type="long",
+            setup_plugin="test",
+            direction=1,
+            confidence=0.8,
+            regime_context="any",
+            confluence_score=0.5,
+            supporting_factors=[],
+            invalidation_conditions=[],
+        )
+
+    def test_accepts_valid_signal(self):
+        sig = self._make_signal(entry=1.10, stop=1.09)
+        assert sig is not None
+        assert sig["entry_price"] > 0
+
+    def test_rejects_stop_equals_entry(self):
+        with pytest.raises(ValueError, match="stop.*tick"):
+            self._make_signal(entry=1.10, stop=1.10)
+
+    def test_rejects_stop_too_close_to_entry(self):
+        # EURUSD tick = 0.00001, stop 0.000005 away (< tick)
+        with pytest.raises(ValueError, match="stop.*tick"):
+            self._make_signal(entry=1.10000, stop=1.099995)
+
+    def test_rejects_unknown_stop_type(self):
+        with pytest.raises(ValueError, match="stop_type"):
+            self._make_signal(stop_type="unknown")
+
+    def test_rejects_low_rr(self):
+        # entry=1.10, stop=1.09 → risk=0.01, target=1.105 → reward=0.005 → RR=0.5 < 1.5
+        t = MagicMock()
+        t.price = 1.105
+        t.label = "T1"
+        t.level_type = "resistance"
+        tf = _make_viable_tf(entry=1.10, stop=1.09, targets=[t])
+        with pytest.raises(ValueError, match="RR"):
+            make_signal_from_frame(
+                tf,
+                symbol="EURUSD",
+                timeframe="1m",
+                timestamp="2026-01-01T00:00:00Z",
+                signal_type="long",
+                setup_plugin="test",
+                direction=1,
+                confidence=0.8,
+                regime_context="any",
+                confluence_score=0.5,
+                supporting_factors=[],
+                invalidation_conditions=[],
+            )
