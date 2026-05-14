@@ -40,6 +40,7 @@ from src.intelligence.trading.lifecycle_transitions import (
     TransitionType,
     to_dict,
 )
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SIGNAL_REPLAY_ATTEMPTED_TOTAL,
     SIGNAL_REPLAY_OHLCV_GAP_TOTAL,
@@ -91,11 +92,11 @@ class SignalReplayAuditorAgent:
             FROM signal_ledger
             WHERE exit_at IS NULL
               AND timestamp < NOW() - INTERVAL '2 minutes'
-              AND signal_schema_version = 'v1'
+              AND signal_schema_version = $1
         """
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            return await conn.fetch(query)
+            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION)
 
     async def _fetch_window_bars(
         self, symbol: str, tf: str, start_ts: datetime, end_ts: datetime

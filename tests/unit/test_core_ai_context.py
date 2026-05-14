@@ -1,6 +1,7 @@
 """Tests for AIContext, AIContextCache, and Tier enum."""
 
 import time
+import unittest.mock
 from datetime import datetime
 from types import SimpleNamespace
 from uuid import UUID
@@ -153,14 +154,10 @@ class TestAIContextCache:
         )
         assert ctx is not None
 
-        # Wait for TTL to expire (5 min = 300 sec)
-        # Patch _TTL_SECONDS to 0 for testing
+        # Patch _ttl_for_tf to return 0 so the entry expires immediately
         import src.core.ai.context as ctx_module
 
-        original_ttl = ctx_module._TTL_SECONDS
-        ctx_module._TTL_SECONDS = 0
-
-        try:
+        with unittest.mock.patch.object(ctx_module, "_ttl_for_tf", return_value=0):
             time.sleep(0.1)  # Small delay to ensure monotonic time advances
             ctx_expired = cache.build(
                 symbol="ES",
@@ -168,8 +165,6 @@ class TestAIContextCache:
                 tiers_needed=frozenset({Tier.I1}),
             )
             assert ctx_expired is None  # Should be None after expiry
-        finally:
-            ctx_module._TTL_SECONDS = original_ttl
 
     def test_context_cache_get_lead(self):
         """Verify get_lead() returns lead context for valid lead_map entry (D-10 fix)."""

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from pydantic import BaseModel, ConfigDict
 
+from src.core.service_utils import TF_SECONDS
 from src.intelligence.schemas import (
     I1Indicators,
     I2Events,
@@ -26,7 +27,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_TTL_SECONDS = 300  # 5 minutes
+# TTL is 2× the bar interval so the cache stays valid across one full bar period
+# even with asyncio scheduling jitter between bar_loop and trigger_loop.
+# Falls back to 10 minutes for unknown timeframes.
+_DEFAULT_TTL_SECONDS = 600
+
+
+def _ttl_for_tf(tf: str) -> float:
+    return TF_SECONDS.get(tf, _DEFAULT_TTL_SECONDS) * 2
 
 
 class Tier(str, Enum):
@@ -267,8 +275,10 @@ class AIContextCache:
 
         event, cached_at = entry
         age = time.monotonic() - cached_at
-        if age > _TTL_SECONDS:
-            logger.warning("ai_context.stale", symbol=symbol, tf=tf, age_s=round(age, 1))
+        if age > _ttl_for_tf(tf):
+            logger.warning(
+                "ai_context.stale", symbol=symbol, tf=tf, age_s=round(age, 1), ttl_s=_ttl_for_tf(tf)
+            )
             return None
 
         # Bar context — custom BarContext type (not in schemas.py)

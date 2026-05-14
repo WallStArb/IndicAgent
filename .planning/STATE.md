@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.3
 milestone_name: candidates
 status: milestone_complete
-stopped_at: Session resumed, proceeding to execute Phase 82
-last_updated: "2026-05-13T20:00:53.850Z"
+stopped_at: context exhaustion at 75% (2026-05-13)
+last_updated: "2026-05-13T23:53:32.882Z"
 progress:
   total_phases: 31
   completed_phases: 3
   total_plans: 23
-  completed_plans: 22
+  completed_plans: 24
   percent: 10
 ---
 
@@ -37,7 +37,7 @@ Progress: [███░░░░░░░] ~10%
 
 - Phase 080 swarm agents extend `BaseMultiplierAgent`; shadow-only by default.
 - `signal_replay_unresolved_gauge = 0` is the permanent health invariant post-081.
-- ML training filter: `WHERE signal_schema_version='v1' AND is_backfill=FALSE`.
+- ML training filter: `WHERE signal_schema_version='v2' AND is_backfill=FALSE` (tracks `SIGNAL_SCHEMA_VERSION` constant).
 - The canonical shared state lives in `.planning/STATE.md`; `PROJECT.md` and `ROADMAP.md` remain the longer-form references.
 
 ### Blockers/Concerns
@@ -47,7 +47,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-05-13
-Stopped at: Session resumed, proceeding to execute Phase 82
+Stopped at: Phase 82 simplify pass complete (e9a4dd01). Ready to plan Phase 83.
 Resume file: None
-
-**Planned Phase:** 82 (ml-intelligence-quality-qualitative-foundation) — 6 plans — 2026-05-13T19:18:02.403Z
