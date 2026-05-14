@@ -90,10 +90,12 @@ class NarrativeGroupComputeAgent(BaseGroupService):
     _STALENESS_MULTIPLIER = 2
 
     async def _handle_trigger(self, event: dict) -> None:
-        for raw_signal in event.get("signals", []):
-            await self._process_one_signal(raw_signal)
+        signals = event.get("signals", [])
+        if signals:
+            now = datetime.now(UTC)
+            await asyncio.gather(*(self._process_one_signal(s, now) for s in signals))
 
-    async def _process_one_signal(self, raw_signal: dict) -> None:
+    async def _process_one_signal(self, raw_signal: dict, now: datetime) -> None:
         if raw_signal.get("signal_schema_version", "v0") == "v0":
             return
 
@@ -110,7 +112,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         if ts_raw is not None:
             signal_ts = parse_iso_ts(ts_raw)
             if signal_ts is not None:
-                age_s = (datetime.now(UTC) - signal_ts).total_seconds()
+                age_s = (now - signal_ts).total_seconds()
                 max_age_s = self._STALENESS_MULTIPLIER * TF_SECONDS.get(tf, 300)
                 if age_s > max_age_s:
                     self.logger.debug(
