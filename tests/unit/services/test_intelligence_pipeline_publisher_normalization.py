@@ -12,29 +12,12 @@ test_publisher_is_backfill_computed:
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 import pytest
 
 from src.core.service_utils import TF_SECONDS
-
-
-def _apply_publisher_normalization_with_id(
-    signals: list[dict],
-    bar_ts: datetime,
-) -> list[dict]:
-    """Replicate publisher normalization including signal_id stamping.
-
-    Extracted from services/intelligence_pipeline_agent.py _publish_signals_or_dlq.
-    """
-    from uuid import uuid4
-
-    for sig in signals:
-        sig["timestamp"] = bar_ts
-        sig["is_backfill"] = False
-        sig.setdefault("ttl_bars", 10)
-        sig.setdefault("signal_schema_version", "v1")
-        sig.setdefault("signal_id", str(uuid4()))
-    return signals
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 
 def _apply_publisher_normalization(
@@ -42,11 +25,14 @@ def _apply_publisher_normalization(
     bar_ts: datetime,
     computed_at: datetime,
     tf: str,
+    *,
+    stamp_signal_id: bool = False,
 ) -> list[dict]:
     """Replicate the publisher-side normalization from intelligence_pipeline_agent.
 
-    Extracted from services/intelligence_pipeline_agent.py lines ~1537-1552.
-    This is the exact logic: compute is_backfill, stamp timestamp, apply defaults.
+    Extracted from services/intelligence_pipeline_agent.py _publish_signals_or_dlq.
+    stamp_signal_id=True also replicates the signal_id setdefault added in the
+    env-cleanup fix.
     """
     tf_secs = TF_SECONDS.get(tf, 60)
     try:
@@ -58,7 +44,9 @@ def _apply_publisher_normalization(
         sig["timestamp"] = bar_ts
         sig["is_backfill"] = is_backfill
         sig.setdefault("ttl_bars", 10)
-        sig.setdefault("signal_schema_version", "v1")
+        sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
+        if stamp_signal_id:
+            sig.setdefault("signal_id", str(uuid4()))
 
     return signals
 
@@ -136,16 +124,14 @@ class TestPublisherIsBackfillComputed:
                 f"got {result[1].get('ttl_bars')!r}"
             )
 
-            # signal_schema_version: sig-01 has none → default "v1"; sig-03 has "v0" → preserved
-            assert (
-                result[0].get("signal_schema_version") == "v1"
-            ), f"Case {case_name!r}: default signal_schema_version should be 'v1'"
+            # sig-01 has no version → default SIGNAL_SCHEMA_VERSION; sig-03 has "v0" → preserved
+            assert result[0].get("signal_schema_version") == SIGNAL_SCHEMA_VERSION, (
+                f"Case {case_name!r}: default signal_schema_version should be "
+                f"{SIGNAL_SCHEMA_VERSION!r}"
+            )
             assert (
                 result[2].get("signal_schema_version") == "v0"
             ), f"Case {case_name!r}: existing signal_schema_version='v0' should be preserved"
-
-
-from uuid import UUID
 
 
 class TestPublisherSignalId:
@@ -155,7 +141,13 @@ class TestPublisherSignalId:
     def test_signal_id_stamped_when_absent(self):
         """Signal without signal_id gets a fresh UUID."""
         sig = {"setup_plugin": "trend_following", "ttl_bars": 10}
-        _apply_publisher_normalization_with_id([sig], datetime(2026, 1, 1, tzinfo=UTC))
+        _apply_publisher_normalization(
+            [sig],
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "1m",
+            stamp_signal_id=True,
+        )
         assert "signal_id" in sig
         UUID(sig["signal_id"])  # raises ValueError if not a valid UUID
 
@@ -164,12 +156,24 @@ class TestPublisherSignalId:
         """Existing signal_id is never overwritten."""
         existing_id = "abc-123"
         sig = {"signal_id": existing_id, "ttl_bars": 10}
-        _apply_publisher_normalization_with_id([sig], datetime(2026, 1, 1, tzinfo=UTC))
+        _apply_publisher_normalization(
+            [sig],
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "1m",
+            stamp_signal_id=True,
+        )
         assert sig["signal_id"] == existing_id
 
     @pytest.mark.unit
     def test_each_signal_gets_unique_id(self):
         """Two signals in the same bar get distinct IDs."""
         sigs = [{"ttl_bars": 10}, {"ttl_bars": 10}]
-        _apply_publisher_normalization_with_id(sigs, datetime(2026, 1, 1, tzinfo=UTC))
+        _apply_publisher_normalization(
+            sigs,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "1m",
+            stamp_signal_id=True,
+        )
         assert sigs[0]["signal_id"] != sigs[1]["signal_id"]
