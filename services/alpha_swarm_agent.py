@@ -19,7 +19,7 @@ Plan 80-07 changes:
 - self._agents is list[BaseMultiplierAgent] with Skeptic, Correlation, RegimeCoherence, Counterfactual
 - TF gate: SWARM_MIN_TF_MINUTES settings-driven (replaces frozenset lookup)
 - No schema version gate — all signals from the pipeline are accepted
-- Capacity semaphore: asyncio.Semaphore(SWARM_MAX_CONCURRENT_CALLS) with SWARM_QUEUE_TIMEOUT_MS
+- Capacity semaphore: asyncio.Semaphore(SWARM_MAX_CONCURRENT_CALLS) — no timeout, Kafka lag-skip is the backpressure valve
 - Weighted aggregation: _compute_final_multiplier normalized over non-error agents
 - Shadow enrollment loops over self._agents
 - Per-(agent_id, timeframe) Spearman weight learning via _evaluate_agent
@@ -55,6 +55,7 @@ from src.intelligence.ai.alpha.ml_scorer_agent import MLScorerMultiplierAgent
 from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
 from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
+from src.intelligence.trading.signal_schema import LEGACY_SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SWARM_AGENT_WEIGHT,
     SWARM_AGGREGATED_MULTIPLIER,
@@ -183,7 +184,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         # D-23: idempotent enrollment — guarantees row exists even if migration missed
         if self._pool is not None:
-            await self._shadow_registry_ensure_swarm()
+            await self._shadow_registry_ensure_agents(self._agents)
 
         # SIGUSR1 hot-reload: triggered by nightly training agent after model registration.
         # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is
@@ -195,26 +196,6 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         agent_ids = [a.agent_id for a in self._agents]
         self.logger.info("alpha_swarm.started", agents=agent_ids)
-
-    async def _shadow_registry_ensure_swarm(self) -> None:
-        """Idempotent enrollment of all agents in shadow_registry as component_type='swarm_agent'.
-
-        Plan 80-07: loops over self._agents (replaces single skeptic_v1 enrollment).
-        ON CONFLICT DO NOTHING preserves any manually-tuned gate params.
-        D-23, D-26.
-        """
-        assert self._pool is not None
-        async with self._pool.acquire() as conn:
-            for agent in self._agents:
-                await conn.execute(
-                    "INSERT INTO shadow_registry (component_name, component_type, is_shadow) "
-                    "VALUES ($1, 'swarm_agent', TRUE) ON CONFLICT (component_name) DO NOTHING",
-                    agent.agent_id,
-                )
-        self.logger.info(
-            "alpha_swarm.shadow_enrolled",
-            agents=[a.agent_id for a in self._agents],
-        )
 
     async def _refresh_shadow_state_from_registry(self) -> None:
         """Refresh agent.shadow_only from shadow_registry (registry is source of truth per D-07).
@@ -456,12 +437,15 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         Plan 80-07 gates (in order, cheapest first):
         1. TF gate: timeframe_minutes < SWARM_MIN_TF_MINUTES -> skip
-        2. Capacity gate: asyncio.Semaphore acquire with SWARM_QUEUE_TIMEOUT_MS timeout
+        2. Capacity gate: asyncio.Semaphore acquire (no timeout — Kafka lag-skip is the valve)
         3. Parallel asyncio.gather over self._agents
         4. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
         # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
-        if raw_signal.get("signal_schema_version", "v0") == "v0":
+        if (
+            raw_signal.get("signal_schema_version", LEGACY_SIGNAL_SCHEMA_VERSION)
+            == LEGACY_SIGNAL_SCHEMA_VERSION
+        ):
             return
 
         # TF gate — before any LLM context build (zero cost for ineligible signals)
@@ -501,16 +485,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         enriched = await self._enrich_context(context)
 
-        # Capacity semaphore — acquire with timeout
-        timeout_s = self.settings.SWARM_QUEUE_TIMEOUT_MS / 1000.0
+        # Capacity semaphore — block until a slot is free (D-07: never skip mid-process).
         assert self._semaphore is not None
-        try:
-            await asyncio.wait_for(self._semaphore.acquire(), timeout=timeout_s)
-        except TimeoutError:
-            SWARM_INVOCATIONS_TOTAL.labels(
-                agent_id="all", timeframe=tf, status="capacity_skip"
-            ).inc()
-            return
+        await self._semaphore.acquire()
 
         try:
             # Build per-agent contexts and run in parallel
@@ -532,7 +509,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                         tf=tf,
                     )
                     continue
-                tasks.append(agent.compute(await self._enrich_context(agent_context)))
+                tasks.append(agent.compute(agent_context))
                 agents_with_context.append(agent)
 
             if not tasks:

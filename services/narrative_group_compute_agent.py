@@ -21,7 +21,7 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.base_agent import BaseAIAgent
 from src.core.ai.base_group_service import BaseGroupService
-from src.core.service_utils import TF_SECONDS, parse_iso_ts, setup_service_logging
+from src.core.service_utils import is_signal_stale, parse_iso_ts, setup_service_logging
 from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7_signals,
@@ -29,6 +29,7 @@ from src.core.stream_keys import (
 )
 from src.intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
+from src.intelligence.trading.signal_schema import LEGACY_SIGNAL_SCHEMA_VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -68,22 +69,12 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         self._narrative_agent = NarrativeComputeAgent(llm_chain=self._llm_chain)
 
         if self._pool is not None:
-            await self._shadow_registry_ensure()
+            await self._shadow_registry_ensure_agents(self.agents)
 
         self.logger.info(
             "narrative_group.started",
             agent_id=self._narrative_agent.agent_id,
         )
-
-    async def _shadow_registry_ensure(self) -> None:
-        assert self._pool is not None
-        assert self._narrative_agent is not None
-        async with self._pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO shadow_registry (component_name, component_type, is_shadow) "
-                "VALUES ($1, 'swarm_agent', TRUE) ON CONFLICT (component_name) DO NOTHING",
-                self._narrative_agent.agent_id,
-            )
 
     # Narrative validity: skip signals older than N × TF duration.
     # A 5m signal older than 10m describes a market that no longer exists.
@@ -96,7 +87,10 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             await asyncio.gather(*(self._process_one_signal(s, now) for s in signals))
 
     async def _process_one_signal(self, raw_signal: dict, now: datetime) -> None:
-        if raw_signal.get("signal_schema_version", "v0") == "v0":
+        if (
+            raw_signal.get("signal_schema_version", LEGACY_SIGNAL_SCHEMA_VERSION)
+            == LEGACY_SIGNAL_SCHEMA_VERSION
+        ):
             return
 
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
@@ -111,18 +105,15 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         ts_raw = raw_signal.get("timestamp")
         if ts_raw is not None:
             signal_ts = parse_iso_ts(ts_raw)
-            if signal_ts is not None:
-                age_s = (now - signal_ts).total_seconds()
-                max_age_s = self._STALENESS_MULTIPLIER * TF_SECONDS.get(tf, 300)
-                if age_s > max_age_s:
-                    self.logger.debug(
-                        "narrative_group.stale_skip",
-                        symbol=raw_signal.get("symbol"),
-                        tf=tf,
-                        age_s=round(age_s),
-                        max_age_s=max_age_s,
-                    )
-                    return
+            if signal_ts is not None and is_signal_stale(
+                signal_ts, tf, now, self._STALENESS_MULTIPLIER
+            ):
+                self.logger.debug(
+                    "narrative_group.stale_skip",
+                    symbol=raw_signal.get("symbol"),
+                    tf=tf,
+                )
+                return
 
         try:
             signal = signal_dict_to_ranked(raw_signal)

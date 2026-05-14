@@ -644,15 +644,15 @@ def test_no_direct_signal_ledger_writes() -> None:
 
 @pytest.mark.asyncio
 async def test_shadow_enrollment_loops_all_agents() -> None:
-    """_shadow_registry_ensure_swarm inserts each agent_id in self._agents."""
+    """_shadow_registry_ensure_agents inserts each agent_id in self._agents."""
     agent = _make_agent_with_mocks()
-    agent._agents = [
+    agents = [
         MagicMock(agent_id="skeptic_v1"),
         MagicMock(agent_id="correlation_v1"),
         MagicMock(agent_id="regime_coherence_v1"),
         MagicMock(agent_id="counterfactual_v1"),
     ]
-    # Mock the pool.acquire context manager
+    agent._agents = agents
     mock_conn = AsyncMock()
     mock_conn.execute = AsyncMock()
     mock_pool = MagicMock()
@@ -661,7 +661,7 @@ async def test_shadow_enrollment_loops_all_agents() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     mock_pool.acquire = MagicMock(return_value=ctx)
     agent._pool = mock_pool
-    await agent._shadow_registry_ensure_swarm()
+    await agent._shadow_registry_ensure_agents(agents)
     called_ids = [call.args[1] for call in mock_conn.execute.call_args_list]
     assert "correlation_v1" in called_ids
     assert "regime_coherence_v1" in called_ids
@@ -714,25 +714,19 @@ async def test_schema_gate_skips_v0_signals() -> None:
 
 
 @pytest.mark.asyncio
-async def test_capacity_skip_increments_metric() -> None:
-    """When semaphore is already full, status='capacity_skip' counter increments."""
+async def test_semaphore_blocks_then_proceeds() -> None:
+    """Dispatch blocks when semaphore is full and proceeds once a slot is freed.
+
+    The swarm never silently skips — Kafka lag-skip is the backpressure valve (D-07).
+    """
     import asyncio as _asyncio
 
-    from prometheus_client import REGISTRY
-
     agent = _make_agent_with_mocks()
-    # Use capacity=1 and pre-acquire so dispatch times out
     agent._semaphore = _asyncio.Semaphore(1)
-    # Settings: very short timeout for test speed
-    agent.settings.SWARM_QUEUE_TIMEOUT_MS = 10  # 10ms
 
-    # Pre-acquire the semaphore so dispatch can't get it
+    # Pre-acquire the only slot
     await agent._semaphore.acquire()
 
-    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
-    agent._agents = [mock_agent]
-
-    # Mock context cache to return something
     from datetime import UTC, datetime
 
     from src.core.ai.context import AIContext
@@ -748,6 +742,22 @@ async def test_capacity_skip_increments_metric() -> None:
     agent._context_cache.build.return_value = mock_context
     agent._enrich_context = AsyncMock(side_effect=lambda ctx: ctx)
 
+    mock_agent = AsyncMock(
+        agent_id="skeptic_v1",
+        group="alpha",
+        shadow_only=True,
+        tiers_needed=frozenset(),
+        latency_budget_ms=5000.0,
+    )
+    from src.core.ai.output import AgentOutput
+
+    mock_agent.compute = AsyncMock(
+        return_value=AgentOutput(agent_id="skeptic_v1", group="alpha", payload={"multiplier": 1.0})
+    )
+    agent._agents = [mock_agent]
+    agent._lineage = MagicMock()
+    agent._lineage.record = MagicMock()
+
     raw_signal = {
         "signal_id": str(uuid4()),
         "symbol": "ESM6",
@@ -758,25 +768,14 @@ async def test_capacity_skip_increments_metric() -> None:
         "signal_schema_version": "v1",
     }
 
-    # Get counter value before
-    before = (
-        REGISTRY.get_sample_value(
-            "swarm_invocations_total",
-            {"agent_id": "all", "timeframe": "5m", "status": "capacity_skip"},
-        )
-        or 0.0
-    )
+    # Release the slot after a short delay so dispatch can proceed
+    async def _release_after() -> None:
+        await _asyncio.sleep(0.05)
+        agent._semaphore.release()
 
+    release_task = _asyncio.create_task(_release_after())
     await agent._process_one_signal(raw_signal)
+    await release_task
 
-    after = (
-        REGISTRY.get_sample_value(
-            "swarm_invocations_total",
-            {"agent_id": "all", "timeframe": "5m", "status": "capacity_skip"},
-        )
-        or 0.0
-    )
-    assert (
-        after > before
-    ), f"capacity_skip counter did not increment: before={before}, after={after}"
-    mock_agent.compute.assert_not_called()
+    # Signal was processed, not skipped
+    mock_agent.compute.assert_called_once()
