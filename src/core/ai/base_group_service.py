@@ -93,6 +93,7 @@ class BaseGroupService(BaseAgent, ABC):
                 auto_offset_reset="latest",
             )
             await self._bar_consumer.start()
+            await self._bar_consumer.skip_lag_if_needed(max_lag=100)
 
         # Wire trigger consumer (for agent dispatch)
         # Subscribe to all trigger topics

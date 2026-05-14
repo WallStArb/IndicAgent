@@ -367,12 +367,20 @@ async def test_replay_both_tracks_independent() -> None:
 
 
 def test_replay_skips_v0_signals() -> None:
-    """_fetch_unresolved SQL must filter signal_schema_version = 'v1' to skip v0 rows."""
+    """_fetch_unresolved SQL must filter by SIGNAL_SCHEMA_VERSION to exclude v0 rows."""
+    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+
     src = inspect.getsource(SignalReplayAuditorAgent._fetch_unresolved)
-    assert re.search(r"signal_schema_version\s*=\s*'v1'", src), (
-        "_fetch_unresolved must include WHERE signal_schema_version = 'v1' to exclude v0 rows. "
+    # Verify the query uses a $1 parameter (not hardcoded 'v1') and passes SIGNAL_SCHEMA_VERSION
+    assert re.search(r"signal_schema_version\s*=\s*\$1", src), (
+        "_fetch_unresolved must filter signal_schema_version via $1 parameter. "
         "v0 rows have contaminated entry_price/zone data and must not be replayed."
     )
+    # Verify SIGNAL_SCHEMA_VERSION is current (not v0 or v1 which have bad data)
+    assert SIGNAL_SCHEMA_VERSION not in (
+        "v0",
+        "v1",
+    ), f"SIGNAL_SCHEMA_VERSION={SIGNAL_SCHEMA_VERSION!r} should be >= v2"
 
 
 @pytest.mark.asyncio
