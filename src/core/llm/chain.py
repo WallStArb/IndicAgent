@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 
 from src.core.llm.guardrails import GuardrailsValidator
-from src.core.llm.providers import LLMChain
+from src.core.llm.providers import LLMChain, OllamaProvider
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -74,8 +74,6 @@ class LLMProviderChain:
         To add providers: instantiate them here in priority order.
         LLMChain tries each in order, returning the first non-None response.
         """
-        from src.core.llm.providers import OllamaProvider
-
         if settings is None:
             return [OllamaProvider("nemotron-3-nano:4b")]
         return [OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)]
