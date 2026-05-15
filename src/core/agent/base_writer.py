@@ -28,9 +28,11 @@ import time
 from typing import Any
 
 from opentelemetry import metrics as _otel_metrics
+from opentelemetry.trace import StatusCode
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
+from src.observability.spans import ATTR_BATCH_SZ, ATTR_FLUSH_MS
 
 _bw_meter = _otel_metrics.get_meter("indicagent")
 
@@ -259,14 +261,14 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         batch = self._buffer[:]
         with self.tracer.start_as_current_span(
             "writer.flush",
-            attributes={"agent": getattr(self, "name", "unknown"), "batch_size": len(batch)},
+            attributes={"agent": getattr(self, "name", "unknown"), ATTR_BATCH_SZ: len(batch)},
         ) as span:
             try:
                 t0 = time.monotonic()
                 await self._flush_batch(batch)
                 flush_s = time.monotonic() - t0
                 self._flush_latency.record(flush_s)
-                span.set_attribute("flush_ms", round(flush_s * 1000, 1))
+                span.set_attribute(ATTR_FLUSH_MS, round(flush_s * 1000, 1))
 
                 self._buffer.clear()
                 self._buffer_depth_gauge.add(0)
@@ -275,7 +277,9 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                     t0 = time.monotonic()
                     await self._consumer.commit()
                     self._commit_latency.record(time.monotonic() - t0)
-            except Exception:
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
                 self._flush_errors_total.add(1)
                 span.set_attribute("error", True)
                 self.logger.exception("flush_failed", batch_size=len(batch))
@@ -304,13 +308,18 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             with self.tracer.start_as_current_span(
                 "writer.process_message",
                 attributes={"agent": self.name},
-            ):
-                rows = self._parse_payload(payload)
-                if rows is not None:
-                    self._buffer_rows(rows)
-                else:
-                    self._parse_failures_total.add(1)
-                    await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+            ) as span:
+                try:
+                    rows = self._parse_payload(payload)
+                    if rows is not None:
+                        self._buffer_rows(rows)
+                    else:
+                        self._parse_failures_total.add(1)
+                        await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+                except Exception as exc:
+                    span.set_status(StatusCode.ERROR, str(exc))
+                    span.record_exception(exc)
+                    raise
 
             # Backpressure: if buffer is above alert threshold, pause briefly
             if len(self._buffer) > self._alert_threshold:
