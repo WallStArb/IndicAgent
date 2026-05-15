@@ -9,8 +9,8 @@ const MLFLOW_URL = process.env.NEXT_PUBLIC_MLFLOW_URL ?? "http://localhost:5000"
 
 const TOOLS = [
   { name: "Command Center", path: "/dashboard/observability", icon: Activity, desc: "Real-time swarm pulse & latency", isExternal: false },
+  { name: "Swarm Intelligence", path: "/dashboard/ai", icon: BrainCircuit, desc: "Agent stats, narrative feed, latency & token observability", isExternal: false },
   { name: "Forensic Analysis", path: GRAFANA_URL, icon: Gauge, desc: "Grafana deep-dive metrics", isExternal: true },
-  { name: "AI Tracing", path: LANGFUSE_URL, icon: BrainCircuit, desc: "Langfuse LLM trace logs", isExternal: true },
   { name: "Training Data", path: MLFLOW_URL, icon: Database, desc: "MLflow model versioning", isExternal: true },
 ];
 

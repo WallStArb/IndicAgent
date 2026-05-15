@@ -9,11 +9,8 @@ import { SignalConfidencePipeline } from "./signal-confidence-pipeline";
 import { fmtPrice, fmtPriceRange } from "@/lib/format";
 import { ENTRY_TYPE_LABELS, STOP_TYPE_LABELS, abbreviatePlugin } from "@/lib/signal-utils";
 import { barTimeTooltip, sigTimeTooltip, barClosePriceTooltip, marketPriceTooltip, ttsTooltip, entryTooltip, slTooltip, zoneTooltip } from "@/lib/signal-tooltips";
+import { SignalSwarmBreakdown } from "./signal-swarm-breakdown";
 
-/**
- * Complete signal detail view.
- * Composes header, prices, targets, confidence pipeline, and metadata.
- */
 export function SignalDetail({ signal }: { signal: SignalData }) {
   const isLong = signal.direction === "long";
   const dirColor = isLong ? "var(--green)" : "var(--red)";
@@ -82,6 +79,13 @@ export function SignalDetail({ signal }: { signal: SignalData }) {
         <KV label="Regime" value={signal.regime_context} />
         <KV label="Plugin" value={abbreviatePlugin(signal.setup_plugin)} />
       </Grid>
+
+      {/* Swarm AI breakdown */}
+      {signal.signal_id && (
+        <div className="border-t border-[var(--border-subtle)] pt-2 mt-1">
+          <SignalSwarmBreakdown signalId={signal.signal_id} />
+        </div>
+      )}
     </div>
   );
 }
