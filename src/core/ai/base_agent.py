@@ -10,12 +10,14 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 import structlog
+from opentelemetry.trace import StatusCode
 
 from src.core.agent.base import BaseAgent
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
 from src.observability.metrics import AI_AGENT_DURATION_MS, AI_AGENT_INVOCATIONS_TOTAL
+from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
 
 logger = structlog.get_logger(__name__)
 
@@ -82,10 +84,10 @@ class BaseAIAgent(BaseAgent, ABC):
         with self.tracer.start_as_current_span(
             "agent.compute",
             attributes={
-                "agent_id": self.agent_id,
+                ATTR_AGENT_ID: self.agent_id,
                 "group": self.group,
-                "symbol": context.symbol,
-                "tf": context.timeframe,
+                ATTR_SYMBOL: context.symbol,
+                ATTR_TF: context.timeframe,
             },
         ) as span:
             t0 = time.monotonic()
@@ -100,9 +102,11 @@ class BaseAIAgent(BaseAgent, ABC):
                 span.set_attribute("latency_ms", round(latency_ms, 1))
                 return result.model_copy(update={"latency_ms": latency_ms})
 
-            except TimeoutError:
+            except TimeoutError as exc:
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._record_metrics("timeout", latency_ms)
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
                 span.set_attribute("status", "timeout")
                 span.set_attribute("latency_ms", round(latency_ms, 1))
                 logger.warning(
@@ -119,6 +123,8 @@ class BaseAIAgent(BaseAgent, ABC):
             except Exception as exc:
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._record_metrics("error", latency_ms)
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
                 span.set_attribute("status", "error")
                 span.set_attribute("error", str(exc)[:200])
                 logger.exception(
@@ -191,44 +197,49 @@ class BaseAIAgent(BaseAgent, ABC):
         with self.tracer.start_as_current_span(
             "agent.llm_generate",
             attributes={
-                "agent_id": self.agent_id,
-                "symbol": context.symbol,
-                "tf": context.timeframe,
+                ATTR_AGENT_ID: self.agent_id,
+                ATTR_SYMBOL: context.symbol,
+                ATTR_TF: context.timeframe,
                 "model": model,
             },
         ) as span:
-            audit_context: dict[str, Any] = {
-                "call_id": str(uuid4()),
-                "called_at": format_iso_ts(datetime.now(UTC)),
-                "symbol": context.symbol,
-                "signal_id": str(context.signal_id) if context.signal_id else None,
-                "group_name": self.group,
-                "agent_id": self.agent_id,
-                "prompt_version": self.prompt_version,
-                "timeframe": context.timeframe,
-                "prompt": prompt,
-                "succeeded": True,
-            }
+            try:
+                audit_context: dict[str, Any] = {
+                    "call_id": str(uuid4()),
+                    "called_at": format_iso_ts(datetime.now(UTC)),
+                    "symbol": context.symbol,
+                    "signal_id": str(context.signal_id) if context.signal_id else None,
+                    "group_name": self.group,
+                    "agent_id": self.agent_id,
+                    "prompt_version": self.prompt_version,
+                    "timeframe": context.timeframe,
+                    "prompt": prompt,
+                    "succeeded": True,
+                }
 
-            if context.smc is not None:
-                regime = getattr(context.smc, "hmm_regime", None)
-                if regime is not None:
-                    audit_context["regime"] = str(int(regime))
+                if context.smc is not None:
+                    regime = getattr(context.smc, "hmm_regime", None)
+                    if regime is not None:
+                        audit_context["regime"] = str(int(regime))
 
-            if extra_audit:
-                audit_context.update(extra_audit)
+                if extra_audit:
+                    audit_context.update(extra_audit)
 
-            result = await self._llm.generate(
-                prompt=prompt,
-                system=system,
-                max_tokens=max_tokens,
-                timeout=timeout,
-                model=model,
-                audit_context=audit_context,
-            )
-            if result is None:
-                span.set_attribute("llm.empty_response", True)
-            return result
+                result = await self._llm.generate(
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                    model=model,
+                    audit_context=audit_context,
+                )
+                if result is None:
+                    span.set_attribute("llm.empty_response", True)
+                return result
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                raise
 
     # -----------------------------------------------------------------------
     # Extension hooks (D-42, D-43, D-44) — future phases wire these to OTel,
