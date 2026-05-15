@@ -70,3 +70,51 @@ groups:
         annotations:
           summary: "lifecycle_writer idempotency guard firing frequently (>100/hour)"
           description: "Two-path collision rate elevated. Investigate whether live tracker and replay auditor are racing on the same signals."
+
+  - name: phase83-observability
+    rules:
+      - alert: LLMCircuitBreakerOpen
+        expr: increase(circuit_breaker_state_transitions_total{to_state="open"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM/IBKR circuit breaker tripped to OPEN ({{ $labels.plugin_name }})"
+
+      - alert: SwarmCapacitySkipRateHigh
+        expr: |
+          rate(swarm_invocations_total{status="capacity_skip"}[5m])
+          / rate(swarm_invocations_total[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swarm agents skipping >50% of invocations — signal quality degraded"
+
+      - alert: ShadowPluginEVDecayed
+        expr: shadow_ev_r < -0.05
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Shadow plugin {{ $labels.plugin }} EV[R] < -0.05 sustained 30m"
+
+      - alert: PipelineP95LatencyRegression
+        expr: |
+          histogram_quantile(0.95,
+            rate(intelligence_pipeline_plugin_duration_ms_bucket[10m])
+          ) > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline P95 plugin latency > 500ms sustained 5m"
+
+      - alert: DLQActivity
+        expr: increase(dlq_messages_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ activity detected — {{ $labels.agent }} routing to {{ $labels.topic }}"
+          description: "{{ $value }} messages routed to DLQ in last 5m. Every DLQ message is a contract violation."
