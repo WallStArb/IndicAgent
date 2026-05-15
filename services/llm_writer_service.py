@@ -71,6 +71,12 @@ INSERT INTO llm_calls (
 ) ON CONFLICT (call_id, called_at) DO NOTHING
 """
 
+_UPDATE_PARSE_SQL = """
+UPDATE llm_calls
+SET parse_success = $2
+WHERE call_id = $1::uuid
+"""
+
 _UPDATE_OUTCOME_SQL = """
 UPDATE llm_calls
 SET outcome = $2,
@@ -674,9 +680,22 @@ class LLMWriterAgent(BaseWriterAgent):
     async def _process_calls_message(self, payload: dict, source_topic: str = "") -> bool:
         """Parse one llm.calls topic message, buffer INSERT params.
 
+        Handles two message shapes:
+        - Full audit message: INSERT into llm_calls
+        - Parse-update message (_parse_update=True): UPDATE parse_success on existing row
+
         Routes unparseable messages to DLQ instead of silently dropping or crashing.
         """
         try:
+            # Corrective parse_success=False update from an agent that failed JSON parsing
+            if payload.get("_parse_update"):
+                call_id = payload.get("call_id")
+                parse_success = payload.get("parse_success", False)
+                if call_id:
+                    async with self._pool.acquire() as conn:
+                        await conn.execute(_UPDATE_PARSE_SQL, call_id, parse_success)
+                return True
+
             parsed = _parse_llm_call_fields(payload)
             if parsed is None:
                 self.logger.warning("Malformed llm_call message — routing to DLQ")
