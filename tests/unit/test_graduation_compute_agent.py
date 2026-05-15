@@ -88,7 +88,7 @@ async def test_handle_transition_skips_non_exit():
     """ACTIVATION transitions must not increment exits_consumed or query DB."""
     a = _make_agent()
     await a._handle_transition({"transition_type": "ACTIVATION", "signal_id": "s1"})
-    a._exits_consumed.inc.assert_not_called()
+    a._exits_consumed.add.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_handle_transition_skips_mae_mfe_update():
     """MAE_MFE_UPDATE transitions must not trigger any counter logic."""
     a = _make_agent()
     await a._handle_transition({"transition_type": "MAE_MFE_UPDATE", "signal_id": "s1"})
-    a._exits_consumed.inc.assert_not_called()
+    a._exits_consumed.add.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_handle_transition_skips_missing_signal_id():
     """EXIT without signal_id must not increment counters."""
     a = _make_agent()
     await a._handle_transition({"transition_type": "EXIT"})
-    a._exits_consumed.inc.assert_not_called()
+    a._exits_consumed.add.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_handle_transition_increments_counter_for_each_transform():
 
     assert a._counters[("hurst_quality", "v1", "trend.5m")] == 1
     assert a._counters[("tod", "v1", "trend.5m.14")] == 1
-    a._exits_consumed.inc.assert_called_once()
+    a._exits_consumed.add.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ async def test_evaluate_segment_publishes_to_kafka(monkeypatch):
     payload = call.args[1]
     assert isinstance(payload, dict)
     assert payload["is_graduated"] is True
-    a._evaluations_total.inc.assert_called_once()
+    a._evaluations_total.add.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -234,8 +234,8 @@ async def test_evaluate_segment_skips_when_no_rows(monkeypatch):
     await a._evaluate_segment("hurst_quality", "v1", "trend.5m")
 
     eval_mock.assert_not_called()
-    a._evaluations_total.inc.assert_not_called()
-    a._evaluation_errors.inc.assert_not_called()
+    a._evaluations_total.add.assert_not_called()
+    a._evaluation_errors.add.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ async def test_evaluate_segment_dlq_on_db_exception():
 
     await a._evaluate_segment("hurst_quality", "v1", "trend.5m")
 
-    a._evaluation_errors.inc.assert_called_once()
+    a._evaluation_errors.add.assert_called_once()
     # DLQ publish must have been called
     assert a._producer.publish.await_count >= 1
     last_call = a._producer.publish.await_args_list[-1]

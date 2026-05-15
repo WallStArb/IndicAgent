@@ -115,7 +115,7 @@ class KafkaProducerClient:
         try:
             t0 = _time.monotonic()
             await self._producer.send_and_wait(topic, value=value, key=key_bytes, headers=headers)  # type: ignore[union-attr]
-            KAFKA_PUBLISH_SECONDS.labels(topic=topic).observe(_time.monotonic() - t0)
+            KAFKA_PUBLISH_SECONDS.record(_time.monotonic() - t0, {"topic": topic})
         except Exception as e:
             logger.error("Kafka publish failed", topic=topic, key=key, error=str(e))
             raise

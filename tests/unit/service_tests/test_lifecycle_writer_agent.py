@@ -11,15 +11,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from prometheus_client import Counter, Gauge, Histogram
-
-# Module-level test metrics to avoid duplicate registration
-_TEST_EVENTS = Counter("test_lwa_events_total", "Events (test)")
-_TEST_WRITTEN = Counter("test_lwa_written_total", "Transitions written (test)")
-_TEST_ERRORS = Counter("test_lwa_errors_total", "Errors (test)")
-_TEST_LATENCY = Histogram("test_lwa_latency_seconds", "Latency (test)", ["agent_id"])
-_TEST_LAG = Gauge("test_lwa_lag", "Lag (test)", ["agent_id"])
-_TEST_DEPTH = Gauge("test_lwa_depth", "Depth (test)")
 
 
 def _make_agent():
@@ -39,12 +30,12 @@ def _make_agent():
     agent._repo.batch_execute = AsyncMock()
     agent._buffer = []
     agent._last_flush = 0.0
-    agent._events_consumed = _TEST_EVENTS
-    agent._transitions_written = _TEST_WRITTEN
-    agent._write_errors = _TEST_ERRORS
-    agent._batch_latency = _TEST_LATENCY.labels(agent_id="test")
-    agent._consumer_lag = _TEST_LAG.labels(agent_id="test")
-    agent._buffer_depth_gauge = _TEST_DEPTH
+    agent._events_consumed = MagicMock()
+    agent._transitions_written = MagicMock()
+    agent._write_errors = MagicMock()
+    agent._batch_latency_attrs = {"agent_id": "lifecycle_writer_agent"}
+    agent._consumer_lag = MagicMock()
+    agent._buffer_depth_gauge = MagicMock()
     agent._buffer_overflow_total = MagicMock()
     agent._flush_latency = MagicMock()
     agent._commit_latency = MagicMock()

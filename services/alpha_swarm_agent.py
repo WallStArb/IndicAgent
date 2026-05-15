@@ -333,7 +333,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                     rho,
                     cal_err,
                 )
-                SWARM_AGENT_WEIGHT.labels(agent_id=agent_id, timeframe=tf).set(weight)
+                SWARM_AGENT_WEIGHT.add(weight, {"agent_id": agent_id, "timeframe": tf})
 
     async def _reload_agent_weights(self) -> None:
         """Reload self._agent_weights cache from swarm_agent_weights table.
@@ -525,13 +525,13 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         # Per-agent invocation accounting + lineage emission
         for agent, result in zip(agents_with_context, results):
             if isinstance(result, AgentOutput) and not result.error:
-                SWARM_INVOCATIONS_TOTAL.labels(
-                    agent_id=agent.agent_id, timeframe=tf, status="ok"
-                ).inc()
+                SWARM_INVOCATIONS_TOTAL.add(
+                    1, {"agent_id": agent.agent_id, "timeframe": tf, "status": "ok"}
+                )
                 multiplier_val = result.payload.get("multiplier", 0.0)
                 if isinstance(multiplier_val, (int, float)):
-                    SWARM_MULTIPLIER_DISTRIBUTION.labels(agent_id=agent.agent_id).observe(
-                        float(multiplier_val)
+                    SWARM_MULTIPLIER_DISTRIBUTION.record(
+                        float(multiplier_val), {"agent_id": agent.agent_id}
                     )
             else:
                 err_str = (
@@ -539,11 +539,16 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                     if isinstance(result, Exception)
                     else (result.error if isinstance(result, AgentOutput) else "unknown")
                 )
-                SWARM_INVOCATIONS_TOTAL.labels(
-                    agent_id=agent.agent_id if not isinstance(result, Exception) else "unknown",
-                    timeframe=tf,
-                    status="error",
-                ).inc()
+                SWARM_INVOCATIONS_TOTAL.add(
+                    1,
+                    {
+                        "agent_id": (
+                            agent.agent_id if not isinstance(result, Exception) else "unknown"
+                        ),
+                        "timeframe": tf,
+                        "status": "error",
+                    },
+                )
                 self.logger.info(
                     "alpha_swarm.agent_error",
                     agent_id=agent.agent_id,
@@ -559,10 +564,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         )
 
         if final_multiplier is None:
-            SWARM_INVOCATIONS_TOTAL.labels(agent_id="all", timeframe=tf, status="all_failed").inc()
+            SWARM_INVOCATIONS_TOTAL.add(
+                1, {"agent_id": "all", "timeframe": tf, "status": "all_failed"}
+            )
             return
 
-        SWARM_AGGREGATED_MULTIPLIER.labels(timeframe=tf).observe(final_multiplier)
+        SWARM_AGGREGATED_MULTIPLIER.record(final_multiplier, {"timeframe": tf})
 
         # Compute adjusted confidence
         original_confidence = signal_dict.get("calibrated_confidence") or signal_dict.get(
@@ -608,8 +615,8 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             swarm_multiplier=round(final_multiplier, 4),
             agent_count=agent_count,
         )
-        SWARM_DISPATCH_SECONDS.labels(symbol=symbol, timeframe=tf).observe(
-            _time.monotonic() - _dispatch_t0
+        SWARM_DISPATCH_SECONDS.record(
+            _time.monotonic() - _dispatch_t0, {"symbol": symbol, "timeframe": tf}
         )
 
     async def _record_swarm_result(

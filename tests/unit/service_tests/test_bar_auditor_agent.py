@@ -116,6 +116,7 @@ def _make_agent_stub(env_name="development"):
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
     agent._post_roll_suppression = {}
+    agent._agent_attrs = {"agent": "bar_auditor_agent"}
     return agent
 
 
@@ -246,20 +247,16 @@ class TestRunAudit:
         """_run_audit catches exceptions, logs error, does not re-raise."""
         agent = _make_agent_stub()
 
-        agent._audits_run = MagicMock()
-        agent._gap_requests_published = MagicMock()
-        agent._audit_errors = MagicMock()
-        agent._audit_duration = MagicMock()
-        _time_ctx = agent._audit_duration.time.return_value
-        _time_ctx.__enter__ = MagicMock(return_value=None)
-        _time_ctx.__exit__ = MagicMock(return_value=False)
-
         # _detect_gaps raises an exception
-        with patch.object(agent, "_detect_gaps", side_effect=RuntimeError("DB down")):
+        mock_errors = MagicMock()
+        with (
+            patch.object(agent, "_detect_gaps", side_effect=RuntimeError("DB down")),
+            patch("services.bar_auditor_agent._AUDIT_ERRORS", mock_errors),
+        ):
             # Should NOT raise
             await agent._run_audit()
 
-        agent._audit_errors.inc.assert_called_once()
+        mock_errors.add.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

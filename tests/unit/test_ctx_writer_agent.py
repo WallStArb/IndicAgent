@@ -169,7 +169,7 @@ class TestCtxWriterRejectDisallowedEventType:
         rows = agent._parse_payload(msg)
 
         assert rows is None, "Disallowed event_type must return None"
-        agent._validation_errors.inc.assert_called()
+        agent._validation_errors.add.assert_called()
 
     def test_allowed_event_types_pass(self):
         agent = _make_agent()
@@ -197,7 +197,7 @@ class TestCtxWriterRejectOversizePayload:
         rows = agent._parse_payload(msg)
 
         assert rows is None, "Oversized payload must return None"
-        agent._validation_errors.inc.assert_called()
+        agent._validation_errors.add.assert_called()
 
     def test_borderline_payload_within_limit_passes(self):
         agent = _make_agent()
@@ -228,7 +228,7 @@ class TestCtxWriterRejectMissingKeys:
         rows = agent._parse_payload(msg)
 
         assert rows is None, f"Message missing '{missing_key}' must be rejected"
-        agent._validation_errors.inc.assert_called()
+        agent._validation_errors.add.assert_called()
 
 
 # ---------------------------------------------------------------------------

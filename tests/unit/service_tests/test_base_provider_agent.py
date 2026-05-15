@@ -15,36 +15,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Module-level test metrics (created once to avoid duplicate registration)
 # ---------------------------------------------------------------------------
-from prometheus_client import Counter, Gauge
-
 from src.core.agent.base import BaseAgent
-
-_TEST_BARS_PRODUCED = Counter(
-    "test_bpa_bars_produced_total",
-    "Bars produced (test)",
-    ["provider", "agent"],
-)
-_TEST_RECONNECTS_ATTEMPTED = Counter(
-    "test_bpa_reconnects_attempted_total",
-    "Reconnects attempted (test)",
-    ["provider", "agent"],
-)
-_TEST_RECONNECTS_SUCCEEDED = Counter(
-    "test_bpa_reconnects_succeeded_total",
-    "Reconnects succeeded (test)",
-    ["provider", "agent"],
-)
-_TEST_CONNECTED = Gauge(
-    "test_bpa_connected",
-    "Connected (test)",
-    ["provider", "agent"],
-)
-_TEST_GAPS_FILLED = Counter(
-    "test_bpa_gaps_filled_total",
-    "Gaps filled (test)",
-    ["provider", "agent"],
-)
-
 
 # ---------------------------------------------------------------------------
 # Test 1: BaseProviderAgent inherits from BaseAgent
@@ -125,16 +96,8 @@ def _make_concrete_agent():
     agent.settings = MagicMock(env_name="dev")
     agent.settings.kafka_bootstrap_servers = "localhost:9092"
 
-    # Wire test metrics
-    agent._m_bars_raw = _TEST_BARS_PRODUCED.labels(provider="test", agent="test_provider_agent")
-    agent._m_reconnects_attempted = _TEST_RECONNECTS_ATTEMPTED.labels(
-        provider="test", agent="test_provider_agent"
-    )
-    agent._m_reconnects_succeeded = _TEST_RECONNECTS_SUCCEEDED.labels(
-        provider="test", agent="test_provider_agent"
-    )
-    agent._g_connected = _TEST_CONNECTED.labels(provider="test", agent="test_provider_agent")
-    agent._m_gaps_filled = _TEST_GAPS_FILLED.labels(provider="test", agent="test_provider_agent")
+    # OTel attrs dict (mirrors __init__ pattern)
+    agent._provider_attrs = {"provider": "test", "agent": "test_provider_agent"}
     agent._gap_fetch_sem = asyncio.Semaphore(1)
     agent._raw_topic = "dev.market.bars.raw.test"
     agent._kafka_producer = AsyncMock()

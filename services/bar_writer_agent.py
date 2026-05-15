@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
-from prometheus_client import Counter, Gauge, Histogram
+from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
 from src.core.agent.base_writer import BaseWriterAgent
@@ -57,47 +57,37 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 # All TF labels we pre-cache labeled Counter children for
 _BAR_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
-# Module-level metric objects — prevents duplicate registration if the agent class
-# is imported more than once in the same process (e.g., unit tests without isolation)
-_EVENTS_CONSUMED = Counter(
+# Module-level OTel instruments — single meter, no prometheus_client
+_bw_meter = _otel_metrics.get_meter("indicagent")
+
+_EVENTS_CONSUMED = _bw_meter.create_counter(
     "bar_writer_events_consumed_total",
-    "Bar messages consumed from market.bars and market.bars.htf",
-    ["agent"],
+    description="Bar messages consumed from market.bars and market.bars.htf",
 )
-_BARS_WRITTEN = Counter(
+_BARS_WRITTEN = _bw_meter.create_counter(
     "bar_writer_bars_written_total",
-    "OHLCV rows successfully written to market_data_ohlcv",
-    ["agent", "tf"],
+    description="OHLCV rows successfully written to market_data_ohlcv",
 )
-_BATCH_LATENCY = Histogram(
+_BATCH_LATENCY = _bw_meter.create_histogram(
     "bar_writer_persistence_batch_latency_seconds",
-    "Time to execute an executemany batch INSERT to market_data_ohlcv",
-    ["agent"],
+    description="Time to execute an executemany batch INSERT to market_data_ohlcv",
+    unit="s",
 )
-_WRITE_ERRORS = Counter(
+_WRITE_ERRORS = _bw_meter.create_counter(
     "bar_writer_write_errors_total",
-    "Exceptions during batch INSERT — buffer left intact for retry",
-    ["agent"],
+    description="Exceptions during batch INSERT — buffer left intact for retry",
 )
-_CONFLICT_SKIPS = Counter(
-    "bar_writer_conflict_skips_total",
-    "Bars skipped due to ON CONFLICT DO NOTHING (duplicate detection)",
-    ["agent"],
-)
-_CONSUMER_LAG = Gauge(
+_CONSUMER_LAG = _bw_meter.create_up_down_counter(
     "bar_writer_persistence_consumer_lag",
-    "Current unwritten buffer depth (proxy for consumer lag)",
-    ["agent"],
+    description="Current unwritten buffer depth (proxy for consumer lag)",
 )
-_CONTRACT_CACHE_SIZE = Gauge(
+_CONTRACT_CACHE_SIZE = _bw_meter.create_up_down_counter(
     "bar_writer_contract_cache_size",
-    "Number of entries in the contract->base symbol cache (from contract_metadata)",
-    ["agent"],
+    description="Number of entries in the contract->base symbol cache (from contract_metadata)",
 )
-_CONTRACT_CACHE_RELOADS = Counter(
+_CONTRACT_CACHE_RELOADS = _bw_meter.create_counter(
     "bar_writer_contract_cache_reloads_total",
-    "Number of times the contract cache was reloaded (triggered by ContractUpdateEvent or startup)",
-    ["agent"],
+    description="Number of times the contract cache was reloaded (triggered by ContractUpdateEvent or startup)",
 )
 
 
@@ -123,19 +113,16 @@ class BarWriterAgent(BaseWriterAgent):
         # contract_code -> base_symbol (SoT: contract_metadata)
         self._contract_cache: dict[str, str] = {}
 
-        # Cache labeled children — avoids dict lookup on every bar
-        self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
-        self._persistence_batch_latency_lbl = _BATCH_LATENCY.labels(agent=self.name)
-        self._write_errors_lbl = _WRITE_ERRORS.labels(agent=self.name)
-        # _conflict_skips_lbl intentionally omitted — ON CONFLICT DO NOTHING rows are
-        # not countable from asyncpg executemany return value; metric removed rather
-        # than reporting misleading 0s. See AUDIT-M7.
-        self._persistence_consumer_lag_lbl = _CONSUMER_LAG.labels(agent=self.name)
-        self._bars_written_lbl: dict[str, object] = {
-            tf: _BARS_WRITTEN.labels(agent=self.name, tf=tf) for tf in _BAR_TFS
+        # Cache OTel attribute dicts — avoids dict rebuild on every bar
+        self._events_consumed_attrs = {"agent": self.name}
+        self._batch_latency_attrs = {"agent": self.name}
+        self._write_errors_attrs = {"agent": self.name}
+        self._consumer_lag_attrs = {"agent": self.name}
+        self._bars_written_attrs: dict[str, dict] = {
+            tf: {"agent": self.name, "tf": tf} for tf in _BAR_TFS
         }
-        self._contract_cache_size_lbl = _CONTRACT_CACHE_SIZE.labels(agent=self.name)
-        self._contract_cache_reloads_lbl = _CONTRACT_CACHE_RELOADS.labels(agent=self.name)
+        self._contract_cache_size_attrs = {"agent": self.name}
+        self._contract_cache_reloads_attrs = {"agent": self.name}
 
     def _topic_name(self) -> str:
         return topic_market_bars(self.env_name)
@@ -189,13 +176,13 @@ class BarWriterAgent(BaseWriterAgent):
         assert self._db_pool is not None
         t0 = time.monotonic()
         async with self._db_pool.acquire() as conn:
-            with self._persistence_batch_latency_lbl.time():
-                await conn.executemany(_INSERT_OHLCV_SQL, batch)
+            await conn.executemany(_INSERT_OHLCV_SQL, batch)
+        _BATCH_LATENCY.record(time.monotonic() - t0, self._batch_latency_attrs)
 
         for row in batch:
             tf = row[3]
-            if tf in self._bars_written_lbl:
-                self._bars_written_lbl[tf].inc()
+            if tf in self._bars_written_attrs:
+                _BARS_WRITTEN.add(1, self._bars_written_attrs[tf])
 
         self.logger.debug(
             "bar_writer_agent.flush_complete",
@@ -264,7 +251,7 @@ class BarWriterAgent(BaseWriterAgent):
                     self._buffer_rows(rows)
                 else:
                     await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
-                self._events_consumed_lbl.inc()
+                _EVENTS_CONSUMED.add(1, self._events_consumed_attrs)
             except Exception as exc:
                 self.logger.warning(
                     "bar_writer_agent.parse_failed",
@@ -273,7 +260,7 @@ class BarWriterAgent(BaseWriterAgent):
                 )
                 continue
 
-            self._persistence_consumer_lag_lbl.set(len(self._buffer))
+            _CONSUMER_LAG.add(len(self._buffer), self._consumer_lag_attrs)
             await self.maybe_flush()
 
     async def _teardown(self) -> None:
@@ -301,8 +288,8 @@ class BarWriterAgent(BaseWriterAgent):
 
         self._contract_cache = {row["symbol"]: row["base_symbol"] for row in rows}
         cache_size = len(self._contract_cache)
-        self._contract_cache_size_lbl.set(cache_size)
-        self._contract_cache_reloads_lbl.inc()
+        _CONTRACT_CACHE_SIZE.add(cache_size, self._contract_cache_size_attrs)
+        _CONTRACT_CACHE_RELOADS.add(1, self._contract_cache_reloads_attrs)
 
         if cache_size == 0:
             self.logger.warning(
@@ -336,8 +323,8 @@ class BarWriterAgent(BaseWriterAgent):
             )
             self._contract_cache[event.new_contract] = event.base_symbol
             self._contract_cache.pop(event.old_contract, None)
-            self._contract_cache_size_lbl.set(len(self._contract_cache))
-            self._contract_cache_reloads_lbl.inc()
+            _CONTRACT_CACHE_SIZE.add(len(self._contract_cache), self._contract_cache_size_attrs)
+            _CONTRACT_CACHE_RELOADS.add(1, self._contract_cache_reloads_attrs)
             self.logger.info(
                 "bar_writer_agent.contract_cache_updated",
                 old_contract=event.old_contract,

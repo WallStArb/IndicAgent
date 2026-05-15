@@ -25,8 +25,8 @@ async def _setup_codecs(conn):
 async def create_pool(database_url: str, pool_name: str = "default", **kwargs) -> asyncpg.Pool:
     """Create an asyncpg pool with JSONB codecs and pool size gauges."""
     pool = await asyncpg.create_pool(database_url, init=_setup_codecs, **kwargs)
-    DB_POOL_SIZE.labels(pool=pool_name).set(pool.get_size())
-    DB_POOL_IDLE.labels(pool=pool_name).set(pool.get_idle_size())
+    DB_POOL_SIZE.add(pool.get_size(), {"pool": pool_name})
+    DB_POOL_IDLE.add(pool.get_idle_size(), {"pool": pool_name})
     return pool
 
 

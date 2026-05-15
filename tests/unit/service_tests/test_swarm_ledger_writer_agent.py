@@ -11,10 +11,9 @@ Tests verify:
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prometheus_client import REGISTRY
 
 
 def _make_writer():
@@ -45,10 +44,6 @@ def _mock_pool(execute_returns: list[str]) -> MagicMock:
     pool = MagicMock()
     pool.acquire = MagicMock(return_value=ctx)
     return pool
-
-
-def _counter_value(status: str) -> float:
-    return REGISTRY.get_sample_value("swarm_signal_ledger_update_total", {"status": status}) or 0.0
 
 
 def _mock_pool_with_fk_errors(fk_error_count: int) -> MagicMock:
@@ -88,9 +83,10 @@ def _mock_pool_always_fk_error(attempts: int) -> MagicMock:
 async def test_projection_success() -> None:
     w = _make_writer()
     w._pool = _mock_pool(["INSERT 1"])
-    before = _counter_value("success")
-    await w._apply_projection("sig-1", 0.8, 0.64, 4)
-    assert _counter_value("success") == before + 1
+    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+        await w._apply_projection("sig-1", 0.8, 0.64, 4)
+    # OTel counter: .add(1, {"status": "success"}) must have been called
+    mock_c.add.assert_called_once_with(1, {"status": "success"})
 
 
 @pytest.mark.asyncio
@@ -101,24 +97,24 @@ async def test_projection_retry_then_success(monkeypatch) -> None:
     import services.swarm_ledger_writer_agent as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
-    before_retry = _counter_value("retry")
-    before_success = _counter_value("success")
-    await w._apply_projection("sig-2", 0.7, 0.56, 4)
-    assert _counter_value("retry") == before_retry + 1
-    assert _counter_value("success") == before_success + 1
+    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+        await w._apply_projection("sig-2", 0.7, 0.56, 4)
+    calls = [c.args for c in mock_c.add.call_args_list]
+    assert (1, {"status": "retry"}) in calls
+    assert (1, {"status": "success"}) in calls
 
 
 @pytest.mark.asyncio
 async def test_projection_miss_after_all_retries(monkeypatch) -> None:
-    """All attempts raise ForeignKeyViolationError — exhausted retries → miss."""
+    """All attempts raise ForeignKeyViolationError — exhausted retries -> miss."""
     w = _make_writer()
     w._pool = _mock_pool_always_fk_error(attempts=5)
     import services.swarm_ledger_writer_agent as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
-    before_miss = _counter_value("miss")
-    await w._apply_projection("sig-3", 0.5, 0.4, 3)
-    assert _counter_value("miss") == before_miss + 1
+    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+        await w._apply_projection("sig-3", 0.5, 0.4, 3)
+    mock_c.add.assert_called_with(1, {"status": "miss"})
 
 
 @pytest.mark.asyncio

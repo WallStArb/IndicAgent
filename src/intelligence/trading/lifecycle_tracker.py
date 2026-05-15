@@ -54,10 +54,13 @@ _LABELING_VIOLATIONS = _counter(
 def _record_outcome(signal: dict, outcome: SignalOutcome | str) -> None:
     """Record signal outcome to Prometheus for quality tracking (Phase 79)."""
     outcome_str = outcome.value if isinstance(outcome, SignalOutcome) else str(outcome)
-    SIGNAL_OUTCOME_TOTAL.labels(
-        setup_plugin=signal.get("setup_plugin", "unknown"),
-        outcome=outcome_str,
-    ).inc()
+    SIGNAL_OUTCOME_TOTAL.add(
+        1,
+        {
+            "setup_plugin": signal.get("setup_plugin", "unknown"),
+            "outcome": outcome_str,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +324,7 @@ def evaluate_signal(
         pnl_dollars = round(pnl_ticks * point_value, 2)
         activated_at = signal.get("activated_at")
         if activated_at is not None and status == SignalStatus.PENDING:
-            _LABELING_VIOLATIONS.inc()
+            _LABELING_VIOLATIONS.add(1)
         was_activated = status == SignalStatus.ACTIVE
         if not was_activated:
             outcome = SignalOutcome.NEVER_ACTIVATED

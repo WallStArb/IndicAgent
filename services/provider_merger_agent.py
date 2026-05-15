@@ -90,13 +90,9 @@ class ProviderMergerComputeAgent(BaseAgent):
         }
 
         # Pre-cache labeled metric children to avoid dict lookup on every bar
-        self._routed_lbl: dict[str, object] = {}
-        self._dropped_lbl: dict[str, object] = {}
-        self._latency_lbl: dict[str, object] = {}
-        for provider in self._provider_raw_topics:
-            self._routed_lbl[provider] = MERGER_BARS_ROUTED_TOTAL.labels(provider=provider)
-            self._dropped_lbl[provider] = MERGER_BARS_DROPPED_TOTAL.labels(provider=provider)
-            self._latency_lbl[provider] = MERGER_BAR_LATENCY_SECONDS.labels(provider=provider)
+        self._provider_attrs: dict[str, dict] = {
+            p: {"provider": p} for p in self._provider_raw_topics
+        }
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
@@ -212,9 +208,9 @@ class ProviderMergerComputeAgent(BaseAgent):
             await self._route_bar(bar, provider, consume_ts)
         else:
             # Non-authoritative — track secondary, check failover
-            lbl = self._dropped_lbl.get(provider)
-            if lbl is not None:
-                lbl.inc()
+            _attrs = self._provider_attrs.get(provider)
+            if _attrs is not None:
+                MERGER_BARS_DROPPED_TOTAL.add(1, _attrs)
             await self._check_failover(bar, provider, authoritative, consume_ts)
 
     async def _route_bar(self, bar: BarMessage, provider: str, consume_ts: datetime) -> None:
@@ -235,12 +231,10 @@ class ProviderMergerComputeAgent(BaseAgent):
         )
 
         # Metrics
-        lbl = self._routed_lbl.get(provider)
-        if lbl is not None:
-            lbl.inc()
-        lat_lbl = self._latency_lbl.get(provider)
-        if lat_lbl is not None:
-            lat_lbl.observe(latency_s)
+        _attrs = self._provider_attrs.get(provider)
+        if _attrs is not None:
+            MERGER_BARS_ROUTED_TOTAL.add(1, _attrs)
+            MERGER_BAR_LATENCY_SECONDS.record(latency_s, _attrs)
 
         # Publish quality event (latency already computed above — pass it to avoid recompute)
         await self._publish_quality_event(
@@ -280,9 +274,9 @@ class ProviderMergerComputeAgent(BaseAgent):
                 return
             # Primary is silent — promote secondary
             self._promoted[symbol] = secondary_provider
-            MERGER_FAILOVERS_TOTAL.labels(
-                from_provider=primary_provider, to_provider=secondary_provider
-            ).inc()
+            MERGER_FAILOVERS_TOTAL.add(
+                1, {"from_provider": primary_provider, "to_provider": secondary_provider}
+            )
             await self._publish_quality_event(
                 bar=bar,
                 provider=secondary_provider,

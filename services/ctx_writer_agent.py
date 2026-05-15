@@ -127,7 +127,7 @@ class CtxWriterAgent(BaseWriterAgent):
                 "ctx_writer.rejected_missing_keys",
                 missing=sorted(missing),
             )
-            self._validation_errors.inc()
+            self._validation_errors.add(1)
             return None
 
         event_type = payload.get("event_type", "")
@@ -137,7 +137,7 @@ class CtxWriterAgent(BaseWriterAgent):
                 event_type=event_type,
                 allowed=sorted(_ALLOWED_EVENT_TYPES),
             )
-            self._validation_errors.inc()
+            self._validation_errors.add(1)
             return None
 
         inner_payload = payload.get("payload")
@@ -146,7 +146,7 @@ class CtxWriterAgent(BaseWriterAgent):
                 "ctx_writer.rejected_payload_not_dict",
                 event_type=event_type,
             )
-            self._validation_errors.inc()
+            self._validation_errors.add(1)
             return None
 
         payload_bytes = len(json.dumps(inner_payload))
@@ -157,13 +157,13 @@ class CtxWriterAgent(BaseWriterAgent):
                 payload_bytes=payload_bytes,
                 max_bytes=_MAX_PAYLOAD_BYTES,
             )
-            self._validation_errors.inc()
+            self._validation_errors.add(1)
             return None
 
         return payload
 
     def _on_message_consumed(self, payload: dict) -> None:
-        self._events_consumed.inc()
+        self._events_consumed.add(1)
 
     # -----------------------------------------------------------------------
     # Buffer routing — override _run() to split to two internal buffers
@@ -182,7 +182,7 @@ class CtxWriterAgent(BaseWriterAgent):
 
             msg = self._parse_payload(payload)
             if msg is None:
-                self._parse_failures_total.inc()
+                self._parse_failures_total.add(1)
                 await self._maybe_route_to_dlq(payload, Exception("Validation failed"))
                 continue
             await self._process_message(msg)
@@ -209,7 +209,7 @@ class CtxWriterAgent(BaseWriterAgent):
                 event_ts=event_ts_raw,
                 event_type=event_type,
             )
-            self._validation_errors.inc()
+            self._validation_errors.add(1)
             return
 
         self._event_buffer.append((event_ts, symbol, event_type, source, inner_payload))
@@ -266,7 +266,7 @@ class CtxWriterAgent(BaseWriterAgent):
             if self._consumer and hasattr(self._consumer, "commit"):
                 await self._consumer.commit()
         except Exception:
-            self._flush_errors_total.inc()
+            self._flush_errors_total.add(1)
             self.logger.exception(
                 "ctx_writer.flush_failed",
                 events=len(event_batch),

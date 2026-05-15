@@ -72,7 +72,7 @@ class GraduationWriterAgent(BaseWriterAgent):
             "graduation_writer_write_errors_total",
             "Failed batch writes",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="graduation_writer_agent")
+        self._batch_latency_attrs = {"agent_id": "graduation_writer_agent"}
 
     def _topic_name(self) -> str:
         return topic_transform_graduation(self.settings.env_name)
@@ -96,12 +96,12 @@ class GraduationWriterAgent(BaseWriterAgent):
         assert self._repo is not None
         try:
             await self._repo.batch_upsert(batch)
-            self._rows_written.inc(len(batch))
+            self._rows_written.add(len(batch))
         except Exception:
-            self._write_errors.inc()
+            self._write_errors.add(1)
             raise
         finally:
-            self._batch_latency.observe(time.perf_counter() - t0)
+            PERSISTENCE_BATCH_LATENCY.record(time.perf_counter() - t0, self._batch_latency_attrs)
         self.logger.info("graduation_writer.flushed", count=len(batch))
 
     async def _setup(self) -> None:
@@ -115,7 +115,7 @@ class GraduationWriterAgent(BaseWriterAgent):
         self.logger.info("graduation_writer.started", topic=self._topic_name())
 
     def _on_message_consumed(self, payload: dict) -> None:
-        self._events_consumed.inc()
+        self._events_consumed.add(1)
 
     async def _teardown(self) -> None:
         await super()._teardown()

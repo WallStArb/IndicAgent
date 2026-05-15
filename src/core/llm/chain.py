@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 import structlog
+from opentelemetry.trace import StatusCode
 
 from src.core.llm.guardrails import GuardrailsValidator
 from src.core.llm.providers import LLMChain, OllamaProvider
@@ -94,9 +95,14 @@ class LLMProviderChain:
             "llm.generate",
             attributes={"call_type": self._call_type, "model": model},
         ) as span:
-            return await self._generate_inner(
-                span, prompt, system, max_tokens, timeout, model, audit_context
-            )
+            try:
+                return await self._generate_inner(
+                    span, prompt, system, max_tokens, timeout, model, audit_context
+                )
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                raise
 
     async def _generate_inner(
         self,
@@ -112,7 +118,7 @@ class LLMProviderChain:
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
-                LLM_CACHE_HITS.labels(call_type=self._call_type).inc()
+                LLM_CACHE_HITS.add(1, {"call_type": self._call_type})
                 span.set_attribute("llm.cache_hit", True)
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
@@ -144,7 +150,7 @@ class LLMProviderChain:
         if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
-                LLM_GUARDRAILS_REJECTIONS.labels(call_type=self._call_type).inc()
+                LLM_GUARDRAILS_REJECTIONS.add(1, {"call_type": self._call_type})
                 record_llm_call(
                     provider_id, self._call_type, latency_s, status="guardrails_rejected"
                 )

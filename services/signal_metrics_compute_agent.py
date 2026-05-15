@@ -25,7 +25,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-from prometheus_client import Counter, Gauge, Histogram
+from opentelemetry import metrics as _otel_metrics
 
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
@@ -43,32 +43,29 @@ from src.observability.metrics import (
     SIGNAL_MFE_DISTRIBUTION,
     SIGNAL_PNL_R_DISTRIBUTION,
 )
-from src.observability.otel import init_tracing
 
-_COMPUTE_CYCLES = Counter(
+_smc_meter = _otel_metrics.get_meter("indicagent")
+
+_COMPUTE_CYCLES = _smc_meter.create_counter(
     "signal_metrics_compute_cycles_total",
-    "Total compute cycles completed",
-    ["agent"],
+    description="Total compute cycles completed",
 )
-_COMPUTE_ERRORS = Counter(
+_COMPUTE_ERRORS = _smc_meter.create_counter(
     "signal_metrics_compute_cycle_errors_total",
-    "Exceptions during compute cycles",
-    ["agent"],
+    description="Exceptions during compute cycles",
 )
-_COMPUTE_DURATION = Histogram(
+_COMPUTE_DURATION = _smc_meter.create_histogram(
     "signal_metrics_compute_cycle_duration_seconds",
-    "Wall-clock time for a full compute cycle",
-    ["agent"],
+    description="Wall-clock time for a full compute cycle",
+    unit="s",
 )
-_ROWS_PROCESSED = Gauge(
+_ROWS_PROCESSED = _smc_meter.create_up_down_counter(
     "signal_metrics_rows_processed_per_cycle",
-    "Rows fetched from signal_ledger in last cycle",
-    ["agent"],
+    description="Rows fetched from signal_ledger in last cycle",
 )
-_DQ_FAILURES = Counter(
+_DQ_FAILURES = _smc_meter.create_counter(
     "signal_metrics_dq_failures_total",
-    "Data quality gate failures by reason",
-    ["agent", "reason_code"],
+    description="Data quality gate failures by reason",
 )
 
 _AGENT_NAME = "signal_metrics_compute"
@@ -179,19 +176,24 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Timer loop: run compute cycle every 15 minutes until stop event."""
+        import time as _time
+
+        _attrs = {"agent": _AGENT_NAME}
         # lag_task created by BaseAgent.start() at line 155
         while not self._stop_event.is_set():
-            with _COMPUTE_DURATION.labels(agent=_AGENT_NAME).time():
-                try:
-                    await self._run_compute_cycle()
-                    _COMPUTE_CYCLES.labels(agent=_AGENT_NAME).inc()
-                except Exception as exc:
-                    _COMPUTE_ERRORS.labels(agent=_AGENT_NAME).inc()
-                    self.logger.error(
-                        "signal_metrics_compute.cycle_failed",
-                        error=str(exc),
-                        exc_info=True,
-                    )
+            _t0 = _time.monotonic()
+            try:
+                await self._run_compute_cycle()
+                _COMPUTE_CYCLES.add(1, _attrs)
+            except Exception as exc:
+                _COMPUTE_ERRORS.add(1, _attrs)
+                self.logger.error(
+                    "signal_metrics_compute.cycle_failed",
+                    error=str(exc),
+                    exc_info=True,
+                )
+            finally:
+                _COMPUTE_DURATION.record(_time.monotonic() - _t0, _attrs)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval_seconds)
             except TimeoutError:
@@ -209,7 +211,7 @@ class SignalMetricsComputeAgent(BaseAgent):
             self.logger.info("signal_metrics_compute.cycle rows=0 nothing_to_compute")
             return
 
-        _ROWS_PROCESSED.labels(agent=_AGENT_NAME).set(len(rows))
+        _ROWS_PROCESSED.add(len(rows), {"agent": _AGENT_NAME})
         self.logger.info("signal_metrics_compute.cycle rows=%d", len(rows))
 
         topic = topic_signal_metrics(self.settings.env_name)
@@ -236,7 +238,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                     continue  # already published in a previous cycle
                 self._published_dq_keys.add(dq_key)
                 new_dq_count += 1
-                _DQ_FAILURES.labels(agent=_AGENT_NAME, reason_code=vr.reason_code).inc()
+                _DQ_FAILURES.add(1, {"agent": _AGENT_NAME, "reason_code": vr.reason_code})
                 await self._producer.publish(
                     topic,
                     msg={
@@ -256,13 +258,13 @@ class SignalMetricsComputeAgent(BaseAgent):
             else:
                 # Valid resolved signal — record quality distributions
                 setup = row.get("setup_plugin") or "unknown"
-                SIGNAL_PNL_R_DISTRIBUTION.labels(setup_plugin=setup).observe(float(pnl_r))
+                SIGNAL_PNL_R_DISTRIBUTION.record(float(pnl_r), {"setup_plugin": setup})
                 mae_val = row.get("mae")
                 if mae_val is not None:
-                    SIGNAL_MAE_DISTRIBUTION.labels(setup_plugin=setup).observe(float(mae_val))
+                    SIGNAL_MAE_DISTRIBUTION.record(float(mae_val), {"setup_plugin": setup})
                 mfe_val = row.get("mfe")
                 if mfe_val is not None:
-                    SIGNAL_MFE_DISTRIBUTION.labels(setup_plugin=setup).observe(float(mfe_val))
+                    SIGNAL_MFE_DISTRIBUTION.record(float(mfe_val), {"setup_plugin": setup})
 
         # Compute and publish metrics for each window and track
         now = datetime.now(UTC)
@@ -354,7 +356,7 @@ class SignalMetricsComputeAgent(BaseAgent):
             ratio = float(backfill_rows[0].get("backfill_ratio") or 0.0)
         else:
             ratio = 0.0
-        SIGNAL_LEDGER_BACKFILL_RATIO.set(ratio)
+        SIGNAL_LEDGER_BACKFILL_RATIO.add(ratio)
         self.logger.info(
             "signal_metrics_compute.backfill_ratio_updated",
             backfill_ratio=ratio,
@@ -369,7 +371,6 @@ class SignalMetricsComputeAgent(BaseAgent):
 
 
 async def _amain() -> None:
-    init_tracing("signal-metrics-compute")
     agent = SignalMetricsComputeAgent()
     await agent.start()
 

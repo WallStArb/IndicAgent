@@ -125,6 +125,7 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
+from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -454,7 +455,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         _configured = self.settings.intelligence_thread_pool_workers
         _workers = _configured if _configured > 0 else min(12, max(4, cpu_count // 2))
         self._executor = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
-        THREAD_POOL_WORKERS.set(_workers)
+        THREAD_POOL_WORKERS.add(_workers)
 
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
@@ -816,7 +817,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                             "bar.process_error",
                             error=str(exc),
                         )
-                        self._pipeline_errors.inc()
+                        self._pipeline_errors.add(1)
             except Exception as exc:
                 self.logger.warning("process_loop.consumer_error", error=str(exc))
                 await asyncio.sleep(1)
@@ -838,9 +839,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _process_bar(self, bar: BarMessage) -> None:
         """Core per-bar processing: gap detection → I1-I7 → output."""
-        with self.tracer.start_as_current_span(
+        async with observed_span(
             "pipeline.process_bar",
-            attributes={"symbol": bar.symbol, "tf": bar.tf},
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
             await self._process_bar_inner(bar)
 
@@ -869,7 +870,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             intel_event, tiered = await self._run_i1_to_i6(bar, t0)
         except Exception as exc:
             self.logger.error("pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
-            self._pipeline_errors.inc()
+            self._pipeline_errors.add(1)
             return
 
         if intel_event is None:
@@ -890,12 +891,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             i7_result = await self._run_i7(bar, intel_event, tiered)
         except Exception as exc:
             self.logger.error("pipeline.i7_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
-            self._pipeline_errors.inc()
+            self._pipeline_errors.add(1)
 
         # Publish BarIntelligenceRecord to journal (after I7 so ranked_signals are available)
         self._enqueue_intel_journal(bar, intel_event, t0, msg_key, i7_result)
 
-        self._bars_processed.inc()
+        self._bars_processed.add(1)
 
     # ------------------------------------------------------------------
     # I1-I6 pipeline (from FeatureComputeAgent)
@@ -974,7 +975,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
 
-        self._pipeline_latency.set(pipeline_latency_ms)
+        self._pipeline_latency.add(pipeline_latency_ms)
 
         # Construct IntelligenceEvent
         try:
@@ -1003,7 +1004,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 tf=tf,
                 error=str(exc),
             )
-            self._pipeline_errors.inc()
+            self._pipeline_errors.add(1)
             return None, None
 
         self._last_events[key] = event
@@ -1018,20 +1019,20 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         try:
             self._output_queue.put_nowait((topic, key, value))
         except asyncio.QueueFull:
-            self._output_buffer_drops.inc()
+            self._output_buffer_drops.add(1)
 
     async def _drain_output(self) -> None:
         """Background task: drain output queue and publish to Kafka."""
         while self.running or not self._output_queue.empty():
             try:
                 topic, key, value = await asyncio.wait_for(self._output_queue.get(), timeout=1.0)
-                self._output_buffer_depth.set(self._output_queue.qsize())
+                self._output_buffer_depth.add(self._output_queue.qsize())
                 await self._kafka_producer.publish(topic, msg=value, key=key)
                 self._output_queue.task_done()
             except TimeoutError:
                 continue
             except Exception:
-                self._output_publish_failures.inc()
+                self._output_publish_failures.add(1)
                 self.logger.exception("output.publish_failed")
                 self._output_queue.task_done()
 
@@ -1066,15 +1067,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             out = results[i]
             tier = task.tier_key  # Use tier_key from task
             if isinstance(out, Exception):
-                self._pipeline_errors.inc()
-                PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
+                self._pipeline_errors.add(1)
+                PLUGIN_ERRORS_TOTAL.add(1, {"plugin_name": task.plugin_name, "tier": tier})
                 self.logger.warning(
                     f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out)
                 )
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
-                PLUGIN_DURATION_MS.labels(plugin_name=task.plugin_name, tier=tier).observe(
-                    duration_ms
+                PLUGIN_DURATION_MS.record(
+                    duration_ms, {"plugin_name": task.plugin_name, "tier": tier}
                 )
                 if isinstance(result_dict, dict):
                     # Handle SMC-specific field renaming
@@ -1134,7 +1135,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Record timing metric
         i1_latency_ms = (time.perf_counter() - i1_start) * 1000
-        self._i1_latency_ms.set(i1_latency_ms)
+        self._i1_latency_ms.add(i1_latency_ms)
 
         return result
 
@@ -1246,7 +1247,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 else:
                     tiered[tier_key] = result
                 frames[tier_key] = tiered[tier_key]
-                FEATURES_COMPUTED_TOTAL.labels(tier=tier_key).inc()
+                FEATURES_COMPUTED_TOTAL.add(1, {"tier": tier_key})
                 # Dual-write: keyed frames[tier_key] for typed tier access;
                 # flat frames["features"] for plugins that use the legacy flat dict.
                 features = frames.setdefault("features", {})
@@ -1264,9 +1265,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         Returns a dict of I7 results for BarIntelligenceRecord construction:
             ranked, winner, n_raw, n_quality, n_regime, n_tod, n_calibrated, i7_computed_at
         """
-        with self.tracer.start_as_current_span(
+        async with observed_span(
             "pipeline.run_i7",
-            attributes={"symbol": bar.symbol, "tf": bar.tf},
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
             return await self._run_i7_inner(bar, event, tiered)
 
@@ -1348,11 +1349,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
                 raw_signals.append(sig)
                 plugin_outputs[task.plugin_name] = sig
-                self._signals_generated.inc()
+                self._signals_generated.add(1)
 
         # Record timing metric
         i7_latency_ms = (time.perf_counter() - i7_start) * 1000
-        self._i7_latency_ms.set(i7_latency_ms)
+        self._i7_latency_ms.add(i7_latency_ms)
 
         if not raw_signals:
             return {
@@ -1407,11 +1408,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Regime suppression metric
         for sig in regime_gated:
             if not sig.get("regime_eligible", True):
-                REGIME_GATE_SUPPRESSIONS_TOTAL.labels(
-                    reason="regime_type",
-                    plugin=sig.get("setup_plugin", ""),
-                    tf=tf,
-                ).inc()
+                REGIME_GATE_SUPPRESSIONS_TOTAL.add(
+                    1,
+                    {
+                        "reason": "regime_type",
+                        "plugin": sig.get("setup_plugin", ""),
+                        "tf": tf,
+                    },
+                )
 
         # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
         for sig in regime_gated:
@@ -1497,7 +1501,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Publish winner to signals.aggregated for signal_tracker_agent
         if winner:
-            self._signals_selected.inc()
+            self._signals_selected.add(1)
             self._enqueue(
                 topic_signals_aggregated(self.settings.env_name),
                 message_key(symbol, tf),
@@ -1573,7 +1577,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # CIS assertion — every signal must have been stamped by _run_i7_pipeline
         for sig in ranked:
             if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
-                self._signal_dlq_total.inc()
+                self._signal_dlq_total.add(1)
                 self._enqueue(
                     topic_signal_dlq(self.settings.env_name),
                     message_key(symbol, tf),
@@ -1619,8 +1623,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
             sig.setdefault("signal_id", str(uuid4()))
         if is_backfill and ranked:
-            INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.labels(symbol=symbol, timeframe=tf).inc(
-                len(ranked)
+            INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.add(
+                len(ranked), {"symbol": symbol, "timeframe": tf}
             )
 
         self._enqueue(

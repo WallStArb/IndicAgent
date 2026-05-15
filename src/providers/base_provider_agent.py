@@ -71,17 +71,9 @@ class BaseProviderAgent(BaseAgent):
             settings=_settings,
         )
 
-        # Pre-cache labeled metric children — avoids per-bar dict lookup overhead
+        # Pre-cache OTel attribute dicts — avoids per-bar dict rebuild overhead
         pname = self._provider_name_str()
-        self._m_bars_raw = PROVIDER_BARS_PRODUCED_TOTAL.labels(provider=pname, agent=self.name)
-        self._m_reconnects_attempted = PROVIDER_RECONNECTS_ATTEMPTED_TOTAL.labels(
-            provider=pname, agent=self.name
-        )
-        self._m_reconnects_succeeded = PROVIDER_RECONNECTS_SUCCEEDED_TOTAL.labels(
-            provider=pname, agent=self.name
-        )
-        self._g_connected = PROVIDER_CONNECTED.labels(provider=pname, agent=self.name)
-        self._m_gaps_filled = PROVIDER_GAPS_FILLED_TOTAL.labels(provider=pname, agent=self.name)
+        self._provider_attrs = {"provider": pname, "agent": self.name}
 
         # Cache raw topic — constant for agent lifetime
         self._raw_topic = topic_market_bars_raw(self.settings.env_name or "", pname)
@@ -133,7 +125,7 @@ class BaseProviderAgent(BaseAgent):
 
         self._adapter = self._create_adapter()
         await self._adapter.connect()
-        self._g_connected.set(1)
+        PROVIDER_CONNECTED.add(1, self._provider_attrs)
 
         self._instruments = self._get_instruments()
         self._qualify_sem = asyncio.Semaphore(5)
@@ -197,7 +189,7 @@ class BaseProviderAgent(BaseAgent):
             await self._adapter.disconnect()
         if self._db_pool is not None:
             await self._db_pool.close()
-        self._g_connected.set(0)
+        PROVIDER_CONNECTED.add(0, self._provider_attrs)
         self.logger.info(
             "provider_agent.teardown_complete",
             agent=self.name,
@@ -312,7 +304,7 @@ class BaseProviderAgent(BaseAgent):
         ) as span:
             base = min(2 ** (attempt + 1), 30)
             delay = base * random.uniform(0.5, 1.5)
-            self._m_reconnects_attempted.inc()
+            PROVIDER_RECONNECTS_ATTEMPTED_TOTAL.add(1, self._provider_attrs)
             self.logger.warning(
                 "provider_agent.reconnecting",
                 agent=self.name,
@@ -326,8 +318,8 @@ class BaseProviderAgent(BaseAgent):
                 await self._adapter.disconnect()
                 connected = await self._adapter.connect()
                 if connected:
-                    self._g_connected.set(1)
-                    self._m_reconnects_succeeded.inc()
+                    PROVIDER_CONNECTED.add(1, self._provider_attrs)
+                    PROVIDER_RECONNECTS_SUCCEEDED_TOTAL.add(1, self._provider_attrs)
                     span.set_attribute("success", True)
                     self.logger.info(
                         "provider_agent.reconnected",
@@ -336,10 +328,10 @@ class BaseProviderAgent(BaseAgent):
                         attempt=attempt,
                     )
                 else:
-                    self._g_connected.set(0)
+                    PROVIDER_CONNECTED.add(0, self._provider_attrs)
                     span.set_attribute("success", False)
             except Exception as exc:
-                self._g_connected.set(0)
+                PROVIDER_CONNECTED.add(0, self._provider_attrs)
                 span.set_attribute("success", False)
                 self.logger.error(
                     "provider_agent.reconnect_failed",
@@ -432,7 +424,7 @@ class BaseProviderAgent(BaseAgent):
                             bar.model_dump(mode="json"),
                             key=message_key(req.symbol, req.tf),
                         )
-                        self._m_gaps_filled.inc()
+                        PROVIDER_GAPS_FILLED_TOTAL.add(1, self._provider_attrs)
 
                     self.logger.info(
                         "provider_agent.gap_requests_loop.fulfilled",
@@ -471,7 +463,7 @@ class BaseProviderAgent(BaseAgent):
                 bar.model_dump(mode="json"),
                 key=message_key(bar.symbol, bar.tf),
             )
-            self._m_bars_raw.inc()
+            PROVIDER_BARS_PRODUCED_TOTAL.add(1, self._provider_attrs)
             self._record_message_consumed()
 
     # ------------------------------------------------------------------

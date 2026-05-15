@@ -128,7 +128,7 @@ class TestExceptionIsolation:
 
     @pytest.mark.asyncio
     async def test_error_counter_increments_on_exception(self):
-        """PLUGIN_ERRORS_TOTAL.labels(plugin_name, tier).inc() called when plugin raises."""
+        """PLUGIN_ERRORS_TOTAL.add(1, {plugin_name, tier}) called when plugin raises."""
         agent = make_agent()
 
         failing_name = TIER_I1[0]
@@ -139,12 +139,17 @@ class TestExceptionIsolation:
         with patch("services.intelligence_pipeline_agent.PLUGIN_ERRORS_TOTAL") as mock_errors:
             await agent._run_i1(frames, "ES", "1m")
 
-        mock_errors.labels.assert_called_with(plugin_name=failing_name, tier="I1")
-        mock_errors.labels.return_value.inc.assert_called()
+        # OTel counter: .add(1, {"plugin_name": ..., "tier": "I1"}) must have been called
+        mock_errors.add.assert_called()
+        call_args = mock_errors.add.call_args_list
+        assert any(
+            len(a) >= 2 and a[0] == 1 and a[1].get("plugin_name") == failing_name
+            for a, _ in call_args
+        ), f"Expected add(1, {{plugin_name={failing_name!r}, ...}}) in {call_args}"
 
     @pytest.mark.asyncio
     async def test_plugin_duration_recorded_on_success(self):
-        """PLUGIN_DURATION_MS.labels(plugin_name, tier).observe() called with positive value."""
+        """PLUGIN_DURATION_MS.record(value, {plugin_name, tier}) called with positive value."""
         agent = make_agent()
 
         plugin_name = TIER_I1[0]
@@ -155,12 +160,10 @@ class TestExceptionIsolation:
         with patch("services.intelligence_pipeline_agent.PLUGIN_DURATION_MS") as mock_duration:
             await agent._run_i1(frames, "ES", "1m")
 
-        mock_duration.labels.assert_called_with(plugin_name=plugin_name, tier="I1")
-        observe_mock = mock_duration.labels.return_value.observe
-        observe_mock.assert_called()
-
-        call_args = observe_mock.call_args_list
-        assert len(call_args) >= 1, "observe() was never called"
+        # OTel histogram: .record(value, attrs) must have been called
+        mock_duration.record.assert_called()
+        call_args = mock_duration.record.call_args_list
+        assert len(call_args) >= 1, "record() was never called"
         duration_value = call_args[0][0][0]
         assert isinstance(
             duration_value, (int, float)

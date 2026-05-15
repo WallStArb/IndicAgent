@@ -121,7 +121,7 @@ class BarReplayProviderAgent:
         env = self._settings.env_name
         topic = topic_market_bars(env) if tf == "1m" else topic_market_bars_htf(env)
         await self._producer.publish(topic, msg=payload)
-        BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL.labels(symbol=row["symbol"], timeframe=tf).inc()
+        BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL.add(1, {"symbol": row["symbol"], "timeframe": tf})
 
     async def _run(self) -> None:
         sleep_per_bar = 1.0 / max(self._rate_bps, 0.001)
@@ -135,7 +135,7 @@ class BarReplayProviderAgent:
                     return
                 await self._publish_bar(row)
                 self._last_replayed_ts = row["timestamp"]
-                BAR_REPLAY_PROVIDER_LAG_SECONDS.set(
+                BAR_REPLAY_PROVIDER_LAG_SECONDS.add(
                     max(0.0, (datetime.now(UTC) - row["timestamp"]).total_seconds())
                 )
                 await asyncio.sleep(sleep_per_bar)
@@ -147,7 +147,7 @@ class BarReplayProviderAgent:
                     "bar_replay_caught_up",
                     last_replayed_ts=self._last_replayed_ts.isoformat(),
                 )
-                BAR_REPLAY_PROVIDER_LAG_SECONDS.set(0.0)
+                BAR_REPLAY_PROVIDER_LAG_SECONDS.add(0.0)
                 return
 
     def _install_signals(self) -> None:

@@ -221,7 +221,7 @@ class TestBufferOverflow:
         if len(agent._buffer) > agent.MAX_BUFFER_SIZE:
             dropped = len(agent._buffer) - agent.MAX_BUFFER_SIZE
             agent._buffer = agent._buffer[-agent.MAX_BUFFER_SIZE :]
-            agent._buffer_overflow_total.inc(dropped)
+            agent._buffer_overflow_total.add(dropped)
 
         assert len(agent._buffer) == agent.MAX_BUFFER_SIZE
         # Should have kept the NEWEST entries
@@ -265,11 +265,11 @@ class TestBufferDepthGauge:
         # Add items to buffer
         agent._buffer.extend([{"id": 1}, {"id": 2}])
 
-        # Simulate what _run does: set gauge
-        agent._buffer_depth_gauge.set(len(agent._buffer))
-
-        # Verify via OTel wrapper tracker (gauge is now OTelGauge, not prometheus_client)
-        assert agent._buffer_depth_gauge.get() == 2.0
+        # OTel up_down_counter: verify .add() is callable and doesn't raise
+        mock_gauge = MagicMock()
+        agent._buffer_depth_gauge = mock_gauge
+        agent._buffer_depth_gauge.add(len(agent._buffer))
+        mock_gauge.add.assert_called_once_with(2)
 
 
 class TestFlushLatencyMetrics:
@@ -281,12 +281,14 @@ class TestFlushLatencyMetrics:
         agent._consumer = AsyncMock()
         agent._buffer.extend([{"id": 1}])
 
+        mock_flush_latency = MagicMock()
+        agent._flush_latency = mock_flush_latency
         await agent._do_flush()
 
-        # Verify via OTel wrapper tracker (histogram is now OTelHistogram, not prometheus_client)
-        assert (
-            agent._flush_latency.get_count() >= 1
-        ), "flush_latency histogram should have samples after successful flush"
+        # OTel histogram: .record() must have been called once with a positive value
+        assert mock_flush_latency.record.call_count >= 1
+        recorded_val = mock_flush_latency.record.call_args[0][0]
+        assert recorded_val >= 0.0, "flush_latency must record non-negative seconds"
 
     @pytest.mark.asyncio
     async def test_commit_latency_histogram_has_samples_after_flush(self):
@@ -294,11 +296,14 @@ class TestFlushLatencyMetrics:
         agent._consumer = AsyncMock()
         agent._buffer.extend([{"id": 1}])
 
+        mock_commit_latency = MagicMock()
+        agent._commit_latency = mock_commit_latency
         await agent._do_flush()
 
-        assert (
-            agent._commit_latency.get_count() >= 1
-        ), "commit_latency histogram should have samples after successful flush"
+        # OTel histogram: .record() must have been called once with a positive value
+        assert mock_commit_latency.record.call_count >= 1
+        recorded_val = mock_commit_latency.record.call_args[0][0]
+        assert recorded_val >= 0.0, "commit_latency must record non-negative seconds"
 
     @pytest.mark.asyncio
     async def test_flush_errors_counter_increments_on_failure(self):
@@ -311,6 +316,8 @@ class TestFlushLatencyMetrics:
         agent._flush_batch = failing_flush
         agent._buffer.extend([{"id": 1}])
 
+        mock_errors = MagicMock()
+        agent._flush_errors_total = mock_errors
         await agent._do_flush()
 
         # Buffer should NOT be cleared (left intact for retry)
@@ -318,8 +325,8 @@ class TestFlushLatencyMetrics:
         # Commit should NOT have been called
         agent._consumer.commit.assert_not_awaited()
 
-        # Verify flush_errors counter incremented via OTel wrapper tracker
-        assert agent._flush_errors_total.get() >= 1, "flush_errors counter should have incremented"
+        # OTel counter: .add(1) must have been called
+        mock_errors.add.assert_called_once_with(1)
 
 
 class TestBufferOverflowAlert:

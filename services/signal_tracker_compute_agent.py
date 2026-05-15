@@ -292,7 +292,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         """
 
         def _reject(reason: str) -> None:
-            SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(reason=reason).inc()
+            SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.add(1, {"reason": reason})
             self.logger.warning("signal_rejected", reason=reason, signal_id=raw.get("signal_id"))
             return None
 
@@ -401,9 +401,9 @@ class SignalTrackerComputeAgent(BaseAgent):
         if canonical["is_backfill"] and bars_elapsed >= canonical["ttl_bars"]:
             # Backfill fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
             self._publish_ttl_expired_transition_sync(canonical, bars_elapsed)
-            SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
-                symbol=canonical["symbol"], timeframe=tf
-            ).inc()
+            SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.add(
+                1, {"symbol": canonical["symbol"], "timeframe": tf}
+            )
             self._signal_ids.add(sid)
             return
 
@@ -520,7 +520,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         if not has_any:
             self._active_symbols.discard(symbol)
 
-        self._active_signals_gauge.set(sum(len(v) for v in self._active_index.values()))
+        self._active_signals_gauge.add(sum(len(v) for v in self._active_index.values()))
 
     # ------------------------------------------------------------------
     # Bar evaluation
@@ -534,7 +534,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         if not signals:
             return
 
-        self._active_signals_gauge.set(sum(len(v) for v in self._active_index.values()))
+        self._active_signals_gauge.add(sum(len(v) for v in self._active_index.values()))
 
         point_value = self._point_values.get(symbol, 1.0)
 
@@ -688,7 +688,7 @@ class SignalTrackerComputeAgent(BaseAgent):
 
             await self._publish_transition(lifecycle_t)
 
-            self._transitions_total.inc()
+            self._transitions_total.add(1)
             self.logger.info(
                 "signal_transition",
                 signal_id=sid,

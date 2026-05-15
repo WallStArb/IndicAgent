@@ -34,9 +34,9 @@ import structlog
 # Import metrics and state manager
 from src.observability.metrics import (
     CIRCUIT_BREAKER_STATE,
+    PLUGIN_DURATION_MS,
     PLUGIN_FALLBACK_TOTAL,
     record_langgraph_workflow,
-    record_plugin_execution,
 )
 
 logger = structlog.get_logger(__name__)
@@ -239,7 +239,7 @@ class PluginCircuitBreaker:
                 logger.info("Circuit breaker transitioning to HALF_OPEN", plugin=plugin_name)
 
                 # Update metrics
-                CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(plugin_state.state.value)
+                CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
 
                 return False
             return True
@@ -258,7 +258,7 @@ class PluginCircuitBreaker:
                     "Circuit breaker returning to OPEN from HALF_OPEN", plugin=plugin_name
                 )
 
-                CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(plugin_state.state.value)
+                CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
 
                 return True
 
@@ -296,16 +296,11 @@ class PluginCircuitBreaker:
             plugin_state.failure_count = max(0, plugin_state.failure_count - 1)
 
         # Update metrics
-        CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(plugin_state.state.value)
+        CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
 
         # Record execution metrics
-        record_plugin_execution(
-            plugin_name,
-            kwargs.get("symbol", "unknown") if kwargs else "unknown",
-            kwargs.get("timeframe", "unknown") if kwargs else "unknown",
-            execution_time_ms / 1000.0,
-            "success",
-            intelligence_tier,
+        PLUGIN_DURATION_MS.record(
+            execution_time_ms, {"plugin_name": plugin_name, "tier": intelligence_tier}
         )
 
         # Save state if state manager available
@@ -373,15 +368,10 @@ class PluginCircuitBreaker:
             )
 
         # Update metrics
-        CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(plugin_state.state.value)
+        CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
 
-        record_plugin_execution(
-            plugin_name,
-            "unknown",  # Symbol not available in failure context
-            "unknown",  # Timeframe not available
-            execution_time_ms / 1000.0,
-            "failure",
-            intelligence_tier,
+        PLUGIN_DURATION_MS.record(
+            execution_time_ms, {"plugin_name": plugin_name, "tier": intelligence_tier}
         )
 
         # Save state if state manager available
@@ -414,7 +404,7 @@ class PluginCircuitBreaker:
         logger.debug("Using fallback function", plugin=plugin_name, reason=reason)
 
         # Update metrics
-        PLUGIN_FALLBACK_TOTAL.labels(plugin_name=plugin_name, reason=reason).inc()
+        PLUGIN_FALLBACK_TOTAL.add(1, {"plugin_name": plugin_name, "reason": reason})
 
         self.total_fallbacks += 1
 
@@ -512,7 +502,7 @@ class PluginCircuitBreaker:
             self.plugin_states[plugin_name] = plugin_state
 
             # Update metrics
-            CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(plugin_state.state.value)
+            CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
 
             logger.info(
                 "Restored circuit breaker state", plugin=plugin_name, state=plugin_state.state.name
@@ -578,7 +568,7 @@ class PluginCircuitBreaker:
                 self.plugin_states[plugin_name] = CircuitBreakerState()
 
                 # Update metrics
-                CIRCUIT_BREAKER_STATE.labels(plugin_name=plugin_name).set(0)  # CLOSED
+                CIRCUIT_BREAKER_STATE.add(0, {"plugin_name": plugin_name})  # CLOSED
 
                 # Clear persisted state
                 if self.state_manager:

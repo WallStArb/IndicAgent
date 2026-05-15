@@ -25,23 +25,22 @@ import asyncio
 from datetime import datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-from prometheus_client import Counter
+from opentelemetry import metrics as _otel_metrics
 
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.stream_keys import topic_signal_metrics
-from src.observability.otel import init_tracing
 
-_EVENTS_CONSUMED = Counter(
+_smw_meter = _otel_metrics.get_meter("indicagent")
+
+_EVENTS_CONSUMED = _smw_meter.create_counter(
     "signal_metrics_writer_events_consumed_total",
-    "Events consumed from intelligence.signal_metrics",
-    ["agent", "event_type"],
+    description="Events consumed from intelligence.signal_metrics",
 )
-_WRITE_ERRORS = Counter(
+_WRITE_ERRORS = _smw_meter.create_counter(
     "signal_metrics_writer_errors_total",
-    "DB write errors by event type",
-    ["agent", "event_type"],
+    description="DB write errors by event type",
 )
 
 _AGENT_NAME = "signal_metrics_writer"
@@ -234,9 +233,9 @@ class SignalMetricsWriterAgent(BaseAgent):
                             "signal_metrics_writer.unknown_event_type",
                             event_type=event_type,
                         )
-                    _EVENTS_CONSUMED.labels(agent=_AGENT_NAME, event_type=event_type).inc()
+                    _EVENTS_CONSUMED.add(1, {"agent": _AGENT_NAME, "event_type": event_type})
             except Exception as exc:
-                _WRITE_ERRORS.labels(agent=_AGENT_NAME, event_type=event_type).inc()
+                _WRITE_ERRORS.add(1, {"agent": _AGENT_NAME, "event_type": event_type})
                 self.logger.error(
                     "signal_metrics_writer.write_error",
                     event_type=event_type,
@@ -246,7 +245,6 @@ class SignalMetricsWriterAgent(BaseAgent):
 
 
 async def _amain() -> None:
-    init_tracing("signal-metrics-writer")
     agent = SignalMetricsWriterAgent()
     await agent.start()
 

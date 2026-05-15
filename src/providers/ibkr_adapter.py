@@ -56,13 +56,17 @@ class IBKRAdapter:
         # Bars are monotonically non-decreasing — keep only the most recent.
         self._last_emitted_ts: dict[str, datetime] = {}
 
-        # Pre-cached drop counters (set on first stream_bars call, once symbols known)
-        self._m_dropped_queue_full = PROVIDER_BARS_DROPPED_TOTAL.labels(
-            provider=self.provider_name, agent="ibkr_provider_agent", reason="queue_full"
-        )
-        self._m_dropped_dup = PROVIDER_BARS_DROPPED_TOTAL.labels(
-            provider=self.provider_name, agent="ibkr_provider_agent", reason="duplicate"
-        )
+        # Pre-cached attribute dicts for drop counters
+        self._m_dropped_queue_full_attrs = {
+            "provider": self.provider_name,
+            "agent": "ibkr_provider_agent",
+            "reason": "queue_full",
+        }
+        self._m_dropped_dup_attrs = {
+            "provider": self.provider_name,
+            "agent": "ibkr_provider_agent",
+            "reason": "duplicate",
+        }
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -102,7 +106,7 @@ class IBKRAdapter:
             """Convert OHLCVBar → BarMessage with dedup guard. Returns None if duplicate."""
             last_ts = self._last_emitted_ts.get(sym)
             if last_ts is not None and bar.timestamp <= last_ts:
-                self._m_dropped_dup.inc()
+                PROVIDER_BARS_DROPPED_TOTAL.add(1, self._m_dropped_dup_attrs)
                 return None
             self._last_emitted_ts[sym] = bar.timestamp
             instrument = sym_to_instrument.get(sym)
@@ -135,7 +139,7 @@ class IBKRAdapter:
                 bar_queue.put_nowait(msg)
                 last_bar_wall[0] = loop.time()
             except asyncio.QueueFull:
-                self._m_dropped_queue_full.inc()
+                PROVIDER_BARS_DROPPED_TOTAL.add(1, self._m_dropped_queue_full_attrs)
                 logger.warning(
                     "ibkr_adapter.bar_queue_full_dropping symbol=%s ts=%s",
                     msg.symbol,

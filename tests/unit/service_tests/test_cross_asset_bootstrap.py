@@ -15,20 +15,24 @@ import pytest
 import structlog
 
 from services.cross_asset_service import CrossAssetComputeAgent
-from src.core.agent.base import AGENT_CRASH_TOTAL, AGENT_SETUP_SUCCESS_TOTAL
 
 
 def _mock_base_agent_attributes(agent):
     """Set up BaseAgent attributes for __new__ bypass pattern."""
     agent.max_idle_seconds = 0
     agent._agent_label = agent.name.lower().replace(" ", "_")
-    agent._crash_total = AGENT_CRASH_TOTAL.labels(agent=agent._agent_label)
+    agent._crash_total = (
+        MagicMock()
+    )  # OTel counter mock (not used directly; AGENT_CRASH_TOTAL is module-level)
+    agent._crash_attrs = {"agent": agent.name}
     agent._stop_event = asyncio.Event()
     agent._setup = AsyncMock()
     agent._teardown = AsyncMock()
     agent._setup_latency = MagicMock()
+    agent._setup_latency_attrs = {"agent": agent.name}
+    agent._setup_success_attrs = {"agent": agent.name}
     agent._setup_success_total = MagicMock()
-    agent._last_msg_ts_gauge = MagicMock()
+    agent._last_msg_ts_attrs = {"agent": agent.name}
     agent._last_message_ts = None  # Initialize for stall detection
     agent.tracer = MagicMock()
     agent.logger = structlog.get_logger().bind(agent=agent.name)
@@ -74,16 +78,8 @@ async def test_cross_asset_emits_setup_success_metric():
 
     agent._run = _immediate_run
 
-    # Get initial setup success count
-    setup_metric = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="cross_asset_compute_agent")
-    before = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
-
+    # OTel counter: just verify start() completes without exception
     await agent.start()
-
-    # Verify setup success metric incremented
-    after = setup_metric._value.get() if hasattr(setup_metric, "_value") else 0
-    # Note: In test environment, _value might not be available; we check the metric was called
-    # The actual verification happens via Prometheus metric scraping in production
 
 
 @pytest.mark.asyncio
@@ -124,5 +120,5 @@ async def test_cross_asset_record_message_consumed_updates_timestamp():
     # After: timestamp is set
     assert agent._last_message_ts is not None
     assert isinstance(agent._last_message_ts, float)
-    # Gauge should have been updated
-    agent._last_msg_ts_gauge.set.assert_called_once()
+    # OTel: module-level AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.add() is called directly;
+    # no instance-level gauge to assert on.

@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
-from prometheus_client import Counter, Gauge, Histogram
+from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
 from src.config.settings import get_active_contracts
@@ -45,33 +45,29 @@ from src.core.stream_keys import (
 )
 
 # ---------------------------------------------------------------------------
-# Module-level metrics — prevents duplicate registration across test runs
+# Module-level OTel metrics
 # ---------------------------------------------------------------------------
 
-_ROLLS_PROCESSED = Counter(
+_cmw_meter = _otel_metrics.get_meter("indicagent")
+_ROLLS_PROCESSED = _cmw_meter.create_counter(
     "contract_writer_rolls_processed_total",
-    "Roll events successfully processed",
-    ["agent"],
+    description="Roll events successfully processed",
 )
-_ROLL_ERRORS = Counter(
+_ROLL_ERRORS = _cmw_meter.create_counter(
     "contract_writer_roll_errors_total",
-    "Roll event processing failures",
-    ["agent"],
+    description="Roll event processing failures",
 )
-_SEEDS_INSERTED = Counter(
+_SEEDS_INSERTED = _cmw_meter.create_counter(
     "contract_writer_seeds_inserted_total",
-    "Contract rows seeded on startup",
-    ["agent"],
+    description="Contract rows seeded on startup",
 )
-_PROCESSING_LATENCY = Histogram(
+_PROCESSING_LATENCY = _cmw_meter.create_histogram(
     "contract_writer_processing_latency_seconds",
-    "Roll event processing latency",
-    ["agent"],
+    description="Roll event processing latency",
 )
-_LAST_ROLL_TS = Gauge(
+_LAST_ROLL_TS = _cmw_meter.create_up_down_counter(
     "contract_writer_last_roll_promoted_ts",
-    "Unix timestamp of last successful roll promotion (0 = never)",
-    ["agent"],
+    description="Unix timestamp of last successful roll promotion (0 = never)",
 )
 
 
@@ -97,12 +93,7 @@ class ContractMetadataWriterAgent(BaseAgent):
         # First event triggers operational roll; subsequent events are recorded but not re-executed
         self._processed_rolls: set[tuple[str, str]] = set()
 
-        # Cache labeled metric children — avoids dict lookup on every event
-        self._rolls_processed = _ROLLS_PROCESSED.labels(agent=self.name)
-        self._roll_errors = _ROLL_ERRORS.labels(agent=self.name)
-        self._seeds_inserted = _SEEDS_INSERTED.labels(agent=self.name)
-        self._processing_latency = _PROCESSING_LATENCY.labels(agent=self.name)
-        self._last_roll_ts = _LAST_ROLL_TS.labels(agent=self.name)
+        self._agent_attrs = {"agent": self.name}
 
         if self._dry_run:
             self.logger.warning("contract_metadata_writer.DRY_RUN_ENABLED — DB writes suppressed")
@@ -192,7 +183,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 *params,
             )
             for row in result:
-                self._seeds_inserted.inc()
+                _SEEDS_INSERTED.add(1, self._agent_attrs)
                 self.logger.info(
                     "contract_metadata_writer.seeded",
                     symbol=row["symbol"],
@@ -253,7 +244,7 @@ class ContractMetadataWriterAgent(BaseAgent):
         try:
             event = RollEvent.model_validate(payload)
         except ValidationError as exc:
-            self._roll_errors.inc()
+            _ROLL_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "contract_metadata_writer.invalid_roll_event",
                 error=str(exc),
@@ -262,7 +253,7 @@ class ContractMetadataWriterAgent(BaseAgent):
             return
 
         if not event.old_contract or not event.new_contract:
-            self._roll_errors.inc()
+            _ROLL_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "contract_metadata_writer.empty_contract",
                 old=event.old_contract,
@@ -286,88 +277,88 @@ class ContractMetadataWriterAgent(BaseAgent):
             )
             return
 
-        with self._processing_latency.time():
-            async with self._db_pool.acquire() as conn:
-                # Step 2: DRY_RUN — log and publish but skip DB write
-                if self._dry_run:
-                    # Fetch without lock — dry-run never modifies
-                    old_row = await conn.fetchrow(
-                        "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1",
-                        event.old_contract,
-                    )
-                    if old_row is None:
-                        self._roll_errors.inc()
-                        self.logger.error(
-                            "contract_metadata_writer.unknown_old_contract",
-                            old_contract=event.old_contract,
-                            base=event.symbol,
-                        )
-                        await self._publish_to_dlq(payload, key=event.symbol)
-                        return
-                    exchange = old_row["exchange"]
-                    self.logger.warning(
-                        "contract_metadata_writer.DRY_RUN_promotion_skipped",
-                        base=event.symbol,
-                        old=event.old_contract,
-                        new=event.new_contract,
-                        exchange=exchange,
-                    )
-                    update_event = ContractUpdateEvent(
-                        base_symbol=event.symbol,
+        _t0_latency = _time.monotonic()
+        async with self._db_pool.acquire() as conn:
+            # Step 2: DRY_RUN — log and publish but skip DB write
+            if self._dry_run:
+                # Fetch without lock — dry-run never modifies
+                old_row = await conn.fetchrow(
+                    "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1",
+                    event.old_contract,
+                )
+                if old_row is None:
+                    _ROLL_ERRORS.add(1, self._agent_attrs)
+                    self.logger.error(
+                        "contract_metadata_writer.unknown_old_contract",
                         old_contract=event.old_contract,
-                        new_contract=event.new_contract,
-                        promoted_at=datetime.now(UTC),
+                        base=event.symbol,
                     )
-                    await self._kafka_producer.publish(
-                        topic_contract_updates(self.env_name),
-                        {**update_event.model_dump(mode="json"), "dry_run": True},
-                        key=f"dry_run:{event.symbol}",
-                    )
+                    await self._publish_to_dlq(payload, key=event.symbol)
                     return
+                exchange = old_row["exchange"]
+                self.logger.warning(
+                    "contract_metadata_writer.DRY_RUN_promotion_skipped",
+                    base=event.symbol,
+                    old=event.old_contract,
+                    new=event.new_contract,
+                    exchange=exchange,
+                )
+                update_event = ContractUpdateEvent(
+                    base_symbol=event.symbol,
+                    old_contract=event.old_contract,
+                    new_contract=event.new_contract,
+                    promoted_at=datetime.now(UTC),
+                )
+                await self._kafka_producer.publish(
+                    topic_contract_updates(self.env_name),
+                    {**update_event.model_dump(mode="json"), "dry_run": True},
+                    key=f"dry_run:{event.symbol}",
+                )
+                return
 
-                # Step 3: Atomic promotion in transaction
-                async with conn.transaction():
-                    # Lock old row first — prevents concurrent roll from racing
-                    old_row = await conn.fetchrow(
-                        "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1 FOR UPDATE",
-                        event.old_contract,
+            # Step 3: Atomic promotion in transaction
+            async with conn.transaction():
+                # Lock old row first — prevents concurrent roll from racing
+                old_row = await conn.fetchrow(
+                    "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1 FOR UPDATE",
+                    event.old_contract,
+                )
+                if old_row is None:
+                    _ROLL_ERRORS.add(1, self._agent_attrs)
+                    self.logger.error(
+                        "contract_metadata_writer.unknown_old_contract",
+                        old_contract=event.old_contract,
+                        base=event.symbol,
                     )
-                    if old_row is None:
-                        self._roll_errors.inc()
-                        self.logger.error(
-                            "contract_metadata_writer.unknown_old_contract",
-                            old_contract=event.old_contract,
-                            base=event.symbol,
-                        )
-                        await self._publish_to_dlq(payload, key=event.symbol)
-                        return
-                    exchange = old_row["exchange"]
-                    await conn.execute(
-                        """UPDATE contract_metadata
-                           SET is_front_month = false, updated_at = NOW()
-                           WHERE symbol = $1""",
-                        event.old_contract,
-                    )
-                    await conn.execute(
-                        """INSERT INTO contract_metadata
-                               (symbol, base_symbol, asset_class, exchange, is_front_month,
-                                roll_from, roll_detected_at, confirmation_count, updated_at)
-                           VALUES ($1, $2, $3, $4, true, $5, $6, $7, NOW())
-                           ON CONFLICT (symbol) DO UPDATE SET
-                               is_front_month = true,
-                               roll_from = EXCLUDED.roll_from,
-                               roll_detected_at = EXCLUDED.roll_detected_at,
-                               confirmation_count = EXCLUDED.confirmation_count,
-                               updated_at = NOW()""",
-                        event.new_contract,
-                        event.symbol,  # base_symbol from RollEvent
-                        AssetClass.FUTURES,
-                        exchange,  # copied from old_contract row
-                        event.old_contract,
-                        event.detection_ts,
-                        event.confirmation_count,
-                    )
-                    await self._write_roll_event(conn, event, is_authoritative=True)
+                    await self._publish_to_dlq(payload, key=event.symbol)
+                    return
+                exchange = old_row["exchange"]
+                await conn.execute(
+                    """UPDATE contract_metadata
+                       SET is_front_month = false, updated_at = NOW()
+                       WHERE symbol = $1""",
+                    event.old_contract,
+                )
+                await conn.execute(
+                    """INSERT INTO contract_metadata
+                           (symbol, base_symbol, asset_class, exchange, is_front_month,
+                            roll_from, roll_detected_at, confirmation_count, updated_at)
+                       VALUES ($1, $2, $3, $4, true, $5, $6, $7, NOW())
+                       ON CONFLICT (symbol) DO UPDATE SET
+                           is_front_month = true,
+                           roll_from = EXCLUDED.roll_from,
+                           roll_detected_at = EXCLUDED.roll_detected_at,
+                           confirmation_count = EXCLUDED.confirmation_count,
+                           updated_at = NOW()""",
+                    event.new_contract,
+                    event.symbol,  # base_symbol from RollEvent
+                    AssetClass.FUTURES,
+                    exchange,  # copied from old_contract row
+                    event.old_contract,
+                    event.detection_ts,
+                    event.confirmation_count,
+                )
+                await self._write_roll_event(conn, event, is_authoritative=True)
 
             # Mark as processed — prevents duplicate promotion if second detector fires
             self._processed_rolls.add(roll_key)
@@ -386,8 +377,9 @@ class ContractMetadataWriterAgent(BaseAgent):
             )
 
             # Step 5: Update gauge + emit operator alert
-            self._last_roll_ts.set(_time.time())
-            self._rolls_processed.inc()
+            _PROCESSING_LATENCY.record(_time.monotonic() - _t0_latency, self._agent_attrs)
+            _LAST_ROLL_TS.add(_time.time(), self._agent_attrs)
+            _ROLLS_PROCESSED.add(1, self._agent_attrs)
             self.logger.info(
                 "contract_metadata_writer.roll_promoted",
                 base=event.symbol,
@@ -411,7 +403,7 @@ class ContractMetadataWriterAgent(BaseAgent):
             try:
                 await self._handle_roll_event(payload)
             except Exception as exc:
-                self._roll_errors.inc()
+                _ROLL_ERRORS.add(1, self._agent_attrs)
                 self.logger.error(
                     "contract_metadata_writer.unhandled_error",
                     error=str(exc),
