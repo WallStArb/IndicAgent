@@ -54,7 +54,7 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
         """
         prompt = build_counterfactual_prompt(context)
 
-        response = await self._llm_generate(
+        response, call_id = await self._llm_generate(
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
@@ -72,6 +72,7 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
                 agent_id=self.agent_id,
                 raw_response=response[:200],
             )
+            await self._report_parse_failure(call_id)
             return self._neutral(error="JSON parse failed", latency_ms=0.0)
 
         plausibility = parsed["plausibility"]

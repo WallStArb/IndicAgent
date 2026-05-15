@@ -186,13 +186,16 @@ class BaseAIAgent(BaseAgent, ABC):
         timeout: float,
         model: str = "default",
         extra_audit: dict | None = None,
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         """Generate LLM response with automatic audit trail.
 
         Wraps self._llm.generate() with auto-injected audit_context so every
         LLM call is captured for model scoring. Agents MUST use this instead of
         calling self._llm.generate() directly — instrumentation should be
         impossible to forget.
+
+        Returns (response, call_id). call_id is used by agents to publish
+        corrective parse_success=False updates via _report_parse_failure().
         """
         with self.tracer.start_as_current_span(
             "agent.llm_generate",
@@ -204,8 +207,9 @@ class BaseAIAgent(BaseAgent, ABC):
             },
         ) as span:
             try:
+                call_id = str(uuid4())
                 audit_context: dict[str, Any] = {
-                    "call_id": str(uuid4()),
+                    "call_id": call_id,
                     "called_at": format_iso_ts(datetime.now(UTC)),
                     "symbol": context.symbol,
                     "signal_id": str(context.signal_id) if context.signal_id else None,
@@ -215,6 +219,7 @@ class BaseAIAgent(BaseAgent, ABC):
                     "timeframe": context.timeframe,
                     "prompt": prompt,
                     "succeeded": True,
+                    "parse_success": True,
                 }
 
                 if context.smc is not None:
@@ -235,11 +240,23 @@ class BaseAIAgent(BaseAgent, ABC):
                 )
                 if result is None:
                     span.set_attribute("llm.empty_response", True)
-                return result
+                return result, call_id
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
                 span.record_exception(exc)
                 raise
+
+    async def _report_parse_failure(self, call_id: str) -> None:
+        """Publish a corrective parse_success=False update for the given call_id.
+
+        Called by agents after _llm_generate succeeds (got a response) but
+        JSON parsing of that response fails. Routes through the LLM chain's
+        producer so the writer can UPDATE the llm_calls row.
+        """
+        try:
+            await self._llm._publish_parse_failure(call_id)
+        except Exception as exc:
+            logger.warning("agent.parse_failure_report_failed", call_id=call_id, error=str(exc))
 
     # -----------------------------------------------------------------------
     # Extension hooks (D-42, D-43, D-44) — future phases wire these to OTel,

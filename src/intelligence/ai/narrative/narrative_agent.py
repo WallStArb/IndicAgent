@@ -68,7 +68,7 @@ class NarrativeComputeAgent(BaseAIAgent):
 
         system_prompt, user_prompt = build_narrative_prompt(context)
 
-        response = await self._llm_generate(
+        response, _call_id = await self._llm_generate(
             context,
             prompt=user_prompt,
             system=system_prompt,

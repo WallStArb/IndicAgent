@@ -227,3 +227,17 @@ class LLMProviderChain:
             )
         except Exception:
             logger.exception("auto_audit.publish_failed", call_type=self._call_type)
+
+    async def _publish_parse_failure(self, call_id: str) -> None:
+        """Publish corrective parse_success=False for a call that failed JSON parsing."""
+        if self._producer is None:
+            return
+        from src.core.stream_keys import topic_llm_calls
+
+        try:
+            await self._producer.publish(
+                topic_llm_calls(self._settings.env_name),
+                {"call_id": call_id, "parse_success": False, "_parse_update": True},
+            )
+        except Exception:
+            logger.exception("auto_audit.parse_failure_publish_failed", call_id=call_id)
