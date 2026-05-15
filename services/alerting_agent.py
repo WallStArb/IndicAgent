@@ -100,21 +100,21 @@ class AlertingComputeAgent(BaseAgent):
             ) as resp:
                 elapsed = time.monotonic() - start
                 if resp.status == 200:
-                    ALERTING_DISPATCH_TOTAL.labels(
-                        channel="telegram", severity="CRITICAL", status="success"
-                    ).inc()
-                    ALERTING_LATENCY_SECONDS.labels(channel="telegram").observe(elapsed)
+                    ALERTING_DISPATCH_TOTAL.add(
+                        1, {"channel": "telegram", "severity": "CRITICAL", "status": "success"}
+                    )
+                    ALERTING_LATENCY_SECONDS.record(elapsed, {"channel": "telegram"})
                     return True
                 else:
-                    ALERTING_DISPATCH_TOTAL.labels(
-                        channel="telegram", severity="CRITICAL", status="failure"
-                    ).inc()
+                    ALERTING_DISPATCH_TOTAL.add(
+                        1, {"channel": "telegram", "severity": "CRITICAL", "status": "failure"}
+                    )
                     self.logger.warning("alerting.telegram_failed", status=resp.status)
                     return False
         except Exception as exc:
-            ALERTING_DISPATCH_TOTAL.labels(
-                channel="telegram", severity="CRITICAL", status="failure"
-            ).inc()
+            ALERTING_DISPATCH_TOTAL.add(
+                1, {"channel": "telegram", "severity": "CRITICAL", "status": "failure"}
+            )
             self.logger.error("alerting.telegram_error", error=str(exc))
             return False
 
@@ -139,21 +139,21 @@ class AlertingComputeAgent(BaseAgent):
             ) as resp:
                 elapsed = time.monotonic() - start
                 if resp.status in (200, 204):
-                    ALERTING_DISPATCH_TOTAL.labels(
-                        channel="discord", severity=severity, status="success"
-                    ).inc()
-                    ALERTING_LATENCY_SECONDS.labels(channel="discord").observe(elapsed)
+                    ALERTING_DISPATCH_TOTAL.add(
+                        1, {"channel": "discord", "severity": severity, "status": "success"}
+                    )
+                    ALERTING_LATENCY_SECONDS.record(elapsed, {"channel": "discord"})
                     return True
                 else:
-                    ALERTING_DISPATCH_TOTAL.labels(
-                        channel="discord", severity=severity, status="failure"
-                    ).inc()
+                    ALERTING_DISPATCH_TOTAL.add(
+                        1, {"channel": "discord", "severity": severity, "status": "failure"}
+                    )
                     self.logger.warning("alerting.discord_failed", status=resp.status)
                     return False
         except Exception as exc:
-            ALERTING_DISPATCH_TOTAL.labels(
-                channel="discord", severity=severity, status="failure"
-            ).inc()
+            ALERTING_DISPATCH_TOTAL.add(
+                1, {"channel": "discord", "severity": severity, "status": "failure"}
+            )
             self.logger.error("alerting.discord_error", error=str(exc))
             return False
 

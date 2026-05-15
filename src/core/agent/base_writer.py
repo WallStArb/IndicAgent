@@ -27,42 +27,35 @@ import asyncio
 import time
 from typing import Any
 
+from opentelemetry import metrics as _otel_metrics
+
 from src.core.agent.base import BaseAgent
-from src.observability.metrics import (
-    PERSISTENCE_CONSUMER_LAG,
-)
-from src.observability.metrics import (
-    OTelCounter as _Counter,
-)
-from src.observability.metrics import (
-    OTelGauge as _Gauge,
-)
-from src.observability.metrics import (
-    OTelHistogram as _Histogram,
-)
+from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 
-# Module-level metric caches — prevent duplicate registration across
+_bw_meter = _otel_metrics.get_meter("indicagent")
+
+# Module-level instrument caches — prevent duplicate registration across
 # multiple instantiations in the same process (e.g., unit tests).
-_gauges: dict[str, _Gauge] = {}
-_counters: dict[str, _Counter] = {}
-_histograms: dict[str, _Histogram] = {}
+_gauges: dict = {}
+_counters: dict = {}
+_histograms: dict = {}
 
 
-def _get_or_create_gauge(name: str, doc: str) -> _Gauge:
+def _get_or_create_gauge(name: str, doc: str):
     if name not in _gauges:
-        _gauges[name] = _Gauge(name, doc)
+        _gauges[name] = _bw_meter.create_up_down_counter(name, description=doc)
     return _gauges[name]
 
 
-def _get_or_create_counter(name: str, doc: str) -> _Counter:
+def _get_or_create_counter(name: str, doc: str):
     if name not in _counters:
-        _counters[name] = _Counter(name, doc)
+        _counters[name] = _bw_meter.create_counter(name, description=doc)
     return _counters[name]
 
 
-def _get_or_create_histogram(name: str, doc: str, buckets: list[float] | None = None) -> _Histogram:
+def _get_or_create_histogram(name: str, doc: str, buckets: list[float] | None = None):
     if name not in _histograms:
-        _histograms[name] = _Histogram(name, doc, buckets=buckets)
+        _histograms[name] = _bw_meter.create_histogram(name, description=doc)
     return _histograms[name]
 
 
@@ -207,7 +200,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
             dropped = buf_len - self._overflow_threshold
             self._buffer = self._buffer[-self._overflow_threshold :]
             buf_len = self._overflow_threshold
-            self._buffer_overflow_total.inc(dropped)
+            self._buffer_overflow_total.add(dropped)
             self.logger.error(
                 "buffer_overflow",
                 severity="critical",
@@ -228,7 +221,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         else:
             self._high_watermark_triggered = False
 
-        self._buffer_depth_gauge.set(buf_len)
+        self._buffer_depth_gauge.add(buf_len)
 
     def _should_flush(self) -> bool:
         """Check if buffer should be flushed based on size or time interval."""
@@ -272,18 +265,18 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 t0 = time.monotonic()
                 await self._flush_batch(batch)
                 flush_s = time.monotonic() - t0
-                self._flush_latency.observe(flush_s)
+                self._flush_latency.record(flush_s)
                 span.set_attribute("flush_ms", round(flush_s * 1000, 1))
 
                 self._buffer.clear()
-                self._buffer_depth_gauge.set(0)
+                self._buffer_depth_gauge.add(0)
 
                 if self._consumer and hasattr(self._consumer, "commit"):
                     t0 = time.monotonic()
                     await self._consumer.commit()
-                    self._commit_latency.observe(time.monotonic() - t0)
+                    self._commit_latency.record(time.monotonic() - t0)
             except Exception:
-                self._flush_errors_total.inc()
+                self._flush_errors_total.add(1)
                 span.set_attribute("error", True)
                 self.logger.exception("flush_failed", batch_size=len(batch))
 
@@ -316,7 +309,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 if rows is not None:
                     self._buffer_rows(rows)
                 else:
-                    self._parse_failures_total.inc()
+                    self._parse_failures_total.add(1)
                     await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
 
             # Backpressure: if buffer is above alert threshold, pause briefly
@@ -347,10 +340,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         Writer agents accumulate unflushed records in self._buffer.
         Lag = buffer size (records waiting to be flushed to DB).
         """
-        # Use cached gauge from BaseAgent if available, else create
-        if not hasattr(self, "_consumer_lag_gauge"):
-            self._consumer_lag_gauge = PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name)
-
+        attrs = {"agent_id": self.name}
         while not self._stop_event.is_set():
-            self._consumer_lag_gauge.set(len(self._buffer))
+            PERSISTENCE_CONSUMER_LAG.add(len(self._buffer), attrs)
             await asyncio.sleep(15)

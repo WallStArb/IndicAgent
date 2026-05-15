@@ -12,36 +12,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prometheus_client import Counter, Histogram
 
 from src.core.bar_accumulator import BarAccumulator
 from src.core.schemas.bar_message import BarMessage, SessionType
-
-# ---------------------------------------------------------------------------
-# Module-level test metrics (created once to avoid duplicate registration)
-# ---------------------------------------------------------------------------
-
-_TEST_EVENTS_CONSUMED = Counter(
-    "test_baa_events_consumed_total",
-    "Bars consumed (test)",
-    ["agent"],
-)
-_TEST_HTF_BARS_PRODUCED = Counter(
-    "test_baa_htf_produced_total",
-    "HTF bars produced (test)",
-    ["agent", "tf"],
-)
-_TEST_AGGREGATION_LATENCY = Histogram(
-    "test_baa_latency_seconds",
-    "Aggregation latency (test)",
-    ["agent"],
-)
-_TEST_AGGREGATION_ERRORS = Counter(
-    "test_baa_errors_total",
-    "Aggregation errors (test)",
-    ["agent"],
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers: build a minimal BarAggregatorComputeAgent bypassing __init__
@@ -77,16 +50,10 @@ def _make_agent():
     agent._dlq_topic = "dev.bar.aggregator.dlq"
     agent._consumer_restart_needed = False
     agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
-    agent._bars_in_flight = MagicMock()  # Gauge (mocked to avoid duplicate registration)
+    agent._bars_in_flight = MagicMock()
     agent._state_checkpoint_failures_total = MagicMock()
-    # Wire module-level test metrics via cached label children (matches production pattern)
-    agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
-    agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")
-    agent._aggregation_errors_lbl = _TEST_AGGREGATION_ERRORS.labels(agent="bar_aggregator_agent")
-    agent._htf_bars_produced_lbl = {
-        tf: _TEST_HTF_BARS_PRODUCED.labels(agent="bar_aggregator_agent", tf=tf)
-        for tf in ("5m", "15m", "1h", "4h", "1d")
-    }
+    agent._agent_attrs = {"agent": "bar_aggregator_agent"}
+    agent._aggregation_latency = MagicMock()
     return agent
 
 
@@ -249,14 +216,12 @@ async def test_no_publish_for_mid_period_bar():
 
 
 def test_golden_signals_are_correct_types():
-    """Golden Signals cached children must be the correct prometheus types."""
+    """Golden Signals metrics must exist on the agent (OTel instruments)."""
     agent = _make_agent()
 
-    assert hasattr(agent._events_consumed_lbl, "inc")
-    assert hasattr(agent._aggregation_latency_lbl, "time")
-    assert hasattr(agent._aggregation_errors_lbl, "inc")
-    assert isinstance(agent._htf_bars_produced_lbl, dict)
-    assert all(hasattr(v, "inc") for v in agent._htf_bars_produced_lbl.values())
+    assert hasattr(agent, "_bars_processed")
+    assert hasattr(agent, "_aggregation_latency")
+    assert hasattr(agent, "_aggregation_errors")
 
 
 # ---------------------------------------------------------------------------

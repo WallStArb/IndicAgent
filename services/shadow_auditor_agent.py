@@ -130,12 +130,12 @@ async def _check_promotion(
             name,
         )
 
-    # Prometheus gauges
-    SHADOW_N_RESOLVED.labels(plugin=name).set(n)
-    SHADOW_WIN_RATE.labels(plugin=name).set(round(win_rate, 4))
-    SHADOW_EV_R.labels(plugin=name).set(round(ev_r, 4))
+    # OTel metrics
+    SHADOW_N_RESOLVED.add(n, {"plugin": name})
+    SHADOW_WIN_RATE.add(round(win_rate, 4), {"plugin": name})
+    SHADOW_EV_R.add(round(ev_r, 4), {"plugin": name})
     ci_display = round(ci_lower, 4) if ci_lower != float("-inf") else float("-inf")
-    SHADOW_EV_CI_LOWER.labels(plugin=name).set(ci_display)
+    SHADOW_EV_CI_LOWER.add(ci_display, {"plugin": name})
 
     # Days-to-gate estimate
     recent_30d = sum(
@@ -154,8 +154,8 @@ async def _check_promotion(
         days_to_gate = (remaining / recent_30d) * 30
     else:
         days_to_gate = float("inf")
-    SHADOW_DAYS_TO_GATE.labels(plugin=name).set(
-        round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf")
+    SHADOW_DAYS_TO_GATE.add(
+        round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf"), {"plugin": name}
     )
 
     if _should_promote(n, ci_lower, row["min_n"], row["min_ev_r"]):
@@ -196,10 +196,10 @@ async def _check_promotion(
             triggered_at=now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
         )
         await _publish(producer, env_name, event)
-        SHADOW_PROMOTION_READY.labels(plugin=name).set(1)
+        SHADOW_PROMOTION_READY.add(1, {"plugin": name})
         logger.info("shadow_promoted", component_name=name, n=n, ci_lower=ci_lower)
     else:
-        SHADOW_PROMOTION_READY.labels(plugin=name).set(0)
+        SHADOW_PROMOTION_READY.add(0, {"plugin": name})
 
 
 async def _check_demotion(

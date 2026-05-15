@@ -119,7 +119,7 @@ async def _call_llm_with_circuit_breaker(
             retry_on=(ConnectionError, TimeoutError, BrokenPipeError),
         )
         # Record success metrics
-        CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
+        CIRCUIT_BREAKER_SUCCESSES_TOTAL.add(1, {"plugin_name": provider_id})
 
         # Record success in circuit breaker
         plugin_state.success_count += 1
@@ -134,25 +134,28 @@ async def _call_llm_with_circuit_breaker(
 
         # Record state transition if recovered from non-closed state
         if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
-            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
-                plugin_name=provider_id,
-                from_state=previous_state.name.lower(),
-                to_state="closed",
-            ).inc()
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.add(
+                1,
+                {
+                    "plugin_name": provider_id,
+                    "from_state": previous_state.name.lower(),
+                    "to_state": "closed",
+                },
+            )
             # Observe how long this provider's circuit was OPEN before recovery
             if provider_id in _llm_open_since:
-                CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
-                    time.monotonic() - _llm_open_since.pop(provider_id)
+                CIRCUIT_BREAKER_OPEN_SECONDS.record(
+                    time.monotonic() - _llm_open_since.pop(provider_id),
+                    {"plugin_name": provider_id},
                 )
 
         return result
 
     except Exception as exc:
         # Record failure metrics
-        CIRCUIT_BREAKER_FAILURES_TOTAL.labels(
-            plugin_name=provider_id,
-            error_type=type(exc).__name__,
-        ).inc()
+        CIRCUIT_BREAKER_FAILURES_TOTAL.add(
+            1, {"plugin_name": provider_id, "error_type": type(exc).__name__}
+        )
 
         # Record failure in circuit breaker
         plugin_state.failure_count += 1
@@ -174,11 +177,14 @@ async def _call_llm_with_circuit_breaker(
 
         # Record state transition if tripped to OPEN
         if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
-            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
-                plugin_name=provider_id,
-                from_state=previous_state.name.lower(),
-                to_state="open",
-            ).inc()
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.add(
+                1,
+                {
+                    "plugin_name": provider_id,
+                    "from_state": previous_state.name.lower(),
+                    "to_state": "open",
+                },
+            )
             # Start timing how long this provider's circuit stays OPEN
             if provider_id not in _llm_open_since:
                 _llm_open_since[provider_id] = time.monotonic()

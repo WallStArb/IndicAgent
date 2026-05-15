@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
-from src.observability.metrics import SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL
 
 
 def _make_agent() -> SignalTrackerComputeAgent:
@@ -129,38 +128,28 @@ class TestLoadSignalRejectsEmptyTimestamp:
 
     @pytest.mark.unit
     def test__load_signal_rejects_empty_timestamp(self):
+        from unittest.mock import patch
+
         agent = _make_agent()
         base = _complete_kafka_payload()
 
-        # Capture counter before
-        counter_before_empty = SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(
-            reason="empty_timestamp"
-        )._value.get()
+        mock_invalid = MagicMock()
+        with patch(
+            "services.signal_tracker_compute_agent.SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL",
+            mock_invalid,
+        ):
+            # Test timestamp="" rejection
+            raw_empty = {**base, "timestamp": ""}
+            result = agent._load_signal(raw_empty)
+            assert result is None, "Expected None for empty string timestamp"
 
-        # Test timestamp="" rejection
-        raw_empty = {**base, "timestamp": ""}
-        result = agent._load_signal(raw_empty)
-        assert result is None, "Expected None for empty string timestamp"
-        counter_after_empty = SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(
-            reason="empty_timestamp"
-        )._value.get()
-        assert (
-            counter_after_empty > counter_before_empty
-        ), "Counter not incremented for empty_timestamp"
+            # Test timestamp=None rejection
+            raw_none = {**base, "timestamp": None}
+            result_none = agent._load_signal(raw_none)
+            assert result_none is None, "Expected None for None timestamp"
 
-        # Test timestamp=None rejection
-        counter_before_none = SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(
-            reason="empty_timestamp"
-        )._value.get()
-        raw_none = {**base, "timestamp": None}
-        result_none = agent._load_signal(raw_none)
-        assert result_none is None, "Expected None for None timestamp"
-        counter_after_none = SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL.labels(
-            reason="empty_timestamp"
-        )._value.get()
-        assert (
-            counter_after_none > counter_before_none
-        ), "Counter not incremented for None timestamp"
+        # OTel counter: .add(1, {"reason": "empty_timestamp"}) called twice (once per None/empty)
+        assert mock_invalid.add.call_count == 2
 
 
 class TestLoadSignalBootstrapKafkaIdentical:

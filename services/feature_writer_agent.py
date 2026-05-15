@@ -258,8 +258,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             "feature_writer_parse_errors_total",
             "Total BarIntelligenceRecord parse failures",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer")
-        self._consumer_lag_metric = PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer")
+        self._batch_latency_attrs = {"agent_id": "feature_writer"}
 
         self._total_events = 0
         self._total_batches = 0
@@ -301,7 +300,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             else:
                 return None
         except (ValidationError, ValueError):
-            self._parse_errors_total.inc()
+            self._parse_errors_total.add(1)
             return None
 
         if record is None:
@@ -318,14 +317,17 @@ class FeatureWriterAgent(BaseWriterAgent):
             )
             raise RuntimeError("No database connection")
 
-        with self._batch_latency.time():
-            await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
+        _fw_t0 = __import__("time").perf_counter()
+        await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
+        PERSISTENCE_BATCH_LATENCY.record(
+            __import__("time").perf_counter() - _fw_t0, self._batch_latency_attrs
+        )
 
-        self.batch_writes_total.inc()
+        self.batch_writes_total.add(1)
         self._total_batches += 1
-        self.events_buffered_gauge.set(0)
+        self.events_buffered_gauge.add(0)
         # Single authoritative lag update after flush (not duplicated before + after)
-        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(0)
+        PERSISTENCE_CONSUMER_LAG.add(0, {"agent_id": "feature_writer"})
         self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
 
     async def _setup(self) -> None:
@@ -478,20 +480,20 @@ class FeatureWriterAgent(BaseWriterAgent):
                     rows = self._parse_payload(payload)
                     if rows is not None:
                         self._buffer_rows(rows)
-                        self.events_consumed_total.inc()
+                        self.events_consumed_total.add(1)
                         self._total_events += 1
                     else:
                         # Parse failed — route to DLQ for analysis
                         await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
-                        self.error_count_total.inc()
-                    self.events_buffered_gauge.set(len(self._buffer))
+                        self.error_count_total.add(1)
+                    self.events_buffered_gauge.add(len(self._buffer))
                     await self.maybe_flush()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in processing loop", error=str(e))
-                self.error_count_total.inc()
+                self.error_count_total.add(1)
                 self._error_count += 1
 
     async def _periodic_flush_loop(self) -> None:
@@ -600,7 +602,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             )
         except Exception as e:
             self.logger.error("roll_boundary_write_failed", error=str(e))
-            self.error_count_total.inc()
+            self.error_count_total.add(1)
 
     async def _process_cross_asset_message(self, payload: dict) -> None:
         """Persist cross-asset spread features to intelligence_features.
@@ -650,7 +652,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             )
         except Exception as e:
             self.logger.warning("cross_asset_persist_failed", error=str(e))
-            self.error_count_total.inc()
+            self.error_count_total.add(1)
 
     async def _shutdown(self) -> None:
         """Graceful shutdown: flush buffer, close connections."""

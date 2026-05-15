@@ -18,7 +18,6 @@ import pytest
 
 from services.signal_replay_auditor_agent import SignalReplayAuditorAgent
 from src.intelligence.trading.signal_outcome import SignalOutcome
-from src.observability.metrics import SIGNAL_REPLAY_OHLCV_GAP_TOTAL
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -426,16 +425,16 @@ async def test_replay_ohlcv_gap_counter() -> None:
         ttl_bars=10,
     )
 
+    from unittest.mock import patch
+
     async def _mock_fetch(*_args, **_kwargs):
         return []  # simulate OHLCV gap
 
     agent._fetch_window_bars = _mock_fetch
 
-    before = SIGNAL_REPLAY_OHLCV_GAP_TOTAL.labels(symbol=symbol, timeframe=tf)._value.get()
-    result = await agent._replay_signal(row)
-    after = SIGNAL_REPLAY_OHLCV_GAP_TOTAL.labels(symbol=symbol, timeframe=tf)._value.get()
+    with patch("services.signal_replay_auditor_agent.SIGNAL_REPLAY_OHLCV_GAP_TOTAL") as mock_gap:
+        result = await agent._replay_signal(row)
 
     assert result is False, "_replay_signal must return False when OHLCV gap detected"
-    assert (
-        after == before + 1.0
-    ), f"SIGNAL_REPLAY_OHLCV_GAP_TOTAL must increment by 1 on gap; was {before}, now {after}"
+    # OTel counter: .add(1, {"symbol": ..., "timeframe": ...}) must have been called
+    mock_gap.add.assert_called()

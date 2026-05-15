@@ -193,12 +193,12 @@ class SubscriptionManager:
             )
         self._active.add(symbol)
         if self._gauge:
-            self._gauge.labels(provider=self._provider_name).set(self.count)
+            self._gauge.add(self.count, {"provider": self._provider_name})
 
     def unsubscribe(self, symbol: str) -> None:
         self._active.discard(symbol)
         if self._gauge:
-            self._gauge.labels(provider=self._provider_name).set(self.count)
+            self._gauge.add(self.count, {"provider": self._provider_name})
 
     @property
     def count(self) -> int:

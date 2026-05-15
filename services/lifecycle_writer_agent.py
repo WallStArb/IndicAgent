@@ -92,7 +92,7 @@ class LifecycleWriterAgent(BaseWriterAgent):
             "lifecycle_writer_write_errors_total",
             "Failed batch writes",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="lifecycle_writer_agent")
+        self._batch_latency_attrs = {"agent_id": "lifecycle_writer_agent"}
 
     def _topic_name(self) -> str:
         return topic_lifecycle_transitions(self.settings.env_name)
@@ -162,7 +162,7 @@ UPDATE signal_ledger
                 entry.get("outcome"),
             )
             if result.endswith(" 0"):
-                LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.inc()
+                LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.add(1)
                 self.logger.info(
                     "lifecycle_writer_idempotent_skip",
                     signal_id=entry.get("signal_id"),
@@ -190,8 +190,8 @@ UPDATE signal_ledger
             else:
                 await self._repo.batch_execute(ttype, items)
 
-        self._transitions_written.inc(len(batch))
-        self._batch_latency.observe(time.perf_counter() - t0)
+        self._transitions_written.add(len(batch))
+        PERSISTENCE_BATCH_LATENCY.record(time.perf_counter() - t0, self._batch_latency_attrs)
         self.logger.info(
             "lifecycle_writer.flushed",
             count=len(batch),
@@ -209,7 +209,7 @@ UPDATE signal_ledger
         self.logger.info("lifecycle_writer.started", topic=self._topic_name())
 
     def _on_message_consumed(self, payload: dict) -> None:
-        self._events_consumed.inc()
+        self._events_consumed.add(1)
 
     async def _teardown(self) -> None:
         await super()._teardown()

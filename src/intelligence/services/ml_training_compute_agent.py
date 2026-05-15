@@ -118,7 +118,7 @@ class MLTrainingComputeAgent(BaseAgent):
             logger.exception("ml_training.error_top_level")
             return
         finally:
-            ML_TRAINING_SECONDS.observe(_time.monotonic() - t0)
+            ML_TRAINING_SECONDS.record(_time.monotonic() - t0)
 
     def _read_checkpoint(self) -> int:
         """Read last_trained_count from checkpoint file. Returns 0 if absent or corrupt."""

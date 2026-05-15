@@ -12,6 +12,7 @@ test_d02_violation_counter:
 """
 
 from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -57,25 +58,20 @@ class TestD02ViolationCounter:
         activated_at = datetime.now(UTC)
         signal = _make_signal(status=SignalStatus.PENDING, activated_at=activated_at)
 
-        violations_before = lifecycle_tracker._LABELING_VIOLATIONS._value.get()
-
-        # Zone overlap: high=5005 >= zone_low=4998 AND low=4995 <= zone_high=5002
-        result = evaluate_signal(
-            signal,
-            high=5005.0,
-            low=4995.0,
-            close=5001.0,
-            current_mae=0.0,
-            current_mfe=0.1,
-        )
-
-        violations_after = lifecycle_tracker._LABELING_VIOLATIONS._value.get()
+        mock_violations = MagicMock()
+        with patch.object(lifecycle_tracker, "_LABELING_VIOLATIONS", mock_violations):
+            # Zone overlap: high=5005 >= zone_low=4998 AND low=4995 <= zone_high=5002
+            result = evaluate_signal(
+                signal,
+                high=5005.0,
+                low=4995.0,
+                close=5001.0,
+                current_mae=0.0,
+                current_mfe=0.1,
+            )
 
         # PENDING with zone overlap activates — D-02 counter NOT incremented
-        assert violations_after == violations_before, (
-            f"D-02 counter should NOT increment for PENDING with zone overlap: "
-            f"before={violations_before}, after={violations_after}"
-        )
+        mock_violations.add.assert_not_called()
 
         # Returns an activation Transition, not TTL expired
         assert result is not None, "evaluate_signal should return activation Transition"

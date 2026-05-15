@@ -210,8 +210,8 @@ class MLDiscoveryComputeAgent(BaseAgent):
             from src.observability.metrics import FEATURE_IC_SCORE
 
             for feat in result.get("top_features", []):
-                FEATURE_IC_SCORE.labels(feature_name=feat["name"], regime=str(regime)).set(
-                    abs(feat["ic"])
+                FEATURE_IC_SCORE.add(
+                    abs(feat["ic"]), {"feature_name": feat["name"], "regime": str(regime)}
                 )
         except Exception as exc:
             self.logger.warning("ml_discovery.metric_update_failed", error=str(exc))

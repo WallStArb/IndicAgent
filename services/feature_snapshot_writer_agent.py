@@ -91,7 +91,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
         """Write batch to shadow table. Clears buffer on error (shadow — no retry)."""
         assert self._repo is not None
         await self._repo.insert_batch(batch)
-        self._shadow_writes.inc(len(batch))
+        self._shadow_writes.add(len(batch))
 
     async def _do_flush(self) -> None:
         """Override: shadow table clears buffer on error instead of retrying."""
@@ -101,11 +101,11 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
         try:
             await self._flush_batch(batch)
             self._buffer.clear()
-            self._buffer_depth_gauge.set(0)
+            self._buffer_depth_gauge.add(0)
             if self._consumer and hasattr(self._consumer, "commit"):
                 await self._consumer.commit()
         except Exception:
-            self._flush_errors_total.inc()
+            self._flush_errors_total.add(1)
             self.logger.exception("shadow_write_failed", rows=len(batch))
             self._buffer.clear()  # shadow table — drop on failure, don't retry
 
@@ -116,7 +116,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
             return BarIntelligenceRecord.model_validate_json(raw)
         except (ValidationError, ValueError) as exc:
             self.logger.warning("snapshot_writer_parse_failed", error=str(exc))
-            self._parse_errors.inc()
+            self._parse_errors.add(1)
             return None
 
     async def _setup(self) -> None:
@@ -165,7 +165,7 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
 
                 params = _record_to_insert_params(record, self._expiry_map)
                 self._buffer_rows([params])
-                self._events_consumed.inc()
+                self._events_consumed.add(1)
 
                 await self.maybe_flush()
 

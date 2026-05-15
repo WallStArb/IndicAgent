@@ -287,7 +287,7 @@ def test_decision_check_constraint_values():
 
 
 def test_metrics_counter_increments_per_decision():
-    """FEATURE_VALIDATION_DECISIONS_TOTAL.labels(decision=...).inc() must be called per slice."""
+    """FEATURE_VALIDATION_DECISIONS_TOTAL.add(1, {decision:...}) must be called per slice."""
     pool, conn = _make_pool_with_conn()
     agent = _make_agent(pool)
 
@@ -300,13 +300,10 @@ def test_metrics_counter_increments_per_decision():
         patch(f"{_AGENT_MODULE}.FEATURE_VALIDATION_DECISIONS_TOTAL") as mock_counter,
         patch.object(agent, "_fetch_slice_df", return_value=df),
     ):
-        mock_labeled = MagicMock()
-        mock_counter.labels.return_value = mock_labeled
-
         _run(agent._validate_slice(plugin_name, "1m", None))
 
-    mock_counter.labels.assert_called_once_with(decision="VALIDATED")
-    mock_labeled.inc.assert_called_once()
+    # OTel counter: .add(1, {"decision": "VALIDATED"}) must have been called
+    mock_counter.add.assert_called_once_with(1, {"decision": "VALIDATED"})
 
 
 # ---------------------------------------------------------------------------

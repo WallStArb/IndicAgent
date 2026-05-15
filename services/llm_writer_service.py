@@ -37,9 +37,7 @@ from src.core.stream_keys import (
     topic_llm_writer_dlq,
 )
 from src.observability.metrics import (
-    DLQ_DEPTH,
     DLQ_MESSAGES_TOTAL,
-    PERSISTENCE_BATCH_LATENCY,
     counter,
     gauge,
 )
@@ -452,7 +450,7 @@ class LLMWriterAgent(BaseWriterAgent):
             "llm_writer_i8_update_miss_total",
             "i8 UPDATEs that found 0 rows (timing window)",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="llm_writer")
+        self._batch_latency_attrs = {"agent_id": "llm_writer"}
         # _consumer_lag_gauge is inherited from BaseAgent.__init__
 
         self._total_calls = 0
@@ -491,7 +489,7 @@ class LLMWriterAgent(BaseWriterAgent):
         if not self.db_manager:
             raise RuntimeError("No database connection — cannot flush llm_calls batch")
         await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, batch)
-        self.batch_writes_total.inc()
+        self.batch_writes_total.add(1)
         self._total_batches += 1
 
     def _dlq_topic(self) -> str | None:
@@ -683,15 +681,15 @@ class LLMWriterAgent(BaseWriterAgent):
             parsed = _parse_llm_call_fields(payload)
             if parsed is None:
                 self.logger.warning("Malformed llm_call message — routing to DLQ")
-                self.error_count_total.inc()
+                self.error_count_total.add(1)
                 await self._send_to_dlq(payload, source_topic, "parse_failure")
                 return True
 
             params = self._parsed_to_insert_tuple(parsed)
             self._buffer_rows([params])  # Updates _buffer_depth_gauge via BaseWriterAgent
-            self.calls_consumed_total.inc()
+            self.calls_consumed_total.add(1)
             self._total_calls += 1
-            self.buffer_size_gauge.set(len(self._buffer))
+            self.buffer_size_gauge.add(len(self._buffer))
 
             if len(self._buffer) >= self.BATCH_SIZE:
                 await self._do_flush()
@@ -700,7 +698,7 @@ class LLMWriterAgent(BaseWriterAgent):
 
         except Exception as e:
             self.logger.error("Error processing llm_call message", error=str(e))
-            self.error_count_total.inc()
+            self.error_count_total.add(1)
             self._error_count += 1
             await self._send_to_dlq(payload, source_topic, type(e).__name__)
             return False
@@ -715,7 +713,7 @@ class LLMWriterAgent(BaseWriterAgent):
             parsed = _parse_outcome_fields(payload)
             if parsed is None:
                 self.logger.warning("Malformed outcome message — routing to DLQ")
-                self.error_count_total.inc()
+                self.error_count_total.add(1)
                 await self._send_to_dlq(payload, source_topic, "parse_failure")
                 return True
 
@@ -740,13 +738,13 @@ class LLMWriterAgent(BaseWriterAgent):
                 )
                 await self.db_manager.execute_batch(_UPDATE_OUTCOME_SQL, [params])
 
-            self.outcomes_processed_total.inc()
+            self.outcomes_processed_total.add(1)
             self._total_outcomes += 1
             return True
 
         except Exception as e:
             self.logger.error("Error processing outcome message", error=str(e))
-            self.error_count_total.inc()
+            self.error_count_total.add(1)
             self._error_count += 1
             await self._send_to_dlq(payload, source_topic, type(e).__name__)
             return False
@@ -901,12 +899,12 @@ class LLMWriterAgent(BaseWriterAgent):
 
             if score_params:
                 await self.db_manager.execute_batch(_UPSERT_SCORE_SQL, score_params)
-                self.score_recomputes_total.inc()
+                self.score_recomputes_total.add(1)
                 self.logger.info("Score recompute complete", groups=len(score_params))
 
         except Exception as e:
             self.logger.error("Score recompute failed", error=str(e))
-            self.error_count_total.inc()
+            self.error_count_total.add(1)
             self._error_count += 1
 
     async def _send_to_dlq(self, payload: dict, source_topic: str, error_type: str) -> None:
@@ -927,12 +925,14 @@ class LLMWriterAgent(BaseWriterAgent):
                         "failed_at": datetime.now(tz=UTC).isoformat(),
                     },
                 )
-            DLQ_MESSAGES_TOTAL.labels(
-                agent="llm_writer_agent",
-                topic=dlq_topic,
-                error_type=error_type,
-            ).inc()
-            DLQ_DEPTH.labels(agent="llm_writer_agent", topic=dlq_topic).inc()
+            DLQ_MESSAGES_TOTAL.add(
+                1,
+                {
+                    "agent": "llm_writer_agent",
+                    "topic": dlq_topic,
+                    "error_type": error_type,
+                },
+            )
             self.logger.warning(
                 "Message routed to DLQ",
                 dlq_topic=dlq_topic,
@@ -985,7 +985,7 @@ class LLMWriterAgent(BaseWriterAgent):
                 break
             except Exception as e:
                 self.logger.error("Error in process loop", error=str(e))
-                self.error_count_total.inc()
+                self.error_count_total.add(1)
                 self._error_count += 1
 
     async def _score_recompute_loop(self) -> None:
@@ -1006,7 +1006,7 @@ class LLMWriterAgent(BaseWriterAgent):
         while not self._stop_event.is_set():
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
-                self.service_uptime_seconds.set(uptime)
+                self.service_uptime_seconds.add(uptime)
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",

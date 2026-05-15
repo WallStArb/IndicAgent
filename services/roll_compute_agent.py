@@ -36,7 +36,7 @@ from zoneinfo import ZoneInfo
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import numpy as np
 import structlog
-from prometheus_client import Counter, Histogram
+from opentelemetry import metrics as _otel_metrics
 
 from src.config.contracts import derive_roll_chain, get_roll_window
 from src.config.settings import Settings, get_active_contracts
@@ -50,18 +50,21 @@ _ROLL_MIN_WINDOW = 20
 
 _logger = structlog.get_logger(__name__)
 
-# Module-level Prometheus metrics — avoids duplicate registration on re-instantiation
-_EVENTS_CONSUMED = Counter(
-    "roll_compute_events_consumed_total", "Bars consumed from market.bars", ["agent"]
+import time as _time
+
+# Module-level OTel metrics
+_rca_meter = _otel_metrics.get_meter("indicagent")
+_EVENTS_CONSUMED = _rca_meter.create_counter(
+    "roll_compute_events_consumed_total", description="Bars consumed from market.bars"
 )
-_ROLLS_DETECTED = Counter(
-    "roll_compute_rolls_detected_total", "Roll events confirmed and published", ["agent"]
+_ROLLS_DETECTED = _rca_meter.create_counter(
+    "roll_compute_rolls_detected_total", description="Roll events confirmed and published"
 )
-_DETECTION_LATENCY = Histogram(
-    "roll_compute_detection_latency_seconds", "Roll detection latency per bar", ["agent"]
+_DETECTION_LATENCY = _rca_meter.create_histogram(
+    "roll_compute_detection_latency_seconds", description="Roll detection latency per bar"
 )
-_DETECTION_ERRORS = Counter(
-    "roll_compute_detection_errors_total", "Exceptions during bar processing", ["agent"]
+_DETECTION_ERRORS = _rca_meter.create_counter(
+    "roll_compute_detection_errors_total", description="Exceptions during bar processing"
 )
 
 
@@ -369,10 +372,7 @@ class RollComputeAgent(BaseAgent):
         self._unique_bases: frozenset[str] = frozenset(self._symbol_to_base.values())
 
         # Cache labeled metric objects — avoids per-bar registry lookup on hot path
-        self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
-        self._detection_latency_lbl = _DETECTION_LATENCY.labels(agent=self.name)
-        self._rolls_detected_lbl = _ROLLS_DETECTED.labels(agent=self.name)
-        self._detection_errors_lbl = _DETECTION_ERRORS.labels(agent=self.name)
+        self._agent_attrs = {"agent": self.name}
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -445,7 +445,7 @@ class RollComputeAgent(BaseAgent):
             cal_event.model_dump(mode="json"),
             key=base_symbol,
         )
-        self._rolls_detected_lbl.inc()
+        _ROLLS_DETECTED.add(1, self._agent_attrs)
         self.logger.info(
             log_event, symbol=base_symbol, old_contract=old_contract, new_contract=new_contract
         )
@@ -495,7 +495,7 @@ class RollComputeAgent(BaseAgent):
                 volume = float(payload.get("volume", 0))
                 bar_ts_str = payload.get("timestamp", "")
 
-                self._events_consumed_lbl.inc()
+                _EVENTS_CONSUMED.add(1, self._agent_attrs)
                 self._roll_monitor.update_volume(base_symbol, volume)
 
                 bar_utc: datetime
@@ -506,8 +506,9 @@ class RollComputeAgent(BaseAgent):
                 else:
                     bar_utc = datetime.now(UTC)
 
-                with self._detection_latency_lbl.time():
-                    rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
+                _t0 = _time.monotonic()
+                rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
+                _DETECTION_LATENCY.record(_time.monotonic() - _t0, self._agent_attrs)
 
                 if rolled:
                     old_contract, new_contract = self._resolve_contracts(base_symbol, symbol)
@@ -534,7 +535,7 @@ class RollComputeAgent(BaseAgent):
                             roll_event.model_dump(mode="json"),
                             key=base_symbol,
                         )
-                        self._rolls_detected_lbl.inc()
+                        _ROLLS_DETECTED.add(1, self._agent_attrs)
                         self.logger.info(
                             "roll_detected",
                             symbol=base_symbol,
@@ -559,7 +560,7 @@ class RollComputeAgent(BaseAgent):
                             base_symbol, cal_old, cal_new, bar_utc, roll_topic
                         )
             except Exception as exc:
-                self._detection_errors_lbl.inc()
+                _DETECTION_ERRORS.add(1, self._agent_attrs)
                 self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)
 
 
