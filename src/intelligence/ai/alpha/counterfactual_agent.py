@@ -36,6 +36,7 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
     }
 
     agent_id = "counterfactual_v1"
+    prompt_version = ACTIVE_VERSION
     group = "alpha"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I7})
     latency_budget_ms = 120000.0

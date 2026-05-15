@@ -38,6 +38,7 @@ class NarrativeComputeAgent(BaseAIAgent):
     """
 
     agent_id = "narrative_v1"
+    prompt_version = ACTIVE_VERSION
     group = "narrative"
     tiers_needed = frozenset({Tier.I4, Tier.I6, Tier.I7})
     shadow_only = False

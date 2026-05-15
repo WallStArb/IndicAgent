@@ -62,13 +62,15 @@ INSERT INTO llm_calls (
     symbol, timeframe, model, provider, prompt, response,
     latency_ms, tokens_est, succeeded,
     regime, session, entry_price, stop_loss, target_price,
-    confidence, cis_score, entry_zone_low, entry_zone_high, setup_type
+    confidence, cis_score, entry_zone_low, entry_zone_high, setup_type,
+    agent_id, prompt_version, parse_success
 ) VALUES (
     $1, $2::timestamptz, $3, $4::uuid, $5,
     $6, $7, $8, $9, $10, $11,
     $12, $13, $14,
     $15, $16, $17, $18, $19,
-    $20, $21, $22, $23, $24
+    $20, $21, $22, $23, $24,
+    $25, $26, $27
 ) ON CONFLICT (call_id, called_at) DO NOTHING
 """
 
@@ -222,6 +224,9 @@ def _parse_llm_call_fields(fields: dict) -> dict | None:
         "entry_zone_low": _float("entry_zone_low"),
         "entry_zone_high": _float("entry_zone_high"),
         "setup_type": _dec("setup_type"),
+        "agent_id": _dec("agent_id"),
+        "prompt_version": _dec("prompt_version"),
+        "parse_success": _bool("parse_success"),
     }
 
 
@@ -664,6 +669,9 @@ class LLMWriterAgent(BaseWriterAgent):
             parsed["entry_zone_low"],  # $22 entry_zone_low
             parsed["entry_zone_high"],  # $23 entry_zone_high
             parsed["setup_type"],  # $24 setup_type
+            parsed["agent_id"],  # $25 agent_id
+            parsed["prompt_version"],  # $26 prompt_version
+            parsed["parse_success"],  # $27 parse_success
         )
 
     async def _process_calls_message(self, payload: dict, source_topic: str = "") -> bool:
