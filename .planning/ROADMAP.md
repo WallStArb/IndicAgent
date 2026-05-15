@@ -1131,3 +1131,21 @@ Plans:
 - [x] 82-05-PLAN.md — FeatureValidationService (migration 086, compute agent, daily timer, API endpoint)
 - [x] 82-06-PLAN.md — CTX schema foundation (migration 085, topic_ctx_snapshot, CtxWriterAgent, as-of join)
 
+### Phase 83: Observability Hardening
+
+**Goal:** Unify metrics on OTel SDK, enrich spans with standard attributes and error recording, close alert gaps, harden DLQ with a drain consumer and queryable history, and eliminate dead code/topics. Six audit findings resolved: dual metrics system (prometheus_client + OTel wrappers) replaced with single OTel SDK meter; spans get ATTR_* constants + ERROR status recording; service.instance.id added to OTel resource; 5 new alert rules (LLM circuit breaker, swarm skip rate, shadow EV decay, pipeline P95, DLQ activity); dlq_drain_agent + dlq_events hypertable; 3 dead DLQ topic functions, 4 dead metrics, 6 orphaned Redpanda topics removed.
+
+**Design doc:** `docs/plans/2026-05-15-observability-hardening-design.md`
+**Requirements:** None (Level 0 — infrastructure hardening, design doc serves as spec)
+**Depends on:** Phase 82 (baseline complete)
+
+**Plans:** 6 plans
+
+Plans:
+- [ ] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
+- [ ] 083-02-PLAN.md — Base-class span enrichment (ERROR status + ATTR_* constants) + pipeline observed_span
+- [ ] 083-03-PLAN.md — metrics.py OTel SDK migration + call-site migration + SERVICE_UP_GAUGE relocation + init_tracing cleanup
+- [ ] 083-04-PLAN.md — BaseAgent._get_producer + consolidate 3 inline DLQ implementations + DLQ_DEPTH removal
+- [ ] 083-05-PLAN.md — dlq_drain_agent + 088_dlq_events migration + ensure_topics.sh + dead topic/stream_keys cleanup
+- [ ] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
+
