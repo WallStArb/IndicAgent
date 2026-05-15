@@ -120,8 +120,6 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
-        self._dlq_producer: KafkaProducerClient | None = None  # AGG-DLQ
-        self._dlq_topic: str = ""
         self._lag_consumer = None  # AGG-AUDIT-LOW-6: cached lag check consumer
         self._health_metrics = HealthMetrics()
         self._last_skip_reason = "parse_failed"
@@ -191,6 +189,9 @@ class BarAggregatorComputeAgent(BaseAgent):
     def topics_produced(self) -> list[str]:
         return [topic_market_bars_htf(self.env_name)]
 
+    def _dlq_topic(self) -> str | None:
+        return topic_bar_aggregator_dlq(self.env_name)
+
     def _make_consumer(self) -> KafkaConsumerClient:
         """Create a fresh KafkaConsumerClient for market.bars."""
         return KafkaConsumerClient(
@@ -215,13 +216,6 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 await self._kafka_producer.start()
 
-                # AGG-DLQ: dedicated producer for dead-letter queue
-                self._dlq_topic = topic_bar_aggregator_dlq(self.env_name)
-                self._dlq_producer = KafkaProducerClient(
-                    bootstrap_servers=self.settings.kafka_bootstrap_servers
-                )
-                await self._dlq_producer.start()
-
                 self._kafka_consumer = self._make_consumer()
                 await self._kafka_consumer.start()
 
@@ -245,14 +239,12 @@ class BarAggregatorComputeAgent(BaseAgent):
                 return
             except _KCE as exc:
                 # Clean up partially-started producers before retry/raise
-                for client in (self._kafka_producer, self._dlq_producer):
-                    if client is not None:
-                        try:
-                            await client.stop()
-                        except Exception:
-                            pass
+                if self._kafka_producer is not None:
+                    try:
+                        await self._kafka_producer.stop()
+                    except Exception:
+                        pass
                 self._kafka_producer = None
-                self._dlq_producer = None
                 if self._lag_consumer is not None:
                     try:
                         await self._lag_consumer.stop()
@@ -387,8 +379,6 @@ class BarAggregatorComputeAgent(BaseAgent):
             await self._kafka_consumer.stop()
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()
-        if self._dlq_producer is not None:
-            await self._dlq_producer.stop()
         if self._lag_consumer is not None:
             try:
                 await self._lag_consumer.stop()
@@ -459,16 +449,10 @@ class BarAggregatorComputeAgent(BaseAgent):
                                     )
                                     self._health_metrics.record_skip()
                                     # AGG-DLQ: route malformed payload to DLQ instead of silent drop
-                                    if self._dlq_producer is not None:
-                                        try:
-                                            await self._dlq_producer.produce(
-                                                self._dlq_topic, payload
-                                            )
-                                        except Exception as dlq_exc:
-                                            self.logger.error(
-                                                "bar_aggregator_agent.dlq_produce_failed",
-                                                error=str(dlq_exc),
-                                            )
+                                    await self._send_to_dlq(
+                                        payload if isinstance(payload, dict) else {},
+                                        ValueError(f"bar_parse_failed:{self._last_skip_reason}"),
+                                    )
                                     continue
 
                                 # Track liveness for stall detection (Phase 067-06)
