@@ -345,7 +345,7 @@ class BaseAgent(abc.ABC):
         from src.observability.metrics import DLQ_MESSAGES_TOTAL
 
         # Check if DLQ topic is configured
-        dlq_topic = self._dlq_topic() if hasattr(self, "_dlq_topic") else None
+        dlq_topic = self._dlq_topic()
 
         if dlq_topic is None:
             # No DLQ configured — log and discard
@@ -369,23 +369,9 @@ class BaseAgent(abc.ABC):
         )
 
         try:
-            # Check if agent has a Kafka producer
-            if hasattr(self, "_kafka_producer") and self._kafka_producer is not None:
-                await self._kafka_producer.publish(dlq_topic, dlq_payload.model_dump())
-                # Emit metrics
-                DLQ_MESSAGES_TOTAL.add(
-                    1,
-                    {"agent": self.name, "topic": dlq_topic, "error_type": type(error).__name__},
-                )
-                self.logger.info(
-                    "agent.dlq_routed",
-                    agent=self.name,
-                    topic=dlq_topic,
-                    error_type=type(error).__name__,
-                )
-            elif hasattr(self, "_producer") and self._producer is not None:
-                # Some agents use self._producer instead of self._kafka_producer
-                await self._producer.publish(dlq_topic, dlq_payload.model_dump())
+            producer = self._get_producer()
+            if producer is not None:
+                await producer.publish(dlq_topic, dlq_payload.model_dump())
                 DLQ_MESSAGES_TOTAL.add(
                     1,
                     {"agent": self.name, "topic": dlq_topic, "error_type": type(error).__name__},
@@ -411,6 +397,18 @@ class BaseAgent(abc.ABC):
                 topic=dlq_topic,
                 error=str(exc),
             )
+
+    def _get_producer(self):
+        """Return the Kafka producer for this agent, or None if not available.
+
+        Checks _kafka_producer first (used by most agents), then _producer
+        (used by writer agents). Returns None if neither is set.
+        """
+        if hasattr(self, "_kafka_producer") and self._kafka_producer is not None:
+            return self._kafka_producer
+        if hasattr(self, "_producer") and self._producer is not None:
+            return self._producer
+        return None
 
     def _dlq_topic(self) -> str | None:
         """Override to return DLQ topic name. None = log-only (default)."""

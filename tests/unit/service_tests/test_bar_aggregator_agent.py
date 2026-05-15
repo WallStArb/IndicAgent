@@ -46,8 +46,6 @@ def _make_agent():
     agent._aggregation_errors = MagicMock()
     # Phase 68-05: new hardening attributes required by _run() loop
     agent._last_emitted = {}  # AGG-EMIT-ONCE guard
-    agent._dlq_producer = None  # AGG-DLQ (None = disabled in tests)
-    agent._dlq_topic = "dev.bar.aggregator.dlq"
     agent._consumer_restart_needed = False
     agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
     agent._bars_in_flight = MagicMock()
@@ -266,14 +264,13 @@ async def test_setup_retries_on_kafka_connection_error():
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
-    agent._dlq_producer = None
     agent._lag_consumer = None
     agent.name = "bar_aggregator_agent"
 
     mock_producer = AsyncMock()
-    # attempt1: main KCE; attempt2: main KCE; attempt3: main OK, DLQ OK
+    # attempt1: main KCE; attempt2: main KCE; attempt3: main OK
     mock_producer.start = AsyncMock(
-        side_effect=[KafkaConnectionError(), KafkaConnectionError(), None, None]
+        side_effect=[KafkaConnectionError(), KafkaConnectionError(), None]
     )
     mock_producer.stop = AsyncMock()
     mock_consumer = AsyncMock()
@@ -292,8 +289,8 @@ async def test_setup_retries_on_kafka_connection_error():
     ):
         await agent._setup()
 
-    # 2 failed starts (attempts 1+2 main) + 2 successes (attempt3 main + DLQ)
-    assert mock_producer.start.call_count == 4
+    # 2 failed starts (attempts 1+2 main) + 1 success (attempt3 main) — DLQ producer removed
+    assert mock_producer.start.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -309,7 +306,6 @@ async def test_setup_raises_after_max_retries():
     agent.logger = MagicMock()
     agent._kafka_producer = None
     agent._kafka_consumer = None
-    agent._dlq_producer = None
     agent._lag_consumer = None
     agent.name = "bar_aggregator_agent"
 
