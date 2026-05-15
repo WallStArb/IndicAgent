@@ -173,15 +173,6 @@ def topic_intelligence_shadow(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.shadow"
 
 
-def topic_shadow_transitions(env_name: str) -> str:
-    """Kafka topic for shadow governance promotion/demotion events.
-
-    Published by ShadowAuditorAgent on any promotion or demotion.
-    Consumers: dashboard (future), audit tooling.
-    """
-    return f"{env_prefix(env_name)}intelligence.shadow.transitions"
-
-
 def topic_market_bars_raw(env_name: str, provider: str) -> str:
     """Raw bars from a single provider before merger routing.
 
@@ -360,16 +351,6 @@ def topic_lifecycle_writer_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.writer.dlq"
 
 
-def topic_bar_audit_dlq(env_name: str) -> str:
-    """Dead letter queue for BarAuditorAgent unparseable payloads."""
-    return f"{env_prefix(env_name)}bar.audit.dlq"
-
-
-def topic_signal_audit_dlq(env_name: str) -> str:
-    """Dead letter queue for SignalAuditorAgent unparseable payloads."""
-    return f"{env_prefix(env_name)}signal.audit.dlq"
-
-
 def topic_intelligence_pipeline_dlq(env_name: str) -> str:
     """Dead letter queue for IntelligencePipelineComputeAgent unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
@@ -378,11 +359,6 @@ def topic_intelligence_pipeline_dlq(env_name: str) -> str:
 def topic_signal_tracker_dlq(env_name: str) -> str:
     """Dead letter queue for SignalTrackerComputeAgent unparseable payloads."""
     return f"{env_prefix(env_name)}signal.tracker.dlq"
-
-
-def topic_cross_asset_dlq(env_name: str) -> str:
-    """Dead letter queue for CrossAssetComputeAgent unparseable payloads."""
-    return f"{env_prefix(env_name)}cross.asset.dlq"
 
 
 def topic_llm_writer_dlq(env_name: str) -> str:
