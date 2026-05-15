@@ -107,12 +107,18 @@ class MLTrainingComputeAgent(BaseAgent):
         Catches all exceptions at the top level so systemd Type=oneshot exits 0,
         ensuring the timer fires again the following night regardless of failures.
         """
+        import time as _time
+
+        from src.observability.metrics import ML_TRAINING_SECONDS
+
+        t0 = _time.monotonic()
         try:
             await self._train_all_segments()
         except Exception:
             logger.exception("ml_training.error_top_level")
-            # Intentional: return (not raise) so systemd records success exit code
             return
+        finally:
+            ML_TRAINING_SECONDS.observe(_time.monotonic() - t0)
 
     def _read_checkpoint(self) -> int:
         """Read last_trained_count from checkpoint file. Returns 0 if absent or corrupt."""

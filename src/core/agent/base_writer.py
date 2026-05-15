@@ -264,21 +264,28 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         if not self._buffer:
             return
         batch = self._buffer[:]
-        try:
-            t0 = time.monotonic()
-            await self._flush_batch(batch)
-            self._flush_latency.observe(time.monotonic() - t0)
-
-            self._buffer.clear()
-            self._buffer_depth_gauge.set(0)
-
-            if self._consumer and hasattr(self._consumer, "commit"):
+        with self.tracer.start_as_current_span(
+            "writer.flush",
+            attributes={"agent": getattr(self, "name", "unknown"), "batch_size": len(batch)},
+        ) as span:
+            try:
                 t0 = time.monotonic()
-                await self._consumer.commit()
-                self._commit_latency.observe(time.monotonic() - t0)
-        except Exception:
-            self._flush_errors_total.inc()
-            self.logger.exception("flush_failed", batch_size=len(batch))
+                await self._flush_batch(batch)
+                flush_s = time.monotonic() - t0
+                self._flush_latency.observe(flush_s)
+                span.set_attribute("flush_ms", round(flush_s * 1000, 1))
+
+                self._buffer.clear()
+                self._buffer_depth_gauge.set(0)
+
+                if self._consumer and hasattr(self._consumer, "commit"):
+                    t0 = time.monotonic()
+                    await self._consumer.commit()
+                    self._commit_latency.observe(time.monotonic() - t0)
+            except Exception:
+                self._flush_errors_total.inc()
+                span.set_attribute("error", True)
+                self.logger.exception("flush_failed", batch_size=len(batch))
 
     # -----------------------------------------------------------------------
     # Default consume loop — subclasses can override for custom routing

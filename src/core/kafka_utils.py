@@ -15,12 +15,15 @@ Used during Phase 30 dual-run period (Plans 1-4) alongside stream_utils.py.
 from __future__ import annotations
 
 import json
+import time as _time
 from collections.abc import AsyncGenerator
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract, inject
+
+from src.observability.metrics import KAFKA_PUBLISH_SECONDS
 
 logger = structlog.get_logger(__name__)
 
@@ -110,7 +113,9 @@ class KafkaProducerClient:
         headers = carrier.to_aiokafka_headers()
 
         try:
+            t0 = _time.monotonic()
             await self._producer.send_and_wait(topic, value=value, key=key_bytes, headers=headers)  # type: ignore[union-attr]
+            KAFKA_PUBLISH_SECONDS.labels(topic=topic).observe(_time.monotonic() - t0)
         except Exception as e:
             logger.error("Kafka publish failed", topic=topic, key=key, error=str(e))
             raise

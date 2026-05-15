@@ -11,6 +11,8 @@ from typing import Any
 import asyncpg
 import structlog
 
+from src.observability.metrics import DB_POOL_IDLE, DB_POOL_SIZE
+
 logger = structlog.get_logger(__name__)
 
 
@@ -20,9 +22,12 @@ async def _setup_codecs(conn):
     await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
 
-async def create_pool(database_url: str, **kwargs) -> asyncpg.Pool:
-    """Create an asyncpg pool with JSONB codecs pre-configured."""
-    return await asyncpg.create_pool(database_url, init=_setup_codecs, **kwargs)
+async def create_pool(database_url: str, pool_name: str = "default", **kwargs) -> asyncpg.Pool:
+    """Create an asyncpg pool with JSONB codecs and pool size gauges."""
+    pool = await asyncpg.create_pool(database_url, init=_setup_codecs, **kwargs)
+    DB_POOL_SIZE.labels(pool=pool_name).set(pool.get_size())
+    DB_POOL_IDLE.labels(pool=pool_name).set(pool.get_idle_size())
+    return pool
 
 
 class DatabaseManager:

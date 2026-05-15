@@ -37,7 +37,12 @@ from src.intelligence.metrics.compute import (
     compute_signal_metrics,
 )
 from src.intelligence.metrics.validator import validate_signal_row
-from src.observability.metrics import SIGNAL_LEDGER_BACKFILL_RATIO
+from src.observability.metrics import (
+    SIGNAL_LEDGER_BACKFILL_RATIO,
+    SIGNAL_MAE_DISTRIBUTION,
+    SIGNAL_MFE_DISTRIBUTION,
+    SIGNAL_PNL_R_DISTRIBUTION,
+)
 from src.observability.otel import init_tracing
 
 _COMPUTE_CYCLES = Counter(
@@ -248,6 +253,16 @@ class SignalMetricsComputeAgent(BaseAgent):
                     },
                     key=f"dq_failure:{row.get('signal_id')}",
                 )
+            else:
+                # Valid resolved signal — record quality distributions
+                setup = row.get("setup_plugin") or "unknown"
+                SIGNAL_PNL_R_DISTRIBUTION.labels(setup_plugin=setup).observe(float(pnl_r))
+                mae_val = row.get("mae")
+                if mae_val is not None:
+                    SIGNAL_MAE_DISTRIBUTION.labels(setup_plugin=setup).observe(float(mae_val))
+                mfe_val = row.get("mfe")
+                if mfe_val is not None:
+                    SIGNAL_MFE_DISTRIBUTION.labels(setup_plugin=setup).observe(float(mfe_val))
 
         # Compute and publish metrics for each window and track
         now = datetime.now(UTC)

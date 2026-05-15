@@ -79,41 +79,55 @@ class BaseAIAgent(BaseAgent, ABC):
         Returns AgentOutput with latency_ms populated.
         Returns neutral AgentOutput on timeout or exception.
         """
-        t0 = time.monotonic()
-        try:
-            result = await asyncio.wait_for(
-                self._compute(context),
-                timeout=self._timeout_s,
-            )
-            latency_ms = (time.monotonic() - t0) * 1000
-            self._record_metrics("success", latency_ms)
-            # D-45: Timer context manager — latency captured via model_copy
-            return result.model_copy(update={"latency_ms": latency_ms})
+        with self.tracer.start_as_current_span(
+            "agent.compute",
+            attributes={
+                "agent_id": self.agent_id,
+                "group": self.group,
+                "symbol": context.symbol,
+                "tf": context.timeframe,
+            },
+        ) as span:
+            t0 = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    self._compute(context),
+                    timeout=self._timeout_s,
+                )
+                latency_ms = (time.monotonic() - t0) * 1000
+                self._record_metrics("success", latency_ms)
+                span.set_attribute("status", "success")
+                span.set_attribute("latency_ms", round(latency_ms, 1))
+                return result.model_copy(update={"latency_ms": latency_ms})
 
-        except TimeoutError:
-            latency_ms = (time.monotonic() - t0) * 1000
-            self._record_metrics("timeout", latency_ms)
-            logger.warning(
-                "ai_agent.timeout",
-                agent_id=self.agent_id,
-                timeout_s=self._timeout_s,
-                latency_ms=round(latency_ms, 1),
-            )
-            await self._on_error(TimeoutError(f"timeout after {self._timeout_s:.1f}s"))
-            return self._neutral(
-                error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms
-            )
+            except TimeoutError:
+                latency_ms = (time.monotonic() - t0) * 1000
+                self._record_metrics("timeout", latency_ms)
+                span.set_attribute("status", "timeout")
+                span.set_attribute("latency_ms", round(latency_ms, 1))
+                logger.warning(
+                    "ai_agent.timeout",
+                    agent_id=self.agent_id,
+                    timeout_s=self._timeout_s,
+                    latency_ms=round(latency_ms, 1),
+                )
+                await self._on_error(TimeoutError(f"timeout after {self._timeout_s:.1f}s"))
+                return self._neutral(
+                    error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms
+                )
 
-        except Exception as exc:
-            latency_ms = (time.monotonic() - t0) * 1000
-            self._record_metrics("error", latency_ms)
-            logger.exception(
-                "ai_agent.exception",
-                agent_id=self.agent_id,
-                error=str(exc),
-            )
-            await self._on_error(exc)
-            return self._neutral(error=str(exc), latency_ms=latency_ms)
+            except Exception as exc:
+                latency_ms = (time.monotonic() - t0) * 1000
+                self._record_metrics("error", latency_ms)
+                span.set_attribute("status", "error")
+                span.set_attribute("error", str(exc)[:200])
+                logger.exception(
+                    "ai_agent.exception",
+                    agent_id=self.agent_id,
+                    error=str(exc),
+                )
+                await self._on_error(exc)
+                return self._neutral(error=str(exc), latency_ms=latency_ms)
 
     async def _run(self) -> None:
         """BaseAIAgent subclasses are compute objects driven by BaseGroupService.
@@ -175,35 +189,47 @@ class BaseAIAgent(BaseAgent, ABC):
         calling self._llm.generate() directly — instrumentation should be
         impossible to forget.
         """
-        audit_context: dict[str, Any] = {
-            "call_id": str(uuid4()),
-            "called_at": format_iso_ts(datetime.now(UTC)),
-            "symbol": context.symbol,
-            "signal_id": str(context.signal_id) if context.signal_id else None,
-            "group_name": self.group,
-            "agent_id": self.agent_id,
-            "prompt_version": self.prompt_version,
-            "timeframe": context.timeframe,
-            "prompt": prompt,
-            "succeeded": True,
-        }
+        with self.tracer.start_as_current_span(
+            "agent.llm_generate",
+            attributes={
+                "agent_id": self.agent_id,
+                "symbol": context.symbol,
+                "tf": context.timeframe,
+                "model": model,
+            },
+        ) as span:
+            audit_context: dict[str, Any] = {
+                "call_id": str(uuid4()),
+                "called_at": format_iso_ts(datetime.now(UTC)),
+                "symbol": context.symbol,
+                "signal_id": str(context.signal_id) if context.signal_id else None,
+                "group_name": self.group,
+                "agent_id": self.agent_id,
+                "prompt_version": self.prompt_version,
+                "timeframe": context.timeframe,
+                "prompt": prompt,
+                "succeeded": True,
+            }
 
-        if context.smc is not None:
-            regime = getattr(context.smc, "hmm_regime", None)
-            if regime is not None:
-                audit_context["regime"] = str(int(regime))
+            if context.smc is not None:
+                regime = getattr(context.smc, "hmm_regime", None)
+                if regime is not None:
+                    audit_context["regime"] = str(int(regime))
 
-        if extra_audit:
-            audit_context.update(extra_audit)
+            if extra_audit:
+                audit_context.update(extra_audit)
 
-        return await self._llm.generate(
-            prompt=prompt,
-            system=system,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            model=model,
-            audit_context=audit_context,
-        )
+            result = await self._llm.generate(
+                prompt=prompt,
+                system=system,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                model=model,
+                audit_context=audit_context,
+            )
+            if result is None:
+                span.set_attribute("llm.empty_response", True)
+            return result
 
     # -----------------------------------------------------------------------
     # Extension hooks (D-42, D-43, D-44) — future phases wire these to OTel,
