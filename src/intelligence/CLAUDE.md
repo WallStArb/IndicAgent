@@ -1,5 +1,9 @@
 # Intelligence Layer — Developer Reference
 
+## Throughput
+
+Pipeline processes bars sequentially (one at a time). I1→4 waves→I7 = 6 sequential stages. Per-plugin timing via `_timed_plugin_call()` wrapper, histogram buckets [0.1-100ms]. Prometheus: `intelligence_pipeline_plugin_duration_ms{plugin_name=, tier=}`.
+
 ## Plugin Tiers
 
 **Tier Flow:**
@@ -51,20 +55,25 @@ All live in `src/intelligence/trading/`:
 
 ## LLM Provider Chain (`src/core/llm/chain.py`)
 
+**Unified pipeline:** cache -> rate limit -> LLM call -> guardrails -> tokens -> budget record (log only) -> metrics -> cache put -> audit. Single code path, no budget fork.
+
+**Audit trail:** every call publishes to `llm.calls` Kafka with call_id, symbol, signal_id, regime, agent_id, prompt_version. Agents MUST use `BaseAIAgent._llm_generate()` which auto-injects all audit fields. Never call `self._llm.generate()` directly.
+
+**Token usage:** provider instance `_last_usage` propagated by `LLMChain.generate()`, falls back to `len/4` estimate.
+
 **AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default gemma4:e4b; `.env` may override `OLLAMA_MODEL`).
 
-**NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): authored but has no systemd service and is not wired into AlphaSwarm. Not deployed.
+**NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
-| 1 | `OpenRouterProvider` | pinned free models (see `.env`) | Primary |
-| 2 | `OllamaProvider` | gemma4:e4b (default; `.env` may override) | Offline fallback |
+| 1 | `OllamaProvider` | gemma4:e4b (default; `.env` may override) | Local |
 
 - `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `openrouter_api_key` (empty string → chain skips), `OLLAMA_MODEL` (overrides default). DeepSeek and OllamaCloud providers removed.
+- Keys in `.env`: `OLLAMA_MODEL` (overrides default). OpenRouter, DeepSeek, OllamaCloud providers removed.
 
-**LLM audit streams**: every call → `llm.calls` (Kafka); every signal exit → `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
+**LLM audit streams**: every call -> `llm.calls` (Kafka); every signal exit -> `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Per-agent scoring via `agent_id` + `prompt_version` columns. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n>=30), it moves to position 0 in the provider chain for that `agent_id + regime` combination.
 
 ## Signal Lifecycle (trading/)
 

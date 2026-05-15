@@ -100,6 +100,10 @@ Full design: `docs/ideas/ml-agent-architecture.md`
 
 ## Core Runtime Files
 
+- **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
+- **Pipeline capacity:** sequential bar processing (`await _process_bar`), per-bar latency measured by `intelligence_pipeline_pipeline_latency_ms` gauge at `:8000/metrics`. 132 plugins across 6 stages, 12 thread-pool workers (GIL cap). Backfill replay throttled to 10 bps (`BAR_REPLAY_BARS_PER_SEC`) — not representative of pipeline ceiling.
+- **Historical backfill:** `historical_backfill.py --client-id` defaults to 56, but `_MAX_CLIENT_ID=50` in `ibkr.py`. Must use `--client-id 40` (provider uses 35). ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/backfill_1d.py` which chunks automatically.
+- **Lifecycle replay:** `lifecycle_replay.py` may hit PostgreSQL's 32,767 query argument limit on large (symbol, timeframe) pairs. Re-run picks up where it left off (skips resolved signals).
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
@@ -140,7 +144,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `src/intelligence/ai/TEMPLATE_agent.py`. Reference: `skeptic_agent.py`.
 
-1. **Class attributes** (mandatory five): `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`
+1. **Class attributes** (mandatory six): `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`
 2. **File location**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py`
 3. **`_compute()` contract**: Build prompt → call LLM → parse → return `AgentOutput`. Never raise; use `self._neutral(error=...)` on failure.
 4. **Prompt file**: `<name>_prompts.py` exposes `PROMPT_REGISTRY: dict` and `ACTIVE_VERSION: str`
@@ -151,6 +155,10 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 **Core Patterns**
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **`BaseGroupService` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
+- **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
+- **`prompt_version` class attribute** on every BaseAIAgent subclass — set from agent's `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing.
+- **`llm_calls` composite PK: `(call_id, called_at)`** — ON CONFLICT must use both columns.
+- **Budget is observability, not control flow** in `LLMProviderChain` — logs warning if exceeded, never gates execution. Single pipeline, no fork.
 - **Kafka is transport, not state store.** Hot state (plugin_states, kalman) → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamps: always UTC.** `datetime.now(UTC)` only. Never `datetime.now()` or `datetime.utcnow()`. All DB columns `timestamptz`; stream timestamps UTC ISO-8601 (`Z` suffix).
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py` for Kafka/JSON. Never inline `.isoformat().replace("+00:00", "Z")`.
