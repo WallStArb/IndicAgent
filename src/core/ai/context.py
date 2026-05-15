@@ -273,20 +273,20 @@ class AIContextCache:
         key = (symbol, tf)
         entry = self._cache.get(key)
         if entry is None:
-            AI_CONTEXT_CACHE_MISSES_TOTAL.labels(group_id=group_id).inc()
+            AI_CONTEXT_CACHE_MISSES_TOTAL.add(1, {"group_id": group_id})
             logger.warning("ai_context.no_cache", symbol=symbol, tf=tf)
             return None
 
         event, cached_at = entry
         age = time.monotonic() - cached_at
         if age > _ttl_for_tf(tf):
-            AI_CONTEXT_CACHE_MISSES_TOTAL.labels(group_id=group_id).inc()
+            AI_CONTEXT_CACHE_MISSES_TOTAL.add(1, {"group_id": group_id})
             logger.warning(
                 "ai_context.stale", symbol=symbol, tf=tf, age_s=round(age, 1), ttl_s=_ttl_for_tf(tf)
             )
             return None
 
-        AI_CONTEXT_CACHE_HITS_TOTAL.labels(group_id=group_id).inc()
+        AI_CONTEXT_CACHE_HITS_TOTAL.add(1, {"group_id": group_id})
 
         # Bar context — custom BarContext type (not in schemas.py)
         bar_ctx = None

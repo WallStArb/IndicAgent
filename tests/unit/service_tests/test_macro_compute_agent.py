@@ -11,17 +11,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from prometheus_client import Counter
-
-# Module-level test metrics to avoid duplicate registration during test runs
-_TEST_BARS_PROCESSED = Counter(
-    "test_mca_bars_processed_total",
-    "Bars processed (test)",
-)
-_TEST_MACRO_PUBLISHED = Counter(
-    "test_mca_macro_published_total",
-    "Macro signals published (test)",
-)
 
 
 def _make_agent():
@@ -39,8 +28,8 @@ def _make_agent():
     agent._consumer = None
     agent._producer = None
     agent._db_manager = None
-    agent._bars_processed = _TEST_BARS_PROCESSED
-    agent._macro_published = _TEST_MACRO_PUBLISHED
+    agent._bars_processed = MagicMock()
+    agent._macro_published = MagicMock()
     return agent
 
 

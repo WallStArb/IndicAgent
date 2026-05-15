@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from prometheus_client import REGISTRY as _PROM_REGISTRY
-from prometheus_client import Counter as PrometheusCounter
-from prometheus_client import Gauge as PrometheusGauge
+from opentelemetry import metrics as _otel_metrics
 
 from src.core.service_utils import setup_service_logging
 
@@ -27,52 +25,29 @@ from src.intelligence.register_plugins import (
 from src.intelligence.trading.aggregator import TREND_SETUPS
 
 # ---------------------------------------------------------------------------
-# Module-level Prometheus metrics (guarded against duplicate registration)
+# Module-level OTel metrics
 # ---------------------------------------------------------------------------
 
-def _get_or_create_gauge(name: str, doc: str, labelnames: list[str]) -> PrometheusGauge:
-    """Return existing gauge or create a new one."""
-    try:
-        return PrometheusGauge(name, doc, labelnames)
-    except ValueError:
-        for collector in list(_PROM_REGISTRY._names_to_collectors.values()):
-            if getattr(collector, "_name", "") == name:
-                return collector
-        # Fallback: return a dummy that won't crash
-        raise
+_pv_meter = _otel_metrics.get_meter("indicagent")
 
-
-def _get_or_create_counter(name: str, doc: str, labelnames: list[str]) -> PrometheusCounter:
-    """Return existing counter or create a new one."""
-    try:
-        return PrometheusCounter(name, doc, labelnames)
-    except ValueError:
-        for collector in list(_PROM_REGISTRY._names_to_collectors.values()):
-            if getattr(collector, "_name", "") == name:
-                return collector
-        raise
-
-
-_REGISTERED_PLUGINS_GAUGE = _get_or_create_gauge(
+_REGISTERED_PLUGINS_GAUGE = _pv_meter.create_up_down_counter(
     "plugin_validator_registered_plugins_total",
-    "Total registered plugins per tier",
-    ["tier"],
+    description="Total registered plugins per tier",
 )
-_VALIDATION_STATUS_GAUGE = _get_or_create_gauge(
+_VALIDATION_STATUS_GAUGE = _pv_meter.create_up_down_counter(
     "plugin_validator_validation_status",
-    "Validation result status",
-    ["validation", "status"],
+    description="Validation result status",
 )
-_VALIDATION_ERRORS_COUNTER = _get_or_create_counter(
+_VALIDATION_ERRORS_COUNTER = _pv_meter.create_counter(
     "plugin_validator_validation_errors_total",
-    "Total validation errors",
-    ["validation"],
+    description="Total validation errors",
 )
 
 
 @dataclass
 class ValidationError:
     """Represents a single validation error."""
+
     tier: str
     plugin: str
     message: str
@@ -81,6 +56,7 @@ class ValidationError:
 @dataclass
 class ValidationResult:
     """Represents result of a single validation check."""
+
     name: str
     status: str  # "PASS", "FAIL", "WARN"
     details: list[ValidationError]
@@ -131,6 +107,7 @@ class PluginValidator:
     def __init__(self) -> None:
         # Lazy import to avoid circular import
         from ..intelligence.plugins import registry
+
         self.registry = registry
         setup_service_logging("logs/plugin_validator.log")
 
@@ -186,20 +163,20 @@ class PluginValidator:
 
         for tier_name, tier_list in all_tiers:
             for plugin_name in tier_list:
-                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(plugin_name)
+                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(
+                    plugin_name
+                )
                 if plugin is None:
                     results.append(
                         ValidationError(
                             tier=tier_name,
                             plugin=plugin_name,
-                            message="Plugin not registered in registry"
+                            message="Plugin not registered in registry",
                         )
                     )
 
         return ValidationResult(
-            name="tier_list_registration",
-            status="PASS" if not results else "FAIL",
-            details=results
+            name="tier_list_registration", status="PASS" if not results else "FAIL", details=results
         )
 
     def _validate_required_attributes(self) -> ValidationResult:
@@ -220,7 +197,9 @@ class PluginValidator:
 
         # I7 requires regime_type
         for plugin_name in TIER_I7:
-            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(plugin_name)
+            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(
+                plugin_name
+            )
             if plugin is None:
                 continue  # Skip if plugin not found (caught by tier_list_validation)
             if not hasattr(plugin, "regime_type"):
@@ -228,7 +207,7 @@ class PluginValidator:
                     ValidationError(
                         tier="I7",
                         plugin=plugin_name,
-                        message="Missing required attribute: regime_type"
+                        message="Missing required attribute: regime_type",
                     )
                 )
             elif plugin.regime_type not in ("trend", "mean_reversion", "any"):
@@ -236,14 +215,16 @@ class PluginValidator:
                     ValidationError(
                         tier="I7",
                         plugin=plugin_name,
-                        message=f"Invalid regime_type: {plugin.regime_type}"
+                        message=f"Invalid regime_type: {plugin.regime_type}",
                     )
                 )
 
         # All plugins need name, outputs, inputs
         for tier_name, tier_list in all_tiers:
             for plugin_name in tier_list:
-                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(plugin_name)
+                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(
+                    plugin_name
+                )
                 if plugin is None:
                     continue  # Skip if plugin not found (caught by tier_list_validation)
                 for attr in ("name", "outputs", "inputs"):
@@ -252,14 +233,12 @@ class PluginValidator:
                             ValidationError(
                                 tier=tier_name,
                                 plugin=plugin_name,
-                                message=f"Missing required attribute: {attr}"
+                                message=f"Missing required attribute: {attr}",
                             )
                         )
 
         return ValidationResult(
-            name="required_attributes",
-            status="PASS" if not results else "FAIL",
-            details=results
+            name="required_attributes", status="PASS" if not results else "FAIL", details=results
         )
 
     def _validate_schema_coverage(self) -> ValidationResult:
@@ -273,11 +252,7 @@ class PluginValidator:
             return ValidationResult(
                 name="schema_coverage",
                 status="FAIL",
-                details=[ValidationError(
-                    tier="unknown",
-                    plugin="schema",
-                    message=str(e)
-                )]
+                details=[ValidationError(tier="unknown", plugin="schema", message=str(e))],
             )
 
     def _detect_orphaned_plugins(self) -> ValidationResult:
@@ -305,24 +280,25 @@ class PluginValidator:
                     ValidationError(
                         tier="unknown",
                         plugin=f"{category}.{module_name}",
-                        message=f"Missing import module file: {module_file}"
+                        message=f"Missing import module file: {module_file}",
                     )
                 )
 
         return ValidationResult(
             name="orphaned_plugins",
             status="PASS" if not missing_files else "WARN",
-            details=missing_files
+            details=missing_files,
         )
 
     def _validate_trend_sets_sync(self) -> ValidationResult:
         """Ensure TREND_SETUPS in aggregator matches TIER_I7."""
 
-
         # Derive expected trend setups from TIER_I7
         expected_trends = frozenset()
         for plugin_name in TIER_I7:
-            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(plugin_name)
+            plugin = self.registry.get_pattern(plugin_name) or self.registry.get_indicator(
+                plugin_name
+            )
             if plugin is not None and hasattr(plugin, "regime_type"):
                 if plugin.regime_type == "trend":
                     expected_trends |= frozenset([plugin.name])
@@ -332,18 +308,16 @@ class PluginValidator:
             return ValidationResult(
                 name="trend_sets_sync",
                 status="FAIL",
-                details=[ValidationError(
-                    tier="I7",
-                    plugin="aggregator",
-                    message=f"TREND_SETUPS out of sync with TIER_I7: {diff}"
-                )]
+                details=[
+                    ValidationError(
+                        tier="I7",
+                        plugin="aggregator",
+                        message=f"TREND_SETUPS out of sync with TIER_I7: {diff}",
+                    )
+                ],
             )
 
-        return ValidationResult(
-            name="trend_sets_sync",
-            status="PASS",
-            details=[]
-        )
+        return ValidationResult(name="trend_sets_sync", status="PASS", details=[])
 
     def _emit_metrics(self, report: ValidationReport) -> None:
         """Emit Prometheus metrics for instrumentation."""
@@ -361,18 +335,18 @@ class PluginValidator:
 
         # Plugin counts per tier
         for tier_name, tier_list in all_tiers:
-            self._registered_plugins_gauge.labels(tier=tier_name).set(len(tier_list))
+            self._registered_plugins_gauge.add(len(tier_list), {"tier": tier_name})
 
         # Validation status
         for result in report.results:
-            self._validation_status_gauge.labels(
-                validation=result.name,
-                status=result.status
-            ).set(1 if result.status == "PASS" else 0)
+            self._validation_status_gauge.add(
+                1 if result.status == "PASS" else 0,
+                {"validation": result.name, "status": result.status},
+            )
 
         # Error count
         for result in report.results:
             if result.status != "PASS":
-                self._validation_errors_counter.labels(
-                    validation=result.name
-                ).inc(len(result.details))
+                self._validation_errors_counter.add(
+                    len(result.details), {"validation": result.name}
+                )

@@ -23,7 +23,7 @@ import asyncio
 from typing import Any
 
 import structlog
-from prometheus_client import Counter
+from opentelemetry import metrics as _otel_metrics
 
 # drift_cusum Redis key function removed in Phase 30 — replaced by drift_state DB table
 # CUSUM rows use: symbol=setup_plugin_name, tf='_cusum' sentinel
@@ -46,18 +46,18 @@ _BASELINE_WINDOW: int = 20
 _RUN_INTERVAL_SECONDS: int = 3600
 
 # ---------------------------------------------------------------------------
-# Prometheus metrics (direct prometheus_client — NOT metrics.py helpers)
+# OTel metrics
 # ---------------------------------------------------------------------------
 
-CUSUM_CHECKS_TOTAL = Counter(
+_cusum_meter = _otel_metrics.get_meter("indicagent")
+
+CUSUM_CHECKS_TOTAL = _cusum_meter.create_counter(
     "cusum_checks_total",
-    "CUSUM checks run",
-    ["setup_plugin"],
+    description="CUSUM checks run",
 )
-CUSUM_ALERTS_TOTAL = Counter(
+CUSUM_ALERTS_TOTAL = _cusum_meter.create_counter(
     "cusum_alerts_total",
-    "CUSUM alerts fired",
-    ["setup_plugin", "severity"],
+    description="CUSUM alerts fired",
 )
 
 
@@ -155,7 +155,7 @@ class CUSUMMonitor:
         """
         pnl_r_series = await self._fetch_outcomes(setup_plugin)
 
-        CUSUM_CHECKS_TOTAL.labels(setup_plugin=setup_plugin).inc()
+        CUSUM_CHECKS_TOTAL.add(1, {"setup_plugin": setup_plugin})
 
         if len(pnl_r_series) < _CUSUM_MIN_OUTCOMES:
             self.logger.debug(
@@ -175,7 +175,7 @@ class CUSUMMonitor:
 
         if severity != "none":
             await self._upsert_cusum_state(setup_plugin, severity)
-            CUSUM_ALERTS_TOTAL.labels(setup_plugin=setup_plugin, severity=severity).inc()
+            CUSUM_ALERTS_TOTAL.add(1, {"setup_plugin": setup_plugin, "severity": severity})
             self.logger.info(
                 "CUSUM drift detected",
                 setup_plugin=setup_plugin,

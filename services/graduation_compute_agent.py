@@ -209,7 +209,7 @@ class GraduationComputeAgent(BaseAgent):
         if not signal_id:
             return
 
-        self._exits_consumed.inc()
+        self._exits_consumed.add(1)
 
         # Fetch all transform rows for this resolved signal
         assert self._pool is not None
@@ -270,7 +270,7 @@ class GraduationComputeAgent(BaseAgent):
                 result,
                 key=f"{transform_id}:{segment_key}",
             )
-            self._evaluations_total.inc()
+            self._evaluations_total.add(1)
             self.logger.info(
                 "graduation_compute.evaluated",
                 transform_id=transform_id,
@@ -281,7 +281,7 @@ class GraduationComputeAgent(BaseAgent):
             return True
 
         except Exception as exc:
-            self._evaluation_errors.inc()
+            self._evaluation_errors.add(1)
             self.logger.exception(
                 "graduation_compute.eval_error",
                 transform_id=transform_id,

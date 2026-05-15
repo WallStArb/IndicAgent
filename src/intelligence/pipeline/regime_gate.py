@@ -168,7 +168,7 @@ async def apply_regime_gate(
             # Band 1: suppress
             regime_eligible = False
             suppression_reason = "regime_prob"
-            REGIME_SOFT_GATE_SIGNALS_TOTAL.labels(band="suppressed").inc()
+            REGIME_SOFT_GATE_SIGNALS_TOTAL.add(1, {"band": "suppressed"})
         elif hmm_regime_prob < prob_soft_max:
             # Band 2: soft — eligible but attenuated
             multiplier = _entropy_multiplier(
@@ -180,10 +180,10 @@ async def apply_regime_gate(
             base_conf = s.get("calibrated_confidence", s.get("confidence", 0.5))
             s["calibrated_confidence"] = base_conf * multiplier
             gate_multiplier = multiplier
-            REGIME_SOFT_GATE_SIGNALS_TOTAL.labels(band="soft").inc()
+            REGIME_SOFT_GATE_SIGNALS_TOTAL.add(1, {"band": "soft"})
         else:
             # Band 3: full confidence
-            REGIME_SOFT_GATE_SIGNALS_TOTAL.labels(band="full").inc()
+            REGIME_SOFT_GATE_SIGNALS_TOTAL.add(1, {"band": "full"})
 
         # Downstream duration / regime-type checks run only when still eligible
         if regime_eligible:

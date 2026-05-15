@@ -391,7 +391,7 @@ class CrossAssetComputeAgent(BaseAgent):
 
         # Route to windows
         self._route_message(payload, tf)
-        self._msg_counter.inc()
+        self._msg_counter.add(1)
 
         # Try to publish for each group
         now = datetime.now(UTC)
@@ -474,7 +474,7 @@ class CrossAssetComputeAgent(BaseAgent):
                 await self._producer.publish(topic, result, key=key)
 
             self._last_published_ts[tf] = bar_ts
-            self._spreads_counter.inc()
+            self._spreads_counter.add(1)
             self.logger.info(
                 "Published cross-asset features",
                 group=group_name,

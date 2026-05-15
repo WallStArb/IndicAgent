@@ -171,10 +171,10 @@ def should_skip_plugin(
 
     allowed: frozenset = getattr(plugin, "valid_asset_classes", _ALL_ASSET_CLASSES)
     if instrument.asset_class not in allowed:
-        skipped_counter.labels(
-            plugin_name=plugin_name,
-            asset_class=instrument.asset_class.value,
-        ).inc()
+        skipped_counter.add(
+            1,
+            {"plugin_name": plugin_name, "asset_class": instrument.asset_class.value},
+        )
         return True
     return False
 

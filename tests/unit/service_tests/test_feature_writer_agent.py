@@ -124,7 +124,7 @@ def test_parse_payload_returns_none_for_invalid_json():
 
     result = svc._parse_payload(b"not-valid-json{{{")
     assert result is None
-    svc._parse_errors_total.inc.assert_called_once()
+    svc._parse_errors_total.add.assert_called_once()
 
 
 # ── _record_to_insert_params ──────────────────────────────────────────────────
@@ -233,8 +233,10 @@ async def test_do_flush_calls_execute_batch():
     svc._commit_latency = MagicMock()
     svc._flush_errors_total = MagicMock()
     svc._commit_errors_total = MagicMock()
+    svc._buffer_depth_gauge = MagicMock()
+    svc._batch_latency_attrs = {"agent_id": "feature_writer"}
 
-    # Mock _batch_latency context manager
+    # Mock _batch_latency context manager (legacy attr — still safe to set)
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)
     mock_batch_latency.__exit__ = MagicMock(return_value=False)
@@ -292,6 +294,8 @@ async def test_do_flush_time_based_calls_execute_batch():
     svc._commit_latency = MagicMock()
     svc._flush_errors_total = MagicMock()
     svc._commit_errors_total = MagicMock()
+    svc._buffer_depth_gauge = MagicMock()
+    svc._batch_latency_attrs = {"agent_id": "feature_writer"}
 
     mock_batch_latency = MagicMock()
     mock_batch_latency.__enter__ = MagicMock(return_value=None)

@@ -167,14 +167,13 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
 
 
 def test_service_up_gauge_exists():
-    """SERVICE_UP_GAUGE is a module-level OTelGauge with unit label."""
+    """SERVICE_UP_GAUGE is a module-level OTel up_down_counter with .add() interface."""
     from services.service_auditor_agent import SERVICE_UP_GAUGE
-    from src.observability.metrics import OTelGauge
 
-    assert isinstance(SERVICE_UP_GAUGE, OTelGauge)
-    # Should accept unit= label
-    labeled = SERVICE_UP_GAUGE.labels(unit="indicagent-bar-writer")
-    assert hasattr(labeled, "set")
+    # OTel up_down_counter has .add() method
+    assert hasattr(SERVICE_UP_GAUGE, "add")
+    # Should not raise when called with attrs
+    SERVICE_UP_GAUGE.add(1, {"unit": "indicagent-bar-writer"})
 
 
 # -- Graduated response ────────────────────────────────────────────────────────

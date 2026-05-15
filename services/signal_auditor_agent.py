@@ -22,11 +22,12 @@ Phase: 61
 from __future__ import annotations
 
 import asyncio
+import time as _time
 from datetime import UTC, date, datetime, timedelta
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
-from prometheus_client import Counter, Gauge, Histogram
+from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
@@ -48,53 +49,45 @@ _LAG_P95_WARN_MS = 500.0
 _CIS_LOOKBACK_DAYS = 5
 
 # ---------------------------------------------------------------------------
-# Module-level metrics (prevents duplicate registration on re-import)
+# Module-level OTel metrics
 # ---------------------------------------------------------------------------
 
-_AUDITS_RUN = Counter(
+_sa_meter = _otel_metrics.get_meter("indicagent")
+_AUDITS_RUN = _sa_meter.create_counter(
     "signal_auditor_audits_run_total",
-    "Total audit cycles completed",
-    ["agent"],
+    description="Total audit cycles completed",
 )
-_COVERAGE_GAPS_PUBLISHED = Counter(
+_COVERAGE_GAPS_PUBLISHED = _sa_meter.create_counter(
     "signal_auditor_coverage_gaps_published_total",
-    "SignalCoverageGapEvents published to Kafka",
-    ["agent"],
+    description="SignalCoverageGapEvents published to Kafka",
 )
-_AUDIT_DURATION = Histogram(
+_AUDIT_DURATION = _sa_meter.create_histogram(
     "signal_auditor_audit_duration_seconds",
-    "Wall-clock time for a full audit cycle",
-    ["agent"],
+    description="Wall-clock time for a full audit cycle",
 )
-_AUDIT_ERRORS = Counter(
+_AUDIT_ERRORS = _sa_meter.create_counter(
     "signal_auditor_audit_errors_total",
-    "Exceptions during audit cycles",
-    ["agent"],
+    description="Exceptions during audit cycles",
 )
-_SIGNAL_COVERAGE_PCT = Gauge(
+_SIGNAL_COVERAGE_PCT = _sa_meter.create_up_down_counter(
     "signal_coverage_pct",
-    "1.0 if ≥1 signal fired in last session, 0.0 otherwise",
-    ["agent", "symbol", "tf"],
+    description="1.0 if ≥1 signal fired in last session, 0.0 otherwise",
 )
-_PIPELINE_LAG_P50 = Gauge(
+_PIPELINE_LAG_P50 = _sa_meter.create_up_down_counter(
     "signal_pipeline_lag_p50_ms",
-    "P50 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
-    ["agent", "symbol", "tf"],
+    description="P50 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
 )
-_PIPELINE_LAG_P95 = Gauge(
+_PIPELINE_LAG_P95 = _sa_meter.create_up_down_counter(
     "signal_pipeline_lag_p95_ms",
-    "P95 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
-    ["agent", "symbol", "tf"],
+    description="P95 pipeline_lag_ms from signal_ledger over last 1h per (symbol, tf)",
 )
-_CIS_MEAN = Gauge(
+_CIS_MEAN = _sa_meter.create_up_down_counter(
     "signal_cis_mean",
-    "Mean cis_score per tf over rolling 5-day window",
-    ["agent", "tf"],
+    description="Mean cis_score per tf over rolling 5-day window",
 )
-_CIS_STDDEV = Gauge(
+_CIS_STDDEV = _sa_meter.create_up_down_counter(
     "signal_cis_stddev",
-    "Stddev of cis_score per tf over rolling 5-day window",
-    ["agent", "tf"],
+    description="Stddev of cis_score per tf over rolling 5-day window",
 )
 
 
@@ -112,17 +105,7 @@ class SignalAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
-        # Cache labeled children to avoid .labels() on every cycle
-        self._audits_run = _AUDITS_RUN.labels(agent=self.name)
-        self._coverage_gaps_published = _COVERAGE_GAPS_PUBLISHED.labels(agent=self.name)
-        self._audit_duration = _AUDIT_DURATION.labels(agent=self.name)
-        self._audit_errors = _AUDIT_ERRORS.labels(agent=self.name)
-        # Dynamic symbol/tf labels — call .labels() at use time
-        self._signal_coverage_pct = _SIGNAL_COVERAGE_PCT
-        self._pipeline_lag_p50 = _PIPELINE_LAG_P50
-        self._pipeline_lag_p95 = _PIPELINE_LAG_P95
-        self._cis_mean = _CIS_MEAN
-        self._cis_stddev = _CIS_STDDEV
+        self._agent_attrs = {"agent": self.name}
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -184,10 +167,11 @@ class SignalAuditorAgent(BaseAgent):
         if instruments is None:
             instruments = get_active_contracts(self.settings)
         try:
-            with self._audit_duration.time():
-                gap_events = await self._check_coverage(instruments)
-                await self._check_pipeline_lag(instruments)
-                await self._check_cis_distribution()
+            _t0 = _time.monotonic()
+            gap_events = await self._check_coverage(instruments)
+            await self._check_pipeline_lag(instruments)
+            await self._check_cis_distribution()
+            _AUDIT_DURATION.record(_time.monotonic() - _t0, self._agent_attrs)
 
             assert self._kafka_producer is not None
             for event in gap_events:
@@ -196,16 +180,16 @@ class SignalAuditorAgent(BaseAgent):
                     event,
                     key=f"{event['symbol']}:{event['tf']}",
                 )
-                self._coverage_gaps_published.inc()
+                _COVERAGE_GAPS_PUBLISHED.add(1, self._agent_attrs)
 
-            self._audits_run.inc()
+            _AUDITS_RUN.add(1, self._agent_attrs)
             self.logger.info(
                 "signal_auditor_agent.audit_complete",
                 coverage_gaps_published=len(gap_events),
             )
 
         except Exception as exc:
-            self._audit_errors.inc()
+            _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "signal_auditor_agent.audit_error",
                 error=str(exc),
@@ -252,9 +236,9 @@ class SignalAuditorAgent(BaseAgent):
                     count = count or 0
                     coverage = 1.0 if count > 0 else 0.0
 
-                    self._signal_coverage_pct.labels(
-                        agent=self.name, symbol=instrument.symbol, tf=tf
-                    ).set(coverage)
+                    _SIGNAL_COVERAGE_PCT.add(
+                        coverage, {"agent": self.name, "symbol": instrument.symbol, "tf": tf}
+                    )
 
                     if count == 0:
                         self.logger.warning(
@@ -308,12 +292,12 @@ class SignalAuditorAgent(BaseAgent):
                     p50: float = row["p50"]
                     p95: float = row["p95"]
 
-                    self._pipeline_lag_p50.labels(
-                        agent=self.name, symbol=instrument.symbol, tf=tf
-                    ).set(p50)
-                    self._pipeline_lag_p95.labels(
-                        agent=self.name, symbol=instrument.symbol, tf=tf
-                    ).set(p95)
+                    _PIPELINE_LAG_P50.add(
+                        p50, {"agent": self.name, "symbol": instrument.symbol, "tf": tf}
+                    )
+                    _PIPELINE_LAG_P95.add(
+                        p95, {"agent": self.name, "symbol": instrument.symbol, "tf": tf}
+                    )
 
                     if p95 > _LAG_P95_WARN_MS:
                         self.logger.warning(
@@ -349,9 +333,9 @@ class SignalAuditorAgent(BaseAgent):
                 if row is None or row["cis_mean"] is None:
                     continue
 
-                self._cis_mean.labels(agent=self.name, tf=tf).set(row["cis_mean"])
+                _CIS_MEAN.add(row["cis_mean"], {"agent": self.name, "tf": tf})
                 if row["cis_stddev"] is not None:
-                    self._cis_stddev.labels(agent=self.name, tf=tf).set(row["cis_stddev"])
+                    _CIS_STDDEV.add(row["cis_stddev"], {"agent": self.name, "tf": tf})
 
     def _any_session_near_open(self, instruments: list) -> bool:
         """True if any instrument's session is open or within _RTH_BUFFER_MINUTES."""

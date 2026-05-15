@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.config.settings import Settings
 from src.intelligence.pipeline.regime_gate import (
@@ -141,26 +141,22 @@ def test_full_band_unchanged_confidence():
 
 
 def test_counter_increments_in_soft_band():
-    """Counter.labels(band='soft').inc() is called when processing a soft-band signal."""
+    """OTel counter .add(1, {"band": "soft"}) is called when processing a soft-band signal."""
     signals, regime_data = _make_signal(prob=0.42, conf=1.0)
 
     with patch(
         "src.intelligence.pipeline.regime_gate.REGIME_SOFT_GATE_SIGNALS_TOTAL"
     ) as mock_counter:
-        mock_label_obj = MagicMock()
-        mock_counter.labels.return_value = mock_label_obj
-
         _run(apply_regime_gate(signals, regime_data, prob_min=0.30, prob_soft_max=0.55))
 
-        # Verify labels(band="soft") was called and inc() invoked
+        # OTel counter: .add(1, {"band": "soft"}) must have been called
         called_with_soft = any(
-            call_args == ((), {"band": "soft"})
-            for call_args in [(args, kwargs) for args, kwargs in mock_counter.labels.call_args_list]
+            len(args) == 2 and args[0] == 1 and args[1] == {"band": "soft"}
+            for args, kwargs in mock_counter.add.call_args_list
         )
         assert (
             called_with_soft
-        ), f"Expected labels(band='soft') call, got: {mock_counter.labels.call_args_list}"
-        assert mock_label_obj.inc.called
+        ), f"Expected add(1, {{'band': 'soft'}}) call, got: {mock_counter.add.call_args_list}"
 
 
 def test_settings_wire_through():

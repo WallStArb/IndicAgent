@@ -12,30 +12,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from prometheus_client import Counter, Histogram
-
-# Module-level test metrics (created once to avoid duplicate registration)
-_TEST_EVENTS_CONSUMED = Counter(
-    "test_roll_events_consumed_total",
-    "Bars consumed (test)",
-    ["agent"],
-)
-_TEST_ROLLS_DETECTED = Counter(
-    "test_roll_rolls_detected_total",
-    "Roll events detected (test)",
-    ["agent"],
-)
-_TEST_DETECTION_LATENCY = Histogram(
-    "test_roll_detection_latency_seconds",
-    "Roll detection latency (test)",
-    ["agent"],
-)
-_TEST_DETECTION_ERRORS = Counter(
-    "test_roll_detection_errors_total",
-    "Roll detection errors (test)",
-    ["agent"],
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers: build a minimal RollComputeAgent bypassing __init__
@@ -60,12 +36,7 @@ def _make_agent():
     # Default calendar scheduler that never fires — tests override as needed
     agent._calendar_scheduler = MagicMock()
     agent._calendar_scheduler.check_calendar_roll = MagicMock(return_value=False)
-    # Wire module-level test metrics (no duplicate registration)
-    # Metrics are module-level in production; bind test-named labels for __new__ fixture
-    agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="roll_compute_agent")
-    agent._rolls_detected_lbl = _TEST_ROLLS_DETECTED.labels(agent="roll_compute_agent")
-    agent._detection_latency_lbl = _TEST_DETECTION_LATENCY.labels(agent="roll_compute_agent")
-    agent._detection_errors_lbl = _TEST_DETECTION_ERRORS.labels(agent="roll_compute_agent")
+    agent._agent_attrs = {"agent": "roll_compute_agent"}
     return agent
 
 
@@ -347,14 +318,12 @@ async def test_volume_roll_event_has_detection_method_volume():
 
 
 def test_golden_signals_are_counter_instances():
-    """events_consumed_total and rolls_detected_total must be Counter instances."""
-    from prometheus_client import Counter
-
+    """events_consumed_total and rolls_detected_total must be OTel counters (have .add)."""
     from services.roll_compute_agent import _DETECTION_ERRORS, _EVENTS_CONSUMED, _ROLLS_DETECTED
 
-    assert isinstance(_EVENTS_CONSUMED, Counter)
-    assert isinstance(_ROLLS_DETECTED, Counter)
-    assert isinstance(_DETECTION_ERRORS, Counter)
+    assert hasattr(_EVENTS_CONSUMED, "add")
+    assert hasattr(_ROLLS_DETECTED, "add")
+    assert hasattr(_DETECTION_ERRORS, "add")
 
 
 # ---------------------------------------------------------------------------

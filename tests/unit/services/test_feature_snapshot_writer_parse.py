@@ -79,4 +79,4 @@ class TestParseRecord:
         ):
             result = agent._parse_record("bad json")
         assert result is None
-        agent._parse_errors.inc.assert_called_once()
+        agent._parse_errors.add.assert_called_once()

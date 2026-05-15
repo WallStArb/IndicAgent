@@ -13,7 +13,7 @@ Tests verify:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -115,7 +115,8 @@ async def test_coverage_gap_when_zero_signals(agent):
         return_value=(session_start, session_end)
     )
 
-    gaps = await agent._check_coverage([instrument])
+    with patch("services.signal_auditor_agent._SIGNAL_COVERAGE_PCT") as mock_cov:
+        gaps = await agent._check_coverage([instrument])
 
     assert len(gaps) == len(_COVERAGE_TFS)
     for gap in gaps:
@@ -126,9 +127,9 @@ async def test_coverage_gap_when_zero_signals(agent):
         assert "expected_session_start" in gap
         assert "expected_session_end" in gap
 
-    # Gauge set to 0.0 for each tf
-    assert agent._signal_coverage_pct.labels.call_count == len(_COVERAGE_TFS)
-    for call in agent._signal_coverage_pct.labels.return_value.set.call_args_list:
+    # OTel up_down_counter: .add(0.0, {...}) called once per tf
+    assert mock_cov.add.call_count == len(_COVERAGE_TFS)
+    for call in mock_cov.add.call_args_list:
         assert call.args[0] == 0.0
 
 
@@ -146,10 +147,11 @@ async def test_no_gap_when_signals_present(agent):
         )
     )
 
-    gaps = await agent._check_coverage([instrument])
+    with patch("services.signal_auditor_agent._SIGNAL_COVERAGE_PCT") as mock_cov:
+        gaps = await agent._check_coverage([instrument])
 
     assert gaps == []
-    for call in agent._signal_coverage_pct.labels.return_value.set.call_args_list:
+    for call in mock_cov.add.call_args_list:
         assert call.args[0] == 1.0
 
 
@@ -205,12 +207,20 @@ async def test_cis_distribution_sets_gauges(agent):
     conn = _make_conn_mock(cis_row=cis_row)
     _set_db_pool(agent, conn)
 
-    await agent._check_cis_distribution()
+    with (
+        patch("services.signal_auditor_agent._CIS_MEAN") as mock_mean,
+        patch("services.signal_auditor_agent._CIS_STDDEV") as mock_stddev,
+    ):
+        await agent._check_cis_distribution()
 
-    assert agent._cis_mean.labels.call_count == len(_COVERAGE_TFS)
-    agent._cis_mean.labels.return_value.set.assert_called_with(0.52)
-    agent._cis_stddev.labels.return_value.set.assert_called_with(0.18)
-    assert agent._cis_stddev.labels.call_count == len(_COVERAGE_TFS)
+    # OTel up_down_counter: .add(value, attrs) called once per tf
+    assert mock_mean.add.call_count == len(_COVERAGE_TFS)
+    assert mock_stddev.add.call_count == len(_COVERAGE_TFS)
+    # Verify the actual values passed
+    mean_vals = [call.args[0] for call in mock_mean.add.call_args_list]
+    assert all(v == 0.52 for v in mean_vals)
+    stddev_vals = [call.args[0] for call in mock_stddev.add.call_args_list]
+    assert all(v == 0.18 for v in stddev_vals)
 
 
 def test_topics_produced(agent):

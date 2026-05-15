@@ -30,6 +30,7 @@ import sys
 import time
 
 import structlog
+from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
@@ -37,35 +38,33 @@ from src.observability.metrics import (
     AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
     PERSISTENCE_CONSUMER_LAG,
 )
-from src.observability.metrics import (
-    OTelCounter as _Counter,
-)
-from src.observability.metrics import (
-    OTelHistogram as _Histogram,
-)
 from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
 # BaseAgent Observability Metrics (Phase 67)
 # ---------------------------------------------------------------------------
 
-AGENT_CRASH_TOTAL = _Counter(
-    "agent_crash_total", "Agent crashes (uncaught exceptions) from BaseAgent._run()", ["agent"]
+_base_meter = _otel_metrics.get_meter("indicagent")
+
+AGENT_CRASH_TOTAL = _base_meter.create_counter(
+    "agent_crash_total",
+    description="Agent crashes (uncaught exceptions) from BaseAgent._run()",
 )
 
-AGENT_SETUP_SUCCESS_TOTAL = _Counter(
-    "agent_setup_success_total", "Successful BaseAgent._setup() completions", ["agent"]
+AGENT_SETUP_SUCCESS_TOTAL = _base_meter.create_counter(
+    "agent_setup_success_total",
+    description="Successful BaseAgent._setup() completions",
 )
 
-AGENT_SETUP_FAILURE_TOTAL = _Counter(
-    "agent_setup_failure_total", "Failed BaseAgent._setup() completions", ["agent", "error_type"]
+AGENT_SETUP_FAILURE_TOTAL = _base_meter.create_counter(
+    "agent_setup_failure_total",
+    description="Failed BaseAgent._setup() completions",
 )
 
-AGENT_SETUP_LATENCY_SECONDS = _Histogram(
+AGENT_SETUP_LATENCY_SECONDS = _base_meter.create_histogram(
     "agent_setup_latency_seconds",
-    "BaseAgent._setup() execution time in seconds",
-    ["agent"],
-    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0],
+    description="BaseAgent._setup() execution time in seconds",
+    unit="s",
 )
 
 # Module-level flag to ensure init_tracing() is called only once per process
@@ -106,10 +105,9 @@ class BaseAgent(abc.ABC):
         self.max_idle_seconds = max_idle_seconds
         self._stop_event: asyncio.Event = asyncio.Event()
         self._last_message_ts: float | None = None
-        # Cache labeled Prometheus child once — avoids dict lookup on every message.
-        self._last_msg_ts_gauge = AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.labels(agent=name)
-        # Cache labeled Prometheus child for consumer lag — avoids dict lookup on every report
-        self._consumer_lag_gauge = PERSISTENCE_CONSUMER_LAG.labels(agent_id=name)
+        # Cache OTel attribute dicts to avoid rebuilding on every message.
+        self._last_msg_ts_attrs = {"agent": name}
+        self._consumer_lag_attrs = {"agent_id": name}
         # NOTE: attribute is self.logger (not self.log) to match the 20+ call sites
         # in existing agents that use self.logger.
         # Logger is created AFTER setup_service_logging() when log_file is provided.
@@ -122,12 +120,11 @@ class BaseAgent(abc.ABC):
         # OTel meter — provides instrument creation for subclasses
         self._meter = get_meter(name)
 
-        # NEW: Cache crash/setup observability metrics at init (minimal runtime overhead)
+        # Cache OTel attribute dicts for crash/setup observability metrics
         self._agent_label = name.lower().replace(" ", "_")
-        self._crash_total = AGENT_CRASH_TOTAL.labels(agent=self._agent_label)
-        self._setup_success_total = AGENT_SETUP_SUCCESS_TOTAL.labels(agent=self._agent_label)
-        # NOTE: _setup_failure_total not cached here - needs error_type label at exception time
-        self._setup_latency = AGENT_SETUP_LATENCY_SECONDS.labels(agent=self._agent_label)
+        self._crash_attrs = {"agent": self._agent_label}
+        self._setup_success_attrs = {"agent": self._agent_label}
+        self._setup_latency_attrs = {"agent": self._agent_label}
 
     def __getattr__(self, name: str):
         """Fallback for attributes not set in __new__ test pattern (bypasses __init__).
@@ -195,14 +192,14 @@ class BaseAgent(abc.ABC):
             setup_start = time.monotonic()
             await self._setup()
             setup_duration = time.monotonic() - setup_start
-            self._setup_latency.observe(setup_duration)
-            self._setup_success_total.inc()
+            AGENT_SETUP_LATENCY_SECONDS.record(setup_duration, self._setup_latency_attrs)
+            AGENT_SETUP_SUCCESS_TOTAL.add(1, self._setup_success_attrs)
         except Exception as exc:
             # Log setup failure AND track metric
             self.logger.exception("agent.setup_failed")
-            AGENT_SETUP_FAILURE_TOTAL.labels(
-                agent=self._agent_label, error_type=type(exc).__name__
-            ).inc()
+            AGENT_SETUP_FAILURE_TOTAL.add(
+                1, {"agent": self._agent_label, "error_type": type(exc).__name__}
+            )
             raise
 
         lag_task = asyncio.create_task(self._report_consumer_lag())
@@ -213,7 +210,7 @@ class BaseAgent(abc.ABC):
         except Exception:
             # Log run failure AND track crash metric
             self.logger.exception("agent.run_failed")
-            self._crash_total.inc()
+            AGENT_CRASH_TOTAL.add(1, self._crash_attrs)
             raise
         finally:
             lag_task.cancel()
@@ -273,7 +270,7 @@ class BaseAgent(abc.ABC):
         Loops until _stop_event is set.
         """
         while not self._stop_event.is_set():
-            self._consumer_lag_gauge.set(0)
+            PERSISTENCE_CONSUMER_LAG.add(0, self._consumer_lag_attrs)
             await asyncio.sleep(15)
 
     def _record_message_consumed(self) -> None:
@@ -285,7 +282,7 @@ class BaseAgent(abc.ABC):
         """
         # monotonic for stall detection (immune to clock skew); wall-clock for observability
         self._last_message_ts = time.monotonic()
-        self._last_msg_ts_gauge.set(time.time())
+        AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.add(time.time(), self._last_msg_ts_attrs)
 
     async def _stall_watchdog(self) -> None:
         """Exit the process if no messages consumed for max_idle_seconds.
@@ -345,7 +342,7 @@ class BaseAgent(abc.ABC):
         from datetime import UTC, datetime
 
         from src.core.schemas.dlq_payload import DLQPayload
-        from src.observability.metrics import DLQ_DEPTH, DLQ_MESSAGES_TOTAL
+        from src.observability.metrics import DLQ_MESSAGES_TOTAL
 
         # Check if DLQ topic is configured
         dlq_topic = self._dlq_topic() if hasattr(self, "_dlq_topic") else None
@@ -376,10 +373,10 @@ class BaseAgent(abc.ABC):
             if hasattr(self, "_kafka_producer") and self._kafka_producer is not None:
                 await self._kafka_producer.publish(dlq_topic, dlq_payload.model_dump())
                 # Emit metrics
-                DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
-                DLQ_MESSAGES_TOTAL.labels(
-                    agent=self.name, topic=dlq_topic, error_type=type(error).__name__
-                ).inc()
+                DLQ_MESSAGES_TOTAL.add(
+                    1,
+                    {"agent": self.name, "topic": dlq_topic, "error_type": type(error).__name__},
+                )
                 self.logger.info(
                     "agent.dlq_routed",
                     agent=self.name,
@@ -389,10 +386,10 @@ class BaseAgent(abc.ABC):
             elif hasattr(self, "_producer") and self._producer is not None:
                 # Some agents use self._producer instead of self._kafka_producer
                 await self._producer.publish(dlq_topic, dlq_payload.model_dump())
-                DLQ_DEPTH.labels(agent=self.name, topic=dlq_topic).inc()
-                DLQ_MESSAGES_TOTAL.labels(
-                    agent=self.name, topic=dlq_topic, error_type=type(error).__name__
-                ).inc()
+                DLQ_MESSAGES_TOTAL.add(
+                    1,
+                    {"agent": self.name, "topic": dlq_topic, "error_type": type(error).__name__},
+                )
                 self.logger.info(
                     "agent.dlq_routed",
                     agent=self.name,

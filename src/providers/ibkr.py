@@ -62,15 +62,21 @@ logger = logging.getLogger(__name__)
 
 # Pre-labeled drop counters for ib_insync → asyncio bridge. Incrementing
 # from the ib_insync thread is safe (prometheus_client Counters are thread-safe).
-_M_DROPPED_RTB_QUEUE_FULL = PROVIDER_BARS_DROPPED_TOTAL.labels(
-    provider="ibkr", agent="ibkr_provider_agent", reason="rtb_queue_full"
-)
-_M_DROPPED_OFFICIAL_QUEUE_ERROR = PROVIDER_BARS_DROPPED_TOTAL.labels(
-    provider="ibkr", agent="ibkr_provider_agent", reason="official_queue_error"
-)
-_M_DROPPED_TICK_QUEUE_FULL = PROVIDER_BARS_DROPPED_TOTAL.labels(
-    provider="ibkr", agent="ibkr_provider_agent", reason="tick_queue_full"
-)
+_M_DROPPED_RTB_QUEUE_FULL_ATTRS = {
+    "provider": "ibkr",
+    "agent": "ibkr_provider_agent",
+    "reason": "rtb_queue_full",
+}
+_M_DROPPED_OFFICIAL_QUEUE_ERROR_ATTRS = {
+    "provider": "ibkr",
+    "agent": "ibkr_provider_agent",
+    "reason": "official_queue_error",
+}
+_M_DROPPED_TICK_QUEUE_FULL_ATTRS = {
+    "provider": "ibkr",
+    "agent": "ibkr_provider_agent",
+    "reason": "tick_queue_full",
+}
 
 # Map our timeframe strings to ib_insync barSizeSetting values
 _TF_TO_IB: dict[str, str] = {
@@ -124,7 +130,7 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
     """ib_insync errorEvent handler. Runs on ib_insync's internal thread."""
     if errorCode == 326:
         _error_326_detected.set()
-        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="detected").inc()
+        IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "detected"})
         logger.error(
             "ibkr.error_326_detected",
             extra={"reqId": reqId, "errorString": errorString},
@@ -195,7 +201,7 @@ async def _restart_ib_gateway(port: int) -> bool:
 
     ready = await _wait_for_gateway_port(port=port, timeout=90.0)
     if ready:
-        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="gateway_restarted").inc()
+        IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "gateway_restarted"})
         logger.info("ibkr.gateway_restart_complete", extra={"port": port})
         return True
 
@@ -241,44 +247,49 @@ async def _connect_with_circuit_breaker(
                 ib_instance.disconnect()
                 raise ConnectionError(f"{_ERR_326}: clientId {cid} already in use")
 
-            IBKR_CLIENT_ID_CURRENT.labels(provider="ibkr").set(cid)
+            IBKR_CLIENT_ID_CURRENT.add(cid, {"provider": "ibkr"})
             return ib_instance
         finally:
             ib_instance.errorEvent -= _on_ib_error
 
     def _record_success():
         global _ibkr_open_since
-        CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
+        CIRCUIT_BREAKER_SUCCESSES_TOTAL.add(1, {"plugin_name": provider_id})
         plugin_state.success_count += 1
         plugin_state.last_success_time = datetime.now()
         plugin_state.total_calls += 1
         if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
-            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
-                plugin_name=provider_id,
-                from_state=previous_state.name.lower(),
-                to_state="closed",
-            ).inc()
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.add(
+                1,
+                {
+                    "plugin_name": provider_id,
+                    "from_state": previous_state.name.lower(),
+                    "to_state": "closed",
+                },
+            )
             if _ibkr_open_since is not None:
-                CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
-                    time.monotonic() - _ibkr_open_since
+                CIRCUIT_BREAKER_OPEN_SECONDS.record(
+                    time.monotonic() - _ibkr_open_since, {"plugin_name": provider_id}
                 )
                 _ibkr_open_since = None
 
     def _record_failure(error_type: str):
         global _ibkr_open_since
-        CIRCUIT_BREAKER_FAILURES_TOTAL.labels(
-            plugin_name=provider_id,
-            error_type=error_type,
-        ).inc()
+        CIRCUIT_BREAKER_FAILURES_TOTAL.add(
+            1, {"plugin_name": provider_id, "error_type": error_type}
+        )
         plugin_state.failure_count += 1
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
         if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
-            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
-                plugin_name=provider_id,
-                from_state=previous_state.name.lower(),
-                to_state="open",
-            ).inc()
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.add(
+                1,
+                {
+                    "plugin_name": provider_id,
+                    "from_state": previous_state.name.lower(),
+                    "to_state": "open",
+                },
+            )
             _ibkr_open_since = time.monotonic()
 
     # Phase 1: clientId rotation (client_id → client_id+1 → ... → _MAX_CLIENT_ID)
@@ -298,7 +309,7 @@ async def _connect_with_circuit_breaker(
 
         except ConnectionError as exc:
             if _ERR_326 in str(exc):
-                IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="client_id_rotated").inc()
+                IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "client_id_rotated"})
                 logger.warning(
                     "ibkr.error_326_rotating_client_id",
                     extra={
@@ -316,7 +327,7 @@ async def _connect_with_circuit_breaker(
             break
     else:
         # Phase 2: all clientIds returned 326 → restart gateway to clear stale sessions
-        IBKR_ERROR_326_TOTAL.labels(provider="ibkr", action="rotation_exhausted").inc()
+        IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "rotation_exhausted"})
         logger.error(
             "ibkr.client_id_rotation_exhausted",
             extra={"base_client_id": client_id, "max_client_id": _MAX_CLIENT_ID},
@@ -376,11 +387,14 @@ async def reset_circuit_breaker() -> bool:
 
     # Record manual reset transition
     if result and previous_state != CircuitState.CLOSED:
-        CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
-            plugin_name=provider_id,
-            from_state=previous_state.name.lower(),
-            to_state="closed",
-        ).inc()
+        CIRCUIT_BREAKER_TRANSITIONS_TOTAL.add(
+            1,
+            {
+                "plugin_name": provider_id,
+                "from_state": previous_state.name.lower(),
+                "to_state": "closed",
+            },
+        )
 
     return result
 
@@ -764,7 +778,7 @@ class IBKRProvider:
                     try:
                         self._loop.call_soon_threadsafe(self._tick_queue.put_nowait, tick)
                     except Exception:
-                        _M_DROPPED_TICK_QUEUE_FULL.inc()
+                        PROVIDER_BARS_DROPPED_TOTAL.add(1, _M_DROPPED_TICK_QUEUE_FULL_ATTRS)
         except Exception:
             logger.exception("ibkr._handle_pending_tickers callback error")
 
@@ -826,7 +840,7 @@ class IBKRProvider:
                 try:
                     self._loop.call_soon_threadsafe(self._rtb_queue.put_nowait, (_symbol, bar))
                 except Exception:
-                    _M_DROPPED_RTB_QUEUE_FULL.inc()
+                    PROVIDER_BARS_DROPPED_TOTAL.add(1, _M_DROPPED_RTB_QUEUE_FULL_ATTRS)
                     logger.warning("ibkr.rtb_queue_full_dropping symbol=%s", _symbol)
 
             bars.updateEvent += _on_bar
@@ -913,7 +927,7 @@ class IBKRProvider:
                         official_queue.put_nowait, (_symbol, normalized)
                     )
                 except Exception:
-                    _M_DROPPED_OFFICIAL_QUEUE_ERROR.inc()
+                    PROVIDER_BARS_DROPPED_TOTAL.add(1, _M_DROPPED_OFFICIAL_QUEUE_ERROR_ATTRS)
                     logger.warning("ibkr.official_queue_error_dropping symbol=%s", _symbol)
 
             bars.updateEvent += _on_official_bar

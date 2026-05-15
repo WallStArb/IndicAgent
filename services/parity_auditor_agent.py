@@ -286,7 +286,7 @@ class ParityAuditorAgent(BaseAgent):
 
             if in_shadow and not in_primary:
                 # Shadow-only: increment counter, never FieldViolation (D-03/D-07)
-                SHADOW_AHEAD_ROWS_TOTAL.labels(symbol=sym, tf=tf).inc()
+                SHADOW_AHEAD_ROWS_TOTAL.add(1, {"symbol": sym, "tf": tf})
                 continue
 
             # Both present — compare
@@ -306,13 +306,13 @@ class ParityAuditorAgent(BaseAgent):
             matched = stats["matched"]
             clean = stats["clean"]
             match_rate = clean / matched if matched > 0 else 1.0
-            PARITY_MATCH_RATE.labels(symbol=sym, tf=tf).set(match_rate)
+            PARITY_MATCH_RATE.add(match_rate, {"symbol": sym, "tf": tf})
             await self._maybe_alert_parity(sym, tf, match_rate)
             pair_violations = sum(1 for v in all_violations if v.symbol == sym and v.tf == tf)
             if pair_violations:
-                PARITY_VIOLATIONS_TOTAL.labels(symbol=sym, tf=tf).inc(pair_violations)
+                PARITY_VIOLATIONS_TOTAL.add(pair_violations, {"symbol": sym, "tf": tf})
 
-        PARITY_CYCLES_TOTAL.inc()
+        PARITY_CYCLES_TOTAL.add(1)
 
         self.logger.info(
             "parity_cycle_complete",

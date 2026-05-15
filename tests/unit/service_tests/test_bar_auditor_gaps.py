@@ -81,17 +81,15 @@ async def test_gap_requests_topic_name():
 @pytest.mark.asyncio
 async def test_dlq_published_on_retry_exhaustion():
     """Unresolvable gap request published to DLQ after retry exhaustion."""
-    from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
+
+    mock_dlq_depth = MagicMock()
 
     agent = BarAuditorAgent.__new__(BarAuditorAgent)
     agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     agent._kafka_producer = AsyncMock()
     agent._kafka_producer.publish = AsyncMock()
-    agent._gap_fill_dlq_depth = BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
-
-    # Reset counter to 0
-    BAR_AUDITOR_GAP_FILL_DLQ_DEPTH._value.set(0)
+    agent._gap_fill_dlq_depth = mock_dlq_depth
 
     start_ts = datetime(2026, 4, 13, 9, 30, 0, tzinfo=UTC)
     end_ts = datetime(2026, 4, 13, 16, 0, 0, tzinfo=UTC)
@@ -103,5 +101,5 @@ async def test_dlq_published_on_retry_exhaustion():
     assert agent._kafka_producer.publish.called
     topic = agent._kafka_producer.publish.call_args[0][0]
     assert "gap_fill.dlq" in topic
-    # Verify metric incremented
-    assert BAR_AUDITOR_GAP_FILL_DLQ_DEPTH._value.get() == 1
+    # OTel up_down_counter: .add(1) must have been called
+    mock_dlq_depth.add.assert_called_once_with(1)
