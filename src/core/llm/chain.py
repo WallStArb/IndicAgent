@@ -119,12 +119,13 @@ class LLMProviderChain:
                 prompt, system, max_tokens=max_tokens, timeout=timeout
             )
             latency_s = time.monotonic() - t0
+            provider_id = "ollama"
             if response is None:
-                record_llm_call("ollama", self._call_type, latency_s, status="failure")
+                record_llm_call(provider_id, self._call_type, latency_s, status="failure")
                 return None
             estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
-            _budget.record(call_type=self._call_type, provider="ollama", tokens=estimated_tokens)
-            record_llm_call("ollama", self._call_type, latency_s, tokens=estimated_tokens)
+            _budget.record(call_type=self._call_type, provider=provider_id, tokens=estimated_tokens)
+            record_llm_call(provider_id, self._call_type, latency_s, tokens=estimated_tokens)
             if self._cache_ttl > 0:
                 _cache.put(
                     system=system,
@@ -133,6 +134,9 @@ class LLMProviderChain:
                     response=response,
                     ttl=self._cache_ttl,
                 )
+            await self._publish_audit(
+                audit_context, provider_id, latency_s, estimated_tokens, response, model
+            )
             return response
 
         # 3. Call inner chain
@@ -164,7 +168,6 @@ class LLMProviderChain:
         if actual_total is not None and actual_total > 0:
             tokens = actual_total
         else:
-            # Fallback: character-count estimate (Gemini review suggestion)
             tokens = max(1, len(prompt) // 4 + (len(response) // 4 if response else 0))
 
         _budget.record(
@@ -175,7 +178,6 @@ class LLMProviderChain:
 
         record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
 
-        # 6. Store in cache
         if self._cache_ttl > 0:
             _cache.put(
                 system=system,
@@ -185,24 +187,7 @@ class LLMProviderChain:
                 ttl=self._cache_ttl,
             )
 
-        # D-06: Auto-audit — publish to topic_llm_calls when audit_context provided
-        if audit_context is not None and self._producer is not None:
-            from src.core.stream_keys import topic_llm_calls
-
-            try:
-                await self._producer.publish(
-                    topic_llm_calls(self._settings.env_name),
-                    {
-                        **audit_context,
-                        "response": response,
-                        "provider": provider_id,
-                        "call_type": self._call_type,
-                        "tokens": tokens,
-                        "model": model,
-                    },
-                )
-            except Exception:
-                logger.exception("auto_audit.publish_failed", call_type=self._call_type)
+        await self._publish_audit(audit_context, provider_id, latency_s, tokens, response, model)
 
         logger.debug(
             "llm_chain.generated",
@@ -211,3 +196,33 @@ class LLMProviderChain:
             latency_ms=round(latency_s * 1000, 1),
         )
         return response
+
+    async def _publish_audit(
+        self,
+        audit_context: dict | None,
+        provider_id: str,
+        latency_s: float,
+        tokens: int,
+        response: str,
+        model: str,
+    ) -> None:
+        """Publish LLM call audit to topic_llm_calls."""
+        if audit_context is None or self._producer is None:
+            return
+        from src.core.stream_keys import topic_llm_calls
+
+        try:
+            await self._producer.publish(
+                topic_llm_calls(self._settings.env_name),
+                {
+                    **audit_context,
+                    "response": response,
+                    "provider": provider_id,
+                    "call_type": self._call_type,
+                    "tokens_est": tokens,
+                    "model": model,
+                    "latency_ms": int(latency_s * 1000),
+                },
+            )
+        except Exception:
+            logger.exception("auto_audit.publish_failed", call_type=self._call_type)

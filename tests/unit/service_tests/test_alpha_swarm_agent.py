@@ -572,7 +572,7 @@ def _make_agent_with_mocks():  # type: ignore[return]
     agent._semaphore = None
     agent._pool = None
     agent._lineage = MagicMock(record=MagicMock())
-    agent._producer = MagicMock(publish=MagicMock())
+    agent._producer = MagicMock(publish=AsyncMock())
     return agent
 
 

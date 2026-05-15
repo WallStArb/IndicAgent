@@ -123,11 +123,12 @@ class BaseGroupService(BaseAgent, ABC):
             max_size=5,
         )
 
-        # Wire LLM chain (for LLM-based agents)
+        # Wire LLM chain (for LLM-based agents) — producer enables auto-audit to topic_llm_calls
         self._llm_chain = LLMProviderChain(
             call_type=self.group_id,
             settings=self.settings,
             cache_ttl=self.llm_cache_ttl,
+            producer=self._producer,
         )
 
         # Seed context cache from DB

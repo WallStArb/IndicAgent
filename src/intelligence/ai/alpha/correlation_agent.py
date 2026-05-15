@@ -73,7 +73,8 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
 
     async def _compute(self, context: AIContext) -> AgentOutput:
         prompt = build_correlation_prompt(context)
-        response = await self._llm.generate(
+        response = await self._llm_generate(
+            context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
             max_tokens=2000,

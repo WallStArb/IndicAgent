@@ -69,7 +69,7 @@ INSERT INTO llm_calls (
     $12, $13, $14,
     $15, $16, $17, $18, $19,
     $20, $21, $22, $23, $24
-) ON CONFLICT (call_id) DO NOTHING
+) ON CONFLICT (call_id, called_at) DO NOTHING
 """
 
 _UPDATE_OUTCOME_SQL = """
