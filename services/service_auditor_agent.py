@@ -85,6 +85,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-replay": 9,
     "indicagent-parity-auditor": 9,
     "indicagent-alerting-agent": 9,
+    "indicagent-dlq-drain": 9,
     # Layer 8 — meta: monitors and restarts all of the above
     "indicagent-service-auditor": 10,
 }
@@ -112,6 +113,7 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-graduation-writer": 500,
     "indicagent-feature-snapshot-writer": 500,
     "indicagent-ctx-writer": 500,
+    "indicagent-dlq-drain": 500,
 }
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
@@ -146,6 +148,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "ctx_writer_agent": "indicagent-ctx-writer",
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
+    "dlq_drain_agent": "indicagent-dlq-drain",
 }
 
 
