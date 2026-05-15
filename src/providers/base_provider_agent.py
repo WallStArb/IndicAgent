@@ -239,17 +239,26 @@ class BaseProviderAgent(BaseAgent):
     async def _qualify_instrument(self, instrument: Instrument) -> bool:
         """Qualify a single instrument via the adapter, rate-limited to 5 concurrent."""
         async with self._qualify_sem:
-            try:
-                await self._adapter.qualify_instrument(instrument)
-                return True
-            except Exception as exc:
-                self.logger.warning(
-                    "provider_agent.qualify_failed",
-                    agent=self.name,
-                    symbol=instrument.symbol,
-                    error=str(exc),
-                )
-                return False
+            with self.tracer.start_as_current_span(
+                "provider.qualify_instrument",
+                attributes={
+                    "symbol": instrument.symbol,
+                    "provider": self._provider_name_str(),
+                },
+            ) as span:
+                try:
+                    await self._adapter.qualify_instrument(instrument)
+                    span.set_attribute("success", True)
+                    return True
+                except Exception as exc:
+                    span.set_attribute("success", False)
+                    self.logger.warning(
+                        "provider_agent.qualify_failed",
+                        agent=self.name,
+                        symbol=instrument.symbol,
+                        error=str(exc),
+                    )
+                    return False
 
     # ------------------------------------------------------------------
     # Stream loop with exponential-backoff reconnect
@@ -294,41 +303,51 @@ class BaseProviderAgent(BaseAgent):
         base = min(2 ** (attempt + 1), 30); delay = base * uniform(0.5, 1.5)
         Jitter avoids thundering-herd reconnect after a broker-wide blip.
         """
-        base = min(2 ** (attempt + 1), 30)
-        delay = base * random.uniform(0.5, 1.5)
-        self._m_reconnects_attempted.inc()
-        self.logger.warning(
-            "provider_agent.reconnecting",
-            agent=self.name,
-            provider=self._provider_name_str(),
-            attempt=attempt,
-            backoff_seconds=delay,
-        )
-        await asyncio.sleep(delay)
-
-        try:
-            await self._adapter.disconnect()
-            connected = await self._adapter.connect()
-            if connected:
-                self._g_connected.set(1)
-                self._m_reconnects_succeeded.inc()
-                self.logger.info(
-                    "provider_agent.reconnected",
-                    agent=self.name,
-                    provider=self._provider_name_str(),
-                    attempt=attempt,
-                )
-            else:
-                self._g_connected.set(0)
-        except Exception as exc:
-            self._g_connected.set(0)
-            self.logger.error(
-                "provider_agent.reconnect_failed",
+        with self.tracer.start_as_current_span(
+            "provider.reconnect",
+            attributes={
+                "provider": self._provider_name_str(),
+                "attempt": attempt,
+            },
+        ) as span:
+            base = min(2 ** (attempt + 1), 30)
+            delay = base * random.uniform(0.5, 1.5)
+            self._m_reconnects_attempted.inc()
+            self.logger.warning(
+                "provider_agent.reconnecting",
                 agent=self.name,
                 provider=self._provider_name_str(),
                 attempt=attempt,
-                error=str(exc),
+                backoff_seconds=delay,
             )
+            await asyncio.sleep(delay)
+
+            try:
+                await self._adapter.disconnect()
+                connected = await self._adapter.connect()
+                if connected:
+                    self._g_connected.set(1)
+                    self._m_reconnects_succeeded.inc()
+                    span.set_attribute("success", True)
+                    self.logger.info(
+                        "provider_agent.reconnected",
+                        agent=self.name,
+                        provider=self._provider_name_str(),
+                        attempt=attempt,
+                    )
+                else:
+                    self._g_connected.set(0)
+                    span.set_attribute("success", False)
+            except Exception as exc:
+                self._g_connected.set(0)
+                span.set_attribute("success", False)
+                self.logger.error(
+                    "provider_agent.reconnect_failed",
+                    agent=self.name,
+                    provider=self._provider_name_str(),
+                    attempt=attempt,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # Gap-fill loop

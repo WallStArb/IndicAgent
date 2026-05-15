@@ -739,3 +739,120 @@ SIGNAL_LEDGER_BACKFILL_RATIO: Gauge = _safe_gauge(
     "Fraction of signal_ledger rows last 24h with is_backfill=TRUE (training set quality KPI)",
     [],
 )
+
+# ---------------------------------------------------------------------------
+# Swarm dispatch latency (Phase 83)
+# ---------------------------------------------------------------------------
+
+SWARM_DISPATCH_SECONDS: Histogram = _safe_histogram(
+    "swarm_dispatch_seconds",
+    "Full swarm trigger-to-result cycle latency (context build + agent fan-out + aggregation)",
+    ["symbol", "timeframe"],
+    [0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+# ---------------------------------------------------------------------------
+# AI context cache (Phase 83)
+# ---------------------------------------------------------------------------
+
+AI_CONTEXT_CACHE_HITS_TOTAL: Counter = _safe_counter(
+    "ai_context_cache_hits_total",
+    "AIContextCache.build() returning a fresh context",
+    ["group_id"],
+)
+
+AI_CONTEXT_CACHE_MISSES_TOTAL: Counter = _safe_counter(
+    "ai_context_cache_misses_total",
+    "AIContextCache.build() returning None (no entry or stale)",
+    ["group_id"],
+)
+
+# ---------------------------------------------------------------------------
+# DB connection pool (Phase 83)
+# ---------------------------------------------------------------------------
+
+DB_POOL_SIZE: Gauge = _safe_gauge(
+    "db_pool_size",
+    "Current asyncpg pool size (total connections)",
+    ["pool"],
+)
+
+DB_POOL_IDLE: Gauge = _safe_gauge(
+    "db_pool_idle",
+    "Current asyncpg pool idle connections",
+    ["pool"],
+)
+
+# ---------------------------------------------------------------------------
+# Signal quality distributions (Phase 83)
+# ---------------------------------------------------------------------------
+
+SIGNAL_PNL_R_DISTRIBUTION: Histogram = _safe_histogram(
+    "signal_pnl_r_distribution",
+    "Realized PnL (R-multiple) distribution per setup plugin",
+    ["setup_plugin"],
+    [-2.0, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0],
+)
+
+SIGNAL_MAE_DISTRIBUTION: Histogram = _safe_histogram(
+    "signal_mae_distribution",
+    "Max adverse excursion distribution per setup plugin",
+    ["setup_plugin"],
+    [0.0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0],
+)
+
+SIGNAL_MFE_DISTRIBUTION: Histogram = _safe_histogram(
+    "signal_mfe_distribution",
+    "Max favorable excursion distribution per setup plugin",
+    ["setup_plugin"],
+    [0.0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0],
+)
+
+# ---------------------------------------------------------------------------
+# Kafka publish latency (Phase 83)
+# ---------------------------------------------------------------------------
+
+KAFKA_PUBLISH_SECONDS: Histogram = _safe_histogram(
+    "kafka_publish_seconds",
+    "Kafka producer send_and_wait latency",
+    ["topic"],
+    [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
+)
+
+# ---------------------------------------------------------------------------
+# Per-tier feature computation (Phase 83)
+# ---------------------------------------------------------------------------
+
+FEATURES_COMPUTED_TOTAL: Counter = _safe_counter(
+    "features_computed_total",
+    "Feature rows computed and published per intelligence tier",
+    ["tier"],
+)
+
+FEATURES_TIER_LATENCY_SECONDS: Histogram = _safe_histogram(
+    "features_tier_latency_seconds",
+    "Per-tier plugin batch execution latency",
+    ["tier"],
+    [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+)
+
+# ---------------------------------------------------------------------------
+# Narrative generation (Phase 83)
+# ---------------------------------------------------------------------------
+
+NARRATIVE_GENERATION_TOTAL: Counter = _safe_counter(
+    "narrative_generation_total",
+    "Narrative generation outcomes",
+    ["status"],
+)
+
+# ---------------------------------------------------------------------------
+# ML training (Phase 83)
+# ---------------------------------------------------------------------------
+
+ML_TRAINING_SECONDS: Histogram = _safe_histogram(
+    "ml_training_seconds",
+    "Full ML training cycle duration",
+    [],
+    [5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)

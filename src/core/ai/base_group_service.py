@@ -222,7 +222,15 @@ class BaseGroupService(BaseAgent, ABC):
 
                     raw = json.loads(raw)
                 event = IntelligenceEvent.model_validate(raw)
-                self._context_cache.update(event)
+                with self.tracer.start_as_current_span(
+                    "group.bar_cache_update",
+                    attributes={
+                        "group_id": self.group_id,
+                        "symbol": event.symbol,
+                        "tf": event.tf,
+                    },
+                ):
+                    self._context_cache.update(event)
             except Exception as exc:
                 self.logger.warning(
                     "base_group_service.bar_cache_error",
@@ -237,7 +245,11 @@ class BaseGroupService(BaseAgent, ABC):
                 break
             self._record_message_consumed()
             try:
-                await self._handle_trigger(payload)
+                with self.tracer.start_as_current_span(
+                    "group.handle_trigger",
+                    attributes={"group_id": self.group_id},
+                ):
+                    await self._handle_trigger(payload)
             except Exception as exc:
                 self.logger.exception(
                     "base_group_service.trigger_error",

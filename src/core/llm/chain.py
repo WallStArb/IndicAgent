@@ -21,8 +21,10 @@ from src.observability.metrics import (
     LLM_GUARDRAILS_REJECTIONS,
     record_llm_call,
 )
+from src.observability.otel import get_tracer
 
 logger = structlog.get_logger(__name__)
+_tracer = get_tracer("llm.chain")
 
 # Module-level singletons (shared across all LLMProviderChain instances)
 _cache = SemanticCache(max_size=500)
@@ -88,11 +90,30 @@ class LLMProviderChain:
         audit_context: dict | None = None,
     ) -> str | None:
         """Generate a response. Returns None if all providers fail or guardrails reject."""
+        with _tracer.start_as_current_span(
+            "llm.generate",
+            attributes={"call_type": self._call_type, "model": model},
+        ) as span:
+            return await self._generate_inner(
+                span, prompt, system, max_tokens, timeout, model, audit_context
+            )
+
+    async def _generate_inner(
+        self,
+        span: Any,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+        model: str,
+        audit_context: dict | None,
+    ) -> str | None:
         # 1. Cache lookup
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
                 LLM_CACHE_HITS.labels(call_type=self._call_type).inc()
+                span.set_attribute("llm.cache_hit", True)
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
@@ -110,10 +131,13 @@ class LLMProviderChain:
         )
         latency_s = time.monotonic() - t0
         provider_id = self._inner.last_provider_id or "unknown"
+        span.set_attribute("llm.provider", provider_id)
+        span.set_attribute("llm.latency_ms", round(latency_s * 1000, 1))
 
         # 4. Failure
         if response is None:
             record_llm_call(provider_id, self._call_type, latency_s, status="failure")
+            span.set_attribute("llm.status", "failure")
             return None
 
         # 5. Guardrails
@@ -124,6 +148,7 @@ class LLMProviderChain:
                 record_llm_call(
                     provider_id, self._call_type, latency_s, status="guardrails_rejected"
                 )
+                span.set_attribute("llm.status", "guardrails_rejected")
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
@@ -135,6 +160,7 @@ class LLMProviderChain:
             if (actual_total and actual_total > 0)
             else max(1, len(prompt) // 4 + len(response) // 4)
         )
+        span.set_attribute("llm.tokens", tokens)
 
         # 7. Budget recording (observability — never gates execution)
         _budget.record(call_type=self._call_type, provider=provider_id, tokens=tokens)

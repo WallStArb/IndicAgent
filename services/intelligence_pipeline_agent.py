@@ -116,6 +116,7 @@ from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
+    FEATURES_COMPUTED_TOTAL,
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     PLUGIN_DURATION_MS,
     PLUGIN_ERRORS_TOTAL,
@@ -1245,6 +1246,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 else:
                     tiered[tier_key] = result
                 frames[tier_key] = tiered[tier_key]
+                FEATURES_COMPUTED_TOTAL.labels(tier=tier_key).inc()
                 # Dual-write: keyed frames[tier_key] for typed tier access;
                 # flat frames["features"] for plugins that use the legacy flat dict.
                 features = frames.setdefault("features", {})

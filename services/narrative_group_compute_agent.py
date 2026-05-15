@@ -30,6 +30,7 @@ from src.core.stream_keys import (
 from src.intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+from src.observability.metrics import NARRATIVE_GENERATION_TOTAL
 
 logger = structlog.get_logger(__name__)
 
@@ -137,10 +138,12 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         try:
             result = await self._narrative_agent.compute(context)
         except Exception as exc:
+            NARRATIVE_GENERATION_TOTAL.labels(status="exception").inc()
             self.logger.error("narrative_group.compute_error", exc_info=exc)
             return
 
         if result.error:
+            NARRATIVE_GENERATION_TOTAL.labels(status="agent_error").inc()
             self.logger.warning(
                 "narrative_group.agent_error",
                 error=result.error,
@@ -158,6 +161,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             prompt_version=result.payload.get("prompt_version", ""),
             chars=len(result.payload.get("text", "")),
         )
+        NARRATIVE_GENERATION_TOTAL.labels(status="success").inc()
 
         assert self._producer is not None
         self._producer.publish(self.output_topic, msg=result.model_dump(mode="json"))

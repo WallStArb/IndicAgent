@@ -59,6 +59,7 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SWARM_AGENT_WEIGHT,
     SWARM_AGGREGATED_MULTIPLIER,
+    SWARM_DISPATCH_SECONDS,
     SWARM_INVOCATIONS_TOTAL,
     SWARM_MULTIPLIER_DISTRIBUTION,
 )
@@ -451,6 +452,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         if tf_minutes < self.settings.SWARM_MIN_TF_MINUTES:
             return
 
+        symbol = raw_signal.get("symbol", "")
+        import time as _time
+
+        _dispatch_t0 = _time.monotonic()
+
         try:
             signal = signal_dict_to_ranked(raw_signal)
         except Exception as e:
@@ -601,6 +607,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             tf=tf,
             swarm_multiplier=round(final_multiplier, 4),
             agent_count=agent_count,
+        )
+        SWARM_DISPATCH_SECONDS.labels(symbol=symbol, timeframe=tf).observe(
+            _time.monotonic() - _dispatch_t0
         )
 
     async def _record_swarm_result(

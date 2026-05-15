@@ -136,6 +136,10 @@ class BaseAgent(abc.ABC):
         so attributes set there are missing. This fallback provides safe defaults for the
         most common missing attributes without modifying all test instances.
         """
+        if name == "tracer":
+            from src.observability.otel import get_tracer
+
+            return get_tracer("test-noop")
         if name == "_meter":
             from src.observability.otel import get_meter
 

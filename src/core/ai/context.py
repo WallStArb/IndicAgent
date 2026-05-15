@@ -21,6 +21,7 @@ from src.intelligence.schemas import (
     I6Confluence,
     SMCContext,
 )
+from src.observability.metrics import AI_CONTEXT_CACHE_HITS_TOTAL, AI_CONTEXT_CACHE_MISSES_TOTAL
 
 if TYPE_CHECKING:
     from src.intelligence.schemas import IntelligenceEvent
@@ -251,6 +252,7 @@ class AIContextCache:
         tiers_needed: frozenset[Tier],
         signal: Any | None = None,
         signal_id: Any | None = None,
+        group_id: str = "",
     ) -> AIContext | None:
         """Build AIContext from cached event, populating only requested tiers.
 
@@ -263,6 +265,7 @@ class AIContextCache:
             tiers_needed: Frozenset of Tier enums to populate
             signal: Optional signal dict for i7 context
             signal_id: Optional signal UUID
+            group_id: Optional group_id for cache hit/miss metrics
 
         Returns:
             AIContext if cache hit and not stale, None otherwise
@@ -270,16 +273,20 @@ class AIContextCache:
         key = (symbol, tf)
         entry = self._cache.get(key)
         if entry is None:
+            AI_CONTEXT_CACHE_MISSES_TOTAL.labels(group_id=group_id).inc()
             logger.warning("ai_context.no_cache", symbol=symbol, tf=tf)
             return None
 
         event, cached_at = entry
         age = time.monotonic() - cached_at
         if age > _ttl_for_tf(tf):
+            AI_CONTEXT_CACHE_MISSES_TOTAL.labels(group_id=group_id).inc()
             logger.warning(
                 "ai_context.stale", symbol=symbol, tf=tf, age_s=round(age, 1), ttl_s=_ttl_for_tf(tf)
             )
             return None
+
+        AI_CONTEXT_CACHE_HITS_TOTAL.labels(group_id=group_id).inc()
 
         # Bar context — custom BarContext type (not in schemas.py)
         bar_ctx = None
