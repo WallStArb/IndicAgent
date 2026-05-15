@@ -11,8 +11,6 @@ Demotion gate (D-06): rolling EV[R] < demotion_threshold_ev_r for demotion_min_e
 from __future__ import annotations
 
 import asyncio
-import dataclasses
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,11 +20,8 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.database_manager import create_pool as create_db_pool
-from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stats_utils import bootstrap_ci_lower
-from src.core.stream_keys import topic_shadow_transitions
-from src.intelligence.schemas import ShadowTransitionEvent
 from src.observability.metrics import (
     SHADOW_DAYS_TO_GATE,
     SHADOW_EV_CI_LOWER,
@@ -63,7 +58,7 @@ def _ev_r_below_threshold(ev_r: float, threshold: float) -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def _run_audit(pool: asyncpg.Pool, producer: KafkaProducerClient, env_name: str) -> None:
+async def _run_audit(pool: asyncpg.Pool, env_name: str) -> None:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT component_name, component_type, is_shadow,
@@ -78,16 +73,15 @@ async def _run_audit(pool: asyncpg.Pool, producer: KafkaProducerClient, env_name
         ctype = row["component_type"]
 
         if row["is_shadow"]:
-            await _check_promotion(pool, producer, env_name, dict(row))
+            await _check_promotion(pool, env_name, dict(row))
         else:
-            await _check_demotion(pool, producer, env_name, dict(row))
+            await _check_demotion(pool, env_name, dict(row))
 
         logger.debug("shadow_audit_component_done", component_name=name, component_type=ctype)
 
 
 async def _check_promotion(
     pool: asyncpg.Pool,
-    producer: KafkaProducerClient,
     env_name: str,
     row: dict[str, Any],
 ) -> None:
@@ -183,19 +177,6 @@ async def _check_promotion(
                 ci_lower,
                 win_rate,
             )
-        event = ShadowTransitionEvent(
-            component_name=name,
-            component_type=ctype,
-            from_state="shadow",
-            to_state="live",
-            trigger_reason="promotion_gate_cleared",
-            n=n,
-            ev_r=ev_r,
-            ci_lower=ci_lower,
-            win_rate=win_rate,
-            triggered_at=now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        )
-        await _publish(producer, env_name, event)
         SHADOW_PROMOTION_READY.add(1, {"plugin": name})
         logger.info("shadow_promoted", component_name=name, n=n, ci_lower=ci_lower)
     else:
@@ -204,7 +185,6 @@ async def _check_promotion(
 
 async def _check_demotion(
     pool: asyncpg.Pool,
-    producer: KafkaProducerClient,
     env_name: str,
     row: dict[str, Any],
 ) -> None:
@@ -266,19 +246,6 @@ async def _check_demotion(
                     ci_lower,
                     win_rate,
                 )
-            event = ShadowTransitionEvent(
-                component_name=name,
-                component_type=ctype,
-                from_state="live",
-                to_state="shadow",
-                trigger_reason="demotion_ev_r_degraded",
-                n=n,
-                ev_r=ev_r,
-                ci_lower=ci_lower,
-                win_rate=win_rate,
-                triggered_at=now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-            )
-            await _publish(producer, env_name, event)
             logger.warning(
                 "shadow_demoted", component_name=name, ev_r=ev_r, consecutive_count=new_count
             )
@@ -291,20 +258,6 @@ async def _check_demotion(
             )
 
 
-async def _publish(
-    producer: KafkaProducerClient, env_name: str, event: ShadowTransitionEvent
-) -> None:
-    try:
-        payload = json.dumps(dataclasses.asdict(event)).encode()
-        await producer.send(
-            topic=topic_shadow_transitions(env_name),
-            key=event.component_name.encode(),
-            value=payload,
-        )
-    except Exception as exc:
-        logger.warning("shadow_transition_publish_failed", error=str(exc))
-
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -314,12 +267,9 @@ async def _amain() -> None:
     setup_service_logging("logs/shadow_auditor_agent.log")
     settings = Settings()
     pool = await create_db_pool(settings.database_url, min_size=2, max_size=5)
-    producer = KafkaProducerClient(bootstrap_servers=settings.kafka_bootstrap_servers)
-    await producer.start()
     try:
-        await _run_audit(pool, producer, settings.env_name)
+        await _run_audit(pool, settings.env_name)
     finally:
-        await producer.stop()
         await pool.close()
 
 
