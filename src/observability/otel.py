@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
@@ -34,6 +35,7 @@ def init_otel_providers(
             "service.name": service_name,
             "service.version": os.getenv("APP_VERSION", "dev"),
             "deployment.environment": os.getenv("INDICAGENT_ENV", os.getenv("ENV", "dev")),
+            "service.instance.id": f"{socket.gethostname()}:{os.getpid()}",
         }
     )
 
