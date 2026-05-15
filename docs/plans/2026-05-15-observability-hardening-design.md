@@ -98,21 +98,10 @@ def counter(name: str, documentation: str):
     return _meter.create_counter(name, description=documentation)
 
 def gauge(name: str, documentation: str):
-    return _meter.create_gauge(name, description=documentation)
+    return _meter.create_up_down_counter(name, description=documentation)
 ```
 
-### Label handling
-
-OTel SDK passes attributes at observation time, not at instrument creation:
-```python
-# Before (prometheus_client):
-PLUGIN_FALLBACK_TOTAL.labels(plugin_name="rsi", reason="error").inc()
-
-# After (OTel SDK):
-PLUGIN_FALLBACK_TOTAL.add(1, {"plugin_name": "rsi", "reason": "error"})
-```
-
-All 66 call sites are updated in the same pass. The named constants remain identical — call sites change only the `.labels(...).inc()` / `.observe()` call pattern.
+No UI is currently connected to gauge-type metrics, so `create_up_down_counter` is used for all prometheus `Gauge` replacements. One instrument type, one call pattern — simpler migration, no behavioral difference.
 
 ### Call site migration table
 
@@ -120,11 +109,9 @@ All 66 call sites are updated in the same pass. The named constants remain ident
 |---|---|---|
 | `Counter.labels(...).inc()` | `create_counter` | `.add(1, {...})` |
 | `Counter.labels(...).inc(n)` | `create_counter` | `.add(n, {...})` |
-| `Gauge.labels(...).set(v)` | `create_gauge` | `.set(v, {...})` |
-| `Gauge.labels(...).inc(n)` only | `create_up_down_counter` | `.add(1, {...})` |
+| `Gauge.labels(...).set(v)` | `create_up_down_counter` | `.add(v, {...})` |
+| `Gauge.labels(...).inc(n)` | `create_up_down_counter` | `.add(n, {...})` |
 | `Histogram.labels(...).observe(v)` | `create_histogram` | `.record(v, {...})` |
-
-`DLQ_DEPTH` is the only gauge that uses `.inc()` only (never `.set()`). It maps to `create_up_down_counter`. All other gauges use `.set()` and map to `create_gauge`.
 
 ### otel.py changes
 
