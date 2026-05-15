@@ -164,10 +164,17 @@ async def health():
 
 @app.get("/metrics")
 async def metrics():
-    """Standards-compliant metrics endpoint."""
-    from fastapi.responses import Response
-    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+    """Metrics are served by the OTel Collector at :8889/metrics (Prometheus format).
 
-    # Return Prometheus metrics
-    metrics_output = generate_latest()
-    return Response(content=metrics_output, media_type=CONTENT_TYPE_LATEST)
+    Returns a 404 with guidance — callers should scrape the Collector directly.
+    Prometheus job config: http://localhost:8889/metrics
+    """
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "Metrics are served by the OTel Collector at :8889/metrics",
+            "prometheus_url": "http://localhost:8889/metrics",
+        },
+    )
