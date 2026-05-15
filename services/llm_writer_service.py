@@ -28,7 +28,7 @@ from scipy.stats import binomtest
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts as _parse_ts
 from src.core.stream_keys import (
     topic_intelligence_i8,
@@ -37,7 +37,6 @@ from src.core.stream_keys import (
     topic_llm_writer_dlq,
 )
 from src.observability.metrics import (
-    DLQ_MESSAGES_TOTAL,
     counter,
     gauge,
 )
@@ -411,7 +410,6 @@ class LLMWriterAgent(BaseWriterAgent):
 
         # Connections (assigned in _run before consumption starts)
         self.db_manager: DatabaseManager | None = None
-        self._dlq_producer: KafkaProducerClient | None = None
 
         # Prometheus metrics (preserve existing names for dashboard/alerting compatibility)
         self.calls_consumed_total = counter(
@@ -463,6 +461,17 @@ class LLMWriterAgent(BaseWriterAgent):
     def _topic_name(self) -> str:
         """Primary Kafka topic — used by BaseWriterAgent for consumer setup."""
         return topic_llm_calls(self.env_name)
+
+    @property
+    def topics_consumed(self) -> list[str]:
+        """Kafka topics consumed — used by BaseAgent._send_to_dlq for source_topic."""
+        from src.core.stream_keys import topic_intelligence_i8, topic_llm_outcomes
+
+        return [
+            topic_llm_calls(self.env_name),
+            topic_llm_outcomes(self.env_name),
+            topic_intelligence_i8(self.env_name),
+        ]
 
     @property
     def _consumer_group(self) -> str:
@@ -560,10 +569,6 @@ class LLMWriterAgent(BaseWriterAgent):
             group=CONSUMER_GROUP,
         )
 
-        self._dlq_producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)
-        await self._dlq_producer.start()
-        self.logger.info("DLQ producer started", dlq_topic=topic_llm_writer_dlq(self.env_name))
-
     # ── Main lifecycle ────────────────────────────────────────────────────────
 
     async def _run(self) -> None:
@@ -610,12 +615,6 @@ class LLMWriterAgent(BaseWriterAgent):
                 await self._consumer.stop()
         except Exception:
             self.logger.exception("error_stopping_consumer")
-
-        try:
-            if self._dlq_producer:
-                await self._dlq_producer.stop()
-        except Exception:
-            self.logger.exception("error_stopping_dlq_producer")
 
         try:
             if self.db_manager:
@@ -682,7 +681,7 @@ class LLMWriterAgent(BaseWriterAgent):
             if parsed is None:
                 self.logger.warning("Malformed llm_call message — routing to DLQ")
                 self.error_count_total.add(1)
-                await self._send_to_dlq(payload, source_topic, "parse_failure")
+                await self._send_to_dlq(payload, RuntimeError("parse_failure"))
                 return True
 
             params = self._parsed_to_insert_tuple(parsed)
@@ -700,7 +699,7 @@ class LLMWriterAgent(BaseWriterAgent):
             self.logger.error("Error processing llm_call message", error=str(e))
             self.error_count_total.add(1)
             self._error_count += 1
-            await self._send_to_dlq(payload, source_topic, type(e).__name__)
+            await self._send_to_dlq(payload, e)
             return False
 
     async def _process_outcome_message(self, payload: dict, source_topic: str = "") -> bool:
@@ -714,7 +713,7 @@ class LLMWriterAgent(BaseWriterAgent):
             if parsed is None:
                 self.logger.warning("Malformed outcome message — routing to DLQ")
                 self.error_count_total.add(1)
-                await self._send_to_dlq(payload, source_topic, "parse_failure")
+                await self._send_to_dlq(payload, RuntimeError("parse_failure"))
                 return True
 
             if self.db_manager:
@@ -746,7 +745,7 @@ class LLMWriterAgent(BaseWriterAgent):
             self.logger.error("Error processing outcome message", error=str(e))
             self.error_count_total.add(1)
             self._error_count += 1
-            await self._send_to_dlq(payload, source_topic, type(e).__name__)
+            await self._send_to_dlq(payload, e)
             return False
 
     async def _process_i8_message(self, payload: dict) -> None:
@@ -906,41 +905,6 @@ class LLMWriterAgent(BaseWriterAgent):
             self.logger.error("Score recompute failed", error=str(e))
             self.error_count_total.add(1)
             self._error_count += 1
-
-    async def _send_to_dlq(self, payload: dict, source_topic: str, error_type: str) -> None:
-        """Route an unparseable message to the LLM writer DLQ topic.
-
-        Increments DLQ_MESSAGES_TOTAL and DLQ_DEPTH metrics. Logs a warning.
-        Continues processing (never raises) — bad messages must not crash the agent.
-        """
-        dlq_topic = topic_llm_writer_dlq(self.env_name)
-        try:
-            if self._dlq_producer:
-                await self._dlq_producer.publish(
-                    dlq_topic,
-                    {
-                        "original_topic": source_topic,
-                        "error_type": error_type,
-                        "payload": payload,
-                        "failed_at": datetime.now(tz=UTC).isoformat(),
-                    },
-                )
-            DLQ_MESSAGES_TOTAL.add(
-                1,
-                {
-                    "agent": "llm_writer_agent",
-                    "topic": dlq_topic,
-                    "error_type": error_type,
-                },
-            )
-            self.logger.warning(
-                "Message routed to DLQ",
-                dlq_topic=dlq_topic,
-                source_topic=source_topic,
-                error_type=error_type,
-            )
-        except Exception as e:
-            self.logger.error("Failed to publish to DLQ", error=str(e), dlq_topic=dlq_topic)
 
     async def _stall_watchdog(self) -> None:
         """Warn if no messages have been consumed for max_idle_seconds.

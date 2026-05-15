@@ -56,6 +56,7 @@ def test_eval_query_filters_by_transform_and_segment():
 def _make_agent() -> GraduationComputeAgent:
     """Bypass __init__ — set required attributes manually."""
     a = GraduationComputeAgent.__new__(GraduationComputeAgent)
+    a.name = "GraduationComputeAgent"
     a.logger = MagicMock()
     a._pool = MagicMock()
     a._producer = AsyncMock()
@@ -273,6 +274,7 @@ async def test_evaluate_segment_dlq_payload_contains_error():
 
     last_call = a._producer.publish.await_args_list[-1]
     dlq_payload = last_call.args[1]
-    assert "connection refused" in dlq_payload["error"]
-    assert dlq_payload["transform_id"] == "hurst_quality"
-    assert dlq_payload["segment_key"] == "trend.5m"
+    # DLQPayload schema: error_message field, original payload nested under "payload"
+    assert "connection refused" in dlq_payload["error_message"]
+    assert dlq_payload["payload"]["transform_id"] == "hurst_quality"
+    assert dlq_payload["payload"]["segment_key"] == "trend.5m"

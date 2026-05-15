@@ -126,6 +126,9 @@ class GraduationComputeAgent(BaseAgent):
     def topics_produced(self) -> list[str]:
         return [topic_transform_graduation(self.env_name)]
 
+    def _dlq_topic(self) -> str | None:
+        return topic_transform_graduation_dlq(self.env_name)
+
     async def _setup(self) -> None:
         """Open DB pool, start Kafka clients, seed counters from transform_graduation."""
         self._pool = await create_db_pool(
@@ -289,25 +292,14 @@ class GraduationComputeAgent(BaseAgent):
                 error=str(exc),
             )
             # Route to DLQ so the error is traceable without crashing the loop
-            if self._producer is not None:
-                dlq_payload = {
-                    "transform_id": transform_id,
-                    "transform_version": transform_version,
-                    "segment_key": segment_key,
-                    "error": str(exc),
-                    "ts": datetime.now(UTC).isoformat(),
-                }
-                try:
-                    await self._producer.publish(
-                        topic_transform_graduation_dlq(self.env_name),
-                        dlq_payload,
-                        key=f"{transform_id}:{segment_key}",
-                    )
-                except Exception as dlq_exc:
-                    self.logger.error(
-                        "graduation_compute.dlq_publish_failed",
-                        error=str(dlq_exc),
-                    )
+            dlq_payload = {
+                "transform_id": transform_id,
+                "transform_version": transform_version,
+                "segment_key": segment_key,
+                "error": str(exc),
+                "ts": datetime.now(UTC).isoformat(),
+            }
+            await self._send_to_dlq(dlq_payload, exc)
             return False
 
     async def _teardown(self) -> None:
