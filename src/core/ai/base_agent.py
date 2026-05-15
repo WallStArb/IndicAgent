@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import time
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 import structlog
 
 from src.core.agent.base import BaseAgent
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
+from src.core.service_utils import format_iso_ts
 from src.observability.metrics import AI_AGENT_DURATION_MS, AI_AGENT_INVOCATIONS_TOTAL
 
 logger = structlog.get_logger(__name__)
@@ -152,6 +155,51 @@ class BaseAIAgent(BaseAgent, ABC):
             shadow_only=self.shadow_only,
             latency_ms=latency_ms,
             error=error,
+        )
+
+    async def _llm_generate(
+        self,
+        context: AIContext,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+        model: str = "default",
+        extra_audit: dict | None = None,
+    ) -> str | None:
+        """Generate LLM response with automatic audit trail.
+
+        Wraps self._llm.generate() with auto-injected audit_context so every
+        LLM call is captured for model scoring. Agents MUST use this instead of
+        calling self._llm.generate() directly — instrumentation should be
+        impossible to forget.
+        """
+        audit_context: dict[str, Any] = {
+            "call_id": str(uuid4()),
+            "called_at": format_iso_ts(datetime.now(UTC)),
+            "symbol": context.symbol,
+            "signal_id": str(context.signal_id) if context.signal_id else None,
+            "group_name": self.group,
+            "timeframe": context.timeframe,
+            "prompt": prompt,
+            "succeeded": True,
+        }
+
+        if context.smc is not None:
+            regime = getattr(context.smc, "hmm_regime", None)
+            if regime is not None:
+                audit_context["regime"] = str(int(regime))
+
+        if extra_audit:
+            audit_context.update(extra_audit)
+
+        return await self._llm.generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            model=model,
+            audit_context=audit_context,
         )
 
     # -----------------------------------------------------------------------

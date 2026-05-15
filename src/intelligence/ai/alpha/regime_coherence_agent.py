@@ -86,7 +86,8 @@ class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
         """
         prompt = build_regime_coherence_prompt(context)
 
-        response = await self._llm.generate(
+        response = await self._llm_generate(
+            context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
             max_tokens=2000,

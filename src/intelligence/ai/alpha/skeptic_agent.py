@@ -68,7 +68,8 @@ class SkepticComputeAgent(BaseMultiplierAgent):
         else:
             prompt = build_skeptic_prompt(_context_to_dict(context))
 
-        response = await self._llm.generate(
+        response = await self._llm_generate(
+            context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
             max_tokens=2000,

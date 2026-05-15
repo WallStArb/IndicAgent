@@ -53,7 +53,8 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
         """
         prompt = build_counterfactual_prompt(context)
 
-        response = await self._llm.generate(
+        response = await self._llm_generate(
+            context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
             max_tokens=2000,

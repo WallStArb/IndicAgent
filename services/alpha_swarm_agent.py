@@ -589,7 +589,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             "agent_outputs": agent_outputs_list,
             "ts": _now_utc_iso(),
         }
-        self._producer.publish(
+        await self._producer.publish(
             topic_swarm_alpha(self.settings.env_name),
             msg=event_payload,
         )
