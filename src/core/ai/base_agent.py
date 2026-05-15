@@ -64,6 +64,7 @@ class BaseAIAgent(BaseAgent, ABC):
     tiers_needed: frozenset[Tier] = frozenset()
     shadow_only: bool = True  # D-37: always True, graduation_loop flips it
     latency_budget_ms: float = 5000.0  # D-51: default ceiling, tuned per agent
+    prompt_version: str = ""  # override in subclass, e.g. "skeptic_v2"
 
     def __init__(self, name: str | None = None, *args: Any, **kwargs: Any) -> None:
         # If name not provided, use class name or agent_id
@@ -180,6 +181,8 @@ class BaseAIAgent(BaseAgent, ABC):
             "symbol": context.symbol,
             "signal_id": str(context.signal_id) if context.signal_id else None,
             "group_name": self.group,
+            "agent_id": self.agent_id,
+            "prompt_version": self.prompt_version,
             "timeframe": context.timeframe,
             "prompt": prompt,
             "succeeded": True,

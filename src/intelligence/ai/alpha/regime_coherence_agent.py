@@ -70,6 +70,7 @@ class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
     }
 
     agent_id = "regime_coherence_v1"
+    prompt_version = ACTIVE_VERSION
     group = "alpha"
     tiers_needed = frozenset({Tier.I4, Tier.I7, Tier.SMC})
     latency_budget_ms = 120000.0
