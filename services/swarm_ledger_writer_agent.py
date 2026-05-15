@@ -226,7 +226,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                             str(ml_model_id) if ml_model_id else None,
                         )
 
-                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="success").inc()
+                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.add(1, {"status": "success"})
                 self.logger.debug(
                     "swarm_ledger_writer.enrichment_written",
                     signal_id=signal_id,
@@ -235,7 +235,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                 return
 
             except _SignalNotReady:
-                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="retry").inc()
+                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.add(1, {"status": "retry"})
                 await asyncio.sleep(delay)
 
             except asyncpg.exceptions.InvalidTextRepresentationError:
@@ -244,11 +244,11 @@ class SwarmLedgerWriterAgent(BaseAgent):
                     "swarm_ledger_writer.invalid_uuid",
                     signal_id=signal_id,
                 )
-                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="miss").inc()
+                SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.add(1, {"status": "miss"})
                 return
 
         # Exhausted all retries — signal_ledger row never became visible
-        SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.labels(status="miss").inc()
+        SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.add(1, {"status": "miss"})
         self.logger.warning(
             "swarm_ledger_writer.row_missing",
             signal_id=signal_id,

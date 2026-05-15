@@ -38,6 +38,7 @@ def _make_agent():
     agent._processing_latency.__enter__ = MagicMock(return_value=None)
     agent._processing_latency.__exit__ = MagicMock(return_value=False)
     agent._last_roll_ts = MagicMock()
+    agent._agent_attrs = {"agent": "contract_metadata_writer_agent"}
     return agent
 
 

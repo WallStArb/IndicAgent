@@ -22,12 +22,13 @@ Status: Phase 053.1 Plan 02
 from __future__ import annotations
 
 import asyncio
+import time as _time
 from datetime import UTC, date, datetime, timedelta
 from typing import NamedTuple
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
-from prometheus_client import Counter, Gauge, Histogram
+from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
 from src.core.agent.base import BaseAgent
@@ -74,32 +75,27 @@ class _AuditWindow(NamedTuple):
     expected: int
 
 
-# Module-level metric objects — prevents duplicate registration if the agent class
-# is imported more than once in the same process (e.g., unit tests without isolation)
-_AUDITS_RUN = Counter(
+# Module-level OTel metrics
+_ba_meter = _otel_metrics.get_meter("indicagent")
+_AUDITS_RUN = _ba_meter.create_counter(
     "bar_auditor_audits_run_total",
-    "Total audit cycles completed",
-    ["agent"],
+    description="Total audit cycles completed",
 )
-_GAP_REQUESTS_PUBLISHED = Counter(
+_GAP_REQUESTS_PUBLISHED = _ba_meter.create_counter(
     "bar_auditor_gap_requests_published_total",
-    "BarGapRequest events published to Kafka",
-    ["agent"],
+    description="BarGapRequest events published to Kafka",
 )
-_AUDIT_DURATION = Histogram(
+_AUDIT_DURATION = _ba_meter.create_histogram(
     "bar_auditor_audit_duration_seconds",
-    "Wall-clock time for a full audit cycle",
-    ["agent"],
+    description="Wall-clock time for a full audit cycle",
 )
-_AUDIT_ERRORS = Counter(
+_AUDIT_ERRORS = _ba_meter.create_counter(
     "bar_auditor_audit_errors_total",
-    "Exceptions during audit cycles",
-    ["agent"],
+    description="Exceptions during audit cycles",
 )
-_CANONICAL_COMPLETENESS = Gauge(
+_CANONICAL_COMPLETENESS = _ba_meter.create_up_down_counter(
     "bar_auditor_canonical_completeness_pct",
-    "Fraction of expected 1m bars present (0.0–1.0)",
-    ["agent", "symbol", "tf"],
+    description="Fraction of expected 1m bars present (0.0–1.0)",
 )
 
 
@@ -123,14 +119,7 @@ class BarAuditorAgent(BaseAgent):
         self._post_roll_suppression: dict[str, datetime] = {}
         self._roll_consumer: KafkaConsumerClient | None = None
 
-        # Cache labeled children — avoids .labels() lookup on every audit cycle
-        self._audits_run = _AUDITS_RUN.labels(agent=self.name)
-        self._gap_requests_published = _GAP_REQUESTS_PUBLISHED.labels(agent=self.name)
-        self._audit_duration = _AUDIT_DURATION.labels(agent=self.name)
-        self._audit_errors = _AUDIT_ERRORS.labels(agent=self.name)
-        # Dynamic symbol/tf labels — cannot pre-cache; call .labels() at use time
-        self._canonical_completeness = _CANONICAL_COMPLETENESS
-
+        self._agent_attrs = {"agent": self.name}
         # Module-level counter (already registered in metrics.py via Plan 1)
         self._gap_fill_dlq_depth = BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
@@ -334,8 +323,8 @@ class BarAuditorAgent(BaseAgent):
                 actual = counts.get((sym, w.date_start_utc, "1m"), 0)
                 completeness = actual / w.expected
 
-                self._canonical_completeness.labels(agent=self.name, symbol=sym, tf="1m").set(
-                    completeness
+                _CANONICAL_COMPLETENESS.add(
+                    completeness, {"agent": self.name, "symbol": sym, "tf": "1m"}
                 )
 
                 if completeness < threshold:
@@ -381,9 +370,9 @@ class BarAuditorAgent(BaseAgent):
                         continue
                     actual_htf = counts.get((sym, w.date_start_utc, tf_name), 0)
                     completeness_htf = actual_htf / expected_htf
-                    self._canonical_completeness.labels(
-                        agent=self.name, symbol=sym, tf=tf_name
-                    ).set(completeness_htf)
+                    _CANONICAL_COMPLETENESS.add(
+                        completeness_htf, {"agent": self.name, "symbol": sym, "tf": tf_name}
+                    )
                     if completeness_htf < threshold:
                         self.logger.warning(
                             "bar_auditor_agent.htf_gap_detected",
@@ -406,8 +395,9 @@ class BarAuditorAgent(BaseAgent):
         if instruments is None:
             instruments = get_active_contracts(self.settings)
         try:
-            with self._audit_duration.time():
-                gap_requests = await self._detect_gaps(instruments)
+            _ad_t0 = _time.monotonic()
+            gap_requests = await self._detect_gaps(instruments)
+            _AUDIT_DURATION.record(_time.monotonic() - _ad_t0, self._agent_attrs)
 
             for req in gap_requests:
                 await self._kafka_producer.publish(
@@ -415,16 +405,16 @@ class BarAuditorAgent(BaseAgent):
                     req.model_dump(mode="json"),
                     key=req.symbol,
                 )
-                self._gap_requests_published.inc()
+                _GAP_REQUESTS_PUBLISHED.add(1, self._agent_attrs)
 
-            self._audits_run.inc()
+            _AUDITS_RUN.add(1, self._agent_attrs)
             self.logger.info(
                 "bar_auditor_agent.audit_complete",
                 gap_requests_published=len(gap_requests),
             )
 
         except Exception as exc:
-            self._audit_errors.inc()
+            _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "bar_auditor_agent.audit_error",
                 error=str(exc),
@@ -600,7 +590,7 @@ class BarAuditorAgent(BaseAgent):
             payload,
             key=symbol,
         )
-        self._gap_fill_dlq_depth.inc()
+        self._gap_fill_dlq_depth.add(1)
         self.logger.warning(
             "bar_auditor_agent.gap_fill_dlq",
             symbol=symbol,

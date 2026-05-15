@@ -32,7 +32,7 @@ from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
-from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, OTelGauge
+from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, SERVICE_UP_GAUGE
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
@@ -147,13 +147,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
 }
-
-# OTel gauge for per-unit service health (1=active, 0=inactive/failed)
-SERVICE_UP_GAUGE = OTelGauge(
-    "indicagent_service_up",
-    "Service health status: 1=active, 0=inactive/failed",
-    ["unit"],
-)
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +312,7 @@ class ServiceAuditorAgent(BaseAgent):
                     await self._evaluate_service_dynamic(
                         unit, active, sub, lag, lag_threshold, has_metrics, bars_per_sec
                     )
-                    SERVICE_UP_GAUGE.labels(unit=unit).set(1 if has_metrics else 0)
+                    SERVICE_UP_GAUGE.add(1 if has_metrics else 0, {"unit": unit})
             except Exception as exc:
                 self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
 
@@ -532,7 +525,7 @@ class ServiceAuditorAgent(BaseAgent):
                     stderr=stderr.decode().strip(),
                 )
         # Increment metric after restart attempt
-        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=unit).inc()
+        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": unit})
 
     # -- Prometheus interface -------------------------------------------------
 
@@ -754,7 +747,7 @@ class ServiceAuditorAgent(BaseAgent):
                     stderr=stderr.decode() if stderr else "",
                 )
                 return
-            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(service_name=service_name).inc()
+            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": service_name})
             self.logger.info("roll_automation.restart_complete", service=service_name)
         except Exception as exc:
             self.logger.error(

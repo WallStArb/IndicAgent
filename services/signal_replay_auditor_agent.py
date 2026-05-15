@@ -150,7 +150,7 @@ class SignalReplayAuditorAgent:
 
         bars = await self._fetch_window_bars(row["symbol"], tf, start_ts, end_ts)
         if not bars:
-            SIGNAL_REPLAY_OHLCV_GAP_TOTAL.labels(symbol=row["symbol"], timeframe=tf).inc()
+            SIGNAL_REPLAY_OHLCV_GAP_TOTAL.add(1, {"symbol": row["symbol"], "timeframe": tf})
             self._log.warning(
                 "replay_ohlcv_gap",
                 signal_id=str(row["signal_id"]),
@@ -169,7 +169,7 @@ class SignalReplayAuditorAgent:
             assert self._producer is not None
             await self._producer.publish(topic, msg=to_dict(zone_transition))
             outcome_str = zone_transition.data.get("outcome") or "unknown"
-            SIGNAL_REPLAY_RESOLVED_TOTAL.labels(outcome=outcome_str).inc()
+            SIGNAL_REPLAY_RESOLVED_TOTAL.add(1, {"outcome": outcome_str})
             resolved = True
             self._log.info(
                 "replay_zone_resolved",
@@ -439,7 +439,7 @@ class SignalReplayAuditorAgent:
 
         # Refresh north-star gauge after batch (writes are async, slight lag ok)
         cnt = await self._count_unresolved()
-        SIGNAL_REPLAY_UNRESOLVED_GAUGE.set(float(cnt))
+        SIGNAL_REPLAY_UNRESOLVED_GAUGE.add(float(cnt))
         self._log.info("replay_cycle_complete", unresolved_gauge=cnt)
 
     async def _run(self) -> None:

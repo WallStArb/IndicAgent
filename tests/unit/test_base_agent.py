@@ -353,28 +353,29 @@ async def test_setup_failure_does_not_log_run_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_base_agent_has_crash_metrics() -> None:
-    """BaseAgent tracks crashes via agent_crash_total counter."""
+    """BaseAgent tracks crashes via agent_crash_total counter (OTel .add call)."""
+    from unittest.mock import MagicMock, patch
 
     class CrashAgent(BaseAgent):
         async def _run(self) -> None:
             raise RuntimeError("simulated crash")
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    mock_counter = MagicMock()
+    with (
+        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.AGENT_CRASH_TOTAL", mock_counter),
+    ):
         a = CrashAgent(name="crash_test")
-        # Get the crash total before and after (OTelCounter uses .get() not ._value.get())
-        from src.core.agent.base import AGENT_CRASH_TOTAL
-
-        before = AGENT_CRASH_TOTAL.labels(agent="crash_test").get()
         with pytest.raises(RuntimeError):
             await a.start()
-        after = AGENT_CRASH_TOTAL.labels(agent="crash_test").get()
-        # Counter should have incremented
-        assert after == before + 1
+    # OTel counter: .add(1, {"agent": "crash_test"}) must have been called
+    mock_counter.add.assert_called_once_with(1, {"agent": "crash_test"})
 
 
 @pytest.mark.asyncio
 async def test_base_agent_tracks_setup_success() -> None:
-    """BaseAgent tracks successful _setup() completion."""
+    """BaseAgent tracks successful _setup() completion (OTel .add call)."""
+    from unittest.mock import MagicMock, patch
 
     class SuccessAgent(BaseAgent):
         async def _setup(self) -> None:
@@ -383,19 +384,20 @@ async def test_base_agent_tracks_setup_success() -> None:
         async def _run(self) -> None:
             self._stop_event.set()
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    mock_counter = MagicMock()
+    with (
+        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.AGENT_SETUP_SUCCESS_TOTAL", mock_counter),
+    ):
         a = SuccessAgent(name="success_test")
-        from src.core.agent.base import AGENT_SETUP_SUCCESS_TOTAL
-
-        before = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
         await a.start()
-        after = AGENT_SETUP_SUCCESS_TOTAL.labels(agent="success_test").get()
-        assert after == before + 1
+    mock_counter.add.assert_called_once_with(1, {"agent": "success_test"})
 
 
 @pytest.mark.asyncio
 async def test_base_agent_tracks_setup_failure() -> None:
-    """BaseAgent tracks failed _setup() with error_type label."""
+    """BaseAgent tracks failed _setup() with error_type attribute (OTel .add call)."""
+    from unittest.mock import MagicMock, patch
 
     class FailSetupAgent(BaseAgent):
         async def _setup(self) -> None:
@@ -404,19 +406,17 @@ async def test_base_agent_tracks_setup_failure() -> None:
         async def _run(self) -> None:
             pass
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    mock_counter = MagicMock()
+    with (
+        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.AGENT_SETUP_FAILURE_TOTAL", mock_counter),
+    ):
         a = FailSetupAgent(name="fail_setup_test")
-        from src.core.agent.base import AGENT_SETUP_FAILURE_TOTAL
-
-        before = AGENT_SETUP_FAILURE_TOTAL.labels(
-            agent="fail_setup_test", error_type="ValueError"
-        ).get()
         with pytest.raises(ValueError):
             await a.start()
-        after = AGENT_SETUP_FAILURE_TOTAL.labels(
-            agent="fail_setup_test", error_type="ValueError"
-        ).get()
-        assert after == before + 1
+    mock_counter.add.assert_called_once_with(
+        1, {"agent": "fail_setup_test", "error_type": "ValueError"}
+    )
 
 
 @pytest.mark.asyncio

@@ -138,12 +138,12 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         try:
             result = await self._narrative_agent.compute(context)
         except Exception as exc:
-            NARRATIVE_GENERATION_TOTAL.labels(status="exception").inc()
+            NARRATIVE_GENERATION_TOTAL.add(1, {"status": "exception"})
             self.logger.error("narrative_group.compute_error", exc_info=exc)
             return
 
         if result.error:
-            NARRATIVE_GENERATION_TOTAL.labels(status="agent_error").inc()
+            NARRATIVE_GENERATION_TOTAL.add(1, {"status": "agent_error"})
             self.logger.warning(
                 "narrative_group.agent_error",
                 error=result.error,
@@ -161,7 +161,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             prompt_version=result.payload.get("prompt_version", ""),
             chars=len(result.payload.get("text", "")),
         )
-        NARRATIVE_GENERATION_TOTAL.labels(status="success").inc()
+        NARRATIVE_GENERATION_TOTAL.add(1, {"status": "success"})
 
         assert self._producer is not None
         self._producer.publish(self.output_topic, msg=result.model_dump(mode="json"))

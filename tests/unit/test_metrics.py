@@ -1,4 +1,4 @@
-"""Tests for Prometheus metrics (Phase 67 Task 3)."""
+"""Tests for OTel metrics (Phase 67 Task 3, updated for OTel in Phase 083-03)."""
 
 from src.observability.metrics import (
     BAR_AUDITOR_GAP_FILL_DLQ_DEPTH,
@@ -10,20 +10,17 @@ class TestServiceAuditorMetrics:
     """Verify ServiceAuditorAgent observability metrics (Task 3)."""
 
     def test_service_auditor_service_restarts_total_registered(self):
-        """SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL is registered and usable."""
-        # Should not raise ValueError for duplicate registration
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-            service_name="indicagent-ibkr-provider"
-        )
-        metric.inc()
-        # If we get here, test passes
+        """SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL is an OTel counter with .add()."""
+        assert hasattr(SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, "add")
+        # Should not raise
+        SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": "indicagent-ibkr-provider"})
 
 
 class TestBarAuditorMetrics:
     """Verify BarAuditorAgent observability metrics (Task 3)."""
 
     def test_bar_auditor_gap_fill_dlq_depth_registered(self):
-        """BAR_AUDITOR_GAP_FILL_DLQ_DEPTH is registered and usable."""
-        # Should not raise ValueError for duplicate registration
-        BAR_AUDITOR_GAP_FILL_DLQ_DEPTH.inc()
-        # If we get here, test passes
+        """BAR_AUDITOR_GAP_FILL_DLQ_DEPTH is an OTel up_down_counter with .add()."""
+        assert hasattr(BAR_AUDITOR_GAP_FILL_DLQ_DEPTH, "add")
+        # Should not raise
+        BAR_AUDITOR_GAP_FILL_DLQ_DEPTH.add(1)

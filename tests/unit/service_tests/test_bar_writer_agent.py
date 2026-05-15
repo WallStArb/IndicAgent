@@ -14,61 +14,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from prometheus_client import Counter, Gauge, Histogram
-
-# ---------------------------------------------------------------------------
-# Module-level test metrics (created once to avoid duplicate registration)
-# ---------------------------------------------------------------------------
-
-_TEST_EVENTS_CONSUMED = Counter(
-    "test_bwa_events_consumed_total",
-    "Events consumed (test)",
-    ["agent"],
-)
-_TEST_BARS_WRITTEN = Counter(
-    "test_bwa_bars_written_total",
-    "Bars written (test)",
-    ["agent", "tf"],
-)
-_TEST_BATCH_LATENCY = Histogram(
-    "test_bwa_batch_latency_seconds",
-    "Batch latency (test)",
-    ["agent"],
-)
-_TEST_WRITE_ERRORS = Counter(
-    "test_bwa_write_errors_total",
-    "Write errors (test)",
-    ["agent"],
-)
-_TEST_CONFLICT_SKIPS = Counter(
-    "test_bwa_conflict_skips_total",
-    "Conflict skips (test)",
-    ["agent"],
-)
-_TEST_CONSUMER_LAG = Gauge(
-    "test_bwa_consumer_lag",
-    "Consumer lag (test)",
-    ["agent"],
-)
-_TEST_CONTRACT_CACHE_SIZE = Gauge(
-    "test_bwa_contract_cache_size",
-    "Cache size (test)",
-    ["agent"],
-)
-_TEST_CONTRACT_CACHE_RELOADS = Counter(
-    "test_bwa_contract_cache_reloads_total",
-    "Cache reloads (test)",
-    ["agent"],
-)
-_TEST_BUFFER_DEPTH = Gauge(
-    "test_bwa_buffer_depth",
-    "Buffer depth (test)",
-)
-_TEST_BUFFER_OVERFLOW = Counter(
-    "test_bwa_buffer_overflow_total",
-    "Buffer overflow (test)",
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers: build a minimal BarWriterAgent bypassing __init__
@@ -92,15 +37,14 @@ def _make_agent():
     agent.BATCH_SIZE = 50
     agent.FLUSH_INTERVAL_SECS = 5.0
 
-    # Wire module-level test metrics
-    agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_writer_agent")
-    agent._persistence_batch_latency_lbl = _TEST_BATCH_LATENCY.labels(agent="bar_writer_agent")
-    agent._write_errors_lbl = _TEST_WRITE_ERRORS.labels(agent="bar_writer_agent")
-    agent._conflict_skips_lbl = _TEST_CONFLICT_SKIPS.labels(agent="bar_writer_agent")
-    agent._persistence_consumer_lag_lbl = _TEST_CONSUMER_LAG.labels(agent="bar_writer_agent")
+    # OTel attrs dicts (mirrors __init__ pattern)
+    agent._events_consumed_attrs = {"agent": "bar_writer_agent"}
+    agent._batch_latency_attrs = {"agent": "bar_writer_agent"}
+    agent._write_errors_attrs = {"agent": "bar_writer_agent"}
+    agent._conflict_skips_attrs = {"agent": "bar_writer_agent"}
     _tfs = ("1m", "5m", "15m", "1h", "4h", "1d")
-    agent._bars_written_lbl: dict[str, Counter] = {
-        tf: _TEST_BARS_WRITTEN.labels(agent="bar_writer_agent", tf=tf) for tf in _tfs
+    agent._bars_written_attrs: dict[str, dict] = {
+        tf: {"agent": "bar_writer_agent", "tf": tf} for tf in _tfs
     }
     # Contract cache (SoT: contract_metadata)
     agent._contract_cache: dict[str, str] = {
@@ -112,12 +56,10 @@ def _make_agent():
         "CLM6": "CL",
         "GCJ6": "GC",
     }
-    agent._contract_cache_size_lbl = _TEST_CONTRACT_CACHE_SIZE.labels(agent="bar_writer_agent")
-    agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(
-        agent="bar_writer_agent"
-    )
-    agent._buffer_depth_gauge = _TEST_BUFFER_DEPTH
-    agent._buffer_overflow_total = _TEST_BUFFER_OVERFLOW
+    agent._contract_cache_size_attrs = {"agent": "bar_writer_agent"}
+    agent._contract_cache_reloads_attrs = {"agent": "bar_writer_agent"}
+    agent._buffer_depth_gauge = MagicMock()
+    agent._buffer_overflow_total = MagicMock()
 
     # Write-path observability metrics (Phase 69)
     agent._flush_latency = MagicMock()
@@ -385,7 +327,9 @@ async def test_handle_contract_update_survives_malformed_payload():
 
 @pytest.mark.asyncio
 async def test_flush_batch_increments_tf_counter():
-    """_flush_batch increments bars_written_lbl for correct timeframe (not base symbol)."""
+    """_flush_batch calls BARS_WRITTEN.add(1, attrs) for the correct timeframe."""
+    from unittest.mock import patch
+
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
@@ -403,8 +347,8 @@ async def test_flush_batch_increments_tf_counter():
     )
     agent._db_pool = mock_pool
 
-    before = agent._bars_written_lbl["1m"]._value.get()
-    await agent._flush_batch(batch)
-    after = agent._bars_written_lbl["1m"]._value.get()
+    with patch("services.bar_writer_agent._BARS_WRITTEN") as mock_bars:
+        await agent._flush_batch(batch)
 
-    assert after == before + 1  # exactly 1 bar written for "1m"
+    # OTel counter: .add(1, {"agent": ..., "tf": "1m"}) must have been called
+    mock_bars.add.assert_called_once_with(1, agent._bars_written_attrs["1m"])

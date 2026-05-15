@@ -150,15 +150,14 @@ class BaseAIAgent(BaseAgent, ABC):
         ...
 
     def _record_metrics(self, status: str, latency_ms: float) -> None:
-        AI_AGENT_INVOCATIONS_TOTAL.labels(
-            agent_id=self.agent_id,
-            group=self.group,
-            status=status,
-        ).inc()
-        AI_AGENT_DURATION_MS.labels(
-            agent_id=self.agent_id,
-            group=self.group,
-        ).observe(latency_ms)
+        AI_AGENT_INVOCATIONS_TOTAL.add(
+            1,
+            {"agent_id": self.agent_id, "group": self.group, "status": status},
+        )
+        AI_AGENT_DURATION_MS.record(
+            latency_ms,
+            {"agent_id": self.agent_id, "group": self.group},
+        )
 
     def _neutral(self, error: str, latency_ms: float) -> AgentOutput:
         """Return neutral AgentOutput for error/timeout cases."""

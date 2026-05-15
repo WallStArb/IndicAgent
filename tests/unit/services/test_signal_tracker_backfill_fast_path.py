@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
-from src.observability.metrics import SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL
 
 
 def _make_agent() -> SignalTrackerComputeAgent:
@@ -73,13 +72,12 @@ class TestBackfillFastPathExpired:
         signal_ts = datetime.now(UTC) - timedelta(minutes=20)
         canonical = _make_backfill_canonical("fast-path-expired-001", signal_ts, ttl_bars=10)
 
-        # Track counter before
-        before = SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
-            symbol="ES", timeframe="1m"
-        )._value.get()
-
-        # Patch the async publish method and _add_to_active_index
+        mock_fastpath = MagicMock()
         with (
+            patch(
+                "services.signal_tracker_compute_agent.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
+                mock_fastpath,
+            ),
             patch.object(
                 agent, "_publish_ttl_expired_transition_sync", wraps=MagicMock()
             ) as mock_ttl,
@@ -95,11 +93,8 @@ class TestBackfillFastPathExpired:
         # signal_id must be tracked in dedup set
         assert "fast-path-expired-001" in agent._signal_ids
 
-        # Fast-path counter must have incremented
-        after = SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
-            symbol="ES", timeframe="1m"
-        )._value.get()
-        assert after > before, f"Fast-path counter not incremented: before={before}, after={after}"
+        # OTel counter: .add(1, ...) must have been called
+        mock_fastpath.add.assert_called()
 
 
 class TestBackfillCarriedForward:
@@ -114,12 +109,12 @@ class TestBackfillCarriedForward:
         signal_ts = datetime.now(UTC) - timedelta(minutes=5)
         canonical = _make_backfill_canonical("backfill-carried-002", signal_ts, ttl_bars=10)
 
-        # Track fast-path counter before
-        before = SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
-            symbol="ES", timeframe="1m"
-        )._value.get()
-
+        mock_fastpath = MagicMock()
         with (
+            patch(
+                "services.signal_tracker_compute_agent.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
+                mock_fastpath,
+            ),
             patch.object(
                 agent, "_publish_ttl_expired_transition_sync", wraps=MagicMock()
             ) as mock_ttl,
@@ -135,8 +130,5 @@ class TestBackfillCarriedForward:
         # signal_id must be tracked in dedup set
         assert "backfill-carried-002" in agent._signal_ids
 
-        # Fast-path counter must NOT have incremented
-        after = SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.labels(
-            symbol="ES", timeframe="1m"
-        )._value.get()
-        assert after == before, "Fast-path counter should not increment for carried-forward signal"
+        # Fast-path counter must NOT have been incremented for carried-forward signal
+        mock_fastpath.add.assert_not_called()

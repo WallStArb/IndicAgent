@@ -147,7 +147,7 @@ class MacroComputeAgent(BaseAgent):
                     continue
 
                 self._bar_windows[symbol].append(bar)
-                self._bars_processed.inc()
+                self._bars_processed.add(1)
                 self._record_message_consumed()
 
                 # Yield curve — only when both anchor instruments have full windows
@@ -191,7 +191,7 @@ class MacroComputeAgent(BaseAgent):
             raise
         except Exception as e:
             logger.exception("macro_compute_agent.error", error=str(e))
-            AGENT_CRASH_TOTAL.labels(agent=self.agent_id).inc()
+            AGENT_CRASH_TOTAL.add(1, {"agent": self.agent_id})
             raise
 
     # -----------------------------------------------------------------------
@@ -217,7 +217,7 @@ class MacroComputeAgent(BaseAgent):
             msg=payload,
             key=key,
         )
-        self._macro_published.inc()
+        self._macro_published.add(1)
 
     async def _persist_to_db(self, macro_result: dict, bar: dict) -> None:
         """Persist macro result to TimescaleDB.

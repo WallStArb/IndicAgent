@@ -112,7 +112,7 @@ class LLMProviderChain:
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
-                LLM_CACHE_HITS.labels(call_type=self._call_type).inc()
+                LLM_CACHE_HITS.add(1, {"call_type": self._call_type})
                 span.set_attribute("llm.cache_hit", True)
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
@@ -144,7 +144,7 @@ class LLMProviderChain:
         if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
-                LLM_GUARDRAILS_REJECTIONS.labels(call_type=self._call_type).inc()
+                LLM_GUARDRAILS_REJECTIONS.add(1, {"call_type": self._call_type})
                 record_llm_call(
                     provider_id, self._call_type, latency_s, status="guardrails_rejected"
                 )

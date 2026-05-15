@@ -259,14 +259,14 @@ def _expand_to_min_width(low: float, high: float, atr: float) -> tuple[float, fl
 
 
 def _emit_metrics(result: ZoneResult, atr: float) -> None:
-    ZONE_TIER_USED.labels(tier=result.tier).inc()
-    ZONE_CANDIDATE_COUNT.observe(result.candidate_count)
+    ZONE_TIER_USED.add(1, {"tier": result.tier})
+    ZONE_CANDIDATE_COUNT.record(result.candidate_count)
     if atr > EPSILON:
         width = result.zone_high - result.zone_low
-        ZONE_WIDTH_ATR.observe(width / atr)
+        ZONE_WIDTH_ATR.record(width / atr)
         if result.cluster_members >= 2 and width > 0:
             density = result.cluster_members / max(width / atr, 0.01)
-            ZONE_CLUSTER_DENSITY.observe(density)
+            ZONE_CLUSTER_DENSITY.record(density)
 
 
 def _resolve_zone(

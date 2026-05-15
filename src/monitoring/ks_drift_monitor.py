@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from prometheus_client import Counter, Gauge
+from opentelemetry import metrics as _otel_metrics
 from scipy import stats
 
 # drift_ks Redis key function removed in Phase 30 — replaced by drift_state DB table
@@ -62,22 +62,22 @@ _CLEAN_CYCLES_FOR_RESTORE: int = 2
 # DB upsert interval — no TTL needed (drift_state rows persist until explicitly updated)
 
 # ---------------------------------------------------------------------------
-# Prometheus metrics (direct prometheus_client — NOT metrics.py helpers)
+# OTel metrics
 # ---------------------------------------------------------------------------
 
-KS_CHECKS_TOTAL = Counter(
+_ks_meter = _otel_metrics.get_meter("indicagent")
+
+KS_CHECKS_TOTAL = _ks_meter.create_counter(
     "drift_ks_checks_total",
-    "KS checks run",
-    ["symbol", "timeframe"],
+    description="KS checks run",
 )
-KS_ALERTS_TOTAL = Counter(
+KS_ALERTS_TOTAL = _ks_meter.create_counter(
     "drift_ks_alerts_total",
-    "KS alerts fired",
-    ["symbol", "timeframe", "severity"],
+    description="KS alerts fired",
 )
-KS_CHECK_DURATION = Gauge(
+KS_CHECK_DURATION = _ks_meter.create_up_down_counter(
     "drift_ks_check_duration_seconds",
-    "Last KS check duration",
+    description="Last KS check duration",
 )
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ class KSDriftMonitor:
             )
             return DriftCheckResult(severity="none", reference_n=0, current_n=0)
 
-        KS_CHECKS_TOTAL.labels(symbol=symbol, timeframe=tf).inc()
+        KS_CHECKS_TOTAL.add(1, {"symbol": symbol, "timeframe": tf})
 
         ref_n = len(reference_rows)
         cur_n = len(current_rows)
@@ -178,11 +178,11 @@ class KSDriftMonitor:
                 timeframe=tf,
                 reference_n=ref_n,
             )
-            KS_CHECK_DURATION.set(_time.monotonic() - t0)
+            KS_CHECK_DURATION.add(_time.monotonic() - t0)
             return DriftCheckResult(severity="none", reference_n=ref_n, current_n=cur_n)
 
         if cur_n == 0:
-            KS_CHECK_DURATION.set(_time.monotonic() - t0)
+            KS_CHECK_DURATION.add(_time.monotonic() - t0)
             return DriftCheckResult(severity="none", reference_n=ref_n, current_n=cur_n)
 
         # Run KS test on each feature — find worst-case p-value
@@ -204,7 +204,7 @@ class KSDriftMonitor:
                 worst_p = float(p_value)
                 worst_feature = feature
 
-        KS_CHECK_DURATION.set(_time.monotonic() - t0)
+        KS_CHECK_DURATION.add(_time.monotonic() - t0)
 
         result = DriftCheckResult(
             severity=worst_severity,
@@ -219,7 +219,7 @@ class KSDriftMonitor:
         await self._write_drift_key(symbol, tf, result)
 
         if worst_severity != "none":
-            KS_ALERTS_TOTAL.labels(symbol=symbol, timeframe=tf, severity=worst_severity).inc()
+            KS_ALERTS_TOTAL.add(1, {"symbol": symbol, "timeframe": tf, "severity": worst_severity})
             self.logger.info(
                 "KS drift detected",
                 symbol=symbol,

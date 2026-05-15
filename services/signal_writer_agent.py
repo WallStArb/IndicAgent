@@ -73,7 +73,7 @@ class SignalWriterAgent(BaseWriterAgent):
             "signal_writer_write_errors_total",
             "Failed batch inserts",
         )
-        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="signal_writer_agent")
+        self._batch_latency_attrs = {"agent_id": "signal_writer_agent"}
 
     def _topic_name(self) -> str:
         return topic_intelligence_i7_signals(self.settings.env_name)
@@ -87,7 +87,7 @@ class SignalWriterAgent(BaseWriterAgent):
         return topic_signal_writer_dlq(self.settings.env_name)
 
     def _on_message_consumed(self, payload: dict) -> None:
-        self._events_consumed.inc()
+        self._events_consumed.add(1)
 
     def _parse_payload(self, payload: dict) -> list | None:
         rows = _payload_to_ledger_entries(payload)
@@ -97,8 +97,8 @@ class SignalWriterAgent(BaseWriterAgent):
         t0 = time.perf_counter()
         assert self._repo is not None
         await self._repo.insert_signals(batch)
-        self._signals_written.inc(len(batch))
-        self._batch_latency.observe(time.perf_counter() - t0)
+        self._signals_written.add(len(batch))
+        PERSISTENCE_BATCH_LATENCY.record(time.perf_counter() - t0, self._batch_latency_attrs)
         self.logger.info("signal_writer.flushed", count=len(batch))
 
     async def _setup(self) -> None:

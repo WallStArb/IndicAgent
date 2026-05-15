@@ -15,28 +15,24 @@ from services.service_auditor_agent import ServiceAuditorAgent
 
 @pytest.mark.asyncio
 async def test_restart_roll_service_increments_counter():
-    """Successful restart increments SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL metric."""
+    """Successful restart calls SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, ...)."""
     agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
     agent.settings = MagicMock(env_name="")
     agent.logger = MagicMock()
-
-    from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
-
-    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-        service_name="indicagent-ibkr-provider"
-    )._value.set(0)
 
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec,
+        patch(
+            "services.service_auditor_agent.SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL"
+        ) as mock_counter,
+    ):
         await agent._restart_roll_service("indicagent-ibkr-provider")
         assert mock_exec.call_count == 1
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-            service_name="indicagent-ibkr-provider"
-        )
-        assert metric._value.get() == 1
+        mock_counter.add.assert_called_once_with(1, {"service_name": "indicagent-ibkr-provider"})
 
 
 @pytest.mark.asyncio
@@ -46,20 +42,16 @@ async def test_restart_roll_service_subprocess_failure_is_logged():
     agent.settings = MagicMock(env_name="")
     agent.logger = MagicMock()
 
-    from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL
-
-    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-        service_name="indicagent-ibkr-provider"
-    )._value.set(0)
-
     mock_proc = AsyncMock()
     mock_proc.returncode = 1
     mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        patch(
+            "services.service_auditor_agent.SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL"
+        ) as mock_counter,
+    ):
         await agent._restart_roll_service("indicagent-ibkr-provider")
         assert agent.logger.error.called
-        metric = SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.labels(
-            service_name="indicagent-ibkr-provider"
-        )
-        assert metric._value.get() == 0
+        mock_counter.add.assert_not_called()

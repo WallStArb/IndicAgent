@@ -282,7 +282,7 @@ class FeatureValidationComputeAgent:
         computed_at = datetime.now(UTC)
 
         # Increment Prometheus counter per decision
-        FEATURE_VALIDATION_DECISIONS_TOTAL.labels(decision=decision).inc()
+        FEATURE_VALIDATION_DECISIONS_TOTAL.add(1, {"decision": decision})
 
         # Build evidence dict for shadow_registry.promotion_evidence (passed as
         # dict — NOT json.dumps per CLAUDE.md asyncpg rule)
