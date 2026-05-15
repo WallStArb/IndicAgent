@@ -8,46 +8,35 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from prometheus_client import REGISTRY
 
-SWARM_METRIC_NAMES = (
-    "swarm_invocations_total",
-    "swarm_multiplier_distribution",
-    "swarm_aggregated_multiplier",
-    "swarm_agent_weight",
-    "swarm_signal_ledger_update_total",
+SWARM_METRIC_ATTRS = (
+    "SWARM_INVOCATIONS_TOTAL",
+    "SWARM_MULTIPLIER_DISTRIBUTION",
+    "SWARM_AGGREGATED_MULTIPLIER",
+    "SWARM_AGENT_WEIGHT",
+    "SWARM_SIGNAL_LEDGER_UPDATE_TOTAL",
 )
-
-# prometheus_client strips _total suffix from Counter names in REGISTRY.collect()
-_REGISTRY_NAME_MAP = {
-    "swarm_invocations_total": "swarm_invocations",
-    "swarm_signal_ledger_update_total": "swarm_signal_ledger_update",
-}
 
 
 def test_metrics_registered() -> None:
-    """All five Phase 80 swarm metrics must exist in the global REGISTRY.
+    """All five Phase 80 swarm metrics must exist in the OTel metrics module.
 
-    prometheus_client strips the _total suffix from Counter metric names when
-    they are collected from the REGISTRY — e.g. 'swarm_invocations_total'
-    is stored under 'swarm_invocations'. _REGISTRY_NAME_MAP handles this
-    translation so the test checks canonical metric names without depending
-    on internal prometheus_client naming conventions.
+    Metrics are now OTel SDK instruments on the single _meter in metrics.py.
+    Verify each constant is exported and is a non-None OTel instrument.
     """
-    # Trigger registration by importing the metrics module
-    import src.observability.metrics  # noqa: F401
+    import src.observability.metrics as m
 
-    registered = {m.name for m in REGISTRY.collect()}
-    for name in SWARM_METRIC_NAMES:
-        registry_name = _REGISTRY_NAME_MAP.get(name, name)
-        assert registry_name in registered, (
-            f"swarm metric not registered: {name!r} (looked up as {registry_name!r}; "
-            f"registered subset: {sorted(n for n in registered if 'swarm' in n)})"
-        )
+    for attr in SWARM_METRIC_ATTRS:
+        instrument = getattr(m, attr, None)
+        assert (
+            instrument is not None
+        ), f"swarm metric not registered: {attr!r} not found in src.observability.metrics"
 
 
 @pytest.mark.asyncio
 async def test_aggregate_event_round_trips_to_writer() -> None:
+    from unittest.mock import patch
+
     from services.swarm_ledger_writer_agent import SwarmLedgerWriterAgent
 
     w = SwarmLedgerWriterAgent.__new__(SwarmLedgerWriterAgent)
@@ -70,24 +59,26 @@ async def test_aggregate_event_round_trips_to_writer() -> None:
     pool.acquire = MagicMock(return_value=ctx)
     w._pool = pool
 
-    before = (
-        REGISTRY.get_sample_value("swarm_signal_ledger_update_total", {"status": "success"}) or 0.0
-    )
-    await w._handle_event(
-        {
-            "signal_id": "sig-int-1",
-            "symbol": "ES",
-            "timeframe": "5m",
-            "swarm_multiplier": 0.75,
-            "adjusted_confidence": 0.6,
-            "swarm_agent_count": 4,
-            "ts": "2026-05-05T00:00:00Z",
-        }
-    )
-    after = (
-        REGISTRY.get_sample_value("swarm_signal_ledger_update_total", {"status": "success"}) or 0.0
-    )
-    assert after == before + 1
+    mock_counter = MagicMock()
+    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL", mock_counter):
+        await w._handle_event(
+            {
+                "signal_id": "sig-int-1",
+                "symbol": "ES",
+                "timeframe": "5m",
+                "swarm_multiplier": 0.75,
+                "adjusted_confidence": 0.6,
+                "swarm_agent_count": 4,
+                "ts": "2026-05-05T00:00:00Z",
+            }
+        )
+
+    # OTel counter was incremented for a success outcome
+    mock_counter.add.assert_called_once()
+    # .add(1, {"status": "success"}) — positional args: (amount, attrs)
+    call_positional = mock_counter.add.call_args.args
+    assert call_positional[0] == 1
+    assert call_positional[1].get("status") == "success"
     # First positional arg of the executed UPDATE should be signal_id
     assert any("sig-int-1" in str(c) for c in captured_calls)
 
@@ -101,6 +92,8 @@ def test_compute_final_multiplier_weighted_average() -> None:
     a.settings = MagicMock()
     a.logger = MagicMock()
     a._agents = []
+    # weights: x=1, y=3 -> (1*0.4 + 3*0.8)/(1+3) = 2.8/4 = 0.7
+    a._agent_weights = {("x", "5m"): 1.0, ("y", "5m"): 3.0}
     agents_list = [MagicMock(agent_id="x"), MagicMock(agent_id="y")]
     out_x = AgentOutput(
         agent_id="x",
@@ -124,9 +117,7 @@ def test_compute_final_multiplier_weighted_average() -> None:
         payload={"multiplier": 0.8},
         shadow_only=True,
     )
-    # weights: x=1, y=3 -> (1*0.4 + 3*0.8)/(1+3) = 2.8/4 = 0.7
-    weights = {("x", "5m"): 1.0, ("y", "5m"): 3.0}
-    result, count = a._compute_final_multiplier(agents_list, [out_x, out_y], weights, "5m")
+    result, count = a._compute_final_multiplier(agents_list, [out_x, out_y], "5m")
     assert result == pytest.approx(0.7)
     assert count == 2
 
