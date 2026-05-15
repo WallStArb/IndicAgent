@@ -47,11 +47,10 @@ class NarrativeComputeAgent(BaseAIAgent):
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
         super().__init__(name="NarrativeComputeAgent", **kwargs)
-        self._chain = llm_chain
+        self._llm = llm_chain
 
     async def _compute(self, context: AIContext) -> AgentOutput:
         """Generate narrative text from AIContext via LLM chain."""
-        # D-35: TF gate -- reject before any LLM call
         if context.timeframe not in self._NARRATIVE_TFS:
             return AgentOutput(
                 agent_id=self.agent_id,
@@ -66,11 +65,10 @@ class NarrativeComputeAgent(BaseAIAgent):
                 error=f"tf_gate:{context.timeframe}",
             )
 
-        # Build versioned prompt
         system_prompt, user_prompt = build_narrative_prompt(context)
 
-        # Call LLM chain (OpenRouter -> Ollama Cloud -> Ollama Local)
-        response = await self._chain.generate(
+        response = await self._llm_generate(
+            context,
             prompt=user_prompt,
             system=system_prompt,
             max_tokens=300,
@@ -79,9 +77,6 @@ class NarrativeComputeAgent(BaseAIAgent):
 
         if not response:
             return self._neutral(error="LLM returned empty response", latency_ms=0.0)
-
-        # Capture which provider actually responded (cost/quality tracking)
-        model_name = getattr(self._chain, "last_provider_id", "") or ""
 
         return AgentOutput(
             agent_id=self.agent_id,
@@ -93,7 +88,7 @@ class NarrativeComputeAgent(BaseAIAgent):
             output_type="narrative",
             payload={
                 "text": response.strip(),
-                "model": model_name,
+                "model": self._llm.last_provider_id or "",
                 "prompt_version": ACTIVE_VERSION,
             },
             shadow_only=self.shadow_only,
