@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 import structlog
+from opentelemetry.trace import StatusCode
 
 from src.core.llm.guardrails import GuardrailsValidator
 from src.core.llm.providers import LLMChain, OllamaProvider
@@ -94,9 +95,14 @@ class LLMProviderChain:
             "llm.generate",
             attributes={"call_type": self._call_type, "model": model},
         ) as span:
-            return await self._generate_inner(
-                span, prompt, system, max_tokens, timeout, model, audit_context
-            )
+            try:
+                return await self._generate_inner(
+                    span, prompt, system, max_tokens, timeout, model, audit_context
+                )
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                raise
 
     async def _generate_inner(
         self,

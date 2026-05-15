@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from opentelemetry.trace import StatusCode
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -16,6 +17,7 @@ from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.schemas import IntelligenceEvent
+from src.observability.spans import ATTR_GROUP_ID, ATTR_SYMBOL, ATTR_TF
 
 if TYPE_CHECKING:
     pass
@@ -225,12 +227,17 @@ class BaseGroupService(BaseAgent, ABC):
                 with self.tracer.start_as_current_span(
                     "group.bar_cache_update",
                     attributes={
-                        "group_id": self.group_id,
-                        "symbol": event.symbol,
-                        "tf": event.tf,
+                        ATTR_GROUP_ID: self.group_id,
+                        ATTR_SYMBOL: event.symbol,
+                        ATTR_TF: event.tf,
                     },
-                ):
-                    self._context_cache.update(event)
+                ) as span:
+                    try:
+                        self._context_cache.update(event)
+                    except Exception as exc:
+                        span.set_status(StatusCode.ERROR, str(exc))
+                        span.record_exception(exc)
+                        raise
             except Exception as exc:
                 self.logger.warning(
                     "base_group_service.bar_cache_error",
@@ -247,9 +254,14 @@ class BaseGroupService(BaseAgent, ABC):
             try:
                 with self.tracer.start_as_current_span(
                     "group.handle_trigger",
-                    attributes={"group_id": self.group_id},
-                ):
-                    await self._handle_trigger(payload)
+                    attributes={ATTR_GROUP_ID: self.group_id},
+                ) as span:
+                    try:
+                        await self._handle_trigger(payload)
+                    except Exception as exc:
+                        span.set_status(StatusCode.ERROR, str(exc))
+                        span.record_exception(exc)
+                        raise
             except Exception as exc:
                 self.logger.exception(
                     "base_group_service.trigger_error",
