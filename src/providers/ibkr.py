@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import signal
 import threading
@@ -528,7 +529,7 @@ class IBKRProvider:
             # Fetch in a single request from now backwards by total duration.
             total_days = max(1, (end - start).days + 1)
             if total_days > 365:
-                duration_str = f"{round(total_days / 365)} Y"
+                duration_str = f"{math.ceil(total_days / 365)} Y"
             else:
                 duration_str = f"{total_days} D"
             ib_bars = await self._ib.reqHistoricalDataAsync(

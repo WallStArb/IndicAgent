@@ -997,8 +997,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
             print(f"  [ERROR] seed_roll_chain: {base_symbol} — {exc}")
 
     print(
-        f"Roll chain seeded: {len(futures_bases)} base symbols, "
-        f"{total_contracts} contracts total"
+        f"Roll chain seeded: {len(futures_bases)} base symbols, {total_contracts} contracts total"
     )
     log.info(
         "seed_roll_chain_complete",
@@ -1356,10 +1355,12 @@ def replay_symbol(
             if (i + 1) % 1000 == 0:
                 if skip_signals:
                     print(
-                        f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_features} features"
+                        f"    {symbol}/{tf}: {i + 1:,}/{len(bars):,} bars, {total_features} features"
                     )  # noqa: E501
                 else:
-                    print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
+                    print(
+                        f"    {symbol}/{tf}: {i + 1:,}/{len(bars):,} bars, {total_signals} signals"
+                    )
 
         # Flush remaining buffered feature rows
         if feature_buffer:
@@ -1382,15 +1383,15 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
     plugins, replays the symbol, commits, and closes.
 
     Args:
-        args: (symbol, db_url, timeframes, since_dt)
+        args: (symbol, db_url, timeframes, since_dt, skip_signals)
 
     Returns:
         (symbol, total_signals, counts_by_tf)
     """
-    symbol, db_url, timeframes, since_dt = args
+    symbol, db_url, timeframes, since_dt, skip_signals = args
     conn = psycopg2.connect(dsn=db_url)
     try:
-        counts = replay_symbol(symbol, conn, timeframes, since=since_dt)
+        counts = replay_symbol(symbol, conn, timeframes, since=since_dt, skip_signals=skip_signals)
         conn.commit()
         return symbol, sum(counts.values()), counts
     finally:
