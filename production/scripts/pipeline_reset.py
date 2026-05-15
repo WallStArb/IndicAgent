@@ -10,15 +10,14 @@ claim is valid until the training dataset is clean, gap-free, and correctly
 timestamped.
 
 Usage:
-    # Full reset — re-fetch from IBKR + replay
+    # Full reset — re-fetch from IBKR + replay I1→I7
     python production/scripts/pipeline_reset.py
 
     # Fast reset — keep OHLCV, just re-replay through updated signal logic
     python production/scripts/pipeline_reset.py --keep-ohlcv
 
-    # Seed reset — wipe everything, seed recent named-contract bars, replay
-    # (real prices only; no back-adjustment artifacts; short warm-up window)
-    python production/scripts/pipeline_reset.py --no-backfill
+    # Features only — keep OHLCV, replay I1→I6, skip signal generation
+    python production/scripts/pipeline_reset.py --keep-ohlcv --no-backfill
 
     # Specific symbols only
     python production/scripts/pipeline_reset.py --keep-ohlcv --symbols ESH6,NQH6
@@ -54,7 +53,7 @@ from production.scripts.historical_backfill import (  # noqa: E402
     seed_roll_chain,
 )
 from production.scripts.kafka_init_topics import _COMPACTED_TOPICS, get_topic_specs
-from src.config.settings import Settings
+from src.config.settings import AssetClass, Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.intelligence.register_plugins import register_all_plugins
 
@@ -111,17 +110,6 @@ _ALWAYS_TRUNCATE = {
 # Cleared only without --keep-ohlcv
 _OHLCV_TABLE = "market_data_ohlcv"
 
-# Seed depths for --no-backfill mode: short, named-contract-only windows.
-# All values are <= 90d so IBKR returns named front-month bars (no back-adjustment).
-# Real prices only — no continuous-adjusted artifacts that distort signal fire prices and stops.
-_TF_SEED_CONFIG: dict[str, int] = {
-    "1m": 3,  # ~1,170 bars — warm up I1 indicators, intraday pattern coverage
-    "5m": 7,  # ~546 bars  — one full week of session context
-    "15m": 21,  # ~546 bars  — 3 weeks of pattern detection history
-    "1h": 45,  # ~293 bars  — ~6 weeks of regime context
-    "1d": 90,  # ~90 bars   — 3 months of macro structure
-}
-
 # Cleared only with --clear-llm
 _LLM_TABLES = ["llm_calls", "llm_model_scores"]
 
@@ -132,14 +120,21 @@ _STOP_SERVICES = [
     "indicagent-ibkr-provider",
     "indicagent-provider-merger",
     # Bar pipeline
-    "indicagent-bar-aggregator-compute",
+    "indicagent-bar-aggregator",
     "indicagent-bar-writer",
     "indicagent-bar-auditor",
-    # Intelligence + signal pipeline
-    "indicagent-signal-generator",
-    "indicagent-signal-tracker",
-    "indicagent-feature-compute",
+    # Intelligence pipeline (I1-I7)
+    "indicagent-intelligence-pipeline",
+    "indicagent-cross-asset",
+    "indicagent-macro-compute",
+    # Persistence writers
     "indicagent-feature-writer",
+    "indicagent-signal-writer",
+    "indicagent-signal-tracker-compute",
+    "indicagent-lifecycle-writer",
+    "indicagent-lineage-writer",
+    "indicagent-contract-metadata-writer",
+    "indicagent-ctx-writer",
 ]
 
 _START_SERVICES = [
@@ -147,14 +142,21 @@ _START_SERVICES = [
     "indicagent-ibkr-provider",
     "indicagent-provider-merger",
     # Bar pipeline
-    "indicagent-bar-aggregator-compute",
+    "indicagent-bar-aggregator",
     "indicagent-bar-writer",
     "indicagent-bar-auditor",
-    # Intelligence + signal pipeline
-    "indicagent-feature-compute",
+    # Intelligence pipeline (I1-I7)
+    "indicagent-intelligence-pipeline",
+    "indicagent-cross-asset",
+    "indicagent-macro-compute",
+    # Persistence writers
     "indicagent-feature-writer",
-    "indicagent-signal-generator",
-    "indicagent-signal-tracker",
+    "indicagent-signal-writer",
+    "indicagent-signal-tracker-compute",
+    "indicagent-lifecycle-writer",
+    "indicagent-lineage-writer",
+    "indicagent-contract-metadata-writer",
+    "indicagent-ctx-writer",
 ]
 
 
@@ -180,7 +182,10 @@ def _row_count(conn: Any, table: str) -> int:
             row = cur.fetchone()
             return row[0] if row else 0
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return -1  # table does not exist
 
 
@@ -188,17 +193,13 @@ def build_preflight_summary(
     conn: Any,
     keep_ohlcv: bool,
     clear_llm: bool,
-    no_backfill: bool = False,
 ) -> str:
     """Return a human-readable summary of what will be cleared."""
     lines = ["DB tables to clear:"]
     tables = list(_ALWAYS_CLEAR)
-    if not keep_ohlcv and not no_backfill:
+    if not keep_ohlcv:
         tables.append(_OHLCV_TABLE)
-    elif no_backfill:
-        # --no-backfill wipes OHLCV too — no point keeping it if we won't replay
-        tables.append(_OHLCV_TABLE)
-    if clear_llm or no_backfill:
+    if clear_llm:
         tables.extend(_LLM_TABLES)
     for table in tables:
         count = _row_count(conn, table)
@@ -206,10 +207,6 @@ def build_preflight_summary(
             lines.append(f"  {table:<35} (table not yet created — skip)")
         else:
             lines.append(f"  {table:<35} {count:>10,} rows")
-    if no_backfill:
-        lines.append("\nMode: seed — named-contract bars only, no back-adjustment")
-        for tf, days in _TF_SEED_CONFIG.items():
-            lines.append(f"  {tf}: {days}d")
     return "\n".join(lines)
 
 
@@ -276,15 +273,14 @@ def truncate_tables(
     keep_ohlcv: bool,
     clear_llm: bool,
     symbols: list[str] | None = None,
-    no_backfill: bool = False,
 ) -> list[str]:
     """TRUNCATE target tables (or DELETE by symbol when symbols is given)."""
     tables = list(_ALWAYS_CLEAR)
-    # --no-backfill wipes OHLCV — no replay means keeping it would leave stale prices
-    if not keep_ohlcv or no_backfill:
+    # Only wipe OHLCV when explicitly requested (not --keep-ohlcv)
+    if not keep_ohlcv:
         tables.append(_OHLCV_TABLE)
-    # --no-backfill always clears LLM tables — narratives for non-existent signals are worthless
-    if clear_llm or no_backfill:
+    # LLM tables cleared when explicitly requested
+    if clear_llm:
         tables.extend(_LLM_TABLES)
 
     cleared = []
@@ -409,11 +405,7 @@ def main() -> None:
     parser.add_argument(
         "--no-backfill",
         action="store_true",
-        help=(
-            "Wipe all derived data then seed short named-contract windows "
-            f"({', '.join(f'{tf}={d}d' for tf, d in _TF_SEED_CONFIG.items())}) — "
-            "real prices only, no back-adjustment"
-        ),
+        help="Replay I1→I6 only (intelligence_features), skip I7 signal generation",
     )
     parser.add_argument(
         "--clear-llm", action="store_true", help="Also truncate llm_calls and llm_model_scores"
@@ -441,13 +433,25 @@ def main() -> None:
     settings = Settings()
     t_start = time.time()
 
+    def _ensure_connection(conn: Any) -> Any:
+        """Reconnect if the connection is dead (idle between stages)."""
+        try:
+            conn.cursor().execute("SELECT 1")
+            return conn
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return connect_db(settings)
+
     # --- Preflight ---
     db_conn = connect_db(settings)
     print("\nPipeline Reset")
     print("=" * 50)
     if args.dry_run:
         print("DRY RUN — nothing will be modified\n")
-    print(build_preflight_summary(db_conn, args.keep_ohlcv, args.clear_llm, args.no_backfill))
+    print(build_preflight_summary(db_conn, args.keep_ohlcv, args.clear_llm))
     print()
 
     if args.dry_run:
@@ -496,12 +500,12 @@ def main() -> None:
 
     # --- Stage 3: Truncate DB ---
     print("\n[2/5] Truncating DB tables...")
+    db_conn = _ensure_connection(db_conn)
     cleared = truncate_tables(
         db_conn,
         args.keep_ohlcv,
         args.clear_llm,
         symbols=target_symbols,
-        no_backfill=args.no_backfill,
     )
     verb = "DELETED rows for specified symbols in" if target_symbols else "TRUNCATED"
     for t in cleared:
@@ -520,7 +524,7 @@ def main() -> None:
     asyncio.run(_seed_contract_metadata())
 
     # --- Stage 4: Fetch OHLCV ---
-    contracts = settings.contracts
+    contracts = get_active_contracts(settings)
     if args.symbols:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
         contracts = [c for c in contracts if c.symbol in wanted]
@@ -530,22 +534,70 @@ def main() -> None:
             return
 
     from production.scripts.historical_backfill import store_bars
-    from src.providers import IBKRProvider
 
     def _fetch_ohlcv(tf_config: dict[str, tuple[int, bool]]) -> None:
         """Fetch OHLCV bars for all contracts using the given per-TF config."""
-        provider = IBKRProvider(
-            host=settings.ib_host,
-            port=settings.ib_port,
-            client_id=args.client_id,
-        )
-        if not asyncio.run(provider.connect()):
-            print("  Cannot connect to TWS — skipping fetch (will replay existing OHLCV)")
+        from ib_insync import IB, Forex, Future, Stock, util
+
+        util.startLoop()
+
+        ib = IB()
+        connected = False
+        for cid in range(args.client_id, args.client_id + 5):
+            try:
+                ib.connect(
+                    host=settings.ib_host,
+                    port=settings.ib_port,
+                    clientId=cid,
+                    timeout=20,
+                    readonly=True,
+                )
+                connected = True
+                print(f"  Connected to IBKR (clientId={cid})")
+                break
+            except Exception:
+                continue
+        if not connected:
+            print("  Cannot connect to IBKR Gateway — skipping fetch")
+            print("  Approve 2FA on your phone, then re-run the script.")
             return
         end_dt = datetime.now(tz=UTC)
+
+        # Build ib_insync contract objects
+        def _make_ib_contract(instrument):
+            exchange = instrument.exchange or "SMART"
+            currency = instrument.provider_meta.get("currency", "USD")
+
+            if instrument.asset_class == AssetClass.FUTURES:
+                # instrument.symbol is the named contract (ESM6, NQM6, etc.)
+                # instrument.base is the root symbol (ES, NQ, etc.) used as tradingClass
+                contract = Future(
+                    symbol=instrument.base,
+                    lastTradeDateOrContractMonth=instrument.expiry,
+                    exchange=exchange,
+                    currency=currency,
+                    localSymbol=instrument.symbol,
+                    tradingClass=instrument.base,
+                )
+                return contract
+            elif instrument.asset_class == AssetClass.FX:
+                return Forex(pair=instrument.symbol, exchange="IDEALPRO")
+            else:
+                return Stock(symbol=instrument.symbol, exchange=exchange, currency=currency)
+
+        _TF_DURATION_MAP = {
+            "1m": "1 min",
+            "5m": "5 mins",
+            "15m": "15 mins",
+            "1h": "1 hour",
+            "4h": "4 hours",
+            "1d": "1 day",
+        }
+
         for instrument in contracts:
             try:
-                qualified = asyncio.run(provider.qualify_instrument(instrument))
+                ib_contract = _make_ib_contract(instrument)
+                qualified = ib.qualifyContracts(ib_contract)
                 if not qualified:
                     print(f"  {instrument.symbol}: qualify failed — skipping")
                     continue
@@ -553,49 +605,48 @@ def main() -> None:
                     start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
+                    duration_str = _TF_DURATION_MAP.get(tf, "1 min")
+                    what_to_show = (
+                        "MIDPOINT" if instrument.asset_class == AssetClass.FX else "TRADES"
+                    )
                     try:
-                        ohlcv_bars = asyncio.run(
-                            provider.fetch_historical_bars(
-                                symbol=instrument.symbol,
-                                timeframe=tf,
-                                start=start_dt,
-                                end=end_dt,
-                                continuous=use_continuous,
-                            )
+                        bars = ib.reqHistoricalData(
+                            ib_contract,
+                            endDateTime="",
+                            durationStr=f"{fetch_days} D",
+                            barSizeSetting=duration_str,
+                            whatToShow=what_to_show,
+                            useRTH=True,
+                            formatDate=2,
                         )
                         bar_dicts = [
                             {
-                                "timestamp": b.timestamp,
+                                "timestamp": b.date,
                                 "open": b.open,
                                 "high": b.high,
                                 "low": b.low,
                                 "close": b.close,
                                 "volume": b.volume,
-                                "source": b.source,
+                                "source": "ibkr",
                             }
-                            for b in ohlcv_bars
+                            for b in bars
                         ]
                         if bar_dicts:
                             n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
                             label = "continuous-adj" if use_continuous else "named"
-                            sym = instrument.symbol
-                            print(f"  {sym}/{tf} ({label}, {fetch_days}d): {n:,} bars")
+                            print(
+                                f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n:,} bars"
+                            )
+                        else:
+                            print(f"  {instrument.symbol}/{tf}: 0 bars returned")
                     except Exception as e:
                         print(f"  {instrument.symbol}/{tf}: error — {e}")
-                    time.sleep(2)  # IBKR pacing between TF requests
+                    time.sleep(2)
             except Exception as e:
                 print(f"  {instrument.symbol}: fetch error — {e}")
-        asyncio.run(provider.disconnect())
+        ib.disconnect()
 
-    if args.no_backfill:
-        # Seed mode: wipe was already done above. Fetch a short window of named-contract
-        # bars per TF (real prices, no back-adjustment), then replay through I1→I7.
-        seed_config = {tf: (days, False) for tf, days in _TF_SEED_CONFIG.items()}
-        print("\n[3/5] Seeding recent named-contract bars (no back-adjustment)...")
-        for tf, days in _TF_SEED_CONFIG.items():
-            print(f"  {tf}: {days}d")
-        _fetch_ohlcv(seed_config)
-    elif not args.keep_ohlcv:
+    if not args.keep_ohlcv:
         from production.scripts.historical_backfill import _TF_FETCH_CONFIG
 
         full_config = {
@@ -612,6 +663,7 @@ def main() -> None:
 
     # --- Stage 5: Replay pipeline ---
     register_all_plugins()
+    db_conn = _ensure_connection(db_conn)
 
     # Build timeframes list, optionally excluding skipped TFs
     replay_tfs = list(DEFAULT_TIMEFRAMES)
