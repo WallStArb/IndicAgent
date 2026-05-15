@@ -125,6 +125,7 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
+from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -838,9 +839,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _process_bar(self, bar: BarMessage) -> None:
         """Core per-bar processing: gap detection → I1-I7 → output."""
-        with self.tracer.start_as_current_span(
+        async with observed_span(
             "pipeline.process_bar",
-            attributes={"symbol": bar.symbol, "tf": bar.tf},
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
             await self._process_bar_inner(bar)
 
@@ -1264,9 +1265,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         Returns a dict of I7 results for BarIntelligenceRecord construction:
             ranked, winner, n_raw, n_quality, n_regime, n_tod, n_calibrated, i7_computed_at
         """
-        with self.tracer.start_as_current_span(
+        async with observed_span(
             "pipeline.run_i7",
-            attributes={"symbol": bar.symbol, "tf": bar.tf},
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
             return await self._run_i7_inner(bar, event, tiered)
 
