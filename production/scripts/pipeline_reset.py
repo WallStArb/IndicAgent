@@ -364,7 +364,7 @@ def verify_dataset(conn: Any, seed_mode: bool = False) -> tuple[bool, str]:
 def _pause_for_services(action: str, services: list[str], auto_confirm: bool = False) -> None:
     """Print service commands and wait for user to press Enter, or auto-execute if auto_confirm=True."""
     verb = action
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     if auto_confirm:
         cmd = ["sudo", "systemctl", verb] + services
         print(f"{action.upper()} pipeline services automatically (--yes flag):")
@@ -696,7 +696,8 @@ def main() -> None:
     else:
         # Parallel replay — each worker gets its own DB connection
         worker_args = [
-            (contract.symbol, settings.database_url, replay_tfs, None) for contract in contracts
+            (contract.symbol, settings.database_url, replay_tfs, None, args.no_backfill)
+            for contract in contracts
         ]
         grand_total = 0
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
@@ -715,6 +716,7 @@ def main() -> None:
 
     # --- Stage 6: Verify ---
     print("\n[5/5] Verifying dataset...")
+    db_conn = _ensure_connection(db_conn)
     ok, report = verify_dataset(db_conn, seed_mode=args.no_backfill)
     print(report)
     if not ok:
@@ -728,7 +730,7 @@ def main() -> None:
     # --- Summary ---
     elapsed = time.time() - t_start
     m, s = divmod(int(elapsed), 60)
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"Pipeline Reset {'Complete ✓' if ok else 'Complete with warnings ⚠'}")
     print(f"Elapsed: {m}m {s}s")
     print()

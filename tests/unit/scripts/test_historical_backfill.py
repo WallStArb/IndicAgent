@@ -545,14 +545,18 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
             "production.scripts.historical_backfill.replay_symbol", return_value=fake_counts
         ) as mock_replay,
     ):
-        result = _replay_worker(("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts))
+        result = _replay_worker(
+            ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts, False)
+        )
 
     sym, total, counts = result
     assert sym == "ESH6"
     assert total == 4
     assert counts == fake_counts
     mock_register.assert_not_called()  # registry inherited via Linux fork
-    mock_replay.assert_called_once_with("ESH6", mock_conn, ["1m", "5m"], since=ts)
+    mock_replay.assert_called_once_with(
+        "ESH6", mock_conn, ["1m", "5m"], since=ts, skip_signals=False
+    )
     mock_conn.commit.assert_called_once()
     mock_conn.close.assert_called_once()
 
@@ -572,7 +576,7 @@ def test_replay_worker_closes_connection_on_failure():
         ),
     ):
         try:
-            _replay_worker(("ESH6", "postgresql://u:p@localhost/indicagent", ["1m"], None))
+            _replay_worker(("ESH6", "postgresql://u:p@localhost/indicagent", ["1m"], None, False))
         except RuntimeError:
             pass
 
