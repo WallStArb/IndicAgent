@@ -160,6 +160,8 @@ def _parse_llm_call_fields(fields: dict) -> dict | None:
         val = fields.get(key) or fields.get(key.encode(), b"")
         if isinstance(val, bytes):
             val = val.decode()
+        if isinstance(val, bool):
+            return "true" if val else "false"
         return val or ""
 
     call_id = _str("call_id")
