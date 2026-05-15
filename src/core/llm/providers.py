@@ -263,6 +263,7 @@ class _OpenAICompatProvider:
         self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"{self._provider_prefix}:{model}"
         self._circuit_breaker = _llm_circuit_breaker
+        self._last_usage: dict | None = None
 
     def _extra_payload_fields(self) -> dict:
         return {}
@@ -313,7 +314,7 @@ class _OpenAICompatProvider:
             self.provider_id, _call, circuit_breaker=self._circuit_breaker
         )
         if _usage:
-            LLMChain.last_token_usage = _usage[0]  # type: ignore
+            self._last_usage = _usage[0]
         return result
 
 
@@ -399,6 +400,8 @@ class LLMChain:
             result = await provider.generate(prompt, system, max_tokens, timeout)
             if result is not None:
                 self.last_provider_id = provider.provider_id
+                self.last_token_usage = getattr(provider, "_last_usage", None)
                 return result
         self.last_provider_id = None
+        self.last_token_usage = None
         return None

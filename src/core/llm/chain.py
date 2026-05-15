@@ -1,6 +1,6 @@
 """LLMProviderChain — high-level facade over LLMChain.
 
-Composes: SemanticCache → RateLimiter → TokenBudget → LLMChain → GuardrailsValidator → LangFuse.
+Composes: SemanticCache → RateLimiter → LLMChain → GuardrailsValidator → Audit.
 Callers: `chain = LLMProviderChain(call_type="narrative"); text = await chain.generate(...)`.
 """
 
@@ -12,10 +12,7 @@ from typing import Any
 import structlog
 
 from src.core.llm.guardrails import GuardrailsValidator
-from src.core.llm.providers import (
-    LLMChain,
-    OllamaProvider,
-)
+from src.core.llm.providers import LLMChain
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -34,7 +31,7 @@ _guardrails = GuardrailsValidator()
 
 
 class LLMProviderChain:
-    """High-level LLM chain with caching, rate limiting, budget enforcement, and validation.
+    """High-level LLM chain with caching, rate limiting, budget tracking, and validation.
 
     Args:
         call_type: Identifies the use case (e.g. "narrative", "discovery_hypothesis").
@@ -54,7 +51,6 @@ class LLMProviderChain:
         self._settings = settings
         self._producer = producer
 
-        # Build inner LLMChain from settings (or defaults)
         providers = self._build_providers(settings)
         self._inner = LLMChain(providers)
 
@@ -73,12 +69,13 @@ class LLMProviderChain:
         return self._inner.last_provider_id
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list: Ollama local only.
+        """Build provider list from settings. Currently Ollama-only.
 
-        OpenRouter credentials are preserved in settings for future re-enablement
-        but not wired into the active chain — free tier was consistently 429-rate-limited.
-        To re-enable: add OpenRouterProvider blocks here before OllamaProvider.
+        To add providers: instantiate them here in priority order.
+        LLMChain tries each in order, returning the first non-None response.
         """
+        from src.core.llm.providers import OllamaProvider
+
         if settings is None:
             return [OllamaProvider("nemotron-3-nano:4b")]
         return [OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)]
@@ -90,10 +87,10 @@ class LLMProviderChain:
         max_tokens: int,
         timeout: float,
         model: str = "default",
-        audit_context: dict | None = None,  # D-06: auto-audit
+        audit_context: dict | None = None,
     ) -> str | None:
         """Generate a response. Returns None if all providers fail or guardrails reject."""
-        # 1. Semantic cache lookup
+        # 1. Cache lookup
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
@@ -101,57 +98,27 @@ class LLMProviderChain:
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
-        # D-04: Rate limiter — covers OpenRouter + OllamaCloud + OllamaLocal
+        # 2. Rate limiter
         limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
             iter(self._rate_limiters.values()), None
         )
         if limiter is not None:
             await limiter.acquire(tokens=max_tokens)
 
-        # 2. Budget check — route to Ollama-only if daily budget exceeded
-        if _budget.is_exceeded():
-            logger.warning("llm_chain.budget_exceeded", call_type=self._call_type)
-            ollama_providers = [p for p in self._inner.providers if isinstance(p, OllamaProvider)]
-            if not ollama_providers:
-                return None
-            t0 = time.monotonic()
-            response = await LLMChain(ollama_providers).generate(
-                prompt, system, max_tokens=max_tokens, timeout=timeout
-            )
-            latency_s = time.monotonic() - t0
-            provider_id = "ollama"
-            if response is None:
-                record_llm_call(provider_id, self._call_type, latency_s, status="failure")
-                return None
-            estimated_tokens = max(1, len(prompt) // 4 + len(response) // 4)
-            _budget.record(call_type=self._call_type, provider=provider_id, tokens=estimated_tokens)
-            record_llm_call(provider_id, self._call_type, latency_s, tokens=estimated_tokens)
-            if self._cache_ttl > 0:
-                _cache.put(
-                    system=system,
-                    prompt=prompt,
-                    model=model,
-                    response=response,
-                    ttl=self._cache_ttl,
-                )
-            await self._publish_audit(
-                audit_context, provider_id, latency_s, estimated_tokens, response, model
-            )
-            return response
-
-        # 3. Call inner chain
+        # 3. LLM call
         t0 = time.monotonic()
         response = await self._inner.generate(
             prompt, system, max_tokens=max_tokens, timeout=timeout
         )
         latency_s = time.monotonic() - t0
-        provider_id = getattr(self._inner, "last_provider_id", "unknown") or "unknown"
+        provider_id = self._inner.last_provider_id or "unknown"
 
+        # 4. Failure
         if response is None:
             record_llm_call(provider_id, self._call_type, latency_s, status="failure")
             return None
 
-        # D-05: Use public has_schema() method instead of private _schemas access
+        # 5. Guardrails
         if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
@@ -162,31 +129,35 @@ class LLMProviderChain:
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
-        # D-07: Real token counts from provider, with len/4 fallback (Gemini review)
-        token_usage = getattr(self._inner, "last_token_usage", None)
+        # 6. Token counting — provider-reported or len/4 estimate
+        token_usage = self._inner.last_token_usage
         actual_total = token_usage.get("total_tokens") if isinstance(token_usage, dict) else None
-        if actual_total is not None and actual_total > 0:
-            tokens = actual_total
-        else:
-            tokens = max(1, len(prompt) // 4 + (len(response) // 4 if response else 0))
-
-        _budget.record(
-            call_type=self._call_type,
-            provider=provider_id,
-            tokens=tokens,
+        tokens = (
+            actual_total
+            if (actual_total and actual_total > 0)
+            else max(1, len(prompt) // 4 + len(response) // 4)
         )
 
-        record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
-
-        if self._cache_ttl > 0:
-            _cache.put(
-                system=system,
-                prompt=prompt,
-                model=model,
-                response=response,
-                ttl=self._cache_ttl,
+        # 7. Budget recording (observability — never gates execution)
+        _budget.record(call_type=self._call_type, provider=provider_id, tokens=tokens)
+        if _budget.is_exceeded():
+            logger.warning(
+                "llm_chain.budget_threshold",
+                call_type=self._call_type,
+                total_tokens=_budget.total_tokens_today(),
+                estimated_cost=_budget.estimated_cost_today(),
             )
 
+        # 8. Metrics
+        record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
+
+        # 9. Cache put
+        if self._cache_ttl > 0:
+            _cache.put(
+                system=system, prompt=prompt, model=model, response=response, ttl=self._cache_ttl
+            )
+
+        # 10. Audit trail
         await self._publish_audit(audit_context, provider_id, latency_s, tokens, response, model)
 
         logger.debug(
