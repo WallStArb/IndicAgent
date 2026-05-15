@@ -1478,7 +1478,7 @@ def main() -> None:
         default="1m,5m,15m,1h,1d",
         help="Comma-separated timeframes (default: 1m,5m,15m,1h,1d)",
     )
-    parser.add_argument("--client-id", type=int, default=56, help="IBKR client ID (default: 56)")
+    parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
         "--fetch-only",
         action="store_true",
