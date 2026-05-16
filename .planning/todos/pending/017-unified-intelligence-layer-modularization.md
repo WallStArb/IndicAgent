@@ -3,6 +3,7 @@ created: 2026-05-03T19:00:00.000Z
 title: "Quant Pipeline Modularization (P-QUANT-01)"
 area: architecture
 priority: 13
+resolves_phase: 88
 tier: refactoring
 files:
   - docs/plans/2026-05-02-unified-intelligence-design.md

@@ -3,6 +3,7 @@ created: 2026-05-03T19:00:00.000Z
 title: "Macro Event Provider Lane (P-CTX-03b)"
 area: qualitative
 priority: 12
+resolves_phase: 89
 tier: feature
 files:
   - docs/ideas/qualitative-intelligence-layer.md
