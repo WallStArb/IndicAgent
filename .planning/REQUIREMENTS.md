@@ -60,6 +60,10 @@
 - [ ] **PERF-03**: Plugin state is passed as a parameter to `compute_full()`/`compute_next()` rather than mutating `plugin._state` before thread pool dispatch; the race condition on concurrent symbol/tf submissions is eliminated
 - [ ] **PERF-04**: OBS-01 histogram data is used to identify plugins executing O(N) full bar-history recomputation on every bar; each identified plugin is converted to incremental O(1) compute where an algorithmic incremental form exists
 - [ ] **PERF-05**: `IntelligenceEvent` construction comprehensions (`{k: v ... if v is not None}` × 7 tiers) are replaced with pre-filtered dicts assembled during wave merging; None-filtering no longer happens at event construction time
+- [ ] **PERF-06**: `_drain_output` publishes Kafka messages in batches (drain up to N items per iteration) rather than one message per `await`; Kafka round-trip overhead is amortized across bursts
+- [ ] **PERF-07**: Bar processing is parallelized per (symbol, tf) key — independent keys are dispatched to per-key workers concurrently rather than processed sequentially; a bar for ES:1m does not block NQ:5m
+- [ ] **PERF-08**: `BarMessage(**msg)` hot-path parse uses `model_construct()` (skip validation) for messages from trusted internal producers; full Pydantic validation reserved for DLQ/error paths
+- [ ] **PERF-09**: `bar.model_copy(update={"gap_preceding": True})` replaced with a zero-allocation alternative (gap flag passed as parameter or BarMessage constructed with field set at parse time)
 
 ---
 
@@ -125,5 +129,9 @@
 | PERF-03 | Phase 089 | Pending |
 | PERF-04 | Phase 089 | Pending |
 | PERF-05 | Phase 089 | Pending |
+| PERF-06 | Phase 089 | Pending |
+| PERF-07 | Phase 089 | Pending |
+| PERF-08 | Phase 089 | Pending |
+| PERF-09 | Phase 089 | Pending |
 | QUAL-01 | v2.7 | Deferred |
 | QUAL-02 | v2.7 | Deferred |

@@ -1241,19 +1241,27 @@ Plans:
 ### Phase 089: Compute Performance Optimization
 **Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
 **Depends on**: Phase 084 (OBS-01 histograms needed to identify bottlenecks), Phase 088 (PluginExecutor extraction makes state threading changes testable in isolation)
-**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05
-**Known targets from static analysis:**
-  - `_build_features_from_event()`: 7× Pydantic model_dump() per I7 setup call → cache once per bar
-  - Flat `features` dual-write: wave merges maintain a redundant growing dict in parallel with tiered output
-  - `plugin._state` mutation before thread pool: race condition on concurrent symbol/tf + shared mutable object
-  - `IntelligenceEvent` construction: 7× `{k: v for k, v in tier.items() if v is not None}` at build time
-  - O(N) plugins: `supports_incremental` exists but coverage is incomplete — OBS-01 histograms will surface laggards
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08, PERF-09
+**Known targets from static analysis (intelligence_pipeline_agent.py):**
+  - `_build_features_from_event()` line 212: 7× Pydantic model_dump() per I7 setup → cache once per bar (PERF-01)
+  - Flat `features` dual-write line 1253: wave merges write same data to two dicts every tier (PERF-02)
+  - `plugin._state =` line 1187: shared mutable state mutation before thread pool dispatch (PERF-03)
+  - O(N) plugins: `supports_incremental` coverage incomplete — OBS-01 histograms will surface laggards (PERF-04)
+  - IntelligenceEvent construction lines 987-993: 7× None-filtering comprehensions at build time (PERF-05)
+  - `_drain_output` line 1028: one Kafka publish per `await` — no batching (PERF-06)
+  - `_process_bar` line 807: sequential per-bar — ES:1m blocks NQ:5m (PERF-07)
+  - `BarMessage(**msg)` line 832: full Pydantic validation on trusted internal messages (PERF-08)
+  - `bar.model_copy(update=...)` line 858: allocates new BarMessage just to set gap flag (PERF-09)
 **Success Criteria** (what must be TRUE):
-  1. `_build_features_from_event()` is called once per bar; the 7× model_dump() allocations no longer appear in a CPU profile
-  2. The flat `features` dual-write path is removed or confirmed necessary with evidence; per-bar wave-merge dict updates are reduced
-  3. Plugin state is threaded as a parameter into compute_full()/compute_next(); direct mutation of plugin._state before executor dispatch is gone
-  4. OBS-01 histograms reviewed; any p95-outlier plugin using O(N) bar-history recomputation is converted to incremental; before/after histogram comparison documented
-  5. `IntelligenceEvent` construction comprehensions replaced with pre-filtered dicts assembled during wave merging
+  1. `_build_features_from_event()` called once per bar; 7× model_dump() allocations gone from CPU profile
+  2. Flat `features` dual-write removed or confirmed necessary; wave-merge dict updates reduced
+  3. Plugin state threaded as parameter; plugin._state mutation before executor dispatch eliminated
+  4. OBS-01 histograms reviewed; p95-outlier O(N) plugins converted to incremental; before/after documented
+  5. IntelligenceEvent construction comprehensions replaced with pre-filtered dicts from wave merging
+  6. `_drain_output` drains batches of N per iteration; single-message-per-await pattern eliminated
+  7. Independent (symbol, tf) bars dispatched to per-key workers concurrently; sequential bar loop eliminated
+  8. `BarMessage(**msg)` on trusted path replaced with `model_construct()`; full validation on DLQ path only
+  9. `bar.model_copy(update=...)` gap-flag allocation eliminated
 **Plans**: TBD
 
 </details>
