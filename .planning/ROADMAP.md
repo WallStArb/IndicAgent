@@ -1142,10 +1142,10 @@ Plans:
 **Plans:** 6 plans
 
 Plans:
-- [ ] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
-- [ ] 083-02-PLAN.md — Base-class span enrichment (ERROR status + ATTR_* constants) + pipeline observed_span
-- [ ] 083-03-PLAN.md — metrics.py OTel SDK migration + call-site migration + SERVICE_UP_GAUGE relocation + init_tracing cleanup
-- [ ] 083-04-PLAN.md — BaseAgent._get_producer + consolidate 3 inline DLQ implementations + DLQ_DEPTH removal
-- [ ] 083-05-PLAN.md — dlq_drain_agent + 088_dlq_events migration + ensure_topics.sh + dead topic/stream_keys cleanup
-- [ ] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
+- [x] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
+- [x] 083-02-PLAN.md — Base-class span enrichment (ERROR status + ATTR_* constants) + pipeline observed_span
+- [x] 083-03-PLAN.md — metrics.py OTel SDK migration + call-site migration + SERVICE_UP_GAUGE relocation + init_tracing cleanup
+- [x] 083-04-PLAN.md — BaseAgent._get_producer + consolidate 3 inline DLQ implementations + DLQ_DEPTH removal
+- [x] 083-05-PLAN.md — dlq_drain_agent + 088_dlq_events migration + ensure_topics.sh + dead topic/stream_keys cleanup
+- [x] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
 
