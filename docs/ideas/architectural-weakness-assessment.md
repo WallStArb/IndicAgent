@@ -79,6 +79,8 @@ Errors caught broadly, logged, then processing continues with partial/missing da
 
 Also see #10 for the plugin circuit breaker gap specifically.
 
+**Related:** `docs/ideas/service-resilience-patterns.md` — Pattern 1 (consumer circuit breaker design) and Pattern 3 (consumer observability metrics) are the implementation reference for this finding.
+
 ---
 
 ## #7. Global mutable state without thread protection (MEDIUM)
@@ -132,6 +134,8 @@ every bar with no automatic recovery or fallback.
 
 **Fix:** Wrap each plugin call with `circuit_breaker.execute_with_fallback(plugin_name, fn, fallback=None)`
 and `asyncio.wait_for(plugin_fn(...), timeout=0.1)`. Reuse the existing class — no new code needed.
+
+**Related:** `docs/ideas/service-resilience-patterns.md` — Pattern 1 has the full circuit breaker config surface and integration design. `docs/ideas/latency-and-persistence-audit-design.md` — "Scientific Integrity" section covers per-plugin compute budgets and liveness tracking, which this addresses.
 
 ---
 
