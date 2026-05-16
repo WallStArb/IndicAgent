@@ -10,8 +10,7 @@ export default function ObservabilityPanel() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[var(--bg-base)]">
-      <DashboardNav />
-      <div className="flex flex-col flex-1 p-6 gap-6">
+      <div className="flex flex-col flex-1 p-6 gap-6 pb-28">
       <header>
         <h1 className="text-xl font-bold text-[var(--text-primary)]">System Command Center</h1>
         <p className="text-sm text-[var(--text-muted)]">Real-time observability and intelligence pipeline health</p>
@@ -24,6 +23,7 @@ export default function ObservabilityPanel() {
         </div>
       </div>
       </div>
+      <FloatingDock />
     </div>
   );
 }

@@ -26,6 +26,7 @@ import { fmtTimeHMS } from "@/lib/format";
 import { LayoutGrid, Rows3, BarChart2, ScanLine } from "lucide-react";
 import Link from "next/link";
 import { isHeroTier } from "@/lib/signal-tier";
+import { FloatingDock } from "@/components/floating-dock";
 
 const TF_STALENESS_MS: Record<string, number> = {
   "1m":  10 * 60_000,
@@ -276,32 +277,6 @@ export default function TradingDashboard() {
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
-            <Link
-              href="/signals"
-              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
-            >
-              Signals
-            </Link>
-            <Link
-              href="/dashboard/observability"
-              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
-            >
-              System
-            </Link>
-            <Link
-              href="/dashboard/ai"
-              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
-            >
-              AI Swarm
-            </Link>
-            <Link
-              href="/dashboard/hub"
-              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
-            >
-              Hub
-            </Link>
-          </div>
 
           {/* Profile switcher */}
           <ProfileSwitcher
@@ -360,7 +335,7 @@ export default function TradingDashboard() {
         )}
 
         {/* Content area */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto pb-28">
           {layoutMode === "grid" ? (
             /* ── Grouped Grid View ── */
             <GroupedSymbolGrid
@@ -426,6 +401,7 @@ export default function TradingDashboard() {
           {timeframe.toUpperCase()} · {symbols.length} symbols · IndicAgent v0.2
         </span>
       </footer>
+      <FloatingDock />
     </div>
   );
 }
