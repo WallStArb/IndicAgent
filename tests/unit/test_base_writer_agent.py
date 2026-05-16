@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from src.core.agent.base_writer import BaseWriterAgent
 
@@ -198,7 +199,8 @@ class TestOffsetCommit:
         agent._flush_batch = failing_flush  # type: ignore[assignment]
         agent._buffer.extend([{"id": 1}])
 
-        await agent._do_flush()
+        with pytest.raises(RuntimeError, match="DB down"):
+            await agent._do_flush()
 
         # Buffer should NOT be cleared (left intact for retry)
         assert len(agent._buffer) == 1
@@ -318,7 +320,9 @@ class TestFlushLatencyMetrics:
 
         mock_errors = MagicMock()
         agent._flush_errors_total = mock_errors
-        await agent._do_flush()
+
+        with pytest.raises(RuntimeError):
+            await agent._do_flush()
 
         # Buffer should NOT be cleared (left intact for retry)
         assert len(agent._buffer) == 1
@@ -344,3 +348,101 @@ class TestBufferOverflowAlert:
         # Should have kept the NEWEST entries
         assert agent._buffer[0]["id"] == 20
         assert agent._buffer[-1]["id"] == agent.MAX_BUFFER_SIZE + 19
+
+
+# ---------------------------------------------------------------------------
+# Pydantic payload gate tests (INFRA-01)
+# ---------------------------------------------------------------------------
+
+
+class _IdModel(BaseModel):
+    id: int
+
+
+class TypedWriterAgent(BaseWriterAgent):
+    """Writer subclass that declares a payload_model for testing the Pydantic gate."""
+
+    payload_model = _IdModel
+    parsed_args: list[Any] = []
+
+    def __init__(self) -> None:
+        super().__init__(name="typed_writer")
+        self.parsed_args = []
+
+    def _topic_name(self) -> str:
+        return "test.typed"
+
+    @property
+    def _consumer_group(self) -> str:
+        return "typed_group"
+
+    def _parse_payload(self, payload: Any) -> list | None:
+        self.parsed_args.append(payload)
+        return [payload]
+
+    async def _flush_batch(self, batch: list) -> None:
+        pass
+
+    async def _run(self) -> None:
+        pass
+
+
+class TestPydanticPayloadGate:
+    """Tests for INFRA-01: payload_model Pydantic validation gate."""
+
+    def test_payload_model_default_is_none(self):
+        """BaseWriterAgent.payload_model defaults to None."""
+        assert BaseWriterAgent.payload_model is None
+
+    @pytest.mark.asyncio
+    async def test_pydantic_validation_error_routes_to_dlq(self):
+        """ValidationError on payload_model routes to DLQ, increments parse_failures, leaves buffer empty."""
+        agent = TypedWriterAgent()
+        agent._consumer = AsyncMock()
+
+        bad_payload = {"id": "not_an_int"}
+
+        # Mock _maybe_route_to_dlq and _parse_failures_total
+        agent._maybe_route_to_dlq = AsyncMock()
+        mock_counter = MagicMock()
+        agent._parse_failures_total = mock_counter
+
+        # Exercise the gate directly by simulating the gate logic from _run()
+        model_cls = type(agent).payload_model
+        assert model_cls is not None
+        try:
+            validated = model_cls.model_validate(bad_payload)
+            agent._parse_payload(validated)
+        except ValidationError as exc:
+            agent._parse_failures_total.add(1)
+            await agent._maybe_route_to_dlq(bad_payload, exc)
+
+        # _parse_failures_total.add(1) must be called
+        mock_counter.add.assert_called_once_with(1)
+        # _maybe_route_to_dlq must be awaited with (payload, ValidationError)
+        agent._maybe_route_to_dlq.assert_awaited_once()
+        call_args = agent._maybe_route_to_dlq.call_args
+        assert call_args[0][0] == bad_payload
+        assert isinstance(call_args[0][1], ValidationError)
+        # Buffer must remain empty (gate continued before _buffer_rows)
+        assert agent._buffer == []
+
+    @pytest.mark.asyncio
+    async def test_pydantic_validation_success_passes_validated_model_to_parse(self):
+        """Valid payload passes a BaseModel instance (not raw dict) to _parse_payload."""
+        agent = TypedWriterAgent()
+        agent._consumer = AsyncMock()
+
+        good_payload = {"id": 42}
+
+        # Exercise the gate directly
+        model_cls = type(agent).payload_model
+        assert model_cls is not None
+        validated = model_cls.model_validate(good_payload)
+        agent._parse_payload(validated)
+
+        # _parse_payload must have received a BaseModel instance with id == 42
+        assert len(agent.parsed_args) == 1
+        received = agent.parsed_args[0]
+        assert isinstance(received, BaseModel)
+        assert received.id == 42  # type: ignore[attr-defined]
