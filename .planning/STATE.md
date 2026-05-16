@@ -6,7 +6,7 @@ status: planning
 stopped_at: ""
 last_updated: "2026-05-16T14:00:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,21 +20,32 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v2.6 — Foundation Hardening + Signal Transform Architecture. Scope agreed 2026-05-16, phases not yet planned.
+**Current focus:** v2.6 — Foundation Hardening + Signal Transform Architecture. Roadmap written 2026-05-16. Next: plan Phase 084.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 084 — Base Agent Hardening (not started)
 Plan: -
-Status: Defining requirements
-Last activity: 2026-05-16 — Milestone v2.6 started
+Status: Roadmap complete, ready to plan Phase 084
+Last activity: 2026-05-16 — Roadmap written (6 phases, 21 requirements)
 Last completed: Phase 083 — Observability Hardening (7 plans, 2026-05-16)
 
-Progress: [░░░░░░░░░░] 0% (v2.6 not started)
+Progress: [░░░░░░░░░░] 0% (0/6 phases)
+
+## Phase Overview
+
+| Phase | Name | Requirements | Status |
+|-------|------|--------------|--------|
+| 084 | Base Agent Hardening | INFRA-01–06, OBS-01 | Not started |
+| 085 | Persistence Writer Migration | PERSIST-01–05 | Not started |
+| 086 | Pipeline Hardening | PIPE-01–04, OBS-02–03 | Not started |
+| 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
+| 088 | God Class Decomposition | ARCH-01–05 | Not started |
+| 089 | First Qualitative Intelligence Lane | QUAL-01–02 | Not started |
 
 ## v2.6 Agreed Scope (2026-05-16)
 
-Phase order and focus agreed in session. Start milestone then plan phases.
+Phase order and focus agreed in session. Roadmap written. Next: /gsd:plan-phase 84.
 
 ### Phase 084 — Base Agent Hardening
 Enhance `BaseWriterAgent`, `BaseAgent`, `BaseAIAgent` with enforced contracts:
@@ -44,6 +55,7 @@ Enhance `BaseWriterAgent`, `BaseAgent`, `BaseAIAgent` with enforced contracts:
 - `BaseAIAgent._on_error()` — emit OTel counter by default (call site exists, body is pass)
 - Circuit breaker opt-in via class attribute on BaseAgent
 - Fix: dead graduation loop (implement or delete), LineageRecorder (wire or delete)
+- OBS-01: per-plugin OTel latency histograms in intelligence pipeline
 
 ### Phase 085 — Persistence Writer Migration
 Writers adopt 084 base contracts — fixes become mechanical:
@@ -58,20 +70,21 @@ Writers adopt 084 base contracts — fixes become mechanical:
 - Wire `validate_signal()` at I7 output boundary in SignalWriterAgent (exists, unused)
 - Checkpoint write → fail fast (currently swallowed)
 - Output queue `put_nowait` → block/retry on full
+- OBS-02: `/api/health/system` machine-readable JSON endpoint
+- OBS-03: BaseAgent `last_processed_at` heartbeat + service_auditor stall detection
 
 ### Phase 087 — Signal Transform Architecture Phases 2-4
 Gated on 30-day data accumulation (~May 25). Phase 72 (dual-write) already shipped.
 Resume when gate lifts.
 
 ### Phase 088 — Intelligence Pipeline God Class Decomposition
-Extract 9 responsibilities from 1892-line `IntelligencePipelineComputeAgent` into
+Extract 5 responsibilities from 1892-line `IntelligencePipelineComputeAgent` into
 focused in-process classes (zero latency overhead — no Kafka boundaries):
 - `PluginExecutor` — tiers, thread pool, plugin cache
 - `PluginStateManager` — _plugin_states, locks, checkpoint/restore
 - `SignalProcessor` — I7, gating, ranking, aggregation
 - `CacheManager` — 6 refresh loops, all DB cache reads
 - `OutputQueue` — asyncio.Queue, drain, enqueue, publish
-Enables: async parallel tier execution, isolated circuit breakers, easier testing.
 
 ### Phase 089 — First Qualitative Intelligence Lane
 One lane first (earnings or macro) — validate before building three.
@@ -89,6 +102,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - God class refactor: "one process" is correct for latency; "one class" is accidental complexity. Decompose within the process boundary.
 - First qualitative lane: build one, validate, then expand. Don't build all three lanes simultaneously.
 - Signal Transform phases 2-4: data gate ~May 25 — schedule 087 around that date.
+- OBS-01 assigned to Phase 084 (co-located with base agent instrumentation work).
+- OBS-02 and OBS-03 assigned to Phase 086 (system health endpoint and stall detection belong with pipeline hardening).
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -105,5 +120,6 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 ## Session Continuity
 
 Last session: 2026-05-16
-Stopped at: context approaching limit. v2.6 scope fully agreed. Next: /gsd-new-milestone to start v2.6, then /gsd-plan-phase 84.
+Stopped at: Roadmap written. 6 phases, 21 requirements mapped, 100% coverage.
 Resume file: None
+Next: /gsd:plan-phase 84

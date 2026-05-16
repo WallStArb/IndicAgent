@@ -83,14 +83,33 @@
 
 ## Traceability
 
-*(Filled by roadmapper)*
-
-| REQ-ID | Phase |
-|--------|-------|
-| INFRA-01 through INFRA-06 | Phase 084 |
-| PERSIST-01 through PERSIST-05 | Phase 085 |
-| PIPE-01 through PIPE-04 | Phase 086 |
-| SIGXFM-01 through SIGXFM-03 | Phase 087 |
-| ARCH-01 through ARCH-05 | Phase 088 |
-| OBS-01 through OBS-03 | TBD (roadmapper to assign) |
-| QUAL-01, QUAL-02 | Phase 089 |
+| REQ-ID | Phase | Status |
+|--------|-------|--------|
+| INFRA-01 | Phase 084 | Pending |
+| INFRA-02 | Phase 084 | Pending |
+| INFRA-03 | Phase 084 | Pending |
+| INFRA-04 | Phase 084 | Pending |
+| INFRA-05 | Phase 084 | Pending |
+| INFRA-06 | Phase 084 | Pending |
+| OBS-01 | Phase 084 | Pending |
+| PERSIST-01 | Phase 085 | Pending |
+| PERSIST-02 | Phase 085 | Pending |
+| PERSIST-03 | Phase 085 | Pending |
+| PERSIST-04 | Phase 085 | Pending |
+| PERSIST-05 | Phase 085 | Pending |
+| PIPE-01 | Phase 086 | Pending |
+| PIPE-02 | Phase 086 | Pending |
+| PIPE-03 | Phase 086 | Pending |
+| PIPE-04 | Phase 086 | Pending |
+| OBS-02 | Phase 086 | Pending |
+| OBS-03 | Phase 086 | Pending |
+| SIGXFM-01 | Phase 087 | Pending (gated ~May 25) |
+| SIGXFM-02 | Phase 087 | Pending (gated ~May 25) |
+| SIGXFM-03 | Phase 087 | Pending (gated ~May 25) |
+| ARCH-01 | Phase 088 | Pending |
+| ARCH-02 | Phase 088 | Pending |
+| ARCH-03 | Phase 088 | Pending |
+| ARCH-04 | Phase 088 | Pending |
+| ARCH-05 | Phase 088 | Pending |
+| QUAL-01 | Phase 089 | Pending |
+| QUAL-02 | Phase 089 | Pending |
