@@ -11,11 +11,12 @@ CREATE TABLE IF NOT EXISTS dlq_events (
     error_type    TEXT NOT NULL,
     error_message TEXT NOT NULL,
     payload       JSONB NOT NULL,
-    retry_count   INT NOT NULL DEFAULT 0
+    retry_count   INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id, routed_at)  -- id is unique; routed_at required by TimescaleDB hypertable
 );
 
 SELECT create_hypertable('dlq_events', 'routed_at', if_not_exists => TRUE);
 SELECT add_retention_policy('dlq_events', INTERVAL '30 days', if_not_exists => TRUE);
 
-CREATE UNIQUE INDEX IF NOT EXISTS dlq_events_dedup_idx
-    ON dlq_events (agent, source_topic, routed_at);
+-- No dedup index: dlq_events is a loss-of-information audit log; burst errors from the
+-- same agent/topic within the same microsecond must all be preserved, not silently dropped.
