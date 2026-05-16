@@ -261,17 +261,35 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.2 — Operational Excellence
+## Current Milestone: v2.6 — Foundation Hardening & Signal Transform
 
-**Goal:** Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
+**Goal:** Harden base infrastructure to eliminate silent failures, decompose the intelligence pipeline god class, and advance the signal transform architecture — fix the leverage points, not each symptom, to set a clean foundation for horizontal (qualitative) and vertical (deeper quant) expansion.
 
-**Target phases (dependency order):**
-- Phase 53.3: RollDetectionAgent + DataProviderAgent rename — extract RollMonitor; typed RollEvent; unblocks Phase 50
-- Phase 53.2: BarAggregatorAgent — extract BarAccumulator; feature_compute_agent becomes pure intelligence consumer
-- Phase 53.1: BarWriterAgent + BarCompletenessAgent — compute/persistence separation; self-healing gap loop; retires gap_fill_service
-- Phase 50: Roll Monitor + DualDivergence Graduation — D-21 validation; ROLL_MONITOR_ENABLED; trad_DualDivergence promotion
-- Phase 54: Provider Abstraction Layer — DataProviderAdapter Protocol, IBKRAdapter, IBKRProviderAgent + ProviderMergerAgent two-service stack; broker-agnostic data foundation (2026-03-28 ✅)
-- Phase 58.1: Contract Lifecycle Automation — ContractMetadataWriterAgent (seed + roll promotion + DLQ); BarAuditorAgent session-aligned gap detection (RTH windows, max_achievable_pct ceiling); build_contracts() base-symbol templates (no quarterly code edits); RollComputeAgent backtest script; graduation deferred to June roll (2026-04-02 ✅)
+**Target phases:**
+- Phase 084: Base Agent Hardening — enforced Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup
+- Phase 085: Persistence Writer Migration — all 6 writers adopt 084 contracts; fix lineage_writer silent data loss; named params across all positional-tuple writers
+- Phase 086: Pipeline Hardening — wire PluginCircuitBreaker per-plugin; validate_signal() at I7 output boundary; checkpoint fail-fast; output queue block/retry
+- Phase 087: Signal Transform Architecture Phases 2-4 — gated on ~May 25 data accumulation
+- Phase 088: God Class Decomposition — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from 1892-line IntelligencePipelineComputeAgent
+- Phase 089: First Qualitative Intelligence Lane — one lane (earnings or macro events) validated in shadow mode before expansion
 
 ---
-*Last updated: 2026-04-27 — Phase 64 complete: I6 confluence expansion. 5 cross-TF I6 plugins built (CrossTFMomentumDivergence, CrossTFSRConfluence, CrossTFRegimeAgreement, SqueezeExpansionDivergence, CrossTFOrderFlowAlignment) with np.tanh() continuous gradient scoring [-1,+1]. I6Confluence schema extended with 10 ctf_* fields. MacroComputeAgent microservice functional (yield curve + flight-to-quality factors, macro_features hypertable). Backtest validation infrastructure complete (IC/p-value/Bonferroni D-25 gate). Live backtest execution deferred to FeatureValidationService phase (~May 10 data gate). 103 unit tests passing. TIER_I6: 1→6 plugins. v2.3 ML Foundation milestone now complete (Phases 64+65+66 all shipped).*
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+---
+*Last updated: 2026-05-16 — v2.5 archived (Phases 69-83). v2.6 Foundation Hardening & Signal Transform started. Phases 084-089 defined.*

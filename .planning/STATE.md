@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.6
 milestone_name: Foundation Hardening & Signal Transform
-status: pre_planning
-stopped_at: context approaching limit — v2.6 scope agreed, phases not yet planned (2026-05-16)
-last_updated: "2026-05-16T13:30:00.000Z"
+status: planning
+stopped_at: ""
+last_updated: "2026-05-16T14:00:00.000Z"
 progress:
   total_phases: 0
   completed_phases: 0
@@ -24,9 +24,11 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: None (pre-planning v2.6)
+Phase: Not started (defining requirements)
+Plan: -
+Status: Defining requirements
+Last activity: 2026-05-16 — Milestone v2.6 started
 Last completed: Phase 083 — Observability Hardening (7 plans, 2026-05-16)
-Milestone: v2.5 Data Quality & Intelligence Completion — ARCHIVED
 
 Progress: [░░░░░░░░░░] 0% (v2.6 not started)
 
