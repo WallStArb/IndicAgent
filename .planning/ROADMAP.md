@@ -18,7 +18,7 @@
 - ✅ **v2.3 ML Foundation** — Phases 64, 65, 66 (shipped 2026-05-14; Phase 64 03C USD strength deferred)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
-- [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
+- [ ] **v2.6 Foundation Hardening & Signal Transform** — Phases 084–089 (active)
 
 ## Phases
 
@@ -491,6 +491,18 @@ Plans:
 **Note**: Automated gap-fill moved to Phase 53.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
 
 </details>
+<details>
+<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
+
+- [ ] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
+- [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (0/TBD plans)
+- [ ] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (0/TBD plans)
+- [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
+- [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
+- [ ] **Phase 089: First Qualitative Intelligence Lane** — one lane (earnings or macro) in shadow mode; validated over N bars before promotion (0/TBD plans)
+
+</details>
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -638,6 +650,12 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
 | 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
 | 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
+| 084. Base Agent Hardening | v2.6 | 0/TBD | Not started | - |
+| 085. Persistence Writer Migration | v2.6 | 0/TBD | Not started | - |
+| 086. Pipeline Hardening | v2.6 | 0/TBD | Not started | - |
+| 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
+| 088. God Class Decomposition | v2.6 | 0/TBD | Not started | - |
+| 089. First Qualitative Intelligence Lane | v2.6 | 0/TBD | Not started | - |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -1152,3 +1170,81 @@ Plans:
 - [x] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
 - [x] 083-07-PLAN.md — UAT gap closure: OTel MeterProvider isinstance fix, DLQ drain activation, orphaned topics deleted
 
+
+
+<details>
+<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
+
+### Phase 084: Base Agent Hardening
+**Goal**: Harden the BaseWriterAgent, BaseAgent, and BaseAIAgent contracts so malformed payloads, swallowed exceptions, and silent dead code are structurally impossible in all subclasses.
+**Depends on**: Phase 083
+**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05, INFRA-06, OBS-01
+**Success Criteria** (what must be TRUE):
+  1. A new BaseWriterAgent subclass declares one Pydantic model; malformed messages are automatically DLQ'd without any per-writer boilerplate
+  2. Calling `_flush_batch()` in any writer cannot silently swallow an exception — it must raise or DLQ; the linter/type checker catches violations
+  3. Any agent's setup can call `_setup_with_retry()` with configurable attempts and backoff; the three duplicated retry scaffolds are deleted
+  4. Every BaseAIAgent error emits an OTel counter increment observable in Grafana; the empty `pass` body is gone
+  5. A developer can opt any BaseAgent subclass into circuit-breaker protection by setting one class attribute; no per-agent wiring required
+  6. The dead graduation loop and LineageRecorder are either fully wired with tests or deleted; no silent dead code remains in base classes
+  7. Per-plugin OTel latency histograms exist in the pipeline; p50/p95 latency is visible per plugin in Grafana without adding instrumentation
+**Plans**: TBD
+
+### Phase 085: Persistence Writer Migration
+**Goal**: All persistence writers adopt the 084 base contracts so silent data loss, swallowed errors, and per-record writes are mechanically eliminated across the fleet.
+**Depends on**: Phase 084
+**Requirements**: PERSIST-01, PERSIST-02, PERSIST-03, PERSIST-04, PERSIST-05
+**Success Criteria** (what must be TRUE):
+  1. lineage_writer_agent: every message either lands in the DB or in the DLQ; a developer can query DLQ depth and see any previously lost messages as DLQ entries
+  2. feature_snapshot_writer_agent: a batch flush failure triggers bounded retry; the clear-on-error behavior is gone; the failure is visible in logs and metrics
+  3. llm_writer_service: outcome errors propagate to the caller and appear in structured logs; the swallowed-error path is deleted
+  4. signal_metrics_writer_agent: inserts are batched; single-row inserts per record are gone; batch latency metric is present
+  5. All positional-tuple INSERT calls in writers use named parameters matching contract_metadata_writer_agent style; reviewers can read the query without counting argument positions
+**Plans**: TBD
+
+### Phase 086: Pipeline Hardening
+**Goal**: The intelligence pipeline fails loudly on every error boundary — per-plugin circuit breakers, output validation, checkpoint durability, and queue backpressure are all wired.
+**Depends on**: Phase 085
+**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, OBS-02, OBS-03
+**Success Criteria** (what must be TRUE):
+  1. A plugin that raises repeatedly opens its circuit breaker and is skipped for subsequent bars; the bar continues processing the remaining plugins; the open-breaker event is visible in Grafana
+  2. An invalid signal payload from I7 is DLQ'd before reaching signal_ledger; no malformed signal can be persisted
+  3. A checkpoint write failure raises an exception that halts the bar; the error appears in structured logs; it is never silently swallowed
+  4. When the output queue is full, the producer blocks and retries rather than dropping the bar; a full-queue event is visible as a metric
+  5. `GET /api/health/system` returns machine-readable JSON with consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
+  6. BaseAgent exposes `last_processed_at`; service_auditor detects a stalled agent (process alive, no bar progress) and triggers a restart
+**Plans**: TBD
+
+### Phase 087: Signal Transform Architecture Phases 2-4
+**Goal**: Graduate the signal transform pipeline from dual-write shadow mode to unified schema with full validation — completing the work started in Phase 072.
+**Depends on**: Phase 086 (hardened pipeline), data gate ~May 25
+**Requirements**: SIGXFM-01, SIGXFM-02, SIGXFM-03
+**Success Criteria** (what must be TRUE):
+  1. Signal transform Phase 2 (graduation from dual-write to unified schema) is implemented; the transform_graduation table has passing graduation criteria; no regression in signal volume or quality metrics
+  2. Signal transform Phase 3 is implemented; the intermediate dual-write infrastructure is retired; all transforms flow through the unified schema path
+  3. Signal transform Phase 4 is implemented; the full transform pipeline is active in production; signal_transform_log is the single source of truth for all confidence modifications; old confidence-mutation paths are deleted
+**Plans**: TBD
+
+### Phase 088: God Class Decomposition
+**Goal**: Extract five focused classes from the 1892-line IntelligencePipelineComputeAgent so each responsibility is independently testable and the god class is reduced to a thin orchestrator.
+**Depends on**: Phase 086 (pipeline contracts in place before decomposition)
+**Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05
+**Success Criteria** (what must be TRUE):
+  1. PluginExecutor class owns tiers, thread pool, and plugin cache; it can be unit-tested in isolation without standing up a full pipeline
+  2. PluginStateManager class owns _plugin_states, per-key asyncio locks, and checkpoint save/restore; state corruption bugs are detectable at the class boundary
+  3. SignalProcessor class owns I7 execution, regime gating, ranking, and aggregation; a test can inject a mock PluginExecutor output and verify signal selection
+  4. CacheManager class owns all 6 refresh loops and DB cache reads; a test can verify cache expiry behavior without running the full bar loop
+  5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
+**Plans**: TBD
+
+### Phase 089: First Qualitative Intelligence Lane
+**Goal**: One qualitative intelligence lane (earnings or macro events) produces intelligence events on the canonical typed bus and runs in shadow mode pending statistical validation.
+**Depends on**: Phase 086 (hardened pipeline to receive new event type)
+**Requirements**: QUAL-01, QUAL-02
+**Success Criteria** (what must be TRUE):
+  1. One qualitative lane (earnings or macro) publishes typed events to the canonical IntelligenceEvent bus; events appear in intelligence_features with a ctx JSONB payload
+  2. The lane runs shadow_only=True by default; a developer can query ctx_snapshots to see shadow events accumulating
+  3. The shadow_registry auto-enrolls the qualitative lane; the promotion gate (N bars threshold) is defined and observable
+  4. Zero changes required to the existing I1-I7 pipeline to accommodate the new lane; it is additive only
+**Plans**: TBD
+
+</details>
