@@ -202,6 +202,27 @@ AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = _meter.create_gauge(
 )
 
 # ---------------------------------------------------------------------------
+# Base agent hardening metrics (Phase 84)
+# ---------------------------------------------------------------------------
+
+AGENT_DLQ_TOTAL = _meter.create_counter(
+    "agent_dlq_total",
+    description="Per-agent DLQ event count (all paths, including log-only discard)",
+)
+AGENT_SETUP_RETRIES_TOTAL = _meter.create_counter(
+    "agent_setup_retries_total",
+    description="Setup retry attempts per agent (each retry loop iteration)",
+)
+AGENT_CIRCUIT_BREAKER_STATE = _meter.create_gauge(
+    "agent_circuit_breaker_state",
+    description="Agent setup circuit breaker state: 0=closed, 1=half-open, 2=open",
+)
+AI_AGENT_ERRORS_TOTAL = _meter.create_counter(
+    "ai_agent_errors_total",
+    description="AI agent _compute() errors by agent_id and error_type",
+)
+
+# ---------------------------------------------------------------------------
 # Parity auditor metrics
 # ---------------------------------------------------------------------------
 

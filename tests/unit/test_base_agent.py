@@ -468,3 +468,92 @@ async def test_base_agent_send_alert_noop_without_producer() -> None:
         # Should not raise
         await a._send_alert("CRITICAL", "test")
         # If we get here, test passes
+
+
+# ---------------------------------------------------------------------------
+# Phase 084-01: INFRA-03 class attr configurability + INFRA-05 circuit breaker
+# ---------------------------------------------------------------------------
+
+
+def test_setup_retry_class_attrs_default() -> None:
+    """BaseAgent exposes SETUP_RETRY_ATTEMPTS=3, SETUP_RETRY_BACKOFF_S=2.0, circuit_breaker=False."""
+    assert BaseAgent.SETUP_RETRY_ATTEMPTS == 3
+    assert BaseAgent.SETUP_RETRY_BACKOFF_S == 2.0
+    assert BaseAgent.circuit_breaker is False
+
+
+def test_setup_retry_class_attrs_overridable() -> None:
+    """Subclasses can override SETUP_RETRY_ATTEMPTS and SETUP_RETRY_BACKOFF_S."""
+
+    class FastRetryAgent(BaseAgent):
+        SETUP_RETRY_ATTEMPTS = 1
+        SETUP_RETRY_BACKOFF_S = 0.1
+
+        async def _run(self) -> None:
+            pass
+
+    a = FastRetryAgent(name="fast_retry")
+    assert a.SETUP_RETRY_ATTEMPTS == 1
+    assert a.SETUP_RETRY_BACKOFF_S == 0.1
+    # Verify BaseAgent defaults are unchanged
+    assert BaseAgent.SETUP_RETRY_ATTEMPTS == 3
+    assert BaseAgent.SETUP_RETRY_BACKOFF_S == 2.0
+
+
+def test_circuit_breaker_default_off() -> None:
+    """BaseAgent.circuit_breaker is False by default; agent._cb_open starts False."""
+    assert BaseAgent.circuit_breaker is False
+    a = MinimalAgent(name="cb_default_test")
+    assert a._cb_open is False
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_opens_after_all_retries_fail() -> None:
+    """When circuit_breaker=True and all retries fail, _cb_open is set to True."""
+
+    class AlwaysFailSetupAgent(BaseAgent):
+        circuit_breaker = True
+        SETUP_RETRY_ATTEMPTS = 2
+        SETUP_RETRY_BACKOFF_S = 0.0
+
+        async def _setup(self) -> None:
+            raise RuntimeError("always fails")
+
+        async def _run(self) -> None:
+            pass
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = AlwaysFailSetupAgent(name="cb_open_test")
+        with pytest.raises(RuntimeError):
+            await a.start()
+
+    assert a._cb_open is True
+
+
+@pytest.mark.asyncio
+async def test_setup_retry_counter_increments_on_retry() -> None:
+    """AGENT_SETUP_RETRIES_TOTAL is incremented once per pre-final retry attempt."""
+    from unittest.mock import MagicMock
+
+    class RetryAgent(BaseAgent):
+        circuit_breaker = True
+        SETUP_RETRY_ATTEMPTS = 3
+        SETUP_RETRY_BACKOFF_S = 0.0
+
+        async def _setup(self) -> None:
+            raise RuntimeError("fail on every attempt")
+
+        async def _run(self) -> None:
+            pass
+
+    mock_counter = MagicMock()
+    with (
+        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.AGENT_SETUP_RETRIES_TOTAL", mock_counter),
+    ):
+        a = RetryAgent(name="retry_counter_test")
+        with pytest.raises(RuntimeError):
+            await a.start()
+
+    # With SETUP_RETRY_ATTEMPTS=3, there are 2 retries before the final raise
+    assert mock_counter.add.call_count == 2
