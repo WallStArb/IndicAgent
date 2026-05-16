@@ -1189,7 +1189,11 @@ Plans:
   5. A developer can opt any BaseAgent subclass into circuit-breaker protection by setting one class attribute; no per-agent wiring required
   6. The dead graduation loop and LineageRecorder are either fully wired with tests or deleted; no silent dead code remains in base classes
   7. Per-plugin OTel latency histograms exist in the pipeline; p50/p95 latency is visible per plugin in Grafana without adding instrumentation
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 084-01-PLAN.md — BaseAgent class attrs + circuit breaker + new OTel instruments (INFRA-03, INFRA-05)
+  - [ ] 084-02-PLAN.md — BaseWriterAgent Pydantic gate + _do_flush re-raise (INFRA-01, INFRA-02)
+  - [ ] 084-03-PLAN.md — BaseAIAgent._on_error + LineageRecorder wiring + graduation stub deletion (INFRA-04, INFRA-06)
+  - [ ] 084-04-PLAN.md — Grafana plugin latency dashboard (OBS-01)
 
 ### Phase 085: Persistence Writer Migration
 **Goal**: All persistence writers adopt the 084 base contracts so silent data loss, swallowed errors, and per-record writes are mechanically eliminated across the fleet.
