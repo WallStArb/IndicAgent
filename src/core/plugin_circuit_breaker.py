@@ -239,7 +239,7 @@ class PluginCircuitBreaker:
                 logger.info("Circuit breaker transitioning to HALF_OPEN", plugin=plugin_name)
 
                 # Update metrics
-                CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
+                CIRCUIT_BREAKER_STATE.set(plugin_state.state.value, {"plugin_name": plugin_name})
 
                 return False
             return True
@@ -258,7 +258,7 @@ class PluginCircuitBreaker:
                     "Circuit breaker returning to OPEN from HALF_OPEN", plugin=plugin_name
                 )
 
-                CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
+                CIRCUIT_BREAKER_STATE.set(plugin_state.state.value, {"plugin_name": plugin_name})
 
                 return True
 
@@ -296,7 +296,7 @@ class PluginCircuitBreaker:
             plugin_state.failure_count = max(0, plugin_state.failure_count - 1)
 
         # Update metrics
-        CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
+        CIRCUIT_BREAKER_STATE.set(plugin_state.state.value, {"plugin_name": plugin_name})
 
         # Record execution metrics
         PLUGIN_DURATION_MS.record(
@@ -368,7 +368,7 @@ class PluginCircuitBreaker:
             )
 
         # Update metrics
-        CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
+        CIRCUIT_BREAKER_STATE.set(plugin_state.state.value, {"plugin_name": plugin_name})
 
         PLUGIN_DURATION_MS.record(
             execution_time_ms, {"plugin_name": plugin_name, "tier": intelligence_tier}
@@ -502,7 +502,7 @@ class PluginCircuitBreaker:
             self.plugin_states[plugin_name] = plugin_state
 
             # Update metrics
-            CIRCUIT_BREAKER_STATE.add(plugin_state.state.value, {"plugin_name": plugin_name})
+            CIRCUIT_BREAKER_STATE.set(plugin_state.state.value, {"plugin_name": plugin_name})
 
             logger.info(
                 "Restored circuit breaker state", plugin=plugin_name, state=plugin_state.state.name
@@ -568,7 +568,7 @@ class PluginCircuitBreaker:
                 self.plugin_states[plugin_name] = CircuitBreakerState()
 
                 # Update metrics
-                CIRCUIT_BREAKER_STATE.add(0, {"plugin_name": plugin_name})  # CLOSED
+                CIRCUIT_BREAKER_STATE.set(0, {"plugin_name": plugin_name})  # CLOSED
 
                 # Clear persisted state
                 if self.state_manager:

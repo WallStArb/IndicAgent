@@ -351,5 +351,5 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """
         attrs = {"agent_id": self.name}
         while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.add(len(self._buffer), attrs)
+            PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), attrs)
             await asyncio.sleep(15)
