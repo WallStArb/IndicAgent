@@ -114,6 +114,15 @@ In `services/service_auditor_agent.py`:
 - **Fix:** Created symlink `.claude/worktrees/agent-a9e8ad66d4b861309/.venv -> /home/bg/dev/indicagent/.venv`
 - **Files modified:** worktree .venv symlink (not committed - infrastructure only)
 
-## Self-Check
+## Self-Check: PASSED
 
-Verifying key artifacts exist and commits are present.
+All artifacts confirmed present:
+- FOUND: production/migrations/088_dlq_events.sql
+- FOUND: services/dlq_drain_agent.py
+- FOUND: production/systemd/indicagent-dlq-drain.service
+- FOUND+EXEC: production/scripts/ensure_topics.sh
+- FOUND: commit 076decdc (migration)
+- FOUND: commit 439a3920 (agent + unit)
+- FOUND: commit 81ef1e8f (service_auditor registration)
+- FOUND: commit aff1f684 (ensure_topics + dead code removal)
+- FOUND: dlq_events table (0 rows, ready for drain traffic)
