@@ -240,7 +240,8 @@ class TestSignalWriterAgentFlush:
 
         entries = _payload_to_ledger_entries(_make_payload(n_signals=1))
         agent._buffer.extend(entries)
-        await agent._do_flush()
+        with pytest.raises(Exception, match="db down"):
+            await agent._do_flush()
         # Buffer should NOT be cleared on error
         assert len(agent._buffer) == 1
 

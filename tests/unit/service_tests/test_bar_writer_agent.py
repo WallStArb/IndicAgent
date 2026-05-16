@@ -227,7 +227,8 @@ async def test_flush_batch_leaves_buffer_on_error():
     )
     agent._db_pool = mock_pool
 
-    await agent._do_flush()
+    with pytest.raises(Exception, match="DB connection refused"):
+        await agent._do_flush()
 
     # Buffer must remain intact for retry
     assert len(agent._buffer) == 1

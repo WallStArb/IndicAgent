@@ -399,6 +399,8 @@ async def test_graceful_shutdown_flushes_and_closes():
     mock_batch_latency.__enter__ = MagicMock(return_value=None)
     mock_batch_latency.__exit__ = MagicMock(return_value=False)
     svc._batch_latency = mock_batch_latency
+    svc._batch_latency_attrs = {"agent_id": "feature_writer"}
+    svc._buffer_depth_gauge = MagicMock()
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
