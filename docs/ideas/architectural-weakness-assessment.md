@@ -234,3 +234,44 @@ Items that can be cleaned up immediately with low risk:
 12. Wire or delete LineageRecorder
 13. Implement backpressure on output queue
 14. Add React error boundaries + API input validation (#12)
+
+---
+
+## #1 — God Class Detail: IntelligencePipelineComputeAgent (expanded 2026-05-16)
+
+**File:** `services/intelligence_pipeline_agent.py` (1892 lines, 55+ instance variables)
+
+### Responsibilities currently in one class
+
+1. **Bar processing** — consume Kafka, parse, route HTF vs 1m
+2. **Plugin execution** — run I1→I7 tiers sequentially, manage thread pool
+3. **Plugin state management** — `_plugin_states` dict, per-(plugin, symbol, tf) isolation, locks
+4. **DB cache refresh loops** — 6 independent `_run_refresh_loop()` calls: perf weights, shadow cache, drift penalties, CIS weights, calibration curves, TOD multipliers
+5. **Signal gating and ranking** — regime gate, perf multiplier, shadow suppression, aggregation
+6. **Checkpoint/restore** — `_write_local_checkpoint()` / `_read_local_checkpoint()` for Kalman + plugin state
+7. **Output queue** — `asyncio.Queue(maxsize=500)`, `_drain_output()`, `_enqueue()`
+8. **Signal publishing** — DLQ routing, intel journal, Kafka publish
+9. **Health monitoring** — `_health_monitor_loop()`, HMM SIGUSR1 handler
+
+### Target decomposition (in-process, zero latency overhead)
+
+```
+IntelligencePipelineComputeAgent  ← thin orchestrator, owns lifecycle only
+├── PluginExecutor                 ← runs tiers, manages thread pool, plugin cache
+├── PluginStateManager             ← _plugin_states dict, locks, checkpoint/restore
+├── SignalProcessor                ← I7 execution, gating, ranking, aggregation
+├── CacheManager                   ← 6 refresh loops, all DB cache reads
+└── OutputQueue                    ← asyncio.Queue, drain, enqueue, publish
+```
+
+Each class lives in-process, passes references not Kafka. Method calls are nanoseconds — no latency cost. The latency benefit of unified in-process design is preserved; the accidental complexity is removed.
+
+**Why this unlocks everything else:**
+- `PluginExecutor` can add async parallel execution within tiers without touching signal logic
+- `PluginStateManager` can add circuit breaker opt-in without touching bar processing
+- `CacheManager` can add retry/backoff without touching plugin execution
+- New I7 plugins, new tiers, new cache sources all have a clear home
+
+**Effort:** Large — 3-5 days. But highest leverage in the codebase. Every future phase that touches the pipeline gets simpler after this.
+
+**Renaissance lens:** "One process" is the right call for latency. "One class" is accidental complexity. Decompose within the process boundary.
