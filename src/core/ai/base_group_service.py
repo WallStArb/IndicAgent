@@ -13,6 +13,7 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.ai.base_agent import BaseAIAgent
 from src.core.ai.context import AIContextCache
+from src.core.ai.lineage import LineageRecorder
 from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
@@ -43,7 +44,6 @@ class BaseGroupService(BaseAgent, ABC):
     """
 
     group_id: str = ""
-    has_graduation: bool = False
     llm_cache_ttl: float = 0.0  # 0 = no caching; override in subclasses that benefit from it
 
     @property
@@ -79,6 +79,7 @@ class BaseGroupService(BaseAgent, ABC):
         self._producer: KafkaProducerClient | None = None
         self._pool: Any | None = None  # asyncpg.Pool
         self._llm_chain: LLMProviderChain | None = None
+        self._lineage: LineageRecorder | None = None
 
     async def _setup(self) -> None:
         """Wire Kafka consumer/producer + DB pool + cache seeding.
@@ -136,6 +137,17 @@ class BaseGroupService(BaseAgent, ABC):
         # Seed context cache from DB
         await self._seed_context_cache()
 
+        # Wire LineageRecorder lifecycle (guards allow subclasses to override)
+        if not hasattr(self, "_lineage") or self._lineage is None:
+            self._lineage = LineageRecorder(
+                producer=self._producer,
+                env_name=self.env_name,
+            )
+            await self._lineage.start()
+        # Propagate recorder to all constituent agents
+        for agent in getattr(self, "agents", []):
+            agent._lineage = self._lineage
+
         # D-19: BaseGroupService must call super()._setup() for forward compatibility
         await super()._setup()
 
@@ -187,7 +199,7 @@ class BaseGroupService(BaseAgent, ABC):
         if self._bar_consumer is not None:
             tasks.append(asyncio.create_task(self._bar_loop()))
 
-        if self.has_graduation:
+        if hasattr(type(self), "_graduation_loop"):
             graduation_task = asyncio.create_task(self._graduation_loop())
             tasks.append(graduation_task)
 
@@ -200,6 +212,8 @@ class BaseGroupService(BaseAgent, ABC):
 
     async def _teardown(self) -> None:
         """Flush recorder, close pool, stop consumers/producer."""
+        if getattr(self, "_lineage", None) is not None:
+            await self._lineage.stop()
         if self._pool:
             await self._pool.close()
         if self._bar_consumer:
@@ -278,25 +292,3 @@ class BaseGroupService(BaseAgent, ABC):
         assert self._producer is not None
         payload = result.model_dump(mode="json")
         await self._producer.publish(self.output_topic, payload)
-
-    async def _graduation_loop(self) -> None:
-        """Background task: auto-flip shadow_only every 15 min (D-38).
-
-        Evaluates all agents against graduation gates (Spearman correlation).
-        Flips shadow_only False when gates pass.
-        """
-        import asyncio
-
-        while self.running:
-            try:
-                await asyncio.sleep(900)  # 15 minutes
-                # TODO: Implement graduation logic (Phase 75)
-                # - Query signal_lineage for agent predictions
-                # - Evaluate Spearman correlation gates
-                # - Flip agent.shadow_only when gates pass
-                # - Publish graduation event to topic_swarm_graduation
-            except Exception as exc:
-                self.logger.exception(
-                    "base_group_service.graduation_error",
-                    error=str(exc),
-                )
