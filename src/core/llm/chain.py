@@ -208,7 +208,7 @@ class LLMProviderChain:
         model: str,
     ) -> None:
         """Publish LLM call audit to topic_llm_calls."""
-        if audit_context is None or self._producer is None:
+        if audit_context is None or self._producer is None or self._settings is None:
             return
         from src.core.stream_keys import topic_llm_calls
 
@@ -230,7 +230,7 @@ class LLMProviderChain:
 
     async def _publish_parse_failure(self, call_id: str) -> None:
         """Publish corrective parse_success=False for a call that failed JSON parsing."""
-        if self._producer is None:
+        if self._producer is None or self._settings is None:
             return
         from src.core.stream_keys import topic_llm_calls
 
