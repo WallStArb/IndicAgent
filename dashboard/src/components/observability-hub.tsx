@@ -18,8 +18,7 @@ const TOOLS = [
 export function ObservabilityHub() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
-    <DashboardNav />
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 pb-28 max-w-4xl mx-auto">
       <header className="mb-10">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Observability Hub</h1>
         <p className="text-[var(--text-muted)]">Centralized cockpit for swarm intelligence and system forensics</p>
@@ -48,6 +47,7 @@ export function ObservabilityHub() {
         ))}
       </div>
     </div>
+      <FloatingDock />
     </div>
   );
 }

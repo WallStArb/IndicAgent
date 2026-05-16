@@ -189,8 +189,7 @@ export function SwarmIntelligencePanel() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[var(--bg-base)]">
-    <DashboardNav />
-    <div className="flex flex-col flex-1 p-6 gap-6 overflow-auto">
+    <div className="flex flex-col flex-1 p-6 gap-6 pb-28 overflow-auto">
       <header className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <BrainCircuit size={20} className="text-[var(--accent-cyan)]" />
@@ -350,6 +349,7 @@ export function SwarmIntelligencePanel() {
         </div>
       </div>
     </div>
+      <FloatingDock />
     </div>
   );
 }
