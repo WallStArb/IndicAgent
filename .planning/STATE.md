@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v2.5
+milestone_name: Data Quality & Intelligence Completion
 status: milestone_complete
-stopped_at: context exhaustion at 76% (2026-05-15)
-last_updated: "2026-05-15T23:49:28.947Z"
+stopped_at: null
+last_updated: "2026-05-16T00:00:00.000Z"
 progress:
-  total_phases: 32
-  completed_phases: 6
-  total_plans: 29
-  completed_plans: 30
-  percent: 19
+  total_phases: 15
+  completed_phases: 15
+  total_plans: 61
+  completed_plans: 61
+  percent: 100
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** All milestones through v2.5 shipped. Next: v2.6 Signal Transform Architecture or backlog items.
+**Current focus:** v2.5 archived. Next: v2.6 Signal Transform Architecture or backlog items.
 
 ## Current Position
 
-Phase: 083
-Last completed: Phase 82 — ML Intelligence Quality & Qualitative Foundation (6 plans)
-Milestone: v2.5 Data Quality & Intelligence Completion — SHIPPED
+Phase: None (between milestones)
+Last completed: Phase 083 — Observability Hardening (7 plans, 2026-05-16)
+Milestone: v2.5 Data Quality & Intelligence Completion — ARCHIVED
 
 Progress: [██████████] 100%
 
