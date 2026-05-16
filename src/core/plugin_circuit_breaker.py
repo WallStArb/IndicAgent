@@ -25,7 +25,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -227,11 +227,9 @@ class PluginCircuitBreaker:
 
         elif plugin_state.state == CircuitState.OPEN:
             # Check if recovery timeout has passed
-            if (
-                plugin_state.last_failure_time
-                and datetime.now() - plugin_state.last_failure_time
-                > timedelta(seconds=self.config.recovery_timeout)
-            ):
+            if plugin_state.last_failure_time and datetime.now(
+                UTC
+            ) - plugin_state.last_failure_time > timedelta(seconds=self.config.recovery_timeout):
 
                 plugin_state.state = CircuitState.HALF_OPEN
                 plugin_state.half_open_calls = 0
@@ -252,7 +250,7 @@ class PluginCircuitBreaker:
             else:
                 # Too many half-open calls, back to open
                 plugin_state.state = CircuitState.OPEN
-                plugin_state.last_failure_time = datetime.now()
+                plugin_state.last_failure_time = datetime.now(UTC)
 
                 logger.warning(
                     "Circuit breaker returning to OPEN from HALF_OPEN", plugin=plugin_name
@@ -274,7 +272,7 @@ class PluginCircuitBreaker:
         """Record successful plugin execution."""
         plugin_state = self.plugin_states[plugin_name]
 
-        plugin_state.last_success_time = datetime.now()
+        plugin_state.last_success_time = datetime.now(UTC)
         plugin_state.success_count += 1
 
         # Track performance
@@ -327,7 +325,7 @@ class PluginCircuitBreaker:
 
         # Create failure record
         failure_record = PluginFailureRecord(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(UTC),
             error_type=error_type,
             error_message=error_message,
             execution_time_ms=execution_time_ms,
@@ -335,7 +333,7 @@ class PluginCircuitBreaker:
 
         plugin_state.recent_failures.append(failure_record)
         plugin_state.failure_count += 1
-        plugin_state.last_failure_time = datetime.now()
+        plugin_state.last_failure_time = datetime.now(UTC)
 
         self.total_failures += 1
 
@@ -387,7 +385,7 @@ class PluginCircuitBreaker:
     def _count_recent_failures(self, plugin_name: str) -> int:
         """Count failures within the failure window."""
         plugin_state = self.plugin_states[plugin_name]
-        cutoff_time = datetime.now() - timedelta(seconds=self.config.failure_window)
+        cutoff_time = datetime.now(UTC) - timedelta(seconds=self.config.failure_window)
 
         recent_count = 0
         for failure in plugin_state.recent_failures:
