@@ -6,12 +6,12 @@ from opentelemetry.trace import StatusCode
 # Standard attribute keys — used by all span sites to ensure consistent naming
 ATTR_SYMBOL = "symbol"
 ATTR_TF = "tf"
-ATTR_PLUGIN = "plugin_name"
+ATTR_PLUGIN_NAME = "plugin_name"
 ATTR_TIER = "intelligence_tier"
 ATTR_AGENT_ID = "agent_id"
 ATTR_SIGNAL_ID = "signal_id"
 ATTR_GROUP_ID = "group_id"
-ATTR_BATCH_SZ = "batch_size"
+ATTR_BATCH_SIZE = "batch_size"
 ATTR_FLUSH_MS = "flush_ms"
 
 

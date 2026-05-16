@@ -2,8 +2,9 @@
 """DLQDrainAgent — continuous consumer of all DLQ topics, writes to dlq_events.
 
 Subscribes to all 15 active DLQ topics as a single consumer group. Parses each
-message as a DLQPayload, then upserts into the dlq_events hypertable. ON CONFLICT
-DO NOTHING ensures idempotency on (agent, source_topic, routed_at).
+message as a DLQPayload, then inserts into the dlq_events hypertable. All events
+are preserved — no dedup (burst errors from same agent/topic must not be silently
+dropped).
 
 Purpose: DLQ messages become queryable history (was: write-only black hole).
 One consumer, one table, one source of DLQ truth.
@@ -57,7 +58,6 @@ INSERT INTO dlq_events
     (routed_at, agent, source_topic, dlq_topic, error_type, error_message, payload, retry_count)
 VALUES
     ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (agent, source_topic, routed_at) DO NOTHING
 """
 
 
