@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { FloatingDock } from "@/components/floating-dock";
 import { CommandStrip } from "./command-strip";
 import { AttributionRow } from "./attribution-row";
 import { ClusterStrip } from "./cluster-strip";
@@ -18,14 +17,13 @@ export function SignalsPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Zone 1 — Command Strip (sticky at top) */}
       <div className="sticky top-0 z-40 border-b border-[var(--border-subtle)]"
            style={{ background: "rgba(10, 14, 20, 0.95)" }}>
         <CommandStrip />
       </div>
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto pb-28">
+      <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1600px] mx-auto px-4 py-4 flex flex-col gap-4">
           {/* Zone 2 — Attribution Row */}
           <AttributionRow onSetupClick={(setup) => handleFilterChange({ setup_plugin: [setup] })}
@@ -41,8 +39,6 @@ export function SignalsPage() {
           <SignalLedger filters={filters} />
         </div>
       </div>
-
-      <FloatingDock />
     </div>
   );
 }
