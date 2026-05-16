@@ -1139,7 +1139,7 @@ Plans:
 **Requirements:** None (Level 0 — infrastructure hardening, design doc serves as spec)
 **Depends on:** Phase 82 (baseline complete)
 
-**Plans:** 6 plans
+**Plans:** 7 plans (7 complete)
 
 Plans:
 - [x] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
@@ -1148,4 +1148,5 @@ Plans:
 - [x] 083-04-PLAN.md — BaseAgent._get_producer + consolidate 3 inline DLQ implementations + DLQ_DEPTH removal
 - [x] 083-05-PLAN.md — dlq_drain_agent + 088_dlq_events migration + ensure_topics.sh + dead topic/stream_keys cleanup
 - [x] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
+- [x] 083-07-PLAN.md — UAT gap closure: OTel MeterProvider isinstance fix, DLQ drain activation, orphaned topics deleted
 
