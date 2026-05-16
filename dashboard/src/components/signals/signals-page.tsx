@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { FloatingDock } from "@/components/floating-dock";
 import { CommandStrip } from "./command-strip";
 import { AttributionRow } from "./attribution-row";
 import { ClusterStrip } from "./cluster-strip";

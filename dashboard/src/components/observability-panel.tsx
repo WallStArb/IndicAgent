@@ -1,6 +1,6 @@
 "use client";
 
-import { DashboardNav } from "@/components/dashboard-nav";
+import { FloatingDock } from "@/components/floating-dock";
 import { useObservabilityStream } from "@/hooks/use-observability-stream";
 import { PipelineGrid } from "./pipeline-grid";
 import { JitterRadar } from "./jitter-radar";

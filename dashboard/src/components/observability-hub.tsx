@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Gauge, Database, BrainCircuit, Activity, ChevronRight } from "lucide-react";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { FloatingDock } from "@/components/floating-dock";
 
 const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL ?? "http://localhost:3001";
 const LANGFUSE_URL = process.env.NEXT_PUBLIC_LANGFUSE_URL ?? "http://localhost:3010";
