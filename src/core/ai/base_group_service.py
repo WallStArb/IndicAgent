@@ -137,15 +137,14 @@ class BaseGroupService(BaseAgent, ABC):
         # Seed context cache from DB
         await self._seed_context_cache()
 
-        # Wire LineageRecorder lifecycle (guards allow subclasses to override)
-        if not hasattr(self, "_lineage") or self._lineage is None:
+        # Wire LineageRecorder lifecycle — subclass can pre-set _lineage to skip
+        if self._lineage is None:
             self._lineage = LineageRecorder(
                 producer=self._producer,
                 env_name=self.env_name,
             )
             await self._lineage.start()
-        # Propagate recorder to all constituent agents
-        for agent in getattr(self, "agents", []):
+        for agent in self.agents:
             agent._lineage = self._lineage
 
         # D-19: BaseGroupService must call super()._setup() for forward compatibility

@@ -136,7 +136,7 @@ class BaseAgent(abc.ABC):
         self._setup_latency_attrs = {"agent": self._agent_label}
         # D-09: per-agent DLQ counter attrs (label key is agent_id per spec)
         self._dlq_attrs = {"agent_id": self._agent_label}
-        self._cb_attrs = {"agent": self._agent_label}
+        self._cb_attrs = {"agent_id": self._agent_label}
         self._cb_open: bool = False
 
     def __getattr__(self, name: str):
@@ -200,7 +200,6 @@ class BaseAgent(abc.ABC):
 
         self.logger.info("agent.starting", agent=self.name)
 
-        # NEW: Track setup latency + success/failure; branch on circuit_breaker opt-in
         try:
             setup_start = time.monotonic()
             if self.circuit_breaker:
