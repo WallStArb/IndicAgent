@@ -1,9 +1,11 @@
 # Architectural Weakness Assessment
 
-**Status:** Idea
+**Status:** Active — living document
 **Priority:** High — foundational tech debt affecting all future phases
 **Date:** 2026-05-10
+**Last Updated:** 2026-05-16
 **Trigger:** Pre-phase-80 architectural review to identify weakest links before investing more
+**Updates:** 2026-05-16 — full persistence writer audit added (#3, #6); new entries #8-#12 from codebase survey; #4 revised with verified current state; fix priority list updated for Phase 084
 
 ---
 
@@ -50,11 +52,15 @@ Full findings: `docs/ideas/persistence-layer-fragility-assessment.md`
 
 ## #4. AI layer has three dead/unfinished foundations (MEDIUM-HIGH)
 
-1. **LineageRecorder** (`src/core/ai/lineage.py`, 107 lines) — never imported anywhere. Zero instantiations. Template references it but nothing uses it.
-2. **Graduation loop** (`src/core/ai/base_group_service.py:246`) — `await asyncio.sleep(900)` with `# TODO: Implement graduation logic (Phase 75)`. Runs forever doing nothing.
-3. **Extension hooks** (`_on_error`, `_on_guardrail_violation`, `_audit_payload`) — all no-ops in BaseAIAgent. Documented as "future phase" but never wired.
+1. **LineageRecorder** (`src/core/ai/lineage.py`, 107 lines) — imported only in `stream_keys.py`, `ml/transform_recorder.py`, `ml/shadow.py`, and `TEMPLATE_agent.py`. Zero instantiations in any production agent path.
 
-**Fix:** Wire or delete LineageRecorder. Implement graduation or remove the loop. Wire hooks to OTel.
+2. **Graduation loop** (`src/core/ai/base_group_service.py:282`) — `has_graduation: bool = False` by default. When enabled, loop body contains `# TODO: Implement graduation logic (Phase 75)` with `await asyncio.sleep(900)`. Runs forever doing nothing. No agent currently sets `has_graduation = True`.
+
+3. **Extension hooks** (`_on_error`, `_on_guardrail_violation`, `_audit_payload`) — `_on_error` IS now invoked in `BaseAIAgent.compute()` on timeout (line 118) and exception (line 135), but the default implementation is `pass` (line 271) and no production subclass overrides it. `_on_guardrail_violation` and `_audit_payload` remain unwired and no-ops. Comment at line 263 confirms: "Default implementations are no-ops."
+
+**Verified:** 2026-05-16 — hooks are called but do nothing; graduation loop and LineageRecorder still dead.
+
+**Fix:** Wire `_on_error` to emit an OTel span event or counter — the call site is correct, the body needs an implementation. Implement graduation or delete the loop and `has_graduation` flag. Wire or delete LineageRecorder.
 
 ---
 

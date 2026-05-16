@@ -1,8 +1,10 @@
 # Architecture Decision: I6 Confluence Expansion
 
 **Date:** 2026-04-08
+**Last Updated:** 2026-05-16
 **Status:** Approved
 **Related:** `docs/ideas/i6-confluence-expansion.md`, Phase 64, todo 028 (gradient scoring)
+**Note:** Moved from `.planning/notes/` to `docs/ideas/` on 2026-05-16 — permanent ADR, not a session note.
 
 ## Decision
 
