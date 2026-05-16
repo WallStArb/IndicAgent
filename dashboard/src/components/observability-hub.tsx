@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { Gauge, Database, BrainCircuit, Activity, ChevronRight } from "lucide-react";
-import { FloatingDock } from "@/components/floating-dock";
-
 const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL ?? "http://localhost:3001";
 const LANGFUSE_URL = process.env.NEXT_PUBLIC_LANGFUSE_URL ?? "http://localhost:3010";
 const MLFLOW_URL = process.env.NEXT_PUBLIC_MLFLOW_URL ?? "http://localhost:5000";
@@ -18,7 +16,7 @@ const TOOLS = [
 export function ObservabilityHub() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
-    <div className="p-6 pb-28 max-w-4xl mx-auto">
+    <div className="p-6 max-w-4xl mx-auto">
       <header className="mb-10">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Observability Hub</h1>
         <p className="text-[var(--text-muted)]">Centralized cockpit for swarm intelligence and system forensics</p>
@@ -47,7 +45,6 @@ export function ObservabilityHub() {
         ))}
       </div>
     </div>
-      <FloatingDock />
     </div>
   );
 }
