@@ -409,7 +409,7 @@ class RollComputeAgent(BaseAgent):
         try:
             chain = derive_roll_chain(base_symbol)
             if chain and len(chain) >= 2:
-                return chain[-2]["symbol"], chain[-1]["symbol"]
+                return chain[0]["symbol"], chain[1]["symbol"]
             if chain:
                 return fallback, chain[0].get("roll_to", fallback)
         except Exception as exc:

@@ -391,7 +391,16 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
     const qs = buildQueryParams(filters);
 
     fetchJson<{ signals?: LedgerSignal[] }>(`${getApiBase()}/api/signals/recent?${qs}`)
-      .then((d) => setSignals(d.signals ?? []))
+      .then((d) => {
+        const seen = new Set<string>();
+        setSignals(
+          (d.signals ?? []).filter((s) => {
+            if (seen.has(s.signal_id)) return false;
+            seen.add(s.signal_id);
+            return true;
+          }),
+        );
+      })
       .catch((err) => {
         console.error("Failed to fetch signals:", err);
         setSignals([]);
