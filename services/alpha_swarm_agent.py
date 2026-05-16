@@ -1,7 +1,7 @@
 """alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseGroupService.
 
 Per B+ architecture: one service, all alpha agents, extends BaseGroupService.
-group_id="alpha", has_graduation=True
+group_id="alpha". Graduation dispatch via override detection in BaseGroupService.
 
 Plan 78-01 changes (D-01, D-04, D-08, D-35, D-36, D-37, D-38, POOL-FIX):
 - Single LineageRecorder writes to topic_signal_lineage()
@@ -40,7 +40,6 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.base_group_service import BaseGroupService
 from src.core.ai.context import AIContext, Tier
-from src.core.ai.lineage import LineageRecorder
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
@@ -118,12 +117,10 @@ class AlphaSwarmComputeAgent(BaseGroupService):
     """
 
     group_id = "alpha"
-    has_graduation = True
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings=settings)
         self.settings = settings
-        self._lineage: LineageRecorder | None = None
         self._demotion_streak: int = 0  # consecutive negative-rho cycles (D-25)
         # Populated in _setup() after LLM chain is ready (CLAUDE.md pattern).
         self._agents: list[BaseMultiplierAgent] = []
@@ -174,14 +171,6 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         await self._agents[-1]._setup_models()
 
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
-
-        # Single LineageRecorder for all swarm prediction events.
-        # self._producer and self.env_name are set by BaseGroupService._setup()
-        self._lineage = LineageRecorder(
-            producer=self._producer,
-            env_name=self.env_name,
-        )
-        await self._lineage.start()
 
         # D-23: idempotent enrollment — guarantees row exists even if migration missed
         if self._pool is not None:
@@ -423,9 +412,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.logger.info("alpha_swarm.ml_models_reloaded_sigusr1")
 
     async def _teardown(self) -> None:
-        """Stop lineage recorder (drains buffer) before base teardown."""
-        if self._lineage is not None:
-            await self._lineage.stop()
+        """Delegate to base teardown (lineage lifecycle owned by BaseGroupService)."""
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:
