@@ -115,5 +115,5 @@ and deep enough to support vertical sophistication without the DB layer creating
 ## Related
 
 - Architectural weakness assessment: `docs/ideas/architectural-weakness-assessment.md` (#3, #6)
-- Todo: `todos/pending/audit-all-persistence-writers.md`
+- Todo: `.planning/todos/pending/audit-all-persistence-writers.md`
 - Template writer: `services/contract_metadata_writer_agent.py`

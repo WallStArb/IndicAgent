@@ -37,5 +37,5 @@ error handling). This becomes the scope input for Phase 084 Persistence Hardenin
 
 ## Related
 
-- Note: `notes/persistence-layer-fragility-assessment.md`
+- Note: `docs/ideas/persistence-layer-fragility-assessment.md`
 - Phase 084 (planned): Persistence Layer Hardening

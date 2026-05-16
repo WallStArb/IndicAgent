@@ -44,7 +44,7 @@ LedgerEntry has 64 fields accumulated across phases 1→79 with no field removal
 **Audit note (2026-05-16):** Full writer audit confirmed this pattern exists across 6 of 13 writer
 services. `lineage_writer_agent.py` is the worst offender — positional tuples + no schema validation
 + silent error swallowing. `contract_metadata_writer_agent.py` is the template for the correct pattern.
-Full findings: `.planning/notes/persistence-layer-fragility-assessment.md`
+Full findings: `docs/ideas/persistence-layer-fragility-assessment.md`
 
 ---
 
