@@ -68,6 +68,7 @@ def _make_agent() -> GraduationComputeAgent:
     a.settings = MagicMock(env_name="dev")
     a._stop_event = MagicMock()
     a._stop_event.is_set.return_value = False
+    a._dlq_attrs = {"agent_id": "GraduationComputeAgent"}
     return a
 
 
