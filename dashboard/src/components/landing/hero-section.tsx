@@ -7,7 +7,7 @@ interface HeroSectionProps {
   activeSignalCount: number;
 }
 
-const PLUGIN_COUNT = "91";
+const PLUGIN_COUNT = "132";
 const INSTRUMENT_COUNT = "24";
 
 const STATS = [
@@ -130,7 +130,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
             color: "var(--text-secondary)",
           }}
         >
-          Our swarm of ninety-one intelligence agents processes every bar, layer by layer—from raw market microstructure to AI-driven regime shifts. Our native Command Center provides end-to-end traceability, illuminating the precise path your signals take from ingestion to final execution. We don't just generate signals; we provide the evidence-based mastery you need to dominate the market’s underlying mechanics.
+          132 intelligence plugins process every bar, layer by layer—from raw market microstructure to AI-driven regime shifts. Our native Command Center provides end-to-end traceability, illuminating the precise path your signals take from ingestion to final execution. We don’t just generate signals; we provide the evidence-based mastery you need to dominate the market’s underlying mechanics.
         </p>
 
         {/* Stats */}

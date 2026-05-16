@@ -8,7 +8,7 @@ const LAYERS = [
     items: [
       "Institutional real-time tick + bar ingestion",
       "1m → 5m / 15m / 1h / 4h / 1d aggregation",
-      "DragonflyDB stream distribution",
+      "Redpanda stream distribution",
       "24 instruments · 6 timeframes",
     ],
     example: "< 10ms pipeline latency  ·  feed-provider bound, not processing bound",
@@ -16,27 +16,27 @@ const LAYERS = [
   {
     layer: "02",
     name: "Mathematical Intelligence",
-    subtitle: "45 plugins",
+    subtitle: "58 plugins",
     accent: false,
     tierBadges: ["I1", "I2", "I3", "I4"],
     items: [
-      "I1: RSI, MACD, ATR, VWAP, OBV, Supertrend, Bollinger Bands (23)",
-      "I2: MACD crossovers, RSI events, 2nd-derivative momentum (8)",
-      "I3: Swing H/L, S/R, anchored VWAP, Fibonacci zones (7)",
-      "I4: GARCH vol regime, Kalman trend, HMM state, session context (7)",
+      "I1: RSI, MACD, ATR, VWAP, OBV, Supertrend, Bollinger Bands, CVD, OFI (28)",
+      "I2: MACD/RSI/stoch events, exhaustion score, momentum accel (10)",
+      "I3: Swing H/L, S/R, anchored VWAP, Fibonacci zones, market profile (8)",
+      "I4: GARCH, Kalman, HMM, session context, VIX regime, cross-asset (12)",
     ],
     example: "RSI 67.4 · MACD bullish crossover · GARCH: vol elevated · regime: trend",
   },
   {
     layer: "03",
     name: "Pattern Intelligence",
-    subtitle: "46 plugins + CIS aggregator",
+    subtitle: "74 plugins + 2 aggregators",
     accent: true,
     tierBadges: ["I5", "I6", "I7"],
     items: [
-      "I5: RSI divergence, squeeze, chart pattern completion (14)",
-      "I6: BOS/CHoCH, FVG, order blocks, killzones, AMD cycles (14)",
-      "I7: 17 setup plugins: trend, mean-rev, SMC, session extremes",
+      "I5: RSI/CMF/MACD divergence, squeeze, chart patterns (16)",
+      "I6: BOS/CHoCH, FVG, order blocks, killzones, AMD cycles, CTF confluence (32)",
+      "I7: 36 setup plugins: trend, mean-rev, SMC, session extremes",
       "CIS: 6-bucket convergence gate · score ±0.35 · 3/6 buckets required",
     ],
     example: "BOS confirmed · unfilled FVG 5235–5238 · CIS +0.71 · CHoCHReversal fired",
@@ -44,14 +44,14 @@ const LAYERS = [
   {
     layer: "04",
     name: "AI Intelligence",
-    subtitle: "3-tier LLM chain",
+    subtitle: "AI agent swarm · Ollama inference",
     accent: false,
     tierBadges: ["I8"],
     items: [
-      "ZAI GLM-5 (primary, per-signal conf > 0.70)",
-      "OpenRouter 100+ models (automatic fallback)",
-      "Ollama local (offline, zero-latency)",
-      "6-group cross-asset narrative synthesis",
+      "4-agent swarm: skeptic, correlation, regime_coherence, counterfactual",
+      "Local Ollama inference (gemma4:e4b default · configurable via .env)",
+      "Full audit trail: per-agent latency, parse rate, token burn, outcome scoring",
+      "Cross-asset narrative synthesis (6 groups, 1m–1h timeframes)",
     ],
     example: "\"Bullish 5m ES setup: trend + SMC confluence. FVG entry 5236, target 5258, stop 5229.\"",
   },
@@ -72,7 +72,7 @@ export function TierShowcase() {
             4 Layers of Intelligence
           </h2>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            91 plugins · I1 → I8 · each layer builds on the layer below
+            132 plugins · I1 → I8 · each layer builds on the layer below
           </span>
         </div>
 

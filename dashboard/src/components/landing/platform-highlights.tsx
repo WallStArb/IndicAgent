@@ -29,9 +29,9 @@ const HIGHLIGHTS: { label: string; value: string; desc: string; accent: "cyan" |
   },
   {
     label: "Predictive AI Narrative",
-    value: "3-Tier Chain Synthesis",
+    value: "Multi-Agent Swarm Synthesis",
     desc:
-      "Beyond technical triggers, our I8 intelligence layer synthesizes complex market conditions into actionable AI narratives. By chaining specialized LLMs, we generate per-signal context and cross-asset reports that bridge the gap between algorithmic execution and human intuition.",
+      "Beyond technical triggers, our I8 intelligence layer runs a swarm of specialized AI agents—skeptic, correlation, regime_coherence, and counterfactual—each contributing a scored multiplier to the signal. Full audit trail records per-agent latency, parse rate, and outcome to drive adaptive routing.",
     accent: "cyan",
   },
   {
