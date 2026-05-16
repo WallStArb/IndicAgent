@@ -2,8 +2,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { DashboardNav } from "@/components/dashboard-nav";
 import { CommandStrip } from "./command-strip";
 import { AttributionRow } from "./attribution-row";
 import { ClusterStrip } from "./cluster-strip";
@@ -19,30 +18,7 @@ export function SignalsPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg-base)]">
-      {/* Header */}
-      <header
-        className="sticky top-0 z-50 flex items-center justify-between px-5 py-2.5 border-b border-[var(--border-subtle)] shrink-0"
-        style={{ background: "rgba(10, 14, 20, 0.92)", backdropFilter: "blur(8px)" }}
-      >
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-1.5 text-[0.65rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-          >
-            <ArrowLeft size={12} />
-            Dashboard
-          </Link>
-          <div className="w-px h-3 bg-[var(--border-subtle)]" />
-          <span style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: "0.9rem",
-            color: "var(--text-primary)",
-          }}>
-            Signal Intelligence
-          </span>
-        </div>
-      </header>
+      <DashboardNav />
 
       {/* Zone 1 — Command Strip (sticky below header) */}
       <div className="sticky top-[41px] z-40 border-b border-[var(--border-subtle)]"

@@ -56,7 +56,7 @@ export function LandingNav() {
           className="text-xs hidden sm:block"
           style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono, monospace)" }}
         >
-          I1→I8 · 91 plugins · live
+          I1→I8 · 132 plugins · live
         </span>
         <Link
           href="/dashboard"
