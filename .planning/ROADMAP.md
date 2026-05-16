@@ -17,7 +17,7 @@
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
 - ✅ **v2.3 ML Foundation** — Phases 64, 65, 66 (shipped 2026-05-14; Phase 64 03C USD strength deferred)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
-- ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–82 (shipped 2026-05-14; all phases complete including 70, 80, 81, 82)
+- ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - [ ] **v2.6 Signal Transform Architecture** — Phase 72 shipped (Phase 1 dual-write); Phases 2–4 gated on 30-day data accumulation (~May 25)
 
 ## Phases
@@ -281,7 +281,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>✅ v2.5 Data Quality & Intelligence Completion (Phases 69-82) — SHIPPED 2026-05-14</summary>
+<summary>✅ v2.5 Data Quality & Intelligence Completion (Phases 69-83) — SHIPPED 2026-05-16</summary>
 
 **Milestone Goal:** Eliminate silent data loss, prove writer correctness, instrument persistence path, harden AI/LLM layer, complete swarm intelligence, harden signal lifecycle, and add ML scoring + qualitative foundation. All 14 phases shipped.
 
@@ -359,6 +359,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Phase 80: Renaissance Swarm Intelligence Layer (2026-05-07)
 - ✅ Phase 81: Signal Lifecycle Hardening (2026-05-10)
 - ✅ Phase 82: ML Intelligence Quality & Qualitative Foundation (2026-05-14)
+- ✅ Phase 83: Observability Hardening (2026-05-16)
 
 </details>
 
@@ -530,7 +531,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-82 shipped 2026-05-14). Next: v2.6 Signal Transform Architecture or backlog items.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). Next: v2.6 Signal Transform Architecture or backlog items.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -636,6 +637,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 80. Renaissance Swarm Intelligence Layer | v2.5 | 9/9 | Complete | 2026-05-07 |
 | 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
 | 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
+| 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
 
 ### Phase 52.5: Parity Auditor Agent
 

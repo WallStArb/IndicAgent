@@ -1,5 +1,27 @@
 # Milestones
 
+## v2.5 Data Quality & Intelligence Completion (Shipped: 2026-05-16)
+
+**Phases completed:** 15 phases (69–83), ~61 plans
+**Timeline:** 2026-04-23 → 2026-05-16 (23 days)
+**LOC:** ~133,625 Python · ~12,419 TypeScript
+
+**Key accomplishments:**
+
+1. **AI/LLM architecture hardening** — `src/core/ai/` infrastructure (BaseAIAgent, BaseGroupService, AIContext, LLMProviderChain); mandate-based agent groups; 6 LLM chain fixes; `signal_lineage` hypertable; `prompt_version` A/B tracking auto-injected (Phase 73)
+2. **Swarm intelligence layer** — Full swarm agent stack (Skeptic, Correlation, RegimeCoherence, Counterfactual) via BaseMultiplierAgent; shadow_only=True by default; per-TF Spearman-learned weights; `adjusted_confidence` in signal_ledger (Phase 80)
+3. **Signal lifecycle hardening** — `SignalReplayAuditorAgent` (L9, 5-min) + `BarReplayProviderAgent` (L1, one-shot); zero DB write paths in `SignalTrackerComputeAgent`; `signal_replay_unresolved_gauge=0` permanent health invariant; 16+4 tests covering all 8 outcome types (Phase 81)
+4. **Signal quality foundation** — Zero-width signal zones eliminated via mandatory `make_signal_from_frame()`; `signal_schema_version` column + ML training filter; `entry_type` + co-fire tracking; all 36 I7 plugins migrated (Phase 79)
+5. **ML scoring + AI decoupling** — LightGBM scoring layer (shadow_only); `signal_ai_enrichment` + `intelligence_ai_enrichment` tables isolate AI from quant pipeline (AI-SEP-01); walk-forward CV; SHAP via MLflow (Phase 70)
+6. **OTel observability unification + hardening** — Single OTel SDK meter replaces 24 per-process servers; `observed_span()` with auto ERROR recording; `DLQDrainAgent` + `dlq_events` hypertable; 5 Alertmanager rules; 6 orphaned topics deleted; prometheus_client fully removed (Phases 77, 83)
+7. **Shadow governance** — `shadow_registry` DB table; `ShadowAuditorAgent` auto-enrollment/promotion/demotion; promotion gate n>=100 + bootstrap_ci_lower>0; demotion gate EV[R]<-0.05 × 3 cycles (Phase 75/77)
+
+**Known deferred items at close:** 7 backlog todos (AUTH-01 to AUTH-06, ML-06 shadow gate, transform graduation Phase 2-4, PERF-07, DATA-02)
+
+**Archive:** `.planning/milestones/v2.5-ROADMAP.md` · `.planning/milestones/v2.5-REQUIREMENTS.md`
+
+---
+
 ## v2.1 Data Foundation & Signal Confidence (Shipped: 2026-03-28)
 
 **Phases completed:** 13 phases (48, 49, 49.1, 49.2, 51, 52.1–52.8)
