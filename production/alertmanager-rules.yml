@@ -83,13 +83,13 @@ groups:
 
       - alert: SwarmCapacitySkipRateHigh
         expr: |
-          rate(swarm_invocations_total{status="capacity_skip"}[5m])
+          rate(swarm_invocations_total{status="error"}[5m])
           / rate(swarm_invocations_total[5m]) > 0.5
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Swarm agents skipping >50% of invocations — signal quality degraded"
+          summary: "Swarm agent error rate >50% of invocations — signal quality degraded"
 
       - alert: ShadowPluginEVDecayed
         expr: shadow_ev_r < -0.05
