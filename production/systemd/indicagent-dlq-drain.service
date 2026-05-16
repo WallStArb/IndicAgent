@@ -2,6 +2,7 @@
 Description=IndicAgent DLQ Drain - consumes all DLQ topics, writes to dlq_events
 After=network-online.target redpanda.service
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +13,6 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/dlq_drain_agent.py
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=indicagent-dlq-drain

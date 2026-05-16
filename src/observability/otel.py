@@ -40,7 +40,7 @@ def init_otel_providers(
     )
 
     # Initialize MeterProvider (metrics)
-    if metrics.get_meter_provider().__class__.__name__ == "ProxyMeterProvider":
+    if not isinstance(metrics.get_meter_provider(), MeterProvider):
         try:
             metric_reader = PeriodicExportingMetricReader(
                 OTLPMetricExporter(endpoint=grpc_endpoint, insecure=True),
@@ -52,7 +52,7 @@ def init_otel_providers(
             pass  # Graceful degradation -- agents run without metrics export
 
     # Initialize TracerProvider (traces) -- replaces init_tracing()
-    if trace.get_tracer_provider().__class__.__name__ == "ProxyTracerProvider":
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
         try:
             provider = TracerProvider(resource=resource)
             exporter = OTLPSpanExporter(
