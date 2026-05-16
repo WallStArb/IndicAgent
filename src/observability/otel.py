@@ -24,9 +24,7 @@ def init_otel_providers(
     Idempotent: first call wins, subsequent calls are no-ops.
     """
     endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-    # OTLP gRPC endpoint uses :4317 (not :4318/v1/traces)
     grpc_endpoint = endpoint.replace("http://", "").replace("https://", "")
-    # Remove any trailing path (e.g. /v1/traces) for gRPC
     if "/" in grpc_endpoint:
         grpc_endpoint = grpc_endpoint.split("/")[0]
 

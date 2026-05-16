@@ -2,6 +2,7 @@
 Description=IndicAgent Service Auditor — pipeline health monitor and self-healer
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -15,7 +16,6 @@ Restart=always
 RestartSec=10
 WatchdogSec=120
 NotifyAccess=main
-StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=indicagent-service-auditor
