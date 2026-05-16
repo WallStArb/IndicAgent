@@ -32,7 +32,7 @@ from opentelemetry.trace import StatusCode
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
-from src.observability.spans import ATTR_BATCH_SZ, ATTR_FLUSH_MS
+from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS
 
 _bw_meter = _otel_metrics.get_meter("indicagent")
 
@@ -261,7 +261,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         batch = self._buffer[:]
         with self.tracer.start_as_current_span(
             "writer.flush",
-            attributes={"agent": getattr(self, "name", "unknown"), ATTR_BATCH_SZ: len(batch)},
+            attributes={"agent": getattr(self, "name", "unknown"), ATTR_BATCH_SIZE: len(batch)},
         ) as span:
             try:
                 t0 = time.monotonic()
