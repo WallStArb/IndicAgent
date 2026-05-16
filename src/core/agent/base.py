@@ -282,7 +282,7 @@ class BaseAgent(abc.ABC):
         """
         # monotonic for stall detection (immune to clock skew); wall-clock for observability
         self._last_message_ts = time.monotonic()
-        AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.add(time.time(), self._last_msg_ts_attrs)
+        AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.set(time.time(), self._last_msg_ts_attrs)
 
     async def _stall_watchdog(self) -> None:
         """Exit the process if no messages consumed for max_idle_seconds.

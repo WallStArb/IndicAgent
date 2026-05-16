@@ -64,7 +64,7 @@ LANGGRAPH_WORKFLOW_DURATION = _meter.create_histogram(
 # Circuit breaker metrics
 # ---------------------------------------------------------------------------
 
-CIRCUIT_BREAKER_STATE = _meter.create_up_down_counter(
+CIRCUIT_BREAKER_STATE = _meter.create_gauge(
     "plugin_circuit_breaker_state",
     description="Circuit breaker state (0=closed, 1=open, 2=half-open)",
 )
@@ -95,7 +95,7 @@ PERSISTENCE_BATCH_LATENCY = _meter.create_histogram(
     description="Time taken to persist batch to database in seconds",
     unit="s",
 )
-PERSISTENCE_CONSUMER_LAG = _meter.create_up_down_counter(
+PERSISTENCE_CONSUMER_LAG = _meter.create_gauge(
     "persistence_consumer_lag_records",
     description="Current consumer lag in records",
 )
@@ -196,7 +196,7 @@ SHADOW_PROMOTION_READY = _meter.create_up_down_counter(
 # Agent liveness
 # ---------------------------------------------------------------------------
 
-AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = _meter.create_up_down_counter(
+AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = _meter.create_gauge(
     "agent_last_message_timestamp_seconds",
     description="Unix timestamp of last successfully processed Kafka message per agent",
 )
