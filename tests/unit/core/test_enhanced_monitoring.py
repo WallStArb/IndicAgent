@@ -9,7 +9,7 @@ Status: Circuit Breaker Tests Only ✅
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -108,7 +108,7 @@ class TestPluginCircuitBreaker:
         # Force circuit to open
         plugin_state = circuit_breaker.plugin_states["RSI"]
         plugin_state.state = CircuitState.OPEN
-        plugin_state.last_failure_time = datetime.now() - timedelta(
+        plugin_state.last_failure_time = datetime.now(UTC) - timedelta(
             seconds=70
         )  # Past recovery timeout
 
