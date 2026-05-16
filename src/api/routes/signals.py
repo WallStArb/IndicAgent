@@ -179,7 +179,7 @@ async def get_active_signals(
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
-            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
+            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             WHERE sl.status IN ('pending', 'active')
               -- shadow signals included intentionally: dashboard observability (Phase 80)
               AND sl.timestamp >= NOW() - INTERVAL '7 days'
@@ -301,7 +301,7 @@ async def get_recent_signals(
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
-            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
+            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             WHERE sl.timestamp >= NOW() - INTERVAL '90 days'
               AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
