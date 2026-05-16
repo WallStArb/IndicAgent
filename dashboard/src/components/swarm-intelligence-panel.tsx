@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { BrainCircuit, Zap, Clock, CheckCircle, AlertTriangle, RefreshCw } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+import { getApiBase } from "@/lib/api";
 
 interface AgentStat {
   agent_id: string;
@@ -166,7 +165,7 @@ export function SwarmIntelligencePanel() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/ai/stats`);
+      const res = await fetch(`${getApiBase()}/api/ai/stats`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setStats(data);

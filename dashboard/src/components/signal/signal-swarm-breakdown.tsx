@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BrainCircuit, AlertTriangle } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+import { getApiBase } from "@/lib/api";
 
 interface AgentResult {
   agent_id: string;
@@ -63,7 +62,7 @@ export function SignalSwarmBreakdown({ signalId }: { signalId: string }) {
   useEffect(() => {
     if (!signalId) return;
     setLoading(true);
-    fetch(`${API_BASE}/api/signals/${signalId}/ai`)
+    fetch(`${getApiBase()}/api/signals/${signalId}/ai`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setData(d))
       .catch(() => setData(null))
