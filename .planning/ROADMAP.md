@@ -494,7 +494,7 @@ Plans:
 <details>
 <summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
 
-- [ ] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
+- [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
 - [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (0/TBD plans)
 - [ ] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (0/TBD plans)
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
@@ -652,7 +652,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
 | 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
 | 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
-| 084. Base Agent Hardening | v2.6 | 0/TBD | Not started | - |
+| 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 | - |
 | 085. Persistence Writer Migration | v2.6 | 0/TBD | Not started | - |
 | 086. Pipeline Hardening | v2.6 | 0/TBD | Not started | - |
 | 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
@@ -1190,10 +1190,10 @@ Plans:
   6. The dead graduation loop and LineageRecorder are either fully wired with tests or deleted; no silent dead code remains in base classes
   7. Per-plugin OTel latency histograms exist in the pipeline; p50/p95 latency is visible per plugin in Grafana without adding instrumentation
 **Plans**: 4 plans
-  - [ ] 084-01-PLAN.md — BaseAgent class attrs + circuit breaker + new OTel instruments (INFRA-03, INFRA-05)
-  - [ ] 084-02-PLAN.md — BaseWriterAgent Pydantic gate + _do_flush re-raise (INFRA-01, INFRA-02)
-  - [ ] 084-03-PLAN.md — BaseAIAgent._on_error + LineageRecorder wiring + graduation stub deletion (INFRA-04, INFRA-06)
-  - [ ] 084-04-PLAN.md — Grafana plugin latency dashboard (OBS-01)
+  - [x] 084-01-PLAN.md — BaseAgent class attrs + circuit breaker + new OTel instruments (INFRA-03, INFRA-05)
+  - [x] 084-02-PLAN.md — BaseWriterAgent Pydantic gate + _do_flush re-raise (INFRA-01, INFRA-02)
+  - [x] 084-03-PLAN.md — BaseAIAgent._on_error + LineageRecorder wiring + graduation stub deletion (INFRA-04, INFRA-06)
+  - [x] 084-04-PLAN.md — Grafana plugin latency dashboard (OBS-01)
 
 ### Phase 085: Persistence Writer Migration
 **Goal**: All persistence writers adopt the 084 base contracts so silent data loss, swallowed errors, and per-record writes are mechanically eliminated across the fleet.
