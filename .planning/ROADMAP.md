@@ -492,7 +492,7 @@ Plans:
 
 </details>
 <details>
-<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
+<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-090) — IN PROGRESS</summary>
 
 - [ ] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
 - [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (0/TBD plans)
@@ -500,6 +500,7 @@ Plans:
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
 - [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
 - [ ] **Phase 089: First Qualitative Intelligence Lane** — one lane (earnings or macro) in shadow mode; validated over N bars before promotion (0/TBD plans)
+- [ ] **Phase 090: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
 
 </details>
 
@@ -1245,6 +1246,24 @@ Plans:
   2. The lane runs shadow_only=True by default; a developer can query ctx_snapshots to see shadow events accumulating
   3. The shadow_registry auto-enrolls the qualitative lane; the promotion gate (N bars threshold) is defined and observable
   4. Zero changes required to the existing I1-I7 pipeline to accommodate the new lane; it is additive only
+**Plans**: TBD
+
+### Phase 090: Compute Performance Optimization
+**Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
+**Depends on**: Phase 084 (OBS-01 histograms needed to identify bottlenecks), Phase 088 (PluginExecutor extraction makes state threading changes testable in isolation)
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05
+**Known targets from static analysis:**
+  - `_build_features_from_event()`: 7× Pydantic model_dump() per I7 setup call → cache once per bar
+  - Flat `features` dual-write: wave merges maintain a redundant growing dict in parallel with tiered output
+  - `plugin._state` mutation before thread pool: race condition on concurrent symbol/tf + shared mutable object
+  - `IntelligenceEvent` construction: 7× `{k: v for k, v in tier.items() if v is not None}` at build time
+  - O(N) plugins: `supports_incremental` exists but coverage is incomplete — OBS-01 histograms will surface laggards
+**Success Criteria** (what must be TRUE):
+  1. `_build_features_from_event()` is called once per bar; the 7× model_dump() allocations no longer appear in a CPU profile
+  2. The flat `features` dual-write path is removed or confirmed necessary with evidence; per-bar wave-merge dict updates are reduced
+  3. Plugin state is threaded as a parameter into compute_full()/compute_next(); direct mutation of plugin._state before executor dispatch is gone
+  4. OBS-01 histograms reviewed; any p95-outlier plugin using O(N) bar-history recomputation is converted to incremental; before/after histogram comparison documented
+  5. `IntelligenceEvent` construction comprehensions replaced with pre-filtered dicts assembled during wave merging
 **Plans**: TBD
 
 </details>

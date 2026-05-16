@@ -58,6 +58,14 @@
 - [ ] **QUAL-01**: One qualitative intelligence lane (earnings or macro events) is implemented and produces intelligence events on the canonical typed bus
 - [ ] **QUAL-02**: The new qualitative lane runs in shadow mode by default; validated over N bars before promotion gate can be triggered
 
+### PERF — Compute Performance Optimization
+
+- [ ] **PERF-01**: `_build_features_from_event()` is called once per bar and its result reused across all I7 plugins; the current per-call 7× Pydantic `model_dump()` allocations are eliminated
+- [ ] **PERF-02**: The flat `features` dual-write path (maintained in parallel with the tiered dict across every wave merge) is profiled and removed if no active plugin requires it; per-bar wave merge overhead is reduced
+- [ ] **PERF-03**: Plugin state is passed as a parameter to `compute_full()`/`compute_next()` rather than mutating `plugin._state` before thread pool dispatch; the race condition on concurrent symbol/tf submissions is eliminated
+- [ ] **PERF-04**: OBS-01 histogram data is used to identify plugins executing O(N) full bar-history recomputation on every bar; each identified plugin is converted to incremental O(1) compute where an algorithmic incremental form exists
+- [ ] **PERF-05**: `IntelligenceEvent` construction comprehensions (`{k: v ... if v is not None}` × 7 tiers) are replaced with pre-filtered dicts assembled during wave merging; None-filtering no longer happens at event construction time
+
 ---
 
 ## Future Requirements
@@ -113,3 +121,8 @@
 | ARCH-05 | Phase 088 | Pending |
 | QUAL-01 | Phase 089 | Pending |
 | QUAL-02 | Phase 089 | Pending |
+| PERF-01 | Phase 090 | Pending |
+| PERF-02 | Phase 090 | Pending |
+| PERF-03 | Phase 090 | Pending |
+| PERF-04 | Phase 090 | Pending |
+| PERF-05 | Phase 090 | Pending |

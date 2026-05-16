@@ -6,7 +6,7 @@ status: planning
 stopped_at: ""
 last_updated: "2026-05-16T14:00:00.000Z"
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -42,6 +42,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
 | 088 | God Class Decomposition | ARCH-01–05 | Not started |
 | 089 | First Qualitative Intelligence Lane | QUAL-01–02 | Not started |
+| 090 | Compute Performance Optimization | PERF-01–05 | Not started |
 
 ## v2.6 Agreed Scope (2026-05-16)
 
