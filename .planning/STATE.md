@@ -1,12 +1,13 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.6
-milestone_name: Foundation Hardening & Signal Transform
+milestone: v1.0
+milestone_name: milestone
 status: planning
-stopped_at: ""
-last_updated: "2026-05-16T14:00:00.000Z"
+stopped_at: Phase 084 context gathered
+last_updated: "2026-05-16T18:34:41.725Z"
+last_activity: 2026-05-16 — Roadmap written (6 phases, 21 requirements)
 progress:
-  total_phases: 6
+  total_phases: 32
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -48,7 +49,9 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 Phase order and focus agreed in session. Roadmap written. Next: /gsd:plan-phase 84.
 
 ### Phase 084 — Base Agent Hardening
+
 Enhance `BaseWriterAgent`, `BaseAgent`, `BaseAIAgent` with enforced contracts:
+
 - `BaseWriterAgent._parse_payload()` — declare Pydantic model, base validates + auto-DLQs
 - `BaseWriterAgent._flush_batch()` — enforced contract: raise or DLQ, never swallow
 - `BaseAgent._setup_with_retry()` — configurable, eliminates 3x duplication
@@ -58,7 +61,9 @@ Enhance `BaseWriterAgent`, `BaseAgent`, `BaseAIAgent` with enforced contracts:
 - OBS-01: per-plugin OTel latency histograms in intelligence pipeline
 
 ### Phase 085 — Persistence Writer Migration
+
 Writers adopt 084 base contracts — fixes become mechanical:
+
 - `lineage_writer_agent` — CRITICAL: silent data loss today, no DLQ, no validation
 - `feature_snapshot_writer_agent` — clear-on-error → bounded retry
 - `llm_writer_service` — outcome errors swallowed → re-raise
@@ -66,6 +71,7 @@ Writers adopt 084 base contracts — fixes become mechanical:
 - All 6 positional-tuple writers → named params (contract_metadata is the template)
 
 ### Phase 086 — Pipeline Hardening
+
 - Wire `PluginCircuitBreaker` into intelligence pipeline per-plugin (exists, unused)
 - Wire `validate_signal()` at I7 output boundary in SignalWriterAgent (exists, unused)
 - Checkpoint write → fail fast (currently swallowed)
@@ -74,12 +80,15 @@ Writers adopt 084 base contracts — fixes become mechanical:
 - OBS-03: BaseAgent `last_processed_at` heartbeat + service_auditor stall detection
 
 ### Phase 087 — Signal Transform Architecture Phases 2-4
+
 Gated on 30-day data accumulation (~May 25). Phase 72 (dual-write) already shipped.
 Resume when gate lifts.
 
 ### Phase 088 — Intelligence Pipeline God Class Decomposition
+
 Extract 5 responsibilities from 1892-line `IntelligencePipelineComputeAgent` into
 focused in-process classes (zero latency overhead — no Kafka boundaries):
+
 - `PluginExecutor` — tiers, thread pool, plugin cache
 - `PluginStateManager` — _plugin_states, locks, checkpoint/restore
 - `SignalProcessor` — I7, gating, ranking, aggregation
@@ -87,6 +96,7 @@ focused in-process classes (zero latency overhead — no Kafka boundaries):
 - `OutputQueue` — asyncio.Queue, drain, enqueue, publish
 
 ### Phase 089 — First Qualitative Intelligence Lane
+
 One lane first (earnings or macro) — validate before building three.
 Candidates: todo 013 (earnings), todo 014 (macro events).
 
@@ -119,7 +129,7 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-16
-Stopped at: Roadmap written. 6 phases, 21 requirements mapped, 100% coverage.
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 084 context gathered
+Resume file: --resume-file
 Next: /gsd:plan-phase 84
