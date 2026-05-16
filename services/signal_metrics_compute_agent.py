@@ -95,6 +95,7 @@ _QUERY = """
     FROM signal_ledger
     WHERE outcome IS NOT NULL
       AND exit_at > NOW() - INTERVAL '90 days'
+      AND timestamp > NOW() - INTERVAL '100 days'
       AND setup_plugin IS NOT NULL
       AND was_selected = true
     ORDER BY exit_at

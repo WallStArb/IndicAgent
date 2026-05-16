@@ -869,6 +869,7 @@ class SignalTrackerComputeAgent(BaseAgent):
                            hmm_regime_at_fire, is_backfill
                     FROM signal_ledger
                     WHERE exit_at IS NULL
+                      AND timestamp > NOW() - INTERVAL '180 days'
                 """)
 
                 # If we got rows, load them and succeed

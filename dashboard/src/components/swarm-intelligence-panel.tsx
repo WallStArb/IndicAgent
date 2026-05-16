@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { BrainCircuit, Zap, Clock, CheckCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { getApiBase } from "@/lib/api";
-import { DashboardNav } from "@/components/dashboard-nav";
+import { FloatingDock } from "@/components/floating-dock";
 
 interface AgentStat {
   agent_id: string;
