@@ -41,6 +41,11 @@ LedgerEntry has 64 fields accumulated across phases 1→79 with no field removal
 
 **Fix:** Replace positional tuple with named params or asyncpg named parameter binding. Batch lifecycle updates.
 
+**Audit note (2026-05-16):** Full writer audit confirmed this pattern exists across 6 of 13 writer
+services. `lineage_writer_agent.py` is the worst offender — positional tuples + no schema validation
++ silent error swallowing. `contract_metadata_writer_agent.py` is the template for the correct pattern.
+Full findings: `.planning/notes/persistence-layer-fragility-assessment.md`
+
 ---
 
 ## #4. AI layer has three dead/unfinished foundations (MEDIUM-HIGH)
@@ -67,6 +72,13 @@ Errors caught broadly, logged, then processing continues with partial/missing da
 
 **Fix:** Add circuit breakers to plugin execution. Stop running broken plugins after N failures.
 
+**Audit note (2026-05-16):** Writer-layer error handling audited. Three severity tiers found:
+- **Silently swallowed** (worst): `lineage_writer_agent.py`, `signal_metrics_writer_agent.py`
+- **Logged but suppressed**: `feature_writer_agent.py`, `ctx_writer_agent.py`, `llm_writer_service.py` (outcomes), `feature_snapshot_writer_agent.py`
+- **Correctly raised**: lifecycle, contract_metadata, bar_writer, signal_writer, swarm_ledger
+
+Also see #10 for the plugin circuit breaker gap specifically.
+
 ---
 
 ## #7. Global mutable state without thread protection (MEDIUM)
@@ -74,6 +86,82 @@ Errors caught broadly, logged, then processing continues with partial/missing da
 Module-level singletons (`_settings_singleton`, `_active_contracts_cache`) accessed from ThreadPoolExecutor threads without synchronization. Per-plugin locks exist but shared caches (`_cross_asset_cache`, `_macro_cache`) mutated from async loop AND thread pool.
 
 **Fix:** Protect shared caches with threading.Lock or make them asyncio-only.
+
+---
+
+## #8. Bootstrap retry pattern duplicated 3x independently (MEDIUM)
+
+Three services each re-implement exponential backoff with different configs and no shared logic:
+
+- `signal_tracker_compute_agent.py:93-95` — `_BOOTSTRAP_MAX_ATTEMPTS=3`, backoff `(2,4,8)`
+- `bar_aggregator_agent.py:209-254` — `_MAX_ATTEMPTS=4`, inline cleanup on failure
+- `bar_writer_agent.py:198-218` — `_cache_attempts=3`, backoff handled inline
+
+`retry_utils.exponential_backoff_with_jitter()` already exists but none of these use it.
+`BaseAgent` already has a `_setup_with_retry()` stub (lines 446-469) that could encapsulate this.
+
+**Fix:** Wire `BaseAgent._setup_with_retry()` with configurable `_bootstrap_max_attempts` and
+`_bootstrap_base_delay` class attributes. All three agents switch to it.
+
+---
+
+## #9. `validate_signal()` exists but is never called — I7 output boundary unguarded (MEDIUM)
+
+`src/intelligence/trading/signal_schema.py` exports a complete `validate_signal()` function
+that checks required fields, schema version, confidence, direction, and targets. Nothing calls it.
+
+Malformed I7 plugin output flows through the aggregator and into the persistence layer unchecked.
+Type coercion in the DB masks bugs at the source.
+
+`make_signal_from_frame()` is universally adopted (all 28 I7 plugins), but the output validation
+gate that should sit between I7 and the signal writer is missing.
+
+**Fix:** Call `validate_signal()` in `SignalWriterAgent._parse_payload()` before persist. Also
+call it in `IntelligencePipelineAgent` after each I7 plugin returns output.
+
+---
+
+## #10. Plugin circuit breaker under-utilized — I1-I7 pipeline unprotected (MEDIUM)
+
+`PluginCircuitBreaker` (`src/core/plugin_circuit_breaker.py`, 584 lines) is wired for the LLM
+provider chain and IBKR connection. The 132 I1-I7 compute plugins inside
+`intelligence_pipeline_agent.py` have no circuit breaker and no per-plugin timeout.
+
+A single hung plugin blocks the entire bar. After N failures, the same plugin keeps running on
+every bar with no automatic recovery or fallback.
+
+**Fix:** Wrap each plugin call with `circuit_breaker.execute_with_fallback(plugin_name, fn, fallback=None)`
+and `asyncio.wait_for(plugin_fn(...), timeout=0.1)`. Reuse the existing class — no new code needed.
+
+---
+
+## #11. Intelligence pipeline checkpoint write swallowed — silent state loss (MEDIUM)
+
+`intelligence_pipeline_agent.py` writes plugin state to a checkpoint file on shutdown.
+The write failure path catches the exception, logs it, and continues. If the checkpoint
+write fails, the next startup re-computes all plugin state from scratch (Kalman filters,
+volume profiles, pattern state). For symbols with long warm-up windows this means stale outputs
+until state converges.
+
+**Fix:** Re-raise on checkpoint write failure. Fail fast — it's a shutdown path, not a hot loop.
+The operator needs to know the checkpoint is corrupt, not find out indirectly from cold-start behavior.
+
+---
+
+## #12. Dashboard has no React error boundaries — render crashes are invisible (LOW-MEDIUM)
+
+No `<ErrorBoundary>` component exists in `dashboard/src/`. A render-time exception in any
+component propagates up and blanks the page with no user-visible message and only a console
+error. SSE connection failures are also silent (no connection status indicator).
+
+API endpoints accept unbounded query parameters (`limit=999999`, `offset=-1`) with no Pydantic
+constraint models.
+
+**Fix:**
+- Add `<ErrorBoundary>` in `app-shell.tsx` wrapping the main content area
+- Add error toast/banner for fetch failures that are not AbortError
+- Add Pydantic `Query` models with `Field(le=1000, ge=0)` constraints to API endpoints
+- Add SSE connection status indicator to dashboard
 
 ---
 
@@ -119,9 +207,20 @@ Items that can be cleaned up immediately with low risk:
 
 ## Recommended Fix Priority
 
-1. Decompose the pipeline god class (highest leverage)
-2. Extract instrument definitions from Settings
-3. Replace positional tuple with named params in LedgerEntry
-4. Wire or delete LineageRecorder
-5. Implement backpressure on output queue
-6. Add circuit breakers to plugin execution
+**Phase 084 — Persistence + Pipeline Hardening (scoped 2026-05-16):**
+1. Fix `lineage_writer_agent.py` — add Pydantic model, DLQ routing, error counter (CRITICAL)
+2. Fix `feature_snapshot_writer_agent.py` — replace clear-on-error with bounded retry (HIGH)
+3. Fix `llm_writer_service.py` — re-raise outcome errors (HIGH)
+4. Wire `validate_signal()` at I7 output boundary (MEDIUM)
+5. Wire `PluginCircuitBreaker` into intelligence pipeline (MEDIUM)
+6. Fix checkpoint write — fail fast on shutdown (MEDIUM)
+7. Migrate positional-tuple writers to named params (MEDIUM)
+8. Batch `signal_metrics_writer_agent.py` writes (MEDIUM)
+
+**Later phases:**
+9. Decompose the pipeline god class (highest leverage, largest effort)
+10. Extract `BaseAgent._setup_with_retry()` to kill the 3x bootstrap duplication
+11. Extract instrument definitions from Settings
+12. Wire or delete LineageRecorder
+13. Implement backpressure on output queue
+14. Add React error boundaries + API input validation (#12)
