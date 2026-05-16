@@ -34,10 +34,7 @@ from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
-from src.observability.metrics import (
-    AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
-    PERSISTENCE_CONSUMER_LAG,
-)
+from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS
 from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
@@ -263,15 +260,14 @@ class BaseAgent(abc.ABC):
         return 1000
 
     async def _report_consumer_lag(self) -> None:
-        """Report consumer lag until stop event.
+        """No-op for stream processors — they have no buffer lag to report.
 
-        Default implementation: set gauge to 0 (stream processors have no buffer).
-        Subclasses (e.g., BaseWriterAgent) override to report actual buffer depth.
-        Loops until _stop_event is set.
+        BaseWriterAgent overrides this to report actual buffer depth via
+        PERSISTENCE_CONSUMER_LAG.set(). Loops with a longer sleep so the
+        stop event check still works without burning 4 OTel submissions/min.
         """
         while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.add(0, self._consumer_lag_attrs)
-            await asyncio.sleep(15)
+            await asyncio.sleep(60)
 
     def _record_message_consumed(self) -> None:
         """Call once per successfully consumed Kafka message.
