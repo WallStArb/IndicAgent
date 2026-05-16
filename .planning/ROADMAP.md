@@ -492,15 +492,16 @@ Plans:
 
 </details>
 <details>
-<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-090) — IN PROGRESS</summary>
+<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
 
 - [ ] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
 - [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (0/TBD plans)
 - [ ] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (0/TBD plans)
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
 - [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
-- [ ] **Phase 089: First Qualitative Intelligence Lane** — one lane (earnings or macro) in shadow mode; validated over N bars before promotion (0/TBD plans)
-- [ ] **Phase 090: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
+- [ ] **Phase 089: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
+
+*(Qualitative/fundamental horizontal lanes → v2.7 Horizontal Intelligence Foundation)*
 
 </details>
 
@@ -1237,18 +1238,7 @@ Plans:
   5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
 **Plans**: TBD
 
-### Phase 089: First Qualitative Intelligence Lane
-**Goal**: One qualitative intelligence lane (earnings or macro events) produces intelligence events on the canonical typed bus and runs in shadow mode pending statistical validation.
-**Depends on**: Phase 086 (hardened pipeline to receive new event type)
-**Requirements**: QUAL-01, QUAL-02
-**Success Criteria** (what must be TRUE):
-  1. One qualitative lane (earnings or macro) publishes typed events to the canonical IntelligenceEvent bus; events appear in intelligence_features with a ctx JSONB payload
-  2. The lane runs shadow_only=True by default; a developer can query ctx_snapshots to see shadow events accumulating
-  3. The shadow_registry auto-enrolls the qualitative lane; the promotion gate (N bars threshold) is defined and observable
-  4. Zero changes required to the existing I1-I7 pipeline to accommodate the new lane; it is additive only
-**Plans**: TBD
-
-### Phase 090: Compute Performance Optimization
+### Phase 089: Compute Performance Optimization
 **Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
 **Depends on**: Phase 084 (OBS-01 histograms needed to identify bottlenecks), Phase 088 (PluginExecutor extraction makes state threading changes testable in isolation)
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05

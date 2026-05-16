@@ -6,7 +6,7 @@ status: planning
 stopped_at: ""
 last_updated: "2026-05-16T14:00:00.000Z"
 progress:
-  total_phases: 7
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -41,8 +41,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | 086 | Pipeline Hardening | PIPE-01–04, OBS-02–03 | Not started |
 | 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
 | 088 | God Class Decomposition | ARCH-01–05 | Not started |
-| 089 | First Qualitative Intelligence Lane | QUAL-01–02 | Not started |
-| 090 | Compute Performance Optimization | PERF-01–05 | Not started |
+| 089 | Compute Performance Optimization | PERF-01–05 | Not started |
 
 ## v2.6 Agreed Scope (2026-05-16)
 
@@ -101,10 +100,10 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - The canonical shared state lives in `.planning/STATE.md`; `PROJECT.md` and `ROADMAP.md` remain the longer-form references.
 - v2.6 approach: fix base classes first (084), then migrate writers (085), then pipeline (086). Renaissance principle — fix the leverage point, not each symptom individually.
 - God class refactor: "one process" is correct for latency; "one class" is accidental complexity. Decompose within the process boundary.
-- First qualitative lane: build one, validate, then expand. Don't build all three lanes simultaneously.
 - Signal Transform phases 2-4: data gate ~May 25 — schedule 087 around that date.
 - OBS-01 assigned to Phase 084 (co-located with base agent instrumentation work).
 - OBS-02 and OBS-03 assigned to Phase 086 (system health endpoint and stall detection belong with pipeline hardening).
+- Qualitative + fundamental horizontal lanes deferred to v2.7 "Horizontal Intelligence Foundation". Scope: macro event calendar, sector intelligence, company-specific (earnings/guidance/ratings) as qualitative sub-lanes; economic regime + equity valuation as fundamental lane. Individual equities in scope for v2.7. Architecture decision (how lanes aggregate with I7 timeseries) to be designed at v2.7 planning.
 
 ### Analysis Docs (produced 2026-05-16)
 

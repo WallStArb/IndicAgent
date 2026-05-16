@@ -53,11 +53,6 @@
 - [ ] **OBS-02**: Single `/api/health/system` endpoint returns machine-readable JSON covering consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
 - [ ] **OBS-03**: BaseAgent exposes a `last_processed_at` heartbeat timestamp; service_auditor detects stalled agents (process alive, no bar progress) and triggers restart
 
-### QUAL — First Qualitative Intelligence Lane
-
-- [ ] **QUAL-01**: One qualitative intelligence lane (earnings or macro events) is implemented and produces intelligence events on the canonical typed bus
-- [ ] **QUAL-02**: The new qualitative lane runs in shadow mode by default; validated over N bars before promotion gate can be triggered
-
 ### PERF — Compute Performance Optimization
 
 - [ ] **PERF-01**: `_build_features_from_event()` is called once per bar and its result reused across all I7 plugins; the current per-call 7× Pydantic `model_dump()` allocations are eliminated
@@ -72,7 +67,13 @@
 
 *(Deferred from this milestone — well-understood, not yet scheduled)*
 
-- Multi-lane qualitative expansion (news sentiment, earnings calendar, macro calendar) — validate one lane first per QUAL-01/02
+**v2.7 Horizontal Intelligence Foundation (next milestone):**
+- Qualitative lane: macro event calendar (FOMC/NFP/CPI), sector intelligence, company-specific (earnings dates, guidance, analyst ratings) — three sub-lanes, individual equities in scope for v2.7
+- Fundamental lane: economic regime indicators, valuation context for equities (P/E, EPS, sector rotation), macro FCI
+- Lane aggregation architecture: how qualitative/fundamental conviction combines with I7 timeseries signals
+- All lanes shadow-only at launch; QUAL-01/02 requirements move here
+
+**Other deferred:**
 - Auth layer / Cloudflare Tunnel — no external consumers yet
 - Portfolio-level signal aggregation — intelligence platform scope boundary
 
@@ -119,10 +120,10 @@
 | ARCH-03 | Phase 088 | Pending |
 | ARCH-04 | Phase 088 | Pending |
 | ARCH-05 | Phase 088 | Pending |
-| QUAL-01 | Phase 089 | Pending |
-| QUAL-02 | Phase 089 | Pending |
-| PERF-01 | Phase 090 | Pending |
-| PERF-02 | Phase 090 | Pending |
-| PERF-03 | Phase 090 | Pending |
-| PERF-04 | Phase 090 | Pending |
-| PERF-05 | Phase 090 | Pending |
+| PERF-01 | Phase 089 | Pending |
+| PERF-02 | Phase 089 | Pending |
+| PERF-03 | Phase 089 | Pending |
+| PERF-04 | Phase 089 | Pending |
+| PERF-05 | Phase 089 | Pending |
+| QUAL-01 | v2.7 | Deferred |
+| QUAL-02 | v2.7 | Deferred |
