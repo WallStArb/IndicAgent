@@ -1,10 +1,11 @@
 # Service Resilience Patterns
 
 **Status:** draft
-**Priority:** low
-**Milestone:** future
-**Last Updated:** 2026-03-15
+**Priority:** low — Pattern 1 (circuit breaker) elevated to Phase 084 scope
+**Milestone:** Pattern 1 → Phase 084; Pattern 2-3 → future
+**Last Updated:** 2026-05-16
 **Tags:** redpanda, kafka, consumer, resilience, circuit-breaker, monitoring, prometheus, state-recovery
+**Reviewed:** 2026-05-16 — Pattern 1 (Consumer Circuit Breaker) cross-referenced from `architectural-weakness-assessment.md` #10 as the implementation design for wiring `PluginCircuitBreaker` into the intelligence pipeline. Pattern 3 (observability metrics) cross-referenced from #6.
 
 ---
 
