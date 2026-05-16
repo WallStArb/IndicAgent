@@ -25,10 +25,11 @@ from __future__ import annotations
 import abc
 import asyncio
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from opentelemetry import metrics as _otel_metrics
 from opentelemetry.trace import StatusCode
+from pydantic import BaseModel, ValidationError
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
@@ -80,6 +81,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
     FLUSH_INTERVAL_SECS: float = 5.0
     MAX_BUFFER_SIZE: int = 10_000
     BUFFER_ALERT_PCT: float = 0.80
+    payload_model: ClassVar[type[BaseModel] | None] = None
 
     def __init__(
         self,
@@ -283,6 +285,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 self._flush_errors_total.add(1)
                 span.set_attribute("error", True)
                 self.logger.exception("flush_failed", batch_size=len(batch))
+                raise
 
     # -----------------------------------------------------------------------
     # Default consume loop — subclasses can override for custom routing
@@ -310,7 +313,17 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 attributes={"agent": self.name},
             ) as span:
                 try:
-                    rows = self._parse_payload(payload)
+                    model_cls = type(self).payload_model
+                    if model_cls is not None:
+                        try:
+                            validated = model_cls.model_validate(payload)
+                            rows = self._parse_payload(validated)
+                        except ValidationError as exc:
+                            self._parse_failures_total.add(1)
+                            await self._maybe_route_to_dlq(payload, exc)
+                            continue
+                    else:
+                        rows = self._parse_payload(payload)
                     if rows is not None:
                         self._buffer_rows(rows)
                     else:
