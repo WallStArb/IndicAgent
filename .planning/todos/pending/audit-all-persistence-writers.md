@@ -3,6 +3,7 @@ created: 2026-05-16
 title: Audit All Persistence Writers for Fragility Patterns
 area: persistence
 priority: high
+resolves_phase: 85
 ---
 
 ## Problem
