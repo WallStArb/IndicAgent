@@ -278,16 +278,28 @@ export default function TradingDashboard() {
 
           <div className="flex items-center gap-1">
             <Link
-              href="/dashboard/hub"
-              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
-            >
-              Hub
-            </Link>
-            <Link
               href="/signals"
               className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
             >
               Signals
+            </Link>
+            <Link
+              href="/dashboard/observability"
+              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            >
+              System
+            </Link>
+            <Link
+              href="/dashboard/ai"
+              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            >
+              AI Swarm
+            </Link>
+            <Link
+              href="/dashboard/hub"
+              className="px-3 py-1 rounded text-[0.65rem] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            >
+              Hub
             </Link>
           </div>
 

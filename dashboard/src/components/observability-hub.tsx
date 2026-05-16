@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Gauge, Database, BrainCircuit, Activity, ChevronRight } from "lucide-react";
+import { DashboardNav } from "@/components/dashboard-nav";
 
 const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL ?? "http://localhost:3001";
 const LANGFUSE_URL = process.env.NEXT_PUBLIC_LANGFUSE_URL ?? "http://localhost:3010";
@@ -16,6 +17,8 @@ const TOOLS = [
 
 export function ObservabilityHub() {
   return (
+    <div className="min-h-screen bg-[var(--bg-base)]">
+    <DashboardNav />
     <div className="p-6 max-w-4xl mx-auto">
       <header className="mb-10">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">Observability Hub</h1>
@@ -44,6 +47,7 @@ export function ObservabilityHub() {
           </Link>
         ))}
       </div>
+    </div>
     </div>
   );
 }

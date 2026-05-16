@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { BrainCircuit, Zap, Clock, CheckCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { getApiBase } from "@/lib/api";
+import { DashboardNav } from "@/components/dashboard-nav";
 
 interface AgentStat {
   agent_id: string;
@@ -187,7 +188,9 @@ export function SwarmIntelligencePanel() {
   const narrativeAgent = stats?.agents.find((a) => a.agent_id === "narrative_v1") ?? null;
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-base)] p-6 gap-6 overflow-auto">
+    <div className="flex flex-col min-h-screen bg-[var(--bg-base)]">
+    <DashboardNav />
+    <div className="flex flex-col flex-1 p-6 gap-6 overflow-auto">
       <header className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <BrainCircuit size={20} className="text-[var(--accent-cyan)]" />
@@ -346,6 +349,7 @@ export function SwarmIntelligencePanel() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
