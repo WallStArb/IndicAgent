@@ -6,8 +6,8 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Any, Protocol, runtime_checkable
-from uuid import uuid4
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from uuid import UUID, uuid4
 
 import structlog
 from opentelemetry.trace import StatusCode
@@ -16,8 +16,15 @@ from src.core.agent.base import BaseAgent
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
-from src.observability.metrics import AI_AGENT_DURATION_MS, AI_AGENT_INVOCATIONS_TOTAL
+from src.observability.metrics import (
+    AI_AGENT_DURATION_MS,
+    AI_AGENT_ERRORS_TOTAL,
+    AI_AGENT_INVOCATIONS_TOTAL,
+)
 from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
+
+if TYPE_CHECKING:
+    from src.core.ai.lineage import LineageRecorder
 
 logger = structlog.get_logger(__name__)
 
@@ -74,6 +81,7 @@ class BaseAIAgent(BaseAgent, ABC):
             name = self.__class__.__name__
         super().__init__(*args, name=name, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
+        self._lineage: LineageRecorder | None = None
 
     async def compute(self, context: AIContext) -> AgentOutput:
         """Run _compute() with timing capture + exception safety.
@@ -266,9 +274,20 @@ class BaseAIAgent(BaseAgent, ABC):
     async def _on_error(self, error: Exception) -> None:
         """Hook: called when _compute() raises exception.
 
-        Future phase: wire to OTel span + alert.
+        Emits AI_AGENT_ERRORS_TOTAL counter with agent_id and error_type labels.
+        Publishes an agent_prediction lineage event when self._lineage is set.
         """
-        pass
+        AI_AGENT_ERRORS_TOTAL.add(
+            1,
+            {"agent_id": self.agent_id, "error_type": type(error).__name__},
+        )
+        if self._lineage is not None:
+            self._lineage.record(
+                signal_id=UUID(int=0),
+                event_type="agent_prediction",
+                source=self.agent_id,
+                metadata={"error": str(error), "error_type": type(error).__name__},
+            )
 
     async def _on_guardrail_violation(self, output: AgentOutput) -> None:
         """Hook: called when guardrails detect policy violation.
