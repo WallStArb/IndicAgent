@@ -169,7 +169,8 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
-- **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
+- **Metrics**: create via `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed in Phase 83). Call patterns: counters → `.add(1, {"label": val})`, histograms → `.record(val, {"label": val})`, up-down gauges → `.add(delta, {"label": val})`. Never import `prometheus_client`.
+- **Spans**: use `observed_span(name, attributes={...})` from `src/observability/spans.py` for new spans — auto-records ERROR status + exception on raise. Use ATTR_* constants from same module instead of raw strings.
 - **Ruff**: always run `.venv/bin/ruff check .` from project root.
 - **Alpha swarm agent timeouts**: correlation, regime_coherence, counterfactual agents have 5s `latency_budget_ms` vs skeptic's 60s. Local Ollama (gemma4:e4b) cannot meet 5s. Swarm degrades gracefully (uses completing agents only).
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
