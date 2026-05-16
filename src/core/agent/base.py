@@ -34,7 +34,12 @@ from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
-from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS
+from src.observability.metrics import (
+    AGENT_CIRCUIT_BREAKER_STATE,
+    AGENT_DLQ_TOTAL,
+    AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
+    AGENT_SETUP_RETRIES_TOTAL,
+)
 from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,13 @@ class BaseAgent(abc.ABC):
     4. ``stop()`` — called after ``_teardown()``; override to add flush logic.
     """
 
+    # ---------------------------------------------------------------------------
+    # Class-attribute configuration — subclasses override to tune behavior.
+    # ---------------------------------------------------------------------------
+    SETUP_RETRY_ATTEMPTS: int = 3
+    SETUP_RETRY_BACKOFF_S: float = 2.0
+    circuit_breaker: bool = False
+
     def __init__(
         self,
         name: str,
@@ -122,6 +134,10 @@ class BaseAgent(abc.ABC):
         self._crash_attrs = {"agent": self._agent_label}
         self._setup_success_attrs = {"agent": self._agent_label}
         self._setup_latency_attrs = {"agent": self._agent_label}
+        # D-09: per-agent DLQ counter attrs (label key is agent_id per spec)
+        self._dlq_attrs = {"agent_id": self._agent_label}
+        self._cb_attrs = {"agent": self._agent_label}
+        self._cb_open: bool = False
 
     def __getattr__(self, name: str):
         """Fallback for attributes not set in __new__ test pattern (bypasses __init__).
@@ -184,10 +200,18 @@ class BaseAgent(abc.ABC):
 
         self.logger.info("agent.starting", agent=self.name)
 
-        # NEW: Track setup latency + success/failure
+        # NEW: Track setup latency + success/failure; branch on circuit_breaker opt-in
         try:
             setup_start = time.monotonic()
-            await self._setup()
+            if self.circuit_breaker:
+                try:
+                    await self._setup_with_retry()
+                except Exception:
+                    self._cb_open = True
+                    AGENT_CIRCUIT_BREAKER_STATE.set(2, self._cb_attrs)
+                    raise
+            else:
+                await self._setup()
             setup_duration = time.monotonic() - setup_start
             AGENT_SETUP_LATENCY_SECONDS.record(setup_duration, self._setup_latency_attrs)
             AGENT_SETUP_SUCCESS_TOTAL.add(1, self._setup_success_attrs)
@@ -335,6 +359,10 @@ class BaseAgent(abc.ABC):
         If subclass overrides _dlq_topic() to return a topic name, routes to DLQ
         with structured DLQPayload and emits metrics.
         """
+        # Per-agent DLQ rollup counter — fires unconditionally on every DLQ path
+        # (including log-only discard). agent_id label matches D-09 spec.
+        AGENT_DLQ_TOTAL.add(1, self._dlq_attrs)
+
         from datetime import UTC, datetime
 
         from src.core.schemas.dlq_payload import DLQPayload
@@ -446,23 +474,23 @@ class BaseAgent(abc.ABC):
     async def _setup_with_retry(self) -> None:
         """Wrap _setup() with exponential backoff retry.
 
-        Subclasses call this from start() instead of _setup() directly
-        if they need bootstrap resilience. Default behavior is no retry.
+        Reads attempt count and backoff base from class attributes
+        SETUP_RETRY_ATTEMPTS and SETUP_RETRY_BACKOFF_S — subclasses
+        override those to tune retry behavior without subclassing this method.
         """
-        _attempts = 3
-        _backoff_base = 2.0  # seconds
-        for attempt in range(_attempts):
+        for attempt in range(self.SETUP_RETRY_ATTEMPTS):
             try:
                 await self._setup()
                 return
             except Exception as exc:
-                if attempt == _attempts - 1:
+                if attempt == self.SETUP_RETRY_ATTEMPTS - 1:
                     raise
-                backoff = _backoff_base**attempt
+                backoff = self.SETUP_RETRY_BACKOFF_S**attempt
+                AGENT_SETUP_RETRIES_TOTAL.add(1, self._cb_attrs)
                 self.logger.warning(
                     "agent.setup_retry",
                     attempt=attempt + 1,
-                    max_attempts=_attempts,
+                    max_attempts=self.SETUP_RETRY_ATTEMPTS,
                     backoff_seconds=backoff,
                     error=str(exc),
                 )
