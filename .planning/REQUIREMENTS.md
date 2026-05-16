@@ -64,6 +64,7 @@
 - [ ] **PERF-07**: Bar processing is parallelized per (symbol, tf) key — independent keys are dispatched to per-key workers concurrently rather than processed sequentially; a bar for ES:1m does not block NQ:5m
 - [ ] **PERF-08**: `BarMessage(**msg)` hot-path parse uses `model_construct()` (skip validation) for messages from trusted internal producers; full Pydantic validation reserved for DLQ/error paths
 - [ ] **PERF-09**: `bar.model_copy(update={"gap_preceding": True})` replaced with a zero-allocation alternative (gap flag passed as parameter or BarMessage constructed with field set at parse time)
+- [ ] **PERF-10**: `_write_local_checkpoint()` moved off the hot path to a periodic background asyncio.Task; checkpoint writes never block bar processing
 
 ---
 
@@ -133,5 +134,6 @@
 | PERF-07 | Phase 089 | Pending |
 | PERF-08 | Phase 089 | Pending |
 | PERF-09 | Phase 089 | Pending |
+| PERF-10 | Phase 089 | Pending |
 | QUAL-01 | v2.7 | Deferred |
 | QUAL-02 | v2.7 | Deferred |
