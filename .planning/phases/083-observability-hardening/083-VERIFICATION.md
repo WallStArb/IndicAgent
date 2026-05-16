@@ -1,34 +1,27 @@
 ---
 phase: 083-observability-hardening
-verified: 2026-05-16T01:33:22Z
-status: gaps_found
-score: 20/21 must-haves verified
+verified: 2026-05-16T02:15:00Z
+status: passed
+score: 21/21 must-haves verified
 re_verification:
-  previous_status: passed
-  previous_score: 18/18
+  previous_status: gaps_found
+  previous_score: 20/21
   gaps_closed:
     - "OTel MeterProvider never initialized (ProxyMeterProvider string guard fixed to isinstance check)"
     - "indicagent-dlq-drain service inactive (enabled/started, StartLimitIntervalSec moved to [Unit])"
-  gaps_remaining:
-    - "3 orphaned Redpanda topics not deleted: intelligence.signal.audit, market.data.quality, system.health.events"
+    - "3 orphaned Redpanda topics not deleted: intelligence.signal.audit, market.data.quality, system.health.events deleted via rpk topic delete"
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "All 6 orphaned Redpanda topics removed"
-    status: failed
-    reason: "3 of 6 topics still exist in Redpanda: intelligence.signal.audit, market.data.quality, system.health.events. Plan 07 Task 3 was supposed to delete them."
-    artifacts: []
-    missing:
-      - "docker exec redpanda rpk topic delete intelligence.signal.audit market.data.quality system.health.events"
 ---
 
 # Phase 083: Observability Hardening Verification Report (Re-verification)
 
 **Phase Goal:** Unify metrics on OTel SDK, enrich spans with standard attributes and error recording, close alert gaps, harden DLQ with drain consumer and queryable history, eliminate dead code/topics.
-**Verified:** 2026-05-16T01:33:22Z
-**Status:** gaps_found
-**Re-verification:** Yes - after UAT gap closure (Plans 01-07 complete)
+**Verified:** 2026-05-16T02:15:00Z
+**Status:** passed
+**Re-verification:** Yes - after final gap closure (3 orphaned topics deleted)
 
-This is a re-verification following the UAT (083-UAT.md) which identified 3 gaps and Plan 07 which closed 2 of them. The previous VERIFICATION.md was dated 2026-05-15T18:30:00Z with status: passed (before UAT ran).
+This is the final re-verification following deletion of the 3 remaining orphaned Redpanda topics. Previous score was 20/21 with one gap.
 
 ## Goal Achievement
 
@@ -56,9 +49,9 @@ This is a re-verification following the UAT (083-UAT.md) which identified 3 gaps
 | 18 | Five new alert rules in phase83-observability group; prometheus-client removed from requirements.txt | VERIFIED | alertmanager-rules.yml contains phase83-observability group with 5 rules; requirements.txt has zero prometheus lines |
 | 19 | OTel MeterProvider initialized correctly (isinstance guard, not string name check) | VERIFIED | otel.py lines 41+53: isinstance(metrics.get_meter_provider(), MeterProvider) + isinstance(trace.get_tracer_provider(), TracerProvider); OTel metrics confirmed live at :8889 (indicagent_service_up visible) |
 | 20 | indicagent-dlq-drain systemd service is active (running) | VERIFIED | `systemctl is-active indicagent-dlq-drain` returns "active"; StartLimitIntervalSec is in [Unit] section (line 5) |
-| 21 | All 6 orphaned Redpanda topics removed | FAILED | 3 of 6 topics still exist: intelligence.signal.audit, market.data.quality, system.health.events confirmed present via rpk topic list |
+| 21 | All 6 orphaned Redpanda topics removed | VERIFIED | `rpk topic list \| grep -E "signal.audit\|data.quality\|health.events"` returns empty; all 3 remaining topics deleted |
 
-**Score:** 20/21 truths verified
+**Score:** 21/21 truths verified
 
 ### Required Artifacts
 
@@ -106,13 +99,17 @@ No formal requirement IDs exist for phase 083. ROADMAP.md marks this as "Level 0
 
 No blocker anti-patterns found.
 
+### Human Verification Required
+
+None. All automated checks passed.
+
 ### Gaps Summary
 
-One gap remains open after Plan 07 execution: 3 orphaned Redpanda topics (`intelligence.signal.audit`, `market.data.quality`, `system.health.events`) were not deleted. The plan called for `rpk topic delete` on all three, but the deletion did not take effect. These topics have no consumer code pointing to them (stream_keys.py functions deleted), so they are inert — but they represent incomplete cleanup and the plan's acceptance criterion is not met.
+All gaps are closed. The final gap (3 orphaned Redpanda topics: `intelligence.signal.audit`, `market.data.quality`, `system.health.events`) was resolved by manual deletion via `docker exec redpanda rpk topic delete`. Confirmed absent via `rpk topic list | grep` returning empty.
 
-The two major UAT gaps are closed: the OTel MeterProvider isinstance fix is in place and indicagent metrics are live at :8889; the dlq-drain service is active and running with correct systemd configuration.
+Phase 083 goal fully achieved: OTel SDK unified, spans enriched with standard attributes and error recording, alert gaps closed, DLQ hardened with drain consumer and queryable history, all dead code and topics eliminated.
 
 ---
 
-_Verified: 2026-05-16T01:33:22Z_
+_Verified: 2026-05-16T02:15:00Z_
 _Verifier: Claude (gsd-verifier)_
