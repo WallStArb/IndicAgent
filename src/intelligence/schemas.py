@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.schemas.bar_message import SessionType
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
@@ -986,3 +986,77 @@ class ShadowTransitionEvent:
     ci_lower: float
     win_rate: float
     triggered_at: str  # UTC ISO-8601 with Z suffix
+
+
+class MetricsComputedEvent(BaseModel):
+    """Kafka payload for event_type='metrics_computed' on topic_signal_metrics.
+
+    Field list derived from SignalMetricsWriterAgent._handle_metrics_computed() signature.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: Literal["metrics_computed"]
+    track: str
+    setup_plugin: str
+    tf: str
+    regime_type: str
+    window_days: int
+    symbol: str = "*"
+    n: int
+    n_outliers: int
+    never_activated_pct: float | None = None
+    win_rate: float | None = None
+    avg_r: float | None = None
+    std_r: float | None = None
+    sharpe: float | None = None
+    p_value: float | None = None
+    avg_mae: float | None = None
+    avg_mfe: float | None = None
+    computed_at: str
+
+
+class ICComputedEvent(BaseModel):
+    """Kafka payload for event_type='ic_computed' on topic_signal_metrics.
+
+    Field list derived from SignalMetricsWriterAgent._handle_ic_computed() signature.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: Literal["ic_computed"]
+    setup_plugin: str
+    tf: str
+    regime_type: str
+    window_days: int
+    symbol: str = "*"
+    n: int
+    ic: float | None = None
+    p_value: float | None = None
+    is_significant: bool = False
+    computed_at: str
+
+
+class MetricsDQFailureEvent(BaseModel):
+    """Kafka payload for event_type='metrics_dq_failure' on topic_signal_metrics.
+
+    Field list derived from SignalMetricsWriterAgent._handle_dq_failure() signature.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: Literal["metrics_dq_failure"]
+    signal_id: str
+    reason_code: str
+    entry_price: float | None = None
+    stop_loss: float | None = None
+    pnl_r: float | None = None
+    direction: str | None = None
+    hmm_regime: str | None = None
+    setup_plugin: str | None = None
+
+
+SignalMetricsEvent = Annotated[
+    MetricsComputedEvent | ICComputedEvent | MetricsDQFailureEvent,
+    Field(discriminator="event_type"),
+]
