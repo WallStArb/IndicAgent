@@ -119,6 +119,9 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._signal_consumer: KafkaConsumerClient | None = None
         self._producer: KafkaProducerClient | None = None
 
+        # Tracks active signal count for delta-based gauge reporting
+        self._active_signal_count: int = 0
+
         # Metrics
         self._transitions_total = counter(
             "signal_tracker_compute_transitions_total",
@@ -420,6 +423,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         key = (symbol, tf)
         self._active_index[key].append(canonical)
         self._active_symbols.add(symbol)
+        self._active_signal_count += 1
+        self._active_signals_gauge.add(1)
 
         if symbol not in self._point_values:
             pv = get_point_value(symbol)
@@ -520,7 +525,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         if not has_any:
             self._active_symbols.discard(symbol)
 
-        self._active_signals_gauge.add(sum(len(v) for v in self._active_index.values()))
+        self._active_signal_count -= 1
+        self._active_signals_gauge.add(-1)
 
     # ------------------------------------------------------------------
     # Bar evaluation
@@ -533,8 +539,6 @@ class SignalTrackerComputeAgent(BaseAgent):
         signals = self._get_signals_for_bar(symbol, timeframe)
         if not signals:
             return
-
-        self._active_signals_gauge.add(sum(len(v) for v in self._active_index.values()))
 
         point_value = self._point_values.get(symbol, 1.0)
 
@@ -869,7 +873,8 @@ class SignalTrackerComputeAgent(BaseAgent):
                            hmm_regime_at_fire, is_backfill
                     FROM signal_ledger
                     WHERE exit_at IS NULL
-                      AND timestamp > NOW() - INTERVAL '180 days'
+                      AND status IN ('pending', 'active')
+                      AND timestamp > NOW() - INTERVAL '7 days'
                 """)
 
                 # If we got rows, load them and succeed

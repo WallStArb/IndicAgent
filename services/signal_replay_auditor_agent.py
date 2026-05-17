@@ -63,6 +63,7 @@ class SignalReplayAuditorAgent:
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
         self._stop = asyncio.Event()
+        self._last_unresolved_count: int = 0
 
     async def _setup(self) -> None:
         self._pool = await asyncpg.create_pool(self._settings.database_url, min_size=1, max_size=3)
@@ -82,8 +83,10 @@ class SignalReplayAuditorAgent:
     # DB helpers
     # ------------------------------------------------------------------
 
+    _BATCH_SIZE = 500
+
     async def _fetch_unresolved(self) -> list[asyncpg.Record]:
-        """Fetch unresolved signals past a 2-minute hold."""
+        """Fetch a bounded batch of unresolved signals past a 2-minute hold."""
         query = """
             SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
                    direction, targets, entry_zone_low, entry_zone_high,
@@ -91,12 +94,15 @@ class SignalReplayAuditorAgent:
                    hmm_regime_at_fire, garch_sigma_at_fire
             FROM signal_ledger
             WHERE exit_at IS NULL
+              AND status IN ('pending', 'active')
               AND timestamp < NOW() - INTERVAL '2 minutes'
               AND signal_schema_version = $1
+            ORDER BY timestamp ASC
+            LIMIT $2
         """
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION)
+            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION, self._BATCH_SIZE)
 
     async def _fetch_window_bars(
         self, symbol: str, tf: str, start_ts: datetime, end_ts: datetime
@@ -439,7 +445,9 @@ class SignalReplayAuditorAgent:
 
         # Refresh north-star gauge after batch (writes are async, slight lag ok)
         cnt = await self._count_unresolved()
-        SIGNAL_REPLAY_UNRESOLVED_GAUGE.add(float(cnt))
+        delta = cnt - self._last_unresolved_count
+        SIGNAL_REPLAY_UNRESOLVED_GAUGE.add(float(delta))
+        self._last_unresolved_count = cnt
         self._log.info("replay_cycle_complete", unresolved_gauge=cnt)
 
     async def _run(self) -> None:
