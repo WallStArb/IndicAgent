@@ -40,6 +40,7 @@ def _make_agent() -> SignalTrackerComputeAgent:
     agent._activated_at: dict[str, datetime] = {}
     agent._point_values: dict[str, float] = {}
     agent._active_bars_elapsed: dict[str, int] = {}
+    agent._bars_since_activation: dict[str, int] = {}
 
     # Kafka producer mock
     agent._producer = AsyncMock()

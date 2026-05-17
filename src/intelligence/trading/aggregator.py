@@ -28,13 +28,52 @@ _REGIME_MAP: dict[str, list[int]] = {
     "any": [0, 1, 2],
 }
 
-# Plugin priority: higher value = higher priority
+# Plugin priority: higher value = higher priority.
+# All 36 TIER_I7 plugins must be listed here. Any plugin not present triggers a
+# _log.warning("aggregator.unknown_plugin") and silently falls to rank 0 — which is
+# why this list must stay in sync with TIER_I7 in register_plugins.py.
 SETUP_PRIORITY: dict[str, int] = {
-    "trad_MeanReversion": 1,
-    "trad_SqueezeExpansion": 2,
-    "trad_TrendFollowing": 3,
-    "trad_MTFAlignment": 4,
-    "trad_LiquiditySweepReclaim": 5,
+    # Core setups (highest priority — most validated)
+    "trad_LiquiditySweepReclaim": 10,
+    "trad_MTFAlignment": 9,
+    "trad_TrendFollowing": 8,
+    "trad_SqueezeExpansion": 7,
+    "trad_MeanReversion": 6,
+    "trad_MomentumBreakout": 5,
+    "trad_LiquidityHunt": 5,
+    "trad_VWAPDeviation": 4,
+    # Structure/context setups
+    "trad_SupplyDemandSetup": 4,
+    "trad_CHoCHReversal": 4,
+    "trad_FVGFill": 3,
+    "trad_PatternCompletion": 3,
+    "trad_DivergenceStack": 3,
+    "trad_RegimeTransition": 3,
+    # Session/volume setups
+    "trad_SessionExtremesSetup": 3,
+    "trad_ORB15": 3,
+    "trad_ORB30": 3,
+    "trad_PrevDayLevelTest": 2,
+    "trad_VWAPReclaim": 3,
+    "trad_AnchoredVWAPReversion": 2,
+    "trad_POCRejection": 2,
+    "trad_HVNRejection": 2,
+    "trad_LVNBreakout": 3,
+    # Continuation/pattern setups
+    "trad_SecondLegContinuation": 2,
+    "trad_VCP": 2,
+    "trad_FailedBreakout": 2,
+    "trad_GapAnalysisSetup": 2,
+    "trad_CandlestickPatternSetup": 1,
+    # Orderflow setups
+    "trad_OFIContinuation": 3,
+    "trad_OFIDivergence": 2,
+    "trad_OFISpike": 2,
+    "trad_CVDDivergence": 2,
+    "trad_CVDSpike": 2,
+    "trad_DeltaExhaustion": 2,
+    "trad_DualDivergence": 2,
+    "trad_CrossAssetDivergence": 1,
 }
 
 _CONFIDENCE_BOOST_PER_AGREE = 0.0
@@ -128,6 +167,10 @@ def _regime_gate_signals(
     Defaults (0.30/1) are safety floors per SHADOW-01/D-02 — not quality filters.
     """
     if regime_data is None:
+        _log.warning(
+            "regime_gate_bypassed_no_data",
+            extra={"signal_count": len(signals)},
+        )
         for sig in signals:
             sig["regime_eligible"] = True
             sig["suppression_reason"] = None

@@ -23,6 +23,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
     agent._activated_at = {}
     agent._point_values = {}
     agent._active_bars_elapsed = {}
+    agent._bars_since_activation = {}
     agent.logger = MagicMock()
 
     mock_rows = [
@@ -121,6 +122,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
     agent._activated_at = {}
     agent._point_values = {}
     agent._active_bars_elapsed = {}
+    agent._bars_since_activation = {}
     agent.logger = MagicMock()
 
     # Mock execute_query to return empty first 2 times, then 2 rows
@@ -203,6 +205,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
     agent._activated_at = {}
     agent._point_values = {}
     agent._active_bars_elapsed = {}
+    agent._bars_since_activation = {}
     agent.logger = MagicMock()
 
     call_count = [0]
@@ -244,6 +247,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
     agent._activated_at = {}
     agent._point_values = {}
     agent._active_bars_elapsed = {}
+    agent._bars_since_activation = {}
     agent._producer = AsyncMock()
     agent.logger = MagicMock()
 
@@ -294,6 +298,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
     agent._activated_at = {}
     agent._point_values = {}
     agent._active_bars_elapsed = {}
+    agent._bars_since_activation = {}
     agent.logger = MagicMock()
 
     mock_rows = [

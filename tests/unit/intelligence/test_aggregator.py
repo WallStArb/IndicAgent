@@ -165,15 +165,17 @@ class TestAggregatedResultMetadata:
 class TestSetupPriority:
     @pytest.mark.unit
     def test_priority_order(self):
-        """Priority order matches design: LiqSweep > MTF > Trend > Squeeze > MeanRev."""
-        names = sorted(SETUP_PRIORITY, key=lambda k: SETUP_PRIORITY[k])
-        assert names == [
-            "trad_MeanReversion",
-            "trad_SqueezeExpansion",
-            "trad_TrendFollowing",
-            "trad_MTFAlignment",
-            "trad_LiquiditySweepReclaim",
-        ]
+        """Core setups have correct relative priority: LiqSweep > MTF > Trend > Squeeze > MeanRev."""
+        p = SETUP_PRIORITY
+        assert p["trad_LiquiditySweepReclaim"] > p["trad_MTFAlignment"]
+        assert p["trad_MTFAlignment"] > p["trad_TrendFollowing"]
+        assert p["trad_TrendFollowing"] > p["trad_SqueezeExpansion"]
+        assert p["trad_SqueezeExpansion"] > p["trad_MeanReversion"]
+        # All 36 TIER_I7 plugins must be present
+        from src.intelligence.register_plugins import TIER_I7
+
+        missing = [name for name in TIER_I7 if name not in p]
+        assert missing == [], f"Plugins missing from SETUP_PRIORITY: {missing}"
 
 
 # ---------------------------------------------------------------------------
