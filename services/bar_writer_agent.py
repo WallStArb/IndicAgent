@@ -146,6 +146,24 @@ class BarWriterAgent(BaseWriterAgent):
     def topics_produced(self) -> list[str]:
         return []
 
+    def _bar_to_row(self, bar: BarMessage, base: str, source: str) -> tuple:
+        """Map a BarMessage to positional params for _INSERT_OHLCV_SQL.
+
+        Positions must match the $N placeholders in _INSERT_OHLCV_SQL exactly.
+        """
+        return (
+            bar.ts,  # $1 timestamp::timestamptz
+            bar.symbol,  # $2 symbol::text
+            base,  # $3 base::text
+            bar.tf,  # $4 timeframe::text
+            bar.open,  # $5 open::numeric
+            bar.high,  # $6 high::numeric
+            bar.low,  # $7 low::numeric
+            bar.close,  # $8 close::numeric
+            bar.volume,  # $9 volume::bigint
+            source,  # $10 source::text
+        )
+
     def _parse_payload(self, payload: dict) -> list | None:
         """Parse a bar payload into a buffer row tuple.
 
@@ -158,19 +176,7 @@ class BarWriterAgent(BaseWriterAgent):
 
         base = self._contract_cache.get(bar.symbol, bar.symbol)
         source = "live_1m" if bar.tf == "1m" else "live_htf"
-        row = (
-            bar.ts,
-            bar.symbol,
-            base,
-            bar.tf,
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-            bar.volume,
-            source,
-        )
-        return [row]
+        return [self._bar_to_row(bar, base, source)]
 
     async def _flush_batch(self, batch: list) -> None:
         assert self._db_pool is not None
