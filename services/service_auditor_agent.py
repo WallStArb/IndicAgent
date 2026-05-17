@@ -19,6 +19,7 @@ published to system.health.events (Kafka) -- both are permanent audit trails.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -89,6 +90,11 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 8 — meta: monitors and restarts all of the above
     "indicagent-service-auditor": 10,
 }
+
+# Stall threshold: 300s in-process _stall_watchdog + 60s grace for external detection.
+# Must be strictly greater than max_idle_seconds on any agent (typically 300s) to avoid
+# racing with the in-process watchdog which calls sys.exit(1) at 300s.
+_STALL_THRESHOLD_SECONDS: int = 360
 
 # Lag thresholds per service (0 = not a Kafka consumer)
 _LAG_THRESHOLDS: dict[str, int] = {
@@ -316,6 +322,18 @@ class ServiceAuditorAgent(BaseAgent):
                         unit, active, sub, lag, lag_threshold, has_metrics, bars_per_sec
                     )
                     SERVICE_UP_GAUGE.add(1 if has_metrics else 0, {"unit": unit})
+
+                # Stall detection: restart agents that have stopped processing messages
+                # but whose systemd unit is still reported as active (in-process watchdog
+                # may be disabled or itself stuck).
+                stalled_units = await self._fetch_stalled_agents()
+                for unit in stalled_units:
+                    self.logger.warning(
+                        "service_auditor.stall_detected",
+                        unit=unit,
+                        threshold_seconds=_STALL_THRESHOLD_SECONDS,
+                    )
+                    await self._restart_service_by_unit(unit)
             except Exception as exc:
                 self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
 
@@ -561,6 +579,47 @@ class ServiceAuditorAgent(BaseAgent):
             if unit:
                 out[unit] = int(float(r["value"][1]))
         return out
+
+    async def _fetch_stalled_agents(self) -> list[str]:
+        """Return systemd unit names for agents whose last-message timestamp is stale.
+
+        Queries the agent_last_message_timestamp_seconds gauge (set by BaseAgent
+        ._record_message_consumed). An agent is stalled when:
+          now - last_ts > _STALL_THRESHOLD_SECONDS (360s)
+        AND the metric series exists (ts > 0 -- cold-start false-positive guard).
+
+        The 60s grace above the in-process _stall_watchdog (300s) prevents racing:
+        the watchdog exits via sys.exit(1) at 300s so systemd restarts the process;
+        this detector fires at 360s only for cases where the in-process watchdog
+        has been disabled or has itself stalled.
+
+        Label key is "agent" -- matches BaseAgent._last_msg_ts_attrs = {"agent": name}.
+        """
+        try:
+            results = await self._query_prometheus("agent_last_message_timestamp_seconds")
+        except Exception as exc:
+            self.logger.warning("service_auditor.stall_fetch_failed", error=str(exc))
+            return []
+
+        now = time.time()
+        stalled: list[str] = []
+        seen: set[str] = set()
+        for r in results:
+            agent_name = r["metric"].get("agent", "")
+            if not agent_name:
+                continue
+            unit = _AGENT_ID_TO_UNIT.get(agent_name)
+            if unit is None or unit in seen:
+                continue
+            ts = float(r["value"][1])
+            # Cold-start guard: ts == 0 means the metric was never set (no messages yet).
+            # Skip to avoid false positives on freshly-started agents.
+            if ts <= 0:
+                continue
+            if now - ts > _STALL_THRESHOLD_SECONDS:
+                stalled.append(unit)
+                seen.add(unit)
+        return stalled
 
     def _any_active_session_open(self, now: datetime) -> bool:
         """True if any active instrument's trading session is open at `now`.
