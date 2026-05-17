@@ -13,6 +13,7 @@ from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.ai.lineage import LineageEvent
 from src.core.database_manager import create_pool as create_db_pool
+from src.core.service_utils import parse_iso_ts
 from src.core.stream_keys import topic_signal_lineage, topic_signal_lineage_dlq
 
 
@@ -66,7 +67,7 @@ class LineageWriterAgent(BaseWriterAgent):
         Positions must match the INSERT INTO signal_lineage SQL exactly.
         """
         return (
-            event.ts,  # $1 ts::timestamptz
+            parse_iso_ts(event.ts),  # $1 ts::timestamptz
             str(event.signal_id),  # $2 signal_id::uuid
             event.event_type,  # $3 event_type::text
             event.source,  # $4 source::text
@@ -87,7 +88,7 @@ class LineageWriterAgent(BaseWriterAgent):
         async with self._pool.acquire() as conn:
             await conn.executemany(
                 """INSERT INTO signal_lineage
-                   (ts, signal_id, event_type, source, dag_order, multiplier, metadata, is_shadow, symbol, tf) # noqa: E501
+                   (ts, signal_id, event_type, source, dag_order, multiplier, metadata, is_shadow, symbol, tf)
                    VALUES ($1::timestamptz, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
                    ON CONFLICT DO NOTHING""",
                 rows,
