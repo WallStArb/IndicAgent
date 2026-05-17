@@ -119,6 +119,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         self._tick_sizes: dict[str, float] = {}
         self._published_dq_keys: set[str] = set()
         self._cycle_count: int = 0
+        self._last_rows_count: int = 0
 
     async def _load_tick_sizes(self) -> None:
         """Load per-instrument tick sizes from instruments table."""
@@ -212,7 +213,9 @@ class SignalMetricsComputeAgent(BaseAgent):
             self.logger.info("signal_metrics_compute.cycle rows=0 nothing_to_compute")
             return
 
-        _ROWS_PROCESSED.add(len(rows), {"agent": _AGENT_NAME})
+        delta = len(rows) - self._last_rows_count
+        _ROWS_PROCESSED.add(delta, {"agent": _AGENT_NAME})
+        self._last_rows_count = len(rows)
         self.logger.info("signal_metrics_compute.cycle rows=%d", len(rows))
 
         topic = topic_signal_metrics(self.settings.env_name)

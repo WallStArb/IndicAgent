@@ -20,6 +20,7 @@ class TestSignalMetricsComputeAgent:
         agent._tick_sizes = {"ES": 0.25}
         agent._published_dq_keys = set()
         agent._cycle_count = 1  # skip tick_sizes refresh (already populated)
+        agent._last_rows_count = 0
         return agent
 
     def test_agent_has_required_attributes(self):
