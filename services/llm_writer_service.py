@@ -754,7 +754,16 @@ class LLMWriterAgent(BaseWriterAgent):
                     parsed["bars_in_trade"],  # $6
                     outcome_at,  # $7
                 )
-                await self.db_manager.execute_batch(_UPDATE_OUTCOME_SQL, [params])
+                try:
+                    await self.db_manager.execute_batch(_UPDATE_OUTCOME_SQL, [params])
+                except Exception as db_exc:
+                    self.error_count_total.add(1)
+                    self.logger.error(
+                        "outcome_write_failed",
+                        signal_id=parsed["signal_id"],
+                        error=str(db_exc),
+                    )
+                    raise
 
             self.outcomes_processed_total.add(1)
             self._total_outcomes += 1
