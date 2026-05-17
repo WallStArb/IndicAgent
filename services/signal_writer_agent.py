@@ -123,9 +123,10 @@ class SignalWriterAgent(BaseWriterAgent):
         return rows if rows else []
 
     async def _flush_batch(self, batch: list) -> None:
-        for sig in self._invalid_signals:
-            await self._send_to_dlq(sig, ValueError("validate_signal failed"))
+        invalid = self._invalid_signals[:]
         self._invalid_signals.clear()
+        for sig in invalid:
+            await self._send_to_dlq(sig, ValueError("validate_signal failed"))
 
         t0 = time.perf_counter()
         assert self._repo is not None

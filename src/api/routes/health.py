@@ -4,6 +4,7 @@ Health Check Routes
 System health monitoring endpoints.
 """
 
+import asyncio
 from datetime import UTC, datetime
 
 import aiohttp
@@ -87,59 +88,39 @@ async def system_health() -> dict:
         "agent_heartbeats": {},
     }
 
+    async def _query(session: aiohttp.ClientSession, query: str) -> list:
+        async with session.get(prom_url, params={"query": query}) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("data", {}).get("result", [])
+            return []
+
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        # Query 1: consumer lag per agent
-        try:
-            async with session.get(
-                prom_url, params={"query": "persistence_consumer_lag_records"}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for item in data.get("data", {}).get("result", []):
-                        agent_id = item["metric"].get("agent_id", "unknown")
-                        result["consumer_lag"][agent_id] = int(float(item["value"][1]))
-        except Exception:
-            pass
+        lag_items, dlq_items, replay_items, hb_items = await asyncio.gather(
+            _query(session, "persistence_consumer_lag_records"),
+            _query(session, "agent_dlq_total"),
+            _query(session, "signal_replay_unresolved_gauge"),
+            _query(session, "agent_last_message_timestamp_seconds"),
+            return_exceptions=True,
+        )
 
-        # Query 2: DLQ depth (sum of all agent DLQ events)
-        try:
-            async with session.get(prom_url, params={"query": "agent_dlq_total"}) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    items = data.get("data", {}).get("result", [])
-                    if items:
-                        total = sum(float(i["value"][1]) for i in items)
-                        result["dlq_depth"] = int(total)
-        except Exception:
-            pass
+        if isinstance(lag_items, list):
+            for item in lag_items:
+                agent_id = item["metric"].get("agent_id", "unknown")
+                result["consumer_lag"][agent_id] = int(float(item["value"][1]))
 
-        # Query 3: signal replay unresolved gauge
-        try:
-            async with session.get(
-                prom_url, params={"query": "signal_replay_unresolved_gauge"}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    items = data.get("data", {}).get("result", [])
-                    if items:
-                        result["signal_replay_unresolved"] = int(float(items[0]["value"][1]))
-        except Exception:
-            pass
+        if isinstance(dlq_items, list) and dlq_items:
+            result["dlq_depth"] = int(sum(float(i["value"][1]) for i in dlq_items))
 
-        # Query 4: agent heartbeats (last message timestamp per agent)
-        try:
-            async with session.get(
-                prom_url, params={"query": "agent_last_message_timestamp_seconds"}
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    for item in data.get("data", {}).get("result", []):
-                        agent_key = item["metric"].get("agent", "unknown")
-                        ts = float(item["value"][1])
-                        result["agent_heartbeats"][agent_key] = datetime.fromtimestamp(
-                            ts, tz=UTC
-                        ).isoformat()
-        except Exception:
-            pass
+        if isinstance(replay_items, list) and replay_items:
+            result["signal_replay_unresolved"] = int(float(replay_items[0]["value"][1]))
+
+        if isinstance(hb_items, list):
+            for item in hb_items:
+                agent_key = item["metric"].get("agent", "unknown")
+                ts = float(item["value"][1])
+                result["agent_heartbeats"][agent_key] = datetime.fromtimestamp(
+                    ts, tz=UTC
+                ).isoformat()
 
     return result

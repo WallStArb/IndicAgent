@@ -1038,7 +1038,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Blocking enqueue to output buffer. Backs up if queue is full rather than dropping."""
         if self._output_queue.full():
             self._output_buffer_drops.add(1)
-            self.logger.warning("output_queue.full_blocking", qsize=self._output_queue.qsize())
+            self.logger.warning("output_queue.full_blocking")
         await self._output_queue.put((topic, key, value))
 
     async def _drain_output(self) -> None:
@@ -1086,10 +1086,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for i, task in enumerate(tasks):
             out = results[i]
             tier = task.tier_key  # Use tier_key from task
+            cb = self._get_plugin_cb(task.plugin_name)
             if isinstance(out, Exception):
                 self._pipeline_errors.add(1)
                 PLUGIN_ERRORS_TOTAL.add(1, {"plugin_name": task.plugin_name, "tier": tier})
-                cb = self._get_plugin_cb(task.plugin_name)
                 cb.record_failure()
                 if cb.state == CircuitState.OPEN:
                     CIRCUIT_BREAKER_STATE.set(1, {"plugin_name": task.plugin_name})
@@ -1108,7 +1108,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         result_dict["smc_trend_direction"] = result_dict.pop("trend_direction")
                     result_dict["_tier_key"] = tier  # Tag for tier grouping
                     self._update_plugin_state(task, result_dict)
-                    cb = self._get_plugin_cb(task.plugin_name)
                     prev_state = cb.state
                     cb.record_success()
                     if prev_state != CircuitState.CLOSED:
