@@ -33,6 +33,7 @@ def _make_agent():
     agent._signals_written = MagicMock()
     agent._write_errors = MagicMock()
     agent._batch_latency_attrs = {"agent_id": "signal_writer_agent"}
+    agent._invalid_signals = []
     agent._consumer_lag = MagicMock()
     agent._buffer_depth_gauge = MagicMock()
     agent._buffer_overflow_total = MagicMock()
