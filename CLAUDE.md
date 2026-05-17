@@ -157,6 +157,10 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Spans**: use `observed_span(name, attributes={...})` from `src/observability/spans.py` for new spans — auto-records ERROR status + exception on raise. Use ATTR_* constants from same module instead of raw strings.
 - **Alpha swarm agent timeouts**: correlation, regime_coherence, counterfactual agents have 5s `latency_budget_ms` vs skeptic's 60s. Local Ollama (gemma4:e4b) cannot meet 5s. Swarm degrades gracefully (uses completing agents only).
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
+- **`CircuitBreaker` manual-tracking** (`src/observability/circuit_breaker.py`): `record_failure()` opens the breaker but `OPEN→HALF_OPEN` recovery only fires inside `call()`. For manual tracking outside `call()`, use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (resets failures, closes from HALF_OPEN) — both added in Phase 086.
+- **`BaseWriterAgent._parse_payload` return contract**: returning `None` triggers `_maybe_route_to_dlq` on the whole payload. When doing per-signal validation, return `[]` for the all-invalid case to prevent the base writer from double-DLQ-ing the payload; only return `None` for a truly empty/unparseable payload with no signals at all.
+- **API health router prefix is `/health`** not `/api/health`: `app.include_router(health.router, prefix="/health", ...)` at `src/api/main.py:131`. Routes are `/health/system`, `/health/database`, etc.
+- **`agent_last_message_timestamp_seconds` label key is `agent`** not `agent_id`: `self._last_msg_ts_attrs = {"agent": name}` in `src/core/agent/base.py`. Use `r["metric"].get("agent")` when querying this metric from Prometheus.
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
