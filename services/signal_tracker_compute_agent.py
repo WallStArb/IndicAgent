@@ -17,6 +17,7 @@ Consumer groups:
 
 import asyncio
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -60,20 +61,19 @@ from src.persistence.repository.signal_ledger_repository import SignalStatus
 logger = structlog.get_logger(__name__)
 
 
-def _bars_elapsed(signal_timestamp: datetime, current_bar_time: datetime, timeframe: str) -> int:
-    """Bars elapsed since signal fire, based on timestamps."""
-    tf_secs = TF_SECONDS.get(timeframe, 60)
-    delta = (current_bar_time - signal_timestamp).total_seconds()
-    return max(0, int(delta / tf_secs))
+@dataclass
+class SignalState:
+    """Per-signal in-memory tracking state."""
 
-
-def _bars_in_trade(activated_at: datetime | None, exit_at: datetime, timeframe: str) -> int | None:
-    """Bars from activation to exit."""
-    if activated_at is None:
-        return None
-    tf_secs = TF_SECONDS.get(timeframe, 60)
-    delta = (exit_at - activated_at).total_seconds()
-    return max(0, int(delta / tf_secs))
+    mae: float = 0.0
+    mfe: float = 0.0
+    market_mae: float = 0.0
+    market_mfe: float = 0.0
+    chandelier_state: dict | None = None
+    staleness_consecutive: int = 0
+    activated_at: datetime | None = None
+    active_bars_elapsed: int = 0
+    bars_since_activation: int = 0
 
 
 class SignalTrackerComputeAgent(BaseAgent):
@@ -104,18 +104,9 @@ class SignalTrackerComputeAgent(BaseAgent):
 
         # Per-signal tracking state
         self._signal_ids: set[str] = set()
-        self._mae: dict[str, float] = {}
-        self._mfe: dict[str, float] = {}
-        self._market_mae: dict[str, float] = {}
-        self._market_mfe: dict[str, float] = {}
-        self._chandelier_state: dict[str, dict] = {}
-        self._staleness_consecutive: dict[str, int] = {}
-        self._activated_at: dict[str, datetime] = {}
+        self._signal_states: dict[str, SignalState] = {}
+        # Per-symbol (not per-signal) — not in SignalState
         self._point_values: dict[str, float] = {}
-        self._active_bars_elapsed: dict[str, int] = {}
-        # Bars counted from activation (not signal fire) — non-empty bars only.
-        # Used for bars_in_trade on stop/target exits so weekend gaps don't inflate the count.
-        self._bars_since_activation: dict[str, int] = {}
 
         # Kafka clients (initialized in _setup)
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -434,15 +425,10 @@ class SignalTrackerComputeAgent(BaseAgent):
             if pv is not None:
                 self._point_values[symbol] = float(pv)
 
-        # Initialize MAE/MFE tracking
-        self._mae.setdefault(sid, 0.0)
-        self._mfe.setdefault(sid, 0.0)
-        self._active_bars_elapsed.setdefault(sid, 0)
-        self._bars_since_activation.setdefault(sid, 0)
-
-        # Restore activated_at for active signals coming from bootstrap
+        state = SignalState()
         if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
-            self._activated_at[sid] = canonical["activated_at"]
+            state.activated_at = canonical["activated_at"]
+        self._signal_states[sid] = state
 
         self.logger.debug(
             "signal_ingested",
@@ -515,15 +501,7 @@ class SignalTrackerComputeAgent(BaseAgent):
 
         # Clean up per-signal state
         self._signal_ids.discard(signal_id)
-        self._mae.pop(signal_id, None)
-        self._mfe.pop(signal_id, None)
-        self._market_mae.pop(signal_id, None)
-        self._market_mfe.pop(signal_id, None)
-        self._chandelier_state.pop(signal_id, None)
-        self._staleness_consecutive.pop(signal_id, None)
-        self._activated_at.pop(signal_id, None)
-        self._active_bars_elapsed.pop(signal_id, None)
-        self._bars_since_activation.pop(signal_id, None)
+        self._signal_states.pop(signal_id, None)
 
         # Update symbol filter: remove symbol if no signals remain
         has_any = any(symbol == k[0] and len(v) > 0 for k, v in self._active_index.items())
@@ -555,15 +533,19 @@ class SignalTrackerComputeAgent(BaseAgent):
             if status == SignalStatus.EXPIRED:
                 continue
 
+            state = self._signal_states.get(sid)
+            if state is None:
+                continue
+
             # Active-bar counting: only count bars with actual price range (high != low).
             # Empty bars (overnight/session gaps) don't decrement TTL.
             sig_ts = sig.get("timestamp")
             is_active_bar = float(bar["high"]) != float(bar["low"])
             if is_active_bar:
-                self._active_bars_elapsed[sid] = self._active_bars_elapsed.get(sid, 0) + 1
+                state.active_bars_elapsed += 1
                 if status == SignalStatus.ACTIVE:
-                    self._bars_since_activation[sid] += 1
-            computed_bars = self._active_bars_elapsed.get(sid, 0)
+                    state.bars_since_activation += 1
+            computed_bars = state.active_bars_elapsed
 
             sig_with_extras = {
                 **sig,
@@ -571,17 +553,12 @@ class SignalTrackerComputeAgent(BaseAgent):
                 "bars_elapsed": computed_bars,
             }
 
-            current_mae = self._mae.get(sid, 0.0)
-            current_mfe = self._mfe.get(sid, 0.0)
-
             # --- Market-entry dual track (evaluate on EVERY bar) ---
             try:
                 market_entry_price = float(sig.get("market_entry_price") or 0)
             except (TypeError, ValueError):
                 market_entry_price = 0.0
             if market_entry_price > 0:
-                m_mae = self._market_mae.get(sid, 0.0)
-                m_mfe = self._market_mfe.get(sid, 0.0)
                 try:
                     mkt = evaluate_market_entry(
                         sig_with_extras,
@@ -589,13 +566,13 @@ class SignalTrackerComputeAgent(BaseAgent):
                         high=float(bar["high"]),
                         low=float(bar["low"]),
                         close=float(bar["close"]),
-                        current_mae=m_mae,
-                        current_mfe=m_mfe,
+                        current_mae=state.market_mae,
+                        current_mfe=state.market_mfe,
                     )
                     if mkt.outcome is not None:
                         await self._publish_market_resolution(mkt, bar_time)
-                        self._market_mae.pop(sid, None)
-                        self._market_mfe.pop(sid, None)
+                        state.market_mae = 0.0
+                        state.market_mfe = 0.0
                         sig["market_entry_price"] = 0
                     else:
                         pnl_now = (float(bar["close"]) - market_entry_price) * int(sig["direction"])
@@ -604,22 +581,22 @@ class SignalTrackerComputeAgent(BaseAgent):
                         )
                         if risk_m > 0:
                             pnl_r = pnl_now / risk_m
-                            self._market_mae[sid] = min(m_mae, pnl_r)
-                            self._market_mfe[sid] = max(m_mfe, pnl_r)
+                            state.market_mae = min(state.market_mae, pnl_r)
+                            state.market_mfe = max(state.market_mfe, pnl_r)
                 except Exception as exc:
                     self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(exc))
 
             # --- Chandelier + Staleness state for active signals ---
             staleness_score_val = 0.0
             if status == SignalStatus.ACTIVE:
-                if sid not in self._chandelier_state:
+                if state.chandelier_state is None:
                     bar_high = float(bar["high"])
                     bar_low = float(bar["low"])
                     garch_sigma = float(sig.get("garch_sigma_at_fire") or 0.0)
                     atr_14 = float(sig.get("atr_14") or 0.0)
                     vol = garch_sigma if garch_sigma > 0 else atr_14
                     vol_source = "garch_sigma" if garch_sigma > 0 else "atr_14"
-                    self._chandelier_state[sid] = {
+                    state.chandelier_state = {
                         "trailing_stop": None,
                         "highest_high": bar_high,
                         "lowest_low": bar_low,
@@ -639,12 +616,10 @@ class SignalTrackerComputeAgent(BaseAgent):
                 staleness_score_val, _ = compute_staleness_score(
                     hmm_now, hmm_fire, garch_now, garch_fire
                 )
-                consecutive = self._staleness_consecutive.get(sid, 0)
-                if staleness_score_val > STALENESS_SCORE_THRESHOLD:
-                    consecutive += 1
-                else:
-                    consecutive = 0
-                self._staleness_consecutive[sid] = consecutive
+                consecutive = state.staleness_consecutive
+                state.staleness_consecutive = (
+                    consecutive + 1 if staleness_score_val > STALENESS_SCORE_THRESHOLD else 0
+                )
 
             # --- Evaluate signal ---
             try:
@@ -653,15 +628,13 @@ class SignalTrackerComputeAgent(BaseAgent):
                     high=float(bar["high"]),
                     low=float(bar["low"]),
                     close=float(bar["close"]),
-                    current_mae=current_mae,
-                    current_mfe=current_mfe,
+                    current_mae=state.mae,
+                    current_mfe=state.mfe,
                     chandelier_state=(
-                        self._chandelier_state.get(sid) if status == SignalStatus.ACTIVE else None
+                        state.chandelier_state if status == SignalStatus.ACTIVE else None
                     ),
                     staleness_consecutive_bars=(
-                        self._staleness_consecutive.get(sid, 0)
-                        if status == SignalStatus.ACTIVE
-                        else 0
+                        state.staleness_consecutive if status == SignalStatus.ACTIVE else 0
                     ),
                     staleness_score=staleness_score_val,
                     signal_timestamp=sig_ts,  # D-01: pass signal fire time
@@ -678,15 +651,15 @@ class SignalTrackerComputeAgent(BaseAgent):
             # No transition — update MAE/MFE for active signals and continue
             if transition is None:
                 if status == SignalStatus.ACTIVE:
-                    self._update_mae_mfe(sid, sig, bar)
+                    self._update_mae_mfe(state, sig, bar)
                 continue
 
             # --- Transition occurred ---
             if transition.new_status == SignalStatus.ACTIVE:
-                self._activated_at[sid] = bar_time
-                self._mae[sid] = 0.0
-                self._mfe[sid] = 0.0
-                self._bars_since_activation[sid] = 0
+                state.activated_at = bar_time
+                state.mae = 0.0
+                state.mfe = 0.0
+                state.bars_since_activation = 0
                 # Update signal status in index for future evaluations
                 sig["status"] = SignalStatus.ACTIVE
 
@@ -817,7 +790,7 @@ class SignalTrackerComputeAgent(BaseAgent):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _update_mae_mfe(self, sid: str, sig: dict, bar: dict) -> None:
+    def _update_mae_mfe(self, state: SignalState, sig: dict, bar: dict) -> None:
         """Update in-memory MAE/MFE for active signals."""
         entry = float(sig.get("entry_price", 0))
         stop = float(sig.get("stop_loss", 0))
@@ -826,13 +799,18 @@ class SignalTrackerComputeAgent(BaseAgent):
             return
         direction = sig.get("direction", 1)
         close_pnl_r = ((float(bar["close"]) - entry) * direction) / risk
-        self._mae[sid] = min(self._mae.get(sid, 0.0), close_pnl_r)
-        self._mfe[sid] = max(self._mfe.get(sid, 0.0), close_pnl_r)
+        state.mae = min(state.mae, close_pnl_r)
+        state.mfe = max(state.mfe, close_pnl_r)
 
     def _enrich_exit_transition(self, transition: Any, sid: str) -> Any:
         """Set bars_in_trade using market-session bar counter (excludes weekend/overnight gaps)."""
-        if transition.bars_in_trade is None and sid in self._activated_at:
-            transition.bars_in_trade = self._bars_since_activation[sid]
+        state = self._signal_states.get(sid)
+        if (
+            transition.bars_in_trade is None
+            and state is not None
+            and state.activated_at is not None
+        ):
+            transition.bars_in_trade = state.bars_since_activation
         return transition
 
     def _parse_bar_time(self, payload: dict) -> datetime:

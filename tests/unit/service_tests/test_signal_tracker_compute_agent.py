@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
+from services.signal_tracker_compute_agent import SignalState, SignalTrackerComputeAgent
 
 
 def _read_source() -> str:
@@ -31,16 +31,8 @@ def _make_agent() -> SignalTrackerComputeAgent:
     agent._active_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
     agent._active_symbols: set[str] = set()
     agent._signal_ids: set[str] = set()
-    agent._mae: dict[str, float] = {}
-    agent._mfe: dict[str, float] = {}
-    agent._market_mae: dict[str, float] = {}
-    agent._market_mfe: dict[str, float] = {}
-    agent._chandelier_state: dict[str, dict] = {}
-    agent._staleness_consecutive: dict[str, int] = {}
-    agent._activated_at: dict[str, datetime] = {}
+    agent._signal_states: dict[str, SignalState] = {}
     agent._point_values: dict[str, float] = {}
-    agent._active_bars_elapsed: dict[str, int] = {}
-    agent._bars_since_activation: dict[str, int] = {}
 
     # Kafka producer mock
     agent._producer = AsyncMock()
@@ -210,11 +202,14 @@ class TestRemoveSignal:
             {"signal_id": "s1", "timeframe": "1m"},
             {"signal_id": "s2", "timeframe": "1m"},
         ]
-        agent._mae["s1"] = -0.5
-        agent._mfe["s1"] = 1.2
-        agent._chandelier_state["s1"] = {"trailing_stop": 5010.0}
-        agent._staleness_consecutive["s1"] = 2
-        agent._activated_at["s1"] = datetime.now(tz=UTC)
+        state = SignalState(
+            mae=-0.5,
+            mfe=1.2,
+            chandelier_state={"trailing_stop": 5010.0},
+            staleness_consecutive=2,
+            activated_at=datetime.now(tz=UTC),
+        )
+        agent._signal_states["s1"] = state
 
         agent._remove_signal("s1", "ESM6", "1m")
 
@@ -223,11 +218,7 @@ class TestRemoveSignal:
         assert agent._active_index[("ESM6", "1m")][0]["signal_id"] == "s2"
 
         # Per-signal state cleaned up
-        assert "s1" not in agent._mae
-        assert "s1" not in agent._mfe
-        assert "s1" not in agent._chandelier_state
-        assert "s1" not in agent._staleness_consecutive
-        assert "s1" not in agent._activated_at
+        assert "s1" not in agent._signal_states
 
         # Symbol stays in _active_symbols (s2 still active)
         assert "ESM6" in agent._active_symbols
@@ -357,6 +348,7 @@ class TestBarEvaluation:
 
         agent._active_index[("ESM6", "1m")] = [signal]
         agent._active_symbols = {"ESM6"}
+        agent._signal_states["s1"] = SignalState()
 
         bar = {"high": 5005.0, "low": 4999.0, "close": 5003.0}
 
@@ -390,6 +382,7 @@ class TestBarEvaluation:
 
         agent._active_index[("ESM6", "1m")] = [signal]
         agent._active_symbols = {"ESM6"}
+        agent._signal_states["s1"] = SignalState()
 
         # Bar far from entry zone
         bar = {"high": 4950.0, "low": 4945.0, "close": 4948.0}
@@ -450,6 +443,7 @@ class TestTemporalGuardWiring:
 
         agent._active_index[("ESM6", "1m")] = [signal]
         agent._active_symbols = {"ESM6"}
+        agent._signal_states["temporal-test"] = SignalState()
 
         bar = {"high": 5005.0, "low": 4999.0, "close": 5003.0}
 

@@ -22,13 +22,7 @@ def _make_agent() -> SignalTrackerComputeAgent:
     agent._active_index: dict = defaultdict(list)
     agent._active_symbols: set = set()
     agent._signal_ids: set = set()
-    agent._mae: dict = {}
-    agent._mfe: dict = {}
-    agent._market_mae: dict = {}
-    agent._market_mfe: dict = {}
-    agent._chandelier_state: dict = {}
-    agent._staleness_consecutive: dict = {}
-    agent._activated_at: dict = {}
+    agent._signal_states: dict = {}
     agent._point_values: dict = {}
     agent._producer = MagicMock()
     agent._transitions_total = MagicMock()
