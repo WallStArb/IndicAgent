@@ -168,7 +168,7 @@ def _regime_gate_signals(
     """
     if regime_data is None:
         _log.warning(
-            "regime_gate_bypassed_no_data",
+            "aggregator.regime_gate_bypassed_no_data",
             extra={"signal_count": len(signals)},
         )
         for sig in signals:

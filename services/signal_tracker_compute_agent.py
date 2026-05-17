@@ -562,7 +562,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             if is_active_bar:
                 self._active_bars_elapsed[sid] = self._active_bars_elapsed.get(sid, 0) + 1
                 if status == SignalStatus.ACTIVE:
-                    self._bars_since_activation[sid] = self._bars_since_activation.get(sid, 0) + 1
+                    self._bars_since_activation[sid] += 1
             computed_bars = self._active_bars_elapsed.get(sid, 0)
 
             sig_with_extras = {
@@ -693,7 +693,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             elif transition.exit_reason:
                 # Compute bars_in_trade if available
                 if transition.bars_in_trade is None:
-                    transition = self._enrich_exit_transition(transition, sid, bar_time, timeframe)
+                    transition = self._enrich_exit_transition(transition, sid)
 
             # Map to LifecycleTransition and publish
             lifecycle_t = self._transition_to_lifecycle(transition, symbol, timeframe, bar_time)
@@ -829,20 +829,10 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._mae[sid] = min(self._mae.get(sid, 0.0), close_pnl_r)
         self._mfe[sid] = max(self._mfe.get(sid, 0.0), close_pnl_r)
 
-    def _enrich_exit_transition(
-        self,
-        transition: Any,
-        sid: str,
-        bar_time: datetime,
-        timeframe: str,
-    ) -> Any:
-        """Set bars_in_trade for exit transitions using the market-session bar counter.
-
-        Uses _bars_since_activation (non-empty bars since activation) rather than
-        wall-clock delta so weekend and overnight gaps don't inflate the count.
-        """
+    def _enrich_exit_transition(self, transition: Any, sid: str) -> Any:
+        """Set bars_in_trade using market-session bar counter (excludes weekend/overnight gaps)."""
         if transition.bars_in_trade is None and sid in self._activated_at:
-            transition.bars_in_trade = self._bars_since_activation.get(sid, 0)
+            transition.bars_in_trade = self._bars_since_activation[sid]
         return transition
 
     def _parse_bar_time(self, payload: dict) -> datetime:
