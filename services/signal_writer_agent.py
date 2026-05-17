@@ -25,7 +25,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_signal_writer_dlq,
 )
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, validate_signal
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     counter,
@@ -59,6 +59,7 @@ class SignalWriterAgent(BaseWriterAgent):
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
         self._repo: SignalLedgerRepository | None = None
+        self._invalid_signals: list[dict] = []
 
         # Metrics — Golden Signals (writer-specific, not provided by base class)
         self._events_consumed = counter(
@@ -90,10 +91,42 @@ class SignalWriterAgent(BaseWriterAgent):
         self._events_consumed.add(1)
 
     def _parse_payload(self, payload: dict) -> list | None:
-        rows = _payload_to_ledger_entries(payload)
-        return rows if rows else None
+        symbol = payload.get("symbol", "")
+        tf = payload.get("tf", "")
+        signals: list[dict] = payload.get("signals", [])
+
+        # Empty payload — base class will DLQ the whole message via _maybe_route_to_dlq
+        if not signals:
+            return None
+
+        valid: list[dict] = []
+        invalid: list[dict] = []
+        for sig in signals:
+            if validate_signal(sig):
+                valid.append(sig)
+            else:
+                invalid.append(sig)
+
+        if invalid:
+            self._invalid_signals.extend(invalid)
+            self.logger.warning(
+                "signal_writer.invalid_signals_partitioned",
+                count=len(invalid),
+                symbol=symbol,
+                tf=tf,
+            )
+
+        rows = _payload_to_ledger_entries({**payload, "signals": valid})
+        # Return [] (not None) when all signals are invalid — prevents the base writer
+        # from double-DLQ-ing the whole payload via _maybe_route_to_dlq.
+        # The per-signal DLQ records in self._invalid_signals are drained in _flush_batch.
+        return rows if rows else []
 
     async def _flush_batch(self, batch: list) -> None:
+        for sig in self._invalid_signals:
+            await self._send_to_dlq(sig, ValueError("validate_signal failed"))
+        self._invalid_signals.clear()
+
         t0 = time.perf_counter()
         assert self._repo is not None
         await self._repo.insert_signals(batch)
