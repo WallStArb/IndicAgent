@@ -113,6 +113,9 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._activated_at: dict[str, datetime] = {}
         self._point_values: dict[str, float] = {}
         self._active_bars_elapsed: dict[str, int] = {}
+        # Bars counted from activation (not signal fire) — non-empty bars only.
+        # Used for bars_in_trade on stop/target exits so weekend gaps don't inflate the count.
+        self._bars_since_activation: dict[str, int] = {}
 
         # Kafka clients (initialized in _setup)
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -435,6 +438,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._mae.setdefault(sid, 0.0)
         self._mfe.setdefault(sid, 0.0)
         self._active_bars_elapsed.setdefault(sid, 0)
+        self._bars_since_activation.setdefault(sid, 0)
 
         # Restore activated_at for active signals coming from bootstrap
         if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
@@ -519,6 +523,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._staleness_consecutive.pop(signal_id, None)
         self._activated_at.pop(signal_id, None)
         self._active_bars_elapsed.pop(signal_id, None)
+        self._bars_since_activation.pop(signal_id, None)
 
         # Update symbol filter: remove symbol if no signals remain
         has_any = any(symbol == k[0] and len(v) > 0 for k, v in self._active_index.items())
@@ -556,6 +561,8 @@ class SignalTrackerComputeAgent(BaseAgent):
             is_active_bar = float(bar["high"]) != float(bar["low"])
             if is_active_bar:
                 self._active_bars_elapsed[sid] = self._active_bars_elapsed.get(sid, 0) + 1
+                if status == SignalStatus.ACTIVE:
+                    self._bars_since_activation[sid] = self._bars_since_activation.get(sid, 0) + 1
             computed_bars = self._active_bars_elapsed.get(sid, 0)
 
             sig_with_extras = {
@@ -679,6 +686,7 @@ class SignalTrackerComputeAgent(BaseAgent):
                 self._activated_at[sid] = bar_time
                 self._mae[sid] = 0.0
                 self._mfe[sid] = 0.0
+                self._bars_since_activation[sid] = 0
                 # Update signal status in index for future evaluations
                 sig["status"] = SignalStatus.ACTIVE
 
@@ -828,10 +836,13 @@ class SignalTrackerComputeAgent(BaseAgent):
         bar_time: datetime,
         timeframe: str,
     ) -> Any:
-        """Compute bars_in_trade for exit transitions if not set."""
-        activated = self._activated_at.get(sid)
-        if transition.bars_in_trade is None and activated is not None:
-            transition.bars_in_trade = _bars_in_trade(activated, bar_time, timeframe)
+        """Set bars_in_trade for exit transitions using the market-session bar counter.
+
+        Uses _bars_since_activation (non-empty bars since activation) rather than
+        wall-clock delta so weekend and overnight gaps don't inflate the count.
+        """
+        if transition.bars_in_trade is None and sid in self._activated_at:
+            transition.bars_in_trade = self._bars_since_activation.get(sid, 0)
         return transition
 
     def _parse_bar_time(self, payload: dict) -> datetime:
