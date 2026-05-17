@@ -115,7 +115,9 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
+    CIRCUIT_BREAKER_STATE,
     FEATURES_COMPUTED_TOTAL,
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     PLUGIN_DURATION_MS,
@@ -475,6 +477,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Output buffer
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
 
+        # Per-plugin circuit breakers (lazily populated via _get_plugin_cb)
+        self._plugin_circuit_breakers: dict[str, CircuitBreaker] = {}
+
         # Shadow mode
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
 
@@ -550,6 +555,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
     # State lock management
     # ------------------------------------------------------------------
+
+    def _get_plugin_cb(self, plugin_name: str) -> CircuitBreaker:
+        """Get or create a CircuitBreaker for the named plugin."""
+        cb = self._plugin_circuit_breakers.get(plugin_name)
+        if cb is None:
+            cb = CircuitBreaker(failure_threshold=3, timeout_sec=300)
+            self._plugin_circuit_breakers[plugin_name] = cb
+        return cb
 
     def _get_state_lock(self, key: tuple) -> threading.Lock:
         """Get or create a threading.Lock for a (plugin, symbol, tf) state key."""
@@ -1069,6 +1082,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if isinstance(out, Exception):
                 self._pipeline_errors.add(1)
                 PLUGIN_ERRORS_TOTAL.add(1, {"plugin_name": task.plugin_name, "tier": tier})
+                cb = self._get_plugin_cb(task.plugin_name)
+                cb.record_failure()
+                if cb.state == CircuitState.OPEN:
+                    CIRCUIT_BREAKER_STATE.set(1, {"plugin_name": task.plugin_name})
+                    self.logger.warning("plugin.circuit_breaker_opened", plugin=task.plugin_name)
                 self.logger.warning(
                     f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out)
                 )
@@ -1083,6 +1101,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         result_dict["smc_trend_direction"] = result_dict.pop("trend_direction")
                     result_dict["_tier_key"] = tier  # Tag for tier grouping
                     self._update_plugin_state(task, result_dict)
+                    cb = self._get_plugin_cb(task.plugin_name)
+                    prev_state = cb.state
+                    cb.record_success()
+                    if prev_state != CircuitState.CLOSED:
+                        CIRCUIT_BREAKER_STATE.set(0, {"plugin_name": task.plugin_name})
+                        self.logger.info("plugin.circuit_breaker_closed", plugin=task.plugin_name)
                     outputs.append(result_dict)
         return outputs
 
@@ -1108,6 +1132,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if should_skip_plugin(
                 plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
             ):
+                continue
+            cb = self._get_plugin_cb(plugin_name)
+            if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
             plugin._state = self._plugin_states.get(state_key, {})
@@ -1182,6 +1209,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 self._plugin_skipped_total,
                 plugin_name,
             ):
+                continue
+            cb = self._get_plugin_cb(plugin_name)
+            if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
             plugin._state = self._plugin_states.get(state_key, {})
@@ -1305,6 +1335,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if should_skip_plugin(
                 plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
             ):
+                continue
+            cb = self._get_plugin_cb(plugin_name)
+            if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
             plugin._state = self._plugin_states.get(state_key, {})

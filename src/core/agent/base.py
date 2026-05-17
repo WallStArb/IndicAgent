@@ -163,6 +163,8 @@ class BaseAgent(abc.ABC):
 
             m = get_meter("test-noop")
             return m.create_up_down_counter(name.lstrip("_"))
+        if name == "_plugin_circuit_breakers":
+            return {}
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
