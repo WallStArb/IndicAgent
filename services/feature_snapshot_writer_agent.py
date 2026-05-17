@@ -88,26 +88,10 @@ class FeatureSnapshotWriterAgent(BaseWriterAgent):
         return None
 
     async def _flush_batch(self, batch: list) -> None:
-        """Write batch to shadow table. Clears buffer on error (shadow — no retry)."""
+        """Write batch to shadow table. Re-raises on error; base class re-raise contract applies."""
         assert self._repo is not None
         await self._repo.insert_batch(batch)
         self._shadow_writes.add(len(batch))
-
-    async def _do_flush(self) -> None:
-        """Override: shadow table clears buffer on error instead of retrying."""
-        if not self._buffer:
-            return
-        batch = self._buffer[:]
-        try:
-            await self._flush_batch(batch)
-            self._buffer.clear()
-            self._buffer_depth_gauge.add(0)
-            if self._consumer and hasattr(self._consumer, "commit"):
-                await self._consumer.commit()
-        except Exception:
-            self._flush_errors_total.add(1)
-            self.logger.exception("shadow_write_failed", rows=len(batch))
-            self._buffer.clear()  # shadow table — drop on failure, don't retry
 
     def _parse_record(self, raw: dict | bytes | str) -> BarIntelligenceRecord | None:
         try:
