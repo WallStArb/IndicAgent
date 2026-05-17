@@ -1034,6 +1034,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         except asyncio.QueueFull:
             self._output_buffer_drops.add(1)
 
+    async def _enqueue_blocking(self, topic: str, key: str, value: Any) -> None:
+        """Blocking enqueue to output buffer. Backs up if queue is full rather than dropping."""
+        if self._output_queue.full():
+            self._output_buffer_drops.add(1)
+            self.logger.warning("output_queue.full_blocking", qsize=self._output_queue.qsize())
+        await self._output_queue.put((topic, key, value))
+
     async def _drain_output(self) -> None:
         """Background task: drain output queue and publish to Kafka."""
         while self.running or not self._output_queue.empty():
@@ -1519,7 +1526,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     break
 
         # Publish ALL ranked signals — assertion + DLQ gating inside
-        published = self._publish_signals_or_dlq(ranked, symbol, tf, bar)
+        published = await self._publish_signals_or_dlq(ranked, symbol, tf, bar)
         if not published:
             return {
                 "ranked": [],
@@ -1535,7 +1542,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Publish winner to signals.aggregated for signal_tracker_agent
         if winner:
             self._signals_selected.add(1)
-            self._enqueue(
+            await self._enqueue_blocking(
                 topic_signals_aggregated(self.settings.env_name),
                 message_key(symbol, tf),
                 winner,
@@ -1591,7 +1598,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.warning("state.checkpoint_read_failed", error=str(exc))
             return False
 
-    def _publish_signals_or_dlq(
+    async def _publish_signals_or_dlq(
         self,
         ranked: list[dict],
         symbol: str,
@@ -1608,7 +1615,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for sig in ranked:
             if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
                 self._signal_dlq_total.add(1)
-                self._enqueue(
+                await self._enqueue_blocking(
                     topic_signal_dlq(self.settings.env_name),
                     message_key(symbol, tf),
                     {
@@ -1657,7 +1664,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 len(ranked), {"symbol": symbol, "timeframe": tf}
             )
 
-        self._enqueue(
+        await self._enqueue_blocking(
             topic_intelligence_i7_signals(self.settings.env_name),
             message_key(symbol, tf),
             {
