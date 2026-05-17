@@ -156,6 +156,13 @@ class BaseAgent(abc.ABC):
             return get_meter("test-noop")
         if name == "_shadow_cache":
             return {}
+        if name == "_active_signal_count":
+            return 0
+        if name in ("_active_signals_gauge", "_transitions_total"):
+            from src.observability.otel import get_meter
+
+            m = get_meter("test-noop")
+            return m.create_up_down_counter(name.lstrip("_"))
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
