@@ -573,7 +573,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                 pass
 
     async def _update_health_metrics(self):
-        """Update Prometheus health metrics every 15 seconds."""
+        """Update health metrics every 15 seconds."""
         while self.running:
             healthy, _ = self._health_metrics.is_healthy()
             _HEALTH_STATUS.add(1 if healthy else 0, self._agent_attrs)
