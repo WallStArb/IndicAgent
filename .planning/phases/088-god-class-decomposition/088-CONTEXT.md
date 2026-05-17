@@ -68,11 +68,16 @@ This is a pure refactor — zero behavior change, zero latency overhead (all in-
 - **D-18:** After plan 05, service file should be ~100 lines. If it's materially larger, something was missed.
 
 ### Wave Structure
-- **D-19:** Plans 01-03 are independent (no shared files) → Wave 1, parallel execution. Plans 04-05 each depend on prior extractions → Wave 2, sequential.
+- **D-19:** All 5 plans execute sequentially (waves 1–5). Plans 01-03 all modify `intelligence_pipeline_agent.py`, `src/intelligence/pipeline/__init__.py`, and `tests/unit/pipeline_helpers.py` — they cannot run in parallel. Each plan depends on all prior plans completing first.
 
 ### Testing Contract
 - **D-20:** Each extracted class must have a dedicated unit test file at `tests/unit/pipeline_tests/test_{class_name}.py`. Tests must exercise the class in isolation using fakes/mocks for its dependencies — no standing up a full `IntelligencePipelineComputeAgent`.
-- **D-21:** All existing `tests/unit/service_tests/test_intelligence_pipeline_*.py` tests must remain green after each plan — regression coverage.
+- **D-21:** All existing pipeline regression tests must remain green after each plan - regression coverage:
+  - `tests/unit/test_pipeline_attribution.py`
+  - `tests/unit/test_pipeline_determinism.py`
+  - `tests/unit/test_pipeline_exception_isolation.py`
+  - `tests/unit/test_pipeline_parallelization.py`
+  - `tests/unit/test_pipeline_recorder_wiring.py`
 
 ### Claude's Discretion
 - Exact method signatures within each class (beyond the public interface contracts in D-05/D-08)
@@ -128,7 +133,7 @@ This is a pure refactor — zero behavior change, zero latency overhead (all in-
 ### State to Re-home (40+ `self._*` attributes)
 - **OutputQueue**: `_output_queue`, `_output_buffer_drops`, `_output_buffer_depth`, `_output_publish_failures`
 - **PluginStateManager**: `_plugin_states`, `_plugin_states_locks`, checkpoint path/file logic
-- **CacheManager**: `_perf_weights`, `_cis_weights`, `_calibration_curves`, `_shadow_cache`, `_drift_penalties`, `_tod_multipliers`, `_cis_kalman_params`, `_pattern_reliability`
+- **CacheManager**: `_perf_weights`, `_cis_weights`, `_calibration_curves`, `_shadow_cache`, `_drift_penalties`, `_tod_multipliers`, `_cis_kalman_params` (note: `_pattern_reliability` is a dead attribute — written but never read anywhere — delete it without rehoming)
 - **PluginExecutor**: `_executor` (ThreadPoolExecutor), `_plugin_cache`, `_instrument_map`, `_plugin_circuit_breakers`, `_plugin_call_counts`, `_plugin_skipped_total`
 - **SignalProcessor**: `_cis_scorer`, `_cis_weights_cache`, `_signal_gate`, `_setup_cooldown`, `_setup_last_fire`, `_signals_generated`, `_signals_selected`, `_signal_dlq_total`
 
