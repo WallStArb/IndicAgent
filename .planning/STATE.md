@@ -136,3 +136,64 @@ Next: /gsd:plan-phase 84
 
 **Planned Phase:** 84 (Base Agent Hardening) — 4 plans — 2026-05-16T18:51:26.583Z
 **Planned Phase:** 085 (Persistence Writer Migration) — 4 plans — 2026-05-17
+
+---
+
+## Pre-Reboot Resource Snapshot (2026-05-17 ~14:32)
+
+**Context:** Captured before planned Ubuntu reboot for pending microcode update (`0x0b20401b` → `0x0b204037`). Uptime: 2 days 13h. Compare post-reboot to detect memory leaks or CPU regression.
+
+### System
+| Metric | Value |
+|--------|-------|
+| RAM total | 29GB |
+| RAM used | 15.8GB |
+| RAM free | 3.2GB |
+| Buff/cache | 14.9GB |
+| Available | 13.3GB |
+| **Swap used** | **8.2GB / 22.8GB** |
+| Load avg | 0.71, 0.72, 0.68 |
+| CPU idle | 98.9% |
+
+### Docker Containers
+| Container | CPU% | RAM | RAM% |
+|-----------|------|-----|------|
+| timescaledb | 3.10% | 6.48GiB | 22.73% |
+| redpanda | 2.18% | 2.31GiB | 38.56% (of 6GiB cap) |
+| indicagent-mlflow | 2.32% | 123MB | 0.42% |
+| indicagent-tempo | 1.33% | 133MB | 0.46% |
+| indicagent-loki | 1.12% | 188MB | 0.65% |
+| indicagent-prometheus | 0.24% | 339MB | 1.16% |
+| ib-gateway | 0.41% | 762MB | 2.61% |
+| indicagent-otel-collector | 0.17% | 78MB | 0.27% |
+| indicagent-grafana | 0.08% | 94MB | 0.32% |
+| indicagent-alertmanager | 0.19% | 27MB | 0.09% |
+| ollama | 0.00% | 27MB | 0.09% |
+| indicagent-langfuse | 0.00% | 9MB | 0.03% |
+
+**Total Docker RAM (approx):** ~10.6GiB
+
+### Service State
+- **FAILED:** `indicagent-intelligence-pipeline.service` (pre-existing — not reboot-caused)
+- **Inactive/dead (expected):** feature-writer, ml-training, ml-orchestrator, ml-data-quality, ml-discovery, shadow-auditor, weight-updater, redpanda-watchdog
+- All other indicagent services: active/running
+
+### Python Process RSS (largest indicagent processes)
+| RSS | Notes |
+|-----|-------|
+| 279MB | largest indicagent venv process |
+| 212MB | |
+| 207MB | |
+| 193MB | |
+| 157MB | |
+| 125MB | |
+
+### PostgreSQL (TimescaleDB container processes)
+| RSS | Notes |
+|-----|-------|
+| 2.9GB | largest postgres worker |
+| 953MB | |
+| 331MB | |
+| 261MB | |
+| 226MB | ×2 |
+
