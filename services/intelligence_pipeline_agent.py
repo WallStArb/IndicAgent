@@ -1557,17 +1557,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _write_local_checkpoint(self) -> None:
-        """Write hot indicator state to local file. Best-effort — never raises."""
-        try:
-            payload: dict = {"version": _AGENT_VERSION, "ts": datetime.now(UTC).isoformat()}
-            for field in _CHECKPOINT_FIELDS:
-                payload[field] = _tag_value(getattr(self, f"_{field}"))
-            tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload))
-            tmp.rename(_CHECKPOINT_PATH)
-            self.logger.info("state.checkpoint_written", path=str(_CHECKPOINT_PATH))
-        except Exception as exc:
-            self.logger.warning("state.checkpoint_write_failed", error=str(exc))
+        """Write hot indicator state to local file. Raises on failure (OSError, etc.). Caller logs via agent.run_failed."""
+        payload: dict = {"version": _AGENT_VERSION, "ts": datetime.now(UTC).isoformat()}
+        for field in _CHECKPOINT_FIELDS:
+            payload[field] = _tag_value(getattr(self, f"_{field}"))
+        tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.rename(_CHECKPOINT_PATH)
+        self.logger.info("state.checkpoint_written", path=str(_CHECKPOINT_PATH))
 
     async def _read_local_checkpoint(self) -> bool:
         """Restore hot indicator state from local file. Returns True on success."""
