@@ -43,7 +43,7 @@ CONSUMER_GROUP = "graduation_compute_group"
 _EVAL_QUERY = """
 SELECT stl.multiplier, sl.pnl_r, stl.ts
 FROM signal_transform_log stl
-JOIN signal_ledger sl ON stl.signal_id::text = sl.signal_id::text
+JOIN signal_ledger sl ON stl.signal_id = sl.signal_id
 WHERE stl.transform_id = $1
   AND stl.transform_version = $2
   AND stl.segment_key = $3
@@ -56,7 +56,7 @@ ORDER BY stl.ts ASC
 _TRANSFORM_LOG_FOR_SIGNAL = """
 SELECT transform_id, transform_version, segment_key
 FROM signal_transform_log
-WHERE signal_id::text = $1
+WHERE signal_id = $1::uuid
 """
 
 _SEED_COUNTERS_QUERY = """
@@ -69,7 +69,7 @@ FROM transform_graduation tg
 LEFT JOIN LATERAL (
     SELECT stl.signal_id
     FROM signal_transform_log stl
-    JOIN signal_ledger sl ON stl.signal_id::text = sl.signal_id::text
+    JOIN signal_ledger sl ON stl.signal_id = sl.signal_id
     WHERE stl.transform_id = tg.transform_id
       AND stl.transform_version = tg.transform_version
       AND stl.segment_key = tg.segment_key
@@ -144,6 +144,7 @@ class GraduationComputeAgent(BaseAgent):
             auto_offset_reset="latest",
         )
         await self._consumer.start()
+        await self._consumer.skip_lag_if_needed(max_lag=10_000)
 
         self._producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
