@@ -4,6 +4,12 @@ import type { ObservabilityMetrics } from "@/hooks/use-observability-stream";
 
 type Props = Pick<ObservabilityMetrics, "pipeline">;
 
+const STATUS_CLASS: Record<string, string> = {
+  active: "text-[var(--text-muted)]",
+  warning: "text-[var(--accent-amber)]",
+  error: "text-[var(--red)]",
+};
+
 export function PipelineGrid({ pipeline }: Props) {
   return (
     <div className="surface rounded-xl p-6 border-[var(--border-default)]">
@@ -25,7 +31,9 @@ export function PipelineGrid({ pipeline }: Props) {
                 </div>
                 <div>
                   <div className="text-[0.8rem] font-semibold text-[var(--text-primary)] capitalize">{p.id}</div>
-                  <div className="text-[0.6rem] font-mono text-[var(--text-muted)]">Status: {p.status.toUpperCase()}</div>
+                  <div className={`text-[0.6rem] font-mono ${STATUS_CLASS[p.status] ?? STATUS_CLASS.active}`}>
+                    {p.status.toUpperCase()}
+                  </div>
                 </div>
               </div>
               <div className="font-mono text-[0.7rem] text-[var(--accent-cyan)]">{p.throughput}</div>

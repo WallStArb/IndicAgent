@@ -23,11 +23,11 @@ export function JitterRadar({ jitter }: Props) {
 
       <div className="mt-6 grid grid-cols-2 gap-4 border-t border-[var(--border-subtle)] pt-6">
         <div>
-          <div className="text-[0.55rem] uppercase text-[var(--text-muted)] tracking-wider">Jitter</div>
+          <div className="text-[0.55rem] uppercase text-[var(--text-muted)] tracking-wider">I1 Latency</div>
           <div className="text-[0.9rem] font-mono text-[var(--text-primary)]">{jitter.jitter}</div>
         </div>
         <div>
-          <div className="text-[0.55rem] uppercase text-[var(--text-muted)] tracking-wider">Health</div>
+          <div className="text-[0.55rem] uppercase text-[var(--text-muted)] tracking-wider">Active Signals</div>
           <div className="text-[0.9rem] font-mono text-[var(--green)]">{jitter.health}</div>
         </div>
       </div>
