@@ -8,6 +8,7 @@ when CIS is neutral (abs(score) <= 0.35 or buckets_agreeing < 3).
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 import numpy as np
 
 from .cis_scorer import CISScorer
+
+_log = logging.getLogger(__name__)
 
 # Regime type map: maps regime_type attribute value → allowed hmm_regime int values.
 # Plugins declare their regime_type attribute; this dict maps it to allowed regimes.
@@ -523,6 +526,8 @@ def _build_all_ranked(
     weights = perf_weights or {}
     for sig in with_ranks:
         plugin_name = sig.get("setup_plugin", "")
+        if plugin_name not in SETUP_PRIORITY:
+            _log.warning("aggregator.unknown_plugin", extra={"plugin": plugin_name})
         if weights:
             # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
             multiplier = weights.get(plugin_name, 1.0)

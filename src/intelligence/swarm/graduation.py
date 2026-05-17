@@ -29,6 +29,7 @@ GATE_CVAR_BOTTOM_DECILE = -0.5
 GATE_SEGMENT_MIN_N = 30
 GATE_SEGMENT_RHO = 0.15
 GATE_SEGMENT_POWER = 0.80
+GATE_MIN_N_FOR_CALIBRATION = 100  # calibration and walk-forward gates require this minimum n
 EVAL_RESOLUTION_THRESHOLD = 20
 EVAL_ROLLING_WINDOW_DAYS = 90
 EVAL_EXPIRY_DAYS = 90
@@ -38,17 +39,28 @@ EVAL_WALK_FORWARD_FRACTION = 0.7
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_ANNUALISATION = math.sqrt(252)
+_BARS_PER_YEAR: dict[str, float] = {
+    "1m": 252 * 390,
+    "5m": 252 * 78,
+    "15m": 252 * 26,
+    "1h": 252 * 6.5,
+    "4h": 252 * 1.625,
+    "1d": 252.0,
+}
 
 
-def _sharpe(returns: pd.Series) -> float:
+def _annualisation(timeframe: str) -> float:
+    return math.sqrt(_BARS_PER_YEAR.get(timeframe, 252.0))
+
+
+def _sharpe(returns: pd.Series, timeframe: str = "") -> float:
     """Annualised Sharpe ratio. Returns 0.0 if fewer than 2 obs or zero std."""
     if len(returns) < 2:
         return 0.0
     std = float(returns.std())
     if std == 0.0:
         return 0.0
-    return float(returns.mean() / std * _ANNUALISATION)
+    return float(returns.mean() / std * _annualisation(timeframe))
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +83,7 @@ def compute_spearman(df: pd.DataFrame) -> dict:
     rho, p_value = spearmanr(valid["multiplier"].values, valid["pnl_r"].values)
     rho = float(rho)
     p_value = float(p_value)
-    passes = rho >= GATE_SPEARMAN_RHO and n >= 10
+    passes = rho >= GATE_SPEARMAN_RHO and p_value < 0.05 and n >= 10
     return {"rho": rho, "p_value": p_value, "n": n, "pass": passes}
 
 
@@ -221,7 +233,7 @@ def compute_walk_forward(
     }
 
 
-def compute_value_add(df: pd.DataFrame) -> dict:
+def compute_value_add(df: pd.DataFrame, timeframe: str = "") -> dict:
     """Compare Sharpe ratio of all trades vs high-confidence subset.
 
     Filter: multiplier > 0.5 (high-confidence keepers).
@@ -232,9 +244,9 @@ def compute_value_add(df: pd.DataFrame) -> dict:
         ``delta``, ``pass``.
     """
     valid = df.dropna(subset=["multiplier", "pnl_r"])
-    sharpe_all = _sharpe(valid["pnl_r"])
+    sharpe_all = _sharpe(valid["pnl_r"], timeframe)
     filtered = valid[valid["multiplier"] > 0.5]
-    sharpe_filtered = _sharpe(filtered["pnl_r"])
+    sharpe_filtered = _sharpe(filtered["pnl_r"], timeframe)
     delta = sharpe_filtered - sharpe_all
     return {
         "sharpe_all": sharpe_all,
@@ -250,37 +262,12 @@ def compute_value_add(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def query_agent_predictions(conn, agent_id: str, min_samples: int = 30) -> list[dict]:
-    """Query signal_lineage for agent prediction events.
-
-    D-06: graduation_loop uses signal_lineage WHERE event_type = 'agent_prediction'
-    instead of signal_transform_log.
-    """
-    rows = conn.fetch(
-        """
-        SELECT sl.signal_id, sl.multiplier, sl.metadata, sl.symbol, sl.tf,
-               sl.ts, sl.is_shadow,
-               COALESCE(s.outcome, 'pending') as outcome,
-               COALESCE(s.pnl_r, 0.0) as pnl_r
-        FROM signal_lineage sl
-        LEFT JOIN signal_ledger s
-            ON sl.signal_id = s.signal_id
-            AND sl.symbol = s.symbol
-        WHERE sl.event_type = 'agent_prediction'
-          AND sl.source = $1
-        ORDER BY sl.ts DESC
-        LIMIT 500
-    """,
-        agent_id,
-    )
-    return rows
-
-
 def evaluate_all(
     df: pd.DataFrame,
     transform_id: str,
     transform_version: str = "v1",
     segment_key: str = "__global__",
+    timeframe: str = "",
 ) -> dict:
     """Run all 6 validation functions and return a GraduationResult payload dict.
 
@@ -307,7 +294,7 @@ def evaluate_all(
     calibration_df = compute_calibration(df)
     shortfall = compute_expected_shortfall(df)
     wf = compute_walk_forward(df)
-    value_add = compute_value_add(df)
+    value_add = compute_value_add(df, timeframe)
 
     # Calibration max error (None if insufficient data)
     calibration_max_error: float | None = None
@@ -323,10 +310,12 @@ def evaluate_all(
     # Graduation: all gates must pass
     spearman_pass = spearman.get("pass", False)
     calibration_pass = (
-        calibration_max_error is not None and calibration_max_error < GATE_CALIBRATION_MAX_ERROR
+        n >= GATE_MIN_N_FOR_CALIBRATION
+        and calibration_max_error is not None
+        and calibration_max_error < GATE_CALIBRATION_MAX_ERROR
     )
     cvar_pass = shortfall.get("pass", False)
-    wf_val_pass = wf.get("val_passes", False)
+    wf_val_pass = n >= GATE_MIN_N_FOR_CALIBRATION and wf.get("val_passes", False)
     value_add_pass = value_add.get("pass", False)
     is_graduated = bool(
         spearman_pass and calibration_pass and cvar_pass and wf_val_pass and value_add_pass

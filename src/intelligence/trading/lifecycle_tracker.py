@@ -243,6 +243,15 @@ def evaluate_signal(
 
     # 1. Standard stop/target exit (conservative: stop before target on same bar)
     if status == SignalStatus.ACTIVE:
+        # Capture intrabar excursion for the exit check only — do NOT mutate current_mae/mfe
+        # here because the TTL path (further down) must use the caller-supplied values to
+        # stay consistent with cross-bar tracking done by the service layer.
+        exit_mae, exit_mfe = current_mae, current_mfe
+        if risk > 0:
+            bar_mae = (low - entry) * direction / risk
+            bar_mfe = (high - entry) * direction / risk
+            exit_mae = min(current_mae, bar_mae)
+            exit_mfe = max(current_mfe, bar_mfe)
         exit_result = _check_active_exit(
             sid,
             direction,
@@ -254,8 +263,8 @@ def evaluate_signal(
             close,
             risk,
             point_value,
-            current_mae,
-            current_mfe,
+            exit_mae,
+            exit_mfe,
         )
         if exit_result is not None:
             if exit_result.outcome is not None:
