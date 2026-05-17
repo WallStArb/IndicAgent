@@ -89,15 +89,7 @@ class TestRemoveFromIndex:
         svc._active_index = defaultdict(list)
         svc._active_symbols = set()
         svc._signal_ids = {"aaa", "bbb"}
-        svc._mae = {}
-        svc._mfe = {}
-        svc._market_mae = {}
-        svc._market_mfe = {}
-        svc._chandelier_state = {}
-        svc._staleness_consecutive = {}
-        svc._activated_at = {}
-        svc._active_bars_elapsed = {}
-        svc._bars_since_activation = {}
+        svc._signal_states = {}
         svc._active_signals_gauge = MagicMock()
         svc._active_index[("ES", "1m")] = [
             {"signal_id": "aaa", "symbol": "ES", "timeframe": "1m"},
@@ -121,15 +113,7 @@ class TestRemoveFromIndex:
         svc._active_index = defaultdict(list)
         svc._active_symbols = set()
         svc._signal_ids = set()
-        svc._mae = {}
-        svc._mfe = {}
-        svc._market_mae = {}
-        svc._market_mfe = {}
-        svc._chandelier_state = {}
-        svc._staleness_consecutive = {}
-        svc._activated_at = {}
-        svc._active_bars_elapsed = {}
-        svc._bars_since_activation = {}
+        svc._signal_states = {}
         svc._active_signals_gauge = MagicMock()
         # Should not raise even if key is absent
         svc._remove_signal("nonexistent", "ES", "1m")

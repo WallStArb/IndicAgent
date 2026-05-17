@@ -77,6 +77,7 @@ SETUP_PRIORITY: dict[str, int] = {
 }
 
 _CONFIDENCE_BOOST_PER_AGREE = 0.0
+_warned_plugins: set[str] = set()
 _REGIME_TIEBREAK_THRESHOLD = 0.4
 
 # Trend setup names (I7 plugins that require a trending market for edge).
@@ -569,8 +570,9 @@ def _build_all_ranked(
     weights = perf_weights or {}
     for sig in with_ranks:
         plugin_name = sig.get("setup_plugin", "")
-        if plugin_name not in SETUP_PRIORITY:
+        if plugin_name not in SETUP_PRIORITY and plugin_name not in _warned_plugins:
             _log.warning("aggregator.unknown_plugin", extra={"plugin": plugin_name})
+            _warned_plugins.add(plugin_name)
         if weights:
             # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
             multiplier = weights.get(plugin_name, 1.0)
