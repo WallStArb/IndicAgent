@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: context exhaustion at 75% (2026-05-16)
-last_updated: "2026-05-16T20:23:34.691Z"
+stopped_at: Phase 085 context gathered
+last_updated: "2026-05-17T04:07:01.119Z"
 last_activity: 2026-05-16 - Phase 084 execution started
 progress:
   total_phases: 32
@@ -129,9 +129,9 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-16T20:23:34.687Z
-Stopped at: context exhaustion at 75% (2026-05-16)
-Resume file: None
+Last session: --stopped-at
+Stopped at: Phase 085 context gathered
+Resume file: --resume-file
 Next: /gsd:plan-phase 84
 
 **Planned Phase:** 84 (Base Agent Hardening) — 4 plans — 2026-05-16T18:51:26.583Z
