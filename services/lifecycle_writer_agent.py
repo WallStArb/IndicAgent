@@ -46,6 +46,8 @@ _TIMESTAMP_FIELDS = frozenset(
         "activated_at",
         "exit_at",
         "shadow_tracking_start_ts",
+        "market_entry_at",
+        "market_entry_exit_at",
     }
 )
 
