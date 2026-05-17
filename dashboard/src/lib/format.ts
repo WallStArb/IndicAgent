@@ -1,5 +1,20 @@
 // ── Number formatting for trading data ──
 
+/** Format milliseconds as human-readable duration: "2.3m", "28.1s", "750ms". Null → "—". */
+export function fmtLatency(ms: number | null | undefined): string {
+  if (ms == null) return "—";
+  if (ms >= 60000) return `${(ms / 60000).toFixed(1)}m`;
+  if (ms >= 1000)  return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+/** Format a throughput rate. decimals defaults to 2; "sig/s" unit uses 3. */
+export function fmtRate(v: number | null | undefined, unit: string, decimals?: number): string {
+  if (v == null) return "—";
+  const d = decimals ?? (unit === "sig/s" ? 3 : 2);
+  return `${v.toFixed(d)} ${unit}`;
+}
+
 /** Format a minutes count as "Xh Ym" or "Ym" */
 export function fmtMinutesHM(minutes: number): string {
   const h = Math.floor(minutes / 60);

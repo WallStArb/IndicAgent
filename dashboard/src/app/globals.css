@@ -153,3 +153,49 @@ body {
 .price-flash-down {
   animation: flash-down 600ms ease-out forwards;
 }
+
+/* ── Pipeline flow particle animations ── */
+
+@keyframes flow-dot {
+  0%   { top: -4px; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: calc(100% + 4px); opacity: 0; }
+}
+
+.flow-particle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: flow-dot 2s linear infinite;
+}
+
+.flow-particle-1 { animation-delay: 0s; }
+.flow-particle-2 { animation-delay: 0.67s; }
+.flow-particle-3 { animation-delay: 1.33s; }
+
+/* ── Latency heat bar fill ── */
+
+@keyframes bar-fill {
+  from { width: 0; }
+  to   { width: var(--bar-pct); }
+}
+
+.latency-bar-fill {
+  animation: bar-fill 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ── Node entrance stagger ── */
+
+@keyframes node-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.node-enter {
+  animation: node-in 0.4s ease-out forwards;
+  opacity: 0;
+}
