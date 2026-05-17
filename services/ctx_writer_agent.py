@@ -188,6 +188,45 @@ class CtxWriterAgent(BaseWriterAgent):
             await self._process_message(msg)
             await self.maybe_flush()
 
+    def _to_event_row(
+        self,
+        event_ts,
+        symbol,
+        event_type: str,
+        source: str,
+        inner_payload: dict,
+    ) -> tuple:
+        """Map CTX event fields to positional params for _INSERT_CTX_EVENT_SQL.
+
+        Positions must match the $N placeholders in _INSERT_CTX_EVENT_SQL exactly.
+        """
+        return (
+            event_ts,  # $1 event_ts::timestamptz
+            symbol,  # $2 symbol::text (may be None for global events)
+            event_type,  # $3 event_type::text
+            source,  # $4 source::text
+            inner_payload,  # $5 payload::jsonb
+        )
+
+    def _to_snapshot_row(
+        self,
+        symbol,
+        event_type: str,
+        valid_from,
+        ctx_data: dict,
+    ) -> tuple:
+        """Map CTX snapshot fields to positional params for _UPSERT_CTX_SNAPSHOT_SQL.
+
+        Positions must match the $N placeholders in _UPSERT_CTX_SNAPSHOT_SQL exactly.
+        Note: valid_to is a NULL literal in the SQL, not a parameter.
+        """
+        return (
+            symbol,  # $1 symbol::text (may be None for global snapshots)
+            event_type,  # $2 event_type::text
+            valid_from,  # $3 valid_from::timestamptz
+            ctx_data,  # $4 ctx::jsonb
+        )
+
     async def _process_message(self, msg: dict) -> None:
         """Buffer a validated CTX message into the event and (optionally) snapshot buffers.
 
@@ -212,7 +251,15 @@ class CtxWriterAgent(BaseWriterAgent):
             self._validation_errors.add(1)
             return
 
-        self._event_buffer.append((event_ts, symbol, event_type, source, inner_payload))
+        self._event_buffer.append(
+            self._to_event_row(
+                event_ts=event_ts,
+                symbol=symbol,
+                event_type=event_type,
+                source=source,
+                inner_payload=inner_payload,
+            )
+        )
 
         # Buffer ctx_snapshots UPSERT if message includes snapshot fields
         valid_from_raw = msg.get("valid_from")
@@ -237,7 +284,14 @@ class CtxWriterAgent(BaseWriterAgent):
                         event_type=event_type,
                     )
                     return
-                self._snapshot_buffer.append((symbol, event_type, valid_from, ctx_data))
+                self._snapshot_buffer.append(
+                    self._to_snapshot_row(
+                        symbol=symbol,
+                        event_type=event_type,
+                        valid_from=valid_from,
+                        ctx_data=ctx_data,
+                    )
+                )
 
     def _should_flush(self) -> bool:
         """Check if either buffer warrants a flush."""
