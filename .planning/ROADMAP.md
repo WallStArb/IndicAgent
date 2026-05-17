@@ -495,7 +495,11 @@ Plans:
 <summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
 
 - [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
-- [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (0/TBD plans)
+- [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4 plans)
+  - [ ] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
+  - [ ] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
+  - [ ] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
+  - [ ] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
 - [ ] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (0/TBD plans)
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
 - [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
@@ -1205,7 +1209,11 @@ Plans:
   3. llm_writer_service: outcome errors propagate to the caller and appear in structured logs; the swallowed-error path is deleted
   4. signal_metrics_writer_agent: inserts are batched; single-row inserts per record are gone; batch latency metric is present
   5. All positional-tuple INSERT calls in writers use named parameters matching contract_metadata_writer_agent style; reviewers can read the query without counting argument positions
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
+  - [ ] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
+  - [ ] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
+  - [ ] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
 
 ### Phase 086: Pipeline Hardening
 **Goal**: The intelligence pipeline fails loudly on every error boundary — per-plugin circuit breakers, output validation, checkpoint durability, and queue backpressure are all wired.
