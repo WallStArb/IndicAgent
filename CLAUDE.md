@@ -35,23 +35,14 @@ Run these steps in order when a coding session is complete, before pushing.
 8. git push origin main
 ```
 
-**Worktree cleanup** — list before/after: `git worktree list`. Remove a specific stale tree: `git worktree remove <path> --force`. If the path is already gone, `git worktree prune` is sufficient.
-
-**Branch cleanup** — list merged branches: `git branch --merged main`. Delete a stale local branch: `git branch -d <branch>`. If unmerged but dead: `git branch -D <branch>`.
-
-If `--ff-only` fails (diverged history), use `git merge --no-ff <branch>` with a merge commit — never rebase shared branches.
-
 ## Core Commands
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
 **Health check:** `systemctl list-units --all | grep indicagent` · **DB freshness:** `psql -U postgres -d indicagent -c "SELECT symbol, tf, MAX(ts) FROM intelligence_features GROUP BY symbol, tf ORDER BY MAX(ts) DESC LIMIT 5"` · **Logs:** `tail -20 logs/<service>_agent.log`
 **Dashboard:** `cd dashboard && npm run dev` (`:3000`)
 **API:** `uvicorn src.api.main:app` (`:8000`)
-**Service status:** `systemctl list-units --all | grep indicagent`
 **Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
 **Full reference:** `docs/cheatsheet.md` · **Roadmap:** `.planning/ROADMAP.md`
-
----
 
 ## Architecture Overview
 
@@ -92,11 +83,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 ```
 
 **ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct — do not treat as failures.
-- `ml-training` — nightly 11pm, LightGBM ensemble training (~9s, exits 0)
-- `ml-orchestrator` — weekly Monday, coordinates full ML pipeline
-- `ml-data-quality` — weekly Monday 1am, validates training data integrity
-- `ml-discovery` — weekly Monday 2am, feature candidate discovery
-Full design: `docs/ideas/ml-agent-architecture.md`
+- `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon). Design: `docs/ideas/ml-agent-architecture.md`
 
 ## Core Runtime Files
 
@@ -136,19 +123,16 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 132 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
-- **I7 utilities** (check before creating new): `atr_utils.py`, `confidence_utils.py` (`compose_confidence`), `signal_schema.py` (`make_signal_from_frame` — all I7 MUST use this), `state_utils.py`, `volume_profile_utils.py`, `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`
 - **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
 - **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores
 
 ## Adding an AI Agent
 
-Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `src/intelligence/ai/TEMPLATE_agent.py`. Reference: `skeptic_agent.py`.
-
-1. **Class attributes** (mandatory six): `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`
-2. **File location**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py`
-3. **`_compute()` contract**: Build prompt → call LLM → parse → return `AgentOutput`. Never raise; use `self._neutral(error=...)` on failure.
-4. **Prompt file**: `<name>_prompts.py` exposes `PROMPT_REGISTRY: dict` and `ACTIVE_VERSION: str`
-5. Register in group service (e.g., `AlphaSwarmComputeAgent._agents`) + call `shadow_registry_ensure()` at startup
+Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`. Reference: `skeptic_agent.py`.
+- **Mandatory attrs**: `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`
+- **Files**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py` (expose `PROMPT_REGISTRY`, `ACTIVE_VERSION`)
+- **`_compute()` contract**: Build prompt → call LLM → parse → `AgentOutput`. Never raise; `self._neutral(error=...)` on failure.
+- Register in group service (e.g., `AlphaSwarmComputeAgent._agents`) + call `shadow_registry_ensure()` at startup.
 
 ## Key Rules
 
@@ -159,7 +143,6 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
 - **`prompt_version` class attribute** on every BaseAIAgent subclass — set from agent's `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing.
 - **`llm_calls` composite PK: `(call_id, called_at)`** — ON CONFLICT must use both columns.
-- **Budget is observability, not control flow** in `LLMProviderChain` — logs warning if exceeded, never gates execution. Single pipeline, no fork.
 - **Kafka is transport, not state store.** Hot state (plugin_states, kalman) → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamps: always UTC.** `datetime.now(UTC)` only. Never `datetime.now()` or `datetime.utcnow()`. All DB columns `timestamptz`; stream timestamps UTC ISO-8601 (`Z` suffix).
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py` for Kafka/JSON. Never inline `.isoformat().replace("+00:00", "Z")`.
@@ -172,7 +155,6 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed in Phase 83). Call patterns: counters → `.add(1, {"label": val})`, histograms → `.record(val, {"label": val})`, up-down gauges → `.add(delta, {"label": val})`. Never import `prometheus_client`.
 - **Spans**: use `observed_span(name, attributes={...})` from `src/observability/spans.py` for new spans — auto-records ERROR status + exception on raise. Use ATTR_* constants from same module instead of raw strings.
-- **Ruff**: always run `.venv/bin/ruff check .` from project root.
 - **Alpha swarm agent timeouts**: correlation, regime_coherence, counterfactual agents have 5s `latency_budget_ms` vs skeptic's 60s. Local Ollama (gemma4:e4b) cannot meet 5s. Swarm degrades gracefully (uses completing agents only).
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
 
@@ -193,13 +175,13 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 
 ## Infrastructure
 
-- **Server:** `192.168.68.53` (Ethernet). IBKR TWS at `192.168.1.157`.
-- **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only.
+- **Server:** `192.168.68.53` (Ethernet) — Claude Code runs ON this machine; never SSH, run commands directly.
+- **IBKR Gateway:** runs in Docker (`ib-gateway` container, `ghcr.io/gnzsnz/ib-gateway:stable`), bound to `127.0.0.1:7497` (TWS port 4003 mapped). No longer a remote host at `192.168.1.157`.
+- **IBKR**: VIX=`"VX"`, client IDs 35+. TWS host `127.0.0.1`, port `7497`. All ib_insync in `src/providers/ibkr.py` only.
 - **Redpanda**: Kafka-compatible. Topic naming: dots not colons. Via `stream_keys.py` always. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Daemon reads contracts at startup; restart on futures expiry.
 - **Roll flow:** `RollComputeAgent` → `RollEvent` → `ContractMetadataWriterAgent` → `is_front_month` → restart `indicagent-ibkr-provider`.
 - **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
-- **Visualization:** Grafana (:3001) ops · Next.js (:3000) real-time · Python research · Superset (:8088) analytics. See `docs/ideas/bi-analytics-layer-design.md`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
 
 > Sudo, INDICAGENT_ENV debug, more: `docs/operations/infrastructure-reference.md`
