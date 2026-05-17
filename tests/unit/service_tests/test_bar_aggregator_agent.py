@@ -38,20 +38,11 @@ def _make_agent():
     agent._last_skip_reason = "parse_failed"
     agent._record_message_consumed = MagicMock()
     agent._get_consumer_lag = AsyncMock(return_value=0)
-    # Create mock metrics that have the expected interface
-    agent._bars_processed = MagicMock()
-    agent._bars_skipped = MagicMock()
-    agent._htf_bars_emitted = MagicMock()
-    agent._processing_duration = MagicMock()
-    agent._aggregation_errors = MagicMock()
     # Phase 68-05: new hardening attributes required by _run() loop
     agent._last_emitted = {}  # AGG-EMIT-ONCE guard
     agent._consumer_restart_needed = False
     agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
-    agent._bars_in_flight = MagicMock()
-    agent._state_checkpoint_failures_total = MagicMock()
     agent._agent_attrs = {"agent": "bar_aggregator_agent"}
-    agent._aggregation_latency = MagicMock()
     return agent
 
 
@@ -214,12 +205,12 @@ async def test_no_publish_for_mid_period_bar():
 
 
 def test_golden_signals_are_correct_types():
-    """Golden Signals metrics must exist on the agent (OTel instruments)."""
-    agent = _make_agent()
+    """Golden Signals metrics are module-level OTel instruments."""
+    import services.bar_aggregator_agent as _mod
 
-    assert hasattr(agent, "_bars_processed")
-    assert hasattr(agent, "_aggregation_latency")
-    assert hasattr(agent, "_aggregation_errors")
+    assert hasattr(_mod, "_BARS_PROCESSED")
+    assert hasattr(_mod, "_AGGREGATION_LATENCY")
+    assert hasattr(_mod, "_AGGREGATION_ERRORS")
 
 
 # ---------------------------------------------------------------------------
