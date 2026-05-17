@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 085 context gathered
-last_updated: "2026-05-17T04:07:01.119Z"
-last_activity: 2026-05-16 - Phase 084 execution started
+stopped_at: Phase 085 planned
+last_updated: "2026-05-17T00:00:00.000Z"
+last_activity: 2026-05-17 - Phase 085 planned (4 plans, 2 waves)
 progress:
   total_phases: 32
   completed_phases: 0
@@ -38,7 +38,7 @@ Progress: [░░░░░░░░░░] 0% (0/6 phases)
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 084 | Base Agent Hardening | INFRA-01–06, OBS-01 | Not started |
-| 085 | Persistence Writer Migration | PERSIST-01–05 | Not started |
+| 085 | Persistence Writer Migration | PERSIST-01–05 | Ready to execute (4 plans) |
 | 086 | Pipeline Hardening | PIPE-01–04, OBS-02–03 | Not started |
 | 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
 | 088 | God Class Decomposition | ARCH-01–05 | Not started |
@@ -135,3 +135,4 @@ Resume file: --resume-file
 Next: /gsd:plan-phase 84
 
 **Planned Phase:** 84 (Base Agent Hardening) — 4 plans — 2026-05-16T18:51:26.583Z
+**Planned Phase:** 085 (Persistence Writer Migration) — 4 plans — 2026-05-17
