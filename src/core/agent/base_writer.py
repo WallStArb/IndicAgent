@@ -29,7 +29,7 @@ from typing import Any, ClassVar
 
 from opentelemetry import metrics as _otel_metrics
 from opentelemetry.trace import StatusCode
-from pydantic import BaseModel, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from src.core.agent.base import BaseAgent
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
@@ -81,7 +81,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
     FLUSH_INTERVAL_SECS: float = 5.0
     MAX_BUFFER_SIZE: int = 10_000
     BUFFER_ALERT_PCT: float = 0.80
-    payload_model: ClassVar[type[BaseModel] | None] = None
+    payload_model: ClassVar[Any] = None
 
     def __init__(
         self,
@@ -91,6 +91,8 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         super().__init__(name=name, **kwargs)
         self._buffer: list[Any] = []
         self._last_flush: float = 0.0
+        pm = type(self).payload_model
+        self._payload_adapter: TypeAdapter | None = TypeAdapter(pm) if pm is not None else None
         self._consumer: Any = None  # Set in subclass _setup() — MUST be assigned for offset commits
         self._high_watermark_triggered: bool = False
 
@@ -313,10 +315,9 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 attributes={"agent": self.name},
             ) as span:
                 try:
-                    model_cls = type(self).payload_model
-                    if model_cls is not None:
+                    if self._payload_adapter is not None:
                         try:
-                            validated = model_cls.model_validate(payload)
+                            validated = self._payload_adapter.validate_python(payload)
                             rows = self._parse_payload(validated)
                         except ValidationError as exc:
                             self._parse_failures_total.add(1)
