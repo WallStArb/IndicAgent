@@ -77,10 +77,10 @@ class CircuitBreaker:
         """Return True if a request should be allowed. Transitions OPEN→HALF_OPEN on timeout."""
         if self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN):
             return True
-        if self._state == CircuitState.OPEN:
-            if time.time() - self._last_failure_time >= self.timeout_sec:
-                self._state = CircuitState.HALF_OPEN
-                return True
+        # OPEN: allow through only once the timeout has elapsed (probe request)
+        if time.time() - self._last_failure_time >= self.timeout_sec:
+            self._state = CircuitState.HALF_OPEN
+            return True
         return False
 
     def record_failure(self) -> None:
