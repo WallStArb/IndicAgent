@@ -137,6 +137,26 @@ UPDATE signal_ledger
    AND exit_at IS NULL
 """
 
+    def _exit_to_params(self, entry: dict) -> tuple:
+        """Map exit transition dict to positional params for _EXIT_IDEMPOTENT_SQL.
+
+        Positions must match the $N placeholders in _EXIT_IDEMPOTENT_SQL exactly.
+        """
+        return (
+            entry.get("signal_id"),  # $1 signal_id::uuid (WHERE clause)
+            entry.get("status"),  # $2 status::text
+            entry.get("exit_at"),  # $3 exit_at::timestamptz
+            entry.get("exit_price"),  # $4 exit_price::numeric
+            entry.get("exit_reason"),  # $5 exit_reason::text
+            entry.get("pnl_r"),  # $6 pnl_r::numeric
+            entry.get("pnl_dollars"),  # $7 pnl_dollars::numeric
+            entry.get("signal_quality"),  # $8 signal_quality::numeric
+            entry.get("mae"),  # $9 mae::numeric
+            entry.get("mfe"),  # $10 mfe::numeric
+            entry.get("bars_in_trade"),  # $11 bars_in_trade::integer
+            entry.get("outcome"),  # $12 outcome::text
+        )
+
     async def _flush_exit_items(self, items: list[dict]) -> None:
         """Write exit transitions one-at-a-time to detect idempotent skips.
 
@@ -148,18 +168,7 @@ UPDATE signal_ledger
         for entry in items:
             result: str = await self._db.execute_command(
                 self._EXIT_IDEMPOTENT_SQL,
-                entry.get("signal_id"),
-                entry.get("status"),
-                entry.get("exit_at"),
-                entry.get("exit_price"),
-                entry.get("exit_reason"),
-                entry.get("pnl_r"),
-                entry.get("pnl_dollars"),
-                entry.get("signal_quality"),
-                entry.get("mae"),
-                entry.get("mfe"),
-                entry.get("bars_in_trade"),
-                entry.get("outcome"),
+                *self._exit_to_params(entry),
             )
             if result.endswith(" 0"):
                 LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL.add(1)
