@@ -116,8 +116,7 @@ def compute_calibration(df: pd.DataFrame) -> pd.DataFrame:
     for decile, group in valid.groupby("decile"):
         n_d = len(group)
         avg_mult = float(group["multiplier"].mean())
-        # multiplier ∈ [0, 2]: clamp predicted_failure to [0, 1] so multiplier > 1
-        # (boosting transforms) maps to 0% predicted failure, not a negative probability.
+        # Boosting transforms (multiplier > 1) must map to 0% predicted failure, not negative.
         avg_predicted_failure = max(0.0, 1.0 - avg_mult)
         actual_failure_rate = float((group["pnl_r"] <= 0).mean())
         avg_pnl_r = float(group["pnl_r"].mean())
