@@ -14,10 +14,32 @@ from typing import Any
 from uuid import UUID
 
 import structlog
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.stream_keys import topic_signal_lineage
 
 logger = structlog.get_logger(__name__)
+
+
+class LineageEvent(BaseModel):
+    """Kafka payload schema for topic_signal_lineage events.
+
+    Field list derived from LineageRecorder.record() signature. Co-located with
+    LineageRecorder (sole producer) per D-04.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ts: str
+    signal_id: str
+    event_type: str  # 'transform' | 'agent_prediction' | 'lifecycle'
+    source: str  # transform_id or agent_id
+    dag_order: int | None = None
+    multiplier: float | None = None
+    metadata: dict = Field(default_factory=dict)  # event-specific JSONB
+    is_shadow: bool = True
+    symbol: str = ""
+    tf: str = ""
 
 
 class LineageRecorder:
