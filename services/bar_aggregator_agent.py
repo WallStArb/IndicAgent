@@ -26,6 +26,53 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
+# ---------------------------------------------------------------------------
+# OTel metrics — module-level constants (single registration per process)
+# ---------------------------------------------------------------------------
+
+_baa_meter = _otel_metrics.get_meter("indicagent")
+
+_BARS_PROCESSED = _baa_meter.create_counter(
+    "bar_agg_bars_processed_total", description="Total 1m bars processed"
+)
+_BARS_SKIPPED = _baa_meter.create_counter(
+    "bar_agg_bars_skipped_total", description="Bars skipped with reason"
+)
+_HTF_BARS_EMITTED = _baa_meter.create_counter(
+    "bar_agg_htf_bars_emitted_total", description="HTF bars produced and published"
+)
+_PROCESSING_DURATION = _baa_meter.create_histogram(
+    "bar_agg_processing_duration_seconds",
+    description="Time to process one bar from receive to emit",
+)
+_AGGREGATION_ERRORS = _baa_meter.create_counter(
+    "bar_agg_aggregation_errors_total", description="Exceptions during bar processing"
+)
+_HEALTH_STATUS = _baa_meter.create_up_down_counter(
+    "bar_agg_health_status", description="Service health status (1=healthy, 0=unhealthy)"
+)
+_CONSUMER_LAG_SECONDS = _baa_meter.create_up_down_counter(
+    "bar_agg_consumer_lag_seconds", description="How far behind the consumer is"
+)
+_TIME_SINCE_LAST_BAR_SECONDS = _baa_meter.create_up_down_counter(
+    "bar_agg_time_since_last_bar_seconds", description="Seconds since last bar was processed"
+)
+_AGGREGATION_LATENCY = _baa_meter.create_histogram(
+    "bar_aggregation_latency_seconds", description="Latency for bar aggregation processing"
+)
+_BARS_IN_FLIGHT = _baa_meter.create_up_down_counter(
+    "bar_aggregator_bars_in_flight",
+    description="Approximate number of bars currently being processed",
+)
+_STATE_CHECKPOINT_RESTORED_TOTAL = _baa_meter.create_counter(
+    "bar_aggregator_state_checkpoint_restored_total",
+    description="State checkpoint successful restores",
+)
+_STATE_CHECKPOINT_FAILURES_TOTAL = _baa_meter.create_counter(
+    "bar_aggregator_state_checkpoint_failures_total",
+    description="State checkpoint encode/decode failures",
+)
+
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_normalizer import SOURCE_UNKNOWN
@@ -128,56 +175,8 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._last_emitted: dict[tuple[str, str], datetime] = {}
         # AGG-BACKPRESSURE: cap concurrent bar processing to prevent unbounded memory on burst
         self._processing_semaphore = asyncio.Semaphore(200)
-
-        # OTel metrics
-        _baa_meter = _otel_metrics.get_meter("indicagent")
-        self._bars_processed = _baa_meter.create_counter(
-            "bar_agg_bars_processed_total", description="Total 1m bars processed"
-        )
-        self._bars_skipped = _baa_meter.create_counter(
-            "bar_agg_bars_skipped_total", description="Bars skipped with reason"
-        )
-        self._htf_bars_emitted = _baa_meter.create_counter(
-            "bar_agg_htf_bars_emitted_total", description="HTF bars produced and published"
-        )
-        self._processing_duration = _baa_meter.create_histogram(
-            "bar_agg_processing_duration_seconds",
-            description="Time to process one bar from receive to emit",
-        )
-        self._aggregation_errors = _baa_meter.create_counter(
-            "bar_agg_aggregation_errors_total", description="Exceptions during bar processing"
-        )
-        self._health_status = _baa_meter.create_up_down_counter(
-            "bar_agg_health_status", description="Service health status (1=healthy, 0=unhealthy)"
-        )
-        self._consumer_lag_seconds = _baa_meter.create_up_down_counter(
-            "bar_agg_consumer_lag_seconds",
-            description="How far behind the consumer is",
-        )
-        self._time_since_last_bar_seconds = _baa_meter.create_up_down_counter(
-            "bar_agg_time_since_last_bar_seconds",
-            description="Seconds since last bar was processed",
-        )
-        self._aggregation_latency = _baa_meter.create_histogram(
-            "bar_aggregation_latency_seconds",
-            description="Latency for bar aggregation processing",
-        )
-        self._bars_in_flight = _baa_meter.create_up_down_counter(
-            "bar_aggregator_bars_in_flight",
-            description="Approximate number of bars currently being processed",
-        )
-        # Increment when BarAccumulator state structure breaks
         self._AGENT_VERSION = "1"
         self._agent_attrs = {"agent": self.name}
-
-        self._state_checkpoint_restored_total = _baa_meter.create_counter(
-            "bar_aggregator_state_checkpoint_restored_total",
-            description="State checkpoint successful restores",
-        )
-        self._state_checkpoint_failures_total = _baa_meter.create_counter(
-            "bar_aggregator_state_checkpoint_failures_total",
-            description="State checkpoint encode/decode failures",
-        )
         # Degradation detection: track recent checkpoint failure timestamps
         self._checkpoint_failure_timestamps: list[float] = []
 
@@ -341,7 +340,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
             restored_any = result[0]
             if restored_any:
-                self._state_checkpoint_restored_total.add(1)
+                _STATE_CHECKPOINT_RESTORED_TOTAL.add(1)
                 self.logger.info(
                     "bar_aggregator.state.restored",
                     accumulators=len(self._bar_accumulator._accumulators),
@@ -351,7 +350,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
         except Exception as exc:
             self.logger.warning("bar_aggregator.state.restore_failed", error=str(exc))
-            self._state_checkpoint_failures_total.add(1)
+            _STATE_CHECKPOINT_FAILURES_TOTAL.add(1)
             return False
         finally:
             if consumer is not None:
@@ -437,14 +436,14 @@ class BarAggregatorComputeAgent(BaseAgent):
                     # NEW: Timeout protection for each bar (wrapped in semaphore)
                     try:
                         async with self._processing_semaphore:
-                            self._bars_in_flight.add(200 - self._processing_semaphore._value)
+                            _BARS_IN_FLIGHT.add(200 - self._processing_semaphore._value)
                             async with asyncio.timeout(5.0):  # Max 5 seconds per bar
                                 start_time = time.monotonic()
 
                                 # Parse and process bar
                                 bar = self._parse_bar(payload)
                                 if bar is None:
-                                    self._bars_skipped.add(
+                                    _BARS_SKIPPED.add(
                                         1, {"agent": self.name, "reason": self._last_skip_reason}
                                     )
                                     self._health_metrics.record_skip()
@@ -460,11 +459,11 @@ class BarAggregatorComputeAgent(BaseAgent):
 
                                 self._health_metrics.record_bar(bar.ts)
 
-                                self._bars_processed.add(1, self._agent_attrs)
+                                _BARS_PROCESSED.add(1, self._agent_attrs)
 
                                 _pd_t0 = time.monotonic()
                                 completed_bars = self._bar_accumulator.update(bar)
-                                self._processing_duration.record(
+                                _PROCESSING_DURATION.record(
                                     time.monotonic() - _pd_t0, self._agent_attrs
                                 )
 
@@ -485,9 +484,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                                         htf_bar.model_dump(mode="json"),
                                         key=message_key(htf_bar.symbol, htf_bar.tf),
                                     )
-                                    self._htf_bars_emitted.add(
-                                        1, {"agent": self.name, "tf": htf_bar.tf}
-                                    )
+                                    _HTF_BARS_EMITTED.add(1, {"agent": self.name, "tf": htf_bar.tf})
                                     self._health_metrics.record_htf_bar()
                                     self.logger.debug(
                                         "bar_aggregator_agent.htf_bar_published",
@@ -503,7 +500,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                                     self.logger.warning(
                                         "bar_aggregator.checkpoint_failed", error=str(exc)
                                     )
-                                    self._state_checkpoint_failures_total.add(1)
+                                    _STATE_CHECKPOINT_FAILURES_TOTAL.add(1)
                                     # Check if degraded (3 failures in 60s)
                                     if self._track_checkpoint_failure():
                                         # Degraded — stop processing to prevent data loss/corruption
@@ -526,7 +523,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
                     except TimeoutError:
                         # Handle timeout for slow bar processing
-                        self._aggregation_errors.add(1, self._agent_attrs)
+                        _AGGREGATION_ERRORS.add(1, self._agent_attrs)
                         self.logger.error(
                             "bar_aggregator.processing_timeout",
                             symbol=payload.get("symbol", "unknown"),
@@ -538,7 +535,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                     except Exception as exc:
                         # Handle other exceptions during bar processing
                         self._health_metrics.record_error()
-                        self._aggregation_errors.add(1, self._agent_attrs)
+                        _AGGREGATION_ERRORS.add(1, self._agent_attrs)
                         self.logger.error(
                             "bar_aggregator.processing_error",
                             error=str(exc),
@@ -579,15 +576,15 @@ class BarAggregatorComputeAgent(BaseAgent):
         """Update Prometheus health metrics every 15 seconds."""
         while self.running:
             healthy, _ = self._health_metrics.is_healthy()
-            self._health_status.add(1 if healthy else 0, self._agent_attrs)
+            _HEALTH_STATUS.add(1 if healthy else 0, self._agent_attrs)
 
             lag = await self._get_consumer_lag()
-            self._consumer_lag_seconds.add(lag, self._agent_attrs)
+            _CONSUMER_LAG_SECONDS.add(lag, self._agent_attrs)
 
             # Update time_since_last_bar (only if we've processed bars; None means never processed)
             if self._health_metrics._last_bar_ts:
                 time_since = (datetime.now(UTC) - self._health_metrics._last_bar_ts).total_seconds()
-                self._time_since_last_bar_seconds.add(time_since, self._agent_attrs)
+                _TIME_SINCE_LAST_BAR_SECONDS.add(time_since, self._agent_attrs)
             # When _last_bar_ts is None, metric remains at 0 (never processed)
 
             await asyncio.sleep(15)
