@@ -494,17 +494,17 @@ Plans:
 <details>
 <summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
 
-- [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (0/TBD plans)
-- [ ] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4 plans)
+- [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (4/4 plans)
+- [x] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4/4 plans)
   - [x] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
   - [x] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
   - [x] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
-  - [ ] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
-- [ ] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (0/4 plans)
-  - [ ] 086-01-PLAN.md — PIPE-01 + PIPE-03 + PIPE-04 (pipeline agent: circuit breaker, raising checkpoint, blocking enqueue)
-  - [ ] 086-02-PLAN.md — PIPE-02 (signal_writer_agent: validate_signal gate + DLQ buffer)
-  - [ ] 086-03-PLAN.md — OBS-03 (BaseAgent.last_processed_at + service_auditor stall detection)
-  - [ ] 086-04-PLAN.md — OBS-02 (/api/health/system Prometheus aggregation route)
+  - [x] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
+- [x] **Phase 086: Pipeline Hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry (4/4 plans)
+  - [x] 086-01-PLAN.md — PIPE-01 + PIPE-03 + PIPE-04 (pipeline agent: circuit breaker, raising checkpoint, blocking enqueue)
+  - [x] 086-02-PLAN.md — PIPE-02 (signal_writer_agent: validate_signal gate + DLQ buffer)
+  - [x] 086-03-PLAN.md — OBS-03 (BaseAgent.last_processed_at + service_auditor stall detection)
+  - [x] 086-04-PLAN.md — OBS-02 (/api/health/system Prometheus aggregation route)
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
 - [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
 - [ ] **Phase 089: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
@@ -661,8 +661,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
 | 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
 | 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 | - |
-| 085. Persistence Writer Migration | v2.6 | 3/4 | In Progress|  |
-| 086. Pipeline Hardening | v2.6 | 0/4 | Planned | - |
+| 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
+| 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
 | 088. God Class Decomposition | v2.6 | 0/TBD | Not started | - |
 | 089. First Qualitative Intelligence Lane | v2.6 | 0/TBD | Not started | - |
@@ -1217,7 +1217,7 @@ Plans:
   - [x] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
   - [x] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
   - [x] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
-  - [ ] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
+  - [x] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
 
 ### Phase 086: Pipeline Hardening
 **Goal**: The intelligence pipeline fails loudly on every error boundary — per-plugin circuit breakers, output validation, checkpoint durability, and queue backpressure are all wired.
@@ -1231,10 +1231,10 @@ Plans:
   5. `GET /api/health/system` returns machine-readable JSON with consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
   6. BaseAgent exposes `last_processed_at`; service_auditor detects a stalled agent (process alive, no bar progress) and triggers a restart
 **Plans**: 4 plans
-  - [ ] 086-01-PLAN.md — pipeline agent hardening (PIPE-01, PIPE-03, PIPE-04)
-  - [ ] 086-02-PLAN.md — signal_writer_agent validation (PIPE-02)
-  - [ ] 086-03-PLAN.md — last_processed_at + stall detection (OBS-03)
-  - [ ] 086-04-PLAN.md — /api/health/system endpoint (OBS-02)
+  - [x] 086-01-PLAN.md — pipeline agent hardening (PIPE-01, PIPE-03, PIPE-04)
+  - [x] 086-02-PLAN.md — signal_writer_agent validation (PIPE-02)
+  - [x] 086-03-PLAN.md — last_processed_at + stall detection (OBS-03)
+  - [x] 086-04-PLAN.md — /api/health/system endpoint (OBS-02)
 
 ### Phase 087: Signal Transform Architecture Phases 2-4
 **Goal**: Graduate the signal transform pipeline from dual-write shadow mode to unified schema with full validation — completing the work started in Phase 072.
