@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 085 planned
-last_updated: "2026-05-17T00:00:00.000Z"
-last_activity: 2026-05-17 - Phase 085 planned (4 plans, 2 waves)
+status: completed
+stopped_at: Phase 085 context gathered
+last_updated: "2026-05-17T13:25:41.964Z"
+last_activity: 2026-05-17 -- Phase 085 marked complete
 progress:
   total_phases: 32
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 084 — Base Agent Hardening (executing)
+**Current focus:** Phase 085 — persistence-writer-migration
 
 ## Current Position
 
-Phase: 085 — Persistence Writer Migration (next)
+Phase: 085 — COMPLETE
 Plan: 1 of 4
-Status: Executing Phase 084
-Last activity: 2026-05-16 - Phase 084 execution started
+Status: Phase 085 complete
+Last activity: 2026-05-17 -- Phase 085 marked complete
 Last completed: Phase 083 — Observability Hardening (7 plans, 2026-05-16)
 
 Progress: [░░░░░░░░░░] 0% (0/6 phases)
