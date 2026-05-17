@@ -11,12 +11,15 @@ import asyncpg
 
 from src.config.settings import Settings
 from src.core.agent.base_writer import BaseWriterAgent
+from src.core.ai.lineage import LineageEvent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.stream_keys import topic_signal_lineage, topic_signal_lineage_dlq
 
 
 class LineageWriterAgent(BaseWriterAgent):
     """Consumes signal lineage events and persists to signal_lineage hypertable."""
+
+    payload_model = LineageEvent
 
     batch_size = 100
     flush_interval_s = 2.0
@@ -53,32 +56,33 @@ class LineageWriterAgent(BaseWriterAgent):
     def _dlq_topic(self) -> str | None:
         return topic_signal_lineage_dlq(self.env_name)
 
-    def _parse_payload(self, payload: dict) -> list | None:
-        """Parse lineage event from Kafka message."""
-        if not payload.get("signal_id") or not payload.get("event_type"):
-            return None
+    def _parse_payload(self, payload: LineageEvent) -> list | None:
+        """Receive already-validated LineageEvent from base; return as single-item list."""
         return [payload]
 
-    async def _flush_batch(self, batch: list[dict]) -> None:
+    def _to_row(self, event: LineageEvent) -> tuple:
+        """Map LineageEvent fields to positional INSERT params.
+
+        Positions must match the INSERT INTO signal_lineage SQL exactly.
+        """
+        return (
+            event.ts,  # $1 ts::timestamptz
+            str(event.signal_id),  # $2 signal_id::uuid
+            event.event_type,  # $3 event_type::text
+            event.source,  # $4 source::text
+            event.dag_order,  # $5 dag_order::int
+            event.multiplier,  # $6 multiplier::float
+            event.metadata,  # $7 metadata::jsonb
+            event.is_shadow,  # $8 is_shadow::bool
+            event.symbol,  # $9 symbol::text
+            event.tf,  # $10 tf::text
+        )
+
+    async def _flush_batch(self, batch: list[LineageEvent]) -> None:
         """Batch insert lineage events into signal_lineage."""
         if not batch:
             return
-        rows = []
-        for event in batch:
-            rows.append(
-                (
-                    event["ts"],
-                    event["signal_id"],
-                    event["event_type"],
-                    event["source"],
-                    event.get("dag_order"),
-                    event.get("multiplier"),
-                    event.get("metadata", {}),
-                    event.get("is_shadow", True),
-                    event.get("symbol", ""),
-                    event.get("tf", ""),
-                )
-            )
+        rows = [self._to_row(e) for e in batch]
 
         async with self._pool.acquire() as conn:
             await conn.executemany(
