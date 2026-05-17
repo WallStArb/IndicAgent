@@ -26,18 +26,18 @@ See: .planning/PROJECT.md
 
 Phase: 086 — COMPLETE
 Plan: 4 of 4
-Status: Verification pending
+Status: Complete
 Last activity: 2026-05-17 -- Phase 086 execution complete (4/4 plans, 3260 tests pass)
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
 
-Progress: [░░░░░░░░░░] 0% (0/6 phases)
+Progress: [████████░░] 50% (3/6 phases)
 
 ## Phase Overview
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 084 | Base Agent Hardening | INFRA-01–06, OBS-01 | Not started |
-| 085 | Persistence Writer Migration | PERSIST-01–05 | Ready to execute (4 plans) |
+| 084 | Base Agent Hardening | INFRA-01–06, OBS-01 | Complete (2026-05-16) |
+| 085 | Persistence Writer Migration | PERSIST-01–05 | Complete (2026-05-17) |
 | 086 | Pipeline Hardening | PIPE-01–04, OBS-02–03 | Complete (2026-05-17) |
 | 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
 | 088 | God Class Decomposition | ARCH-01–05 | Not started |
