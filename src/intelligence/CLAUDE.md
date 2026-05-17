@@ -11,11 +11,7 @@ Pipeline processes bars sequentially (one at a time). I1→4 waves→I7 = 6 sequ
 I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → SMC → I6 (confluence) → I7 (signals)
 ```
 
-**I1** (28): Trend/Momentum/Volatility/Volume indicators + OFI + CVD + VolumeZscore — see `TIER_I1` in `register_plugins.py`
-**I2** (10): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
-**I3** (8): Structure (swing, S/R, MarketProfile, SessionLevels, SwingMomentum, etc.) · **I4** (12): Context (GARCH, Kalman, VWAP, VolumeProfile, VIXRegime, CrossAssetContext)
-**I5** (16): Patterns (divergence, squeeze, chart patterns) · **SMC** (16): Smart Money (BOS/CHoCH, FVG, OB, HMM multi-TF, BOCPD, etc.) · **I6** (6): CrossTimeframeConfluence + 5 Phase 64 confluence plugins (momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment)
-**I7** (36): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
+**I1** (28): indicators · **I2** (10): composite events · **I3** (8): structure · **I4** (12): context (GARCH, Kalman, VWAP, VIXRegime) · **I5** (16): patterns · **SMC** (16): smart money (BOS/CHoCH, FVG, OB, HMM) · **I6** (6): confluence · **I7** (36): trading setups + 2 aggregators. See `TIER_I*` in `register_plugins.py`.
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -44,14 +40,9 @@ All live in `src/intelligence/trading/`:
 - Tier lists (`TIER_I1`…`TIER_I7`) in `register_plugins.py` — single source of truth; `validate_tier()` hard-crashes at missing names.
 
 ### Creating a New I7 Plugin
-1. Create file in `src/intelligence/trading/<name>.py`
-2. Extend `PatternPlugin`, set `regime_type` class attribute (`"trend"` | `"mean_reversion"` | `"any"`)
-3. Implement `compute()` using shared utilities from table above (esp. `compose_confidence()`, `make_signal()`)
-4. Add to `TIER_I7` list in `register_plugins.py`
-5. Add unit test to `tests/unit/intelligence/`
-6. Run integration test: `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py`
-7. Restart service: `sudo systemctl restart indicagent-intelligence-pipeline`
-8. Verify output: `docker exec redpanda rpk topic consume intelligence --from-end`
+1. `src/intelligence/trading/<name>.py` — extend `PatternPlugin`, set `regime_type` (`"trend"` | `"mean_reversion"` | `"any"`), use shared utilities above (esp. `compose_confidence()`, `make_signal()`)
+2. Add to `TIER_I7` in `register_plugins.py` + unit test in `tests/unit/intelligence/`
+3. Restart `indicagent-intelligence-pipeline`; verify: `docker exec redpanda rpk topic consume intelligence --from-end`
 
 ## LLM Provider Chain (`src/core/llm/chain.py`)
 
@@ -65,11 +56,7 @@ All live in `src/intelligence/trading/`:
 
 **NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
 
-| Tier | Provider | Model | Role |
-|------|----------|-------|------|
-| 1 | `OllamaProvider` | gemma4:e4b (default; `.env` may override) | Local |
-
-- `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
+Single provider: `OllamaProvider` → gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`). `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
 - Keys in `.env`: `OLLAMA_MODEL` (overrides default). OpenRouter, DeepSeek, OllamaCloud providers removed.
 
