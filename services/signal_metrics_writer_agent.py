@@ -3,9 +3,9 @@
 
 Subscribes to intelligence.signal_metrics Kafka topic.
 Handles three event types published by SignalMetricsComputeAgent:
-  - metrics_computed → UPSERT signal_metrics
-  - ic_computed      → UPSERT signal_metrics_ic
-  - metrics_dq_failure → INSERT signal_metrics_dq_failures
+  - metrics_computed -> UPSERT signal_metrics
+  - ic_computed      -> UPSERT signal_metrics_ic
+  - metrics_dq_failure -> INSERT signal_metrics_dq_failures
 
 Also updates setup_performance table as a backward-compatibility shim so
 intelligence_pipeline_agent can read perf_multiplier weights without changes
@@ -14,9 +14,9 @@ until Plan 60-03 updates it to read signal_metrics directly.
 The shim only activates for: track='market', regime_type='all', window_days=30.
 
 
-Version: 1.0.0
-Last Updated: 2026-04-05
-Status: Phase 60 Plan 02
+Version: 2.0.0
+Last Updated: 2026-05-17
+Status: Phase 085 Plan 04 — migrated to BaseWriterAgent
 """
 
 from __future__ import annotations
@@ -25,23 +25,11 @@ import asyncio
 from datetime import datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-from opentelemetry import metrics as _otel_metrics
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
-from src.core.kafka_utils import KafkaConsumerClient
 from src.core.stream_keys import topic_signal_metrics
-
-_smw_meter = _otel_metrics.get_meter("indicagent")
-
-_EVENTS_CONSUMED = _smw_meter.create_counter(
-    "signal_metrics_writer_events_consumed_total",
-    description="Events consumed from intelligence.signal_metrics",
-)
-_WRITE_ERRORS = _smw_meter.create_counter(
-    "signal_metrics_writer_errors_total",
-    description="DB write errors by event type",
-)
+from src.intelligence.schemas import SignalMetricsEvent
 
 _AGENT_NAME = "signal_metrics_writer"
 _CONSUMER_GROUP = "signal_metrics_writer_consumer"
@@ -175,73 +163,73 @@ async def _handle_dq_failure(conn, event: dict) -> None:
     )
 
 
-class SignalMetricsWriterAgent(BaseAgent):
-    """Consumes intelligence.signal_metrics and writes to DB."""
+class SignalMetricsWriterAgent(BaseWriterAgent):
+    """Consumes intelligence.signal_metrics and writes to DB via BaseWriterAgent."""
+
+    BATCH_SIZE = 50
+    FLUSH_INTERVAL_SECS = 5.0
+    payload_model = SignalMetricsEvent
 
     def __init__(self) -> None:
         super().__init__(name=_AGENT_NAME)
         self._db: DatabaseManager | None = None
-        self._kafka_consumer: KafkaConsumerClient | None = None
+
+    def _topic_name(self) -> str:
+        return topic_signal_metrics(self.env_name)
 
     @property
-    def topics_consumed(self) -> list[str]:
-        return [topic_signal_metrics(self.env_name)]
+    def _consumer_group(self) -> str:
+        return _CONSUMER_GROUP
+
+    def _dlq_topic(self) -> str | None:
+        return topic_signal_metrics(self.env_name) + ".dlq"
+
+    def _parse_payload(self, payload: SignalMetricsEvent) -> list | None:
+        """Receive already-validated SignalMetricsEvent; dispatching done in _flush_batch."""
+        return [payload]
+
+    async def _flush_batch(self, batch: list[SignalMetricsEvent]) -> None:
+        """Dispatch each event to the appropriate SQL helper by event_type."""
+        if not batch:
+            return
+        assert self._db is not None
+        async with self._db.get_connection() as conn:
+            for event in batch:
+                event_dict = event.model_dump()
+                if event.event_type == "metrics_computed":
+                    await _handle_metrics_computed(conn, event_dict)
+                elif event.event_type == "ic_computed":
+                    await _handle_ic_computed(conn, event_dict)
+                elif event.event_type == "metrics_dq_failure":
+                    await _handle_dq_failure(conn, event_dict)
+                else:
+                    # Discriminated union blocks unknown types at parse time;
+                    # this branch is a safety net only.
+                    self.logger.warning(
+                        "signal_metrics_writer.unknown_event_type",
+                        event_type=event.event_type,
+                    )
 
     async def _setup(self) -> None:
         """Connect DB pool and Kafka consumer."""
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
 
-        self._kafka_consumer = KafkaConsumerClient(
-            topic_signal_metrics(self.env_name),
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id=_CONSUMER_GROUP,
-            auto_offset_reset="latest",
-        )
-        await self._kafka_consumer.start()
+        self._create_consumer()
+        await self._consumer.start()
+        self._last_flush = 0.0
         self.logger.info(
             "signal_metrics_writer.setup_complete",
-            topics_consumed=self.topics_consumed,
+            topic=self._topic_name(),
         )
 
     async def _teardown(self) -> None:
-        """Stop consumer and close DB pool."""
-        if self._kafka_consumer is not None:
-            await self._kafka_consumer.stop()
+        """Final flush, stop consumer and close DB pool."""
+        await super()._teardown()
+        if self._consumer:
+            await self._consumer.stop()
         if self._db is not None:
             await self._db.close()
-
-    async def _run(self) -> None:
-        """Consume events from intelligence.signal_metrics until stop event."""
-        if self._stop_event.is_set():
-            return
-        # lag_task created by BaseAgent.start() at line 155
-        async for _topic, _key, event in self._kafka_consumer.messages():
-            if self._stop_event.is_set():
-                break
-            event_type = event.get("event_type", "unknown")
-            try:
-                async with self._db.get_connection() as conn:
-                    if event_type == "metrics_computed":
-                        await _handle_metrics_computed(conn, event)
-                    elif event_type == "ic_computed":
-                        await _handle_ic_computed(conn, event)
-                    elif event_type == "metrics_dq_failure":
-                        await _handle_dq_failure(conn, event)
-                    else:
-                        self.logger.warning(
-                            "signal_metrics_writer.unknown_event_type",
-                            event_type=event_type,
-                        )
-                    _EVENTS_CONSUMED.add(1, {"agent": _AGENT_NAME, "event_type": event_type})
-            except Exception as exc:
-                _WRITE_ERRORS.add(1, {"agent": _AGENT_NAME, "event_type": event_type})
-                self.logger.error(
-                    "signal_metrics_writer.write_error",
-                    event_type=event_type,
-                    error=str(exc),
-                    exc_info=True,
-                )
 
 
 async def _amain() -> None:
