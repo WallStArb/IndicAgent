@@ -153,6 +153,7 @@ Five steps. Full protocol in `src/intelligence/ai/AUTHORING.md`. Skeleton in `sr
 ## Key Rules
 
 **Core Patterns**
+- **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `RollMonitor._states`, `SignalTrackerComputeAgent._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **`BaseGroupService` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).

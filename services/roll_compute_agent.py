@@ -29,7 +29,8 @@ Status: Phase 053.3 Plan 03
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict, deque
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -66,6 +67,13 @@ _DETECTION_LATENCY = _rca_meter.create_histogram(
 _DETECTION_ERRORS = _rca_meter.create_counter(
     "roll_compute_detection_errors_total", description="Exceptions during bar processing"
 )
+
+
+@dataclass
+class RollState:
+    volume_window: deque = field(default_factory=deque)
+    confirmation_count: int = 0
+    cooldown_until: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -128,21 +136,16 @@ class RollMonitor:
         self._tod_gated = settings.roll_time_of_day_gated
 
         # Per-base-symbol rolling state
-        # base symbol -> deque of float volumes (single value per bar — D-16 fix)
-        self._volume_windows: dict[str, deque] = {}
-        # Per-base-symbol consecutive confirmation count for z-score < -2.0 bars
-        self._confirmation_counts: dict[str, int] = defaultdict(int)
-        self._cooldown_until: dict[str, datetime] = {}
-        self._postroll_remaining: dict[str, int] = {}
+        self._states: dict[str, RollState] = {}
 
-        # D-13: ML features captured before counter reset
+        # D-13: ML features captured before counter reset (scalar, not per-symbol)
         self._last_volume_zscore: float = 0.0
         self._last_confirmation_count: int = 0
 
-    @property
-    def _confirmation_count(self) -> dict[str, int]:
-        """Backward-compat alias for _confirmation_counts (used in tests)."""
-        return self._confirmation_counts
+    def _state(self, base_symbol: str) -> RollState:
+        if base_symbol not in self._states:
+            self._states[base_symbol] = RollState(volume_window=deque(maxlen=self._window_size))
+        return self._states[base_symbol]
 
     # ------------------------------------------------------------------
     # Paper account detection
@@ -197,9 +200,7 @@ class RollMonitor:
         site always passed the same value for both, producing ratio=1.0 always.
         The new z-score algorithm needs only the current bar's volume.
         """
-        if base_symbol not in self._volume_windows:
-            self._volume_windows[base_symbol] = deque(maxlen=self._window_size)
-        self._volume_windows[base_symbol].append(current_vol)
+        self._state(base_symbol).volume_window.append(current_vol)
 
     # ------------------------------------------------------------------
     # Roll detection logic
@@ -227,18 +228,18 @@ class RollMonitor:
             # base_symbol not in FUTURES_ROLL_CYCLES — no roll detection possible
             return False
 
+        state = self._state(base_symbol)
+
         if roll_window is None:
             # Outside any roll window — reset confirmation streak
-            self._confirmation_counts[base_symbol] = 0
+            state.confirmation_count = 0
             return False
 
-        window = self._volume_windows.get(base_symbol)
-        if window is None or len(window) < _ROLL_MIN_WINDOW:
+        if len(state.volume_window) < _ROLL_MIN_WINDOW:
             return False
 
         # Cooldown check
-        cooldown_until = self._cooldown_until.get(base_symbol)
-        if cooldown_until is not None and utc_now < cooldown_until:
+        if state.cooldown_until is not None and utc_now < state.cooldown_until:
             return False
 
         # Time-of-day gating: skip detection entirely during post-close window (16-18 ET)
@@ -247,7 +248,7 @@ class RollMonitor:
                 return False
 
         # Z-score: detect volume DROP below 2 std devs (front contract losing volume to back)
-        arr = np.array(window)
+        arr = np.array(state.volume_window)
         mean_vol = arr[:-1].mean()
         std_vol = arr[:-1].std()
         if std_vol < 1e-9:
@@ -261,18 +262,16 @@ class RollMonitor:
         self._last_volume_zscore = float(z_score)
 
         if z_score < -2.0:
-            self._confirmation_counts[base_symbol] = (
-                self._confirmation_counts.get(base_symbol, 0) + 1
-            )
+            state.confirmation_count += 1
         else:
-            self._confirmation_counts[base_symbol] = 0
+            state.confirmation_count = 0
 
-        if self._confirmation_counts.get(base_symbol, 0) >= self._confirmation_required:
+        if state.confirmation_count >= self._confirmation_required:
             # D-13: Capture confirmation_count before reset
-            self._last_confirmation_count = self._confirmation_counts[base_symbol]
+            self._last_confirmation_count = state.confirmation_count
             # Confirmed roll — reset counter and start cooldown
-            self._confirmation_counts[base_symbol] = 0
-            self._cooldown_until[base_symbol] = utc_now + timedelta(minutes=self._cooldown_minutes)
+            state.confirmation_count = 0
+            state.cooldown_until = utc_now + timedelta(minutes=self._cooldown_minutes)
             _logger.info(
                 "Roll detected",
                 base_symbol=base_symbol,
