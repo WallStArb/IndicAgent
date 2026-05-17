@@ -506,7 +506,7 @@ Plans:
   - [x] 086-03-PLAN.md — OBS-03 (BaseAgent.last_processed_at + service_auditor stall detection)
   - [x] 086-04-PLAN.md — OBS-02 (/api/health/system Prometheus aggregation route)
 - [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
-- [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/TBD plans)
+- [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/5 plans)
 - [ ] **Phase 089: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
 
 *(Qualitative/fundamental horizontal lanes → v2.7 Horizontal Intelligence Foundation)*
@@ -1256,7 +1256,12 @@ Plans:
   3. SignalProcessor class owns I7 execution, regime gating, ranking, and aggregation; a test can inject a mock PluginExecutor output and verify signal selection
   4. CacheManager class owns all 6 refresh loops and DB cache reads; a test can verify cache expiry behavior without running the full bar loop
   5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
+- [ ] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
+- [ ] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
+- [ ] 088-04-PLAN.md — Extract PluginExecutor with state-as-parameter interface (Wave 2)
+- [ ] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
 
 ### Phase 089: Compute Performance Optimization
 **Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
