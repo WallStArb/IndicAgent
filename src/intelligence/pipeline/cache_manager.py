@@ -33,6 +33,7 @@ from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 if TYPE_CHECKING:
     from src.config.settings import Settings
     from src.core.database_manager import DatabaseManager
+    from src.intelligence.pipeline.signal_processor import CacheSnapshot
 
 # CIS Kalman defaults (mirrors the god-class module-level dict)
 _CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
@@ -70,7 +71,7 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
 class CacheManager:
     """Owns the 6 DB-loaded caches and their background refresh schedule.
 
-    Constructor: CacheManager(db: DatabaseManager, settings: Settings)
+    Constructor: CacheManager(db: DatabaseManager, settings: Settings, symbols=None)
 
     Caches (properties):
         perf_weights, cis_weights, cis_kalman_params, calibration_curves,
@@ -84,11 +85,22 @@ class CacheManager:
     Seed API (for tests and checkpoint restore):
         seed_tod_priors, seed_perf_weights, seed_cis_weights, seed_calibration_curves,
         seed_shadow_cache, seed_drift_penalties
+
+    Symbol scoping (D-30):
+        When symbols is provided, all DB queries add WHERE symbol = ANY($N) clauses
+        so sharded deployments only load data for their assigned symbol set.
+        When None (default), queries are unscoped — current behavior preserved.
     """
 
-    def __init__(self, db: DatabaseManager, settings: Settings) -> None:
+    def __init__(
+        self,
+        db: DatabaseManager,
+        settings: Settings,
+        symbols: frozenset[str] | None = None,
+    ) -> None:
         self._db = db
         self._settings = settings
+        self._symbol_filter = symbols  # None = all symbols (D-30)
         self._logger = structlog.get_logger(__name__)
 
         # 6 cache dicts — atomic replacement on every load
@@ -107,6 +119,12 @@ class CacheManager:
 
         # CIS weights version for scorer mediation (orchestrator polls this)
         self._cis_weights_version: int = 0
+
+        # Stream-fed caches (D-19) — keyed by tf; mutated by update_* methods
+        self._cross_asset: dict = {}
+        self._macro: dict = {}
+        self._htf_intel: dict = {}
+        self._hmm_regime: int | None = None
 
     # ------------------------------------------------------------------
     # Properties (read surface)
@@ -159,6 +177,7 @@ class CacheManager:
     def update_hmm_regime(self, hmm_val: int | None) -> None:
         """Called by orchestrator per bar to track last-observed HMM regime."""
         self._last_hmm_regime = hmm_val
+        self._hmm_regime = hmm_val
 
     def current_hmm_regime_label(self) -> str:
         """Map last-observed HMM regime integer to signal_metrics regime_type string.
@@ -173,6 +192,49 @@ class CacheManager:
         if hmm in (1, 2):
             return "trend"
         return "all"
+
+    # ------------------------------------------------------------------
+    # Stream cache update methods (D-19)
+    # ------------------------------------------------------------------
+
+    def update_cross_asset(self, tf: str, payload: dict) -> None:
+        """Store latest cross-asset payload for the given timeframe."""
+        self._cross_asset[tf] = payload
+        self._logger.debug("cache_manager.cross_asset_updated", tf=tf)
+
+    def update_macro(self, tf: str, payload: dict) -> None:
+        """Merge macro fields into the per-tf macro cache entry."""
+        self._macro.setdefault(tf, {}).update(payload)
+        self._logger.debug("cache_manager.macro_updated", tf=tf)
+
+    def update_htf_intel(self, tf: str, data: dict) -> None:
+        """Store latest HTF intel data for the given timeframe."""
+        self._htf_intel[tf] = data
+        self._logger.debug("cache_manager.htf_intel_updated", tf=tf)
+
+    # ------------------------------------------------------------------
+    # CacheSnapshot construction (D-19)
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> CacheSnapshot:
+        """Build a CacheSnapshot from current cache state for per-bar consumption.
+
+        Imports CacheSnapshot locally to avoid a circular import between
+        cache_manager and signal_processor at module level.
+        """
+        from src.intelligence.pipeline.signal_processor import CacheSnapshot  # noqa: PLC0415
+
+        return CacheSnapshot(
+            perf_weights=self._perf_weights,
+            calibration_curves=self._calibration_curves,
+            tod_priors=self._tod_priors,
+            drift_penalties=self._drift_penalties,
+            cis_weights=self._cis_weights,
+            cis_weights_version=self._cis_weights_version,
+            cross_asset_data=dict(self._cross_asset),
+            macro_data=dict(self._macro),
+            htf_intel=dict(self._htf_intel),
+        )
 
     # ------------------------------------------------------------------
     # Public seed API (single contract for outside writers)
@@ -283,34 +345,67 @@ class CacheManager:
 
         Uses current_hmm_regime_label() instead of _current_hmm_regime_label().
         Atomic replacement of self._perf_weights at end.
+        When self._symbol_filter is set, queries are scoped to those symbols (D-30).
         """
         if self._db is None:
             return
         try:
             current_regime = self.current_hmm_regime_label()
 
-            rows = await self._db.execute_query(
-                """
-                SELECT setup_plugin, tf, symbol, sharpe
-                FROM signal_metrics
-                WHERE track = 'market'
-                  AND regime_type = $1
-                  AND window_days = 30
-                  AND n >= 30
-                """,
-                current_regime,
-            )
-
-            if not rows:
-                # Fallback to 'all' regime rollup (bootstrap phase)
-                rows = await self._db.execute_query("""
+            if self._symbol_filter is not None:
+                symbol_list = list(self._symbol_filter)
+                # Primary query: regime-conditioned, symbol-scoped
+                rows = await self._db.execute_query(
+                    """
+                    SELECT setup_plugin, tf, symbol, sharpe
+                    FROM signal_metrics
+                    WHERE symbol = ANY($1::text[])
+                      AND track = 'market'
+                      AND regime_type = $2
+                      AND window_days = 30
+                      AND n >= 30
+                    """,
+                    symbol_list,
+                    current_regime,
+                )
+            else:
+                rows = await self._db.execute_query(
+                    """
                     SELECT setup_plugin, tf, symbol, sharpe
                     FROM signal_metrics
                     WHERE track = 'market'
-                      AND regime_type = 'all'
+                      AND regime_type = $1
                       AND window_days = 30
                       AND n >= 30
-                    """)
+                    """,
+                    current_regime,
+                )
+
+            if not rows:
+                # Fallback to 'all' regime rollup (bootstrap phase)
+                if self._symbol_filter is not None:
+                    symbol_list = list(self._symbol_filter)
+                    rows = await self._db.execute_query(
+                        """
+                        SELECT setup_plugin, tf, symbol, sharpe
+                        FROM signal_metrics
+                        WHERE symbol = ANY($1::text[])
+                          AND track = 'market'
+                          AND regime_type = 'all'
+                          AND window_days = 30
+                          AND n >= 30
+                        """,
+                        symbol_list,
+                    )
+                else:
+                    rows = await self._db.execute_query("""
+                        SELECT setup_plugin, tf, symbol, sharpe
+                        FROM signal_metrics
+                        WHERE track = 'market'
+                          AND regime_type = 'all'
+                          AND window_days = 30
+                          AND n >= 30
+                        """)
 
             if not rows:
                 self._perf_weights = {}
@@ -373,15 +468,29 @@ class CacheManager:
             self._logger.warning("cis_weights.load_failed", error=str(exc))
 
     async def _load_calibration_curves(self) -> None:
-        """Load calibration curves from calibration_curves table. Atomic replacement."""
+        """Load calibration curves from calibration_curves table. Atomic replacement.
+
+        When self._symbol_filter is set, scopes to those symbols (D-30).
+        """
         if self._db is None:
             return
         try:
             import numpy as np
 
-            rows = await self._db.execute_query(
-                "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
-            )
+            if self._symbol_filter is not None:
+                symbol_list = list(self._symbol_filter)
+                rows = await self._db.execute_query(
+                    """
+                    SELECT setup_plugin, symbol, curve_data
+                    FROM calibration_curves
+                    WHERE symbol = ANY($1::text[])
+                    """,
+                    symbol_list,
+                )
+            else:
+                rows = await self._db.execute_query(
+                    "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
+                )
             curves: dict = {}
             for r in rows:
                 curve_data = r.get("curve_data") or {}
@@ -401,13 +510,25 @@ class CacheManager:
 
         MERGE semantics: self._tod_priors = {**self._tod_priors, **priors}
         Preserves existing keys (Pitfall 7). Do NOT atomic-replace.
+        When self._symbol_filter is set, scopes to those symbols (D-30).
         """
         if self._db is None:
             return
         try:
-            rows = await self._db.execute_query(
-                "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
-            )
+            if self._symbol_filter is not None:
+                symbol_list = list(self._symbol_filter)
+                rows = await self._db.execute_query(
+                    """
+                    SELECT regime_type, tf, hour_et, symbol, multiplier
+                    FROM tod_multipliers
+                    WHERE symbol = ANY($1::text[])
+                    """,
+                    symbol_list,
+                )
+            else:
+                rows = await self._db.execute_query(
+                    "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
+                )
             priors: dict = {}
             for r in rows:
                 key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
