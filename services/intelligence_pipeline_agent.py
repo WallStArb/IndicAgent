@@ -73,6 +73,7 @@ from src.intelligence.cross_asset_features import resolve_eq_index_base
 # Re-import I1-I6 tiers from register_plugins (shared source of truth)
 from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.pipeline import (
+    OutputQueue,
     apply_calibration,
     apply_quality_gate,
     apply_regime_gate,
@@ -474,9 +475,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._regime_prob_soft_max: float = self.settings.REGIME_PROB_SOFT_MAX
         self._regime_dur_min: int = self.settings.regime_dur_min
 
-        # Output buffer
-        self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
-
         # Per-plugin circuit breakers (lazily populated via _get_plugin_cb)
         self._plugin_circuit_breakers: dict[str, CircuitBreaker] = {}
 
@@ -490,18 +488,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._background_tasks: set = set()
 
         # --- Prometheus metrics ---
-        self._output_buffer_depth = gauge(
-            "intelligence_pipeline_output_buffer_depth",
-            "Current depth of async output queue",
-        )
-        self._output_buffer_drops = counter(
-            "intelligence_pipeline_output_buffer_drops_total",
-            "Output buffer drops due to queue full",
-        )
-        self._output_publish_failures = counter(
-            "intelligence_pipeline_output_publish_failures_total",
-            "Output buffer publish failures",
-        )
         self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
             "Bars processed through I1-I7 pipeline",
@@ -607,6 +593,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
+        # 2b. Construct OutputQueue now that producer is available
+        self._out_queue = OutputQueue(producer=self._kafka_producer, maxsize=_OUTPUT_QUEUE_MAXSIZE)
+
         # 3. Ensure checkpoint dir exists, restore hot indicator state from local file
         _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
         await self._read_local_checkpoint()
@@ -667,9 +656,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume bars, run I1-I7, drain output."""
+        drain_task = asyncio.create_task(self._out_queue.drain_loop(lambda: self.running))
+        self._background_tasks.add(drain_task)
+        drain_task.add_done_callback(self._background_tasks.discard)
         tasks = [
             asyncio.create_task(self._process_loop()),
-            asyncio.create_task(self._drain_output()),
+            drain_task,
             asyncio.create_task(self._health_monitor_loop()),
             asyncio.create_task(self._report_consumer_lag()),
             # Refresh loops
@@ -684,7 +676,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Log any task exceptions (swallowed by return_exceptions=True)
         task_names = [
             "_process_loop",
-            "_drain_output",
+            "_out_queue.drain_loop",
             "_health_monitor_loop",
             "_report_consumer_lag",
             "_load_perf_weights",
@@ -708,7 +700,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._stop_event.set()
         # Wait for output queue to drain (10s timeout)
         try:
-            await asyncio.wait_for(self._output_queue.join(), timeout=10.0)
+            await asyncio.wait_for(self._out_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
         self._write_local_checkpoint()
@@ -896,7 +888,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if self._shadow_mode
             else topic_intelligence(self.settings.env_name)
         )
-        self._enqueue(output_topic, msg_key, {"event": intel_event.model_dump_json()})
+        self._out_queue.enqueue(output_topic, msg_key, {"event": intel_event.model_dump_json()})
 
         # 6. Run I7 pipeline (in-process, no Kafka)
         i7_result: dict | None = None
@@ -1022,39 +1014,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         self._last_events[key] = event
         return event, tiered
-
-    # ------------------------------------------------------------------
-    # Output buffer
-    # ------------------------------------------------------------------
-
-    def _enqueue(self, topic: str, key: str, value: Any) -> None:
-        """Non-blocking enqueue to output buffer. Drops on QueueFull."""
-        try:
-            self._output_queue.put_nowait((topic, key, value))
-        except asyncio.QueueFull:
-            self._output_buffer_drops.add(1)
-
-    async def _enqueue_blocking(self, topic: str, key: str, value: Any) -> None:
-        """Blocking enqueue to output buffer. Backs up if queue is full rather than dropping."""
-        if self._output_queue.full():
-            self._output_buffer_drops.add(1)
-            self.logger.warning("output_queue.full_blocking")
-        await self._output_queue.put((topic, key, value))
-
-    async def _drain_output(self) -> None:
-        """Background task: drain output queue and publish to Kafka."""
-        while self.running or not self._output_queue.empty():
-            try:
-                topic, key, value = await asyncio.wait_for(self._output_queue.get(), timeout=1.0)
-                self._output_buffer_depth.add(self._output_queue.qsize())
-                await self._kafka_producer.publish(topic, msg=value, key=key)
-                self._output_queue.task_done()
-            except TimeoutError:
-                continue
-            except Exception:
-                self._output_publish_failures.add(1)
-                self.logger.exception("output.publish_failed")
-                self._output_queue.task_done()
 
     # ------------------------------------------------------------------
     # Common plugin execution helpers
@@ -1541,7 +1500,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Publish winner to signals.aggregated for signal_tracker_agent
         if winner:
             self._signals_selected.add(1)
-            await self._enqueue_blocking(
+            await self._out_queue.enqueue_blocking(
                 topic_signals_aggregated(self.settings.env_name),
                 message_key(symbol, tf),
                 winner,
@@ -1614,7 +1573,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         for sig in ranked:
             if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
                 self._signal_dlq_total.add(1)
-                await self._enqueue_blocking(
+                await self._out_queue.enqueue_blocking(
                     topic_signal_dlq(self.settings.env_name),
                     message_key(symbol, tf),
                     {
@@ -1663,7 +1622,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 len(ranked), {"symbol": symbol, "timeframe": tf}
             )
 
-        await self._enqueue_blocking(
+        await self._out_queue.enqueue_blocking(
             topic_intelligence_i7_signals(self.settings.env_name),
             message_key(symbol, tf),
             {
@@ -1720,7 +1679,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             i7_computed_at=i7_computed_at,
             pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
-        self._enqueue(
+        self._out_queue.enqueue(
             topic_intelligence_journal(self.settings.env_name),
             msg_key,
             record.model_dump(mode="json"),
