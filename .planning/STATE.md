@@ -3,10 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 089-02 and 089-03 (Wave 1 parallel)
-last_updated: "2026-05-18T20:45:34.550Z"
-stopped_at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
-last_updated: "2026-05-18T20:57:19.612Z"
+stopped_at: Completed 089-05-PLAN.md
+last_updated: "2026-05-18T21:08:29.183Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 32
@@ -28,7 +26,7 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 088 (god-class-decomposition) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-05-18
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
@@ -125,6 +123,9 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 089]: 089-03: Batch drain preserves swallow-and-log for publish errors (existing test contract); CancelledError re-enqueues batch[handled+1:] before re-raise
 - [Phase 089]: PERF-03: state threaded via functools.partial to run_in_executor, eliminating pre-dispatch plugin._state race
 - [Phase 089]: Plugin protocol backward-compatible: state=None default; existing plugins fallback to compute_full until individually migrated
+- [Phase 089]: MarketProfile incremental: volume_buckets dict with fixed tick_size from seed; O(K) POC/VAH/VAL vs O(N*K) full
+- [Phase 089]: SessionLevels incremental: 390-bar count boundary detection for session rollover; O(1) per-bar high/low tracking
+- [Phase 089]: BOCPD/HMM algorithmic bounds documented in source: O(R) and O(K^2) respectively; cannot be O(1) without approximation
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -140,8 +141,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-18T20:45:34.546Z
-Stopped at: Completed 089-02 and 089-03 (Wave 1 parallel)
+Last session: 2026-05-18T21:08:29.179Z
+Stopped at: Completed 089-05-PLAN.md
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
@@ -223,3 +224,4 @@ Next: /gsd:execute-phase 088
 | Phase 089 P02 | 8 | 3 tasks | 5 files |
 | Phase 089 P03 | 9 | 2 tasks | 4 files |
 | Phase 089 P04 | 25 | 3 tasks | 6 files |
+| Phase 089 P05 | 8 | 3 tasks | 12 files |
