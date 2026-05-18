@@ -31,6 +31,16 @@ class Settings(BaseSettings):
         validation_alias="INTELLIGENCE_THREAD_POOL_WORKERS",
         description="Thread pool worker count for intelligence pipeline. 0 = cpu_count * 2 (auto).",
     )
+    intelligence_pipeline_symbol_filter: list[str] = Field(
+        default_factory=list,
+        alias="INTELLIGENCE_PIPELINE_SYMBOL_FILTER",
+        description="Symbol filter for intelligence pipeline sharding. Empty = all active contracts.",
+    )
+    intelligence_output_drain_batch_size: int = Field(
+        default=10,
+        alias="INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE",
+        description="Max items drained per OutputQueue iteration (PERF-06, Plan 03).",
+    )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
         validation_alias="DATABASE_URL",
