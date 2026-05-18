@@ -35,7 +35,9 @@ class BollingerPlugin:
             }
         )
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None:
             return {}
@@ -73,7 +75,9 @@ class BollingerPlugin:
                 "period": period,
             }
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")
