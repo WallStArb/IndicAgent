@@ -17,7 +17,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-from pydantic import ValidationError
 
 from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
@@ -42,11 +41,9 @@ from src.core.stream_keys import (
     topic_signals_aggregated,
     topic_system_events,
 )
-from src.intelligence.context.vix_context import compute_vix_context
-from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.pipeline import (
     CacheManager,
-    CacheSnapshot,
+    FeaturePipelineExecutor,
     OutputQueue,
     PluginExecutor,
     PluginStateManager,
@@ -68,15 +65,7 @@ from src.intelligence.register_plugins import (
 )
 from src.intelligence.schemas import (
     BarIntelligenceRecord,
-    I1Indicators,
-    I2Events,
-    I3Structure,
-    I4Context,
-    I5Patterns,
-    I6Confluence,
     IntelligenceEvent,
-    OHLCVBar,
-    SMCContext,
     signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
@@ -143,11 +132,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         PluginValidator().validate_all()
 
-        self._plugin_cache: dict[str, Any] = {}
+        # Plugin cache — used by PluginExecutor (the orchestrator's copy was redundant with
+        # PluginExecutor's own copy; deleted D-24). Build once for PluginExecutor constructor.
+        _plugin_cache: dict[str, Any] = {}
         for n in TIER_I1:
-            self._plugin_cache[n] = registry.get_indicator(n)
+            _plugin_cache[n] = registry.get_indicator(n)
         for n in TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7:
-            self._plugin_cache[n] = registry.get_pattern(n)
+            _plugin_cache[n] = registry.get_pattern(n)
+        self._plugin_cache = _plugin_cache  # kept for _setup reference only; executor owns copy
 
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
@@ -155,18 +147,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_bar_offset: dict = {}
 
         # Transient (not checkpointed)
-        self._cross_asset_cache: dict = {}
-        self._macro_cache: dict = {}
-        self._htf_intel_cache: dict = {}
         self._live_quotes: dict = {}
-        self._df_cache: dict = {}
-        self._prev_i1_features: dict = {}
         self._last_bar_ts: dict = {}
-        self._last_events: dict = {}
 
+        # Thread pool — cap removed (D-29). Default: max(4, cpu_count // 2).
         cpu_count = os.cpu_count() or 24
         _configured = self.settings.intelligence_thread_pool_workers
-        _workers = _configured if _configured > 0 else min(12, max(4, cpu_count // 2))
+        _workers = _configured if _configured > 0 else max(4, cpu_count // 2)
         self._thread_pool = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.add(_workers)
 
@@ -256,7 +243,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             pool=self._db.pool, batch_size=100, flush_interval_s=2.0
         )
 
-        self._cache_mgr = CacheManager(db=self._db, settings=self.settings)
+        _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
+        _symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
+        self._cache_mgr = CacheManager(db=self._db, settings=self.settings, symbols=_symbol_filter)
         async with self._db.pool.acquire() as conn:
             await enroll_all_plugins(conn)
         await self._cache_mgr.load_initial()
@@ -272,6 +261,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin_cache=self._plugin_cache,
             instrument_map=self._instrument_map,
             circuit_breakers={},
+        )
+
+        # FeaturePipelineExecutor — 6th DAG node (D-18, Plan 01 Task 5)
+        self._feature_pipeline = FeaturePipelineExecutor(
+            bar_history=self._bar_history,
+            executor=self._executor,
+            state_mgr=self._state_mgr,
+            instrument_map=self._instrument_map,
+            vix_symbol=self._vix_symbol,
         )
 
         # Construct SignalProcessor (plan 05). Receives CacheSnapshot per bar, not CacheManager.
@@ -387,21 +385,20 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     try:
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
-                            self._cross_asset_cache[tf] = payload
+                            self._cache_mgr.update_cross_asset(tf, payload)
                         elif _topic == _macro_topic:
                             tf = payload.get("timeframe", payload.get("tf", "1m"))
-                            self._macro_cache.setdefault(tf, {}).update(
-                                {
-                                    k: payload[k]
-                                    for k in (
-                                        "yield_curve_slope",
-                                        "yield_curve_regime",
-                                        "ftq_score",
-                                        "ftq_regime",
-                                    )
-                                    if k in payload
-                                }
-                            )
+                            macro_fields = {
+                                k: payload[k]
+                                for k in (
+                                    "yield_curve_slope",
+                                    "yield_curve_regime",
+                                    "ftq_score",
+                                    "ftq_regime",
+                                )
+                                if k in payload
+                            }
+                            self._cache_mgr.update_macro(tf, macro_fields)
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         else:
@@ -439,132 +436,69 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await self._process_bar_inner(bar)
 
     async def _process_bar_inner(self, bar: BarMessage) -> None:
-        """D-08 DAG description: I1-I6 → canonical event → I7 via SignalProcessor → 4-way routing."""
+        """D-08 DAG router: gap detect → FPE → I7 → SignalProcessor → 4-way routing."""
         t0 = time.perf_counter()
-
         # Gap detection
         key = f"{bar.symbol}:{bar.tf}"
         prev_ts = self._last_bar_ts.get(key)
-        if prev_ts is not None:
-            tf_seconds = TF_SECONDS.get(bar.tf, 60)
-            if (bar.ts.timestamp() - prev_ts) > tf_seconds * 1.5:
-                bar = bar.model_copy(update={"gap_preceding": True})
+        if (
+            prev_ts is not None
+            and (bar.ts.timestamp() - prev_ts) > TF_SECONDS.get(bar.tf, 60) * 1.5
+        ):
+            bar = bar.model_copy(update={"gap_preceding": True})
         self._last_bar_ts[key] = bar.ts.timestamp()
-
         self._bar_history.append(bar)
         if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
             return
-
+        cache_snapshot = self._cache_mgr.snapshot()
         try:
-            intel_event, tiered = await self._run_i1_to_i6(bar, t0)
+            fp_result = await self._feature_pipeline.run(bar, cache_snapshot)
         except Exception as exc:
             self.logger.error("pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
             self._pipeline_errors.add(1)
             return
-
-        if intel_event is None:
+        if fp_result.event is None:
             return
-
-        # Canonical IntelligenceEvent publish (unchanged — not affected by plan 05)
+        self._cache_mgr.update_hmm_regime(fp_result.hmm_regime)  # D-25
         msg_key = message_key(bar.symbol, bar.tf)
-        output_topic = (
-            topic_intelligence_shadow(self.settings.env_name)
-            if self._shadow_mode
-            else topic_intelligence(self.settings.env_name)
+        env = self.settings.env_name
+        intel_topic = (
+            topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
         )
-        self._out_queue.enqueue(output_topic, msg_key, {"event": intel_event.model_dump_json()})
-
-        # Sync CIS weights at start of every bar (Pitfall 4 mediation via SignalProcessor)
-        self._sig_proc.sync_cis_weights(
-            self._cache_mgr.cis_weights, self._cache_mgr.cis_weights_version
-        )
-
-        # I7 plugin execution via PluginExecutor
+        self._out_queue.enqueue(intel_topic, msg_key, {"event": fp_result.event.model_dump_json()})
+        # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
         i7_start = time.perf_counter()
-        symbol, tf = bar.symbol, bar.tf
-        from src.intelligence.pipeline.signal_processor import (  # noqa: PLC0415
-            _build_features_from_event,
+        plugin_states = self._state_mgr.get_all_states_for(bar.symbol, bar.tf)
+        lock = self._state_mgr.get_lock((bar.symbol, bar.tf))
+        raw_signals = await self._executor.run_i7_complete(
+            fp_result.event, bar, cache_snapshot, plugin_states, lock, main_df=fp_result.main_df
         )
-
-        features = _build_features_from_event(intel_event)
-        hmm_val = features.get("hmm_regime")
-        if isinstance(hmm_val, (int, float)):
-            self._cache_mgr.update_hmm_regime(int(hmm_val))
-
-        main_df = self._bar_history.to_dataframe(symbol, tf)
-        plugin_input = {
-            "main": main_df,
-            "features": features,
-            "__symbol__": symbol,
-            "__timeframe__": tf,
-            "timeframe": tf,
-        }
-        i7_plugin_states = self._state_mgr.get_all_states_for(symbol, tf)
-        lock = self._state_mgr.get_lock((symbol, tf))
-        tasks, outputs, sig_state_updates = await self._executor.run_i7_plugins(
-            i7_plugin_states,
-            lock,
-            bar,
-            symbol,
-            tf,
-            plugin_input,
-            shadow_cache=self._cache_mgr.shadow_cache,
-        )
-        if sig_state_updates:
-            self._state_mgr.update_batch(sig_state_updates)
-
-        # Collect raw signals and apply alpha decay
-        from src.intelligence.pipeline.signal_processor import (  # noqa: PLC0415
-            _apply_alpha_decay,
-        )
-
-        raw_signals: list[dict] = []
-        for task, output in zip(tasks, outputs):  # noqa: B905
-            output.pop("_tier_key", None)
-            if output.get("direction", 0) != 0:
-                sig = output
-                sig["setup_plugin"] = task.plugin_name
-                sig["symbol"] = symbol
-                sig["tf"] = tf
-                plugin_inst = self._executor._plugin_cache.get(task.plugin_name)
-                sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
-                fire_key = (symbol, tf, task.plugin_name, sig.get("direction", 0))
-                _apply_alpha_decay(sig, tf, self._sig_proc._setup_last_fire.get(fire_key))
-                raw_signals.append(sig)
-
+        if self._executor._last_i7_state_updates:
+            self._state_mgr.update_batch(self._executor._last_i7_state_updates)
         self._i7_latency_ms.add((time.perf_counter() - i7_start) * 1000)
-
-        # Build CacheSnapshot and delegate signal pipeline to SignalProcessor
-        snapshot = CacheSnapshot(
-            perf_weights=self._cache_mgr.perf_weights,
-            calibration_curves=self._cache_mgr.calibration_curves,
-            tod_priors=self._cache_mgr.tod_priors,
-            drift_penalties=self._cache_mgr.drift_penalties,
-            cis_weights=self._cache_mgr.cis_weights,
-            cis_weights_version=self._cache_mgr.cis_weights_version,
-        )
         result = await self._sig_proc.process(
-            intel_event, tiered, bar, symbol, tf, raw_signals=raw_signals, cache_snapshot=snapshot
+            fp_result.event,
+            fp_result.tiered,
+            bar,
+            bar.symbol,
+            bar.tf,
+            raw_signals=raw_signals,
+            cache_snapshot=cache_snapshot,
         )
-
-        # 4-way output routing (HIGH finding 4)
+        # 4-way routing
         if result.success and result.signals_payload:
             await self._out_queue.enqueue_blocking(
-                topic_intelligence_i7_signals(self.settings.env_name),
-                msg_key,
-                result.signals_payload,
+                topic_intelligence_i7_signals(env), msg_key, result.signals_payload
             )
         elif result.dlq_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signal_dlq(self.settings.env_name), msg_key, result.dlq_payload
+                topic_signal_dlq(env), msg_key, result.dlq_payload
             )
         if result.winner_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signals_aggregated(self.settings.env_name), msg_key, result.winner_payload
+                topic_signals_aggregated(env), msg_key, result.winner_payload
             )
-        # Journal publish — always called (god class line 910 unconditional)
-        self._enqueue_intel_journal(bar, intel_event, t0, msg_key, result.i7_result)
-
+        self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
         self._bars_processed.add(1)
 
     def _assemble_checkpoint_extra(self) -> dict:
@@ -624,125 +558,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             msg_key,
             record.model_dump(mode="json"),
         )
-
-    async def _run_i1_to_i6(
-        self, bar: BarMessage, t0: float
-    ) -> tuple[IntelligenceEvent | None, dict | None]:
-        """Run I1 through I6 and return (IntelligenceEvent, tiered)."""
-        symbol, tf = bar.symbol, bar.tf
-        key = f"{symbol}:{tf}"
-
-        main_df = self._bar_history.to_dataframe(symbol, tf)
-        frames: dict[str, Any] = {"main": main_df, "__symbol__": symbol, "__timeframe__": tf}
-
-        for other_tf in _STANDARD_TFS:
-            if other_tf == tf:
-                continue
-            other_deque = self._bar_history.get(symbol, other_tf)
-            if len(other_deque) >= 50:
-                frames[f"tf_{other_tf}"] = self._bar_history.to_dataframe(symbol, other_tf)
-            cached_evt = self._last_events.get(f"{symbol}:{other_tf}")
-            if cached_evt:
-                intel_dict = cached_evt.model_dump()
-                flattened = {}
-                for tier_name, tier_data in intel_dict.items():
-                    if tier_name in ("i1", "i2", "i3", "i4", "i5", "smc", "i6") and isinstance(
-                        tier_data, dict
-                    ):
-                        flattened.update(tier_data)
-                    else:
-                        flattened[tier_name] = tier_data
-                frames[f"intel_{other_tf}"] = flattened
-
-        instrument = self._instrument_map.get(symbol)
-        if instrument:
-            frames["__instrument__"] = instrument
-
-        frames["prev_features"] = self._prev_i1_features.get(key, {})
-
-        if resolve_eq_index_base(symbol) is not None:
-            cross_asset = {**self._cross_asset_cache.get(tf, {"ready": False})}
-            cross_asset.update(self._macro_cache.get(tf, {}))
-            frames["cross_asset"] = cross_asset
-            cross_asset_5m = {**self._cross_asset_cache.get("5m", {"ready": False})}
-            cross_asset_5m.update(self._macro_cache.get("5m", {}))
-            frames["cross_asset_5m"] = cross_asset_5m
-
-        if self._vix_symbol:
-            vix_deque = self._bar_history.get(self._vix_symbol, VIX_REGIME_TF)
-            frames["vix"] = compute_vix_context(vix_deque)
-        else:
-            frames["vix"] = {"ready": False}
-
-        htf_cache = self._htf_intel_cache.get(tf)
-        if htf_cache:
-            frames["htf_intel"] = htf_cache
-
-        plugin_states = self._state_mgr.get_all_states_for(symbol, tf)
-        lock = self._state_mgr.get_lock((symbol, tf))
-
-        i1_result, i1_state_updates = await self._executor.run_i1(
-            plugin_states,
-            lock,
-            frames,
-            symbol,
-            tf,
-            shadow_cache=self._cache_mgr.shadow_cache,
-        )
-        if i1_state_updates:
-            self._state_mgr.update_batch(i1_state_updates)
-        frames["features"] = dict(i1_result)
-        self._prev_i1_features[key] = dict(i1_result)
-        self._last_events[key + "_i1"] = i1_result
-
-        tiered, tier_state_updates = await self._executor.run_tiers(
-            plugin_states,
-            lock,
-            bar,
-            symbol,
-            tf,
-            frames,
-            shadow_cache=self._cache_mgr.shadow_cache,
-        )
-        if tier_state_updates:
-            self._state_mgr.update_batch(tier_state_updates)
-        if not tiered:
-            return None, None
-
-        pipeline_latency_ms = (time.perf_counter() - t0) * 1000
-        self._pipeline_latency.add(pipeline_latency_ms)
-
-        try:
-            event = IntelligenceEvent(
-                ts=bar.ts,
-                symbol=symbol,
-                tf=tf,
-                bar=OHLCVBar(o=bar.open, h=bar.high, l=bar.low, c=bar.close, v=bar.volume),
-                i1=I1Indicators(**{k: v for k, v in i1_result.items() if v is not None}),
-                i2=I2Events(**{k: v for k, v in tiered.get("i2", {}).items() if v is not None}),
-                i3=I3Structure(**{k: v for k, v in tiered.get("i3", {}).items() if v is not None}),
-                i4=I4Context(**{k: v for k, v in tiered.get("i4", {}).items() if v is not None}),
-                i5=I5Patterns(**{k: v for k, v in tiered.get("i5", {}).items() if v is not None}),
-                smc=SMCContext(**{k: v for k, v in tiered.get("smc", {}).items() if v is not None}),
-                i6=I6Confluence(**{k: v for k, v in tiered.get("i6", {}).items() if v is not None}),
-                source="live",
-                session_type=bar.session_type,
-                pipeline_latency_ms=pipeline_latency_ms,
-                computed_at=datetime.now(UTC),
-                bar_id=bar.bar_id,
-            )
-        except ValidationError as exc:
-            self.logger.error(
-                "IntelligenceEvent validation failed",
-                symbol=symbol,
-                tf=tf,
-                error=str(exc),
-            )
-            self._pipeline_errors.add(1)
-            return None, None
-
-        self._last_events[key] = event
-        return event, tiered
 
     async def _health_monitor_loop(self) -> None:
         while self.running:
