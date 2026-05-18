@@ -292,12 +292,15 @@ class TestPipelinePerfWeightsSymbol:
     """Test _load_perf_weights builds 3-tuple keys and rank_signals call site."""
 
     def test_load_perf_weights_builds_three_tuple_keys(self):
-        """Verify _load_perf_weights SQL selects symbol and builds (plugin, tf, symbol) keys."""
+        """Verify _load_perf_weights SQL selects symbol and builds (plugin, tf, symbol) keys.
+
+        After Plan 03 extraction, _load_perf_weights lives in CacheManager.
+        """
         import inspect
 
-        from services import intelligence_pipeline_agent as m
+        from src.intelligence.pipeline.cache_manager import CacheManager
 
-        src = inspect.getsource(m.IntelligencePipelineComputeAgent._load_perf_weights)
+        src = inspect.getsource(CacheManager._load_perf_weights)
         assert "symbol" in src
         assert 'row.get("symbol"' in src or 'row.get("symbol"' in src
 
