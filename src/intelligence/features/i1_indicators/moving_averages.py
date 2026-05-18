@@ -30,7 +30,7 @@ class MovingAveragesPlugin:
     min_lookback: int = 60
     supports_incremental: bool = True
     capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
 
     sma_periods: list[int] = field(default_factory=lambda: [20, 50, 100, 200])
     ema_periods: list[int] = field(default_factory=lambda: [8, 9, 13, 21, 55])

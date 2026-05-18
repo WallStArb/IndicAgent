@@ -29,7 +29,7 @@ class MomentumAccelPlugin:
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum"}))
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=5),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=5),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

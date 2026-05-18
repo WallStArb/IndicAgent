@@ -38,7 +38,7 @@ class PremiumDiscountPlugin:
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=10),)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}

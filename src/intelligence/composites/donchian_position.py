@@ -21,7 +21,7 @@ class DonchianPositionPlugin(PatternPlugin):
     capability_tags: frozenset[str] = field(
         default_factory=lambda: frozenset({"structure", "channel"})
     )
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=25),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=25),)
     supports_incremental: bool = False
     _state: dict = field(default_factory=dict)
 

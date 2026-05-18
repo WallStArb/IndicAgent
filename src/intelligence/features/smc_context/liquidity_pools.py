@@ -57,7 +57,7 @@ class LiquidityPoolsPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money", "liquidity"})
     inputs: list[InputSpec] = (
-        InputSpec(symbol=".*", timeframe="1m", lookback=150),
+        InputSpec(symbol=".*", lookback=150),
         InputSpec(symbol=".*", timeframe="1d", lookback=5),
     )
     _state: dict = field(default_factory=dict)

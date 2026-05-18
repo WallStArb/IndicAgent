@@ -16,7 +16,7 @@ class BollingerPlugin:
     min_lookback: int = 25
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     configs: list[tuple] = None
     _state: dict = field(default_factory=dict)
 

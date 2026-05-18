@@ -27,7 +27,7 @@ class GARCHVolatilityPlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"context", "volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     omega: float = 0.00001
     alpha: float = 0.10
     beta: float = 0.85

@@ -22,7 +22,7 @@ class ADXPlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"trend"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     periods: list[int] = None
     _state: dict = field(default_factory=dict)
 

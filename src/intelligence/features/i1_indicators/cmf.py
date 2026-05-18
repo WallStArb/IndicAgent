@@ -25,7 +25,7 @@ class CMFPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=60),)
     period: int = 20
     _state: dict = field(default_factory=dict)
 

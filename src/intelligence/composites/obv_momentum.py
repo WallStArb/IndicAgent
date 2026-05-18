@@ -25,7 +25,7 @@ class OBVMomentumPlugin(PatternPlugin):
     capability_tags: frozenset[str] = field(
         default_factory=lambda: frozenset({"volume", "momentum"})
     )
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=_WINDOW + 5),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
     supports_incremental: bool = False
     _state: dict = field(default_factory=dict)
 

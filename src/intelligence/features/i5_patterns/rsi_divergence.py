@@ -16,7 +16,7 @@ class RSIDivergencePlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     rsi_period: int = 14
     neighbor: int = 5
     _state: dict = field(default_factory=dict)

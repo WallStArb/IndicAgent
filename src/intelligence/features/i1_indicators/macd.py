@@ -17,7 +17,7 @@ class MACDPlugin:
     min_lookback: int = 50
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     configs: list[tuple] = None
     _state: dict = field(default_factory=dict)
 

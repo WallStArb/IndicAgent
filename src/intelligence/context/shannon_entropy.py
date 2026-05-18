@@ -92,7 +92,7 @@ class ShannonEntropyPlugin:
     min_lookback: int = 10
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"context", "regime"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=200),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

@@ -51,7 +51,7 @@ class SwingMomentumPlugin:
     min_lookback: int = 60
     supports_incremental: bool = False
     capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum", "structure"}))
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=60),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=60),)
     _state: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------

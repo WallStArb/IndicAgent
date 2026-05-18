@@ -32,7 +32,7 @@ class OrderBlocksPlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     impulse_bars: int = 3  # Minimum consecutive bars for an impulse
     _state: dict = field(default_factory=dict)
 

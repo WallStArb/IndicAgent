@@ -60,7 +60,7 @@ class PrevDayLevelTestPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "level_test", "session", "regime"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
     _state: dict = field(default_factory=dict)
 

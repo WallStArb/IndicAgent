@@ -63,9 +63,7 @@ class KalmanTrendPlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"context", "trend"})
-    inputs: list[InputSpec] = field(
-        default_factory=lambda: [InputSpec(symbol=".*", timeframe="1m", lookback=200)]
-    )
+    inputs: list[InputSpec] = field(default_factory=lambda: [InputSpec(symbol=".*", lookback=200)])
     use_garch_adaptive: bool = False
     _state: dict = field(default_factory=dict)
 

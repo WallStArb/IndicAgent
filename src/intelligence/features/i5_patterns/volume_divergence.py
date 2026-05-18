@@ -25,7 +25,7 @@ class VolumeDivergencePlugin:
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "volume"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=60),)
     lookback: int = 20
     _state: dict = field(default_factory=dict)
 

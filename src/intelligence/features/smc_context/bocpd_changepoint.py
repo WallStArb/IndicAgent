@@ -47,7 +47,7 @@ class BOCPDChangePointPlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     hazard_lambda: int = 100  # Expected regime duration in bars
     max_run_length: int = 200  # Truncation cap
     cp_threshold: float = 0.5  # Detection threshold

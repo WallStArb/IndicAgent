@@ -10,8 +10,8 @@ from src.core.models import AssetClass
 @dataclass
 class InputSpec:
     symbol: str | RePattern[str]
-    timeframe: str | list[str]
-    lookback: int
+    timeframe: str | list[str] = ".*"
+    lookback: int = 100
     required: bool = True
 
 

@@ -35,7 +35,7 @@ class LiquiditySweepsPlugin:
     min_lookback: int = 60
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     neighbor: int = 5
     reclaim_bars: int = 3  # Bars to check for reclaim confirmation
     _state: dict = field(default_factory=dict)

@@ -19,7 +19,7 @@ class VolatilityRegimePlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"context"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     lookback: int = 50
     bb_period: int = 20
     atr_period: int = 14

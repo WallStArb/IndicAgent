@@ -44,7 +44,7 @@ class HMAPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset = field(default_factory=lambda: frozenset({"trend"}))
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=20),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=20),)
     _state: dict = field(default_factory=dict)
 
     # HMA parameters (n=20)

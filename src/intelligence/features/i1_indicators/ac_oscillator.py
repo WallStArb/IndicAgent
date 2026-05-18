@@ -24,7 +24,7 @@ class ACOscillatorPlugin:
     min_lookback: int = 40  # SMA34 + SMA5(AO) = 34 + 5 + 1 buffer
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"momentum", "oscillator"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

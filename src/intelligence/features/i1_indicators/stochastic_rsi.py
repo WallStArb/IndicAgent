@@ -26,7 +26,7 @@ class StochRSIPlugin:
     min_lookback: int = 35
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 14
     d_period: int = 3
     _state: dict = field(default_factory=dict)

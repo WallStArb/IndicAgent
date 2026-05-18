@@ -33,7 +33,7 @@ class FibonacciZonesPlugin:
     min_lookback: int = 5
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"structure"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

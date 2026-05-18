@@ -45,7 +45,7 @@ class PatternCompletionPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "any"
     confidence_threshold: float = 0.5
     _state: dict = field(default_factory=dict)

@@ -28,7 +28,7 @@ class FlagPennantPlugin:
     min_lookback: int = _LOOKBACK
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=60),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

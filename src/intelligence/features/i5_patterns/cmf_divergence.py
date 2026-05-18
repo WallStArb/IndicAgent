@@ -23,7 +23,7 @@ class CMFDivergencePlugin:
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "volume"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     lookback: int = 20
     _state: dict = field(default_factory=dict)
 

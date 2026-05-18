@@ -26,7 +26,7 @@ class TriangleWedgePlugin:
     min_lookback: int = 60
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "chart"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     neighbor: int = 5
     amplitude_thr: float = 0.002
     min_swing_bars: int = 8

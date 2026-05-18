@@ -64,7 +64,7 @@ class HVNRejectionPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=120),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     regime_type: str = "mean_reversion"
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
