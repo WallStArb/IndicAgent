@@ -460,6 +460,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if fp_result.event is None:
             return
         self._cache_mgr.update_hmm_regime(fp_result.hmm_regime)  # D-25
+        # Cache HTF intel for lower-TF bars to use as cross-tf context (D-19)
+        if bar.tf in ("15m", "1h", "4h", "1d"):
+            self._cache_mgr.update_htf_intel(bar.tf, fp_result.event.model_dump())
         msg_key = message_key(bar.symbol, bar.tf)
         env = self.settings.env_name
         intel_topic = (
