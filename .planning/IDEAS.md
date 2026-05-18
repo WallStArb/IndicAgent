@@ -17,6 +17,7 @@ When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`
 - **I8 intelligence extensions** — Counterfactual Insight Generator, Regime Change Explainer, Anomaly Triage Assistant. All use existing LLM chain. See `docs/ideas/i8-intelligence-extensions.md`.
 - **Agent orchestration patterns** — MoA, adversarial red team, dynamic leadership, semantic memory, specialist agents. See `docs/ideas/agent-orchestration-patterns.md`.
 - **Service resilience patterns** — consumer proxy/circuit breaker, changelog streams, enhanced consumer lag metrics. See `docs/ideas/service-resilience-patterns.md`.
+- **Signal Metrics Distribution Shape** — add skewness, kurtosis, min_r (worst single outcome), recovery_factor (avg_mfe / abs(min_r)) to `signal_metrics`. Also run compute per-symbol alongside global `'*'` aggregate so per-instrument quality is visible. Deferred from v2.6 -- belongs in v2.7 alongside the lanes it evaluates. Context captured in deleted `093-CONTEXT.md` (see git history).
 - **Granular Redpanda stream topology** — per-tier topics for selective subscription. Not worth building until a real consumer justifies it. See `docs/ideas/granular-stream-topology.md`.
 - **Parallel DAG execution** — plugins within same tier that share no dependencies could run concurrently. Today execution is sequential within each tier. Benefit is mostly for I3-I5 which are `compute_full()` and most expensive.
 - **YAML pipeline configuration** — declare plugin DAG in config rather than Python code. Low priority until plugin set stabilizes.

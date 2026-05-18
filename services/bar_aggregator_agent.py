@@ -48,13 +48,13 @@ _PROCESSING_DURATION = _baa_meter.create_histogram(
 _AGGREGATION_ERRORS = _baa_meter.create_counter(
     "bar_agg_aggregation_errors_total", description="Exceptions during bar processing"
 )
-_HEALTH_STATUS = _baa_meter.create_up_down_counter(
+_HEALTH_STATUS = _baa_meter.create_gauge(
     "bar_agg_health_status", description="Service health status (1=healthy, 0=unhealthy)"
 )
-_CONSUMER_LAG_SECONDS = _baa_meter.create_up_down_counter(
-    "bar_agg_consumer_lag_seconds", description="How far behind the consumer is"
+_CONSUMER_LAG_SECONDS = _baa_meter.create_gauge(
+    "bar_agg_consumer_lag_seconds", description="Committed offset lag (messages behind log end)"
 )
-_TIME_SINCE_LAST_BAR_SECONDS = _baa_meter.create_up_down_counter(
+_TIME_SINCE_LAST_BAR_SECONDS = _baa_meter.create_gauge(
     "bar_agg_time_since_last_bar_seconds", description="Seconds since last bar was processed"
 )
 _AGGREGATION_LATENCY = _baa_meter.create_histogram(
@@ -576,16 +576,14 @@ class BarAggregatorComputeAgent(BaseAgent):
         """Update health metrics every 15 seconds."""
         while self.running:
             healthy, _ = self._health_metrics.is_healthy()
-            _HEALTH_STATUS.add(1 if healthy else 0, self._agent_attrs)
+            _HEALTH_STATUS.set(1 if healthy else 0, self._agent_attrs)
 
             lag = await self._get_consumer_lag()
-            _CONSUMER_LAG_SECONDS.add(lag, self._agent_attrs)
+            _CONSUMER_LAG_SECONDS.set(lag, self._agent_attrs)
 
-            # Update time_since_last_bar (only if we've processed bars; None means never processed)
             if self._health_metrics._last_bar_ts:
                 time_since = (datetime.now(UTC) - self._health_metrics._last_bar_ts).total_seconds()
-                _TIME_SINCE_LAST_BAR_SECONDS.add(time_since, self._agent_attrs)
-            # When _last_bar_ts is None, metric remains at 0 (never processed)
+                _TIME_SINCE_LAST_BAR_SECONDS.set(time_since, self._agent_attrs)
 
             await asyncio.sleep(15)
 
@@ -620,10 +618,10 @@ class BarAggregatorComputeAgent(BaseAgent):
             self._consumer_restart_needed = True
 
     async def _get_consumer_lag(self) -> int:
-        """Get current consumer lag using cached _lag_consumer (AUDIT-LOW-6).
+        """Get current consumer lag using committed offsets vs log end offset.
 
-        Reuses self._lag_consumer set in _setup() instead of creating a new
-        AIOKafkaConsumer per call — new instances waste connections and skew readings.
+        Uses committed offset (matches rpk group describe) rather than the
+        aiokafka internal fetch position, which can diverge from committed state.
         """
         try:
             inner = getattr(self._kafka_consumer, "_consumer", None)
@@ -634,10 +632,14 @@ class BarAggregatorComputeAgent(BaseAgent):
                 return 0
 
             tp = next(iter(partitions))
-            end_offsets = await self._lag_consumer.end_offsets([tp])
-            position = await inner.position(tp)
+            end_offsets, committed = await asyncio.gather(
+                self._lag_consumer.end_offsets([tp]),
+                inner.committed(tp),
+            )
+            if committed is None:
+                return 0
 
-            return end_offsets[tp] - position if end_offsets[tp] >= position else 0
+            return max(0, end_offsets[tp] - committed)
         except Exception:
             return 0  # Assume healthy if lag check fails
 

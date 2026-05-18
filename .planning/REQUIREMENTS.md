@@ -111,19 +111,6 @@
 - [ ] **THREAD-01**: `_settings_singleton` module-level global in settings.py protected with `threading.RLock`; concurrent reads from ThreadPoolExecutor threads are race-free
 - [ ] **THREAD-02**: `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async reads/writes from per-key workers (PERF-07) are safe
 
-### RISK — Portfolio Risk Gates
-
-- [ ] **RISK-01**: `SignalTrackerComputeAgent` enforces `max_active_per_direction` (default 5) and `max_active_per_symbol` (default 2) concentration limits before activating new signals
-- [ ] **RISK-02**: Signals exceeding concentration limits are persisted as `risk_suppressed` in signal_ledger; status flows through the same lifecycle path as `regime_suppressed`
-- [ ] **RISK-03**: OTel counter `signal_tracker_risk_suppressed_total` with `reason` label (direction_limit, symbol_limit) fires on every suppression event
-- [ ] **RISK-04**: Limits overridable via `INDICAGENT_MAX_ACTIVE_PER_DIRECTION` and `INDICAGENT_MAX_ACTIVE_PER_SYMBOL` env vars; change takes effect on next signal activation check without service restart
-
-### QUAL — Signal Quality Completeness
-
-- [ ] **QUAL-01**: `signal_metrics` table adds skewness and kurtosis columns for R-multiple distribution shape; negative skewness flags left-tail blowup risk
-- [ ] **QUAL-02**: `signal_metrics` table adds min_r (worst pnl_r in window) and recovery_factor (avg_mfe / abs(min_r)) columns
-- [ ] **QUAL-03**: `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') alongside global '*' aggregate; enables per-instrument quality evaluation for v2.7 lane evaluation
-- [ ] **QUAL-04**: DB migration for new columns is idempotent (IF NOT EXISTS); all existing signal_metrics consumers work unchanged; new columns nullable with NULL default
 
 ---
 
@@ -177,11 +164,3 @@
 | LEDGER-02 | Phase 091 | Pending |
 | THREAD-01 | Phase 091 | Pending |
 | THREAD-02 | Phase 091 | Pending |
-| RISK-01 | Phase 092 | Pending |
-| RISK-02 | Phase 092 | Pending |
-| RISK-03 | Phase 092 | Pending |
-| RISK-04 | Phase 092 | Pending |
-| QUAL-01 | Phase 093 | Pending |
-| QUAL-02 | Phase 093 | Pending |
-| QUAL-03 | Phase 093 | Pending |
-| QUAL-04 | Phase 093 | Pending |
