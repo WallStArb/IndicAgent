@@ -514,7 +514,8 @@ class TestAlphaAgentSystemMessages:
     def test_skeptic_no_think_prefix(self):
         from src.intelligence.ai.alpha.skeptic_agent import _SYSTEM_MESSAGE
 
-        assert _SYSTEM_MESSAGE.startswith("/no_think")
+        assert not _SYSTEM_MESSAGE.startswith("/no_think")
+        assert _SYSTEM_MESSAGE.startswith("You are")
 
     def test_skeptic_max_tokens(self):
         import inspect
@@ -528,7 +529,8 @@ class TestAlphaAgentSystemMessages:
     def test_correlation_no_think_prefix(self):
         from src.intelligence.ai.alpha.correlation_agent import _SYSTEM_MESSAGE
 
-        assert _SYSTEM_MESSAGE.startswith("/no_think")
+        assert not _SYSTEM_MESSAGE.startswith("/no_think")
+        assert _SYSTEM_MESSAGE.startswith("You are")
 
     def test_correlation_max_tokens(self):
         import inspect
@@ -542,7 +544,8 @@ class TestAlphaAgentSystemMessages:
     def test_regime_coherence_no_think_prefix(self):
         from src.intelligence.ai.alpha.regime_coherence_agent import _SYSTEM_MESSAGE
 
-        assert _SYSTEM_MESSAGE.startswith("/no_think")
+        assert not _SYSTEM_MESSAGE.startswith("/no_think")
+        assert _SYSTEM_MESSAGE.startswith("You are")
 
     def test_regime_coherence_max_tokens(self):
         import inspect
@@ -556,7 +559,8 @@ class TestAlphaAgentSystemMessages:
     def test_counterfactual_no_think_prefix(self):
         from src.intelligence.ai.alpha.counterfactual_agent import _SYSTEM_MESSAGE
 
-        assert _SYSTEM_MESSAGE.startswith("/no_think")
+        assert not _SYSTEM_MESSAGE.startswith("/no_think")
+        assert _SYSTEM_MESSAGE.startswith("You are")
 
     def test_counterfactual_max_tokens(self):
         import inspect

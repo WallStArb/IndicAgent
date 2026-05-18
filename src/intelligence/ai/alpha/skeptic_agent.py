@@ -23,7 +23,6 @@ from src.intelligence.ai.alpha.skeptic_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
-    "/no_think\n\n"
     "You are a financial trading risk analyst specializing in identifying "
     "signal weaknesses. Always respond with valid JSON. "
     '{"failure_probability": float, "confidence": float, '
