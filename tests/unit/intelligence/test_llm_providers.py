@@ -195,16 +195,11 @@ class TestOllamaProvider:
         provider = self._make_provider()
 
         mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"message": {"content": "Ollama reply"}}
-        mock_resp.raise_for_status = MagicMock()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.read.return_value = _make_ollama_response("Ollama reply")
 
-        with patch("httpx.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.post.return_value = mock_resp
-            mock_client_class.return_value = mock_client
+        with patch("urllib.request.urlopen", return_value=mock_resp):
             result = await provider.generate("prompt", "system", 100, 30.0)
 
         assert result == "Ollama reply"
@@ -212,17 +207,10 @@ class TestOllamaProvider:
     @pytest.mark.asyncio
     async def test_generate_failure_returns_none(self):
         """generate() returns None on network exception."""
-        import httpx
-
         _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
-        with patch("httpx.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.post.side_effect = httpx.ConnectError("refused")
-            mock_client_class.return_value = mock_client
+        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
             result = await provider.generate("prompt", "system", 100, 30.0)
 
         assert result is None
@@ -230,17 +218,10 @@ class TestOllamaProvider:
     @pytest.mark.asyncio
     async def test_failure_tracked_in_circuit_breaker(self):
         """Failure increments failure_count in the ollama-specific circuit breaker."""
-        import httpx
-
         _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
-        with patch("httpx.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.post.side_effect = httpx.ConnectError("refused")
-            mock_client_class.return_value = mock_client
+        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
             await provider.generate("prompt", "system", 100, 30.0)
 
         state = _ollama_circuit_breaker.plugin_states[provider.provider_id]
@@ -282,28 +263,22 @@ class TestLLMChain:
         provider2 = OllamaProvider("qwen3.5:9b", base_url="http://fake-ollama.local")
         chain = LLMChain([provider1, provider2])
 
+        ollama_resp = MagicMock()
+        ollama_resp.__enter__ = lambda s: s
+        ollama_resp.__exit__ = MagicMock(return_value=False)
+        ollama_resp.read.return_value = _make_ollama_response("Fallback reply")
+
         call_count = [0]
 
-        def _side_effect(*args, **kwargs):
+        def _urlopen_side_effect(req, timeout=None):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ConnectionError("first fails")
-            # Return successful response for subsequent calls
-            mock_resp = MagicMock()
-            mock_resp.status_code = 200
-            mock_resp.json.return_value = {"message": {"content": "Fallback reply"}}
-            mock_resp.raise_for_status = MagicMock()
-            return mock_resp
+            return ollama_resp
 
-        with patch("urllib.request.urlopen", side_effect=_side_effect):
-            with patch("httpx.Client") as mock_client_class:
-                mock_client = MagicMock()
-                mock_client.__enter__ = MagicMock(return_value=mock_client)
-                mock_client.__exit__ = MagicMock(return_value=False)
-                mock_client.post.side_effect = _side_effect
-                mock_client_class.return_value = mock_client
-                # First provider will fail 3 times (retries), then second succeeds
-                result = await chain.generate("prompt", "system", 100, 30.0)
+        with patch("urllib.request.urlopen", side_effect=_urlopen_side_effect):
+            # First provider will fail 3 times (retries), then second succeeds
+            result = await chain.generate("prompt", "system", 100, 30.0)
 
         assert result == "Fallback reply"
         assert chain.last_provider_id == provider2.provider_id
