@@ -111,6 +111,12 @@
 - [ ] **THREAD-01**: `_settings_singleton` module-level global in settings.py protected with `threading.RLock`; concurrent reads from ThreadPoolExecutor threads are race-free
 - [ ] **THREAD-02**: `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async reads/writes from per-key workers (PERF-07) are safe
 
+### QUAL — Signal Quality Completeness
+
+- [ ] **QUAL-01**: `signal_metrics` table adds skewness and kurtosis columns for R-multiple distribution shape; negative skewness flags left-tail blowup risk
+- [ ] **QUAL-02**: `signal_metrics` table adds min_r (worst single pnl_r), p5_r (5th percentile — outlier-robust tail), and recovery_factor (avg_mfe / abs(p5_r)) columns
+- [ ] **QUAL-03**: `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') alongside global '*' aggregate; enables per-instrument quality evaluation
+- [ ] **QUAL-04**: DB migration for new columns is idempotent (IF NOT EXISTS); all existing signal_metrics consumers work unchanged; new columns nullable with NULL default
 
 ---
 
@@ -155,12 +161,16 @@
 | PERF-09 | Phase 089 | Pending |
 | PERF-10 | Phase 089 | Pending |
 | PERF-10 | Phase 089 | Pending |
-| INST-01 | Phase 090 | Pending |
-| INST-02 | Phase 090 | Pending |
-| INST-03 | Phase 090 | Pending |
-| INST-04 | Phase 090 | Pending |
-| INST-05 | Phase 090 | Pending |
-| LEDGER-01 | Phase 091 | Pending |
-| LEDGER-02 | Phase 091 | Pending |
-| THREAD-01 | Phase 091 | Pending |
-| THREAD-02 | Phase 091 | Pending |
+| INST-01 | Phase 091 | Pending |
+| INST-02 | Phase 091 | Pending |
+| INST-03 | Phase 091 | Pending |
+| INST-04 | Phase 091 | Pending |
+| INST-05 | Phase 091 | Pending |
+| LEDGER-01 | Phase 090 | Pending |
+| LEDGER-02 | Phase 090 | Pending |
+| THREAD-01 | Phase 090 | Pending |
+| THREAD-02 | Phase 090 | Pending |
+| QUAL-01 | Phase 092 | Pending |
+| QUAL-02 | Phase 092 | Pending |
+| QUAL-03 | Phase 092 | Pending |
+| QUAL-04 | Phase 092 | Pending |
