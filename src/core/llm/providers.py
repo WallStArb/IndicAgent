@@ -20,6 +20,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+import httpx
 import structlog
 
 # Circuit breaker and retry
@@ -371,14 +372,20 @@ class OllamaProvider:
                 "think": False,
                 "options": {"num_predict": max_tokens},
             }
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self.base_url}/api/chat",
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
+            try:
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.post(
+                        f"{self.base_url}/api/chat",
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    result = resp.json()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    raise ProviderRateLimitError("HTTP 429: Too Many Requests") from exc
+                raise
+            except httpx.RequestError as exc:
+                raise ConnectionError(f"Ollama request error: {exc}") from exc
             raw = result.get("message", {}).get("content", "").strip()
             return _strip_thinking_tags(raw) or None
 
