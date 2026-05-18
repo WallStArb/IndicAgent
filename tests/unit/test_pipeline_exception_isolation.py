@@ -25,6 +25,17 @@ def _failing_plugin(error_cls=RuntimeError, msg="injected failure"):
     return FailingPlugin()
 
 
+# Helper: run executor.run_i1 with minimal state plumbing
+async def _run_i1_via_executor(agent, frames, symbol="ES", tf="1m"):
+    """Run I1 tier via PluginExecutor with empty state (mirrors orchestrator flow)."""
+    plugin_states = agent._state_mgr.get_all_states_for(symbol, tf)
+    lock = agent._state_mgr.get_lock((symbol, tf))
+    result, _state_updates = await agent._executor.run_i1(
+        plugin_states, lock, frames, symbol, tf, shadow_cache={}
+    )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -39,12 +50,12 @@ class TestExceptionIsolation:
         agent = make_agent()
 
         plugin_names = TIER_I1[:5]
-        agent._plugin_cache[plugin_names[0]] = _failing_plugin()
+        agent._executor._plugin_cache[plugin_names[0]] = _failing_plugin()
         for i, name in enumerate(plugin_names[1:], start=1):
-            agent._plugin_cache[name] = deterministic_plugin({f"{name}_val": float(i)})
+            agent._executor._plugin_cache[name] = deterministic_plugin({f"{name}_val": float(i)})
 
         frames = {"main": MagicMock()}
-        result = await agent._run_i1(frames, "ES", "1m")
+        result = await _run_i1_via_executor(agent, frames)
 
         assert isinstance(result, dict), f"Expected dict, got {type(result)}"
         for name in plugin_names[1:]:
@@ -54,14 +65,14 @@ class TestExceptionIsolation:
 
     @pytest.mark.asyncio
     async def test_all_i1_plugins_raise_returns_empty(self):
-        """All I1 plugins fail — _run_i1 returns empty dict without crashing."""
+        """All I1 plugins fail — run_i1 returns empty dict without crashing."""
         agent = make_agent()
 
         for name in TIER_I1[:5]:
-            agent._plugin_cache[name] = _failing_plugin()
+            agent._executor._plugin_cache[name] = _failing_plugin()
 
         frames = {"main": MagicMock()}
-        result = await agent._run_i1(frames, "ES", "1m")
+        result = await _run_i1_via_executor(agent, frames)
 
         assert isinstance(result, dict), f"Expected dict, got {type(result)}"
         assert result == {}, f"Expected empty dict, got keys: {list(result.keys())}"
@@ -72,9 +83,11 @@ class TestExceptionIsolation:
         agent = make_agent()
 
         plugin_names = I7_PLUGINS[:3]
-        agent._plugin_cache[plugin_names[0]] = _failing_plugin()
-        agent._plugin_cache[plugin_names[1]] = signal_plugin(plugin_names[1], direction=1)
-        agent._plugin_cache[plugin_names[2]] = signal_plugin(plugin_names[2], direction=-1)
+        agent._executor._plugin_cache[plugin_names[0]] = _failing_plugin()
+        agent._executor._plugin_cache[plugin_names[1]] = signal_plugin(plugin_names[1], direction=1)
+        agent._executor._plugin_cache[plugin_names[2]] = signal_plugin(
+            plugin_names[2], direction=-1
+        )
 
         bar = MagicMock()
         bar.symbol = "ES"
@@ -132,12 +145,12 @@ class TestExceptionIsolation:
         agent = make_agent()
 
         failing_name = TIER_I1[0]
-        agent._plugin_cache[failing_name] = _failing_plugin()
+        agent._executor._plugin_cache[failing_name] = _failing_plugin()
 
         frames = {"main": MagicMock()}
 
-        with patch("services.intelligence_pipeline_agent.PLUGIN_ERRORS_TOTAL") as mock_errors:
-            await agent._run_i1(frames, "ES", "1m")
+        with patch("src.intelligence.pipeline.executor.PLUGIN_ERRORS_TOTAL") as mock_errors:
+            await _run_i1_via_executor(agent, frames)
 
         # OTel counter: .add(1, {"plugin_name": ..., "tier": "I1"}) must have been called
         mock_errors.add.assert_called()
@@ -153,12 +166,12 @@ class TestExceptionIsolation:
         agent = make_agent()
 
         plugin_name = TIER_I1[0]
-        agent._plugin_cache[plugin_name] = deterministic_plugin({"some_key": 1.0})
+        agent._executor._plugin_cache[plugin_name] = deterministic_plugin({"some_key": 1.0})
 
         frames = {"main": MagicMock()}
 
-        with patch("services.intelligence_pipeline_agent.PLUGIN_DURATION_MS") as mock_duration:
-            await agent._run_i1(frames, "ES", "1m")
+        with patch("src.intelligence.pipeline.executor.PLUGIN_DURATION_MS") as mock_duration:
+            await _run_i1_via_executor(agent, frames)
 
         # OTel histogram: .record(value, attrs) must have been called
         mock_duration.record.assert_called()
@@ -176,14 +189,14 @@ class TestExceptionIsolation:
         agent = make_agent()
 
         plugin_names = TIER_I1[:5]
-        agent._plugin_cache[plugin_names[0]] = _failing_plugin()
-        agent._plugin_cache[plugin_names[2]] = _failing_plugin()
-        agent._plugin_cache[plugin_names[1]] = deterministic_plugin({"p1_key": 1})
-        agent._plugin_cache[plugin_names[3]] = deterministic_plugin({"p3_key": 3})
-        agent._plugin_cache[plugin_names[4]] = deterministic_plugin({"p4_key": 4})
+        agent._executor._plugin_cache[plugin_names[0]] = _failing_plugin()
+        agent._executor._plugin_cache[plugin_names[2]] = _failing_plugin()
+        agent._executor._plugin_cache[plugin_names[1]] = deterministic_plugin({"p1_key": 1})
+        agent._executor._plugin_cache[plugin_names[3]] = deterministic_plugin({"p3_key": 3})
+        agent._executor._plugin_cache[plugin_names[4]] = deterministic_plugin({"p4_key": 4})
 
         frames = {"main": MagicMock()}
-        result = await agent._run_i1(frames, "ES", "1m")
+        result = await _run_i1_via_executor(agent, frames)
 
         assert "p1_key" in result, "Key p1_key missing from successful plugin 1"
         assert "p3_key" in result, "Key p3_key missing from successful plugin 3"
