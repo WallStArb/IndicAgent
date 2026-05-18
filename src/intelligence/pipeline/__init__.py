@@ -13,6 +13,11 @@ from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
+from src.intelligence.pipeline.signal_processor import (
+    CacheSnapshot,
+    SignalProcessor,
+    SignalProcessorResult,
+)
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
@@ -25,7 +30,10 @@ __all__ = [
     "rank_signals",
     "select_winner",
     "CacheManager",
+    "CacheSnapshot",
     "OutputQueue",
     "PluginExecutor",
     "PluginStateManager",
+    "SignalProcessor",
+    "SignalProcessorResult",
 ]
