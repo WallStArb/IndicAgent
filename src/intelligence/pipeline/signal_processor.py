@@ -34,6 +34,11 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
+    SIGNAL_PROCESSOR_CIS_NULL_TOTAL,
+    SIGNAL_PROCESSOR_DLQ_TOTAL,
+    SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL,
+    SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL,
+    SIGNAL_PROCESSOR_WINNER_TOTAL,
     counter,
 )
 
@@ -243,11 +248,21 @@ class SignalProcessor:
         """Run signal pipeline stages and return structured result.
 
         Reads cache values from cache_snapshot — NOT from any self-held cache reference.
+        Applies alpha decay to raw_signals before gates (D-21, moved from orchestrator).
+        Emits D-22 OTel counters for gate observability.
         """
         # Sync CIS weights at start of every bar (D-07 Pitfall 4 mediation)
         self.sync_cis_weights(cache_snapshot.cis_weights, cache_snapshot.cis_weights_version)
 
         i7_computed_at = datetime.now(UTC)
+
+        # Alpha decay (D-21): apply before gate pipeline, using self._setup_last_fire
+        for sig in raw_signals:
+            fire_key = (symbol, tf, sig.get("setup_plugin", ""), sig.get("direction", 0))
+            _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+
+        # D-22: total signals entering the pipeline
+        SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL.add(len(raw_signals))
 
         # Track signals count
         for _ in raw_signals:
@@ -284,6 +299,8 @@ class SignalProcessor:
         # CIS score absent (scorer returned None) → DLQ immediately, no further pipeline work
         if raw_cis is None:
             self._signal_dlq_total.add(1)
+            SIGNAL_PROCESSOR_CIS_NULL_TOTAL.add(1)
+            SIGNAL_PROCESSOR_DLQ_TOTAL.add(1, {"reason": "cis_score_null"})
             dlq_payload = {
                 "reason": "cis_score_null",
                 "symbol": symbol,
@@ -331,6 +348,10 @@ class SignalProcessor:
         quality_gated = await apply_quality_gate(
             raw_signals, features, tf=tf, recorder=self._transform_recorder
         )
+        # D-22: gate rejection counter — signals dropped by quality gate
+        quality_dropped = len(raw_signals) - len(quality_gated)
+        if quality_dropped > 0:
+            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(quality_dropped, {"gate": "quality"})
 
         # Attribution capture: AFTER quality gate, BEFORE regime gate
         for sig in quality_gated:
@@ -357,6 +378,10 @@ class SignalProcessor:
                         "tf": tf,
                     },
                 )
+        # D-22: gate rejection counter — signals dropped by regime gate
+        regime_dropped = len(quality_gated) - len(regime_gated)
+        if regime_dropped > 0:
+            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(regime_dropped, {"gate": "regime"})
 
         # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
         for sig in regime_gated:
@@ -370,6 +395,10 @@ class SignalProcessor:
             symbol=symbol,
             recorder=self._transform_recorder,
         )
+        # D-22: gate rejection counter — signals dropped by TOD gate
+        tod_dropped = len(regime_gated) - len(tod_adjusted)
+        if tod_dropped > 0:
+            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(tod_dropped, {"gate": "tod"})
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
@@ -382,6 +411,10 @@ class SignalProcessor:
             symbol=symbol,
             recorder=self._transform_recorder,
         )
+        # D-22: gate rejection counter — signals dropped by calibration gate
+        calibration_dropped = len(tod_adjusted) - len(calibrated)
+        if calibration_dropped > 0:
+            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(calibration_dropped, {"gate": "calibration"})
         ranked = await rank_signals(
             calibrated,
             cache_snapshot.perf_weights,
@@ -436,6 +469,10 @@ class SignalProcessor:
         # Update setup_last_fire after winner
         if winner is not None:
             self._signals_selected.add(1)
+            # D-22: winner counter labeled by entry_type
+            SIGNAL_PROCESSOR_WINNER_TOTAL.add(
+                1, {"entry_type": winner.get("entry_type", "unknown")}
+            )
             w_plugin = winner.get("setup_plugin", "")
             w_dir = winner.get("direction", 0)
             fire_key = (symbol, tf, w_plugin, w_dir)
@@ -479,6 +516,7 @@ class SignalProcessor:
         for sig in ranked:
             if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
                 self._signal_dlq_total.add(1)
+                SIGNAL_PROCESSOR_DLQ_TOTAL.add(1, {"reason": "cis_assertion_failed"})
                 dlq_payload = {
                     "symbol": symbol,
                     "tf": tf,
