@@ -1,4 +1,4 @@
-# Phase 091: Signal Ledger Hardening + Thread Safety - Context
+# Phase 090: Signal Ledger Hardening + Thread Safety - Context
 
 **Gathered:** 2026-05-18
 **Status:** Ready for planning
@@ -86,5 +86,5 @@ Zero behavior change. Zero signal logic affected.
 </deferred>
 
 ---
-*Phase: 091-signal-ledger-thread-safety*
+*Phase: 090-signal-ledger-thread-safety*
 *Context gathered: 2026-05-18*

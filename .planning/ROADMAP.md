@@ -664,7 +664,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
-| 088. God Class Decomposition | v2.6 | 2/5 | In Progress|  |
+| 088. God Class Decomposition | v2.6 | 5/5 | Complete   | 2026-05-18 |
 | 089. First Qualitative Intelligence Lane | v2.6 | 0/TBD | Not started | - |
 
 ### Phase 52.5: Parity Auditor Agent
@@ -1259,9 +1259,9 @@ Plans:
 **Plans**: 5 plans
 - [x] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
 - [x] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
-- [ ] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
-- [ ] 088-04-PLAN.md — Extract PluginExecutor with state-as-parameter interface (Wave 2)
-- [ ] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
+- [x] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
+- [x] 088-04-PLAN.md — Extract PluginExecutor with state-as-parameter interface (Wave 2)
+- [x] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
 
 ### Phase 089: Compute Performance Optimization
 **Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
@@ -1289,7 +1289,7 @@ Plans:
   9. `bar.model_copy(update=...)` gap-flag allocation eliminated
 **Plans**: TBD
 
-### Phase 090: Instrument Registry
+### Phase 091: Instrument Registry
 **Goal**: Make `instruments` DB table the single source of truth for all instrument configuration. settings.py becomes pure infra config (kafka, DB, IBKR connection params only). API CRUD lets operators add/remove symbols without code deploy. Pipeline picks up changes via asyncpg LISTEN/NOTIFY within 1 second.
 **Depends on**: Phase 088 (CacheManager owns instrument cache post-decomposition)
 **Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05
@@ -1301,7 +1301,7 @@ Plans:
   5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
 **Plans**: TBD
 
-### Phase 091: Signal Ledger Hardening + Thread Safety
+### Phase 090: Signal Ledger Hardening + Thread Safety
 **Goal**: Finish the PERSIST-05 job for the highest-volume writer — `signal_ledger_repository.py`'s 65-element positional tuple replaced with named-field `_to_row()` helper. Fix latent thread-safety races on shared module-level caches that worsen post-Phase-089 per-key concurrency.
 **Depends on**: Phase 089 (PERF-07 per-key workers make thread races live)
 **Requirements**: LEDGER-01, LEDGER-02, THREAD-01, THREAD-02
@@ -1310,6 +1310,17 @@ Plans:
   2. `_settings_singleton` in settings.py protected with `threading.RLock`; no data races from ThreadPoolExecutor threads
   3. `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async access safe post-PERF-07
   4. All existing signal_ledger write paths pass tests unchanged
+**Plans**: TBD
+
+### Phase 092: Signal Quality Completeness
+**Goal**: Add R-multiple distribution shape (skewness, kurtosis), worst-case outcome (min_r), and recovery_factor to signal_metrics. Run compute per-symbol as well as globally. 1.27M resolved signals confirmed — data volume is sufficient.
+**Depends on**: Phase 090 (thread safety), Phase 091 (instrument registry). signal_metrics schema migration clean to add columns)
+**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
+**Success Criteria** (what must be TRUE):
+  1. `signal_metrics` table has skewness, kurtosis, min_r, recovery_factor columns; DB migration is idempotent
+  2. `_build_metrics_result` computes all four new metrics from existing pnl_rs/mfes accumulators; no new DB queries
+  3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
+  4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
 **Plans**: TBD
 
 

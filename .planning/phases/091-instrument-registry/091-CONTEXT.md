@@ -1,4 +1,4 @@
-# Phase 090: Instrument Registry - Context
+# Phase 091: Instrument Registry - Context
 
 **Gathered:** 2026-05-18
 **Status:** Ready for planning
@@ -82,8 +82,9 @@ Non-futures (equities, FX, crypto) are the primary migration target — futures 
 - Auth on instrument API (add at v2.7 if external access is required)
 - Hot-reload of IBKR connection params (not instruments; different problem)
 - Instrument schema versioning / audit log (track who changed what instrument config)
+- Proper migration framework (Alembic or Flyway) — per-service `ensure_schema()` startup migrations scatter schema ownership across agents. A single migration registry is the correct long-term design. Acceptable now; revisit when service count grows.
 </deferred>
 
 ---
-*Phase: 090-instrument-registry*
+*Phase: 091-instrument-registry*
 *Context gathered: 2026-05-18*
