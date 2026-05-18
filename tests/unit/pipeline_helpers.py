@@ -19,6 +19,7 @@ from src.core.bar_history import BarHistory
 from src.intelligence.pipeline.cache_manager import CacheManager
 from src.intelligence.pipeline.executor import PluginExecutor
 from src.intelligence.pipeline.output_queue import OutputQueue
+from src.intelligence.pipeline.signal_processor import SignalProcessor
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.trading.cis_scorer import CISScorer
 
@@ -46,20 +47,14 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._i1_latency_ms = MagicMock()
     agent._i7_latency_ms = MagicMock()
     agent._pipeline_errors = MagicMock()
-    agent._setup_last_fire = {}
-    agent._signals_generated = MagicMock()
     agent.settings = MagicMock(env_name="dev")
     agent.settings.intelligence_thread_pool_workers = 0
     agent._bar_history = BarHistory(maxlen=200)
-    agent._kalman_state = {}
-    agent._cis_scorer = CISScorer()
     # CacheManager with an async mock DB — queries return [] by default.
     # Seed cache state via the public seed_* API: agent._cache_mgr.seed_perf_weights({...})
     _db = AsyncMock()
     _db.execute_query = AsyncMock(return_value=[])
     agent._cache_mgr = CacheManager(db=_db, settings=agent.settings)
-    # CIS scorer mediation version tracker (matches orchestrator __init__)
-    agent._last_synced_cis_version = 0
     agent._regime_cache = {}
     agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
     agent._transform_recorder = MagicMock()
@@ -78,6 +73,12 @@ def make_agent() -> IntelligencePipelineComputeAgent:
         plugin_cache=agent._plugin_cache,
         instrument_map=agent._instrument_map,
         circuit_breakers={},
+    )
+    # SignalProcessor owns kalman_state, setup_last_fire, and the I7 signal pipeline stages.
+    agent._sig_proc = SignalProcessor(
+        cis_scorer=CISScorer(),
+        settings=agent.settings,
+        transform_recorder=None,
     )
     return agent
 

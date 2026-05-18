@@ -125,39 +125,52 @@ class TestPipelineDeterminism:
         event.smc = None
         event.i6 = None
 
+        from src.intelligence.pipeline.signal_processor import CacheSnapshot
+
+        snapshot = CacheSnapshot(
+            perf_weights={},
+            calibration_curves={},
+            tod_priors={},
+            drift_penalties={},
+            cis_weights={},
+            cis_weights_version=0,
+        )
+
         results = []
         with (
             patch(
-                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+                "src.intelligence.pipeline.signal_processor._build_features_from_event",
+                return_value={},
             ),
             patch(
-                "services.intelligence_pipeline_agent.apply_quality_gate",
+                "src.intelligence.pipeline.signal_processor.apply_quality_gate",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             patch(
-                "services.intelligence_pipeline_agent.apply_regime_gate",
+                "src.intelligence.pipeline.signal_processor.apply_regime_gate",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             patch(
-                "services.intelligence_pipeline_agent.apply_tod_adjustment",
+                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             patch(
-                "services.intelligence_pipeline_agent.apply_calibration",
+                "src.intelligence.pipeline.signal_processor.apply_calibration",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             patch(
-                "services.intelligence_pipeline_agent.rank_signals",
+                "src.intelligence.pipeline.signal_processor.rank_signals",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
             patch(
-                "services.intelligence_pipeline_agent.select_winner",
+                "src.intelligence.pipeline.signal_processor.select_winner",
                 return_value=(None, [], "no_signal"),
             ),
-            patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             for _ in range(100):
-                r = await agent._run_i7(bar, event, {})
+                r = await agent._sig_proc.process(
+                    event, {}, bar, "ES", "1m", raw_signals=[], cache_snapshot=snapshot
+                )
                 results.append(r)
 
         assert len(results) == 100
@@ -165,10 +178,10 @@ class TestPipelineDeterminism:
         def signal_key(sig):
             return (sig.get("setup_plugin"), sig.get("direction"), sig.get("confidence"))
 
-        first_keys = sorted(signal_key(s) for s in results[0]["ranked"])
+        first_keys = sorted(signal_key(s) for s in results[0].i7_result["ranked"])
 
         for i, r in enumerate(results[1:], start=1):
-            run_keys = sorted(signal_key(s) for s in r["ranked"])
+            run_keys = sorted(signal_key(s) for s in r.i7_result["ranked"])
             assert run_keys == first_keys, (
                 f"I7 output not deterministic — run {i} differs from run 0: "
                 f"{run_keys} != {first_keys}"
