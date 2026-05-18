@@ -126,9 +126,9 @@ class SignalProcessorResult:
     """
 
     success: bool
-    signals_payload: dict | None = None  # -> topic_intelligence_i7_signals
-    dlq_payload: dict | None = None  # -> topic_signal_dlq
-    winner_payload: dict | None = None  # -> topic_signals_aggregated (god class line 1544)
+    signals_payload: dict | None = None  # routed to i7 signals topic by orchestrator
+    dlq_payload: dict | None = None  # routed to signal DLQ topic by orchestrator
+    winner_payload: dict | None = None  # routed to aggregated signals topic by orchestrator
     i7_result: dict | None = (
         None  # consumed by orchestrator._enqueue_intel_journal (god class line 1683)
     )
@@ -275,6 +275,30 @@ class SignalProcessor:
         }
         cis_result = self._cis_scorer.score(features, plugin_outputs)
         raw_cis = cis_result.cis_score
+
+        # CIS score absent (scorer returned None) → DLQ immediately, no further pipeline work
+        if raw_cis is None:
+            self._signal_dlq_total.add(1)
+            dlq_payload = {
+                "reason": "cis_score_null",
+                "symbol": symbol,
+                "tf": tf,
+                "bar_ts": format_iso_ts(bar.ts),
+            }
+            return SignalProcessorResult(
+                success=False,
+                dlq_payload=dlq_payload,
+                i7_result={
+                    "ranked": [],
+                    "winner": None,
+                    "signals_evaluated": len(raw_signals),
+                    "signals_after_quality": 0,
+                    "signals_after_regime": 0,
+                    "signals_after_tod": 0,
+                    "signals_after_calibration": 0,
+                    "i7_computed_at": i7_computed_at,
+                },
+            )
 
         # Kalman-filter the CIS score to smooth bar-to-bar noise
         kalman_key = (symbol, tf)
