@@ -28,7 +28,7 @@ class SupportResistancePlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"structure"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     window: int = 10
     cluster_pct: float = 0.005
     _state: dict = field(default_factory=dict)

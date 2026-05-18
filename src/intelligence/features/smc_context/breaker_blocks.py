@@ -35,7 +35,7 @@ class BreakerBlocksPlugin:
     min_lookback: int = 2
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=10),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

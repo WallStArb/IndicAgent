@@ -38,7 +38,7 @@ class VolumeZscorePlugin:
     min_lookback: int = _WINDOW + 1
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume"})
-    inputs: tuple = (InputSpec(symbol=".*", timeframe="1m", lookback=_WINDOW + 5),)
+    inputs: tuple = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:

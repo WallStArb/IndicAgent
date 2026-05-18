@@ -23,7 +23,7 @@ class PSARPlugin:
     min_lookback: int = 10
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"trend"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=50),)
     af_step: float = 0.02
     af_max: float = 0.20
     _state: dict = field(default_factory=dict)

@@ -47,7 +47,7 @@ class FVGFillPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "smc", "fvg", "institutional"})
     # timeframe=".*" — InputSpec.timeframe is not enforced by the registry or service;
     # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=50),)
     regime_type: str = "mean_reversion"
     _state: dict = field(default_factory=dict)
 

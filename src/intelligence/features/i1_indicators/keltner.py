@@ -21,7 +21,7 @@ class KeltnerChannelsPlugin:
     min_lookback: int = 25
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 20
     atr_period: int = 20
     multiplier: float = 1.5

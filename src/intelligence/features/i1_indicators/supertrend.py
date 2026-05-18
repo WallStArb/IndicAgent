@@ -22,7 +22,7 @@ class SupertrendPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"trend"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     period: int = 10
     multiplier: float = 3.0
     _state: dict = field(default_factory=dict)

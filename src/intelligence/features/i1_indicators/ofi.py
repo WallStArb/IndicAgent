@@ -41,7 +41,7 @@ class OFIPlugin:
     min_lookback: int = 5
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume", "microstructure"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

@@ -32,7 +32,7 @@ class FairValueGapPlugin:
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:

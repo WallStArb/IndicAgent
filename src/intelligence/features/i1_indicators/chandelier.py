@@ -25,7 +25,7 @@ class ChandelierPlugin:
     min_lookback: int = 25
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 22
     multiplier: float = 3.0
     _state: dict = field(default_factory=dict)

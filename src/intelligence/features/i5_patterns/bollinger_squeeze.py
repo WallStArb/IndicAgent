@@ -19,7 +19,7 @@ class BollingerSqueezePlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"pattern", "volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     bb_period: int = 20
     bb_std: float = 2.0
     kc_period: int = 20

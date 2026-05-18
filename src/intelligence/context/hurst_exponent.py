@@ -111,7 +111,7 @@ class HurstExponentPlugin:
     min_lookback: int = 64
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"context", "regime"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=256),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=256),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

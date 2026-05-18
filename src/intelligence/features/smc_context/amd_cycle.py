@@ -46,7 +46,7 @@ class AMDCyclePlugin:
     min_lookback: int = 2
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money", "session"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=30),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=30),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

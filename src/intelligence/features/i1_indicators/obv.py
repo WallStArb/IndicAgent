@@ -15,7 +15,7 @@ class OBVPlugin:
     min_lookback: int = 2
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:

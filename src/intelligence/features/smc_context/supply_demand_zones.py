@@ -52,7 +52,7 @@ class SupplyDemandZonesPlugin:
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money", "zones"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=150),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=150),)
     _state: dict = field(default_factory=dict)
 
     # Detection thresholds

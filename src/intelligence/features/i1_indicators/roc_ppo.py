@@ -24,7 +24,7 @@ class ROCPPOPlugin:
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     roc_period: int = 14
     ppo_fast: int = 12
     ppo_slow: int = 26

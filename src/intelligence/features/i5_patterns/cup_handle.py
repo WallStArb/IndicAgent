@@ -28,7 +28,7 @@ class CupHandlePlugin:
     min_lookback: int = _MIN_CUP_BARS + _HANDLE_BARS
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=80),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=80),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
