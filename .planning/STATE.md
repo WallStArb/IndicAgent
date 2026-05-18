@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 089-02-PLAN.md
-last_updated: "2026-05-18T20:44:01.596Z"
+stopped_at: Completed 089-02 and 089-03 (Wave 1 parallel)
+last_updated: "2026-05-18T20:45:34.550Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 32
@@ -120,6 +120,7 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 089]: PERF-02 flat features retained: 79 read-only consumers across plugin tree; removal would break I2-I7 plugins
 - [Phase 089]: PERF-08 model_construct with fallback validation: trusted internal producer assumption consistent with DLQ wiring
 - [Phase 089]: PERF-09 gap flag in frames['__gap__']: explicit parameter threading preserves future plugin access without object mutation
+- [Phase 089]: 089-03: Batch drain preserves swallow-and-log for publish errors (existing test contract); CancelledError re-enqueues batch[handled+1:] before re-raise
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -135,8 +136,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-18T20:44:01.590Z
-Stopped at: Completed 089-02-PLAN.md
+Last session: 2026-05-18T20:45:34.546Z
+Stopped at: Completed 089-02 and 089-03 (Wave 1 parallel)
 Resume file: None
 Next: /gsd:execute-phase 088
 
@@ -214,3 +215,4 @@ Next: /gsd:execute-phase 088
 |-------|------|----------|-------|
 | Phase 089 P01 | 17 | 6 tasks | 9 files |
 | Phase 089 P02 | 8 | 3 tasks | 5 files |
+| Phase 089 P03 | 9 | 2 tasks | 4 files |
