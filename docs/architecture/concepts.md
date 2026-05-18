@@ -212,7 +212,7 @@ Three timer-based agents manage the ML training loop independently of the real-t
 
 **Key constraint:** Only `MLDiscoveryAgent` and `AINarrativeAgent` use LLMs. Orchestration, training, and monitoring are deterministic — production decisions cannot be non-deterministic.
 
-Full design (LangGraph supervisor, 5 domain agents, HITL pattern): `docs/ideas/ml-agent-architecture.md`.
+Full design (LangGraph supervisor, 5 domain agents, HITL pattern): `docs/ideas/ai-02-ml-agent-architecture.md`.
 
 ---
 

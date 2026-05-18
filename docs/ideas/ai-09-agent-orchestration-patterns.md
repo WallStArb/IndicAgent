@@ -49,7 +49,7 @@ For high-stakes signals (CIS ≥ 0.80, large position sizing context), run a str
 
 **Why it matters:** Reduces confirmation bias in high-confidence setups. The system currently scores signals but doesn't actively challenge them. Red team adversarial adds explicit bias reduction and surfaces black-swan scenarios the primary analysis misses.
 
-**Implementation note:** This is a natural evolution of the Counterfactual Insight Generator (see `i8-intelligence-extensions.md`) — the counterfactual is the "bear case" half of this pattern.
+**Implementation note:** This is a natural evolution of the Counterfactual Insight Generator (see `ai-07-i8-intelligence-extensions.md`) — the counterfactual is the "bear case" half of this pattern.
 
 ---
 

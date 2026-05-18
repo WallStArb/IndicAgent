@@ -467,8 +467,8 @@ development.llm.calls              # LLM call audit
 - [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
 - [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type
 - [Data Pipeline](data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
-- **ML/AI Architecture:** `../ideas/ml-agent-architecture.md` — Multi-agent orchestrator and swarm intelligence
-- **Intelligence Swarm:** `../ideas/intelligence-swarm-manifest.md` — Task/job-based agents for market friction analysis
+- **ML/AI Architecture:** `../ideas/ai-02-ml-agent-architecture.md` — Multi-agent orchestrator and swarm intelligence
+- **Intelligence Swarm:** `../ideas/ai-05-intelligence-swarm-manifest.md` — Task/job-based agents for market friction analysis
 - **Architecture:** `docs/architecture/plugin-native-architecture-explained.md`
 - **Code:** `src/intelligence/plugins.py`, `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 

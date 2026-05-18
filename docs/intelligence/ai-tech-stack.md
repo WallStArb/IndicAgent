@@ -5,8 +5,8 @@
 **Status:** Living document — reflects current v2.5 state + eAI/MCP expansion plans
 
 **Deep dives:**
-- Agent system: `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
-- MCP server: `../ideas/mcp-intelligence-server.md` — Tool use design for agents
+- Agent system: `../ideas/ai-02-ml-agent-architecture.md` — Multi-agent learning machine design
+- MCP server: `../ideas/ai-06-mcp-intelligence-server.md` — Tool use design for agents
 - eAI evolution: `../concepts/evolvable-ai.md` — Darwinian agent evolution framework
 - Validation: `../ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
 - Platform stack: `../ideas/tech-stack.md` — Full infrastructure decisions
@@ -143,7 +143,7 @@ All 4 providers are OpenAI-compatible (`/chat/completions` payload). This is the
 
 ### 3.1 MCP Intelligence Server (Tool Use)
 
-**Design doc:** `docs/ideas/mcp-intelligence-server.md`
+**Design doc:** `docs/ideas/ai-06-mcp-intelligence-server.md`
 
 MCP enables agents to pull historical data on demand instead of relying solely on pre-loaded `AIContext`. It's also the substrate for eAI tool set evolution.
 
@@ -159,7 +159,7 @@ MCP enables agents to pull historical data on demand instead of relying solely o
 
 ### 3.2 Evolvable AI (eAI) Substrate
 
-**Design doc:** `docs/concepts/evolvable-ai.md`, `docs/ideas/2026-05-06-evolvable-ai-agents.md`
+**Design doc:** `docs/concepts/evolvable-ai.md`, `docs/ideas/ai-03-evolvable-ai-agents.md`
 
 | Gap | What's Needed | Effort | Depends On |
 |-----|--------------|--------|------------|
@@ -544,16 +544,16 @@ Applies to: I7 plugins, swarm agents, ML models, LLM-derived heuristics, eAI-evo
 - `../architecture/current-state.md` — Active services, data flow, performance
 
 **Design docs (MCP + eAI):**
-- `../ideas/mcp-intelligence-server.md` — MCP server + tool use design
+- `../ideas/ai-06-mcp-intelligence-server.md` — MCP server + tool use design
 - `../concepts/evolvable-ai.md` — eAI concept overview
-- `../ideas/2026-05-06-evolvable-ai-agents.md` — Full eAI design document
-- `../ideas/agent-orchestration-patterns.md` — MoA, adversarial, dynamic leadership (future)
+- `../ideas/ai-03-evolvable-ai-agents.md` — Full eAI design document
+- `../ideas/ai-09-agent-orchestration-patterns.md` — MoA, adversarial, dynamic leadership (future)
 
 **Deep dives:**
-- `../ideas/ml-agent-architecture.md` — Multi-agent learning machine design
+- `../ideas/ai-02-ml-agent-architecture.md` — Multi-agent learning machine design
 - `../ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
 - `../ideas/tech-stack.md` — Full platform stack (Redpanda, TimescaleDB, etc.)
-- `../ideas/ai-integration-paths.md` — Tier 1/2/3 dependency chain
+- `../ideas/ai-01-integration-paths.md` — Tier 1/2/3 dependency chain
 
 **Code reference:**
 - `src/core/ai/AUTHORING.md` — Agent authoring protocol

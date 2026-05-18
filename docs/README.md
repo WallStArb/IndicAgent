@@ -10,6 +10,7 @@
 **→ [Guides](guides/)** — How to add plugins, run services, debug
 **→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 **→ [Ideas](ideas/)** — Research and strategy docs (living workspace)
+**→ [AI Ideas Index](ideas/ai-index.md)** — Standardized AI / ML / agentic idea cluster
 
 ---
 

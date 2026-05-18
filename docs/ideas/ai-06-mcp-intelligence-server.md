@@ -3,7 +3,7 @@
 **Status:** Implementation-ready design
 **Last Updated:** 2026-05-10
 **Branch:** feat/phase80-swarm-observability-ux
-**Related:** `docs/ideas/2026-05-06-evolvable-ai-agents.md`, `docs/concepts/evolvable-ai.md`, `docs/intelligence/ai-tech-stack.md`
+**Related:** `docs/ideas/ai-03-evolvable-ai-agents.md`, `docs/concepts/evolvable-ai.md`, `docs/intelligence/ai-tech-stack.md`
 
 ## Concept
 

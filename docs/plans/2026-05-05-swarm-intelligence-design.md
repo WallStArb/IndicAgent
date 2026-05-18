@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-05
 **Status:** Approved — pending implementation plan
-**Supersedes:** `docs/ideas/agent-orchestration-patterns.md` (March 2026 draft — framed as post-MLAgent; this design is the current canonical target)
-**Related:** `docs/ideas/ai-integration-paths.md`, `docs/plans/2026-05-02-unified-intelligence-design.md`
+**Supersedes:** `docs/ideas/ai-09-agent-orchestration-patterns.md` (March 2026 draft — framed as post-MLAgent; this design is the current canonical target)
+**Related:** `docs/ideas/ai-01-integration-paths.md`, `docs/plans/2026-05-02-unified-intelligence-design.md`
 
 ---
 

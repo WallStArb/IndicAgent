@@ -241,7 +241,7 @@ Python's Global Interpreter Lock prevents threading from achieving true parallel
 ### Research Concepts
 - **Mixture of Agents:** https://arxiv.org/abs/2406.04692 — Multi-agent synthesis patterns
 - **Renaissance Validation:** `docs/ideas/renaissance-alpha-pipeline.md` — Shadow-first statistical gates
-- **ML Agent Architecture:** `docs/ideas/ml-agent-architecture.md` — Learning machine design
+- **ML Agent Architecture:** `docs/ideas/ai-02-ml-agent-architecture.md` — Learning machine design
 
 ### Market Intelligence
 - **Volume Profile:** Institutional participation and value areas
