@@ -89,7 +89,7 @@ def deterministic_plugin(output_dict: dict):
     class _Plugin:
         supports_incremental = False
 
-        def compute_full(self, frames):
+        def compute_full(self, frames, *, state=None):
             return dict(output_dict)
 
     return _Plugin()
@@ -101,7 +101,7 @@ def signal_plugin(plugin_name: str, direction: int = 1):
     class _Plugin:
         supports_incremental = False
 
-        def compute_full(self, frames):
+        def compute_full(self, frames, *, state=None):
             return {
                 "direction": direction,
                 "confidence": 0.75,
