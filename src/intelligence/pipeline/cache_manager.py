@@ -234,6 +234,7 @@ class CacheManager:
             cross_asset_data=dict(self._cross_asset),
             macro_data=dict(self._macro),
             htf_intel=dict(self._htf_intel),
+            shadow_cache=dict(self._shadow_cache),
         )
 
     # ------------------------------------------------------------------
