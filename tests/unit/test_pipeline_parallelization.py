@@ -106,27 +106,56 @@ class TestI1ParallelExecution:
         event.smc = None
         event.i6 = None
 
+        from src.intelligence.pipeline.signal_processor import CacheSnapshot
+
+        snapshot = CacheSnapshot(
+            perf_weights={},
+            calibration_curves={},
+            tod_priors={},
+            drift_penalties={},
+            cis_weights={},
+            cis_weights_version=0,
+        )
+
         with (
             patch(
-                "services.intelligence_pipeline_agent._build_features_from_event",
+                "src.intelligence.pipeline.signal_processor._build_features_from_event",
                 return_value={},
             ),
-            patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
-            patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
             patch(
-                "services.intelligence_pipeline_agent.select_winner",
+                "src.intelligence.pipeline.signal_processor.apply_quality_gate",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_regime_gate",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_calibration",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.rank_signals",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.select_winner",
                 return_value=(None, [], "no_signal"),
             ),
-            patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
-            i7_result1 = await agent._run_i7(bar, event, {})
-            i7_result2 = await agent._run_i7(bar, event, {})
+            i7_result1 = await agent._sig_proc.process(
+                event, {}, bar, "ES", "1m", raw_signals=[], cache_snapshot=snapshot
+            )
+            i7_result2 = await agent._sig_proc.process(
+                event, {}, bar, "ES", "1m", raw_signals=[], cache_snapshot=snapshot
+            )
 
-        assert "ranked" in i7_result1
-        assert "ranked" in i7_result2
+        assert i7_result1.i7_result is not None
+        assert i7_result2.i7_result is not None
 
         print("✓ State isolation verified in parallel execution for both I1 and I7")
 
@@ -158,28 +187,55 @@ class TestI7ParallelExecution:
         event.smc = None
         event.i6 = None
 
+        from src.intelligence.pipeline.signal_processor import CacheSnapshot
+
+        snapshot = CacheSnapshot(
+            perf_weights={},
+            calibration_curves={},
+            tod_priors={},
+            drift_penalties={},
+            cis_weights={},
+            cis_weights_version=0,
+        )
+
         with (
             patch(
-                "services.intelligence_pipeline_agent._build_features_from_event",
+                "src.intelligence.pipeline.signal_processor._build_features_from_event",
                 return_value={},
             ),
-            patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
-            patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
-            patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
             patch(
-                "services.intelligence_pipeline_agent.select_winner",
+                "src.intelligence.pipeline.signal_processor.apply_quality_gate",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_regime_gate",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.apply_calibration",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.rank_signals",
+                return_value=[],
+            ),
+            patch(
+                "src.intelligence.pipeline.signal_processor.select_winner",
                 return_value=(None, [], "no_signal"),
             ),
-            patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             start = time.perf_counter()
-            result = await agent._run_i7(bar, event, {})
+            result = await agent._sig_proc.process(
+                event, {}, bar, "ES", "1m", raw_signals=[], cache_snapshot=snapshot
+            )
             elapsed_parallel = time.perf_counter() - start
 
-        assert "ranked" in result
-        assert isinstance(result["ranked"], list)
+        assert result.i7_result is not None
+        assert isinstance(result.i7_result["ranked"], list)
         assert elapsed_parallel < 0.050, f"I7 took {elapsed_parallel * 1000:.1f}ms, expected <50ms"
 
         print(f"✓ I7 parallel execution: {elapsed_parallel * 1000:.1f}ms for 36 plugins")

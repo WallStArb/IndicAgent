@@ -1,0 +1,420 @@
+"""Unit tests for SignalProcessor — I7 signal pipeline stages.
+
+Covers:
+- CIS weight sync (version-gated mediation, Pitfall 4)
+- Kalman state and setup_last_fire checkpoint roundtrips (Pitfall 5)
+- DLQ on null CIS score (prepare_signals_or_dlq)
+- Signals payload on success (prepare_signals_or_dlq)
+- signal_schema_version stamping
+- is_backfill flag on old bars
+- process() returns SignalProcessorResult with all payloads (HIGH finding 4)
+- DLQ path on CIS null in process()
+- CacheSnapshot consumption (no CacheManager reference, HIGH finding 2)
+- No lateral imports (topic_* / message_key / OutputQueue regression guard)
+- Module-level helpers exist
+"""
+
+from __future__ import annotations
+
+import inspect
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.intelligence.pipeline.signal_processor import (
+    CacheSnapshot,
+    SignalProcessor,
+    SignalProcessorResult,
+)
+from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+
+
+def _make_snapshot(**overrides) -> CacheSnapshot:
+    """Create a minimal CacheSnapshot for testing."""
+    defaults = {
+        "perf_weights": {},
+        "calibration_curves": {},
+        "tod_priors": {},
+        "drift_penalties": {},
+        "cis_weights": {},
+        "cis_weights_version": 0,
+    }
+    defaults.update(overrides)
+    return CacheSnapshot(**defaults)
+
+
+def _make_processor() -> SignalProcessor:
+    """Create a SignalProcessor with a MagicMock CIS scorer."""
+    cis_scorer = MagicMock()
+    cis_scorer.update_weights = MagicMock()
+    settings = MagicMock()
+    settings.regime_prob_min = 0.7
+    settings.REGIME_PROB_SOFT_MAX = 0.55
+    settings.regime_dur_min = 12
+    settings.winner_long_bias = True
+    return SignalProcessor(cis_scorer=cis_scorer, settings=settings, transform_recorder=None)
+
+
+def _make_bar(symbol="ES", tf="1m", ts=None, close=100.0):
+    bar = MagicMock()
+    bar.symbol = symbol
+    bar.tf = tf
+    bar.close = close
+    bar.bar_id = "test-bar-id"
+    bar.ts = ts or datetime.now(UTC)
+    return bar
+
+
+def _make_signal(plugin_name="trad_TrendFollowing", direction=1, confidence=0.7, raw_cis=0.5):
+    return {
+        "setup_plugin": plugin_name,
+        "direction": direction,
+        "confidence": confidence,
+        "raw_cis_score": raw_cis,
+        "filtered_cis_score": raw_cis,
+        "bucket_scores": {},
+        "weights_version": 0,
+        "symbol": "ES",
+        "tf": "1m",
+        "regime_type": "trend",
+    }
+
+
+# ---------------------------------------------------------------------------
+# sync_cis_weights tests
+# ---------------------------------------------------------------------------
+
+
+def test_sync_cis_weights_updates_scorer_only_on_version_change():
+    """CIS scorer is updated only when version changes; no-op on same version."""
+    proc = _make_processor()
+    scorer = proc._cis_scorer
+
+    # First call with version 1 — should update
+    proc.sync_cis_weights({"a": 1.0}, 1)
+    assert scorer.update_weights.call_count == 1
+
+    # Same version again — should NOT update
+    proc.sync_cis_weights({"a": 1.0}, 1)
+    assert scorer.update_weights.call_count == 1
+
+    # New version — should update again
+    proc.sync_cis_weights({"a": 2.0}, 2)
+    assert scorer.update_weights.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Kalman state checkpoint roundtrip
+# ---------------------------------------------------------------------------
+
+
+def test_get_restore_kalman_state_roundtrip():
+    """restore_kalman_state followed by get_kalman_state returns the same values."""
+    proc = _make_processor()
+    proc.restore_kalman_state({"k": 0.5, "p": 0.1})
+    state = proc.get_kalman_state()
+    assert state == {"k": 0.5, "p": 0.1}
+
+    # Mutating the returned dict must NOT change internal state (defensive copy)
+    state["k"] = 99.0
+    assert proc.get_kalman_state()["k"] == 0.5
+
+
+def test_get_restore_setup_last_fire_roundtrip():
+    """restore_setup_last_fire followed by get_setup_last_fire returns the same values."""
+    proc = _make_processor()
+    proc.restore_setup_last_fire({"s1": {"bars_since": 3}})
+    state = proc.get_setup_last_fire()
+    assert state == {"s1": {"bars_since": 3}}
+
+    # Mutating the returned dict must NOT change internal state (defensive copy)
+    state["s1"] = {"bars_since": 99}
+    assert proc.get_setup_last_fire()["s1"]["bars_since"] == 3
+
+
+# ---------------------------------------------------------------------------
+# prepare_signals_or_dlq tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prepare_signals_or_dlq_returns_dlq_on_null_cis_score():
+    """Signal with raw_cis_score=None triggers DLQ path."""
+    proc = _make_processor()
+    ranked = [{"raw_cis_score": None, "filtered_cis_score": 0.5, "setup_plugin": "X"}]
+    bar = _make_bar()
+
+    with patch.object(proc._signal_dlq_total, "add") as mock_dlq:
+        success, dlq, signals = await proc.prepare_signals_or_dlq(ranked, "ES", "1m", bar)
+
+    assert success is False
+    assert dlq is not None
+    assert "reason" in dlq
+    assert dlq["reason"] == "cis_score_null"
+    assert signals is None
+    mock_dlq.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_prepare_signals_or_dlq_returns_signals_payload_on_success():
+    """All CIS fields present — returns signals payload with required keys."""
+    proc = _make_processor()
+    sig = _make_signal()
+    bar = _make_bar()
+
+    success, dlq, signals = await proc.prepare_signals_or_dlq([sig], "ES", "1m", bar)
+
+    assert success is True
+    assert dlq is None
+    assert signals is not None
+    assert "symbol" in signals
+    assert "tf" in signals
+    assert "bar_ts" in signals
+    assert "computed_at" in signals
+    assert "signals" in signals
+    # Each signal must have signal_id assigned
+    for s in signals["signals"]:
+        assert "signal_id" in s
+
+
+@pytest.mark.asyncio
+async def test_prepare_signals_or_dlq_stamps_signal_schema_version():
+    """Returned signals payload stamps signal_schema_version on each signal."""
+    proc = _make_processor()
+    sig = _make_signal()
+    bar = _make_bar()
+
+    _, _, signals = await proc.prepare_signals_or_dlq([sig], "ES", "1m", bar)
+
+    assert signals is not None
+    for s in signals["signals"]:
+        assert s.get("signal_schema_version") == SIGNAL_SCHEMA_VERSION
+
+
+@pytest.mark.asyncio
+async def test_prepare_signals_or_dlq_is_backfill_flag_set_on_old_bar():
+    """Bar with ts well in the past gets is_backfill=True on all signals."""
+    proc = _make_processor()
+    sig = _make_signal()
+    # bar_ts 2 hours ago
+    old_ts = datetime.now(UTC) - timedelta(hours=2)
+    bar = _make_bar(ts=old_ts)
+
+    _, _, signals = await proc.prepare_signals_or_dlq([sig], "ES", "1m", bar)
+
+    assert signals is not None
+    for s in signals["signals"]:
+        assert s.get("is_backfill") is True
+
+
+# ---------------------------------------------------------------------------
+# process() tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_returns_signal_processor_result_with_all_payloads_on_success():
+    """process() with valid raw_signals returns SignalProcessorResult with all payloads set (HIGH finding 4)."""
+    proc = _make_processor()
+
+    # CIS scorer returns a valid result
+    from src.intelligence.trading.cis_scorer import CISResult
+
+    cis_result = CISResult(
+        cis_score=0.6,
+        direction=1,
+        bucket_scores={"trend": 0.5},
+        weights_version=0,
+        buckets_agreeing=4,
+    )
+    proc._cis_scorer.score = MagicMock(return_value=cis_result)
+
+    bar = _make_bar()
+    snapshot = _make_snapshot()
+    raw_signals = [_make_signal()]
+
+    # Patch stage functions to pass-through
+    with (
+        patch(
+            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            return_value={"hmm_regime": 1},
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_quality_gate",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_regime_gate",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_calibration",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.rank_signals",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.select_winner",
+            return_value=(raw_signals[0], [], "cis_rank"),
+        ),
+    ):
+        result = await proc.process(
+            MagicMock(), {}, bar, "ES", "1m", raw_signals=raw_signals, cache_snapshot=snapshot
+        )
+
+    assert isinstance(result, SignalProcessorResult)
+    assert result.success is True
+    assert result.signals_payload is not None  # HIGH finding 4 — signals path
+    assert result.winner_payload is not None  # HIGH finding 4 — winner path
+    assert result.dlq_payload is None
+    assert result.i7_result is not None  # HIGH finding 4 — journal data
+
+
+@pytest.mark.asyncio
+async def test_process_returns_dlq_payload_on_cis_null():
+    """process() routes to DLQ when cis_scorer returns cis_score=None."""
+    proc = _make_processor()
+
+    from src.intelligence.trading.cis_scorer import CISResult
+
+    # cis_score=None triggers the early-exit DLQ path in process()
+    null_cis_result = CISResult(
+        cis_score=None,
+        direction=0,
+        bucket_scores={},
+        weights_version=0,
+        buckets_agreeing=0,
+    )
+    proc._cis_scorer.score = MagicMock(return_value=null_cis_result)
+
+    bar = _make_bar()
+    snapshot = _make_snapshot()
+    raw_signal = {
+        "setup_plugin": "X",
+        "direction": 1,
+        "confidence": 0.5,
+        "symbol": "ES",
+        "tf": "1m",
+    }
+
+    with patch(
+        "src.intelligence.pipeline.signal_processor._build_features_from_event",
+        return_value={},
+    ):
+        result = await proc.process(
+            MagicMock(), {}, bar, "ES", "1m", raw_signals=[raw_signal], cache_snapshot=snapshot
+        )
+
+    assert result.success is False
+    assert result.dlq_payload is not None
+    assert result.winner_payload is None
+
+
+@pytest.mark.asyncio
+async def test_process_consumes_cache_snapshot_not_cache_manager_reference():
+    """SignalProcessor constructor does NOT take a cache parameter (HIGH finding 2)."""
+    # The constructor should only accept (cis_scorer, settings, transform_recorder)
+    import inspect
+
+    sig = inspect.signature(SignalProcessor.__init__)
+    params = list(sig.parameters.keys())
+    # Must have: self, cis_scorer, settings; must NOT have cache/cache_manager
+    assert "cis_scorer" in params
+    assert "settings" in params
+    assert "cache" not in params
+    assert "cache_manager" not in params
+
+    # Constructing with only required args must not raise
+    proc = _make_processor()
+
+    # Calling process with CacheSnapshot must not raise AttributeError
+    bar = _make_bar()
+    snapshot = _make_snapshot()
+    with (
+        patch(
+            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            return_value={},
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_quality_gate",
+            return_value=[],
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_regime_gate",
+            return_value=[],
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
+            return_value=[],
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_calibration",
+            return_value=[],
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.rank_signals",
+            return_value=[],
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.select_winner",
+            return_value=(None, [], "no_signal"),
+        ),
+    ):
+        result = await proc.process(
+            MagicMock(), {}, bar, "ES", "1m", raw_signals=[], cache_snapshot=snapshot
+        )
+
+    assert result.i7_result is not None  # no AttributeError raised
+
+
+# ---------------------------------------------------------------------------
+# Architectural regression guards
+# ---------------------------------------------------------------------------
+
+
+def test_no_lateral_imports():
+    """SignalProcessor module must not import OutputQueue, topic_*, message_key, or CacheManager.
+
+    HIGH finding 2 & 4 regression guards.
+    """
+    import src.intelligence.pipeline.signal_processor as mod
+
+    source = inspect.getsource(mod)
+    assert "OutputQueue" not in source, "SignalProcessor must not import OutputQueue (Pitfall 8)"
+    assert "topic_signal_dlq" not in source, "SignalProcessor must not import topic_signal_dlq"
+    assert (
+        "topic_intelligence_i7_signals" not in source
+    ), "SignalProcessor must not import topic_intelligence_i7_signals"
+    assert (
+        "topic_signals_aggregated" not in source
+    ), "SignalProcessor must not import topic_signals_aggregated"
+    assert (
+        "topic_intelligence_journal" not in source
+    ), "SignalProcessor must not import topic_intelligence_journal"
+    assert "message_key" not in source, "SignalProcessor must not import message_key"
+    assert (
+        "from src.intelligence.pipeline.cache_manager" not in source
+    ), "SignalProcessor must not import CacheManager (HIGH finding 2)"
+
+
+def test_module_level_helpers_exist():
+    """_apply_alpha_decay, _cis_kalman_update, _build_features_from_event are module-level callables."""
+    import src.intelligence.pipeline.signal_processor as mod
+
+    assert callable(mod._apply_alpha_decay), "_apply_alpha_decay must be a module-level callable"
+    assert callable(mod._cis_kalman_update), "_cis_kalman_update must be a module-level callable"
+    assert callable(
+        mod._build_features_from_event
+    ), "_build_features_from_event must be a module-level callable"
+
+    # Verify they are NOT class methods
+    assert not inspect.ismethod(mod._apply_alpha_decay)
+    assert not inspect.ismethod(mod._cis_kalman_update)
+    assert not inspect.ismethod(mod._build_features_from_event)
