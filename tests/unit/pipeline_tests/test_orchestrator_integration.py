@@ -70,6 +70,8 @@ def _dlq_result():
 
 def _wire_agent(agent, sig_proc_result, *, i7_state_updates=None):
     """Wire agent deps directly so routing logic is exercised without context managers."""
+    from src.intelligence.pipeline.feature_pipeline_executor import FeaturePipelineResult
+
     agent._bar_history = MagicMock()
     agent._bar_history.append = MagicMock()
     agent._bar_history.is_warm = MagicMock(return_value=True)
@@ -83,8 +85,20 @@ def _wire_agent(agent, sig_proc_result, *, i7_state_updates=None):
     fake_event = MagicMock()
     fake_event.model_dump_json = MagicMock(return_value="{}")
 
-    agent._run_i1_to_i6 = AsyncMock(return_value=(fake_event, {}))
-    agent._executor.run_i7_plugins = AsyncMock(return_value=([], [], i7_state_updates or {}))
+    # Mock FeaturePipelineExecutor.run() returning a FeaturePipelineResult
+    fp_result = FeaturePipelineResult(
+        event=fake_event,
+        tiered={},
+        main_df=MagicMock(),
+        hmm_regime=None,
+    )
+    agent._feature_pipeline = MagicMock()
+    agent._feature_pipeline.run = AsyncMock(return_value=fp_result)
+
+    # Mock run_i7_complete returning raw_signals list; state updates via _last_i7_state_updates
+    agent._executor.run_i7_complete = AsyncMock(return_value=[])
+    agent._executor._last_i7_state_updates = i7_state_updates or {}
+
     agent._sig_proc.process = AsyncMock(return_value=sig_proc_result)
     agent._enqueue_intel_journal = MagicMock()
 
