@@ -6,6 +6,8 @@ Tests for Ollama context window configuration and other LLM provider settings.
 
 from __future__ import annotations
 
+from pydantic_settings import SettingsConfigDict
+
 from src.config.settings import Settings
 
 
@@ -29,10 +31,16 @@ class TestOllamaSettings:
         settings = Settings()
         assert settings.ollama_num_ctx == 32768
 
-    def test_ollama_model_default(self):
-        """Verify default Ollama model is qwen3.5:4b."""
-        settings = Settings()
-        assert settings.ollama_model == "qwen3.5:4b"
+    def test_ollama_model_default(self, monkeypatch):
+        """Verify default Ollama model is gemma4:e4b (when no env override)."""
+
+        # Create a Settings subclass without .env loading to test code defaults
+        class NoEnvSettings(Settings):
+            model_config = SettingsConfigDict(env_file=None)
+
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        settings = NoEnvSettings()
+        assert settings.ollama_model == "gemma4:e4b"
 
     def test_ollama_base_url_default(self):
         """Verify default Ollama base URL."""
