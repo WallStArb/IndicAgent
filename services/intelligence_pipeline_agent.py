@@ -15,7 +15,6 @@ Key design decisions:
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import os
@@ -50,7 +49,6 @@ from src.core.service_utils import (
     normalize_session_type,
     should_skip_plugin,
 )
-from src.core.state_serializer import _ensure_default_models_registered, _tag_value, _untag_value
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
@@ -74,6 +72,7 @@ from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.pipeline import (
     OutputQueue,
+    PluginStateManager,
     apply_calibration,
     apply_quality_gate,
     apply_regime_gate,
@@ -81,6 +80,7 @@ from src.intelligence.pipeline import (
     rank_signals,
     select_winner,
 )
+from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     I2_WAVE_A,
@@ -303,29 +303,6 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 # IntelligencePipelineComputeAgent
 # ---------------------------------------------------------------------------
 
-_AGENT_VERSION = "v1"
-_CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
-_CHECKPOINT_FIELDS: tuple[str, ...] = (
-    "plugin_states",
-    "kalman_state",
-    "tod_priors",
-    "last_bar_offset",
-    "setup_last_fire",
-)
-
-
-def _restore_tuple_key(k: Any) -> Any:
-    """Convert stringified tuple keys back to tuples for state restoration."""
-    if isinstance(k, str):
-        try:
-            parsed = ast.literal_eval(k)
-            if isinstance(parsed, tuple):
-                return parsed
-        except (ValueError, SyntaxError):
-            pass
-    return k
-
-
 _OUTPUT_QUEUE_MAXSIZE = 500
 
 # Type aliases for the wave-based analysis pipeline structure.
@@ -428,9 +405,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
-        # --- State dicts (all five checkpointed fields) ---
-        self._plugin_states: dict = {}  # (plugin_name, symbol, tf) -> dict
-        self._plugin_states_locks: dict = {}  # (plugin_name, symbol, tf) -> Lock
+        # --- State dicts (cross-owned checkpointed fields — plugin_states owned by PluginStateManager) ---
         self._kalman_state: dict = {}  # (symbol, tf) -> {x, P, Q, R}
         self._tod_priors: dict = {}  # (regime_type, tf, hour_et) -> float
         self._bar_history = BarHistory(maxlen=200)
@@ -550,12 +525,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._plugin_circuit_breakers[plugin_name] = cb
         return cb
 
-    def _get_state_lock(self, key: tuple) -> threading.Lock:
-        """Get or create a threading.Lock for a (plugin, symbol, tf) state key."""
-        if key not in self._plugin_states_locks:
-            self._plugin_states_locks[key] = threading.Lock()
-        return self._plugin_states_locks[key]
-
     def _is_shadow(self, plugin_name: str) -> bool:
         """Look up shadow state from cache. Returns False (live) if not enrolled."""
         return self._shadow_cache.get(plugin_name, False)
@@ -596,9 +565,22 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # 2b. Construct OutputQueue now that producer is available
         self._out_queue = OutputQueue(producer=self._kafka_producer, maxsize=_OUTPUT_QUEUE_MAXSIZE)
 
-        # 3. Ensure checkpoint dir exists, restore hot indicator state from local file
+        # 3. Ensure checkpoint dir exists, construct PluginStateManager, restore hot state
         _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        await self._read_local_checkpoint()
+        self._state_mgr = PluginStateManager(checkpoint_path=_CHECKPOINT_PATH)
+        extra = await self._state_mgr.read_checkpoint()
+        if extra is not None:
+            # Restore cross-owned fields onto orchestrator attributes
+            # (interim form — plans 03/05 will migrate these to CacheManager/SignalProcessor)
+            self._last_bar_offset = extra.get("last_bar_offset", {})
+            self._kalman_state = extra.get("kalman_state", {})
+            self._tod_priors = extra.get("tod_priors", {})
+            self._setup_last_fire = extra.get("setup_last_fire", {})
+
+        # Start background checkpoint loop — orchestrator calls once; PluginStateManager owns timing
+        ckpt_task = self._state_mgr.start_checkpoint_loop(300, self._assemble_checkpoint_extra)
+        self._background_tasks.add(ckpt_task)
+        ckpt_task.add_done_callback(self._background_tasks.discard)
 
         # 4. Seed bar_history from DB — always authoritative, not a fallback
         await self._seed_bar_history_from_db()
@@ -703,7 +685,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await asyncio.wait_for(self._out_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
-        self._write_local_checkpoint()
+        if hasattr(self, "_state_mgr"):
+            self._state_mgr.write_checkpoint(self._assemble_checkpoint_extra())
         if hasattr(self, "_kafka_consumer"):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
@@ -1023,7 +1006,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Extract and store plugin state from output dict."""
         if "_state" in output:
             with task.lock:
-                self._plugin_states[task.state_key] = output.pop("_state")
+                self._state_mgr.update(task.state_key, output.pop("_state"))
 
     def _collect_plugin_results(
         self,
@@ -1102,8 +1085,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
-            plugin._state = self._plugin_states.get(state_key, {})
-            lock = self._get_state_lock(state_key)
+            plugin._state = self._state_mgr.get_state(state_key)
+            lock = self._state_mgr.get_lock((symbol, tf))
 
             # Create PluginTask with coroutine
             tasks.append(
@@ -1179,8 +1162,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
-            plugin._state = self._plugin_states.get(state_key, {})
-            lock = self._get_state_lock(state_key)
+            plugin._state = self._state_mgr.get_state(state_key)
+            lock = self._state_mgr.get_lock((symbol, tf))
             tasks.append(
                 PluginTask(
                     coroutine=loop.run_in_executor(
@@ -1305,8 +1288,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not cb.allow_request():
                 continue
             state_key = (plugin_name, symbol, tf)
-            plugin._state = self._plugin_states.get(state_key, {})
-            lock = self._get_state_lock(state_key)
+            plugin._state = self._state_mgr.get_state(state_key)
+            lock = self._state_mgr.get_lock((symbol, tf))
 
             # Create PluginTask with coroutine and bar context
             tasks.append(
@@ -1518,43 +1501,25 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         }
 
     # ------------------------------------------------------------------
-    # Local file checkpoint (hot indicator state only — bar history from DB)
+    # Checkpoint extra-state assembly (cross-owned fields only)
     # ------------------------------------------------------------------
 
-    def _write_local_checkpoint(self) -> None:
-        """Write hot indicator state to local file. Raises on failure (OSError, etc.). Caller logs via agent.run_failed."""
-        payload: dict = {"version": _AGENT_VERSION, "ts": datetime.now(UTC).isoformat()}
-        for field in _CHECKPOINT_FIELDS:
-            payload[field] = _tag_value(getattr(self, f"_{field}"))
-        tmp = _CHECKPOINT_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload))
-        tmp.rename(_CHECKPOINT_PATH)
-        self.logger.info("state.checkpoint_written", path=str(_CHECKPOINT_PATH))
+    def _assemble_checkpoint_extra(self) -> dict:
+        """Build the cross-owned extra_state dict for PluginStateManager.write_checkpoint.
 
-    async def _read_local_checkpoint(self) -> bool:
-        """Restore hot indicator state from local file. Returns True on success."""
-        try:
-            raw_text = _CHECKPOINT_PATH.read_text()
-        except FileNotFoundError:
-            self.logger.info("state.checkpoint_miss — starting fresh")
-            return False
-        try:
-            _ensure_default_models_registered()
-            raw = json.loads(raw_text)
-            if raw.get("version") != _AGENT_VERSION:
-                self.logger.warning("state.checkpoint_version_mismatch", found=raw.get("version"))
-                return False
-            for field in _CHECKPOINT_FIELDS:
-                target = getattr(self, f"_{field}")
-                for k, v in _untag_value(raw.get(field, {})).items():
-                    target[_restore_tuple_key(k)] = v
-            self.logger.info(
-                "state.checkpoint_restored", ts=raw.get("ts"), path=str(_CHECKPOINT_PATH)
-            )
-            return True
-        except Exception as exc:
-            self.logger.warning("state.checkpoint_read_failed", error=str(exc))
-            return False
+        CRITICAL (HIGH finding 5): this dict MUST NOT contain a 'plugin_states' key.
+        PluginStateManager owns that field internally.
+
+        Interim form (Plans 02 wire-up): reads orchestrator-owned attributes.
+        - Plan 03 will migrate tod_priors source -> self._cache_mgr.tod_priors
+        - Plan 05 will migrate kalman_state / setup_last_fire -> self._sig_proc.get_*()
+        """
+        return {
+            "kalman_state": self._kalman_state,
+            "tod_priors": self._tod_priors,
+            "last_bar_offset": self._last_bar_offset,
+            "setup_last_fire": self._setup_last_fire,
+        }
 
     async def _publish_signals_or_dlq(
         self,
