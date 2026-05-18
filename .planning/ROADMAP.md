@@ -232,11 +232,13 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
   Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
+
   - [x] 57-01-PLAN.md — Kafka infrastructure, signal_ledger migration, systemd unit scaffolding
   - [x] 57-02-PLAN.md — I1-I6 in-process pipeline, state checkpointing, BarHistorySeeder warmup
   - [x] 57-03-PLAN.md — I7 integration, confidence attribution, output queue, async drain
 - [x] **Phase 57.1: SignalWriterAgent — signal_generator_agent Retirement** — New `intelligence.i7.signals` topic; thin `SignalWriterAgent` (WriterAgent) consumes all ranked I7 signals → `signal_ledger`; fix winner publish to `topic_signals_aggregated`; retire `signal_generator_agent`
   Design doc: `docs/plans/archive/2026-03-30-signal-writer-agent.md` (historical — file since removed)
+
   - [x] 057.1-01-PLAN.md — stream key, pipeline publish fix, SignalWriterAgent, tests, systemd, retirement
 
 </details>
@@ -248,12 +250,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 - [x] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 11 plans, shadow-only — COMPLETE 2026-04-11
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
+
 - [x] **Phase 65: Gradient Audit** — 25+ binary fields converted, 8-function gradient_utils.py, CI scanner gate, 5/5 plans — COMPLETE 2026-04-24. Note: swing_amplitude_expanding companion (swing_amplitude_intensity) not implemented — minor gap, non-blocking.
 - [x] **Phase 64: I6 Confluence Expansion** — COMPLETE 2026-05-14. 5 new I6 cross-TF plugins (momentum divergence, S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) + MacroComputeAgent (yield curve + FTQ) + full pipeline integration. 03C USD strength deferred (low priority; YC+FTQ providing macro context).
   Design doc: `docs/ideas/i6-confluence-expansion.md`
+
 - [x] **Phase 66: Swarm Intelligence Agents** — Single SwarmDispatchService with Skeptic, Correlation, and Volume agents. 16/16 truths verified, 43/43 tests passing — COMPLETE 2026-04-24. Operational gates pending: live service deploy + 30-day statistical validation (~May 25).
 
   Plans:
+
   - [x] 066-01-PLAN.md — Shared infrastructure: SwarmDispatchService + SwarmContext D-16 fix + SkepticAgent + systemd unit + tests
   - [x] 066-02-PLAN.md — CorrelationAgent + VolumeAgent: pure compute classes + prompt registries + registry wiring
   - [x] 066-03-PLAN.md — Validation framework: naive baseline + Pearson correlation with graduation gates
@@ -289,19 +294,23 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   Shared consume loop in BaseWriterAgent, _create_consumer() helper, 5 Prometheus metrics, critical overflow alerts + backpressure, FeatureSnapshotWriterAgent migrated from BaseAgent to BaseWriterAgent. 3 writers removed duplicated _run(). 146 tests pass.
   **Design doc:** `docs/plans/2026-04-13-basewriter-renaissance-refactor-design.md`
   **Planning:** `.planning/phases/069-writer-renaissance-refactor/`
+
 - [x] **Phase 71: BaseAgent Infrastructure Alignment** — COMPLETE 2026-04-14
   Settings singleton in BaseAgent, auto init_tracing(), vestigial logging removal, default _report_consumer_lag(), LLMWriterService migrated to BaseWriterAgent.
   **Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
   **Planning:** `.planning/phases/071-base-agent-infrastructure-alignment/`
+
 - [x] **Phase 72: Signal Transform Log** — COMPLETE 2026-04-25
   Phase 1 dual-write infrastructure: signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, Kafka topics, and recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior unchanged; log is write-only and graduation runs in shadow.
   **Design spec:** `docs/plans/2026-04-24-signal-transform-log-design.md`
   **Planning:** `.planning/phases/072-signal-transform-log-unified-alpha-modifier-architecture-add/`
+
 - [x] **Phase 73: AI LLM Layer B+ Architecture Refactor** — COMPLETE 2026-04-29 (7/7 plans shipped)
   Fixes 10 structural defects in AI/LLM layer, creates universal AI agent infrastructure (`src/core/ai/`), reorganizes agents into mandate-based groups (`src/intelligence/ai/`), applies 6 LLM chain fixes, adds narrative TF gate, deletes dead `swarm_orchestrator_agent`, renames `swarm_dispatch_service` -> `alpha_swarm_agent`, merges shadow+transform into unified signal_lineage, and enforces import boundary discipline.
   **Planning:** `.planning/phases/73-ai-llm-layer-b-architecture-refactor/`
 
   Plans:
+
   - [x] 73-01-PLAN.md — Delete dead swarm_orchestrator + add Kafka topic functions (D-08, D-09, D-16, D-49) — COMPLETE 2026-04-29
   - [x] 73-02-PLAN.md — Build src/core/ai/ infrastructure: 5 modules + TDD tests (D-18-22, D-30-31, D-42-45, D-51) — COMPLETE 2026-04-29
   - [x] 73-03-PLAN.md — 6 LLM chain fixes: rate limiter, guardrails, auto-audit, real tokens, cache key (D-04-07, D-11-15, D-17) — COMPLETE 2026-04-29
@@ -312,23 +321,28 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator** — COMPLETE 2026-04-26
   Add state checkpointing to BarAggregatorComputeAgent following IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
   **Planning:** `.planning/phases/74-barnormalizeragent-canonical-grid-completeness-service-for-t/`
+
 - [x] **Phase 76: Signal Lifecycle Labeling Fix & Activation Gate** — COMPLETE 2026-04-28
   Fix 2,744 mislabeled signals (activated_at + never_activated), add temporal guard, bootstrap TTL sweep, activation probability gate, backfill SQL. 3 plans.
   **Planning:** `.planning/phases/076-signal-lifecycle-labeling-activation-gate/`
+
 - [x] **Phase 70: ML Scoring Model + AI-SEP-01 Table Decoupling** — COMPLETE 2026-05-13
   LightGBM scoring layer (MLScorerMultiplierAgent, shadow_only=True), nightly MLTrainingComputeAgent (L8), AI-SEP-01 table decoupling (signal_ai_enrichment + intelligence_ai_enrichment tables), feature_builder.py with walk-forward CV, SHAP via MLflow, SIGUSR1 hot-reload. 4/4 plans shipped.
   **Planning:** `.planning/phases/070-ml-scoring-model/`
+
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
   Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
   **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
   **Planning:** `.planning/phases/077-otel-observability-unification/`
+
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
   Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
   **Design spec:** `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
   **Planning:** `.planning/phases/079-signal-quality-fix/`
 
 **Success Criteria (Phases 69+71+72+73+75+76+77):**
+
 - ✅ Single consumer creation pattern across all 6 writers
 - ✅ 5/6 writers use base class `_run()` loop (feature_writer exception)
 - ✅ Buffer overflow triggers critical alert (pager + backpressure)
@@ -342,9 +356,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Signal quality fix: zero-width zones eliminated, make_signal_from_frame() mandatory, signal_schema_version='v1', entry_type, co-fire tracking
 
 **Pending:**
+
 - None — all v2.5 phases shipped.
 
 **Completed (v2.5):**
+
 - ✅ Phase 69: Writer Agent Renaissance Refactor (2026-04-23)
 - ✅ Phase 70: ML Scoring Model + AI-SEP-01 (2026-05-13)
 - ✅ Phase 71: BaseAgent Infrastructure Alignment (2026-04-14)
@@ -371,6 +387,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Full phase details for v2.0 have been archived to:** `.planning/milestones/v2.0-PHASE-DETAILS.md`
 
 This includes complete documentation for:
+
 - Phase 39: Data Quality + DB Health
 - Phase 39.1: Intelligence Layer Enforcement
 - Phase 40: DAG Refactor — Clean Foundation
@@ -404,6 +421,7 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 **Requirements**: TICK-01 ✅, I7-REF-01 ✅, I7-REF-02 ✅, I7-REF-03 ✅
 
 **Success Criteria** (all met):
+
   1. ✅ TWS daemon publishes 5s real-time bars from IBKR; bars aggregate to 1m OHLCV; no `bars_processed` freeze bug
   2. ✅ After-hours data flows correctly; 1m bars match IBKR official bars (within drift tolerance)
   3. ✅ Dashboard live pricing updates via `market.ticks` topic
@@ -422,6 +440,7 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 **Depends on**: Phase 48 completion
 
 **Outcome**:
+
   1. ✅ `idx_ledger_feature_join` composite index exists on `signal_ledger`
   2. ⏸ CIS null repair deferred to v2.3 — todo `2026-03-26-backfill-cis-null-scores-in-signal-ledger.md`
   3. ✅ `tests/unit/service_tests/test_concurrent_lock_behavior.py` exists and passes
@@ -435,16 +454,8 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 **Plans:** 1 plan
 
 Plans:
+
 - [x] 49.2-01-PLAN.md — TDD: HMM observability + warm-up suppression (schema, plugin, tests)
-
-
-
-
-
-
-
-
-
 
 ### Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger (INSERTED)
 
@@ -454,6 +465,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
+
 - [x] 49.1-01-PLAN.md — TDD: regime gate fix + regime label population (2 tasks)
 
 ### Phase 50: Roll Monitor & DualDivergence Graduation
@@ -467,6 +479,7 @@ Plans:
 **Requirements**: SHADOW-03, INTEL-04, SHADOW-04
 
 **Success Criteria** (what must be TRUE):
+
   1. D-21 validation confirms roll detection works correctly with 5m backfilled data (≥90% detection, ≤10% FP)
   2. Migration `049_roll_premium_pct.sql` applied; `roll_premium_pct` populated in intelligence_features
   3. `ROLL_MONITOR_ENABLED=true` set in production environment
@@ -675,6 +688,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 **Plans:** 1/2 plans complete
 
 Plans:
+
 - [x] 52.5-01-PLAN.md — ParityRepository, FieldViolation, _compare_rows, ParityAuditorAgent(BaseAgent), systemd unit
 
 ### Phase 52.6: BaseAgent + ProcessManifest Enhancement (INSERTED)
@@ -685,6 +699,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 52.6-01-PLAN.md — Pre-condition: rename FeatureWriterService → FeatureWriterAgent (class-name only commit)
 - [x] 52.6-02-PLAN.md — TDD: enhance BaseAgent with full lifecycle contract (metrics_port, tracer, _setup/_teardown, running, topics, DLQ)
 - [x] 52.6-03-PLAN.md — ProcessManifest (src/core/agent/manifest.py), delete AgentRegistry, update package exports
@@ -699,6 +714,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 **Scope:**
+
 - Tempo Docker container (alongside timescaledb/redpanda)
 - Grafana datasource pointing at Tempo
 - `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` added to all systemd unit files
@@ -707,6 +723,7 @@ Plans:
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follow-On" (Docker container, datasource, env var pattern) and Section 1 Tempo rationale (Tempo vs Jaeger, Exemplars, object storage)
 
 Plans:
+
 - [x] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
 - [x] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
 
@@ -718,6 +735,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 **Scope and responsibility split:**
+
 - `self.tracer` on every agent — **already delivered by Phase 52.6 (plan 05)**. BaseAgent's contribution is done.
 - `init_tracing()` in every `__main__` block — **already delivered by Phase 52.6 (plan 05)**
 - Tempo receiving spans — **delivered by Phase 52.7**
@@ -729,6 +747,7 @@ Inject/extract W3C `traceparent` header so parent context links across service b
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagation" in Section 1 (propagate.inject/extract in KafkaConsumerClient/KafkaProducerClient, W3C traceparent headers, why this is a kafka_utils.py concern not a BaseAgent concern)
 
 Plans:
+
 - [x] 52.8-01-PLAN.md — Wire traceparent inject/extract into KafkaProducerClient + KafkaConsumerClient
 
 ### Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation
@@ -739,6 +758,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 54-01-PLAN.md — Foundation: Contracts, Schemas, Stream Keys
 - [x] 54-02-PLAN.md — IBKRAdapter + provider_meta Migration
 - [x] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
@@ -757,10 +777,10 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
 - [x] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
 - [x] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
-
 
 ### Phase 63: Contract Lifecycle Automation
 
@@ -770,6 +790,7 @@ Plans:
 **Plans:** 5/6 plans complete
 
 Plans:
+
 - [x] 63-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
 - [x] 63-02-PLAN.md — ContractMetadataWriterAgent: seed + roll promotion + DLQ + systemd unit
 - [x] 63-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
@@ -784,6 +805,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 63.1-01-PLAN.md — Kafka retry in bar_aggregator_agent, backfill_htf_bars.py script, stopped_out→expired fixture fixes
 
 ### Phase 63.2: Signal Quality — Continuous IC + CIS Null Backfill
@@ -793,6 +815,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 63.2-01-PLAN.md — Continuous IC (compute_ic + compute_ic_metrics), repair_cis_nulls.py script, check_validate_alpha_eligibility.py gate
 
 ### Phase 63.3: Pipeline Correctness — Plugin Dependency Violations for Wave Execution
@@ -803,6 +826,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 63.3-01-PLAN.md — Wave restructure: I2/I4/SMC sub-waves, move macd_events→I3, fix mtf_volatility I4→I5 circular dep
 
 ### Phase 63.4: Signal Quality — ATR Caps + Backfill Gap Fix
@@ -813,6 +837,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 63.4-01-PLAN.md — trade_framer per-TF ATR caps (1m→3×, 5m→5×, 15m→7×), detect_gaps tolerance multiplier
 
 ### Phase 63.5: Startup Safety — Plugin Validation Layer
@@ -823,6 +848,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 63.5-01-PLAN.md — PluginValidator class, startup enforcement in intelligence_pipeline_agent, Prometheus metrics
 
 ### Phase 59: OFI Divergence Redesign ✅ Complete 2026-04-05
@@ -833,6 +859,7 @@ Plans:
 **Depends on:** Phase 63
 
 Plans:
+
 - [x] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
 
 ### Phase 60: Signal Metrics Redesign — Renaissance-Aligned Performance System
@@ -842,6 +869,7 @@ Plans:
 **Plans:** 3/3 plans complete ✅ Shipped 2026-04-05 · **UAT verified 2026-04-08** (9/11 pass, window filtering bug fixed, IC gradient improvement todoed)
 
 Plans:
+
 - [x] 60-01-PLAN.md — Foundation: DB migration (3 tables), topic_signal_metrics(), DataQualityValidator, compute_signal_metrics(), compute_ic_metrics()
 - [x] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
 - [x] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
@@ -851,6 +879,7 @@ Plans:
 **Goal:** Expand I6 from single-plugin cross-timeframe confluence to multi-dimensional intelligence across two axes: cross-timeframe (in-process plugins) and cross-asset (macro factors in existing CrossAssetComputeAgent). Build one plugin at a time; validate with IC > 0.05 AND p < 0.01 before building next.
 
 **Architecture:** Hybrid approach matching existing patterns:
+
 - **Cross-TF plugins** — run in-process within `IntelligencePipelineComputeAgent`, reading `frames["intel_*"]` (already cached). Zero new Kafka topics, zero new services.
 - **Macro factors** — pure functions in `src/intelligence/macro/` computed by existing `CrossAssetComputeAgent` alongside EQ_INDEX features. Zero new services, zero new topics, zero new systemd units. Macro factors flow through existing `topic_cross_asset` → `frames["cross_asset"]`.
 
@@ -861,6 +890,7 @@ Plans:
 **Depends on:** Phase 65 (gradient_utils.py must exist so new I6 plugins are gradient-native from day one; CI scanner catches binary patterns in new code)
 
 **Success Criteria:**
+
 1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
 2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
 3. 4 additional cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
@@ -871,6 +901,7 @@ Plans:
 **Plans:** 11/11 plans complete
 
 Plans:
+
 - [ ] 64-01-PLAN.md — CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture
 - [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
 - [x] 64-03A-PLAN.md — Yield curve macro factor (MacroComputeAgent, yield_curve.py) — COMPLETE
@@ -886,6 +917,7 @@ Plans:
 **Depends on**: v2.2 completion
 
 **Wave Structure**:
+
 - Wave 1 (parallel): 56-01 + 56-02
 - Wave 2 (parallel): 56-03 + 56-04
 - Wave 3: 56-05 (needs Wave 1)
@@ -893,6 +925,7 @@ Plans:
 - Wave 5: 56-07 (needs Wave 4)
 
 **Success Criteria** (what must be TRUE):
+
 1. `LLMProviderChain` in `src/core/llm/` — all imports updated
 2. `ai_narrative_service.py` archived → `ai_narrative_agent.py` ≤ 210 lines
 3. `IAlphaContributor.compute(SwarmContext)` is the only contract — no `get_multiplier` callers
@@ -906,6 +939,7 @@ Plans:
 **Plans**: 7 plans across 5 waves
 
 Plans:
+
 - [ ] 56-01-PLAN.md — Move `llm_providers.py` → `src/core/llm/providers.py`, add `call_type` + Kafka audit
 - [ ] 56-02-PLAN.md — Create `src/intelligence/narrative/` (orchestrator, synthesizer, prompts, parsers)
 - [ ] 56-03-PLAN.md — Fix `IAlphaContributor` protocol, add `SwarmContext`/`SwarmContextCache`, extend schemas
@@ -913,8 +947,6 @@ Plans:
 - [ ] 56-05-PLAN.md — Write thin `ai_narrative_agent.py` (~200 lines), archive monolith, update systemd
 - [ ] 56-06-PLAN.md — Add 5 swarm stream key functions, write `058_alpha_multiplier_shadow.sql` migration
 - [ ] 56-07-PLAN.md — Create `SwarmOrchestratorAgent` + `SwarmWriterAgent`, systemd units, regime-segmented promotion
-
-
 
 ### Phase 65: Gradient audit of existing plugins I1-I7 broader sweep
 
@@ -924,12 +956,12 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 65-01-PLAN.md — gradient_utils.py (6 core + 2 wrappers) + importable scanner module
 - [x] 65-02-PLAN.md — I4 replace-in-place (session/VWAP/trend/vol) + I2 replace-in-place (MA/volume/RSI)
 - [x] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
 - [x] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement (12 plugins; second_leg+vcp excluded)
 - [x] 65-05-PLAN.md — Verification: scanner zero violations + CI import gate + full suite
-
 
 ### Phase 67: Observability, Alerting & Automation
 
@@ -938,11 +970,10 @@ Plans:
 **Requirements**: [OBS-GRAFANA-ALERTS, OBS-CONTACT-POINTS, OBS-GAP-TABLE, OBS-BAR-AUDITOR, OBS-ROLL-AUTO, OBS-WEBHOOK-DISPATCHER, OBS-BOOTSTRAP-RETRY, OBS-SWARM-SEED, OBS-DASHBOARDS]
 **Depends on:** Phase 68 (observability instruments a corrected pipeline — run AFTER Phase 68)
 
-
 Plans:
+
 - [x] 067-01-PLAN.md — AlertingAgent: new Kafka-to-Telegram/Discord dispatcher service + TDD tests + systemd unit
 - [x] 067-02-PLAN.md — Renaissance refactor: remove inline webhooks from service_auditor_agent, replace with BaseAgent._send_alert()
-
 
 ### Phase 68: Pipeline Hardening & Institutional Foundation
 
@@ -953,12 +984,12 @@ Plans:
 **Plans:** 5/5 complete (68-01 ✓, 68-02 ✓, 68-03 ✓, 68-04 ✓, 68-05 ✓)
 
 Plans:
+
 - [x] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
 - [x] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge (+ audit LOW-1–4 added 2026-04-23)
 - [x] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
 - [x] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
 - [x] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars) (+ audit LOW-5–6 added 2026-04-23)
-
 
 ### Phase 71: BaseAgent Infrastructure Alignment
 
@@ -968,14 +999,12 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
+
 - [x] 071-01-PLAN.md — Settings singleton in BaseAgent + all agent renames (self._settings → self.settings)
 - [x] 071-02-PLAN.md — Auto init_tracing() in BaseAgent + remove __main__ calls
 - [x] 071-03-PLAN.md — Remove vestigial setup_service_logging() calls + duplicate lag task creation
 - [x] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
 - [x] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
-
-
-
 
 ### Phase 72: Signal Transform Log — Unified alpha modifier architecture. Add signal_transform_log and transform_graduation tables. Every pipeline transform writes a row instead of mutating confidence in-place. Per-segment graduation protocol with 90-day expiry. Absorbs alpha_multiplier_shadow. 4-phase migration: dual-write then wire composition then absorb shadow table then deprecate old columns. Design spec: docs/plans/2026-04-24-signal-transform-log-design.md
 
@@ -985,6 +1014,7 @@ Plans:
 **Plans:** 9/9 plans complete
 
 Plans:
+
 - [x] 72-01-PLAN.md — DB migrations 069 (signal_transform_log hypertable) + 070 (transform_graduation)
 - [x] 72-02-PLAN.md — graduation.py validation module + unit tests (positive multiplier sign convention)
 - [x] 72-03-PLAN.md — Kafka topics: topic_transform_graduation + DLQ in stream_keys.py + kafka_init_topics.py
@@ -1004,11 +1034,11 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [ ] 75-01-PLAN.md — DB migration 076: shadow_registry + shadow_transition_log tables
 - [ ] 75-02-PLAN.md — src/core/stats_utils.py + ShadowAuditorAgent timer service (promotion + demotion logic)
 - [ ] 75-03-PLAN.md — Auto-enrollment in register_all_plugins() + SwarmOrchestratorAgent + _is_shadow() pipeline cache
 - [ ] 75-04-PLAN.md — Rename signal["_shadow"] → signal["features_snapshot"] across all 37 I7 plugins + confidence_utils.py docstring + remove IS_SHADOW/shadow_only class attrs
-
 
 ### Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator
 
@@ -1018,6 +1048,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
+
 - [x] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
 
 ### Phase 76: Signal Lifecycle Labeling Fix & Activation Gate
@@ -1031,10 +1062,10 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+
 - [x] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06) — completed 2026-04-28
 - [x] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05) — completed 2026-04-28
 - [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
-
 
 ### Phase 77: OTel Observability Unification
 
@@ -1046,11 +1077,11 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [ ] 077-01-PLAN.md -- Deploy OTel Collector + Loki Docker containers, Prometheus scrape target, Grafana Loki datasource
 - [ ] 077-02-PLAN.md -- OTel SDK wrapper classes (OTelCounter/Gauge/Histogram), MeterProvider+TracerProvider init, BaseAgent migration off HTTP server
 - [ ] 077-03-PLAN.md -- Log bridge (OTLPLogHandler), service_auditor systemd discovery refactor, Prometheus config collapse
 - [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
-
 
 ### Phase 78: I8 Alpha Feedback Loop — COMPLETE (2026-05-03)
 
@@ -1063,6 +1094,7 @@ Plans:
 **Plans:** 7 plans
 
 Plans:
+
 - [x] 078-01-PLAN.md — Wave 1: bug fixes (pool, segment-key, volume-profile stub, lead-map) — COMPLETE
 - [x] 078-02-PLAN.md — Wave 1: dead code removal (SafeAgentWrapper, setup override) — COMPLETE
 - [x] 078-03-PLAN.md — Wave 2: graduation loop — COMPLETE
@@ -1080,6 +1112,7 @@ Plans:
 **Depends on:** Phase 75 (shadow governance, features_snapshot rename)
 
 **Success Criteria:**
+
 1. ✅ `make_signal_from_frame()` helper with zone propagation and resolved entry_price
 2. ✅ All 36 I7 plugins migrated to use `make_signal_from_frame()` — no manual signal dict construction
 3. ✅ `signal_schema_version` column: 'v0' (pre-fix, contaminated) vs 'v1'/'v2' (post-fix, clean)
@@ -1087,7 +1120,6 @@ Plans:
 5. ✅ `co_fire_count` / `co_fire_partners` columns for co-occurring signals
 6. ✅ Signal quality metrics in pipeline
 7. ✅ ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`
-
 
 ### Phase 80: Renaissance Swarm Intelligence Layer — COMPLETE (2026-05-07)
 
@@ -1102,6 +1134,7 @@ Plans:
 **Requirements:** P80-BASE, P80-SKEPTIC, P80-CORRELATION, P80-REGIME, P80-COUNTERFACTUAL, P80-DISPATCH, P80-WEIGHTS, P80-SCHEMA, P80-OBSERVABILITY
 
 Plans:
+
 - [x] 080-01-PLAN.md — BaseMultiplierAgent + prompt_utils + Settings + Metrics + AIContextCache I7 fix
 - [x] 080-02-PLAN.md — Migration 082: signal_ledger swarm columns + swarm_agent_weights table
 - [x] 080-03-PLAN.md — Skeptic refactor onto BaseMultiplierAgent + TEMPLATE_agent.py update
@@ -1125,6 +1158,7 @@ Plans:
 **Requirements:** P81-PUBLISHER, P81-LOADER, P81-TRACKER, P81-REPLAY, P81-BARREPLAY, P81-MIGRATION, P81-METRICS, P81-TESTS
 
 Plans:
+
 - [x] 081-01-PLAN.md — DB migration 083: TRUNCATE signal_ledger + add is_backfill, ttl_bars columns
 - [x] 081-02-PLAN.md — Publisher normalization: inject timestamp/is_backfill/ttl_bars at intelligence_pipeline_agent publish site
 - [x] 081-03-PLAN.md — Tracker refactor: _load_signal canonical intake, backfill fast-path, delete D-03 sweep + D-05 gate; remove D-02 workaround in lifecycle_tracker
@@ -1145,6 +1179,7 @@ Plans:
 **Depends on:** Phase 081 (clean v1 signal data, is_backfill gate), Phase 070 (ML scoring model exists)
 
 **Design docs:**
+
 - `docs/ideas/hmm-multi-tf-and-training.md`
 - `docs/ideas/regime-transition-early-detection.md`
 - `docs/plans/2026-05-02-unified-intelligence-design.md`
@@ -1154,6 +1189,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 82-01-PLAN.md — DATA-02 gate check (validate_alpha.py for DerivOsc/ACOsc, shadow_registry decision)
 - [x] 82-02-PLAN.md — HMM Multi-TF instances (1m/5m/15m/1h) + entropy/velocity fields + SIGUSR1 hot-reload
 - [x] 82-03-PLAN.md — HMMTrainingComputeAgent (oneshot, Baum-Welch, per-TF param files) + systemd timer
@@ -1172,6 +1208,7 @@ Plans:
 **Plans:** 7 plans (7 complete)
 
 Plans:
+
 - [x] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
 - [x] 083-02-PLAN.md — Base-class span enrichment (ERROR status + ATTR_* constants) + pipeline observed_span
 - [x] 083-03-PLAN.md — metrics.py OTel SDK migration + call-site migration + SERVICE_UP_GAUGE relocation + init_tracing cleanup
@@ -1180,16 +1217,16 @@ Plans:
 - [x] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
 - [x] 083-07-PLAN.md — UAT gap closure: OTel MeterProvider isinstance fix, DLQ drain activation, orphaned topics deleted
 
-
-
 <details>
 <summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
 
 ### Phase 084: Base Agent Hardening
+
 **Goal**: Harden the BaseWriterAgent, BaseAgent, and BaseAIAgent contracts so malformed payloads, swallowed exceptions, and silent dead code are structurally impossible in all subclasses.
 **Depends on**: Phase 083
 **Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05, INFRA-06, OBS-01
 **Success Criteria** (what must be TRUE):
+
   1. A new BaseWriterAgent subclass declares one Pydantic model; malformed messages are automatically DLQ'd without any per-writer boilerplate
   2. Calling `_flush_batch()` in any writer cannot silently swallow an exception — it must raise or DLQ; the linter/type checker catches violations
   3. Any agent's setup can call `_setup_with_retry()` with configurable attempts and backoff; the three duplicated retry scaffolds are deleted
@@ -1197,66 +1234,83 @@ Plans:
   5. A developer can opt any BaseAgent subclass into circuit-breaker protection by setting one class attribute; no per-agent wiring required
   6. The dead graduation loop and LineageRecorder are either fully wired with tests or deleted; no silent dead code remains in base classes
   7. Per-plugin OTel latency histograms exist in the pipeline; p50/p95 latency is visible per plugin in Grafana without adding instrumentation
+
 **Plans**: 4 plans
+
   - [x] 084-01-PLAN.md — BaseAgent class attrs + circuit breaker + new OTel instruments (INFRA-03, INFRA-05)
   - [x] 084-02-PLAN.md — BaseWriterAgent Pydantic gate + _do_flush re-raise (INFRA-01, INFRA-02)
   - [x] 084-03-PLAN.md — BaseAIAgent._on_error + LineageRecorder wiring + graduation stub deletion (INFRA-04, INFRA-06)
   - [x] 084-04-PLAN.md — Grafana plugin latency dashboard (OBS-01)
 
 ### Phase 085: Persistence Writer Migration
+
 **Goal**: All persistence writers adopt the 084 base contracts so silent data loss, swallowed errors, and per-record writes are mechanically eliminated across the fleet.
 **Depends on**: Phase 084
 **Requirements**: PERSIST-01, PERSIST-02, PERSIST-03, PERSIST-04, PERSIST-05
 **Success Criteria** (what must be TRUE):
+
   1. lineage_writer_agent: every message either lands in the DB or in the DLQ; a developer can query DLQ depth and see any previously lost messages as DLQ entries
   2. feature_snapshot_writer_agent: a batch flush failure triggers bounded retry; the clear-on-error behavior is gone; the failure is visible in logs and metrics
   3. llm_writer_service: outcome errors propagate to the caller and appear in structured logs; the swallowed-error path is deleted
   4. signal_metrics_writer_agent: inserts are batched; single-row inserts per record are gone; batch latency metric is present
   5. All positional-tuple INSERT calls in writers use named parameters matching contract_metadata_writer_agent style; reviewers can read the query without counting argument positions
+
 **Plans**: 4 plans
+
   - [x] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
   - [x] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
   - [x] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
   - [x] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
 
 ### Phase 086: Pipeline Hardening
+
 **Goal**: The intelligence pipeline fails loudly on every error boundary — per-plugin circuit breakers, output validation, checkpoint durability, and queue backpressure are all wired.
 **Depends on**: Phase 085
 **Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, OBS-02, OBS-03
 **Success Criteria** (what must be TRUE):
+
   1. A plugin that raises repeatedly opens its circuit breaker and is skipped for subsequent bars; the bar continues processing the remaining plugins; the open-breaker event is visible in Grafana
   2. An invalid signal payload from I7 is DLQ'd before reaching signal_ledger; no malformed signal can be persisted
   3. A checkpoint write failure raises an exception that halts the bar; the error appears in structured logs; it is never silently swallowed
   4. When the output queue is full, the producer blocks and retries rather than dropping the bar; a full-queue event is visible as a metric
   5. `GET /api/health/system` returns machine-readable JSON with consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
   6. BaseAgent exposes `last_processed_at`; service_auditor detects a stalled agent (process alive, no bar progress) and triggers a restart
+
 **Plans**: 4 plans
+
   - [x] 086-01-PLAN.md — pipeline agent hardening (PIPE-01, PIPE-03, PIPE-04)
   - [x] 086-02-PLAN.md — signal_writer_agent validation (PIPE-02)
   - [x] 086-03-PLAN.md — last_processed_at + stall detection (OBS-03)
   - [x] 086-04-PLAN.md — /api/health/system endpoint (OBS-02)
 
 ### Phase 087: Signal Transform Architecture Phases 2-4
+
 **Goal**: Graduate the signal transform pipeline from dual-write shadow mode to unified schema with full validation — completing the work started in Phase 072.
 **Depends on**: Phase 086 (hardened pipeline), data gate ~May 25
 **Requirements**: SIGXFM-01, SIGXFM-02, SIGXFM-03
 **Success Criteria** (what must be TRUE):
+
   1. Signal transform Phase 2 (graduation from dual-write to unified schema) is implemented; the transform_graduation table has passing graduation criteria; no regression in signal volume or quality metrics
   2. Signal transform Phase 3 is implemented; the intermediate dual-write infrastructure is retired; all transforms flow through the unified schema path
   3. Signal transform Phase 4 is implemented; the full transform pipeline is active in production; signal_transform_log is the single source of truth for all confidence modifications; old confidence-mutation paths are deleted
+
 **Plans**: TBD
 
 ### Phase 088: God Class Decomposition
+
 **Goal**: Extract five focused classes from the 1892-line IntelligencePipelineComputeAgent so each responsibility is independently testable and the god class is reduced to a thin orchestrator.
 **Depends on**: Phase 086 (pipeline contracts in place before decomposition)
 **Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05
 **Success Criteria** (what must be TRUE):
+
   1. PluginExecutor class owns tiers, thread pool, and plugin cache; it can be unit-tested in isolation without standing up a full pipeline
   2. PluginStateManager class owns _plugin_states, per-key asyncio locks, and checkpoint save/restore; state corruption bugs are detectable at the class boundary
   3. SignalProcessor class owns I7 execution, regime gating, ranking, and aggregation; a test can inject a mock PluginExecutor output and verify signal selection
   4. CacheManager class owns all 6 refresh loops and DB cache reads; a test can verify cache expiry behavior without running the full bar loop
   5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
+
 **Plans**: 5 plans
+
 - [x] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
 - [x] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
 - [x] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
@@ -1264,10 +1318,12 @@ Plans:
 - [x] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
 
 ### Phase 089: Compute Performance Optimization
+
 **Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
 **Depends on**: Phase 084 (OBS-01 histograms needed to identify bottlenecks), Phase 088 (PluginExecutor extraction makes state threading changes testable in isolation)
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08, PERF-09
 **Known targets from static analysis (intelligence_pipeline_agent.py):**
+
   - `_build_features_from_event()` line 212: 7× Pydantic model_dump() per I7 setup → cache once per bar (PERF-01)
   - Flat `features` dual-write line 1253: wave merges write same data to two dicts every tier (PERF-02)
   - `plugin._state =` line 1187: shared mutable state mutation before thread pool dispatch (PERF-03)
@@ -1277,7 +1333,9 @@ Plans:
   - `_process_bar` line 807: sequential per-bar — ES:1m blocks NQ:5m (PERF-07)
   - `BarMessage(**msg)` line 832: full Pydantic validation on trusted internal messages (PERF-08)
   - `bar.model_copy(update=...)` line 858: allocates new BarMessage just to set gap flag (PERF-09)
+
 **Success Criteria** (what must be TRUE):
+
   1. `_build_features_from_event()` called once per bar; 7× model_dump() allocations gone from CPU profile
   2. Flat `features` dual-write removed or confirmed necessary; wave-merge dict updates reduced
   3. Plugin state threaded as parameter; plugin._state mutation before executor dispatch eliminated
@@ -1287,48 +1345,68 @@ Plans:
   7. Independent (symbol, tf) bars dispatched to per-key workers concurrently; sequential bar loop eliminated
   8. `BarMessage(**msg)` on trusted path replaced with `model_construct()`; full validation on DLQ path only
   9. `bar.model_copy(update=...)` gap-flag allocation eliminated
+
 **Plans:** 6 plans
 Plans:
+**Wave 1**
+
 - [ ] 089-01-PLAN.md — DAG decomposition completion: FeaturePipelineExecutor, run_i7_complete, CacheManager stream caches, SignalProcessor metrics, cleanup (Wave 0, prerequisite)
 - [ ] 089-02-PLAN.md — Allocation wins: PERF-01/02/05/08/09 — features cached, pre-filtered tier dicts, model_construct, gap-as-parameter (Wave 1)
 - [ ] 089-03-PLAN.md — Async batching: PERF-06 — OutputQueue batch drain configurable via Settings (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 089-04-PLAN.md — State threading: PERF-03 — plugin state as parameter, race eliminated (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 089-05-PLAN.md — O(N) plugin conversion: PERF-04 — MarketProfile/SessionLevels incremental + 10 plugin verification (Wave 2)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 089-06-PLAN.md — Per-key concurrency: PERF-07 — PerKeyWorkerManager + thread pool saturation measurement (Wave 3)
 
 ### Phase 091: Instrument Registry
+
 **Goal**: Make `instruments` DB table the single source of truth for all instrument configuration. settings.py becomes pure infra config (kafka, DB, IBKR connection params only). API CRUD lets operators add/remove symbols without code deploy. Pipeline picks up changes via asyncpg LISTEN/NOTIFY within 1 second.
 **Depends on**: Phase 088 (CacheManager owns instrument cache post-decomposition)
 **Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05
 **Success Criteria** (what must be TRUE):
+
   1. `instruments.contract_details` JSONB holds all instrument config (point_value, tick_size, session_id, exchange, sector, asset_class); no hardcoded instrument dicts in settings.py
   2. `POST /api/instruments`, `PUT /api/instruments/{symbol}`, `DELETE /api/instruments/{symbol}` work without code deploy or service restart
   3. Pipeline picks up instrument toggle within 1 second via asyncpg LISTEN on `instruments` channel; no polling lag
   4. `IBKR_CONTRACTS_JSON` env var still seeds DB on empty-DB first startup; backward compatibility preserved
   5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
+
 **Plans**: TBD
 
 ### Phase 090: Signal Ledger Hardening + Thread Safety
+
 **Goal**: Finish the PERSIST-05 job for the highest-volume writer — `signal_ledger_repository.py`'s 65-element positional tuple replaced with named-field `_to_row()` helper. Fix latent thread-safety races on shared module-level caches that worsen post-Phase-089 per-key concurrency.
 **Depends on**: Phase 089 (PERF-07 per-key workers make thread races live)
 **Requirements**: LEDGER-01, LEDGER-02, THREAD-01, THREAD-02
 **Success Criteria** (what must be TRUE):
+
   1. `LedgerEntry._to_row()` replaces `to_insert_params()`; adding a new column requires one line, not positional reordering
   2. `_settings_singleton` in settings.py protected with `threading.RLock`; no data races from ThreadPoolExecutor threads
   3. `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async access safe post-PERF-07
   4. All existing signal_ledger write paths pass tests unchanged
+
 **Plans**: TBD
 
 ### Phase 092: Signal Quality Completeness
+
 **Goal**: Add R-multiple distribution shape (skewness, kurtosis), worst-case outcome (min_r), and recovery_factor to signal_metrics. Run compute per-symbol as well as globally. 1.27M resolved signals confirmed — data volume is sufficient.
 **Depends on**: Phase 090 (thread safety), Phase 091 (instrument registry). signal_metrics schema migration clean to add columns)
 **Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
 **Success Criteria** (what must be TRUE):
+
   1. `signal_metrics` table has skewness, kurtosis, min_r, recovery_factor columns; DB migration is idempotent
   2. `_build_metrics_result` computes all four new metrics from existing pnl_rs/mfes accumulators; no new DB queries
   3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
   4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
-**Plans**: TBD
 
+**Plans**: TBD
 
 </details>
