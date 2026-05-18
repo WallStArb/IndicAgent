@@ -223,7 +223,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         await self._kafka_consumer.skip_lag_if_needed(max_lag=1000)
         self.logger.info("kafka.subscribed", topics=topics)
 
-        self._out_queue = OutputQueue(producer=self._kafka_producer, maxsize=_OUTPUT_QUEUE_MAXSIZE)
+        self._out_queue = OutputQueue(
+            producer=self._kafka_producer,
+            maxsize=_OUTPUT_QUEUE_MAXSIZE,
+            drain_batch_size=self.settings.intelligence_output_drain_batch_size,
+        )
 
         _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
         self._state_mgr = PluginStateManager(checkpoint_path=_CHECKPOINT_PATH)
