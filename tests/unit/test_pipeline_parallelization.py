@@ -22,6 +22,17 @@ def _mock_plugin(compute_result: dict):
     return MockPlugin()
 
 
+# Helper: run executor.run_i1 with minimal state plumbing
+async def _run_i1_via_executor(agent, frames, symbol="ES", tf="1m"):
+    """Run I1 tier via PluginExecutor with empty state (mirrors orchestrator flow)."""
+    plugin_states = agent._state_mgr.get_all_states_for(symbol, tf)
+    lock = agent._state_mgr.get_lock((symbol, tf))
+    result, _state_updates = await agent._executor.run_i1(
+        plugin_states, lock, frames, symbol, tf, shadow_cache={}
+    )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -36,12 +47,12 @@ class TestI1ParallelExecution:
         agent = make_agent()
 
         for i, plugin_name in enumerate(TIER_I1):
-            agent._plugin_cache[plugin_name] = _mock_plugin({f"{plugin_name}_value": i})
+            agent._executor._plugin_cache[plugin_name] = _mock_plugin({f"{plugin_name}_value": i})
 
         frames = {"main": MagicMock()}
 
         start = time.perf_counter()
-        result = await agent._run_i1(frames, "ES", "1m")
+        result = await _run_i1_via_executor(agent, frames)
         elapsed_parallel = time.perf_counter() - start
 
         assert len(result) >= 27, f"Expected at least 27 keys, got {len(result)}"
@@ -57,12 +68,14 @@ class TestI1ParallelExecution:
         if not TIER_I1:
             pytest.skip("No TIER_I1 plugins registered")
         plugin_name_i1 = TIER_I1[0]
-        agent._plugin_cache[plugin_name_i1] = _mock_plugin({"value": 1, "_state": {"counter": 0}})
+        agent._executor._plugin_cache[plugin_name_i1] = _mock_plugin(
+            {"value": 1, "_state": {"counter": 0}}
+        )
 
         frames = {"main": MagicMock()}
 
-        result1 = await agent._run_i1(frames, "ES", "1m")
-        result2 = await agent._run_i1(frames, "ES", "1m")
+        result1 = await _run_i1_via_executor(agent, frames)
+        result2 = await _run_i1_via_executor(agent, frames)
 
         assert result1["value"] == 1
         assert result2["value"] == 1
@@ -72,7 +85,7 @@ class TestI1ParallelExecution:
         if not I7_PLUGINS:
             pytest.skip("No I7_PLUGINS registered")
         plugin_name_i7 = I7_PLUGINS[0]
-        agent._plugin_cache[plugin_name_i7] = _mock_plugin(
+        agent._executor._plugin_cache[plugin_name_i7] = _mock_plugin(
             {
                 "signal": {"value": 1, "direction": 1, "confidence": 0.5},
                 "_state": {"counter": 0},
@@ -95,7 +108,8 @@ class TestI1ParallelExecution:
 
         with (
             patch(
-                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+                "services.intelligence_pipeline_agent._build_features_from_event",
+                return_value={},
             ),
             patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),
@@ -126,7 +140,7 @@ class TestI7ParallelExecution:
         agent = make_agent()
 
         for i, plugin_name in enumerate(I7_PLUGINS):
-            agent._plugin_cache[plugin_name] = _mock_plugin(
+            agent._executor._plugin_cache[plugin_name] = _mock_plugin(
                 {"signal": {"value": i, "direction": 1, "confidence": 0.5}}
             )
 
@@ -146,7 +160,8 @@ class TestI7ParallelExecution:
 
         with (
             patch(
-                "services.intelligence_pipeline_agent._build_features_from_event", return_value={}
+                "services.intelligence_pipeline_agent._build_features_from_event",
+                return_value={},
             ),
             patch("services.intelligence_pipeline_agent.apply_quality_gate", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_regime_gate", return_value=[]),

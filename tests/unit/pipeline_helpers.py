@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
 from src.core.bar_history import BarHistory
 from src.intelligence.pipeline.cache_manager import CacheManager
+from src.intelligence.pipeline.executor import PluginExecutor
 from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.trading.cis_scorer import CISScorer
@@ -66,9 +67,17 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._regime_prob_soft_max = 0.55
     agent._regime_dur_min = 12
     cpu_count = os.cpu_count() or 24
-    agent._executor = ThreadPoolExecutor(
+    # D-06: self._thread_pool is the underlying ThreadPoolExecutor;
+    # self._executor is the PluginExecutor instance.
+    agent._thread_pool = ThreadPoolExecutor(
         max_workers=cpu_count * 2,
         thread_name_prefix="test_intel_",
+    )
+    agent._executor = PluginExecutor(
+        thread_pool=agent._thread_pool,
+        plugin_cache=agent._plugin_cache,
+        instrument_map=agent._instrument_map,
+        circuit_breakers={},
     )
     return agent
 
