@@ -60,7 +60,7 @@ Target contract:
 
 ## Phase 3: Domain Expansion
 - [ ] **P-QUAL-01: Qualitative Foundation**
-    - [ ] Implement `qualitative-intelligence-layer.md` structure (tables, writer agent).
+    - [ ] Implement `ai-10-qualitative-intelligence-layer.md` structure (tables, writer agent).
 - [ ] **P-MACRO-01: Macro Foundation**
     - [ ] Define macro stream ingestion for economic calendar/macro data.
 

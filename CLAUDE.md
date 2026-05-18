@@ -83,7 +83,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 ```
 
 **ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct — do not treat as failures.
-- `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon). Design: `docs/ideas/ml-agent-architecture.md`
+- `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon). Design: `docs/ideas/ai-02-ml-agent-architecture.md`
 
 ## Core Runtime Files
 

@@ -3,7 +3,7 @@
 **Status:** Design / Pre-implementation
 **Last Updated:** 2026-05-02
 **Author:** Architecture review, 2026-04-30
-**Related:** `docs/ideas/platform-architecture.md` (QualAgent vision), `docs/ideas/i8-intelligence-extensions.md`
+**Related:** `docs/ideas/platform-architecture.md` (QualAgent vision), `docs/ideas/ai-07-i8-intelligence-extensions.md`
 
 ---
 

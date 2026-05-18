@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-05-10
 **Status:** Designed, not yet implemented
-**Full Design:** `docs/ideas/2026-05-06-evolvable-ai-agents.md`
+**Full Design:** `docs/ideas/ai-03-evolvable-ai-agents.md`
 
 ## Overview
 
@@ -107,4 +107,4 @@ The system already has the substrate eAI needs:
 - [Swarm Intelligence](swarm-intelligence.md) — the current specialist agent architecture
 - [Signal Lifecycle](signal-lifecycle.md) — outcome tracking that feeds fitness evaluation
 - [Architecture Concepts](../architecture/concepts.md) — shadow governance and statistical gates
-- [Full eAI Design](../ideas/2026-05-06-evolvable-ai-agents.md) — complete design document
+- [Full eAI Design](../ideas/ai-03-evolvable-ai-agents.md) — complete design document

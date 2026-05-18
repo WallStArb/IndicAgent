@@ -484,7 +484,7 @@ New domains attach the same way. The fundamental analysis engine subscribes to m
 - [CIS Scoring](docs/concepts/cis-scoring.md)
 - [Signal Lifecycle](docs/concepts/signal-lifecycle.md)
 - [DAG Execution](docs/concepts/dag-execution.md)
-- [ML Architecture](docs/ideas/ml-agent-architecture.md)
-- [eAI Design](docs/ideas/2026-05-06-evolvable-ai-agents.md)
+- [ML Architecture](docs/ideas/ai-02-ml-agent-architecture.md)
+- [eAI Design](docs/ideas/ai-03-evolvable-ai-agents.md)
 - [Roadmap](.planning/ROADMAP.md)
 - [CLAUDE.md](CLAUDE.md) — AI assistant instructions

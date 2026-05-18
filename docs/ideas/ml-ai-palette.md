@@ -5,7 +5,7 @@
 **Last Updated:** 2026-04-08
 **Related:** 
 - `docs/plans/2026-04-08-ai-extensions-design.md` — AI services roadmap
-- `tech-stack.md`, `ml-agent-architecture.md`, `renaissance-alpha-pipeline.md`
+- `tech-stack.md`, `ai-02-ml-agent-architecture.md`, `renaissance-alpha-pipeline.md`
 
 ---
 
@@ -674,6 +674,6 @@ When adding or removing tools:
 ## Related Documentation
 
 - `tech-stack.md` — High-level stack decisions and infrastructure
-- `ml-agent-architecture.md` — Multi-agent ML system design
+- `ai-02-ml-agent-architecture.md` — Multi-agent ML system design
 - `renaissance-alpha-pipeline.md` — Validation framework and governance
-- `ml-classification-pattern-recognition.md` — Random Forest/KNN/SVM research
+- `ai-08-ml-classification-pattern-recognition.md` — Random Forest/KNN/SVM research

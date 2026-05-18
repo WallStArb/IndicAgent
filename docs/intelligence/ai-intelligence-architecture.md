@@ -15,6 +15,13 @@ IndicAgent's intelligence pipeline transforms raw market data through seven anal
 - **Provider Abstraction:** Multi-provider support via `ProviderMergerAgent` failover
 - **DB-Ignorant Compute:** All intelligence agents publish to Kafka; WriterAgents handle persistence
 
+**Boundary rule:** the real-time intelligence pipeline is the deterministic market-feature pipeline. AI sits outside that hot path as an adjacent layer:
+- **I8 narratives** translate pipeline output into natural language
+- **Swarm agents** evaluate signal quality asynchronously
+- **ML discovery / training** mine historical data and update models or weights offline
+
+That separation keeps live signal generation deterministic, replayable, and low-latency while still allowing AI to learn from the data the pipeline produces.
+
 ---
 
 ## I1-I7 Unified Intelligence Pipeline
@@ -122,6 +129,13 @@ Per the Renaissance validation framework, LLMs are **research-only** in our arch
 - **Alpha Pipeline (Production):** No LLM calls in the hot path. Real-time signal enrichment uses only deterministic Python feature extractors
 
 The I8 AI Narrative layer is the exception (generates human-readable explanations), but its outputs never directly affect position sizing without passing through validation gates first.
+
+The practical rule is:
+
+- **Inside the intelligence pipeline:** deterministic feature extraction, regime classification, pattern detection, and signal generation
+- **Outside the intelligence pipeline:** LLM narration, discovery, training, swarm evaluation, and any adaptive learning loop that depends on historical outcomes
+
+AI can consume the pipeline's outputs and write back learned artifacts, but it should not sit on the critical path that turns bars into signals.
 
 **See:** `docs/ideas/renaissance-alpha-pipeline.md` for full validation framework design.
 
