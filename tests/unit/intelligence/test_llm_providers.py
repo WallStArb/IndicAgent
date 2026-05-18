@@ -10,6 +10,8 @@ Tests verify:
 
 from __future__ import annotations
 
+import contextlib
+import json as _json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,10 +36,29 @@ def _make_openrouter_response(content: str) -> bytes:
     return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
-def _make_ollama_response(content: str) -> bytes:
-    import json
+def _make_ollama_stream_lines(content: str) -> list[str]:
+    """Build Ollama streaming NDJSON lines for a given content string."""
+    lines = [_json.dumps({"message": {"content": content}, "done": False})]
+    lines.append(_json.dumps({"message": {"content": ""}, "done": True}))
+    return lines
 
-    return json.dumps({"message": {"content": content}}).encode()
+
+def _make_mock_stream(lines: list[str]):
+    """Return an async context manager that yields a mock httpx streaming response."""
+
+    @contextlib.asynccontextmanager
+    async def _stream(*args, **kwargs):
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            async def aiter_lines(self):
+                for line in lines:
+                    yield line
+
+        yield _Resp()
+
+    return _stream
 
 
 # ---------------------------------------------------------------------------
@@ -215,46 +236,136 @@ class TestOllamaProvider:
         return OllamaProvider(
             model="qwen3.5:9b",
             base_url="http://fake-ollama.local",
+            num_ctx=4096,
         )
 
     @pytest.mark.asyncio
     async def test_generate_success(self):
-        """generate() returns message content on success."""
+        """generate() assembles streamed chunks into a single response."""
         _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
-        mock_resp = MagicMock()
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_resp.read.return_value = _make_ollama_response("Ollama reply")
-
-        with patch("urllib.request.urlopen", return_value=mock_resp):
+        with patch.object(
+            provider._client, "stream", _make_mock_stream(_make_ollama_stream_lines("Ollama reply"))
+        ):
             result = await provider.generate("prompt", "system", 100, 30.0)
 
         assert result == "Ollama reply"
+        await provider.close()
 
     @pytest.mark.asyncio
     async def test_generate_failure_returns_none(self):
-        """generate() returns None on network exception."""
+        """generate() returns None when httpx raises ConnectError."""
         _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
+        import httpx
+
+        @contextlib.asynccontextmanager
+        async def _failing_stream(*args, **kwargs):
+            raise httpx.ConnectError("refused")
+            yield  # make it a generator
+
+        with patch.object(provider._client, "stream", _failing_stream):
             result = await provider.generate("prompt", "system", 100, 30.0)
 
         assert result is None
+        await provider.close()
 
     @pytest.mark.asyncio
     async def test_failure_tracked_in_circuit_breaker(self):
-        """Failure increments failure_count in the ollama-specific circuit breaker."""
+        """ConnectError increments failure_count in the ollama-specific circuit breaker."""
         _ollama_circuit_breaker.plugin_states.clear()
         provider = self._make_provider()
 
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("refused")):
+        import httpx
+
+        @contextlib.asynccontextmanager
+        async def _failing_stream(*args, **kwargs):
+            raise httpx.ConnectError("refused")
+            yield
+
+        with patch.object(provider._client, "stream", _failing_stream):
             await provider.generate("prompt", "system", 100, 30.0)
 
         state = _ollama_circuit_breaker.plugin_states[provider.provider_id]
         assert state.failure_count >= 1
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_num_ctx_passed_in_options(self):
+        """generate() passes num_ctx from provider config in Ollama options."""
+        _ollama_circuit_breaker.plugin_states.clear()
+        provider = OllamaProvider(
+            model="qwen3.5:9b", base_url="http://fake-ollama.local", num_ctx=8192
+        )
+        captured = {}
+
+        @contextlib.asynccontextmanager
+        async def _capture_stream(method, url, *, json, timeout, **kwargs):
+            captured.update(json)
+
+            class _Resp:
+                def raise_for_status(self):
+                    pass
+
+                async def aiter_lines(self):
+                    yield _json.dumps({"message": {"content": "ok"}, "done": True})
+
+            yield _Resp()
+
+        with patch.object(provider._client, "stream", _capture_stream):
+            await provider.generate("prompt", "system", 100, 30.0)
+
+        assert captured["options"]["num_ctx"] == 8192
+        assert captured["options"]["num_predict"] == 100
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_think_false_in_payload(self):
+        """generate() sets think=False to suppress qwen chain-of-thought at API level."""
+        _ollama_circuit_breaker.plugin_states.clear()
+        provider = self._make_provider()
+        captured = {}
+
+        @contextlib.asynccontextmanager
+        async def _capture_stream(method, url, *, json, timeout, **kwargs):
+            captured.update(json)
+
+            class _Resp:
+                def raise_for_status(self):
+                    pass
+
+                async def aiter_lines(self):
+                    yield _json.dumps({"message": {"content": "ok"}, "done": True})
+
+            yield _Resp()
+
+        with patch.object(provider._client, "stream", _capture_stream):
+            await provider.generate("prompt", "system", 100, 30.0)
+
+        assert captured["think"] is False
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_timeout_not_retried(self):
+        """TimeoutError from Ollama returns None without retrying (no added load)."""
+        _ollama_circuit_breaker.plugin_states.clear()
+        provider = self._make_provider()
+        call_count = [0]
+
+        @contextlib.asynccontextmanager
+        async def _timeout_stream(*args, **kwargs):
+            call_count[0] += 1
+            raise TimeoutError("model slow")
+            yield
+
+        with patch.object(provider._client, "stream", _timeout_stream):
+            result = await provider.generate("prompt", "system", 100, 1.0)
+
+        assert result is None
+        assert call_count[0] == 1  # no retries
+        await provider.close()
 
 
 # ---------------------------------------------------------------------------
@@ -285,29 +396,33 @@ class TestLLMChain:
 
     @pytest.mark.asyncio
     async def test_chain_falls_through_to_second_on_failure(self):
-        """LLMChain tries next provider when first returns None."""
+        """LLMChain falls through to Ollama when OpenRouter fails."""
         _llm_circuit_breaker.plugin_states.clear()
+        _ollama_circuit_breaker.plugin_states.clear()
 
-        provider1 = OpenRouterProvider("m1", "k1", base_url="http://fake.local")
-        provider2 = OllamaProvider("qwen3.5:9b", base_url="http://fake-ollama.local")
-        chain = LLMChain([provider1, provider2])
+        or_provider = OpenRouterProvider("m1", "k1", base_url="http://fake.local")
+        ollama_provider = OllamaProvider(
+            "qwen3.5:9b", base_url="http://fake-ollama.local", num_ctx=4096
+        )
+        chain = LLMChain([or_provider, ollama_provider])
 
-        ollama_resp = MagicMock()
-        ollama_resp.__enter__ = lambda s: s
-        ollama_resp.__exit__ = MagicMock(return_value=False)
-        ollama_resp.read.return_value = _make_ollama_response("Fallback reply")
+        @contextlib.asynccontextmanager
+        async def _ollama_mock_stream(*args, **kwargs):
+            class _Resp:
+                def raise_for_status(self):
+                    pass
 
-        call_count = [0]
+                async def aiter_lines(self):
+                    yield _json.dumps({"message": {"content": "Fallback reply"}, "done": True})
 
-        def _urlopen_side_effect(req, timeout=None):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise ConnectionError("first fails")
-            return ollama_resp
+            yield _Resp()
 
-        with patch("urllib.request.urlopen", side_effect=_urlopen_side_effect):
-            # First provider will fail 3 times (retries), then second succeeds
+        with (
+            patch("urllib.request.urlopen", side_effect=ConnectionError("openrouter down")),
+            patch.object(ollama_provider._client, "stream", _ollama_mock_stream),
+        ):
             result = await chain.generate("prompt", "system", 100, 30.0)
 
         assert result == "Fallback reply"
-        assert chain.last_provider_id == provider2.provider_id
+        assert chain.last_provider_id == ollama_provider.provider_id
+        await ollama_provider.close()

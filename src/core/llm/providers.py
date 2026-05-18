@@ -346,19 +346,30 @@ class OpenRouterProvider(_OpenAICompatProvider):
 
 
 class OllamaProvider:
-    """Calls local Ollama /api/chat."""
+    """Calls local Ollama /api/chat using async httpx streaming.
+
+    Streaming (stream=True) ensures asyncio cancellation propagates to the
+    HTTP socket — when the caller's wait_for fires, the connection closes and
+    Ollama stops generating. Non-streaming (stream=False) with urllib left
+    the runner alive for the full generation duration.
+    """
 
     def __init__(
         self,
         model: str,
         base_url: str = "http://localhost:11434",
         timeout: float | None = None,
+        num_ctx: int = 4096,
     ) -> None:
+        import httpx
+
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout or _default_llm_timeout()
+        self._num_ctx = num_ctx
         self.provider_id = f"ollama:{model}"
         self._circuit_breaker = _ollama_circuit_breaker
+        self._client = httpx.AsyncClient()
 
     async def generate(
         self,
@@ -367,31 +378,55 @@ class OllamaProvider:
         max_tokens: int,
         timeout: float,
     ) -> str | None:
-        def _call() -> str | None:
+        import httpx
+
+        async def _call() -> str | None:
             payload = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
-                "stream": False,
+                "stream": True,
                 "think": False,
-                "options": {"num_predict": max_tokens},
+                "options": {"num_predict": max_tokens, "num_ctx": self._num_ctx},
             }
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self.base_url}/api/chat",
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-            raw = result.get("message", {}).get("content", "").strip()
-            return _strip_thinking_tags(raw) or None
+            try:
+                chunks: list[str] = []
+                async with self._client.stream(
+                    "POST",
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=timeout,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        data = json.loads(line)
+                        content = data.get("message", {}).get("content", "")
+                        if content:
+                            chunks.append(content)
+                        if data.get("done"):
+                            break
+                return _strip_thinking_tags("".join(chunks)) or None
+            except httpx.TimeoutException as exc:
+                raise TimeoutError(f"Ollama request timed out: {exc}") from exc
+            except httpx.ConnectError as exc:
+                raise ConnectionError(f"Ollama connection failed: {exc}") from exc
+            except httpx.HTTPStatusError as exc:
+                raise ConnectionError(f"Ollama HTTP {exc.response.status_code}") from exc
 
         return await _call_llm_with_circuit_breaker(
-            self.provider_id, _call, circuit_breaker=self._circuit_breaker
+            self.provider_id,
+            _call,
+            circuit_breaker=self._circuit_breaker,
+            retry_on=(ConnectionError, BrokenPipeError),
         )
+
+    async def close(self) -> None:
+        """Close the shared httpx client. Call on service shutdown."""
+        await self._client.aclose()
 
 
 class LLMChain:
