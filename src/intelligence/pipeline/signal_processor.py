@@ -127,6 +127,9 @@ class CacheSnapshot:
     cross_asset_data: dict = field(default_factory=dict)
     macro_data: dict = field(default_factory=dict)
     htf_intel: dict = field(default_factory=dict)
+    # Shadow registry state for I7 plugin shadow routing (included here so
+    # PluginExecutor.run_i7_complete has access without a CacheManager reference)
+    shadow_cache: dict = field(default_factory=dict)
 
 
 @dataclass

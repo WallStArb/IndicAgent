@@ -15,7 +15,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from src.intelligence.pipeline.signal_processor import CacheSnapshot
 
 import structlog
 
@@ -526,6 +529,94 @@ class PluginExecutor:
         )
 
         return tasks, outputs, state_updates
+
+    # ------------------------------------------------------------------
+    # I7 completion (D-20): consolidated 52-line I7 setup block
+    # ------------------------------------------------------------------
+
+    async def run_i7_complete(
+        self,
+        intel_event: Any,
+        bar: Any,
+        cache_snapshot: CacheSnapshot,
+        plugin_states: dict,
+        lock: threading.Lock,
+        *,
+        main_df: Any,
+    ) -> list[dict]:
+        """Consolidate I7 feature build, plugin execution, and signal post-processing.
+
+        D-15: PluginExecutor MUST NOT hold a PluginStateManager reference.
+        Caller pre-fetches plugin_states and lock and passes them as parameters.
+
+        D-20: internally calls _build_features_from_event once, assembles plugin_input,
+        calls run_i7_plugins, and post-processes each signal dict:
+          - Sets setup_plugin, symbol, tf from PluginTask and bar.
+          - Sets regime_type via self._plugin_cache (no private cross-class access).
+
+        Does NOT apply alpha decay — that is SignalProcessor.process() responsibility (D-21).
+
+        Args:
+            intel_event: Typed IntelligenceEvent from FeaturePipelineExecutor.
+            bar: BarMessage for symbol, tf, bar metadata.
+            cache_snapshot: Per-bar CacheSnapshot (passed to plugin_input).
+            plugin_states: Pre-fetched per-plugin state dict (from PluginStateManager).
+            lock: Per-(symbol, tf) threading.Lock (from PluginStateManager).
+            main_df: pandas DataFrame for this (symbol, tf) — built once by FPE (D-26).
+
+        Returns:
+            list[dict]: Post-processed raw signals with direction != 0.
+        """
+        from src.intelligence.pipeline.signal_processor import (  # noqa: PLC0415
+            _build_features_from_event,
+        )
+
+        symbol = bar.symbol
+        tf = bar.tf
+
+        features = _build_features_from_event(intel_event)
+
+        plugin_input = {
+            "main": main_df,
+            "features": features,
+            "__symbol__": symbol,
+            "__timeframe__": tf,
+            "timeframe": tf,
+            "__instrument__": self._instrument_map.get(symbol),
+            "intel_event": intel_event,
+            "cache_snapshot": cache_snapshot,
+        }
+
+        tasks, outputs, sig_state_updates = await self.run_i7_plugins(
+            plugin_states,
+            lock,
+            bar,
+            symbol,
+            tf,
+            plugin_input,
+            shadow_cache=cache_snapshot.shadow_cache,
+        )
+
+        # D-15: PluginExecutor cannot hold a PluginStateManager reference.
+        # State updates are stored on _last_i7_state_updates so the orchestrator
+        # can retrieve and write back via update_batch without this class knowing
+        # about PluginStateManager.
+        self._last_i7_state_updates: dict = sig_state_updates
+
+        raw_signals: list[dict] = []
+        for task, output in zip(tasks, outputs, strict=False):
+            output.pop("_tier_key", None)
+            if output.get("direction", 0) != 0:
+                sig = output
+                sig["setup_plugin"] = task.plugin_name
+                sig["symbol"] = symbol
+                sig["tf"] = tf
+                # regime_type looked up locally — no cross-class private access (D-20)
+                plugin_inst = self._plugin_cache.get(task.plugin_name)
+                sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
+                raw_signals.append(sig)
+
+        return raw_signals
 
     # ------------------------------------------------------------------
     # HMM parameter reload (SIGUSR1)
