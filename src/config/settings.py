@@ -93,6 +93,14 @@ class Settings(BaseSettings):
         validation_alias="OLLAMA_BASE_URL",
         description="Ollama server URL",
     )
+    ollama_num_ctx: int = Field(
+        default=16384,
+        validation_alias="OLLAMA_NUM_CTX",
+        description=(
+            "Ollama context window (tokens). qwen3.5:4b supports 32K; "
+            "16384 gives 14K headroom over the largest full-context prompts."
+        ),
+    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
