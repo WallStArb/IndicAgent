@@ -17,6 +17,7 @@ from services.intelligence_pipeline_agent import (
     _load_cis_kalman_params,
 )
 from src.core.bar_history import BarHistory
+from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.trading.cis_scorer import CISScorer
 
 
@@ -51,7 +52,7 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._tod_priors = {}
     agent._calibration_curves = {}
     agent._perf_weights = {}
-    agent._output_queue = asyncio.Queue(maxsize=500)
+    agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
     agent._transform_recorder = MagicMock()
     agent._regime_prob_min = 0.7
     agent._regime_prob_soft_max = 0.55
