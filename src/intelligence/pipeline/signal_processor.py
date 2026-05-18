@@ -13,7 +13,7 @@ HIGH finding 4: SignalProcessorResult carries all 4 output paths.
 from __future__ import annotations
 
 import zoneinfo
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -117,6 +117,11 @@ class CacheSnapshot:
     drift_penalties: dict
     cis_weights: dict
     cis_weights_version: int
+    # Stream-fed caches migrated from orchestrator (D-19) — default to empty dict
+    # so existing call sites (before Task 6 wires them) remain backward compatible.
+    cross_asset_data: dict = field(default_factory=dict)
+    macro_data: dict = field(default_factory=dict)
+    htf_intel: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -288,6 +288,31 @@ DLQ_MESSAGES_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# Signal processor gate observability metrics (Phase 089 D-22)
+# ---------------------------------------------------------------------------
+
+SIGNAL_PROCESSOR_CIS_NULL_TOTAL = _meter.create_counter(
+    "signal_processor_cis_null_total",
+    description="CIS scoring returned None — no score available for signal pipeline",
+)
+SIGNAL_PROCESSOR_DLQ_TOTAL = _meter.create_counter(
+    "signal_processor_dlq_total",
+    description="Signals routed to DLQ by SignalProcessor, labeled by reason",
+)
+SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL = _meter.create_counter(
+    "signal_processor_gate_rejections_total",
+    description="Signals rejected by a named gate (regime, quality, tod, calibration)",
+)
+SIGNAL_PROCESSOR_WINNER_TOTAL = _meter.create_counter(
+    "signal_processor_winner_total",
+    description="Winner signals selected per bar, labeled by entry_type",
+)
+SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL = _meter.create_counter(
+    "signal_processor_signals_evaluated_total",
+    description="Total raw signals entering the SignalProcessor pipeline per bar",
+)
+
+# ---------------------------------------------------------------------------
 # Regime gate suppression metrics
 # ---------------------------------------------------------------------------
 
