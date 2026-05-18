@@ -114,7 +114,13 @@ class FeaturePipelineExecutor:
         self._last_events: dict = {}  # keyed by f"{symbol}:{tf}" or f"{symbol}:{tf}_i1"
         self._logger = structlog.get_logger(__name__)
 
-    async def run(self, bar: BarMessage, cache_snapshot: CacheSnapshot) -> FeaturePipelineResult:
+    async def run(
+        self,
+        bar: BarMessage,
+        cache_snapshot: CacheSnapshot,
+        *,
+        gap: bool = False,
+    ) -> FeaturePipelineResult:
         """Run I1 through I6 and return FeaturePipelineResult.
 
         This is the extracted body of _run_i1_to_i6 (orchestrator lines 628-745).
@@ -123,6 +129,8 @@ class FeaturePipelineExecutor:
         Args:
             bar: Incoming BarMessage.
             cache_snapshot: Per-bar CacheSnapshot from CacheManager.snapshot().
+            gap: PERF-09 — gap flag passed explicitly instead of via bar.model_copy().
+                 Placed in frames["__gap__"] for plugins that need it.
 
         Returns:
             FeaturePipelineResult with event=None if I1 not warm or tier returned nothing.
@@ -131,7 +139,13 @@ class FeaturePipelineExecutor:
         key = f"{symbol}:{tf}"
 
         main_df = self._bar_history.to_dataframe(symbol, tf)
-        frames: dict[str, Any] = {"main": main_df, "__symbol__": symbol, "__timeframe__": tf}
+        frames: dict[str, Any] = {
+            "main": main_df,
+            "__symbol__": symbol,
+            "__timeframe__": tf,
+            # PERF-09: gap flag as explicit parameter — no bar.model_copy() needed.
+            "__gap__": gap,
+        }
 
         # Cross-tf frames (orchestrator lines 638-655)
         for other_tf in _STANDARD_TFS:
