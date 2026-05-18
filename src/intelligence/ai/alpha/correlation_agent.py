@@ -19,8 +19,10 @@ from src.intelligence.ai.alpha.correlation_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
+    "/no_think\n\n"
     "You are a cross-asset coherence analyst. Output strictly valid JSON. "
-    "Phase 80 policy: discount-only — coherence_score and confidence in [0.0, 1.0]."
+    "Phase 80 policy: discount-only — coherence_score and confidence in [0.0, 1.0]. "
+    "Keep reasoning under 100 words."
 )
 
 
@@ -78,7 +80,7 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
-            max_tokens=2000,
+            max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
         if not response:
