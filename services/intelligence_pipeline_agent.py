@@ -16,7 +16,6 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import signal as _signal
 import threading
@@ -26,7 +25,6 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, ClassVar
 from uuid import uuid4
 
@@ -71,6 +69,7 @@ from src.intelligence.cross_asset_features import resolve_eq_index_base
 # Re-import I1-I6 tiers from register_plugins (shared source of truth)
 from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.pipeline import (
+    CacheManager,
     OutputQueue,
     PluginStateManager,
     apply_calibration,
@@ -115,7 +114,6 @@ from src.intelligence.schemas import (
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
-from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
     CIRCUIT_BREAKER_STATE,
@@ -156,39 +154,6 @@ ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
 # Phase 35: Eastern Time zone for hour extraction
 _ET = zoneinfo.ZoneInfo("America/New_York")
-
-# CIS Kalman defaults
-_CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
-    "1m": {"Q": 0.01, "R": 0.08},
-    "5m": {"Q": 0.01, "R": 0.06},
-    "15m": {"Q": 0.01, "R": 0.04},
-    "1h": {"Q": 0.01, "R": 0.02},
-    "4h": {"Q": 0.01, "R": 0.01},
-    "1d": {"Q": 0.01, "R": 0.01},
-    "default": {"Q": 0.01, "R": 0.05},
-}
-
-
-def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
-    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json.
-
-    Config file can override defaults for specific timeframes, but "default"
-    key is always guaranteed via merge with hardcoded defaults.
-    """
-    config_path = Path(__file__).parent.parent / "src" / "config" / "kalman_parameters.json"
-    try:
-        data = json.loads(config_path.read_text())
-        config_params = data.get("cis_kalman", {})
-        # DEEP MERGE: per-TF config overrides individual keys without losing defaults
-        merged = {}
-        all_tfs = set(_CIS_KALMAN_DEFAULTS) | set(config_params)
-        for tf in all_tfs:
-            base = dict(_CIS_KALMAN_DEFAULTS.get(tf, _CIS_KALMAN_DEFAULTS["default"]))
-            base.update(config_params.get(tf, {}))
-            merged[tf] = base
-        return merged
-    except Exception:
-        return dict(_CIS_KALMAN_DEFAULTS)
 
 
 def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None:
@@ -239,45 +204,6 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
 
 
 logger = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Pattern reliability weight cache
-# ---------------------------------------------------------------------------
-_pattern_reliability_cache: dict[str, float] | None = None
-_pattern_reliability_cache_ts: datetime | None = None
-_pattern_reliability_cache_ttl_sec: int = 900
-
-
-async def _load_pattern_reliability_weights(db_manager: DatabaseManager) -> dict[str, float]:
-    """Load pattern confidence weights from pattern_reliability table."""
-    global _pattern_reliability_cache, _pattern_reliability_cache_ts
-
-    if db_manager is None:
-        return _pattern_reliability_cache if _pattern_reliability_cache is not None else {}
-
-    now = datetime.now(UTC)
-    if (
-        _pattern_reliability_cache is not None
-        and _pattern_reliability_cache_ts is not None
-        and (now - _pattern_reliability_cache_ts).total_seconds()
-        < _pattern_reliability_cache_ttl_sec
-    ):
-        return _pattern_reliability_cache
-
-    try:
-        rows = await db_manager.execute_query("""
-            SELECT pattern_name, base_confidence
-            FROM pattern_reliability
-            WHERE is_bootstrap = true OR sample_size >= 30
-        """)
-        weights = {r["pattern_name"]: float(r["base_confidence"]) for r in rows}
-        _pattern_reliability_cache = weights
-        _pattern_reliability_cache_ts = now
-        logger.info(f"Pattern reliability weights loaded from DB: {len(weights)} patterns")
-        return weights
-    except Exception as exc:
-        logger.warning(f"Pattern reliability load failed, using fallback: {exc}")
-        return {}
 
 
 def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | None]:
@@ -393,9 +319,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         PluginValidator().validate_all()
 
-        # Shadow governance cache (loaded from shadow_registry at startup, refreshed every 5 min)
-        self._shadow_cache: dict[str, bool] = {}
-
         # Plugin caches
         self._plugin_cache: dict[str, Any] = {}
         for n in TIER_I1:
@@ -407,7 +330,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # --- State dicts (cross-owned checkpointed fields — plugin_states owned by PluginStateManager) ---
         self._kalman_state: dict = {}  # (symbol, tf) -> {x, P, Q, R}
-        self._tod_priors: dict = {}  # (regime_type, tf, hour_et) -> float
         self._bar_history = BarHistory(maxlen=200)
         self._last_bar_offset: dict = {}  # (symbol, tf) -> int (Kafka offset)
 
@@ -423,7 +345,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._prev_i1_features: dict = {}
         self._last_bar_ts: dict = {}
         self._last_events: dict = {}
-        self._pattern_reliability: dict = {}
 
         # Create custom executor — capped at 12 workers to reduce GIL contention.
         # CPU-bound Python plugins can't parallelize under GIL; 48 workers just
@@ -437,13 +358,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
-        self._cis_weights_cache: dict = {}
-        self._cis_kalman_params: dict = _load_cis_kalman_params()
-        self._calibration_curves: dict = {}
-        self._perf_weights: dict = {}
-        self._drift_penalties: dict = {}
-        # Last-observed HMM regime integer (0=ranging, 1/2=trending); updated per bar
-        self._last_hmm_regime: int | None = None
+        # CIS scorer mediation: orchestrator syncs scorer when cis_weights_version changes.
+        # After plan 05 this moves into SignalProcessor.sync_cis_weights.
+        self._last_synced_cis_version: int = 0
 
         # I7 config — wired to Settings (not hardcoded)
         self._regime_prob_min: float = self.settings.regime_prob_min
@@ -527,7 +444,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     def _is_shadow(self, plugin_name: str) -> bool:
         """Look up shadow state from cache. Returns False (live) if not enrolled."""
-        return self._shadow_cache.get(plugin_name, False)
+        return self._cache_mgr.shadow_cache.get(plugin_name, False)
 
     # ------------------------------------------------------------------
     # _setup: DB connect, state restore, Kafka setup, cache loading
@@ -571,10 +488,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         extra = await self._state_mgr.read_checkpoint()
         if extra is not None:
             # Restore cross-owned fields onto orchestrator attributes
-            # (interim form — plans 03/05 will migrate these to CacheManager/SignalProcessor)
+            # tod_priors migrated to CacheManager (plan 03); applied via seed_tod_priors below.
             self._last_bar_offset = extra.get("last_bar_offset", {})
             self._kalman_state = extra.get("kalman_state", {})
-            self._tod_priors = extra.get("tod_priors", {})
             self._setup_last_fire = extra.get("setup_last_fire", {})
 
         # Start background checkpoint loop — orchestrator calls once; PluginStateManager owns timing
@@ -594,18 +510,24 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             pool=self._db.pool, batch_size=100, flush_interval_s=2.0
         )
 
-        # 6. Load DB caches (I7 setup, same as SignalGeneratorAgent)
-        await self._load_perf_weights()
-        await self._refresh_drift_penalties()
-        await self._load_cis_weights()
-        await self._load_calibration_curves()
-        await self._load_tod_multipliers()
-        self._pattern_reliability = await _load_pattern_reliability_weights(self._db)
-
-        # 7. Shadow governance: enroll all TIER_I7 plugins, then load cache
+        # 6. Construct CacheManager; enroll shadow registry BEFORE load_initial (MEDIUM finding).
+        # load_initial() runs _load_shadow_cache last — it reads the now-populated registry.
+        self._cache_mgr = CacheManager(db=self._db, settings=self.settings)
+        # Shadow registry must be seeded BEFORE _load_shadow_cache runs inside load_initial.
         async with self._db.pool.acquire() as conn:
             await enroll_all_plugins(conn)
-        await self._load_shadow_cache()
+        # Eager load all 6 caches (HIGH finding 3 — preserves god-class _setup behavior).
+        # Without this the service starts cold for up to 4 hours.
+        await self._cache_mgr.load_initial()
+        # Start background refresh loops AFTER load_initial so loops sleep-first without cold gap.
+        for task in self._cache_mgr.start_refresh_loops():
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        # Apply checkpointed tod_priors ON TOP of DB-loaded values (merge semantics).
+        # Order: enroll_all_plugins -> load_initial (loads tod from DB) -> seed checkpoint priors.
+        if extra is not None:
+            self._cache_mgr.seed_tod_priors(extra.get("tod_priors", {}))
 
         # 8. SIGUSR1 hot-reload: triggered by HMMTrainingAgent after writing new parameter files.
         # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is
@@ -646,13 +568,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             drain_task,
             asyncio.create_task(self._health_monitor_loop()),
             asyncio.create_task(self._report_consumer_lag()),
-            # Refresh loops
-            asyncio.create_task(self._run_refresh_loop(self._load_perf_weights, 3600)),
-            asyncio.create_task(self._run_refresh_loop(self._refresh_drift_penalties, 14400)),
-            asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
-            asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
-            asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
-            asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task exceptions (swallowed by return_exceptions=True)
@@ -661,12 +576,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_out_queue.drain_loop",
             "_health_monitor_loop",
             "_report_consumer_lag",
-            "_load_perf_weights",
-            "_refresh_drift_penalties",
-            "_load_cis_weights",
-            "_load_calibration_curves",
-            "_load_tod_multipliers",
-            "_load_shadow_cache",
         ]
         for name, result in zip(task_names, results):
             if isinstance(result, Exception):
@@ -1258,7 +1167,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Track last-known HMM regime for regime-conditioned perf_weights loading
         hmm_val = features.get("hmm_regime")
         if isinstance(hmm_val, (int, float)):
-            self._last_hmm_regime = int(hmm_val)
+            self._cache_mgr.update_hmm_regime(int(hmm_val))
+
+        # CIS scorer mediation: sync weights when version changes (Pitfall 4 / D-07).
+        # CacheManager never calls update_weights; orchestrator mediates here.
+        # After plan 05 this moves into SignalProcessor.sync_cis_weights().
+        if self._cache_mgr.cis_weights_version != self._last_synced_cis_version:
+            self._cis_scorer.update_weights(
+                self._cache_mgr.cis_weights, self._cache_mgr.cis_weights_version
+            )
+            self._last_synced_cis_version = self._cache_mgr.cis_weights_version
 
         # Run all I7 plugins in parallel
         i7_start = time.perf_counter()
@@ -1355,7 +1273,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Kalman-filter the CIS score to smooth bar-to-bar noise
         kalman_key = (symbol, tf)
         if kalman_key not in self._kalman_state:
-            kp = self._cis_kalman_params.get(tf) or self._cis_kalman_params["default"]
+            kp = (
+                self._cache_mgr.cis_kalman_params.get(tf)
+                or self._cache_mgr.cis_kalman_params["default"]
+            )
             self._kalman_state[kalman_key] = {"x": raw_cis, "P": 1.0, "Q": kp["Q"], "R": kp["R"]}
         ks = self._kalman_state[kalman_key]
         filtered_cis, new_P = _cis_kalman_update(raw_cis, ks["x"], ks["P"], ks["Q"], ks["R"])
@@ -1404,7 +1325,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         tod_adjusted = await apply_tod_adjustment(
             regime_gated,
-            self._tod_priors,
+            self._cache_mgr.tod_priors,
             tf,
             hour_et,
             symbol=symbol,
@@ -1417,14 +1338,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         calibrated = await apply_calibration(
             tod_adjusted,
-            self._calibration_curves,
+            self._cache_mgr.calibration_curves,
             tf,
             symbol=symbol,
             recorder=self._transform_recorder,
         )
         ranked = await rank_signals(
             calibrated,
-            self._perf_weights,
+            self._cache_mgr.perf_weights,
             tf,
             symbol=symbol,
             recorder=self._transform_recorder,
@@ -1510,13 +1431,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         CRITICAL (HIGH finding 5): this dict MUST NOT contain a 'plugin_states' key.
         PluginStateManager owns that field internally.
 
-        Interim form (Plans 02 wire-up): reads orchestrator-owned attributes.
-        - Plan 03 will migrate tod_priors source -> self._cache_mgr.tod_priors
+        Post-plan-03 form: tod_priors reads from self._cache_mgr.tod_priors.
         - Plan 05 will migrate kalman_state / setup_last_fire -> self._sig_proc.get_*()
         """
         return {
             "kalman_state": self._kalman_state,
-            "tod_priors": self._tod_priors,
+            "tod_priors": self._cache_mgr.tod_priors,
             "last_bar_offset": self._last_bar_offset,
             "setup_last_fire": self._setup_last_fire,
         }
@@ -1665,182 +1585,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if event_type == "pipeline_reset":
             self.logger.info("system.pipeline_reset_received")
 
-    # ------------------------------------------------------------------
-    # DB cache refresh loops
-    # ------------------------------------------------------------------
-
-    async def _run_refresh_loop(self, load_fn, interval_sec: int) -> None:
-        """Periodically refresh a DB cache."""
-        while self.running:
-            try:
-                await asyncio.sleep(interval_sec)
-                await load_fn()
-            except Exception as exc:
-                self.logger.warning("refresh_loop.error", error=str(exc))
-
-    def _current_hmm_regime_label(self) -> str:
-        """Map last-observed HMM regime integer to signal_metrics regime_type string.
-
-        0 = ranging  -> 'mean_reversion'
-        1/2 = trending -> 'trend'
-        None (no bars yet) -> 'all'
-        """
-        hmm = self._last_hmm_regime
-        if hmm == 0:
-            return "mean_reversion"
-        if hmm in (1, 2):
-            return "trend"
-        return "all"
-
-    async def _load_perf_weights(self) -> None:
-        """Load perf_weights from signal_metrics (market track, regime-conditioned).
-
-        Queries signal_metrics WHERE track='market' AND regime_type=current_regime
-        AND window_days=30 AND n>=30. Falls back to 'all' regime rollup when the
-        current regime has insufficient data (bootstrap phase).
-
-        Weights are ranked by Sharpe ascending so the best Sharpe gets the lowest
-        multiplier (sorts first under ascending adjusted_rank in rank_signals).
-
-        Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals() in
-        ranker.py which does 2-level fallback: symbol-specific then '*'.
-        """
-        if self._db is None:
-            return
-        try:
-            current_regime = self._current_hmm_regime_label()
-
-            rows = await self._db.execute_query(
-                """
-                SELECT setup_plugin, tf, symbol, sharpe
-                FROM signal_metrics
-                WHERE track = 'market'
-                  AND regime_type = $1
-                  AND window_days = 30
-                  AND n >= 30
-                """,
-                current_regime,
-            )
-
-            if not rows:
-                # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
-                rows = await self._db.execute_query("""
-                    SELECT setup_plugin, tf, symbol, sharpe
-                    FROM signal_metrics
-                    WHERE track = 'market'
-                      AND regime_type = 'all'
-                      AND window_days = 30
-                      AND n >= 30
-                    """)
-
-            if not rows:
-                self._perf_weights = {}
-                self.logger.info("perf_weights.empty", regime=current_regime)
-                return
-
-            # Rank by Sharpe ascending (worst=rank 0, best=rank n-1)
-            # Best Sharpe → lowest multiplier → sorts first under ascending adjusted_rank
-            # Keys are (setup_plugin, tf, symbol) 3-tuples to match rank_signals()
-            ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
-            n = len(ranked)
-            weights: dict = {}
-            for rank, row in enumerate(ranked):
-                sym = row.get("symbol", "*")
-                weights[(row["setup_plugin"], row["tf"], sym)] = round(
-                    0.5 + ((n - 1 - rank) / n),
-                    4,
-                )
-
-            self._perf_weights = weights
-            self.logger.info(
-                "perf_weights.loaded",
-                regime=current_regime,
-                n_setups=n,
-            )
-        except Exception as exc:
-            self.logger.warning("perf_weights.load_failed", error=str(exc))
-
-    async def _load_shadow_cache(self) -> None:
-        if self._db is None:
-            return
-        try:
-            rows = await self._db.execute_query(
-                "SELECT component_name, is_shadow FROM shadow_registry"
-            )
-            self._shadow_cache = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
-        except Exception as exc:
-            self.logger.warning("shadow_cache.load_failed", error=str(exc))
-
-    async def _refresh_drift_penalties(self) -> None:
-        """Refresh drift penalties from DRIFT_PENALTIES config."""
-        self._drift_penalties = dict(DRIFT_PENALTIES)
-
-    async def _load_cis_weights(self) -> None:
-        """Load CIS bucket weights from cis_weights table."""
-        if self._db is None:
-            return
-        try:
-            rows = await self._db.execute_query(
-                "SELECT version, weights FROM cis_weights ORDER BY version DESC LIMIT 1"
-            )
-            if rows:
-                weights = rows[0].get("weights", {})
-                version = int(rows[0].get("version", 0))
-                self._cis_weights_cache = weights
-                if weights:
-                    self._cis_scorer.update_weights(weights, version)
-        except Exception as exc:
-            self.logger.warning("cis_weights.load_failed", error=str(exc))
-
-    async def _load_calibration_curves(self) -> None:
-        """Load calibration curves from calibration_curves table.
-
-        In-memory key: (setup_plugin, tf, symbol) where tf is extracted from
-        curve_data JSONB and symbol is the instrument sentinel ('*' = global).
-        Rows missing timeframe in curve_data are skipped (can't build lookup key).
-        """
-        if self._db is None:
-            return
-        try:
-            import numpy as np
-
-            rows = await self._db.execute_query(
-                "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
-            )
-            curves: dict = {}
-            for r in rows:
-                curve_data = r.get("curve_data") or {}
-                tf_val = curve_data.get("timeframe")
-                bp = curve_data.get("breakpoints")
-                vals = curve_data.get("values")
-                if not tf_val or not bp or not vals:
-                    continue  # incomplete row — skip
-                key = (r["setup_plugin"], tf_val, r["symbol"] or "*")
-                curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
-            self._calibration_curves = curves
-        except Exception as exc:
-            self.logger.warning("calibration_curves.load_failed", error=str(exc))
-
-    async def _load_tod_multipliers(self) -> None:
-        """Load TOD multipliers from tod_multipliers table.
-
-        In-memory key: (regime_type, tf, hour_et, symbol).
-        symbol='*' rows are the global sentinel; symbol-specific rows take priority
-        during lookup in apply_tod_adjustment.
-        """
-        if self._db is None:
-            return
-        try:
-            rows = await self._db.execute_query(
-                "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
-            )
-            priors: dict = {}
-            for r in rows:
-                key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
-                priors[key] = float(r["multiplier"])
-            self._tod_priors = {**self._tod_priors, **priors}
-        except Exception as exc:
-            self.logger.warning("tod_multipliers.load_failed", error=str(exc))
+    # DB cache refresh loops and loaders were removed in Plan 03 — extracted to CacheManager.
 
 
 # ---------------------------------------------------------------------------
