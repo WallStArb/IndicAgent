@@ -316,7 +316,11 @@ class PluginExecutor:
             tasks, gather_results, lock, symbol, tf, log_prefix="plugin"
         )
         for output in outputs:
-            result.update(output)
+            # PERF-05: filter None values at merge site so IntelligenceEvent
+            # construction receives already-clean dicts (no comprehension needed).
+            for k, v in output.items():
+                if v is not None:
+                    result[k] = v
 
         return result, state_updates
 
@@ -385,7 +389,11 @@ class PluginExecutor:
         tier_output: dict[str, Any] = {}
         for output in outputs:
             output.pop("_tier_key", None)
-            tier_output.update(output)
+            # PERF-05: filter None values at merge site so IntelligenceEvent
+            # construction receives already-clean dicts (no comprehension needed).
+            for k, v in output.items():
+                if v is not None:
+                    tier_output[k] = v
 
         return tier_output, state_updates
 
