@@ -18,14 +18,11 @@ from __future__ import annotations
 import asyncio
 import os
 import signal as _signal
-import threading
 import time
 import zoneinfo
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any
 from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -45,7 +42,6 @@ from src.core.service_utils import (
     format_iso_ts,
     min_bars_for_tf,
     normalize_session_type,
-    should_skip_plugin,
 )
 from src.core.stream_keys import (
     TF_SECONDS,
@@ -67,10 +63,10 @@ from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 
 # Re-import I1-I6 tiers from register_plugins (shared source of truth)
-from src.intelligence.features.smc_context.hmm_regime import HMMRegimePlugin
 from src.intelligence.pipeline import (
     CacheManager,
     OutputQueue,
+    PluginExecutor,
     PluginStateManager,
     apply_calibration,
     apply_quality_gate,
@@ -82,12 +78,6 @@ from src.intelligence.pipeline import (
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
-    I2_WAVE_A,
-    I2_WAVE_B,
-    I4_WAVE_A,
-    I4_WAVE_B,
-    SMC_WAVE_A,
-    SMC_WAVE_B,
     TIER_I1,
     TIER_I2,
     TIER_I3,
@@ -114,13 +104,8 @@ from src.intelligence.schemas import (
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
-from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
-    CIRCUIT_BREAKER_STATE,
-    FEATURES_COMPUTED_TOTAL,
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
-    PLUGIN_DURATION_MS,
-    PLUGIN_ERRORS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
     THREAD_POOL_WORKERS,
     counter,
@@ -231,37 +216,7 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 
 _OUTPUT_QUEUE_MAXSIZE = 500
 
-# Type aliases for the wave-based analysis pipeline structure.
-type _WaveTierDef = tuple[str, tuple[str, ...]]
-type _AnalysisWave = tuple[_WaveTierDef, ...]
-
-
-def _timed_plugin_call(plugin, frames):
-    """Wrapper that returns (result, duration_ms) tuple for per-plugin timing.
-
-    Uses incremental compute_next() when the plugin supports it and has state,
-    falling back to compute_full() otherwise. This avoids O(N) recomputation
-    on every bar for stateful plugins like BOCPD and HMMRegime.
-    """
-    t0 = time.perf_counter()
-    if getattr(plugin, "supports_incremental", False) and plugin._state:
-        result = plugin.compute_next(frames)
-    else:
-        result = plugin.compute_full(frames)
-    duration_ms = (time.perf_counter() - t0) * 1000
-    return result, duration_ms
-
-
-@dataclass
-class PluginTask:
-    """Container for parallel plugin execution metadata."""
-
-    coroutine: Any
-    plugin_name: str
-    state_key: tuple
-    lock: threading.Lock
-    tier_key: str = "I1"  # Track which tier this plugin belongs to
-    bar: BarMessage | None = None  # Only for I7 tasks
+# PluginTask, _timed_plugin_call, and _ANALYSIS_WAVES moved to executor.py (plan 04).
 
 
 class IntelligencePipelineComputeAgent(BaseAgent):
@@ -346,14 +301,17 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_bar_ts: dict = {}
         self._last_events: dict = {}
 
-        # Create custom executor — capped at 12 workers to reduce GIL contention.
+        # Create thread pool — capped at 12 workers to reduce GIL contention.
         # CPU-bound Python plugins can't parallelize under GIL; 48 workers just
         # adds context-switching overhead. 8-12 is optimal for numpy/pandas ops
         # that do release the GIL.
+        # NOTE: self._thread_pool is owned by PluginExecutor; constructed here so
+        # THREAD_POOL_WORKERS metric can fire before _setup(). D-06: self._executor
+        # is reserved for the PluginExecutor instance (constructed in _setup()).
         cpu_count = os.cpu_count() or 24
         _configured = self.settings.intelligence_thread_pool_workers
         _workers = _configured if _configured > 0 else min(12, max(4, cpu_count // 2))
-        self._executor = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
+        self._thread_pool = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.add(_workers)
 
         # CIS / aggregator state
@@ -367,8 +325,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._regime_prob_soft_max: float = self.settings.REGIME_PROB_SOFT_MAX
         self._regime_dur_min: int = self.settings.regime_dur_min
 
-        # Per-plugin circuit breakers (lazily populated via _get_plugin_cb)
-        self._plugin_circuit_breakers: dict[str, CircuitBreaker] = {}
+        # Per-plugin circuit breakers and call counts moved to PluginExecutor (plan 04).
 
         # Shadow mode
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
@@ -410,11 +367,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "intelligence_pipeline_pipeline_latency_ms",
             "Per-bar pipeline latency in milliseconds",
         )
-        self._plugin_call_counts: dict = defaultdict(int)
-        self._plugin_skipped_total = counter(
-            "intelligence_pipeline_plugin_skipped_total",
-            "Plugin executions skipped due to asset class mismatch",
-        )
+        # _plugin_call_counts and _plugin_skipped_total moved to PluginExecutor (plan 04).
 
         self._vix_symbol: str | None = None
         for c in self._contracts:
@@ -423,28 +376,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 break
 
     async def stop(self) -> None:
-        """Shutdown thread pool executor before stopping."""
+        """Shutdown PluginExecutor (which owns the thread pool) before stopping."""
         self.logger.info("agent.shutdown_initiated", agent=self.name)
-        # Synchronous shutdown is safe in async context - prevents deadlock
-        self._executor.shutdown(wait=True)
+        # Delegate shutdown to PluginExecutor — it calls self._thread_pool.shutdown(wait=True).
+        # Do NOT also call self._thread_pool.shutdown() here to avoid double-shutdown.
+        if hasattr(self, "_executor"):
+            self._executor.shutdown()
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
-
-    # ------------------------------------------------------------------
-    # State lock management
-    # ------------------------------------------------------------------
-
-    def _get_plugin_cb(self, plugin_name: str) -> CircuitBreaker:
-        """Get or create a CircuitBreaker for the named plugin."""
-        cb = self._plugin_circuit_breakers.get(plugin_name)
-        if cb is None:
-            cb = CircuitBreaker(failure_threshold=3, timeout_sec=300)
-            self._plugin_circuit_breakers[plugin_name] = cb
-        return cb
-
-    def _is_shadow(self, plugin_name: str) -> bool:
-        """Look up shadow state from cache. Returns False (live) if not enrolled."""
-        return self._cache_mgr.shadow_cache.get(plugin_name, False)
 
     # ------------------------------------------------------------------
     # _setup: DB connect, state restore, Kafka setup, cache loading
@@ -528,6 +467,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Order: enroll_all_plugins -> load_initial (loads tod from DB) -> seed checkpoint priors.
         if extra is not None:
             self._cache_mgr.seed_tod_priors(extra.get("tod_priors", {}))
+
+        # 7. Construct PluginExecutor (D-06: stored as self._executor).
+        # Receives self._thread_pool; PluginExecutor.shutdown() will shut it down.
+        # self._plugin_cache and self._instrument_map are owned by the executor after this.
+        self._executor = PluginExecutor(
+            thread_pool=self._thread_pool,
+            plugin_cache=self._plugin_cache,
+            instrument_map=self._instrument_map,
+            circuit_breakers={},
+        )
 
         # 8. SIGUSR1 hot-reload: triggered by HMMTrainingAgent after writing new parameter files.
         # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is
@@ -634,28 +583,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def _reload_hmm_parameters(self) -> None:
         """Reload parameters on all HMM instances in TIER_SMC (SIGUSR1 trigger).
 
-        Iterates TIER_SMC filtered to HMMRegimePlugin instances, calls
-        reload_parameters() on each. Per-TF failures are caught and logged;
-        a single TF failure does not abort the remaining reloads.
+        Delegates to PluginExecutor.reload_hmm_parameters() which owns the plugin cache.
         """
-        reloaded_tfs: list[str] = []
-        for plugin_name in TIER_SMC:
-            plugin = self._plugin_cache.get(plugin_name)
-            if not isinstance(plugin, HMMRegimePlugin):
-                continue
-            try:
-                plugin.reload_parameters()
-                reloaded_tfs.append(plugin.timeframe)
-            except Exception as exc:
-                self.logger.warning(
-                    "intelligence_pipeline.hmm_reload_tf_failed",
-                    timeframe=plugin.timeframe,
-                    error=str(exc),
-                )
+        reloaded_names = self._executor.reload_hmm_parameters()
         self.logger.info(
             "intelligence_pipeline.hmm_reload_complete",
             hmm_reload=True,
-            reloaded_tfs=reloaded_tfs,
+            reloaded_plugin_names=reloaded_names,
         )
 
     # ------------------------------------------------------------------
@@ -858,15 +792,37 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if htf_cache:
             frames["htf_intel"] = htf_cache
 
-        # I1
-        i1_result = await self._run_i1(frames, symbol, tf)
+        # Get per-bar plugin states and lock once (HIGH finding 1)
+        plugin_states = self._state_mgr.get_all_states_for(symbol, tf)
+        lock = self._state_mgr.get_lock((symbol, tf))
+
+        # I1 — executor returns (outputs, state_updates)
+        i1_result, i1_state_updates = await self._executor.run_i1(
+            plugin_states,
+            lock,
+            frames,
+            symbol,
+            tf,
+            shadow_cache=self._cache_mgr.shadow_cache,
+        )
+        if i1_state_updates:
+            self._state_mgr.update_batch(i1_state_updates)
         frames["features"] = dict(i1_result)
         self._prev_i1_features[key] = dict(i1_result)
-
         self._last_events[key + "_i1"] = i1_result
 
-        # I2-I6
-        tiered = await self._run_analysis_pipeline(symbol, tf, frames)
+        # I2-I6 — executor returns (tiered, state_updates)
+        tiered, tier_state_updates = await self._executor.run_tiers(
+            plugin_states,
+            lock,
+            bar,
+            symbol,
+            tf,
+            frames,
+            shadow_cache=self._cache_mgr.shadow_cache,
+        )
+        if tier_state_updates:
+            self._state_mgr.update_batch(tier_state_updates)
         if not tiered:
             return None, None
 
@@ -908,241 +864,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         return event, tiered
 
     # ------------------------------------------------------------------
-    # Common plugin execution helpers
-    # ------------------------------------------------------------------
-
-    def _update_plugin_state(self, task: PluginTask, output: dict) -> None:
-        """Extract and store plugin state from output dict."""
-        if "_state" in output:
-            with task.lock:
-                self._state_mgr.update(task.state_key, output.pop("_state"))
-
-    def _collect_plugin_results(
-        self,
-        tasks: list[PluginTask],
-        results: list,
-        log_prefix: str = "plugin",
-    ) -> list[dict]:
-        """Collect results from parallel plugin execution.
-
-        Args:
-            tasks: List of PluginTask objects
-            results: List of results from asyncio.gather (may contain Exceptions)
-            log_prefix: Prefix for log messages (e.g., "plugin" or "i7.plugin")
-
-        Returns:
-            List of successful dict outputs (exceptions are logged and skipped)
-        """
-        outputs = []
-        for i, task in enumerate(tasks):
-            out = results[i]
-            tier = task.tier_key  # Use tier_key from task
-            cb = self._get_plugin_cb(task.plugin_name)
-            if isinstance(out, Exception):
-                self._pipeline_errors.add(1)
-                PLUGIN_ERRORS_TOTAL.add(1, {"plugin_name": task.plugin_name, "tier": tier})
-                cb.record_failure()
-                if cb.state == CircuitState.OPEN:
-                    CIRCUIT_BREAKER_STATE.set(1, {"plugin_name": task.plugin_name})
-                    self.logger.warning("plugin.circuit_breaker_opened", plugin=task.plugin_name)
-                self.logger.warning(
-                    f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out)
-                )
-            elif isinstance(out, tuple) and len(out) == 2:
-                result_dict, duration_ms = out
-                PLUGIN_DURATION_MS.record(
-                    duration_ms, {"plugin_name": task.plugin_name, "tier": tier}
-                )
-                if isinstance(result_dict, dict):
-                    # Handle SMC-specific field renaming
-                    if tier == "smc" and "trend_direction" in result_dict:
-                        result_dict["smc_trend_direction"] = result_dict.pop("trend_direction")
-                    result_dict["_tier_key"] = tier  # Tag for tier grouping
-                    self._update_plugin_state(task, result_dict)
-                    prev_state = cb.state
-                    cb.record_success()
-                    if prev_state != CircuitState.CLOSED:
-                        CIRCUIT_BREAKER_STATE.set(0, {"plugin_name": task.plugin_name})
-                        self.logger.info("plugin.circuit_breaker_closed", plugin=task.plugin_name)
-                    outputs.append(result_dict)
-        return outputs
-
-    # ------------------------------------------------------------------
-    # I1 plugin execution
-    # ------------------------------------------------------------------
-
-    async def _run_i1(self, frames: dict, symbol: str, tf: str) -> dict:
-        """Run all I1 plugins in parallel and return merged result."""
-
-        # Start timing
-        i1_start = time.perf_counter()
-
-        result: dict[str, Any] = {}
-        tasks: list[PluginTask] = []
-        loop = asyncio.get_running_loop()
-
-        # Build parallel tasks
-        for plugin_name in TIER_I1:
-            plugin = self._plugin_cache.get(plugin_name)
-            if plugin is None:
-                continue
-            if should_skip_plugin(
-                plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
-            ):
-                continue
-            cb = self._get_plugin_cb(plugin_name)
-            if not cb.allow_request():
-                continue
-            state_key = (plugin_name, symbol, tf)
-            plugin._state = self._state_mgr.get_state(state_key)
-            lock = self._state_mgr.get_lock((symbol, tf))
-
-            # Create PluginTask with coroutine
-            tasks.append(
-                PluginTask(
-                    coroutine=loop.run_in_executor(
-                        self._executor, _timed_plugin_call, plugin, frames
-                    ),
-                    plugin_name=plugin_name,
-                    state_key=state_key,
-                    lock=lock,
-                )
-            )
-
-        # Execute all I1 plugins in parallel
-        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
-
-        # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
-        for output in outputs:
-            result.update(output)
-
-        # Record timing metric
-        i1_latency_ms = (time.perf_counter() - i1_start) * 1000
-        self._i1_latency_ms.add(i1_latency_ms)
-
-        return result
-
-    # ------------------------------------------------------------------
-    # I2-I6 analysis pipeline — wave-based tier execution
-    # ------------------------------------------------------------------
-
-    # Wave-based tier execution — tiers within each wave run in parallel.
-    # Dependency analysis (violations resolved via sub-waves):
-    #   Wave 1: I2-WaveA(8) + I3(8) + SMC-WaveA(10) — independent, need I1 only
-    #   Wave 2: I2-WaveB(2) + SMC-WaveB(3) + I4-WaveA(11) — I4 now has I3 data
-    #   Wave 3: I4-WaveB(1) + I5(16) — kalman after garch; I5 reads I1-I4
-    #   Wave 4: I6(1) — cross-timeframe confluence
-    # Same-tier sub-waves share a tier_key; merge logic accumulates outputs.
-    _ANALYSIS_WAVES: ClassVar[tuple[_AnalysisWave, ...]] = (
-        (("i2", I2_WAVE_A), ("i3", TIER_I3), ("smc", SMC_WAVE_A)),
-        (("i2", I2_WAVE_B), ("smc", SMC_WAVE_B), ("i4", I4_WAVE_A)),
-        (("i4", I4_WAVE_B), ("i5", TIER_I5)),
-        (("i6", TIER_I6),),
-    )
-
-    async def _run_tier(
-        self,
-        tier_key: str,
-        tier_plugins: tuple[str, ...],
-        symbol: str,
-        tf: str,
-        frames: dict,
-        loop: asyncio.AbstractEventLoop,
-    ) -> dict[str, Any]:
-        """Run one tier's plugins in parallel and return merged output dict.
-
-        Does NOT merge into frames — caller (_run_analysis_pipeline) handles
-        frame merging after each wave completes.
-        """
-        tasks: list[PluginTask] = []
-        for plugin_name in tier_plugins:
-            plugin = self._plugin_cache.get(plugin_name)
-            if plugin is None:
-                continue
-            if should_skip_plugin(
-                plugin,
-                self._instrument_map.get(symbol),
-                self._plugin_skipped_total,
-                plugin_name,
-            ):
-                continue
-            cb = self._get_plugin_cb(plugin_name)
-            if not cb.allow_request():
-                continue
-            state_key = (plugin_name, symbol, tf)
-            plugin._state = self._state_mgr.get_state(state_key)
-            lock = self._state_mgr.get_lock((symbol, tf))
-            tasks.append(
-                PluginTask(
-                    coroutine=loop.run_in_executor(
-                        self._executor, _timed_plugin_call, plugin, frames
-                    ),
-                    plugin_name=plugin_name,
-                    tier_key=tier_key,
-                    state_key=state_key,
-                    lock=lock,
-                )
-            )
-
-        if not tasks:
-            return {}
-
-        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
-
-        tier_output: dict[str, Any] = {}
-        for output in outputs:
-            output.pop("_tier_key", None)
-            tier_output.update(output)
-
-        return tier_output
-
-    async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
-        """Run I2-I6 in waves — parallel within each wave, sequential between waves.
-
-        Wave 1: [I2-A + I3 + SMC-A] — independent, need I1 only
-        Wave 2: [I2-B + SMC-B + I4-A] — I4 now has I3 data
-        Wave 3: [I4-B + I5] — kalman after garch; I5 reads I1-I4
-        Wave 4: [I6] — cross-timeframe confluence
-
-        Within each wave, all tiers run concurrently via asyncio.gather.
-        After each wave, outputs are merged into frames before the next wave starts,
-        guaranteeing downstream plugins see all upstream tier outputs.
-        Sub-waves sharing a tier_key accumulate (not overwrite).
-        """
-        loop = asyncio.get_running_loop()
-        tiered: dict[str, dict] = {}
-
-        for wave in self._ANALYSIS_WAVES:
-            # Run all tiers in this wave concurrently
-            coros = [
-                self._run_tier(tier_key, tier_plugins, symbol, tf, frames, loop)
-                for tier_key, tier_plugins in wave
-            ]
-            results = await asyncio.gather(*coros, return_exceptions=True)
-
-            # Merge all wave results into shared frames for next wave.
-            # Sub-waves share tier keys — accumulate rather than overwrite.
-            for (tier_key, _), result in zip(wave, results, strict=True):
-                if isinstance(result, Exception):
-                    self.logger.error("wave.tier_error", tier=tier_key, error=str(result))
-                    tiered.setdefault(tier_key, {})
-                    continue
-                if tier_key in tiered:
-                    tiered[tier_key].update(result)
-                else:
-                    tiered[tier_key] = result
-                frames[tier_key] = tiered[tier_key]
-                FEATURES_COMPUTED_TOTAL.add(1, {"tier": tier_key})
-                # Dual-write: keyed frames[tier_key] for typed tier access;
-                # flat frames["features"] for plugins that use the legacy flat dict.
-                features = frames.setdefault("features", {})
-                features.update(result)
-
-        return tiered
-
-    # ------------------------------------------------------------------
     # I7 signal generation pipeline
     # ------------------------------------------------------------------
 
@@ -1178,11 +899,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
             self._last_synced_cis_version = self._cache_mgr.cis_weights_version
 
-        # Run all I7 plugins in parallel
+        # Run all I7 plugins in parallel via executor
         i7_start = time.perf_counter()
 
-        raw_signals: list[dict] = []
-        tasks: list[PluginTask] = []
         main_df = self._bar_history.to_dataframe(symbol, tf)
         plugin_input = {
             "main": main_df,
@@ -1191,45 +910,25 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "__timeframe__": tf,
             "timeframe": tf,
         }
-        loop = asyncio.get_running_loop()
 
-        # Build parallel tasks
-        for plugin_name in I7_PLUGINS:
-            plugin = self._plugin_cache.get(plugin_name)
-            if plugin is None:
-                continue
-            if should_skip_plugin(
-                plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
-            ):
-                continue
-            cb = self._get_plugin_cb(plugin_name)
-            if not cb.allow_request():
-                continue
-            state_key = (plugin_name, symbol, tf)
-            plugin._state = self._state_mgr.get_state(state_key)
-            lock = self._state_mgr.get_lock((symbol, tf))
+        # Per-bar state view and lock (HIGH finding 1)
+        i7_plugin_states = self._state_mgr.get_all_states_for(symbol, tf)
+        lock = self._state_mgr.get_lock((symbol, tf))
 
-            # Create PluginTask with coroutine and bar context
-            tasks.append(
-                PluginTask(
-                    coroutine=loop.run_in_executor(
-                        self._executor, _timed_plugin_call, plugin, plugin_input
-                    ),
-                    plugin_name=plugin_name,
-                    tier_key="i7",
-                    state_key=state_key,
-                    lock=lock,
-                    bar=bar,
-                )
-            )
-
-        # Execute all I7 plugins in parallel
-        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
-
-        # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin")
+        tasks, outputs, sig_state_updates = await self._executor.run_i7_plugins(
+            i7_plugin_states,
+            lock,
+            bar,
+            symbol,
+            tf,
+            plugin_input,
+            shadow_cache=self._cache_mgr.shadow_cache,
+        )
+        if sig_state_updates:
+            self._state_mgr.update_batch(sig_state_updates)
 
         # Process I7-specific signal generation — also build plugin_outputs for CIS scoring
+        raw_signals: list[dict] = []
         plugin_outputs: dict[str, dict] = {}
         for task, output in zip(tasks, outputs):  # noqa: B905 — lengths differ on plugin exceptions
             output.pop("_tier_key", None)
@@ -1239,7 +938,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 sig["symbol"] = symbol
                 sig["tf"] = tf
                 # regime_type from plugin class attribute — NOT from HMM numeric value
-                plugin_inst = self._plugin_cache.get(task.plugin_name)
+                plugin_inst = self._executor._plugin_cache.get(task.plugin_name)
                 sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
 
                 # Alpha decay
@@ -1360,7 +1059,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["status"] = "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
             # Regime context — regime_type already set from plugin class attribute above
             sig["hmm_regime_at_fire"] = features.get("hmm_regime")
-            sig["is_shadow"] = self._is_shadow(sig.get("setup_plugin", ""))
+            sig["is_shadow"] = self._executor._is_shadow(
+                sig.get("setup_plugin", ""), self._cache_mgr.shadow_cache
+            )
             # Stamp CIS fields (bar-level score, same for all signals in this bar)
             sig["raw_cis_score"] = round(raw_cis, 4)
             sig["filtered_cis_score"] = round(filtered_cis, 4)
