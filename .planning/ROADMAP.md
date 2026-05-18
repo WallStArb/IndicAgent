@@ -664,7 +664,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
-| 088. God Class Decomposition | v2.6 | 0/TBD | Not started | - |
+| 088. God Class Decomposition | v2.6 | 2/5 | In Progress|  |
 | 089. First Qualitative Intelligence Lane | v2.6 | 0/TBD | Not started | - |
 
 ### Phase 52.5: Parity Auditor Agent
@@ -1257,8 +1257,8 @@ Plans:
   4. CacheManager class owns all 6 refresh loops and DB cache reads; a test can verify cache expiry behavior without running the full bar loop
   5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
 **Plans**: 5 plans
-- [ ] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
-- [ ] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
+- [x] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
+- [x] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
 - [ ] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
 - [ ] 088-04-PLAN.md — Extract PluginExecutor with state-as-parameter interface (Wave 2)
 - [ ] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
@@ -1312,26 +1312,5 @@ Plans:
   4. All existing signal_ledger write paths pass tests unchanged
 **Plans**: TBD
 
-### Phase 092: Portfolio Risk Gates
-**Goal**: Add concentration limits to `SignalTrackerComputeAgent` — the single authority on all live signals. When max_active_per_direction or max_active_per_symbol thresholds are breached, new signals are marked `risk_suppressed` (not silently dropped). Limits configurable via Settings without code deploy.
-**Depends on**: Phase 089 (signal tracker sees more concurrent keys post-PERF-07)
-**Requirements**: RISK-01, RISK-02, RISK-03, RISK-04
-**Success Criteria** (what must be TRUE):
-  1. `SignalTrackerComputeAgent` enforces `max_active_per_direction` (default 5) and `max_active_per_symbol` (default 2) gates before activating signals
-  2. Signals exceeding limits are persisted as `risk_suppressed` in signal_ledger; never silently dropped
-  3. OTel counter `signal_tracker_risk_suppressed_total` with `reason` label fires on every suppression
-  4. Limits overridable via `INDICAGENT_MAX_ACTIVE_PER_DIRECTION` and `INDICAGENT_MAX_ACTIVE_PER_SYMBOL` env vars without restart
-**Plans**: TBD
-
-### Phase 093: Signal Quality Completeness
-**Goal**: Add R-multiple distribution shape (skewness, kurtosis), worst-case outcome (min_r), and recovery_factor to signal_metrics. Run compute per-symbol as well as globally. Makes v2.7 per-lane evaluation quantitatively rigorous.
-**Depends on**: Phase 091 (signal_metrics schema migration clean to add columns)
-**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
-**Success Criteria** (what must be TRUE):
-  1. `signal_metrics` table has skewness, kurtosis, min_r, recovery_factor columns; DB migration is idempotent
-  2. `_build_metrics_result` computes all four new metrics from existing pnl_rs/mfes accumulators; no new DB queries
-  3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
-  4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
-**Plans**: TBD
 
 </details>
