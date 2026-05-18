@@ -93,6 +93,38 @@
 | Kubernetes / HPA | Systemd + Prometheus lag monitoring is the scaling model |
 | Additional broker adapters beyond IBKR | Deferred until provider abstraction fully validated |
 
+### INST — Instrument Registry
+
+- [ ] **INST-01**: `instruments` DB table is the single source of truth for all instrument configuration; `contract_details` JSONB holds point_value, tick_size, session_id, exchange, sector, asset_class; settings.py contains only infrastructure config (kafka, db, ibkr connection params)
+- [ ] **INST-02**: API endpoints (`POST /api/instruments`, `PUT /api/instruments/{symbol}`, `DELETE /api/instruments/{symbol}`) add/update/deactivate instruments without code deploy or service restart
+- [ ] **INST-03**: Pipeline picks up instrument changes within 1 second via asyncpg LISTEN on `instruments` channel; `invalidate_active_contracts_cache()` is replaced by event-driven invalidation
+- [ ] **INST-04**: Empty-DB bootstrap: `IBKR_CONTRACTS_JSON` env var seeds `instruments` table on first startup; subsequent startups read DB only
+- [ ] **INST-05**: One-time migration populates `instruments.contract_details` from existing settings.py instrument objects; all callers of `get_active_contracts()` unchanged
+
+### LEDGER — Signal Ledger Hardening
+
+- [ ] **LEDGER-01**: `LedgerEntry.to_insert_params()` replaced with `_to_row()` named-field helper; adding a new column requires one line edit, not positional reordering of a 65-element tuple
+- [ ] **LEDGER-02**: All signal_ledger lifecycle update queries (exit_at, outcome, mae, mfe) use named-field style consistent with `_to_row()`
+
+### THREAD — Thread Safety
+
+- [ ] **THREAD-01**: `_settings_singleton` module-level global in settings.py protected with `threading.RLock`; concurrent reads from ThreadPoolExecutor threads are race-free
+- [ ] **THREAD-02**: `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async reads/writes from per-key workers (PERF-07) are safe
+
+### RISK — Portfolio Risk Gates
+
+- [ ] **RISK-01**: `SignalTrackerComputeAgent` enforces `max_active_per_direction` (default 5) and `max_active_per_symbol` (default 2) concentration limits before activating new signals
+- [ ] **RISK-02**: Signals exceeding concentration limits are persisted as `risk_suppressed` in signal_ledger; status flows through the same lifecycle path as `regime_suppressed`
+- [ ] **RISK-03**: OTel counter `signal_tracker_risk_suppressed_total` with `reason` label (direction_limit, symbol_limit) fires on every suppression event
+- [ ] **RISK-04**: Limits overridable via `INDICAGENT_MAX_ACTIVE_PER_DIRECTION` and `INDICAGENT_MAX_ACTIVE_PER_SYMBOL` env vars; change takes effect on next signal activation check without service restart
+
+### QUAL — Signal Quality Completeness
+
+- [ ] **QUAL-01**: `signal_metrics` table adds skewness and kurtosis columns for R-multiple distribution shape; negative skewness flags left-tail blowup risk
+- [ ] **QUAL-02**: `signal_metrics` table adds min_r (worst pnl_r in window) and recovery_factor (avg_mfe / abs(min_r)) columns
+- [ ] **QUAL-03**: `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') alongside global '*' aggregate; enables per-instrument quality evaluation for v2.7 lane evaluation
+- [ ] **QUAL-04**: DB migration for new columns is idempotent (IF NOT EXISTS); all existing signal_metrics consumers work unchanged; new columns nullable with NULL default
+
 ---
 
 ## Traceability
@@ -135,5 +167,21 @@
 | PERF-08 | Phase 089 | Pending |
 | PERF-09 | Phase 089 | Pending |
 | PERF-10 | Phase 089 | Pending |
-| QUAL-01 | v2.7 | Deferred |
-| QUAL-02 | v2.7 | Deferred |
+| PERF-10 | Phase 089 | Pending |
+| INST-01 | Phase 090 | Pending |
+| INST-02 | Phase 090 | Pending |
+| INST-03 | Phase 090 | Pending |
+| INST-04 | Phase 090 | Pending |
+| INST-05 | Phase 090 | Pending |
+| LEDGER-01 | Phase 091 | Pending |
+| LEDGER-02 | Phase 091 | Pending |
+| THREAD-01 | Phase 091 | Pending |
+| THREAD-02 | Phase 091 | Pending |
+| RISK-01 | Phase 092 | Pending |
+| RISK-02 | Phase 092 | Pending |
+| RISK-03 | Phase 092 | Pending |
+| RISK-04 | Phase 092 | Pending |
+| QUAL-01 | Phase 093 | Pending |
+| QUAL-02 | Phase 093 | Pending |
+| QUAL-03 | Phase 093 | Pending |
+| QUAL-04 | Phase 093 | Pending |

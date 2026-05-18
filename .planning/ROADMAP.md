@@ -1289,4 +1289,49 @@ Plans:
   9. `bar.model_copy(update=...)` gap-flag allocation eliminated
 **Plans**: TBD
 
+### Phase 090: Instrument Registry
+**Goal**: Make `instruments` DB table the single source of truth for all instrument configuration. settings.py becomes pure infra config (kafka, DB, IBKR connection params only). API CRUD lets operators add/remove symbols without code deploy. Pipeline picks up changes via asyncpg LISTEN/NOTIFY within 1 second.
+**Depends on**: Phase 088 (CacheManager owns instrument cache post-decomposition)
+**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05
+**Success Criteria** (what must be TRUE):
+  1. `instruments.contract_details` JSONB holds all instrument config (point_value, tick_size, session_id, exchange, sector, asset_class); no hardcoded instrument dicts in settings.py
+  2. `POST /api/instruments`, `PUT /api/instruments/{symbol}`, `DELETE /api/instruments/{symbol}` work without code deploy or service restart
+  3. Pipeline picks up instrument toggle within 1 second via asyncpg LISTEN on `instruments` channel; no polling lag
+  4. `IBKR_CONTRACTS_JSON` env var still seeds DB on empty-DB first startup; backward compatibility preserved
+  5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
+**Plans**: TBD
+
+### Phase 091: Signal Ledger Hardening + Thread Safety
+**Goal**: Finish the PERSIST-05 job for the highest-volume writer — `signal_ledger_repository.py`'s 65-element positional tuple replaced with named-field `_to_row()` helper. Fix latent thread-safety races on shared module-level caches that worsen post-Phase-089 per-key concurrency.
+**Depends on**: Phase 089 (PERF-07 per-key workers make thread races live)
+**Requirements**: LEDGER-01, LEDGER-02, THREAD-01, THREAD-02
+**Success Criteria** (what must be TRUE):
+  1. `LedgerEntry._to_row()` replaces `to_insert_params()`; adding a new column requires one line, not positional reordering
+  2. `_settings_singleton` in settings.py protected with `threading.RLock`; no data races from ThreadPoolExecutor threads
+  3. `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async access safe post-PERF-07
+  4. All existing signal_ledger write paths pass tests unchanged
+**Plans**: TBD
+
+### Phase 092: Portfolio Risk Gates
+**Goal**: Add concentration limits to `SignalTrackerComputeAgent` — the single authority on all live signals. When max_active_per_direction or max_active_per_symbol thresholds are breached, new signals are marked `risk_suppressed` (not silently dropped). Limits configurable via Settings without code deploy.
+**Depends on**: Phase 089 (signal tracker sees more concurrent keys post-PERF-07)
+**Requirements**: RISK-01, RISK-02, RISK-03, RISK-04
+**Success Criteria** (what must be TRUE):
+  1. `SignalTrackerComputeAgent` enforces `max_active_per_direction` (default 5) and `max_active_per_symbol` (default 2) gates before activating signals
+  2. Signals exceeding limits are persisted as `risk_suppressed` in signal_ledger; never silently dropped
+  3. OTel counter `signal_tracker_risk_suppressed_total` with `reason` label fires on every suppression
+  4. Limits overridable via `INDICAGENT_MAX_ACTIVE_PER_DIRECTION` and `INDICAGENT_MAX_ACTIVE_PER_SYMBOL` env vars without restart
+**Plans**: TBD
+
+### Phase 093: Signal Quality Completeness
+**Goal**: Add R-multiple distribution shape (skewness, kurtosis), worst-case outcome (min_r), and recovery_factor to signal_metrics. Run compute per-symbol as well as globally. Makes v2.7 per-lane evaluation quantitatively rigorous.
+**Depends on**: Phase 091 (signal_metrics schema migration clean to add columns)
+**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
+**Success Criteria** (what must be TRUE):
+  1. `signal_metrics` table has skewness, kurtosis, min_r, recovery_factor columns; DB migration is idempotent
+  2. `_build_metrics_result` computes all four new metrics from existing pnl_rs/mfes accumulators; no new DB queries
+  3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
+  4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
+**Plans**: TBD
+
 </details>
