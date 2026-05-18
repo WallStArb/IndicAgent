@@ -12,13 +12,11 @@ import os
 import pathlib
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-from services.intelligence_pipeline_agent import (
-    IntelligencePipelineComputeAgent,
-    _load_cis_kalman_params,
-)
+from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
 from src.core.bar_history import BarHistory
+from src.intelligence.pipeline.cache_manager import CacheManager
 from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.trading.cis_scorer import CISScorer
@@ -29,6 +27,9 @@ def make_agent() -> IntelligencePipelineComputeAgent:
 
     Bypasses __init__ so tests can inject only the state they need without
     touching live Kafka, DB, or plugin registry.  Pattern from CLAUDE.md.
+
+    Cache state is seeded via the public seed_* API on agent._cache_mgr.
+    Never mutate agent._cache_mgr._* private attributes directly.
     """
     agent = IntelligencePipelineComputeAgent.__new__(IntelligencePipelineComputeAgent)
     agent.name = "intelligence_pipeline_agent"
@@ -51,11 +52,14 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._bar_history = BarHistory(maxlen=200)
     agent._kalman_state = {}
     agent._cis_scorer = CISScorer()
-    agent._cis_kalman_params = _load_cis_kalman_params()
+    # CacheManager with an async mock DB — queries return [] by default.
+    # Seed cache state via the public seed_* API: agent._cache_mgr.seed_perf_weights({...})
+    _db = AsyncMock()
+    _db.execute_query = AsyncMock(return_value=[])
+    agent._cache_mgr = CacheManager(db=_db, settings=agent.settings)
+    # CIS scorer mediation version tracker (matches orchestrator __init__)
+    agent._last_synced_cis_version = 0
     agent._regime_cache = {}
-    agent._tod_priors = {}
-    agent._calibration_curves = {}
-    agent._perf_weights = {}
     agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
     agent._transform_recorder = MagicMock()
     agent._regime_prob_min = 0.7

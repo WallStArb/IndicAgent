@@ -1,0 +1,417 @@
+"""CacheManager — owns the 6 DB-loaded caches and their refresh schedule.
+
+Extracted from IntelligencePipelineComputeAgent as part of Phase 088 god-class
+decomposition. CacheManager has zero lateral references: it pushes data via
+properties and its own background loops. The orchestrator stores task handles,
+calls load_initial() eagerly, and calls update_hmm_regime() per bar.
+
+Eager-load contract (HIGH finding 3):
+    load_initial() runs all 6 loaders BEFORE start_refresh_loops() ever sleeps.
+    Without this, the service starts cold for up to 4 hours.
+
+Enrollment ordering (MEDIUM finding):
+    The orchestrator calls enroll_all_plugins(conn) BEFORE awaiting load_initial().
+    _load_shadow_cache reads the shadow_registry table that enroll_all_plugins populates.
+
+Seed API:
+    seed_* methods are the SINGLE allowed way to populate caches from outside the
+    class (tests, checkpoint restore, repair tooling). Direct mutation of private
+    _* attributes is forbidden.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import structlog
+
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+
+if TYPE_CHECKING:
+    from src.config.settings import Settings
+    from src.core.database_manager import DatabaseManager
+
+# CIS Kalman defaults (mirrors the god-class module-level dict)
+_CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
+    "1m": {"Q": 0.01, "R": 0.08},
+    "5m": {"Q": 0.01, "R": 0.06},
+    "15m": {"Q": 0.01, "R": 0.04},
+    "1h": {"Q": 0.01, "R": 0.02},
+    "4h": {"Q": 0.01, "R": 0.01},
+    "1d": {"Q": 0.01, "R": 0.01},
+    "default": {"Q": 0.01, "R": 0.05},
+}
+
+
+def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
+    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json.
+
+    Config file can override defaults for specific timeframes, but "default"
+    key is always guaranteed via merge with hardcoded defaults.
+    """
+    config_path = Path(__file__).parent.parent.parent / "config" / "kalman_parameters.json"
+    try:
+        data = json.loads(config_path.read_text())
+        config_params = data.get("cis_kalman", {})
+        merged = {}
+        all_tfs = set(_CIS_KALMAN_DEFAULTS) | set(config_params)
+        for tf in all_tfs:
+            base = dict(_CIS_KALMAN_DEFAULTS.get(tf, _CIS_KALMAN_DEFAULTS["default"]))
+            base.update(config_params.get(tf, {}))
+            merged[tf] = base
+        return merged
+    except Exception:
+        return dict(_CIS_KALMAN_DEFAULTS)
+
+
+class CacheManager:
+    """Owns the 6 DB-loaded caches and their background refresh schedule.
+
+    Constructor: CacheManager(db: DatabaseManager, settings: Settings)
+
+    Caches (properties):
+        perf_weights, cis_weights, cis_kalman_params, calibration_curves,
+        drift_penalties, shadow_cache, tod_priors
+
+    Lifecycle:
+        1. Orchestrator calls enroll_all_plugins(conn)  -- shadow registry seeding
+        2. Orchestrator calls await load_initial()       -- eager load all 6 caches
+        3. Orchestrator calls start_refresh_loops()      -- returns 6 background Tasks
+
+    Seed API (for tests and checkpoint restore):
+        seed_tod_priors, seed_perf_weights, seed_cis_weights, seed_calibration_curves,
+        seed_shadow_cache, seed_drift_penalties
+    """
+
+    def __init__(self, db: DatabaseManager, settings: Settings) -> None:
+        self._db = db
+        self._settings = settings
+        self._logger = structlog.get_logger(__name__)
+
+        # 6 cache dicts — atomic replacement on every load
+        self._perf_weights: dict = {}
+        self._cis_weights: dict = {}
+        self._calibration_curves: dict = {}
+        self._shadow_cache: dict[str, bool] = {}
+        self._drift_penalties: dict = {}
+        self._tod_priors: dict = {}
+
+        # CIS Kalman params loaded once from config file (no refresh loop per D-13)
+        self._cis_kalman_params: dict = _load_cis_kalman_params()
+
+        # HMM regime state for regime-conditioned perf_weights loading
+        self._last_hmm_regime: int | None = None
+
+        # CIS weights version for scorer mediation (orchestrator polls this)
+        self._cis_weights_version: int = 0
+
+    # ------------------------------------------------------------------
+    # Properties (read surface)
+    # ------------------------------------------------------------------
+
+    @property
+    def perf_weights(self) -> dict:
+        """Performance weights keyed by (setup_plugin, tf, symbol) 3-tuples."""
+        return self._perf_weights
+
+    @property
+    def cis_weights(self) -> dict:
+        """CIS bucket weights from cis_weights table."""
+        return self._cis_weights
+
+    @property
+    def cis_kalman_params(self) -> dict[str, dict[str, float]]:
+        """Per-TF CIS Kalman Q/R parameters (loaded once from config file)."""
+        return self._cis_kalman_params
+
+    @property
+    def calibration_curves(self) -> dict:
+        """Isotonic calibration curves keyed by (setup_plugin, tf, symbol)."""
+        return self._calibration_curves
+
+    @property
+    def drift_penalties(self) -> dict:
+        """KS drift penalties from DRIFT_PENALTIES config."""
+        return self._drift_penalties
+
+    @property
+    def shadow_cache(self) -> dict[str, bool]:
+        """Shadow registry state keyed by component_name."""
+        return self._shadow_cache
+
+    @property
+    def tod_priors(self) -> dict:
+        """TOD Bayesian multipliers keyed by (regime_type, tf, hour_et, symbol)."""
+        return self._tod_priors
+
+    @property
+    def cis_weights_version(self) -> int:
+        """Current CIS weights version; orchestrator compares to detect staleness."""
+        return self._cis_weights_version
+
+    # ------------------------------------------------------------------
+    # HMM regime helpers
+    # ------------------------------------------------------------------
+
+    def update_hmm_regime(self, hmm_val: int | None) -> None:
+        """Called by orchestrator per bar to track last-observed HMM regime."""
+        self._last_hmm_regime = hmm_val
+
+    def current_hmm_regime_label(self) -> str:
+        """Map last-observed HMM regime integer to signal_metrics regime_type string.
+
+        0 = ranging  -> 'mean_reversion'
+        1/2 = trending -> 'trend'
+        None (no bars yet) -> 'all'
+        """
+        hmm = self._last_hmm_regime
+        if hmm == 0:
+            return "mean_reversion"
+        if hmm in (1, 2):
+            return "trend"
+        return "all"
+
+    # ------------------------------------------------------------------
+    # Public seed API (single contract for outside writers)
+    # ------------------------------------------------------------------
+
+    def seed_tod_priors(self, priors: dict) -> None:
+        """Merge priors into tod_priors (preserves existing keys — Pitfall 7).
+
+        The DB loader also uses merge semantics so checkpoint values applied
+        AFTER load_initial() layer on top of the DB-loaded values correctly.
+        """
+        self._tod_priors = {**self._tod_priors, **priors}
+
+    def seed_perf_weights(self, weights: dict) -> None:
+        """Atomically replace perf_weights (no merge — fresh DB load wins)."""
+        self._perf_weights = dict(weights)
+
+    def seed_cis_weights(self, weights: dict, version: int = 0) -> None:
+        """Atomically replace cis_weights. Does NOT call cis_scorer.update_weights (Pitfall 4).
+
+        The orchestrator mediates scorer updates by comparing cis_weights_version
+        before calling cis_scorer.update_weights. CacheManager never touches the scorer.
+        """
+        self._cis_weights = dict(weights)
+        if version:
+            self._cis_weights_version = int(version)
+
+    def seed_calibration_curves(self, curves: dict) -> None:
+        """Atomically replace calibration_curves."""
+        self._calibration_curves = dict(curves)
+
+    def seed_shadow_cache(self, cache: dict) -> None:
+        """Atomically replace shadow_cache."""
+        self._shadow_cache = dict(cache)
+
+    def seed_drift_penalties(self, penalties: dict) -> None:
+        """Atomically replace drift_penalties."""
+        self._drift_penalties = dict(penalties)
+
+    # ------------------------------------------------------------------
+    # Eager load entry point (HIGH finding 3)
+    # ------------------------------------------------------------------
+
+    async def load_initial(self) -> None:
+        """Eagerly populate all 6 caches before refresh loops start.
+
+        Preserves god-class _setup behavior — without this the service starts
+        cold for up to 4 hours (one refresh interval per cache).
+
+        CRITICAL ordering contract (MEDIUM finding from REVIEWS.md):
+            The orchestrator MUST call enroll_all_plugins(conn) BEFORE calling
+            load_initial(). The final step here (_load_shadow_cache) reads the
+            shadow_registry table that enroll_all_plugins populates.
+        """
+        await self._load_perf_weights()
+        await self._refresh_drift_penalties()
+        await self._load_cis_weights()
+        await self._load_calibration_curves()
+        await self._load_tod_multipliers()
+        await self._load_shadow_cache()  # caller must run enroll_all_plugins BEFORE invoking load_initial
+
+    # ------------------------------------------------------------------
+    # Refresh loop management
+    # ------------------------------------------------------------------
+
+    async def _run_refresh_loop(self, load_fn: Any, interval_sec: int) -> None:
+        """Background loop: sleep then reload. Loops sleep FIRST because load_initial()
+        has already populated the cache — no cold-start gap.
+        """
+        while True:
+            try:
+                await asyncio.sleep(interval_sec)
+                await load_fn()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._logger.warning(
+                    "cache_manager.refresh_loop_error",
+                    loader=getattr(load_fn, "__name__", str(load_fn)),
+                    error=str(exc),
+                )
+
+    def start_refresh_loops(self) -> list[asyncio.Task]:
+        """Create and return 6 background refresh Tasks at their configured intervals.
+
+        Intervals (seconds):
+            perf_weights=3600, drift_penalties=14400, cis_weights=1800,
+            calibration_curves=1800, tod_multipliers=14400, shadow_cache=300
+
+        The loops sleep before reloading — this is correct ONLY because
+        load_initial() has already populated the caches.
+        """
+        return [
+            asyncio.create_task(self._run_refresh_loop(self._load_perf_weights, 3600)),
+            asyncio.create_task(self._run_refresh_loop(self._refresh_drift_penalties, 14400)),
+            asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
+            asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
+            asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
+            asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
+        ]
+
+    # ------------------------------------------------------------------
+    # Private loaders (ported verbatim from god class with minimal adjustments)
+    # ------------------------------------------------------------------
+
+    async def _load_perf_weights(self) -> None:
+        """Load perf_weights from signal_metrics (market track, regime-conditioned).
+
+        Uses current_hmm_regime_label() instead of _current_hmm_regime_label().
+        Atomic replacement of self._perf_weights at end.
+        """
+        if self._db is None:
+            return
+        try:
+            current_regime = self.current_hmm_regime_label()
+
+            rows = await self._db.execute_query(
+                """
+                SELECT setup_plugin, tf, symbol, sharpe
+                FROM signal_metrics
+                WHERE track = 'market'
+                  AND regime_type = $1
+                  AND window_days = 30
+                  AND n >= 30
+                """,
+                current_regime,
+            )
+
+            if not rows:
+                # Fallback to 'all' regime rollup (bootstrap phase)
+                rows = await self._db.execute_query("""
+                    SELECT setup_plugin, tf, symbol, sharpe
+                    FROM signal_metrics
+                    WHERE track = 'market'
+                      AND regime_type = 'all'
+                      AND window_days = 30
+                      AND n >= 30
+                    """)
+
+            if not rows:
+                self._perf_weights = {}
+                self._logger.info("perf_weights.empty", regime=current_regime)
+                return
+
+            ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
+            n = len(ranked)
+            weights: dict = {}
+            for rank, row in enumerate(ranked):
+                sym = row.get("symbol", "*")
+                weights[(row["setup_plugin"], row["tf"], sym)] = round(
+                    0.5 + ((n - 1 - rank) / n),
+                    4,
+                )
+
+            self._perf_weights = weights
+            self._logger.info(
+                "perf_weights.loaded",
+                regime=current_regime,
+                n_setups=n,
+            )
+        except Exception as exc:
+            self._logger.warning("perf_weights.load_failed", error=str(exc))
+
+    async def _load_shadow_cache(self) -> None:
+        """Load shadow_registry into shadow_cache. Atomic replacement."""
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT component_name, is_shadow FROM shadow_registry"
+            )
+            self._shadow_cache = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
+        except Exception as exc:
+            self._logger.warning("shadow_cache.load_failed", error=str(exc))
+
+    async def _refresh_drift_penalties(self) -> None:
+        """Refresh drift penalties from DRIFT_PENALTIES config. Atomic replacement."""
+        self._drift_penalties = dict(DRIFT_PENALTIES)
+
+    async def _load_cis_weights(self) -> None:
+        """Load CIS bucket weights from cis_weights table. Atomic replacement.
+
+        CRITICAL (Pitfall 4): does NOT call cis_scorer.update_weights.
+        The orchestrator mediates scorer updates by comparing cis_weights_version.
+        """
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT version, weights FROM cis_weights ORDER BY version DESC LIMIT 1"
+            )
+            if rows:
+                weights = rows[0].get("weights", {})
+                version = int(rows[0].get("version", 0))
+                self._cis_weights = weights
+                self._cis_weights_version = version
+        except Exception as exc:
+            self._logger.warning("cis_weights.load_failed", error=str(exc))
+
+    async def _load_calibration_curves(self) -> None:
+        """Load calibration curves from calibration_curves table. Atomic replacement."""
+        if self._db is None:
+            return
+        try:
+            import numpy as np
+
+            rows = await self._db.execute_query(
+                "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
+            )
+            curves: dict = {}
+            for r in rows:
+                curve_data = r.get("curve_data") or {}
+                tf_val = curve_data.get("timeframe")
+                bp = curve_data.get("breakpoints")
+                vals = curve_data.get("values")
+                if not tf_val or not bp or not vals:
+                    continue
+                key = (r["setup_plugin"], tf_val, r["symbol"] or "*")
+                curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
+            self._calibration_curves = curves
+        except Exception as exc:
+            self._logger.warning("calibration_curves.load_failed", error=str(exc))
+
+    async def _load_tod_multipliers(self) -> None:
+        """Load TOD multipliers from tod_multipliers table.
+
+        MERGE semantics: self._tod_priors = {**self._tod_priors, **priors}
+        Preserves existing keys (Pitfall 7). Do NOT atomic-replace.
+        """
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
+            )
+            priors: dict = {}
+            for r in rows:
+                key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
+                priors[key] = float(r["multiplier"])
+            self._tod_priors = {**self._tod_priors, **priors}
+        except Exception as exc:
+            self._logger.warning("tod_multipliers.load_failed", error=str(exc))
