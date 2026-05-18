@@ -501,3 +501,78 @@ class TestLLMProviderChainBuildProviders:
         or_providers = [p for p in chain._inner.providers if isinstance(p, OpenRouterProvider)]
         assert or_providers[0].model == "google/gemma-4-31b-it:free"
         assert or_providers[1].model == "nvidia/nemotron:free"
+
+
+# ---------------------------------------------------------------------------
+# Alpha agent system message tests
+# ---------------------------------------------------------------------------
+
+
+class TestAlphaAgentSystemMessages:
+    """Alpha agents must suppress thinking and use concise token budgets."""
+
+    def test_skeptic_no_think_prefix(self):
+        from src.intelligence.ai.alpha.skeptic_agent import _SYSTEM_MESSAGE
+
+        assert _SYSTEM_MESSAGE.startswith("/no_think")
+
+    def test_skeptic_max_tokens(self):
+        import inspect
+
+        import src.intelligence.ai.alpha.skeptic_agent as m
+
+        src_text = inspect.getsource(m.SkepticComputeAgent._compute)
+        assert "max_tokens=500" in src_text
+        assert "max_tokens=2000" not in src_text
+
+    def test_correlation_no_think_prefix(self):
+        from src.intelligence.ai.alpha.correlation_agent import _SYSTEM_MESSAGE
+
+        assert _SYSTEM_MESSAGE.startswith("/no_think")
+
+    def test_correlation_max_tokens(self):
+        import inspect
+
+        import src.intelligence.ai.alpha.correlation_agent as m
+
+        src_text = inspect.getsource(m.CorrelationComputeAgent._compute)
+        assert "max_tokens=500" in src_text
+        assert "max_tokens=2000" not in src_text
+
+    def test_regime_coherence_no_think_prefix(self):
+        from src.intelligence.ai.alpha.regime_coherence_agent import _SYSTEM_MESSAGE
+
+        assert _SYSTEM_MESSAGE.startswith("/no_think")
+
+    def test_regime_coherence_max_tokens(self):
+        import inspect
+
+        import src.intelligence.ai.alpha.regime_coherence_agent as m
+
+        src_text = inspect.getsource(m.RegimeCoherenceComputeAgent._compute)
+        assert "max_tokens=500" in src_text
+        assert "max_tokens=2000" not in src_text
+
+    def test_counterfactual_no_think_prefix(self):
+        from src.intelligence.ai.alpha.counterfactual_agent import _SYSTEM_MESSAGE
+
+        assert _SYSTEM_MESSAGE.startswith("/no_think")
+
+    def test_counterfactual_max_tokens(self):
+        import inspect
+
+        import src.intelligence.ai.alpha.counterfactual_agent as m
+
+        src_text = inspect.getsource(m.CounterfactualComputeAgent._compute)
+        assert "max_tokens=500" in src_text
+        assert "max_tokens=2000" not in src_text
+
+    def test_concise_reasoning_instruction_present(self):
+        """All four system messages instruct the model to keep reasoning brief."""
+        from src.intelligence.ai.alpha.correlation_agent import _SYSTEM_MESSAGE as sm2
+        from src.intelligence.ai.alpha.counterfactual_agent import _SYSTEM_MESSAGE as sm4
+        from src.intelligence.ai.alpha.regime_coherence_agent import _SYSTEM_MESSAGE as sm3
+        from src.intelligence.ai.alpha.skeptic_agent import _SYSTEM_MESSAGE as sm1
+
+        for msg in (sm1, sm2, sm3, sm4):
+            assert "100 words" in msg

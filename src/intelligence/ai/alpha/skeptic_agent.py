@@ -23,10 +23,12 @@ from src.intelligence.ai.alpha.skeptic_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
+    "/no_think\n\n"
     "You are a financial trading risk analyst specializing in identifying "
     "signal weaknesses. Always respond with valid JSON. "
     '{"failure_probability": float, "confidence": float, '
-    '"risk_factors": [str], "reasoning": str}'
+    '"risk_factors": [str], "reasoning": str} '
+    "Keep reasoning under 100 words."
 )
 
 
@@ -73,7 +75,7 @@ class SkepticComputeAgent(BaseMultiplierAgent):
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
-            max_tokens=2000,
+            max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
 
