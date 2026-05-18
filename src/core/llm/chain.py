@@ -13,7 +13,7 @@ import structlog
 from opentelemetry.trace import StatusCode
 
 from src.core.llm.guardrails import GuardrailsValidator
-from src.core.llm.providers import LLMChain, OllamaProvider
+from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -72,14 +72,37 @@ class LLMProviderChain:
         return self._inner.last_provider_id
 
     def _build_providers(self, settings: Any) -> list:
-        """Build provider list from settings. Currently Ollama-only.
+        """Build ordered provider list: Ollama first, OpenRouter models as fallback.
 
-        To add providers: instantiate them here in priority order.
-        LLMChain tries each in order, returning the first non-None response.
+        LLMChain tries providers in order — first non-None response wins.
+        OpenRouter fallback activates automatically when Ollama's circuit opens.
         """
         if settings is None:
-            return [OllamaProvider("nemotron-3-nano:4b")]
-        return [OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)]
+            return [OllamaProvider(model="nemotron-3-nano:4b", num_ctx=4096)]
+
+        providers: list = [
+            OllamaProvider(
+                model=settings.ollama_model,
+                base_url=settings.ollama_base_url,
+                num_ctx=settings.ollama_num_ctx,
+            )
+        ]
+
+        if settings.openrouter_api_key:
+            for model in settings.openrouter_models.split(","):
+                model = model.strip()
+                if model:
+                    providers.append(
+                        OpenRouterProvider(model=model, api_key=settings.openrouter_api_key)
+                    )
+
+        return providers
+
+    async def close(self) -> None:
+        """Close any provider clients that hold persistent connections (e.g. httpx)."""
+        for provider in self._inner.providers:
+            if hasattr(provider, "close"):
+                await provider.close()
 
     async def generate(
         self,

@@ -426,3 +426,78 @@ class TestLLMChain:
         assert result == "Fallback reply"
         assert chain.last_provider_id == ollama_provider.provider_id
         await ollama_provider.close()
+
+
+# ---------------------------------------------------------------------------
+# LLMProviderChain._build_providers tests
+# ---------------------------------------------------------------------------
+
+
+class TestLLMProviderChainBuildProviders:
+    """Tests for LLMProviderChain._build_providers fallback wiring."""
+
+    def _make_settings(self, *, api_key: str = "", models: str = "") -> object:
+        from unittest.mock import MagicMock
+
+        s = MagicMock()
+        s.ollama_model = "qwen3.5:4b"
+        s.ollama_base_url = "http://localhost:11434"
+        s.ollama_num_ctx = 16384
+        s.openrouter_api_key = api_key
+        s.openrouter_models = models
+        return s
+
+    def test_ollama_only_when_no_api_key(self):
+        """No OpenRouter providers when openrouter_api_key is empty."""
+        from src.core.llm.chain import LLMProviderChain
+        from src.core.llm.providers import OllamaProvider
+
+        chain = LLMProviderChain(call_type="test", settings=self._make_settings())
+        providers = chain._inner.providers
+        assert len(providers) == 1
+        assert isinstance(providers[0], OllamaProvider)
+
+    def test_openrouter_appended_when_api_key_set(self):
+        """OpenRouter providers appended after Ollama when api_key is present."""
+        from src.core.llm.chain import LLMProviderChain
+        from src.core.llm.providers import OllamaProvider, OpenRouterProvider
+
+        settings = self._make_settings(
+            api_key="sk-test",
+            models="google/gemma-4-31b-it:free,nvidia/nemotron:free",
+        )
+        chain = LLMProviderChain(call_type="test", settings=settings)
+        providers = chain._inner.providers
+
+        assert len(providers) == 3
+        assert isinstance(providers[0], OllamaProvider)
+        assert isinstance(providers[1], OpenRouterProvider)
+        assert providers[1].model == "google/gemma-4-31b-it:free"
+        assert isinstance(providers[2], OpenRouterProvider)
+        assert providers[2].model == "nvidia/nemotron:free"
+
+    def test_ollama_num_ctx_passed_through(self):
+        """OllamaProvider receives num_ctx from settings."""
+        from src.core.llm.chain import LLMProviderChain
+        from src.core.llm.providers import OllamaProvider
+
+        settings = self._make_settings()
+        settings.ollama_num_ctx = 8192
+        chain = LLMProviderChain(call_type="test", settings=settings)
+        ollama = chain._inner.providers[0]
+        assert isinstance(ollama, OllamaProvider)
+        assert ollama._num_ctx == 8192
+
+    def test_whitespace_stripped_from_model_names(self):
+        """Model names with surrounding whitespace are stripped."""
+        from src.core.llm.chain import LLMProviderChain
+        from src.core.llm.providers import OpenRouterProvider
+
+        settings = self._make_settings(
+            api_key="sk-test",
+            models=" google/gemma-4-31b-it:free , nvidia/nemotron:free ",
+        )
+        chain = LLMProviderChain(call_type="test", settings=settings)
+        or_providers = [p for p in chain._inner.providers if isinstance(p, OpenRouterProvider)]
+        assert or_providers[0].model == "google/gemma-4-31b-it:free"
+        assert or_providers[1].model == "nvidia/nemotron:free"
