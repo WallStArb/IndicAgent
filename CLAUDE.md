@@ -2,6 +2,7 @@
 
 Version: 5.42.0 | Status: v2.5 complete — Phases 69–82 shipped. Next: v2.6 Signal Transform Architecture or backlog.
 
+**Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
 **Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. Full table: `docs/naming-conventions.md`.
 **Gotchas:** See `docs/gotchas.md` — rare pitfalls moved out of per-turn context.
