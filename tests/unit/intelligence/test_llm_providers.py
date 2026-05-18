@@ -105,6 +105,35 @@ class TestCallLLMWithCircuitBreaker:
         assert state.success_count == 1
         assert state.failure_count == 0
 
+    @pytest.mark.asyncio
+    async def test_async_callable_is_awaited(self):
+        """_call_llm_with_circuit_breaker accepts and awaits async callables."""
+        _llm_circuit_breaker.plugin_states.clear()
+
+        async def _async_fn():
+            return "async result"
+
+        result = await _call_llm_with_circuit_breaker("test:async", _async_fn)
+        assert result == "async result"
+
+    @pytest.mark.asyncio
+    async def test_custom_retry_on_excludes_timeout(self):
+        """TimeoutError is NOT retried when excluded from retry_on."""
+        _llm_circuit_breaker.plugin_states.clear()
+        call_count = [0]
+
+        def _fn():
+            call_count[0] += 1
+            raise TimeoutError("slow model")
+
+        result = await _call_llm_with_circuit_breaker(
+            "test:no-retry-timeout",
+            _fn,
+            retry_on=(ConnectionError, BrokenPipeError),
+        )
+        assert result is None
+        assert call_count[0] == 1  # called exactly once — no retries
+
 
 # ---------------------------------------------------------------------------
 # OpenRouterProvider tests
