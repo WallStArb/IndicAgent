@@ -1,3 +1,9 @@
+# Incremental cost: O(R) per bar where R = max_run_length (default 200).
+# The _update() forward pass allocates R-length NumPy arrays each call --
+# this is bounded by algorithm, not by a bug. BOCPD cannot be reduced to O(1)
+# without approximation (particle filter, pruning). The p95 latency of ~77ms
+# is expected for R=200 on 1m bars. Reduction options: lower max_run_length,
+# or use BOCPD only on selected timeframes. Do NOT force O(1) -- document here.
 from __future__ import annotations
 
 import math
@@ -58,7 +64,9 @@ class BOCPDChangePointPlugin:
     beta0: float = 0.01
     _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -97,7 +105,7 @@ class BOCPDChangePointPlugin:
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state or "run_length_probs" not in self._state:
             return self.compute_full(windows)
 

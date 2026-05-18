@@ -28,7 +28,9 @@ class StochasticPlugin:
             {key for (k, d) in self.configs for key in (f"stoch_k_{k}_{d}", f"stoch_d_{k}_{d}")}
         )
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) == 0:
             return {}
@@ -87,7 +89,9 @@ class StochasticPlugin:
                 "k_values": deque(k_vals, maxlen=d_period),
             }
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")

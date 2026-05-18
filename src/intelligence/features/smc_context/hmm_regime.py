@@ -1,3 +1,10 @@
+# Incremental cost: O(K^2) per bar where K = number of HMM states (default 3).
+# The _forward_step() runs the forward algorithm: K matrix-vector ops on the
+# K-state alpha vector, each requiring K multiplications. With K=3 this is 9
+# multiplications per bar -- bounded by algorithm, not by a bug. The p95
+# latency of 23-35ms is due to NumPy overhead on small arrays, not algorithmic
+# complexity. Reduction options: Cython/Numba for the inner loop, or increase
+# thread pool workers so concurrent HMM instances overlap. Do NOT force O(1).
 from __future__ import annotations
 
 import json
@@ -159,7 +166,9 @@ class HMMRegimePlugin:
         self._A, self._means, self._variances = self._load_tf_parameters()
         self._K = self._A.shape[0]
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -198,7 +207,7 @@ class HMMRegimePlugin:
 
         return self._build_output()
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state or "alpha" not in self._state:
             return self.compute_full(windows)
 

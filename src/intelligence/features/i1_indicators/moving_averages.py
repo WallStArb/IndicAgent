@@ -36,7 +36,9 @@ class MovingAveragesPlugin:
     ema_periods: list[int] = field(default_factory=lambda: [8, 9, 13, 21, 55])
     _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < min(self.sma_periods + self.ema_periods) + 1:
             return {}
@@ -89,7 +91,9 @@ class MovingAveragesPlugin:
             if pd.notna(ema_val):
                 self._state[f"ema_{p}"] = float(ema_val)
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")
