@@ -217,20 +217,22 @@ class FeaturePipelineExecutor:
             return FeaturePipelineResult(event=None, tiered=None, main_df=main_df, hmm_regime=None)
 
         # IntelligenceEvent construction (orchestrator lines 715-745)
-        # 7x {k: v for k, v in tier.items() if v is not None} comprehensions — PERF-05 target
+        # PERF-05: None filtering now happens at the run_i1 / run_tier merge site in
+        # executor.py, so i1_result and tiered tier dicts are already None-free here.
+        # No comprehensions needed — pass tier dicts directly to tier constructors.
         try:
             event = IntelligenceEvent(
                 ts=bar.ts,
                 symbol=symbol,
                 tf=tf,
                 bar=OHLCVBar(o=bar.open, h=bar.high, l=bar.low, c=bar.close, v=bar.volume),
-                i1=I1Indicators(**{k: v for k, v in i1_result.items() if v is not None}),
-                i2=I2Events(**{k: v for k, v in tiered.get("i2", {}).items() if v is not None}),
-                i3=I3Structure(**{k: v for k, v in tiered.get("i3", {}).items() if v is not None}),
-                i4=I4Context(**{k: v for k, v in tiered.get("i4", {}).items() if v is not None}),
-                i5=I5Patterns(**{k: v for k, v in tiered.get("i5", {}).items() if v is not None}),
-                smc=SMCContext(**{k: v for k, v in tiered.get("smc", {}).items() if v is not None}),
-                i6=I6Confluence(**{k: v for k, v in tiered.get("i6", {}).items() if v is not None}),
+                i1=I1Indicators(**i1_result),
+                i2=I2Events(**tiered.get("i2", {})),
+                i3=I3Structure(**tiered.get("i3", {})),
+                i4=I4Context(**tiered.get("i4", {})),
+                i5=I5Patterns(**tiered.get("i5", {})),
+                smc=SMCContext(**tiered.get("smc", {})),
+                i6=I6Confluence(**tiered.get("i6", {})),
                 source="live",
                 session_type=bar.session_type,
                 pipeline_latency_ms=0.0,  # orchestrator measures and sets this separately
