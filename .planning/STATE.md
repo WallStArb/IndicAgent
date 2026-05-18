@@ -5,6 +5,8 @@ milestone_name: milestone
 status: executing
 stopped_at: Completed 089-02 and 089-03 (Wave 1 parallel)
 last_updated: "2026-05-18T20:45:34.550Z"
+stopped_at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
+last_updated: "2026-05-18T20:57:19.612Z"
 last_activity: 2026-05-18
 progress:
   total_phases: 32
@@ -121,6 +123,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 089]: PERF-08 model_construct with fallback validation: trusted internal producer assumption consistent with DLQ wiring
 - [Phase 089]: PERF-09 gap flag in frames['__gap__']: explicit parameter threading preserves future plugin access without object mutation
 - [Phase 089]: 089-03: Batch drain preserves swallow-and-log for publish errors (existing test contract); CancelledError re-enqueues batch[handled+1:] before re-raise
+- [Phase 089]: PERF-03: state threaded via functools.partial to run_in_executor, eliminating pre-dispatch plugin._state race
+- [Phase 089]: Plugin protocol backward-compatible: state=None default; existing plugins fallback to compute_full until individually migrated
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -138,6 +142,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 Last session: 2026-05-18T20:45:34.546Z
 Stopped at: Completed 089-02 and 089-03 (Wave 1 parallel)
+Last session: 2026-05-18T20:57:19.608Z
+Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
 Next: /gsd:execute-phase 088
 
@@ -216,3 +222,4 @@ Next: /gsd:execute-phase 088
 | Phase 089 P01 | 17 | 6 tasks | 9 files |
 | Phase 089 P02 | 8 | 3 tasks | 5 files |
 | Phase 089 P03 | 9 | 2 tasks | 4 files |
+| Phase 089 P04 | 25 | 3 tasks | 6 files |

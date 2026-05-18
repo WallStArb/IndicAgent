@@ -16,7 +16,9 @@ def _mock_plugin(compute_result: dict):
     """Create a mock plugin that returns a fixed result."""
 
     class MockPlugin:
-        def compute_full(self, frames):
+        supports_incremental = False
+
+        def compute_full(self, frames, *, state=None):
             return compute_result
 
     return MockPlugin()

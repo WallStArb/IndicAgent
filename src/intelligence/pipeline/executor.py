@@ -11,6 +11,7 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -76,17 +77,27 @@ class PluginTask:
 # ---------------------------------------------------------------------------
 
 
-def _timed_plugin_call(plugin, frames):
+def _timed_plugin_call(plugin, frames, state: dict) -> Any:
     """Wrapper that returns (result, duration_ms) tuple for per-plugin timing.
 
     Uses incremental compute_next() when the plugin supports it and has state,
     falling back to compute_full() otherwise.
+
+    PERF-03: state is threaded as an explicit parameter. Callers (run_i1,
+    run_tier, run_i7_plugins) capture state locally and pass it via
+    functools.partial — zero plugin._state assignments before run_in_executor
+    dispatch. The incremental path is gated on the state parameter, not
+    plugin._state. Plugins receive state= as a keyword argument; plugins updated
+    to accept state= use it directly, while legacy plugins that still read
+    self._state internally will see their instance attribute unchanged (empty
+    dict from construction) and fall back to compute_full until they are
+    individually migrated.
     """
     t0 = time.perf_counter()
-    if getattr(plugin, "supports_incremental", False) and plugin._state:
-        result = plugin.compute_next(frames)
+    if getattr(plugin, "supports_incremental", False) and state:
+        result = plugin.compute_next(frames, state=state)
     else:
-        result = plugin.compute_full(frames)
+        result = plugin.compute_full(frames, state=state)
     duration_ms = (time.perf_counter() - t0) * 1000
     return result, duration_ms
 
@@ -297,13 +308,14 @@ class PluginExecutor:
             if not cb.allow_request():
                 continue
 
-            # State injection: read from passed plugin_states (D-10)
-            plugin._state = plugin_states.get(plugin_name, {})
+            # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
+            state = plugin_states.get(plugin_name, {})
 
             tasks.append(
                 PluginTask(
                     coroutine=loop.run_in_executor(
-                        self._thread_pool, _timed_plugin_call, plugin, frames
+                        self._thread_pool,
+                        functools.partial(_timed_plugin_call, plugin, frames, state),
                     ),
                     plugin_name=plugin_name,
                     state_key=(plugin_name, symbol, tf),
@@ -363,13 +375,14 @@ class PluginExecutor:
             if not cb.allow_request():
                 continue
 
-            # State injection: read from passed plugin_states (D-10)
-            plugin._state = plugin_states.get(plugin_name, {})
+            # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
+            state = plugin_states.get(plugin_name, {})
 
             tasks.append(
                 PluginTask(
                     coroutine=loop.run_in_executor(
-                        self._thread_pool, _timed_plugin_call, plugin, frames
+                        self._thread_pool,
+                        functools.partial(_timed_plugin_call, plugin, frames, state),
                     ),
                     plugin_name=plugin_name,
                     tier_key=tier_key,
@@ -515,13 +528,14 @@ class PluginExecutor:
             if not cb.allow_request():
                 continue
 
-            # State injection: read from passed plugin_states (D-10)
-            plugin._state = plugin_states.get(plugin_name, {})
+            # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
+            state = plugin_states.get(plugin_name, {})
 
             tasks.append(
                 PluginTask(
                     coroutine=loop.run_in_executor(
-                        self._thread_pool, _timed_plugin_call, plugin, plugin_input
+                        self._thread_pool,
+                        functools.partial(_timed_plugin_call, plugin, plugin_input, state),
                     ),
                     plugin_name=plugin_name,
                     tier_key="i7",
