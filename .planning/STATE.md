@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: Foundation Hardening & Signal Transform
+milestone_name: milestone
 status: executing
-stopped_at: context exhaustion at 76% (2026-05-18)
-last_updated: "2026-05-18T20:09:44.354Z"
-last_activity: 2026-05-18 -- Phase 089 planning complete
+stopped_at: Completed 089-01-PLAN.md — DAG decomposition Wave 0
+last_updated: "2026-05-18T20:34:05.689Z"
+last_activity: 2026-05-18
 progress:
-  total_phases: 8
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 17
-  percent: 50
+  total_phases: 32
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 088 (god-class-decomposition) — EXECUTING
-Plan: 1 of 5
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-05-18 -- Phase 089 planning complete
+Last activity: 2026-05-18
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
 
 Progress: [████████░░] 50% (3/6 phases)
@@ -114,6 +114,9 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - OBS-01 assigned to Phase 084 (co-located with base agent instrumentation work).
 - OBS-02 and OBS-03 assigned to Phase 086 (system health endpoint and stall detection belong with pipeline hardening).
 - Qualitative + fundamental horizontal lanes deferred to v2.7 "Horizontal Intelligence Foundation". Scope: macro event calendar, sector intelligence, company-specific (earnings/guidance/ratings) as qualitative sub-lanes; economic regime + equity valuation as fundamental lane. Individual equities in scope for v2.7. Architecture decision (how lanes aggregate with I7 timeseries) to be designed at v2.7 planning.
+- [Phase 089]: FPE owns _prev_i1_features and _last_events carry-forward state, migrated from orchestrator
+- [Phase 089]: HTF intel cached after 15m/1h/4h/1d bar processing via update_htf_intel — closes cross-tf context loop (D-19)
+- [Phase 089]: PluginExecutor stores I7 state updates in _last_i7_state_updates for orchestrator to apply (D-15 compliance)
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -129,8 +132,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-18T14:01:45.938Z
-Stopped at: context exhaustion at 76% (2026-05-18)
+Last session: 2026-05-18T20:34:05.682Z
+Stopped at: Completed 089-01-PLAN.md — DAG decomposition Wave 0
 Resume file: None
 Next: /gsd:execute-phase 088
 
@@ -201,3 +204,9 @@ Next: /gsd:execute-phase 088
 | 331MB | |
 | 261MB | |
 | 226MB | ×2 |
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 089 P01 | 17 | 6 tasks | 9 files |
