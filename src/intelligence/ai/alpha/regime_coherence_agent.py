@@ -19,7 +19,6 @@ from src.intelligence.ai.alpha.regime_coherence_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
-    "/no_think\n\n"
     "You are a regime-coherence analyst. Output strictly valid JSON. "
     "Phase 80 policy: discount-only — regime_fit and confidence in [0.0, 1.0]. "
     "Keep reasoning under 100 words."
