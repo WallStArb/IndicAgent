@@ -416,6 +416,8 @@ class OllamaProvider:
                 raise ConnectionError(f"Ollama connection failed: {exc}") from exc
             except httpx.HTTPStatusError as exc:
                 raise ConnectionError(f"Ollama HTTP {exc.response.status_code}") from exc
+            except httpx.RequestError as exc:
+                raise ConnectionError(f"Ollama request error: {exc}") from exc
 
         return await _call_llm_with_circuit_breaker(
             self.provider_id,
