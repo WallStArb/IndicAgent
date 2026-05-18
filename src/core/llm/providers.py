@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio as _asyncio
 import json
 import time
 import urllib.error
@@ -75,14 +76,18 @@ async def _call_llm_with_circuit_breaker(
     provider_id: str,
     call_fn: Callable,
     circuit_breaker: PluginCircuitBreaker | None = None,
+    retry_on: tuple[type[Exception], ...] = (ConnectionError, TimeoutError, BrokenPipeError),
 ) -> str | None:
     """Call LLM provider with circuit breaker tracking and retry backoff.
 
     Args:
         provider_id: Unique provider identifier (e.g., "zai:glm-5")
-        call_fn: Synchronous callable that performs the LLM HTTP call.
+        call_fn: Sync or async callable that performs the LLM HTTP call.
         circuit_breaker: Circuit breaker to use. Defaults to _llm_circuit_breaker
             (remote providers). Pass _ollama_circuit_breaker for local Ollama.
+        retry_on: Exception types that trigger a retry. Pass a narrower tuple to
+            exclude e.g. TimeoutError for local Ollama (retrying a hung model adds
+            load, not recovery).
 
     Returns:
         LLM response string or None on failure.
@@ -108,6 +113,8 @@ async def _call_llm_with_circuit_breaker(
         logger.info("llm_circuit_half_open", provider=provider_id)
 
     async def _run() -> str | None:
+        if _asyncio.iscoroutinefunction(call_fn):
+            return await call_fn()
         return await to_thread(call_fn)
 
     try:
@@ -116,7 +123,7 @@ async def _call_llm_with_circuit_breaker(
             max_attempts=3,
             base_delay=1.0,
             max_delay=10.0,
-            retry_on=(ConnectionError, TimeoutError, BrokenPipeError),
+            retry_on=retry_on,
         )
         # Record success metrics
         CIRCUIT_BREAKER_SUCCESSES_TOTAL.add(1, {"plugin_name": provider_id})
