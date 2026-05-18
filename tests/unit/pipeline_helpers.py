@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
@@ -18,6 +20,7 @@ from services.intelligence_pipeline_agent import (
 )
 from src.core.bar_history import BarHistory
 from src.intelligence.pipeline.output_queue import OutputQueue
+from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.trading.cis_scorer import CISScorer
 
 
@@ -33,8 +36,9 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
     agent._plugin_cache = {}
-    agent._plugin_states = {}
-    agent._plugin_states_locks = {}
+    agent._state_mgr = PluginStateManager(
+        checkpoint_path=pathlib.Path(tempfile.mkdtemp()) / "ckpt.json"
+    )
     agent._instrument_map = {}
     agent._plugin_skipped_total = MagicMock()
     agent._i1_latency_ms = MagicMock()
