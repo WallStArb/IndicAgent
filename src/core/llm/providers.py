@@ -21,6 +21,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+import httpx
 import structlog
 
 # Circuit breaker and retry
@@ -361,8 +362,6 @@ class OllamaProvider:
         timeout: float | None = None,
         num_ctx: int = 4096,
     ) -> None:
-        import httpx
-
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout or _default_llm_timeout()
@@ -378,8 +377,6 @@ class OllamaProvider:
         max_tokens: int,
         timeout: float,
     ) -> str | None:
-        import httpx
-
         async def _call() -> str | None:
             payload = {
                 "model": self.model,
