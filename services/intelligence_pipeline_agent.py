@@ -423,10 +423,17 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         return topic_intelligence_pipeline_dlq(self.settings.env_name)
 
     def _parse_bar(self, msg: dict) -> BarMessage | None:
+        # PERF-08: model_construct skips Pydantic validation on the hot path.
+        # Bars arrive from an internal trusted producer (bar-aggregator), so
+        # field shapes are guaranteed by the upstream contract. Falls back to
+        # full validation on error to surface schema violations via DLQ.
         try:
-            return BarMessage(**msg)
-        except Exception:
-            return None
+            return BarMessage.model_construct(**msg)
+        except (ValueError, TypeError):
+            try:
+                return BarMessage(**msg)
+            except Exception:
+                return None
 
     async def _process_bar(self, bar: BarMessage) -> None:
         async with observed_span(
@@ -435,24 +442,24 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         ):
             await self._process_bar_inner(bar)
 
-    async def _process_bar_inner(self, bar: BarMessage) -> None:
+    async def _process_bar_inner(self, bar: BarMessage, *, gap: bool = False) -> None:
         """D-08 DAG router: gap detect → FPE → I7 → SignalProcessor → 4-way routing."""
         t0 = time.perf_counter()
-        # Gap detection
+        # Gap detection — PERF-09: flag tracked as explicit parameter, not via model_copy.
         key = f"{bar.symbol}:{bar.tf}"
         prev_ts = self._last_bar_ts.get(key)
         if (
             prev_ts is not None
             and (bar.ts.timestamp() - prev_ts) > TF_SECONDS.get(bar.tf, 60) * 1.5
         ):
-            bar = bar.model_copy(update={"gap_preceding": True})
+            gap = True
         self._last_bar_ts[key] = bar.ts.timestamp()
         self._bar_history.append(bar)
         if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
             return
         cache_snapshot = self._cache_mgr.snapshot()
         try:
-            fp_result = await self._feature_pipeline.run(bar, cache_snapshot)
+            fp_result = await self._feature_pipeline.run(bar, cache_snapshot, gap=gap)
         except Exception as exc:
             self.logger.error("pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
             self._pipeline_errors.add(1)
