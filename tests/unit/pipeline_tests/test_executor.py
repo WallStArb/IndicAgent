@@ -330,8 +330,9 @@ class TestRunTiers:
             supports_incremental = False
             _state = {}
 
-            def compute_full(self, frames):
-                received_states.append(dict(self._state))
+            def compute_full(self, frames, *, state=None):
+                # PERF-03: state is now threaded as a parameter kwarg.
+                received_states.append(dict(state) if state is not None else {})
                 return {"val": 1.0}
 
         executor._plugin_cache[plugin_name] = StateCapturingPlugin()

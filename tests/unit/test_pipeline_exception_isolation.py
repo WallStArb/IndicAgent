@@ -19,7 +19,9 @@ def _failing_plugin(error_cls=RuntimeError, msg="injected failure"):
     """Plugin whose compute_full always raises error_cls(msg)."""
 
     class FailingPlugin:
-        def compute_full(self, frames):
+        supports_incremental = False
+
+        def compute_full(self, frames, *, state=None):
             raise error_cls(msg)
 
     return FailingPlugin()
