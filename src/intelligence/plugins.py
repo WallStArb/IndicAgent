@@ -24,9 +24,13 @@ class IndicatorPlugin(Protocol):
     inputs: ClassVar[list[InputSpec]]
     valid_asset_classes: ClassVar[frozenset[AssetClass]]
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
+    def compute_full(
+        self, frames: dict[str, Any], *, state: dict | None = None
+    ) -> dict[str, Any]: ...
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]: ...
+    def compute_next(
+        self, windows: dict[str, Any], *, state: dict | None = None
+    ) -> dict[str, Any]: ...
 
 
 class PatternPlugin(Protocol):
@@ -39,9 +43,13 @@ class PatternPlugin(Protocol):
     valid_asset_classes: ClassVar[frozenset[AssetClass]]
     regime_type: ClassVar[str]  # Must be "trend", "mean_reversion", or "any"
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
+    def compute_full(
+        self, frames: dict[str, Any], *, state: dict | None = None
+    ) -> dict[str, Any]: ...
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]: ...
+    def compute_next(
+        self, windows: dict[str, Any], *, state: dict | None = None
+    ) -> dict[str, Any]: ...
 
 
 class PluginRegistry:
