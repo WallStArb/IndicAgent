@@ -1287,7 +1287,14 @@ Plans:
   7. Independent (symbol, tf) bars dispatched to per-key workers concurrently; sequential bar loop eliminated
   8. `BarMessage(**msg)` on trusted path replaced with `model_construct()`; full validation on DLQ path only
   9. `bar.model_copy(update=...)` gap-flag allocation eliminated
-**Plans**: TBD
+**Plans:** 6 plans
+Plans:
+- [ ] 089-01-PLAN.md — DAG decomposition completion: FeaturePipelineExecutor, run_i7_complete, CacheManager stream caches, SignalProcessor metrics, cleanup (Wave 0, prerequisite)
+- [ ] 089-02-PLAN.md — Allocation wins: PERF-01/02/05/08/09 — features cached, pre-filtered tier dicts, model_construct, gap-as-parameter (Wave 1)
+- [ ] 089-03-PLAN.md — Async batching: PERF-06 — OutputQueue batch drain configurable via Settings (Wave 1)
+- [ ] 089-04-PLAN.md — State threading: PERF-03 — plugin state as parameter, race eliminated (Wave 2)
+- [ ] 089-05-PLAN.md — O(N) plugin conversion: PERF-04 — MarketProfile/SessionLevels incremental + 10 plugin verification (Wave 2)
+- [ ] 089-06-PLAN.md — Per-key concurrency: PERF-07 — PerKeyWorkerManager + thread pool saturation measurement (Wave 3)
 
 ### Phase 091: Instrument Registry
 **Goal**: Make `instruments` DB table the single source of truth for all instrument configuration. settings.py becomes pure infra config (kafka, DB, IBKR connection params only). API CRUD lets operators add/remove symbols without code deploy. Pipeline picks up changes via asyncpg LISTEN/NOTIFY within 1 second.
