@@ -1,8 +1,9 @@
-"""Interim acceptance tests for IntelligencePipelineComputeAgent._assemble_checkpoint_extra.
+"""Acceptance tests for IntelligencePipelineComputeAgent._assemble_checkpoint_extra.
 
-These tests document the cross-plan migration state after Plan 03:
-- tod_priors now reads from self._cache_mgr.tod_priors (migrated in Plan 03)
-- Plan 05 will migrate kalman_state / setup_last_fire -> self._sig_proc.get_*()
+Post-plan-05 form (final):
+- tod_priors reads from self._cache_mgr.tod_priors (migrated in Plan 03)
+- kalman_state reads from self._sig_proc.get_kalman_state() (migrated in Plan 05)
+- setup_last_fire reads from self._sig_proc.get_setup_last_fire() (migrated in Plan 05)
 
 The no-plugin_states assertion is the permanent contract (HIGH finding 5 regression guard).
 """
@@ -15,18 +16,17 @@ from tests.unit.pipeline_helpers import make_agent
 def test_assemble_checkpoint_extra_keys_are_exactly_cross_owned():
     """_assemble_checkpoint_extra must return exactly the four cross-owned fields.
 
-    Post-plan-03 form: tod_priors reads from self._cache_mgr.tod_priors.
-    Plan 05 will change the source of kalman_state / setup_last_fire.
+    Final form (plan 05): kalman_state and setup_last_fire read from SignalProcessor.
 
     Asserts HIGH finding 5: 'plugin_states' must NOT appear in the returned dict.
     """
     agent = make_agent()
-    # Seed cross-owned attrs with recognisable values
-    agent._kalman_state = {"k1": 1.0}
-    # tod_priors now lives in CacheManager — seed via public API
+    # Seed cross-owned attrs via their new owners
+    agent._sig_proc.restore_kalman_state({"k1": 1.0})
+    # tod_priors lives in CacheManager — seed via public API
     agent._cache_mgr.seed_tod_priors({"t1": 0.5})
     agent._last_bar_offset = {"p:0": 42}
-    agent._setup_last_fire = {"s1": {"bars_since": 3}}
+    agent._sig_proc.restore_setup_last_fire({"s1": {"bars_since": 3}})
 
     result = agent._assemble_checkpoint_extra()
 
@@ -58,10 +58,8 @@ def test_assemble_checkpoint_extra_plugin_states_not_present_when_state_mgr_has_
     agent = make_agent()
     # Populate plugin state in the manager
     agent._state_mgr.update(("plugA", "ES", "1m"), {"x": 1})
-    agent._kalman_state = {}
     agent._last_bar_offset = {}
-    agent._setup_last_fire = {}
-    # tod_priors is empty by default in CacheManager
+    # kalman_state and setup_last_fire are empty by default in SignalProcessor
 
     result = agent._assemble_checkpoint_extra()
 

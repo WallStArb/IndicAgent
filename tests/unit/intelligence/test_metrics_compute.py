@@ -305,13 +305,13 @@ class TestPipelinePerfWeightsSymbol:
         assert 'row.get("symbol"' in src or 'row.get("symbol"' in src
 
     def test_rank_signals_call_site_passes_symbol(self):
-        """Verify rank_signals is called with symbol=symbol."""
+        """Verify rank_signals is called with symbol=symbol in SignalProcessor.process."""
         import inspect
 
-        from services import intelligence_pipeline_agent as m
+        from src.intelligence.pipeline.signal_processor import SignalProcessor
 
-        # _run_i7 delegates to _run_i7_inner (OTel span wrapper); inspect the inner method
-        src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i7_inner)
+        # rank_signals call now lives in SignalProcessor.process() (plan 05 migration)
+        src = inspect.getsource(SignalProcessor.process)
         assert "rank_signals" in src
         # Check that rank_signals call includes symbol=
         assert "symbol=symbol" in src
