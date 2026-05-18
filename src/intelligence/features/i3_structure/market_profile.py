@@ -29,12 +29,12 @@ class MarketProfilePlugin:
         }
     )
     min_lookback: int = 30
-    supports_incremental: bool = False
+    supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+    def compute_full(self, frames: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -88,6 +88,103 @@ class MarketProfilePlugin:
 
         va_high = float(buckets[hi])
         va_low = float(buckets[lo])
+
+        # Seed incremental state if caller provided a state dict
+        if state is not None:
+            tick_size_inc = price_range / 100.0
+            state["tick_size"] = tick_size_inc
+            state["price_min"] = float(low.min())
+            # Rebuild bucket dict from tpo_counts
+            bucket_dict: dict[float, float] = {}
+            for idx, cnt in enumerate(tpo_counts):
+                if cnt > 0:
+                    bucket_dict[round(float(buckets[idx]), 10)] = float(cnt)
+            state["volume_buckets"] = bucket_dict
+            state["bar_count"] = len(df)
+            state["session_id"] = "full"
+
+        return self._build_output(close, poc_level, va_high, va_low, atr_14)
+
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        if state is None or not state:
+            return self.compute_full(windows, state=state)
+
+        df = windows.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        features = windows.get("features") or {}
+        close = float(features.get("close") or df["close"].iloc[-1])
+        atr_14 = features.get("atr_14")
+
+        bar = df.iloc[-1]
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
+
+        tick_size = state.get("tick_size")
+        if tick_size is None or tick_size <= 0:
+            return self.compute_full(windows, state=state)
+
+        volume_buckets: dict[float, float] = state.get("volume_buckets", {})
+
+        # Distribute this bar's TPO count (1.0 per bucket it spans) incrementally
+        # Match the compute_full algorithm: count = 1 for each bucket in [low, high]
+        bucket_low = round(bar_low - (bar_low % tick_size), 10)
+        bucket = bucket_low
+        while bucket <= bar_high + tick_size * 0.5:
+            key = round(bucket, 10)
+            volume_buckets[key] = volume_buckets.get(key, 0.0) + 1.0
+            bucket = round(bucket + tick_size, 10)
+
+        state["volume_buckets"] = volume_buckets
+        state["bar_count"] = state.get("bar_count", 0) + 1
+
+        # Recompute POC/VAH/VAL from accumulated buckets - O(K) where K = num buckets
+        if not volume_buckets:
+            return {}
+
+        sorted_prices = sorted(volume_buckets.keys())
+        sorted_counts = [volume_buckets[p] for p in sorted_prices]
+        total_tpo = sum(sorted_counts)
+
+        if total_tpo == 0:
+            return {}
+
+        poc_idx = int(np.argmax(sorted_counts))
+        poc_level = sorted_prices[poc_idx]
+
+        va_target = total_tpo * 0.70
+        lo = poc_idx
+        hi = poc_idx
+        va_tpo = sorted_counts[poc_idx]
+        n = len(sorted_counts)
+
+        while va_tpo < va_target:
+            add_lo = sorted_counts[lo - 1] if lo > 0 else -1.0
+            add_hi = sorted_counts[hi + 1] if hi < n - 1 else -1.0
+            if add_lo < 0 and add_hi < 0:
+                break
+            if add_hi >= add_lo:
+                hi += 1
+                va_tpo += sorted_counts[hi]
+            else:
+                lo -= 1
+                va_tpo += sorted_counts[lo]
+
+        va_high = sorted_prices[hi]
+        va_low = sorted_prices[lo]
+
+        return self._build_output(close, poc_level, va_high, va_low, atr_14)
+
+    def _build_output(
+        self,
+        close: float,
+        poc_level: float,
+        va_high: float,
+        va_low: float,
+        atr_14: Any,
+    ) -> dict[str, Any]:
+        """Build the output dict from computed VA/POC values."""
         va_width_pct = (va_high - va_low) / va_low if va_low != 0 else 0.0
         price_in_va = 1.0 if va_low <= close <= va_high else 0.0
         price_above_va = 1.0 if close > va_high else 0.0
@@ -131,9 +228,6 @@ class MarketProfilePlugin:
             "va_position_pct": round(va_position_pct, 4),
             "va_distance_atr": va_distance_atr,
         }
-
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
-        return self.compute_full(windows)
 
 
 plugin = MarketProfilePlugin()
