@@ -1066,9 +1066,14 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
     Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures',
     reconstructs Instrument objects inheriting config-file defaults (point_value,
     tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol,
-    merges DB-sourced futures Instruments + config-file non-futures Instruments,
-    caches result for 60 seconds, and falls back to config-file contracts on DB error.
+    then queries instruments table WHERE is_active = true AND asset_class != 'futures'
+    for non-futures (equities, FX, crypto).
+    Merges both lists, caches result for 60 seconds.
+    Fallback on DB error: returns last valid cache, or empty list if cache is cold.
+    settings.contracts is NOT consulted in any code path.
     """
+    import json as _json
+
     global _active_contracts_cache, _active_contracts_last_refresh  # noqa: PLW0603
 
     s = settings or _default_settings()
@@ -1081,7 +1086,7 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
             return _active_contracts_cache
     # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
-    # Build config-file lookup tables
+    # Build config-file lookup tables (futures config inheritance only)
     config_by_base: dict[str, Instrument] = {}
     config_by_symbol: dict[str, Instrument] = {}
     for c in s.contracts:
@@ -1106,8 +1111,40 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
             _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
         ]
 
-        # Add config-file non-futures Instruments (FX, equity, crypto)
-        non_futures = [c for c in s.contracts if c.asset_class != AssetClass.FUTURES]
+        # Query non-futures (equities, FX, crypto) from instruments table
+        with psycopg2.connect(s.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, base, contract_details "
+                    "FROM instruments "
+                    "WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
+                )
+                nf_rows = cur.fetchall()
+
+        non_futures: list[Instrument] = []
+        for row in nf_rows:
+            cd = _json.loads(row[2]) if isinstance(row[2], str) else row[2]
+            if cd is None:
+                continue
+            try:
+                non_futures.append(Instrument(**cd))
+            except Exception:
+                # Fallback: build with available columns if contract_details is partial
+                non_futures.append(
+                    Instrument(
+                        symbol=cd.get("symbol") or row[0],
+                        base=cd.get("base") or row[1] or "",
+                        name=cd.get("name", ""),
+                        asset_class=cd.get("asset_class", "equity"),
+                        exchange=cd.get("exchange", ""),
+                        sector=cd.get("sector", ""),
+                        tick_size=cd.get("tick_size", 0),
+                        point_value=cd.get("point_value", 0),
+                        session_id=cd.get("session_id", "equity_rth"),
+                        provider_meta=cd.get("provider_meta", {}),
+                        expiry=cd.get("expiry", ""),
+                    )
+                )
 
         result = db_instruments + non_futures
 
@@ -1121,10 +1158,18 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
         import structlog as _structlog
 
         _structlog.get_logger(__name__).warning(
-            "get_active_contracts DB query failed — falling back to config-file contracts",
+            "get_active_contracts.db_query_failed",
             error=str(exc),
         )
-        return list(s.contracts)
+        # Fallback: return last valid cache if warm; never consult s.contracts
+        with _settings_lock:
+            if _active_contracts_cache is not None:
+                return _active_contracts_cache
+        _structlog.get_logger(__name__).critical(
+            "get_active_contracts.cold_start_db_unavailable",
+            error=str(exc),
+        )
+        return []
 
 
 def get_active_symbols(settings: Settings | None = None) -> list[str]:
