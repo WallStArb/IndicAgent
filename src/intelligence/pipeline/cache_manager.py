@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import asyncpg
 import structlog
 
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
@@ -66,6 +67,32 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
         return merged
     except Exception:
         return dict(_CIS_KALMAN_DEFAULTS)
+
+
+def _instrument_from_row(row: dict) -> Any:
+    """Build an Instrument from an instruments table row (asyncpg dict).
+
+    asyncpg returns JSONB columns as plain dicts — no json.loads() needed.
+    For FX instruments the DB primary key is the base currency (e.g. USD),
+    but contract_details.symbol holds the full pair (e.g. USDJPY), so we
+    prefer the contract_details value.
+    """
+    from src.core.models import Instrument  # noqa: PLC0415 — avoids circular import
+
+    cd: dict = row["contract_details"] or {}
+    return Instrument(
+        symbol=cd.get("symbol") or row["symbol"],
+        base=row.get("base", ""),
+        name=cd.get("name", ""),
+        asset_class=cd.get("asset_class", "equity"),
+        exchange=cd.get("exchange", ""),
+        sector=cd.get("sector", ""),
+        tick_size=float(cd.get("tick_size") or 0),
+        point_value=float(cd.get("point_value") or 0),
+        session_id=cd.get("session_id", "equity_regular"),
+        provider_meta=cd.get("provider_meta") or {},
+        expiry=cd.get("expiry", ""),
+    )
 
 
 class CacheManager:
@@ -131,6 +158,10 @@ class CacheManager:
         self._cross_asset_lock = asyncio.Lock()
         self._macro_lock = asyncio.Lock()
         self._htf_intel_lock = asyncio.Lock()
+
+        # Instruments cache — populated by the LISTEN/NOTIFY handler (INST-03).
+        # Non-futures only (asset_class != 'futures'). Atomic replacement on reload.
+        self._instruments_cache: list = []
 
     # ------------------------------------------------------------------
     # Properties (read surface)
@@ -346,6 +377,88 @@ class CacheManager:
             asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
             asyncio.create_task(self._run_refresh_loop(self._load_shadow_cache, 300)),
         ]
+
+    def start_instruments_listener(self) -> asyncio.Task:
+        """Returns an asyncio.Task that runs LISTEN instruments on a dedicated asyncpg
+        connection, with reconnect on failure.
+
+        Caller must add the returned task to its _background_tasks for lifecycle
+        management. The listener uses a raw asyncpg.connect() connection (NOT the
+        pool context manager) and holds it for the listener lifetime so the LISTEN
+        subscription is never accidentally released.
+        """
+        return asyncio.create_task(self._run_instruments_listener())
+
+    async def _run_instruments_listener(self) -> None:
+        """Infinite retry loop: LISTEN on a dedicated asyncpg connection.
+
+        On NOTIFY 'instruments', schedules _reload_instruments_cache() via
+        asyncio.ensure_future so the sync callback never blocks the event loop.
+        Re-raises asyncio.CancelledError so the caller can cancel cleanly.
+        On any other exception, logs at WARNING and retries after 5s backoff.
+        """
+        while True:
+            conn: asyncpg.Connection | None = None
+            try:
+                conn = await asyncpg.connect(self._settings.database_url)
+                try:
+                    await conn.execute("LISTEN instruments")
+                    conn.add_listener("instruments", self._on_instrument_notify)
+                    # Heartbeat loop — asyncpg delivers NOTIFY via the event loop
+                    # without polling; the sleep just keeps this task alive.
+                    while not conn.is_closed():
+                        await asyncio.sleep(10)
+                finally:
+                    if conn is not None:
+                        conn.remove_listener("instruments", self._on_instrument_notify)
+                        await conn.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._logger.warning(
+                    "cache_manager.instruments_listener_error",
+                    error=str(exc),
+                )
+                await asyncio.sleep(5)
+
+    def _on_instrument_notify(self, conn: object, pid: int, channel: str, payload: str) -> None:
+        """Called synchronously by asyncpg on NOTIFY instruments.
+
+        Logs the change and schedules the async reload via call_soon_threadsafe +
+        asyncio.ensure_future so this sync callback never blocks the event loop.
+        """
+        self._logger.info("cache_manager.instrument_changed", symbol=payload)
+        asyncio.get_event_loop().call_soon_threadsafe(
+            lambda: asyncio.ensure_future(self._reload_instruments_cache())
+        )
+
+    async def _reload_instruments_cache(self) -> None:
+        """Reload non-futures instruments from DB and invalidate the settings TTL cache.
+
+        On success: atomically replaces self._instruments_cache and calls
+        invalidate_active_contracts_cache() so the next get_active_contracts() call
+        re-queries.
+
+        On failure: logs at ERROR and leaves self._instruments_cache untouched so the
+        pipeline continues operating on the last good state.
+        """
+        try:
+            rows = await self._db.execute_query(
+                "SELECT symbol, base, contract_details FROM instruments"
+                " WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
+            )
+            instruments = [_instrument_from_row(r) for r in rows]
+            self._instruments_cache = instruments
+            # Lazy import to avoid circular import at module level.
+            from src.config.settings import invalidate_active_contracts_cache  # noqa: PLC0415
+
+            invalidate_active_contracts_cache()
+            self._logger.info("cache_manager.instruments_reloaded", count=len(instruments))
+        except Exception as exc:
+            self._logger.error(
+                "cache_manager.instruments_reload_failed",
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # Private loaders (ported verbatim from god class with minimal adjustments)
