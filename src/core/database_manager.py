@@ -133,7 +133,15 @@ class DatabaseManager:
                     updated_at = NOW()
         """
 
-        params = [(c.base, c.base, c.model_dump(), True) for c in contracts]
+        params = [
+            (
+                c.symbol,
+                c.base,
+                c.model_dump(),
+                True,
+            )  # c.symbol (full symbol) is PK - FX pairs share c.base and would collide.
+            for c in contracts
+        ]
         await self.execute_batch(sql, params)
         logger.info("Upserted instruments", count=len(params))
         return len(params)
