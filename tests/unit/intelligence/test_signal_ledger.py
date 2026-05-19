@@ -64,7 +64,7 @@ class TestLedgerEntry:
 
     def test_to_insert_params(self):
         entry = _make_entry()
-        params = entry.to_insert_params()
+        params = entry._to_row()
 
         assert (
             len(params) == 67
@@ -102,7 +102,7 @@ class TestLedgerEntry:
             weights_version=0,
             signal_quality=None,
         )
-        params = entry.to_insert_params()
+        params = entry._to_row()
 
         assert len(params) == 67  # 60 prior + 4 Phase 79 + 1 Phase 70 (features_snapshot)
         assert params[24] == pytest.approx(0.47)  # $25 cis_score
@@ -179,7 +179,7 @@ class TestLedgerEntryNewFields:
             resolution_method="sole",
             composite_rank=1,
         )
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert (
             len(params) == 67
         )  # 58 prior + 2 Phase 57 + 4 Phase 79 + 1 Phase 70 (features_snapshot)
@@ -236,7 +236,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         composite_rank=1,
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
-    params = entry.to_insert_params()
+    params = entry._to_row()
     assert len(params) == 67  # 58 prior + 2 Phase 57 + 4 Phase 79 + 1 Phase 70 (features_snapshot)
     # cis_attribution field at position 36 - checks nested dict structure
     assert params[36] == {"trend": {"psar_direction": 0.05}}
@@ -522,7 +522,7 @@ class TestLedgerEntryMarketEntryPrice:
 
     def test_to_insert_params_includes_market_entry_price(self):
         e = _make_entry(market_entry_price=5101.25)
-        params = e.to_insert_params()
+        params = e._to_row()
         assert 5101.25 in params
 
     def test_insert_sql_includes_market_entry_price(self):
@@ -544,18 +544,16 @@ class TestIsShadowField:
 
     def test_to_insert_params_length_64(self):
         entry = _make_entry()
-        assert (
-            len(entry.to_insert_params()) == 67
-        )  # 60 prior + 4 Phase 79 + 1 Phase 70 (features_snapshot)
+        assert len(entry._to_row()) == 67  # 60 prior + 4 Phase 79 + 1 Phase 70 (features_snapshot)
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert params[38] is False
 
     def test_to_insert_params_is_shadow_position_true(self):
         entry = _make_entry(is_shadow=True)
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert params[38] is True
 
     def test_insert_sql_contains_is_shadow_and_dollar39(self):
@@ -651,7 +649,7 @@ class TestLedgerEntryPhase35CalibrationFields:
     def test_to_insert_params_returns_65_elements(self):
         """to_insert_params() must return 65 elements after Phase 70 extension (was 64)."""
         entry = _make_entry()
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert (
             len(params) == 67
         ), f"Expected 65 elements (60 prior + 4 Phase 79 + 1 Phase 70), got {len(params)}"
@@ -664,7 +662,7 @@ class TestLedgerEntryPhase35CalibrationFields:
             calibrated_confidence=0.61,
             regime_type_at_fire="trend",
         )
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert len(params) == 67
         assert params[54] == pytest.approx(0.72)  # $55 raw_cis_score
         assert params[55] == pytest.approx(0.68)  # $56 filtered_cis_score
@@ -676,7 +674,7 @@ class TestLedgerEntryPhase35CalibrationFields:
     def test_to_insert_params_calibration_fields_nullable(self):
         """Calibration fields must be NULL-able (None passes through unchanged)."""
         entry = _make_entry()
-        params = entry.to_insert_params()
+        params = entry._to_row()
         assert params[54] is None  # raw_cis_score
         assert params[55] is None  # filtered_cis_score
         assert params[56] is None  # calibrated_confidence
