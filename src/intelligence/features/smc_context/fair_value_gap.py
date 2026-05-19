@@ -107,7 +107,7 @@ class FairValueGapPlugin:
             "fvg_open_count": float(len(open_fvgs)),
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

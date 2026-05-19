@@ -153,7 +153,7 @@ class CVDPlugin:
         volume = float(row["volume"])
         return (2 * close - high - low) / (high - low + _PROXY_EPSILON) * volume
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

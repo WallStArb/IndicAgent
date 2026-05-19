@@ -76,7 +76,7 @@ def test_hmm_regime_entropy_math() -> None:
     plugin._state["alpha"] = np.array([1 / 3, 1 / 3, 1 / 3])
     plugin._state["bars_processed"] = 5  # past min_lookback
 
-    output = plugin._build_output()
+    output = plugin._build_output(plugin._state)
     entropy_uniform = output.get("hmm_regime_entropy")
     assert entropy_uniform is not None
     expected_uniform = math.log2(3)  # ≈ 1.585
@@ -91,7 +91,7 @@ def test_hmm_regime_entropy_math() -> None:
     plugin2._state["alpha"] = np.array([1.0 - 1e-10, 5e-11, 5e-11])
     plugin2._state["bars_processed"] = 5
 
-    output2 = plugin2._build_output()
+    output2 = plugin2._build_output(plugin2._state)
     entropy_peaked = output2.get("hmm_regime_entropy")
     assert entropy_peaked is not None
     assert entropy_peaked < 0.02, f"Peaked entropy should be near 0, got {entropy_peaked}"

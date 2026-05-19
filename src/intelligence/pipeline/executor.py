@@ -97,8 +97,15 @@ def _timed_plugin_call(plugin, frames, state: dict) -> Any:
     if getattr(plugin, "supports_incremental", False) and state:
         result = plugin.compute_next(frames, state=state)
     else:
-        result = plugin.compute_full(frames, state=state)
+        result = plugin.compute_full(frames)
     duration_ms = (time.perf_counter() - t0) * 1000
+    # Legacy write-back: plugins that mutate self._state (not yet migrated to
+    # return {"_state": ...}) have their state captured here so PluginStateManager
+    # persists it for the next incremental call.
+    if isinstance(result, dict) and "_state" not in result:
+        legacy_state = getattr(plugin, "_state", None)
+        if legacy_state:
+            result["_state"] = dict(legacy_state)
     return result, duration_ms
 
 

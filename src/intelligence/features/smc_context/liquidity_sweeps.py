@@ -148,7 +148,7 @@ class LiquiditySweepsPlugin:
             "reclaim_velocity": latest["reclaim_velocity"],
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

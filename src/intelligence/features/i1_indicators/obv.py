@@ -32,23 +32,25 @@ class OBVPlugin:
         self._state["cum_obv"] = float(obv.iloc[-1])
         return result
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        if not self._state:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
         close = float(df["close"].iloc[-1])
         volume = float(df["volume"].iloc[-1])
-        prev_close = self._state["prev_close"]
+        prev_close = state["prev_close"]
 
         if close > prev_close:
-            self._state["cum_obv"] += volume
+            state["cum_obv"] += volume
         elif close < prev_close:
-            self._state["cum_obv"] -= volume
+            state["cum_obv"] -= volume
 
-        self._state["prev_close"] = close
-        return {"obv": self._state["cum_obv"]}
+        state["prev_close"] = close
+        return {"obv": state["cum_obv"], "_state": state}
 
 
 plugin = OBVPlugin()

@@ -201,14 +201,14 @@ class HMMRegimePlugin:
                 features,
                 n_dims,
             )
-            self._forward_step(obs, n_dims)
+            self._forward_step(obs, n_dims, self._state)
 
         self._state["prev_close"] = float(close[-1])
 
-        return self._build_output()
+        return self._build_output(self._state)
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state or "alpha" not in self._state:
+        if not state or "alpha" not in state:
             return self.compute_full(windows)
 
         df = windows.get("main")
@@ -217,24 +217,26 @@ class HMMRegimePlugin:
 
         close = df["close"].to_numpy(dtype=float)
         current_close = float(close[-1])
-        prev_close = self._state.get("prev_close", current_close)
+        prev_close = state.get("prev_close", current_close)
 
         if prev_close <= 0 or current_close <= 0:
             return self.compute_full(windows)
 
         ret = math.log(current_close / prev_close)
-        self._state["return_buffer"].append(ret)
+        state["return_buffer"].append(ret)
 
         features = windows.get("features")
         n_dims = self._resolve_dims(features)
-        self._state["n_dims"] = n_dims
-        buf = list(self._state["return_buffer"])
+        state["n_dims"] = n_dims
+        buf = list(state["return_buffer"])
         obs = self._build_observation(ret, buf, features, n_dims)
-        self._forward_step(obs, n_dims)
+        self._forward_step(obs, n_dims, state)
 
-        self._state["prev_close"] = current_close
+        state["prev_close"] = current_close
 
-        return self._build_output()
+        result = self._build_output(state)
+        result["_state"] = state
+        return result
 
     def _resolve_dims(self, features: Any) -> int:
         """Determine how many emission dimensions to use."""
@@ -281,9 +283,9 @@ class HMMRegimePlugin:
 
         return obs
 
-    def _forward_step(self, obs: np.ndarray, n_dims: int) -> None:
+    def _forward_step(self, obs: np.ndarray, n_dims: int, state: dict) -> None:
         """One step of the forward algorithm."""
-        alpha = self._state["alpha"]
+        alpha = state["alpha"]
         A = self._A
 
         # Slice parameters to match observation dimensionality
@@ -311,15 +313,15 @@ class HMMRegimePlugin:
 
         # Track regime changes
         new_regime = int(np.argmax(alpha_new))
-        prev_regime = self._state["prev_regime"]
+        prev_regime = state["prev_regime"]
         if new_regime == prev_regime:
-            self._state["regime_duration"] += 1
+            state["regime_duration"] += 1
         else:
-            self._state["regime_duration"] = 1
-            self._state["prev_regime"] = new_regime
+            state["regime_duration"] = 1
+            state["prev_regime"] = new_regime
 
-        self._state["alpha"] = alpha_new
-        self._state["bars_processed"] = self._state.get("bars_processed", 0) + 1
+        state["alpha"] = alpha_new
+        state["bars_processed"] = state.get("bars_processed", 0) + 1
 
     def _reset_state(self) -> None:
         """Initialize forward algorithm state."""
@@ -335,11 +337,11 @@ class HMMRegimePlugin:
             "prob_history": deque(maxlen=velocity_window),
         }
 
-    def _build_output(self) -> dict[str, Any]:
+    def _build_output(self, state: dict) -> dict[str, Any]:
         """Build output dict from current state."""
-        alpha = self._state["alpha"]
+        alpha = state["alpha"]
         regime = int(np.argmax(alpha))
-        bars_processed = self._state.get("bars_processed", 0)
+        bars_processed = state.get("bars_processed", 0)
         warmed_up = bars_processed >= self.min_lookback
         regime_prob = round(float(alpha[regime]), 6)
 
@@ -347,13 +349,13 @@ class HMMRegimePlugin:
         hmm_regime_entropy = float(-np.sum(alpha * np.log2(alpha + 1e-10)))
 
         # Velocity: rate of change of dominant-state probability over the history window.
-        prob_history = self._state.get("prob_history")
+        prob_history = state.get("prob_history")
         if prob_history is None:
             # Lazily initialize for instances whose state was restored from checkpoint
             # without the prob_history key (backward compat).
             velocity_window = VELOCITY_WINDOW_BY_TF.get(self.timeframe, 5)
             prob_history = deque(maxlen=velocity_window)
-            self._state["prob_history"] = prob_history
+            state["prob_history"] = prob_history
         prob_history.append(float(regime_prob))
         if len(prob_history) >= 2:
             hmm_regime_velocity = float(
@@ -368,8 +370,8 @@ class HMMRegimePlugin:
             "hmm_prob_ranging": round(float(alpha[0]), 6) if warmed_up else 0.0,
             "hmm_prob_trending_up": round(float(alpha[1]), 6) if warmed_up else 0.0,
             "hmm_prob_trending_down": round(float(alpha[2]), 6) if warmed_up else 0.0,
-            "hmm_regime_duration": float(self._state["regime_duration"]),
-            "hmm_n_dims": self._state.get("n_dims", 2),
+            "hmm_regime_duration": float(state["regime_duration"]),
+            "hmm_n_dims": state.get("n_dims", 2),
             "hmm_warmed_up": warmed_up,
             "hmm_regime_entropy": round(hmm_regime_entropy, 6) if warmed_up else None,
             "hmm_regime_velocity": round(hmm_regime_velocity, 6) if warmed_up else None,

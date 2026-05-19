@@ -277,7 +277,7 @@ class TestRunTiers:
         plugin_name = TIER_I3[0]
 
         class StatefulPlugin:
-            supports_incremental = False
+            supports_incremental = True
             _state = {}
 
             def compute_full(self, frames):
@@ -327,11 +327,13 @@ class TestRunTiers:
         received_states: list = []
 
         class StateCapturingPlugin:
-            supports_incremental = False
+            supports_incremental = True
             _state = {}
 
-            def compute_full(self, frames, *, state=None):
-                # PERF-03: state is now threaded as a parameter kwarg.
+            def compute_full(self, frames):
+                return {"val": 1.0}
+
+            def compute_next(self, windows, *, state=None):
                 received_states.append(dict(state) if state is not None else {})
                 return {"val": 1.0}
 

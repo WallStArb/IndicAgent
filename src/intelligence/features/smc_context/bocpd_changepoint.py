@@ -85,7 +85,7 @@ class BOCPDChangePointPlugin:
         # Run BOCPD on all returns, building state as we go
         self._reset_state()
         for x in returns:
-            self._update(float(x))
+            self._update(float(x), self._state)
 
         raw_prob = self._state["cp_prob"]
         run_length = int(np.argmax(self._state["run_length_probs"]))
@@ -106,7 +106,7 @@ class BOCPDChangePointPlugin:
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state or "run_length_probs" not in self._state:
+        if not state or "run_length_probs" not in state:
             return self.compute_full(windows)
 
         df = windows.get("main")
@@ -115,17 +115,17 @@ class BOCPDChangePointPlugin:
 
         close = df["close"].to_numpy(dtype=float)
         current_close = float(close[-1])
-        prev_close = self._state.get("prev_close", current_close)
+        prev_close = state.get("prev_close", current_close)
 
         if prev_close <= 0 or current_close <= 0:
             return self.compute_full(windows)
 
         x = math.log(current_close / prev_close)
-        self._update(x)
+        self._update(x, state)
 
-        raw_prob = self._state["cp_prob"]
-        run_length = int(np.argmax(self._state["run_length_probs"]))
-        self._state["prev_close"] = current_close
+        raw_prob = state["cp_prob"]
+        run_length = int(np.argmax(state["run_length_probs"]))
+        state["prev_close"] = current_close
 
         confirmation = self._compute_confirmation(df, windows)
         adjusted = raw_prob * (0.5 + 0.5 * confirmation)
@@ -136,6 +136,7 @@ class BOCPDChangePointPlugin:
             "cp_run_length": float(run_length),
             "cp_confirmation": round(float(confirmation), 4),
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
+            "_state": state,
         }
 
     def _reset_state(self) -> None:
@@ -151,10 +152,10 @@ class BOCPDChangePointPlugin:
         }
         self._state["run_length_probs"][0] = 1.0
 
-    def _update(self, x: float) -> None:
+    def _update(self, x: float, state: dict) -> None:
         """Process one observation through the BOCPD forward pass."""
         R = self.max_run_length
-        s = self._state
+        s = state
         rl = s["run_length_probs"]
         mu = s["mu"]
         kappa = s["kappa"]

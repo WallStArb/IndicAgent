@@ -92,7 +92,7 @@ class ROCPPOPlugin:
             "ppo_signal_ema": float(ppo_sig.iloc[-1]),
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")

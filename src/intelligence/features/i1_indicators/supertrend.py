@@ -97,8 +97,8 @@ class SupertrendPlugin:
             "supertrend_dir": direction,
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
-        if not self._state:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -108,26 +108,25 @@ class SupertrendPlugin:
         lo = float(row["low"])
         c = float(row["close"])
 
-        s = self._state
         alpha = 1.0 / self.period
-        tr = max(h - lo, abs(h - s["prev_close"]), abs(lo - s["prev_close"]))
-        atr = (1 - alpha) * s["prev_atr"] + alpha * tr
+        tr = max(h - lo, abs(h - state["prev_close"]), abs(lo - state["prev_close"]))
+        atr = (1 - alpha) * state["prev_atr"] + alpha * tr
 
         hl2 = (h + lo) / 2.0
         basic_upper = hl2 + self.multiplier * atr
         basic_lower = hl2 - self.multiplier * atr
 
-        if s["prev_close"] <= s["prev_final_upper"]:
-            final_upper = min(basic_upper, s["prev_final_upper"])
+        if state["prev_close"] <= state["prev_final_upper"]:
+            final_upper = min(basic_upper, state["prev_final_upper"])
         else:
             final_upper = basic_upper
 
-        if s["prev_close"] >= s["prev_final_lower"]:
-            final_lower = max(basic_lower, s["prev_final_lower"])
+        if state["prev_close"] >= state["prev_final_lower"]:
+            final_lower = max(basic_lower, state["prev_final_lower"])
         else:
             final_lower = basic_lower
 
-        direction = s["prev_direction"]
+        direction = state["prev_direction"]
         if direction == 1 and c < final_lower:
             direction = -1
         elif direction == -1 and c > final_upper:
@@ -135,7 +134,7 @@ class SupertrendPlugin:
 
         supertrend_value = final_lower if direction == 1 else final_upper
 
-        self._state = {
+        new_state = {
             "prev_final_upper": final_upper,
             "prev_final_lower": final_lower,
             "prev_direction": direction,
@@ -146,6 +145,7 @@ class SupertrendPlugin:
         return {
             "supertrend_value": float(supertrend_value),
             "supertrend_dir": direction,
+            "_state": new_state,
         }
 
 
