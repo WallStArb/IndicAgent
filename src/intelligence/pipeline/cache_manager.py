@@ -231,6 +231,7 @@ class CacheManager:
         Imports CacheSnapshot locally to avoid a circular import between
         cache_manager and signal_processor at module level.
         """
+        # sync method - cannot be preempted in asyncio event loop; lock-free reads are safe
         from src.intelligence.pipeline.signal_processor import CacheSnapshot  # noqa: PLC0415
 
         return CacheSnapshot(
