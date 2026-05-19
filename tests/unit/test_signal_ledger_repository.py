@@ -56,5 +56,6 @@ def test_to_row_returns_correct_count():
         composite_rank=1,
     )
     sql_param_count = len(re.findall(r"\$\d+", _INSERT_SQL))
-    assert isinstance(entry._to_row(), tuple)
-    assert len(entry._to_row()) == sql_param_count
+    row = entry._to_row()
+    assert isinstance(row, tuple)
+    assert len(row) == sql_param_count
