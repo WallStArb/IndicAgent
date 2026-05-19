@@ -257,6 +257,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
+        listener_task = self._cache_mgr.start_instruments_listener()
+        self._background_tasks.add(listener_task)
+        listener_task.add_done_callback(self._background_tasks.discard)
+        self._logger.info("intelligence_pipeline.instruments_listener_started")
+
         if extra is not None:
             self._cache_mgr.seed_tod_priors(extra.get("tod_priors", {}))
 
