@@ -169,7 +169,7 @@ class KalmanTrendPlugin:
 
         return self._build_result(float(closes[-1]), x_est, P_est, K, trend_history)
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
 

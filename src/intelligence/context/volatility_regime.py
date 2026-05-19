@@ -97,7 +97,7 @@ class VolatilityRegimePlugin:
             "bb_width_percentile": round(bb_width_percentile, 4),
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

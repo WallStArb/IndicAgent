@@ -93,7 +93,7 @@ class ExhaustionScorePlugin:
             "exhaustion_bars": exhaustion_bars,
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

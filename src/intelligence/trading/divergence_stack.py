@@ -263,7 +263,7 @@ class DivergenceStackPlugin:
             "supporting_factors": [],
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return default_compute_next(self, windows)
 
 

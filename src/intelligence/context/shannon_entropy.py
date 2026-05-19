@@ -113,7 +113,7 @@ class ShannonEntropyPlugin:
             "entropy_quality": round(quality, 4),
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         """Incremental path delegates to compute_full (entropy is window-based)."""
         return self.compute_full(windows)
 
