@@ -11,19 +11,16 @@ Usage:
 import re
 from pathlib import Path
 
-roots = [Path("src"), Path("services")]
-patterns = [
-    r'frames\["features"\]',
-    r'frames\.get\("features"',
-    r'frames\.setdefault\("features"',
-]
+_PATTERN = re.compile(
+    r'frames\["features"\]|frames\.get\("features"|frames\.setdefault\("features"'
+)
+
 hits = []
-for root in roots:
+for root in (Path("src"), Path("services")):
     for f in root.rglob("*.py"):
         for i, line in enumerate(f.read_text().splitlines(), 1):
-            for pat in patterns:
-                if re.search(pat, line):
-                    hits.append((str(f), i, line.strip(), pat))
+            if _PATTERN.search(line):
+                hits.append((str(f), i, line.strip()))
 
 for h in hits:
     print(h)
