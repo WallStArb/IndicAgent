@@ -468,13 +468,24 @@ class CacheManager:
             return
         try:
             rows = await self._db.execute_query(
-                "SELECT version, weights FROM cis_weights ORDER BY version DESC LIMIT 1"
+                """SELECT version, trend_w, momentum_w, structure_w, pattern_w,
+                          institutional_w, regime_w
+                   FROM cis_weights
+                   WHERE asset_cluster = 'global' AND timeframe = 'global'
+                   ORDER BY version DESC LIMIT 1"""
             )
             if rows:
-                weights = rows[0].get("weights", {})
-                version = int(rows[0].get("version", 0))
+                row = rows[0]
+                weights = {
+                    "trend": float(row["trend_w"]),
+                    "momentum": float(row["momentum_w"]),
+                    "structure": float(row["structure_w"]),
+                    "pattern": float(row["pattern_w"]),
+                    "institutional": float(row["institutional_w"]),
+                    "regime": float(row["regime_w"]),
+                }
                 self._cis_weights = weights
-                self._cis_weights_version = version
+                self._cis_weights_version = int(row["version"])
         except Exception as exc:
             self._logger.warning("cis_weights.load_failed", error=str(exc))
 

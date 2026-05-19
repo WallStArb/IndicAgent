@@ -211,12 +211,31 @@ async def test_load_perf_weights_atomic_replacement():
 @pytest.mark.asyncio
 async def test_load_cis_weights_does_not_call_scorer():
     """_load_cis_weights stores weights and version without touching any scorer."""
-    cm = make_cm(rows=[{"version": 7, "weights": {"bucket_a": 0.5}}])
+    cm = make_cm(
+        rows=[
+            {
+                "version": 7,
+                "trend_w": 0.20,
+                "momentum_w": 0.20,
+                "structure_w": 0.15,
+                "pattern_w": 0.05,
+                "institutional_w": 0.25,
+                "regime_w": 0.15,
+            }
+        ]
+    )
 
     # Should not raise (no scorer required)
     await cm._load_cis_weights()
 
-    assert cm.cis_weights == {"bucket_a": 0.5}
+    assert cm.cis_weights == {
+        "trend": 0.20,
+        "momentum": 0.20,
+        "structure": 0.15,
+        "pattern": 0.05,
+        "institutional": 0.25,
+        "regime": 0.15,
+    }
     assert cm.cis_weights_version == 7
 
 
