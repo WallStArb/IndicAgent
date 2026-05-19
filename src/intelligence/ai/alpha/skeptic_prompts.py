@@ -95,6 +95,8 @@ Rules:
 - Look for: regime mismatches, weak confluence, exhaustion, adverse levels,
   microstructure divergence (OFI/CVD), regime change risk (BOCPD/HMM), cross-asset
   divergence (corr_z), volume anomaly (volume_z_score).
+
+Begin your response with {{ and end with }}. No prose before or after the JSON.
 """
 
 

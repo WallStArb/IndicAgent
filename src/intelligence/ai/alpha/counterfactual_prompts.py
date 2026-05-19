@@ -35,7 +35,7 @@ Definitions:
 - plausibility=0.0 means the opposite: validation conditions are unlikely or invalidation conditions are likely.
 - confidence = how certain you are in your plausibility assessment given the data available.
 
-Respond with JSON ONLY:
+Begin your response with {{ and end with }}. No prose before or after the JSON:
 {{
     "plausibility": <float 0.0-1.0>,
     "confidence": <float 0.0-1.0>,

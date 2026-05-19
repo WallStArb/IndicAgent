@@ -520,34 +520,34 @@ class TestAlphaAgentSystemMessages:
         """SkepticComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.skeptic_agent import _SYSTEM_MESSAGE
 
-        assert not _SYSTEM_MESSAGE.startswith("/no_think"), (
-            "System message should not have /no_think prefix; " "use think=False in payload instead"
-        )
-        assert _SYSTEM_MESSAGE.startswith("You are"), "System message should start with 'You are'"
+        assert not _SYSTEM_MESSAGE.startswith(
+            "/no_think"
+        ), "System message should not have /no_think prefix; use think=False in payload instead"
+        assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_correlation_no_think_prefix(self):
         """CorrelationComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.correlation_agent import _SYSTEM_MESSAGE
 
-        assert not _SYSTEM_MESSAGE.startswith("/no_think"), (
-            "System message should not have /no_think prefix; " "use think=False in payload instead"
-        )
-        assert _SYSTEM_MESSAGE.startswith("You are"), "System message should start with 'You are'"
+        assert not _SYSTEM_MESSAGE.startswith(
+            "/no_think"
+        ), "System message should not have /no_think prefix; use think=False in payload instead"
+        assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_regime_coherence_no_think_prefix(self):
         """RegimeCoherenceComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.regime_coherence_agent import _SYSTEM_MESSAGE
 
-        assert not _SYSTEM_MESSAGE.startswith("/no_think"), (
-            "System message should not have /no_think prefix; " "use think=False in payload instead"
-        )
-        assert _SYSTEM_MESSAGE.startswith("You are"), "System message should start with 'You are'"
+        assert not _SYSTEM_MESSAGE.startswith(
+            "/no_think"
+        ), "System message should not have /no_think prefix; use think=False in payload instead"
+        assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_counterfactual_no_think_prefix(self):
         """CounterfactualComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.counterfactual_agent import _SYSTEM_MESSAGE
 
-        assert not _SYSTEM_MESSAGE.startswith("/no_think"), (
-            "System message should not have /no_think prefix; " "use think=False in payload instead"
-        )
-        assert _SYSTEM_MESSAGE.startswith("You are"), "System message should start with 'You are'"
+        assert not _SYSTEM_MESSAGE.startswith(
+            "/no_think"
+        ), "System message should not have /no_think prefix; use think=False in payload instead"
+        assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"

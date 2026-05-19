@@ -12,5 +12,12 @@
     "nyquist_validation": true,
     "plan_review_convergence": true
   },
-  "granularity": "standard"
+  "granularity": "standard",
+  "review": {
+    "default_reviewers": [
+      "gemini",
+      "codex"
+    ],
+    "ollama_host": "http://127.0.0.1:11499"
+  }
 }

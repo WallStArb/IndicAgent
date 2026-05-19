@@ -19,9 +19,10 @@ from src.intelligence.ai.alpha.regime_coherence_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
-    "You are a regime-coherence analyst. Output strictly valid JSON. "
+    "OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE. "
+    "Your entire response must be a single JSON object starting with { and ending with }. "
     "Phase 80 policy: discount-only — regime_fit and confidence in [0.0, 1.0]. "
-    "Keep reasoning under 100 words."
+    "reasoning must be under 100 words."
 )
 
 

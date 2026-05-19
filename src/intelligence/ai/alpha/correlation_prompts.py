@@ -40,7 +40,7 @@ coherence_score semantics:
 - 0.5 = neutral / mixed intermarket signals
 - 0.0 = cross-asset behavior directly contradicts the signal direction
 
-Respond with ONLY valid JSON in this exact schema:
+Begin your response with {{ and end with }}. No prose before or after the JSON:
 {{
     "coherence_score": <float 0.0-1.0>,
     "confidence": <float 0.0-1.0>,

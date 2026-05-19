@@ -424,19 +424,33 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         """Process a single I7 ranked signal through all swarm agents.
 
         Plan 80-07 gates (in order, cheapest first):
-        1. TF gate: timeframe_minutes < SWARM_MIN_TF_MINUTES -> skip
-        2. Capacity gate: asyncio.Semaphore acquire (no timeout — Kafka lag-skip is the valve)
-        3. Parallel asyncio.gather over self._agents
-        4. Weighted aggregation -> aggregate event on topic_swarm_alpha
+        1. Schema version gate: skip v0 signals
+        2. Source gate: skip backfill signals (no value in AI enrichment on historical bars)
+        3. TF gate: timeframe_minutes < SWARM_MIN_TF_MINUTES -> skip
+        4. Confidence gate: winner_confidence < SWARM_MIN_CONFIDENCE -> skip
+        5. Capacity gate: asyncio.Semaphore acquire (no timeout — Kafka lag-skip is the valve)
+        6. Parallel asyncio.gather over self._agents
+        7. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
         # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
         if raw_signal.get("signal_schema_version") != SIGNAL_SCHEMA_VERSION:
+            return
+
+        # Source gate — backfill signals are historical; AI enrichment adds no value
+        if raw_signal.get("source") == "backfill":
             return
 
         # TF gate — before any LLM context build (zero cost for ineligible signals)
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
         tf_minutes = _TF_MINUTES.get(tf, 0)
         if tf_minutes < self.settings.SWARM_MIN_TF_MINUTES:
+            return
+
+        # Confidence gate — skip low-quality signals to preserve LLM budget
+        signal_confidence = float(
+            raw_signal.get("confidence") or raw_signal.get("pre_quality_confidence") or 0.0
+        )
+        if signal_confidence < self.settings.SWARM_MIN_CONFIDENCE:
             return
 
         symbol = raw_signal.get("symbol", "")
