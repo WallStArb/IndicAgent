@@ -354,6 +354,63 @@ async def test_load_initial_runs_shadow_cache_last():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# LISTEN/NOTIFY listener methods (INST-03)
+# ---------------------------------------------------------------------------
+
+
+def test_start_instruments_listener_returns_one_task():
+    """start_instruments_listener returns exactly 1 asyncio.Task."""
+
+    async def _run():
+        cm = make_cm()
+        task = cm.start_instruments_listener()
+        assert isinstance(task, asyncio.Task)
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+
+@pytest.mark.asyncio
+async def test_reload_instruments_cache_calls_invalidate(monkeypatch):
+    """_reload_instruments_cache calls invalidate_active_contracts_cache() exactly once."""
+    from unittest.mock import MagicMock
+
+    invalidate_mock = MagicMock()
+    monkeypatch.setattr(
+        "src.config.settings.invalidate_active_contracts_cache",
+        invalidate_mock,
+    )
+
+    cm = make_cm(rows=[])
+    await cm._reload_instruments_cache()
+
+    invalidate_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_on_instrument_notify_schedules_reload(monkeypatch):
+    """_on_instrument_notify callback triggers _reload_instruments_cache."""
+    from unittest.mock import AsyncMock
+
+    reload_mock = AsyncMock()
+    cm = make_cm()
+    monkeypatch.setattr(cm, "_reload_instruments_cache", reload_mock)
+
+    cm._on_instrument_notify(None, 0, "instruments", "SPY")
+    await asyncio.sleep(0.01)
+
+    reload_mock.assert_called_once()
+
+
 def test_no_enroll_all_plugins_in_cache_manager():
     """CacheManager must not call enroll_all_plugins (orchestrator-owned).
 
