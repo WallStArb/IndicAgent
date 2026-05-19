@@ -16,7 +16,7 @@ import threading
 import time
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.models import AssetClass, Instrument
@@ -77,10 +77,6 @@ class Settings(BaseSettings):
     # High-frequency daemon
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
 
-    # Contracts (JSON string). Accept two aliases for convenience.
-    contracts_json: str | None = Field(default=None, validation_alias="HF_CONTRACTS_JSON")
-    ibkr_contracts_json: str | None = Field(default=None, validation_alias="IBKR_CONTRACTS_JSON")
-
     # LLM providers
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_models: str = Field(
@@ -130,9 +126,6 @@ class Settings(BaseSettings):
 
     # IBKR subscription cap (market data lines)
     ibkr_max_subscriptions: int = Field(default=80, validation_alias="IBKR_MAX_SUBSCRIPTIONS")
-
-    # Computed contracts list
-    contracts: list[Instrument] = Field(default_factory=list)
 
     # Roll monitoring runtime config (tuning knobs — not feature flags)
     roll_monitor_window_size: int = Field(default=100, validation_alias="ROLL_MONITOR_WINDOW_SIZE")
@@ -244,705 +237,6 @@ class Settings(BaseSettings):
     LANGFUSE_HOST: str = Field(default="http://localhost:3010", description="LangFuse server URI")
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
-
-    @property
-    def instruments(self) -> list[Instrument]:
-        """Alias for contracts — preferred name for multi-asset-class context."""
-        return self.contracts
-
-    @field_validator("contracts", mode="before")
-    @classmethod
-    def build_contracts(cls, v, info):  # type: ignore[override]
-        if isinstance(v, list) and v:
-            return v
-        data = info.data
-        raw = data.get("contracts_json") or data.get("ibkr_contracts_json")
-        if raw:
-            try:
-                import json
-
-                parsed = json.loads(raw)
-                return [Instrument(**item) for item in parsed if isinstance(item, dict)]
-            except Exception:
-                # Fall through to defaults
-                pass
-        # Defaults: base-symbol templates for futures (live contract codes resolved
-        # from contract_metadata). Non-futures (crypto, equities, FX) use their actual symbol.
-        return [
-            # Equity Index Futures
-            Instrument(
-                symbol="ES",
-                base="ES",
-                exchange="CME",
-                name="E-mini S&P 500",
-                point_value=50,
-                tick_size=0.25,
-                sector="equity_index",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="NQ",
-                base="NQ",
-                exchange="CME",
-                name="E-mini Nasdaq",
-                point_value=20,
-                tick_size=0.25,
-                sector="equity_index",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="RTY",
-                base="RTY",
-                exchange="CME",
-                name="E-mini Russell 2000",
-                point_value=50,
-                tick_size=0.10,
-                sector="equity_index",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="YM",
-                base="YM",
-                exchange="CBOT",
-                name="E-mini Dow",
-                point_value=5,
-                tick_size=1.0,
-                sector="equity_index",
-                session_id="futures_24_5",
-            ),
-            # Energy Futures
-            Instrument(
-                symbol="CL",
-                base="CL",
-                exchange="NYMEX",
-                name="Crude Oil WTI",
-                point_value=1000,
-                tick_size=0.01,
-                sector="energy",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="NG",
-                base="NG",
-                exchange="NYMEX",
-                name="Natural Gas",
-                point_value=10000,
-                tick_size=0.001,
-                sector="energy",
-                session_id="futures_24_5",
-            ),
-            # Precious & Industrial Metals
-            Instrument(
-                symbol="GC",
-                base="GC",
-                exchange="COMEX",
-                name="Gold",
-                point_value=100,
-                tick_size=0.10,
-                sector="metals",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="SI",
-                base="SI",
-                exchange="COMEX",
-                name="Silver",
-                point_value=5000,
-                tick_size=0.005,
-                sector="metals",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="HG",
-                base="HG",
-                exchange="COMEX",
-                name="Copper",
-                point_value=25000,
-                tick_size=0.0005,
-                sector="metals",
-                session_id="futures_24_5",
-            ),
-            # Volatility
-            Instrument(
-                symbol="VIX",
-                base="VIX",
-                exchange="CFE",
-                name="CBOE VIX Futures",
-                point_value=1000,
-                tick_size=0.05,
-                sector="volatility",
-                session_id="futures_24_5",
-                provider_meta={"ibkr": {"trading_class": "VX"}},
-            ),
-            # Interest Rate Futures
-            Instrument(
-                symbol="ZN",
-                base="ZN",
-                exchange="CBOT",
-                name="10-Year T-Note",
-                point_value=1000,
-                tick_size=0.015625,
-                sector="interest_rates",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="ZF",
-                base="ZF",
-                exchange="CBOT",
-                name="5-Year T-Note",
-                point_value=1000,
-                tick_size=0.0078125,
-                sector="interest_rates",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="ZB",
-                base="ZB",
-                exchange="CBOT",
-                name="30-Year T-Bond",
-                point_value=1000,
-                tick_size=0.03125,
-                sector="interest_rates",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="ZT",
-                base="ZT",
-                exchange="CBOT",
-                name="2-Year T-Note",
-                point_value=2000,
-                tick_size=0.0078125,
-                sector="interest_rates",
-                session_id="futures_24_5",
-            ),
-            # Agriculture Futures
-            Instrument(
-                symbol="ZS",
-                base="ZS",
-                exchange="CBOT",
-                name="Soybeans",
-                point_value=50,
-                tick_size=0.25,
-                sector="agriculture",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="ZC",
-                base="ZC",
-                exchange="CBOT",
-                name="Corn",
-                point_value=50,
-                tick_size=0.25,
-                sector="agriculture",
-                session_id="futures_24_5",
-            ),
-            Instrument(
-                symbol="ZW",
-                base="ZW",
-                exchange="CBOT",
-                name="Wheat",
-                point_value=50,
-                tick_size=0.25,
-                sector="agriculture",
-                session_id="futures_24_5",
-            ),
-            # FX — Spot (IDEALPRO); point_value = USD per pip (0.0001) on 100k lot
-            Instrument(
-                symbol="EURUSD",
-                base="EUR",
-                exchange="IDEALPRO",
-                sector="fx",
-                asset_class=AssetClass.FX,
-                session_id="fx_24_5",
-                name="Euro/US Dollar",
-                point_value=10.0,
-                tick_size=0.00001,
-            ),
-            Instrument(
-                symbol="GBPUSD",
-                base="GBP",
-                exchange="IDEALPRO",
-                sector="fx",
-                asset_class=AssetClass.FX,
-                session_id="fx_24_5",
-                name="British Pound/US Dollar",
-                point_value=10.0,
-                tick_size=0.00001,
-            ),
-            Instrument(
-                symbol="USDJPY",
-                base="USD",
-                exchange="IDEALPRO",
-                sector="fx",
-                asset_class=AssetClass.FX,
-                session_id="fx_24_5",
-                name="US Dollar/Japanese Yen",
-                point_value=9.0,
-                tick_size=0.001,
-            ),
-            Instrument(
-                symbol="USDCHF",
-                base="USD",
-                exchange="IDEALPRO",
-                sector="fx",
-                asset_class=AssetClass.FX,
-                session_id="fx_24_5",
-                name="US Dollar/Swiss Franc",
-                point_value=10.0,
-                tick_size=0.00001,
-            ),
-            # Spot Crypto (PAXOS) — DEACTIVATED 2026-04-13
-            # IBKR PAXOS feed has poor data quality (thin volume, unreliable bars).
-            # Poisoned training data. Re-enable with a better feed when available.
-            # Instrument(
-            #     symbol="BTCUSD",
-            #     base="BTC",
-            #     exchange="PAXOS",
-            #     sector="crypto",
-            #     asset_class=AssetClass.CRYPTO,
-            #     session_id="crypto_24_7",
-            #     name="Bitcoin/US Dollar",
-            #     point_value=1.0,
-            #     tick_size=0.01,
-            # ),
-            # Instrument(
-            #     symbol="ETHUSD",
-            #     base="ETH",
-            #     exchange="PAXOS",
-            #     sector="crypto",
-            #     asset_class=AssetClass.CRYPTO,
-            #     session_id="crypto_24_7",
-            #     name="Ether/US Dollar",
-            #     point_value=1.0,
-            #     tick_size=0.01,
-            # ),
-            # ETFs — Pilot 5 (equity expansion phase A)
-            Instrument(
-                symbol="SPY",
-                base="SPY",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="SPDR S&P 500 ETF",
-                sector="equity",
-            ),
-            Instrument(
-                symbol="XLF",
-                base="XLF",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Financial Select Sector SPDR",
-                sector="equity",
-            ),
-            Instrument(
-                symbol="TLT",
-                base="TLT",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares 20+ Year Treasury Bond ETF",
-                sector="equity",
-            ),
-            Instrument(
-                symbol="GLD",
-                base="GLD",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="SPDR Gold Shares",
-                sector="equity",
-            ),
-            Instrument(
-                symbol="SMH",
-                base="SMH",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="VanEck Semiconductor ETF",
-                sector="equity",
-            ),
-            # Broad market
-            Instrument(
-                symbol="QQQ",
-                base="QQQ",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Invesco QQQ Trust",
-                sector="broad_market",
-            ),
-            Instrument(
-                symbol="IWM",
-                base="IWM",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares Russell 2000 ETF",
-                sector="broad_market",
-            ),
-            Instrument(
-                symbol="DIA",
-                base="DIA",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="SPDR Dow Jones Industrial Average ETF",
-                sector="broad_market",
-            ),
-            # Sectors
-            Instrument(
-                symbol="XLK",
-                base="XLK",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Technology Select Sector SPDR",
-                sector="technology",
-            ),
-            Instrument(
-                symbol="XLE",
-                base="XLE",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Energy Select Sector SPDR",
-                sector="energy",
-            ),
-            Instrument(
-                symbol="XLC",
-                base="XLC",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Communication Services SPDR",
-                sector="communications",
-            ),
-            Instrument(
-                symbol="XLY",
-                base="XLY",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Consumer Discretionary SPDR",
-                sector="consumer_discretionary",
-            ),
-            Instrument(
-                symbol="XLV",
-                base="XLV",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Health Care Select Sector SPDR",
-                sector="healthcare",
-            ),
-            Instrument(
-                symbol="XLI",
-                base="XLI",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Industrial Select Sector SPDR",
-                sector="industrials",
-            ),
-            Instrument(
-                symbol="XLU",
-                base="XLU",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Utilities Select Sector SPDR",
-                sector="utilities",
-            ),
-            Instrument(
-                symbol="XLRE",
-                base="XLRE",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Real Estate Select Sector SPDR",
-                sector="real_estate",
-            ),
-            Instrument(
-                symbol="XLP",
-                base="XLP",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Consumer Staples Select Sector SPDR",
-                sector="consumer_staples",
-            ),
-            Instrument(
-                symbol="XLB",
-                base="XLB",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="Materials Select Sector SPDR",
-                sector="materials",
-            ),
-            # Industry/thematic
-            Instrument(
-                symbol="IBB",
-                base="IBB",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares Biotechnology ETF",
-                sector="biotech",
-            ),
-            Instrument(
-                symbol="GDX",
-                base="GDX",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="VanEck Gold Miners ETF",
-                sector="gold_miners",
-            ),
-            Instrument(
-                symbol="GDXJ",
-                base="GDXJ",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="VanEck Junior Gold Miners ETF",
-                sector="gold_miners",
-            ),
-            Instrument(
-                symbol="XOP",
-                base="XOP",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="SPDR Oil & Gas Exploration ETF",
-                sector="energy",
-            ),
-            Instrument(
-                symbol="ITB",
-                base="ITB",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares U.S. Home Construction ETF",
-                sector="homebuilders",
-            ),
-            # Credit/rates
-            Instrument(
-                symbol="HYG",
-                base="HYG",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares iBoxx High Yield Corporate Bond ETF",
-                sector="credit",
-            ),
-            Instrument(
-                symbol="LQD",
-                base="LQD",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares iBoxx Investment Grade Corporate Bond ETF",
-                sector="credit",
-            ),
-            Instrument(
-                symbol="IEF",
-                base="IEF",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares 7-10 Year Treasury Bond ETF",
-                sector="rates",
-            ),
-            Instrument(
-                symbol="SHY",
-                base="SHY",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares 1-3 Year Treasury Bond ETF",
-                sector="rates",
-            ),
-            Instrument(
-                symbol="EMB",
-                base="EMB",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares J.P. Morgan USD Emerging Markets Bond ETF",
-                sector="emerging_markets",
-            ),
-            # Factor
-            Instrument(
-                symbol="MTUM",
-                base="MTUM",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI USA Momentum Factor ETF",
-                sector="factor",
-            ),
-            Instrument(
-                symbol="QUAL",
-                base="QUAL",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI USA Quality Factor ETF",
-                sector="factor",
-            ),
-            Instrument(
-                symbol="VLUE",
-                base="VLUE",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI USA Value Factor ETF",
-                sector="factor",
-            ),
-            Instrument(
-                symbol="USMV",
-                base="USMV",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI USA Min Vol Factor ETF",
-                sector="factor",
-            ),
-            # International
-            Instrument(
-                symbol="EFA",
-                base="EFA",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI EAFE ETF",
-                sector="international",
-            ),
-            Instrument(
-                symbol="EEM",
-                base="EEM",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI Emerging Markets ETF",
-                sector="emerging_markets",
-            ),
-            Instrument(
-                symbol="EWZ",
-                base="EWZ",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares MSCI Brazil ETF",
-                sector="emerging_markets",
-            ),
-            Instrument(
-                symbol="FXI",
-                base="FXI",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares China Large-Cap ETF",
-                sector="emerging_markets",
-            ),
-            # Macro/commodity
-            Instrument(
-                symbol="SLV",
-                base="SLV",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="iShares Silver Trust",
-                sector="commodity",
-            ),
-            Instrument(
-                symbol="USO",
-                base="USO",
-                asset_class=AssetClass.EQUITY,
-                exchange="SMART",
-                session_id="nyse",
-                point_value=1.0,
-                tick_size=0.01,
-                name="United States Oil Fund",
-                sector="energy",
-            ),
-        ]
 
 
 # ---------------------------------------------------------------------------
@@ -1064,13 +358,13 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
     """Return active contract Instruments (e.g. [Instrument(symbol='ESM6'), ...]).
 
     Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures',
-    reconstructs Instrument objects inheriting config-file defaults (point_value,
-    tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol,
-    then queries instruments table WHERE is_active = true AND asset_class != 'futures'
-    for non-futures (equities, FX, crypto).
+    reconstructs Instrument objects inheriting DB-template defaults (point_value,
+    tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol
+    from the instruments table, then queries instruments table WHERE is_active = true
+    AND asset_class != 'futures' for non-futures (equities, FX, crypto).
     Merges both lists, caches result for 60 seconds.
     Fallback on DB error: returns last valid cache, or empty list if cache is cold.
-    settings.contracts is NOT consulted in any code path.
+    Settings.contracts does not exist and is never consulted.
     """
     import json as _json
 
@@ -1086,16 +380,33 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
             return _active_contracts_cache
     # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
-    # Build config-file lookup tables (futures config inheritance only)
-    config_by_base: dict[str, Instrument] = {}
-    config_by_symbol: dict[str, Instrument] = {}
-    for c in s.contracts:
-        config_by_symbol[c.symbol] = c
-        if c.base:
-            config_by_base[c.base] = c
-
     try:
         import psycopg2
+
+        # Build lookup tables from DB instruments table (futures templates only).
+        # These provide point_value, tick_size, session_id etc. for front-month symbols.
+        with psycopg2.connect(s.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, base, contract_details "
+                    "FROM instruments "
+                    "WHERE contract_details->>'asset_class' = 'futures'"
+                )
+                tmpl_rows = cur.fetchall()
+
+        config_by_base: dict[str, Instrument] = {}
+        config_by_symbol: dict[str, Instrument] = {}
+        for tmpl_row in tmpl_rows:
+            cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
+            if cd is None:
+                continue
+            try:
+                inst = Instrument(**cd)
+                config_by_symbol[inst.symbol] = inst
+                if inst.base:
+                    config_by_base[inst.base] = inst
+            except Exception:
+                pass
 
         with psycopg2.connect(s.database_url) as conn:
             with conn.cursor() as cur:
@@ -1181,34 +492,23 @@ def get_active_symbols(settings: Settings | None = None) -> list[str]:
     return [c.symbol for c in get_active_contracts(settings)]
 
 
-def get_base_symbols(settings: Settings | None = None) -> list[str]:
-    """Return unique base symbols (e.g. ['ES', 'NQ', ...])."""
-    s = settings or _default_settings()
-    seen: set[str] = set()
-    result: list[str] = []
-    for c in s.contracts:
-        if c.base not in seen:
-            seen.add(c.base)
-            result.append(c.base)
-    return result
+def get_point_value(symbol: str, settings: Settings | None = None) -> float | None:
+    """Get point value for a contract symbol or base symbol.
 
-
-def get_contract_info(symbol: str, settings: Settings | None = None) -> Instrument | None:
-    """Lookup contract by symbol (e.g. 'ESH6') or base (e.g. 'ES')."""
-    s = settings or _default_settings()
-    for c in s.contracts:
+    Looks up the instrument in the active contracts cache. Returns None if not found.
+    """
+    for c in get_active_contracts(settings):
         if c.symbol == symbol or c.base == symbol:
-            return c
+            return c.point_value
     return None
 
 
-def get_point_value(symbol: str, settings: Settings | None = None) -> float | None:
-    """Get point value for a contract symbol or base symbol."""
-    c = get_contract_info(symbol, settings)
-    return c.point_value if c else None
-
-
 def get_tick_size(symbol: str, settings: Settings | None = None) -> float | None:
-    """Get tick size for a contract symbol or base symbol."""
-    c = get_contract_info(symbol, settings)
-    return c.tick_size if c else None
+    """Get tick size for a contract symbol or base symbol.
+
+    Looks up the instrument in the active contracts cache. Returns None if not found.
+    """
+    for c in get_active_contracts(settings):
+        if c.symbol == symbol or c.base == symbol:
+            return c.tick_size
+    return None
