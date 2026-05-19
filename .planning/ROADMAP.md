@@ -1393,7 +1393,9 @@ Plans:
   3. `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async access safe post-PERF-07
   4. All existing signal_ledger write paths pass tests unchanged
 
-**Plans**: TBD
+**Plans:** 2 plans
+- [ ] 090-01-PLAN.md - Signal ledger _to_row() refactor + dynamic tuple-count guard test (LEDGER-01, LEDGER-02)
+- [ ] 090-02-PLAN.md - settings.py RLock thread safety + CacheManager.snapshot() sync-invariant comment (THREAD-01, THREAD-02)
 
 ### Phase 092: Signal Quality Completeness
 
