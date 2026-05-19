@@ -5,6 +5,8 @@ Clean, focused API for technical indicators and market data.
 """
 
 import asyncio
+import json
+import os
 from contextlib import asynccontextmanager
 
 import structlog
@@ -83,8 +85,38 @@ async def lifespan(app: FastAPI):
         await _sse_consumer.seek_to_end()  # always skip committed history; start from live
         _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
 
-        # Seed instruments table from contract config
-        await dependencies.db_manager.upsert_instruments(settings.contracts)
+        # Seed instruments table on empty cold-start only (count-gated, idempotent)
+        count_rows = await dependencies.db_manager.execute_query(
+            "SELECT COUNT(*) FROM instruments WHERE is_active = true"
+        )
+        instrument_count = count_rows[0]["count"] if count_rows else 0
+        if instrument_count > 0:
+            logger.info(
+                "api.startup.instruments_db_already_seeded",
+                count=instrument_count,
+            )
+        else:
+            contracts_json_raw = os.environ.get("IBKR_CONTRACTS_JSON", "")
+            if not contracts_json_raw:
+                logger.warning("api.startup.instruments_seed_skipped_no_env")
+            else:
+                try:
+                    from src.core.models import Instrument
+
+                    parsed = json.loads(contracts_json_raw)
+                    instruments_to_seed = [Instrument(**item) for item in parsed]
+                    await dependencies.db_manager.upsert_instruments(
+                        instruments=instruments_to_seed
+                    )
+                    logger.info(
+                        "api.startup.instruments_seeded",
+                        count=len(instruments_to_seed),
+                    )
+                except Exception as seed_exc:
+                    logger.warning(
+                        "api.startup.instruments_seed_parse_failed",
+                        error=str(seed_exc),
+                    )
 
         logger.info("IndicAgent API started successfully")
         yield
