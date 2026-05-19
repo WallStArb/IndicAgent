@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 091-01-PLAN.md
-last_updated: "2026-05-19T21:35:45.807Z"
+stopped_at: Completed 091-02-PLAN.md
+last_updated: "2026-05-19T21:40:18.057Z"
 last_activity: 2026-05-19
 progress:
   total_phases: 32
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 091 (instrument-registry) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-05-19
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
@@ -128,6 +128,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 089]: BOCPD/HMM algorithmic bounds documented in source: O(R) and O(K^2) respectively; cannot be O(1) without approximation
 - [Phase 091]: FX PK uses full symbol (USDJPY, USDCHF) not base currency (USD) - eliminates collision for shared-base FX pairs in upsert_instruments
 - [Phase 091]: pg_notify trigger uses COALESCE(NEW.symbol, OLD.symbol) for INSERT/UPDATE/DELETE correctness - prevents NULL payload on DELETE
+- [Phase 091-02]: Use asyncpg.connect() (raw dedicated connection) for LISTEN to prevent pool context manager from releasing subscription on exit
+- [Phase 091-02]: Lazy import of invalidate_active_contracts_cache inside _reload_instruments_cache to avoid circular import at module level
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -143,8 +145,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-19T21:35:45.804Z
-Stopped at: Completed 091-01-PLAN.md
+Last session: 2026-05-19T21:40:18.051Z
+Stopped at: Completed 091-02-PLAN.md
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
@@ -228,3 +230,4 @@ Next: /gsd:execute-phase 088
 | Phase 089 P04 | 25 | 3 tasks | 6 files |
 | Phase 089 P05 | 8 | 3 tasks | 12 files |
 | Phase 091 P01 | 3 | 3 tasks | 3 files |
+| Phase 091-instrument-registry P02 | 525563 | 3 tasks | 3 files |
