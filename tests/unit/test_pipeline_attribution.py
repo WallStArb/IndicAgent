@@ -8,9 +8,13 @@ Verifies:
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
-from src.persistence.repository.signal_ledger_repository import LedgerEntry
+from src.persistence.repository.signal_ledger_repository import (
+    _INSERT_SQL,
+    LedgerEntry,
+)
 
 # ---------------------------------------------------------------------------
 # Invariant helpers (mirror the logic from IntelligencePipelineComputeAgent)
@@ -91,7 +95,10 @@ class TestAttributionInvariant:
             pre_quality_confidence=0.80,
             pre_calibration_confidence=0.68,
         )
-        params = entry.to_insert_params()
-        assert len(params) == 67, f"Expected 67 params, got {len(params)}"
+        params = entry._to_row()
+        sql_param_count = len(re.findall(r"\$\d+", _INSERT_SQL))
+        assert (
+            len(params) == sql_param_count
+        ), f"Expected {sql_param_count} params, got {len(params)}"
         assert params[58] == 0.80, "pre_quality_confidence should be $59 (index 58)"
         assert params[59] == 0.68, "pre_calibration_confidence should be $60 (index 59)"
