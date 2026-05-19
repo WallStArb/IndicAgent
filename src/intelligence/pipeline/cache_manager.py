@@ -126,8 +126,8 @@ class CacheManager:
         self._htf_intel: dict = {}
         self._hmm_regime: int | None = None
 
-        # Per-cache locks (REVIEW-MEDIUM): per-key concurrent workers (Plan 06)
-        # and the consume loop both access these dicts; locks prevent torn reads.
+        # Per-cache locks (REVIEW-MEDIUM): guards read-modify-write in update_macro
+        # (setdefault + update are two operations) against concurrent per-key workers.
         self._cross_asset_lock = asyncio.Lock()
         self._macro_lock = asyncio.Lock()
         self._htf_intel_lock = asyncio.Lock()
