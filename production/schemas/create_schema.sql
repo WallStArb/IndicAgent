@@ -66,10 +66,12 @@ SELECT create_hypertable('trading_signals', 'timestamp',
 -- Instruments Table (for contract details)
 CREATE TABLE IF NOT EXISTS instruments (
     symbol TEXT PRIMARY KEY,
+    base TEXT NOT NULL DEFAULT '',
     contract_details JSONB,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    expiry DATE
 );
 
 -- Uniques to support upsert patterns
