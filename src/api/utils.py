@@ -23,16 +23,22 @@ def resolve_contract(symbol: str) -> str:
 
     Accepts both base symbols and full contract codes. If the symbol already
     contains a digit it is returned unchanged. Falls back to regex matching for
-    cases like "VX" → "VXH6" (VIX futures use a different base prefix).
+    cases like "VX" -> "VXH6" (VIX futures use a different base prefix).
+
+    Uses get_active_contracts() (60s TTL cache) as the source list - no
+    direct DB query here.
     """
     if any(ch.isdigit() for ch in symbol):
         return symbol
+    from ..config.settings import get_active_contracts
+
     settings = get_settings()
-    for c in settings.contracts:
+    contracts = get_active_contracts(settings)
+    for c in contracts:
         if c.base == symbol:
             return c.symbol
     # Regex fallback: "VX" matches "VXH6" when base is "VIX"
-    for c in settings.contracts:
+    for c in contracts:
         m = re.match(r"^([A-Z0-9]{1,4}?)[A-Z]\d+$", c.symbol)
         if m and m.group(1) == symbol:
             return c.symbol

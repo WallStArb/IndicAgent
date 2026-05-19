@@ -2,8 +2,6 @@
 Unit tests for src/api/utils.py — shared API route utilities.
 """
 
-from unittest.mock import MagicMock
-
 from src.api.utils import get_settings, parse_jsonb, resolve_contract
 
 # ---------------------------------------------------------------------------
@@ -35,30 +33,24 @@ def test_resolve_contract_already_a_code():
 
 
 def test_resolve_contract_base_to_contract(monkeypatch):
-    mock_contract = MagicMock()
-    mock_contract.base = "ES"
-    mock_contract.symbol = "ESH6"
-    mock_settings = MagicMock()
-    mock_settings.contracts = [mock_contract]
-    monkeypatch.setattr("src.api.utils.get_settings", lambda: mock_settings)
+    from src.core.models import AssetClass, Instrument
+
+    mock_contract = Instrument(symbol="ESH6", base="ES", asset_class=AssetClass.FUTURES)
+    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [mock_contract])
     assert resolve_contract("ES") == "ESH6"
 
 
 def test_resolve_contract_vx_regex_fallback(monkeypatch):
     # "VX" should match "VXH6" via regex fallback (VIX futures have different base prefix)
-    mock_contract = MagicMock()
-    mock_contract.base = "VIX"
-    mock_contract.symbol = "VXH6"
-    mock_settings = MagicMock()
-    mock_settings.contracts = [mock_contract]
-    monkeypatch.setattr("src.api.utils.get_settings", lambda: mock_settings)
+    from src.core.models import AssetClass, Instrument
+
+    mock_contract = Instrument(symbol="VXH6", base="VIX", asset_class=AssetClass.FUTURES)
+    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [mock_contract])
     assert resolve_contract("VX") == "VXH6"
 
 
 def test_resolve_contract_unknown_fallback(monkeypatch):
-    mock_settings = MagicMock()
-    mock_settings.contracts = []
-    monkeypatch.setattr("src.api.utils.get_settings", lambda: mock_settings)
+    monkeypatch.setattr("src.config.settings.get_active_contracts", lambda s: [])
     assert resolve_contract("UNKNOWN") == "UNKNOWN"
 
 
