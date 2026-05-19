@@ -240,7 +240,7 @@ class VCPPlugin:
             self._state[(symbol, tf)] = state
             return no_signal()
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

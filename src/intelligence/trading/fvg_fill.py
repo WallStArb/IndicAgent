@@ -138,7 +138,7 @@ class FVGFillPlugin:
         )
         return signal
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

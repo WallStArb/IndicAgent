@@ -63,7 +63,9 @@ class VolumeZscorePlugin:
 
         return self._compute_z(history)
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         """Incremental update: append latest bar volume to rolling window."""
         if not self._state:
             return self.compute_full(windows)

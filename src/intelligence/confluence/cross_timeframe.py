@@ -136,7 +136,7 @@ class CrossTimeframeConfluencePlugin:
             **{f"i6_ob_tf_{tf}": v for tf, v in ob_tf_contribs.items()},
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 

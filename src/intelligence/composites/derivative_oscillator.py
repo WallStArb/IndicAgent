@@ -94,7 +94,7 @@ class DerivativeOscillatorPlugin(PatternPlugin):
             "deriv_osc_cross_bearish": bearish,
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
 
 
