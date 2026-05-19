@@ -151,85 +151,85 @@ class LedgerEntry:
     # NULL for legacy rows; always None if not present in incoming payload.
     features_snapshot: dict | None = None
 
-    def to_insert_params(self) -> tuple:
-        """Return a 65-element tuple ready for batch INSERT.
+    def _to_row(self) -> tuple:
+        """Return a 67-element tuple of INSERT parameters for _INSERT_SQL.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores,
         trailing_stop_price, features_snapshot) are passed as Python dicts/lists;
         asyncpg serializes them to jsonb natively via codec.
         """
         return (
-            self.signal_id,
-            self.timestamp,
-            self.symbol,
-            self.timeframe,
-            self.setup_plugin,
-            self.signal_type,
-            self.direction,
-            self.entry_price,
-            self.stop_loss,
-            self.targets,
-            self.confidence,
-            self.confluence_score,
-            self.regime_context,
-            self.supporting_factors,
-            self.was_selected,
-            self.num_signals_bar,
-            self.num_agreeing,
-            self.num_conflicting,
-            self.resolution_method,
-            self.composite_rank,
-            self.market_context,
-            self.status,
-            self.feature_ts,  # $23 — TIMESTAMPTZ, nullable
-            self.feature_tf,  # $24 — TEXT, nullable
-            self.cis_score,  # $25 — FLOAT, nullable
-            self.bucket_scores,  # $26
-            self.weights_version,  # $27 — INTEGER, nullable
-            self.signal_quality,  # $28 — FLOAT, nullable
-            self.signal_computed_at,  # $29 — TIMESTAMPTZ, nullable
-            self.determined_at,  # $30
-            self.ask_at_signal,  # $31
-            self.bid_at_signal,  # $32
-            self.market_price_at_signal,  # $33
-            self.entry_zone_low,  # $34
-            self.entry_zone_high,  # $35
-            self.zone_valid_at_signal,  # $36
-            self.cis_attribution,  # $37
-            self.market_entry_price,  # $38 — FLOAT, nullable
-            self.is_shadow,  # $39 — BOOLEAN
+            self.signal_id,  # $1 signal_id
+            self.timestamp,  # $2 timestamp
+            self.symbol,  # $3 symbol
+            self.timeframe,  # $4 timeframe
+            self.setup_plugin,  # $5 setup_plugin
+            self.signal_type,  # $6 signal_type
+            self.direction,  # $7 direction
+            self.entry_price,  # $8 entry_price
+            self.stop_loss,  # $9 stop_loss
+            self.targets,  # $10::jsonb targets
+            self.confidence,  # $11 confidence
+            self.confluence_score,  # $12 confluence_score
+            self.regime_context,  # $13 regime_context
+            self.supporting_factors,  # $14::jsonb supporting_factors
+            self.was_selected,  # $15 was_selected
+            self.num_signals_bar,  # $16 num_signals_bar
+            self.num_agreeing,  # $17 num_agreeing
+            self.num_conflicting,  # $18 num_conflicting
+            self.resolution_method,  # $19 resolution_method
+            self.composite_rank,  # $20 composite_rank
+            self.market_context,  # $21::jsonb market_context
+            self.status,  # $22 status
+            self.feature_ts,  # $23 feature_ts
+            self.feature_tf,  # $24 feature_tf
+            self.cis_score,  # $25 cis_score
+            self.bucket_scores,  # $26::jsonb bucket_scores
+            self.weights_version,  # $27 weights_version
+            self.signal_quality,  # $28 signal_quality
+            self.signal_computed_at,  # $29 signal_computed_at
+            self.determined_at,  # $30 determined_at
+            self.ask_at_signal,  # $31 ask_at_signal
+            self.bid_at_signal,  # $32 bid_at_signal
+            self.market_price_at_signal,  # $33 market_price_at_signal
+            self.entry_zone_low,  # $34 entry_zone_low
+            self.entry_zone_high,  # $35 entry_zone_high
+            self.zone_valid_at_signal,  # $36 zone_valid_at_signal
+            self.cis_attribution,  # $37::jsonb cis_attribution
+            self.market_entry_price,  # $38 market_entry_price
+            self.is_shadow,  # $39 is_shadow
             # Phase 32: stop basis fields
-            self.stop_basis,  # $40
-            self.stop_structure_type,  # $41
-            self.stop_structure_age_bars,  # $42
-            self.structural_stop_distance_atr,  # $43
-            self.hmm_regime_at_fire,  # $44
-            self.garch_sigma_at_fire,  # $45
-            self.chandelier_vol_source,  # $46
-            # $47::jsonb — trailing stop path [{ts, price}]
-            self.trailing_stop_price,
-            self.trailing_stop_tightening_rate,  # $48
-            self.staleness_score,  # $49
-            self.staleness_trigger_reason,  # $50
-            self.shadow_tracking_start_ts,  # $51
-            self.shadow_mae,  # $52
-            self.shadow_mfe,  # $53
-            self.shadow_outcome,  # $54
-            self.raw_cis_score,  # $55
-            self.filtered_cis_score,  # $56
-            self.calibrated_confidence,  # $57
-            self.regime_type_at_fire,  # $58
-            self.pre_quality_confidence,  # $59 — Phase 57 attribution
-            self.pre_calibration_confidence,  # $60 — Phase 57 attribution
+            self.stop_basis,  # $40 stop_basis
+            self.stop_structure_type,  # $41 stop_structure_type
+            self.stop_structure_age_bars,  # $42 stop_structure_age_bars
+            self.structural_stop_distance_atr,  # $43 structural_stop_distance_atr
+            self.hmm_regime_at_fire,  # $44 hmm_regime_at_fire
+            self.garch_sigma_at_fire,  # $45 garch_sigma_at_fire
+            self.chandelier_vol_source,  # $46 chandelier_vol_source
+            self.trailing_stop_price,  # $47::jsonb trailing_stop_price
+            self.trailing_stop_tightening_rate,  # $48 trailing_stop_tightening_rate
+            self.staleness_score,  # $49 staleness_score
+            self.staleness_trigger_reason,  # $50 staleness_trigger_reason
+            self.shadow_tracking_start_ts,  # $51 shadow_tracking_start_ts
+            self.shadow_mae,  # $52 shadow_mae
+            self.shadow_mfe,  # $53 shadow_mfe
+            self.shadow_outcome,  # $54 shadow_outcome
+            self.raw_cis_score,  # $55 raw_cis_score
+            self.filtered_cis_score,  # $56 filtered_cis_score
+            self.calibrated_confidence,  # $57 calibrated_confidence
+            self.regime_type_at_fire,  # $58 regime_type_at_fire
+            # Phase 57: per-stage confidence attribution
+            self.pre_quality_confidence,  # $59 pre_quality_confidence
+            self.pre_calibration_confidence,  # $60 pre_calibration_confidence
             # Phase 79: Signal quality fix
-            self.signal_schema_version,  # $61
-            self.entry_type,  # $62
-            self.co_fire_count,  # $63
-            self.co_fire_partners,  # $64::text[]
+            self.signal_schema_version,  # $61 signal_schema_version
+            self.entry_type,  # $62 entry_type
+            self.co_fire_count,  # $63 co_fire_count
+            self.co_fire_partners,  # $64::text[] co_fire_partners
             # Phase 70: ML training feature source
-            self.features_snapshot,  # $65::jsonb — dict or None; asyncpg handles serialisation
-            self.is_backfill,  # $66 — BOOLEAN
-            self.ttl_bars,  # $67 — INTEGER, nullable
+            self.features_snapshot,  # $65::jsonb features_snapshot
+            self.is_backfill,  # $66 is_backfill
+            self.ttl_bars,  # $67 ttl_bars
         )
 
 
@@ -552,7 +552,7 @@ class SignalLedgerRepository:
         """Batch-insert ledger entries. No-op when *entries* is empty."""
         if not entries:
             return
-        params = [entry.to_insert_params() for entry in entries]
+        params = [entry._to_row() for entry in entries]
         await self._db_manager.execute_batch(_INSERT_SQL, params)
         logger.info("Inserted signals into ledger", count=len(entries))
 
@@ -565,7 +565,7 @@ class SignalLedgerRepository:
         async with self._db_manager.pool.acquire() as conn:
             async with conn.transaction():
                 for entry in entries:
-                    await conn.execute(_INSERT_SQL, *entry.to_insert_params())
+                    await conn.execute(_INSERT_SQL, *entry._to_row())
                     feature_rows = _build_feature_rows(
                         entry.signal_id,
                         entry.signal_computed_at or entry.timestamp,
@@ -580,23 +580,23 @@ class SignalLedgerRepository:
         """Update a signal's lifecycle status and optional exit fields."""
         await self._db_manager.execute_command(
             _UPDATE_STATUS_SQL,
-            signal_id,
-            kwargs.get("status"),
-            kwargs.get("activated_at"),
-            kwargs.get("exit_at"),
-            kwargs.get("exit_price"),
-            kwargs.get("exit_reason"),
-            kwargs.get("pnl_ticks"),
-            kwargs.get("pnl_r"),
-            kwargs.get("pnl_dollars"),
-            kwargs.get("signal_quality"),
-            kwargs.get("activation_price"),
-            kwargs.get("zone_entry_pct"),
-            kwargs.get("bars_to_activation"),
-            kwargs.get("mae"),
-            kwargs.get("mfe"),
-            kwargs.get("bars_in_trade"),
-            kwargs.get("outcome"),
+            signal_id,  # $1 signal_id
+            kwargs.get("status"),  # $2 status
+            kwargs.get("activated_at"),  # $3 activated_at
+            kwargs.get("exit_at"),  # $4 exit_at
+            kwargs.get("exit_price"),  # $5 exit_price
+            kwargs.get("exit_reason"),  # $6 exit_reason
+            kwargs.get("pnl_ticks"),  # $7 pnl_ticks
+            kwargs.get("pnl_r"),  # $8 pnl_r
+            kwargs.get("pnl_dollars"),  # $9 pnl_dollars
+            kwargs.get("signal_quality"),  # $10 signal_quality
+            kwargs.get("activation_price"),  # $11 activation_price
+            kwargs.get("zone_entry_pct"),  # $12 zone_entry_pct
+            kwargs.get("bars_to_activation"),  # $13 bars_to_activation
+            kwargs.get("mae"),  # $14 mae
+            kwargs.get("mfe"),  # $15 mfe
+            kwargs.get("bars_in_trade"),  # $16 bars_in_trade
+            kwargs.get("outcome"),  # $17 outcome
         )
         logger.info("Updated signal status", signal_id=signal_id, status=kwargs.get("status"))
 
@@ -610,67 +610,67 @@ class SignalLedgerRepository:
         """Write zone-track activation fields. Sets status='active'. Phase 2."""
         await self._db_manager.execute_command(
             _RECORD_ACTIVATION_SQL,
-            signal_id,
-            kwargs.get("activated_at"),
-            kwargs.get("activation_price"),
-            kwargs.get("zone_entry_pct"),
-            kwargs.get("bars_to_activation"),
+            signal_id,  # $1 signal_id
+            kwargs.get("activated_at"),  # $2 activated_at
+            kwargs.get("activation_price"),  # $3 activation_price
+            kwargs.get("zone_entry_pct"),  # $4 zone_entry_pct
+            kwargs.get("bars_to_activation"),  # $5 bars_to_activation
         )
 
     async def record_zone_resolution(self, signal_id: str, **kwargs: Any) -> None:
         """Write zone-track resolution fields. Phase 3, zone track only."""
         await self._db_manager.execute_command(
             _RECORD_ZONE_RESOLUTION_SQL,
-            signal_id,
-            kwargs.get("status"),
-            kwargs.get("exit_at"),
-            kwargs.get("exit_price"),
-            kwargs.get("exit_reason"),
-            kwargs.get("pnl_r"),
-            kwargs.get("pnl_dollars"),
-            kwargs.get("signal_quality"),
-            kwargs.get("mae"),
-            kwargs.get("mfe"),
-            kwargs.get("bars_in_trade"),
-            kwargs.get("outcome"),
+            signal_id,  # $1 signal_id
+            kwargs.get("status"),  # $2 status
+            kwargs.get("exit_at"),  # $3 exit_at
+            kwargs.get("exit_price"),  # $4 exit_price
+            kwargs.get("exit_reason"),  # $5 exit_reason
+            kwargs.get("pnl_r"),  # $6 pnl_r
+            kwargs.get("pnl_dollars"),  # $7 pnl_dollars
+            kwargs.get("signal_quality"),  # $8 signal_quality
+            kwargs.get("mae"),  # $9 mae
+            kwargs.get("mfe"),  # $10 mfe
+            kwargs.get("bars_in_trade"),  # $11 bars_in_trade
+            kwargs.get("outcome"),  # $12 outcome
         )
 
     async def record_market_resolution(self, signal_id: str, **kwargs: Any) -> None:
         """Write market-track resolution fields. Phase 3, market track only."""
         await self._db_manager.execute_command(
             _RECORD_MARKET_RESOLUTION_SQL,
-            signal_id,
-            kwargs.get("market_entry_at"),
-            kwargs.get("market_entry_exit_price"),
-            kwargs.get("market_entry_exit_at"),
-            kwargs.get("market_entry_pnl_r"),
-            kwargs.get("market_entry_mae"),
-            kwargs.get("market_entry_mfe"),
-            kwargs.get("market_entry_bars_in_trade"),
-            kwargs.get("market_entry_outcome"),
-            kwargs.get("market_entry_gap_bars"),
+            signal_id,  # $1 signal_id
+            kwargs.get("market_entry_at"),  # $2 market_entry_at
+            kwargs.get("market_entry_exit_price"),  # $3 market_entry_exit_price
+            kwargs.get("market_entry_exit_at"),  # $4 market_entry_exit_at
+            kwargs.get("market_entry_pnl_r"),  # $5 market_entry_pnl_r
+            kwargs.get("market_entry_mae"),  # $6 market_entry_mae
+            kwargs.get("market_entry_mfe"),  # $7 market_entry_mfe
+            kwargs.get("market_entry_bars_in_trade"),  # $8 market_entry_bars_in_trade
+            kwargs.get("market_entry_outcome"),  # $9 market_entry_outcome
+            kwargs.get("market_entry_gap_bars"),  # $10 market_entry_gap_bars
         )
 
     async def record_zone_resolution_with_activation(self, signal_id: str, **kwargs: Any) -> None:
         """Atomically write activation + zone exit on same bar. Prevents status stuck in 'active'."""
         await self._db_manager.execute_command(
             _RECORD_ZONE_WITH_ACTIVATION_SQL,
-            signal_id,
-            kwargs.get("status"),
-            kwargs.get("activated_at"),
-            kwargs.get("activation_price"),
-            kwargs.get("zone_entry_pct"),
-            kwargs.get("bars_to_activation"),
-            kwargs.get("exit_at"),
-            kwargs.get("exit_price"),
-            kwargs.get("exit_reason"),
-            kwargs.get("pnl_r"),
-            kwargs.get("pnl_dollars"),
-            kwargs.get("signal_quality"),
-            kwargs.get("mae"),
-            kwargs.get("mfe"),
-            kwargs.get("bars_in_trade"),
-            kwargs.get("outcome"),
+            signal_id,  # $1 signal_id
+            kwargs.get("status"),  # $2 status
+            kwargs.get("activated_at"),  # $3 activated_at
+            kwargs.get("activation_price"),  # $4 activation_price
+            kwargs.get("zone_entry_pct"),  # $5 zone_entry_pct
+            kwargs.get("bars_to_activation"),  # $6 bars_to_activation
+            kwargs.get("exit_at"),  # $7 exit_at
+            kwargs.get("exit_price"),  # $8 exit_price
+            kwargs.get("exit_reason"),  # $9 exit_reason
+            kwargs.get("pnl_r"),  # $10 pnl_r
+            kwargs.get("pnl_dollars"),  # $11 pnl_dollars
+            kwargs.get("signal_quality"),  # $12 signal_quality
+            kwargs.get("mae"),  # $13 mae
+            kwargs.get("mfe"),  # $14 mfe
+            kwargs.get("bars_in_trade"),  # $15 bars_in_trade
+            kwargs.get("outcome"),  # $16 outcome
         )
 
     async def update_lifecycle_state(
