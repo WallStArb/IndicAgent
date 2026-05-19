@@ -12,6 +12,7 @@ overrides.
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -943,6 +944,7 @@ class Settings(BaseSettings):
 # Module-level helpers — drop-in replacements for config.symbol_config
 # ---------------------------------------------------------------------------
 
+_settings_lock = threading.RLock()
 _settings_singleton: Settings | None = None
 
 # Cache for DB-backed active contracts
@@ -958,15 +960,21 @@ def invalidate_active_contracts_cache() -> None:
     latency from ~60s (TTL expiry) to ~1s (next audit cycle).
     """
     global _active_contracts_last_refresh  # noqa: PLW0603
-    _active_contracts_last_refresh = 0.0
+    with _settings_lock:
+        _active_contracts_last_refresh = 0.0
 
 
 def _default_settings() -> Settings:
-    """Lazily create a module-level Settings instance."""
+    """Lazily create a module-level Settings instance.
+
+    Lock held only for the singleton check + Settings() instantiation;
+    Settings constructor does not re-enter this function (verified Phase 090).
+    """
     global _settings_singleton  # noqa: PLW0603
-    if _settings_singleton is None:
-        _settings_singleton = Settings()
-    return _settings_singleton
+    with _settings_lock:
+        if _settings_singleton is None:
+            _settings_singleton = Settings()
+        return _settings_singleton
 
 
 def get_settings() -> Settings:
@@ -1060,11 +1068,13 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
 
     s = settings or _default_settings()
 
-    # Check cache
+    # Check cache under lock (atomic read); compute now before entering lock
     now = time.monotonic()
-    cache_age = now - _active_contracts_last_refresh
-    if _active_contracts_cache is not None and cache_age < _ACTIVE_CONTRACTS_TTL:
-        return _active_contracts_cache
+    with _settings_lock:
+        cache_age = now - _active_contracts_last_refresh
+        if _active_contracts_cache is not None and cache_age < _ACTIVE_CONTRACTS_TTL:
+            return _active_contracts_cache
+    # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
     # Build config-file lookup tables
     config_by_base: dict[str, Instrument] = {}
@@ -1095,8 +1105,11 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
         non_futures = [c for c in s.contracts if c.asset_class != AssetClass.FUTURES]
 
         result = db_instruments + non_futures
-        _active_contracts_cache = result
-        _active_contracts_last_refresh = now
+
+        # Write cache under lock (atomic write)
+        with _settings_lock:
+            _active_contracts_cache = result
+            _active_contracts_last_refresh = now
         return result
 
     except Exception as exc:
