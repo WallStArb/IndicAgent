@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: Foundation Hardening & Signal Transform
+milestone_name: milestone
 status: executing
-stopped_at: Phase 090 context updated with Renaissance-grade gap analysis
-last_updated: "2026-05-19T17:57:51.151Z"
-last_activity: 2026-05-19 -- Phase 091 planning complete
+stopped_at: Completed 091-01-PLAN.md
+last_updated: "2026-05-19T21:35:45.807Z"
+last_activity: 2026-05-19
 progress:
-  total_phases: 8
-  completed_phases: 6
-  total_plans: 31
-  completed_plans: 25
-  percent: 75
+  total_phases: 32
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 090 — signal-ledger-thread-safety
+**Current focus:** Phase 091 — instrument-registry
 
 ## Current Position
 
-Phase: 090 (signal-ledger-thread-safety) — EXECUTING
-Plan: 1 of 2
+Phase: 091 (instrument-registry) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-05-19 -- Phase 091 planning complete
+Last activity: 2026-05-19
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
 
 Progress: [████████░░] 50% (3/6 phases)
@@ -126,6 +126,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 089]: MarketProfile incremental: volume_buckets dict with fixed tick_size from seed; O(K) POC/VAH/VAL vs O(N*K) full
 - [Phase 089]: SessionLevels incremental: 390-bar count boundary detection for session rollover; O(1) per-bar high/low tracking
 - [Phase 089]: BOCPD/HMM algorithmic bounds documented in source: O(R) and O(K^2) respectively; cannot be O(1) without approximation
+- [Phase 091]: FX PK uses full symbol (USDJPY, USDCHF) not base currency (USD) - eliminates collision for shared-base FX pairs in upsert_instruments
+- [Phase 091]: pg_notify trigger uses COALESCE(NEW.symbol, OLD.symbol) for INSERT/UPDATE/DELETE correctness - prevents NULL payload on DELETE
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -141,11 +143,11 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-19T14:23:57.043Z
-Stopped at: Phase 090 context updated with Renaissance-grade gap analysis
+Last session: 2026-05-19T21:35:45.804Z
+Stopped at: Completed 091-01-PLAN.md
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
-Resume file: .planning/phases/090-signal-ledger-thread-safety/090-CONTEXT.md
+Resume file: None
 Next: /gsd:execute-phase 088
 
 **Planned Phase:** 84 (Base Agent Hardening) — 4 plans — 2026-05-16T18:51:26.583Z
@@ -225,3 +227,4 @@ Next: /gsd:execute-phase 088
 | Phase 089 P03 | 9 | 2 tasks | 4 files |
 | Phase 089 P04 | 25 | 3 tasks | 6 files |
 | Phase 089 P05 | 8 | 3 tasks | 12 files |
+| Phase 091 P01 | 3 | 3 tasks | 3 files |
