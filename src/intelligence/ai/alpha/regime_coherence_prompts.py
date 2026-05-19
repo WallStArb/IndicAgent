@@ -40,7 +40,7 @@ Semantics:
 - regime_fit=0.0 means it strongly mismatches the current regime.
 - mismatches is a list of short label strings describing each detected conflict.
 
-Respond with JSON ONLY:
+Begin your response with {{ and end with }}. No prose before or after the JSON:
 {{
     "regime_fit": <float 0.0-1.0>,
     "confidence": <float 0.0-1.0>,

@@ -23,11 +23,12 @@ from src.intelligence.ai.alpha.skeptic_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
-    "You are a financial trading risk analyst specializing in identifying "
-    "signal weaknesses. Always respond with valid JSON. "
+    "OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE. "
+    "Your entire response must be a single JSON object starting with { and ending with }. "
+    "Schema: "
     '{"failure_probability": float, "confidence": float, '
     '"risk_factors": [str], "reasoning": str} '
-    "Keep reasoning under 100 words."
+    "reasoning must be under 100 words."
 )
 
 

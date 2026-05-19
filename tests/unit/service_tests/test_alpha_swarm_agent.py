@@ -563,6 +563,7 @@ def _make_agent_with_mocks():  # type: ignore[return]
     agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
     agent.settings = MagicMock(
         SWARM_MIN_TF_MINUTES=5,
+        SWARM_MIN_CONFIDENCE=0.6,
         SWARM_WEIGHT_MIN_SAMPLES=30,
         SWARM_WEIGHT_FLOOR=0.05,
         SWARM_MAX_CONCURRENT_CALLS=8,
@@ -770,6 +771,7 @@ async def test_semaphore_blocks_then_proceeds() -> None:
         "setup_plugin": "vwap_reversion",
         "direction": 1,
         "pre_quality_confidence": 0.75,
+        "calibrated_confidence": 0.75,
         "signal_schema_version": "v1",
     }
 

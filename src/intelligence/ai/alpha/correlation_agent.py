@@ -19,9 +19,10 @@ from src.intelligence.ai.alpha.correlation_prompts import (
 logger = structlog.get_logger(__name__)
 
 _SYSTEM_MESSAGE = (
-    "You are a cross-asset coherence analyst. Output strictly valid JSON. "
+    "OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE. "
+    "Your entire response must be a single JSON object starting with { and ending with }. "
     "Phase 80 policy: discount-only — coherence_score and confidence in [0.0, 1.0]. "
-    "Keep reasoning under 100 words."
+    "reasoning must be under 100 words."
 )
 
 

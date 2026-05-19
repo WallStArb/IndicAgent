@@ -158,6 +158,11 @@ class Settings(BaseSettings):
         validation_alias="SWARM_MIN_TF_MINUTES",
         description="Minimum timeframe in minutes for swarm enrichment (gate: skip 1m bars)",
     )
+    SWARM_MIN_CONFIDENCE: float = Field(
+        default=0.6,
+        validation_alias="SWARM_MIN_CONFIDENCE",
+        description="Minimum winner_confidence for swarm enrichment (gate: skip low-quality signals)",
+    )
     SWARM_WEIGHT_MIN_SAMPLES: int = Field(
         default=30,
         validation_alias="SWARM_WEIGHT_MIN_SAMPLES",
