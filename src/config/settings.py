@@ -968,7 +968,7 @@ def _default_settings() -> Settings:
     """Lazily create a module-level Settings instance.
 
     Lock held only for the singleton check + Settings() instantiation;
-    Settings constructor does not re-enter this function (verified Phase 090).
+    Settings() does not call _default_settings(), so no re-entrant deadlock.
     """
     global _settings_singleton  # noqa: PLW0603
     with _settings_lock:
