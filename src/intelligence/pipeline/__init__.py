@@ -14,6 +14,7 @@ from src.intelligence.pipeline.feature_pipeline_executor import (
     FeaturePipelineResult,
 )
 from src.intelligence.pipeline.output_queue import OutputQueue
+from src.intelligence.pipeline.per_key_worker_manager import PerKeyWorkerManager
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
@@ -38,6 +39,7 @@ __all__ = [
     "FeaturePipelineExecutor",
     "FeaturePipelineResult",
     "OutputQueue",
+    "PerKeyWorkerManager",
     "PluginExecutor",
     "PluginStateManager",
     "SignalProcessor",

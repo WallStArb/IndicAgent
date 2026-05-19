@@ -45,6 +45,7 @@ from src.intelligence.pipeline import (
     CacheManager,
     FeaturePipelineExecutor,
     OutputQueue,
+    PerKeyWorkerManager,
     PluginExecutor,
     PluginStateManager,
     SignalProcessor,
@@ -70,7 +71,6 @@ from src.intelligence.schemas import (
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.metrics import THREAD_POOL_WORKERS, gauge
-from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -288,6 +288,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._sig_proc.restore_kalman_state(extra.get("kalman_state", {}))
             self._sig_proc.restore_setup_last_fire(extra.get("setup_last_fire", {}))
 
+        # Per-key concurrency — PERF-07 (D-01, D-03, D-16, D-28)
+        _symbol_filter_pkw = frozenset(self.settings.intelligence_pipeline_symbol_filter) or None
+        self._worker_manager = PerKeyWorkerManager(
+            processor=self._process_bar_inner,
+            symbol_filter=_symbol_filter_pkw,
+        )
+        self._worker_manager.start_per_key_workers()
+
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(_signal.SIGUSR1, self._on_hmm_sigusr1)
         self.logger.info(
@@ -339,6 +347,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await asyncio.wait_for(self._out_queue.join(), timeout=10.0)
         except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
+        if hasattr(self, "_worker_manager"):
+            await self._worker_manager.stop()
         if hasattr(self, "_state_mgr"):
             self._state_mgr.write_checkpoint(self._assemble_checkpoint_extra())
         if hasattr(self, "_kafka_consumer"):
@@ -410,7 +420,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                             if bar is None:
                                 await self._send_to_dlq(payload, Exception("Parse failed"))
                                 continue
-                            await self._process_bar(bar)
+                            await self._worker_manager.enqueue(bar)
 
                         msg_count += 1
                         if msg_count >= COMMIT_BATCH_SIZE:
@@ -438,13 +448,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 return BarMessage(**msg)
             except Exception:
                 return None
-
-    async def _process_bar(self, bar: BarMessage) -> None:
-        async with observed_span(
-            "pipeline.process_bar",
-            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
-        ):
-            await self._process_bar_inner(bar)
 
     async def _process_bar_inner(self, bar: BarMessage, *, gap: bool = False) -> None:
         """D-08 DAG router: gap detect → FPE → I7 → SignalProcessor → 4-way routing."""
