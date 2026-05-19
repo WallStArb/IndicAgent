@@ -28,9 +28,14 @@ class IndicatorPlugin(Protocol):
         self, frames: dict[str, Any], *, state: dict | None = None
     ) -> dict[str, Any]: ...
 
-    def compute_next(
-        self, windows: dict[str, Any], *, state: dict | None = None
-    ) -> dict[str, Any]: ...
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        """Incremental single-bar update using accumulated state.
+
+        If supports_incremental=True, this method MUST document its state keys
+        in a ``State keys:`` section listing every key it reads/writes, with type.
+        Falls back to compute_full when state is None or empty.
+        """
+        ...
 
 
 class PatternPlugin(Protocol):
@@ -47,9 +52,14 @@ class PatternPlugin(Protocol):
         self, frames: dict[str, Any], *, state: dict | None = None
     ) -> dict[str, Any]: ...
 
-    def compute_next(
-        self, windows: dict[str, Any], *, state: dict | None = None
-    ) -> dict[str, Any]: ...
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        """Incremental single-bar update using accumulated state.
+
+        If supports_incremental=True, this method MUST document its state keys
+        in a ``State keys:`` section listing every key it reads/writes, with type.
+        Falls back to compute_full when state is None or empty.
+        """
+        ...
 
 
 class PluginRegistry:

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
         alias="INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE",
         description="Max items drained per OutputQueue iteration (PERF-06, Plan 03).",
     )
+    intelligence_pipeline_queue_maxsize: int = Field(
+        default=100,
+        alias="INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE",
+        description="Per-key worker queue depth; controls back-pressure on the bar ingestion path (PERF-07, Plan 06).",
+    )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
         validation_alias="DATABASE_URL",

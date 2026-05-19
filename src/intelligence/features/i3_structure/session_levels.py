@@ -221,6 +221,23 @@ class SessionLevelsPlugin:
         running state maintained per-bar.
 
         Falls back to compute_full when state is None or empty.
+
+        State keys:
+            bar_count (int): total bars processed; tracks session boundary.
+            session_start_idx (int): df index where current session began.
+            session_high (float | None): current session running high.
+            session_low (float | None): current session running low.
+            session_open (float | None): first bar open of current session.
+            prior_session_high (float | None): previous session high.
+            prior_session_low (float | None): previous session low.
+            prior_session_close (float | None): last bar close of previous session.
+            overnight_high (float | None): high over last overnight_n bars.
+            overnight_low (float | None): low over last overnight_n bars.
+            overnight_n (int): number of overnight bars (derived once, then cached).
+            asian_session_high (float | None): high over Asian-hour bars.
+            asian_session_low (float | None): low over Asian-hour bars.
+            weekly_pivot / weekly_r1 / weekly_r2 / weekly_s1 / weekly_s2 (float | None).
+            weekly_high / weekly_low / weekly_close (float | None).
         """
         if state is None or not state:
             return self.compute_full(windows, state=state)

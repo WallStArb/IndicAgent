@@ -126,6 +126,12 @@ class CacheManager:
         self._htf_intel: dict = {}
         self._hmm_regime: int | None = None
 
+        # Per-cache locks (REVIEW-MEDIUM): per-key concurrent workers (Plan 06)
+        # and the consume loop both access these dicts; locks prevent torn reads.
+        self._cross_asset_lock = asyncio.Lock()
+        self._macro_lock = asyncio.Lock()
+        self._htf_intel_lock = asyncio.Lock()
+
     # ------------------------------------------------------------------
     # Properties (read surface)
     # ------------------------------------------------------------------
@@ -197,19 +203,22 @@ class CacheManager:
     # Stream cache update methods (D-19)
     # ------------------------------------------------------------------
 
-    def update_cross_asset(self, tf: str, payload: dict) -> None:
+    async def update_cross_asset(self, tf: str, payload: dict) -> None:
         """Store latest cross-asset payload for the given timeframe."""
-        self._cross_asset[tf] = payload
+        async with self._cross_asset_lock:
+            self._cross_asset[tf] = payload
         self._logger.debug("cache_manager.cross_asset_updated", tf=tf)
 
-    def update_macro(self, tf: str, payload: dict) -> None:
+    async def update_macro(self, tf: str, payload: dict) -> None:
         """Merge macro fields into the per-tf macro cache entry."""
-        self._macro.setdefault(tf, {}).update(payload)
+        async with self._macro_lock:
+            self._macro.setdefault(tf, {}).update(payload)
         self._logger.debug("cache_manager.macro_updated", tf=tf)
 
-    def update_htf_intel(self, tf: str, data: dict) -> None:
+    async def update_htf_intel(self, tf: str, data: dict) -> None:
         """Store latest HTF intel data for the given timeframe."""
-        self._htf_intel[tf] = data
+        async with self._htf_intel_lock:
+            self._htf_intel[tf] = data
         self._logger.debug("cache_manager.htf_intel_updated", tf=tf)
 
     # ------------------------------------------------------------------
