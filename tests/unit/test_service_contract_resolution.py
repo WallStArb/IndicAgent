@@ -28,31 +28,6 @@ def _make_settings() -> MagicMock:
     """Build a minimal mock Settings object."""
     mock = MagicMock()
     mock.database_url = "postgresql://postgres:postgres@localhost:5432/indicagent"
-    # Provide two representative contracts: one futures, one FX
-    mock.contracts = [
-        Instrument(
-            symbol="ESM6",
-            base="ES",
-            exchange="CME",
-            expiry="202606",
-            name="E-mini S&P 500",
-            point_value=50,
-            tick_size=0.25,
-            sector="equity_index",
-            asset_class=AssetClass.FUTURES,
-        ),
-        Instrument(
-            symbol="EURUSD",
-            base="EUR",
-            exchange="IDEALPRO",
-            sector="fx",
-            asset_class=AssetClass.FX,
-            session_id="fx_24_5",
-            name="Euro/US Dollar",
-            point_value=10.0,
-            tick_size=0.00001,
-        ),
-    ]
     return mock
 
 
@@ -64,12 +39,18 @@ def _reset_cache() -> None:
     settings_mod._active_contracts_last_refresh = 0.0
 
 
-def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None) -> MagicMock:
-    """Build a psycopg2 connection mock that handles two sequential fetchall calls.
+def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None) -> list:
+    """Build psycopg2 connection mocks for three sequential connect() calls.
 
-    First fetchall returns futures_rows (contract_metadata query).
-    Second fetchall returns non_futures_rows (instruments query).
-    Each psycopg2.connect() call returns a fresh mock connection with its own cursor.
+    get_active_contracts() makes three psycopg2.connect() calls in order:
+      1. Load futures templates from instruments table (asset_class='futures')
+      2. Query contract_metadata for front-month futures symbols
+      3. Query instruments for non-futures (is_active=true, asset_class!='futures')
+
+    Returns a list of 3 mock connections suitable for side_effect=[...].
+
+    The templates connection returns a sample ES futures template so that
+    futures Instruments can inherit point_value/tick_size/etc from the DB row.
     """
     if non_futures_rows is None:
         non_futures_rows = []
@@ -86,8 +67,30 @@ def _make_mock_db_conn(futures_rows: list, non_futures_rows: list | None = None)
         mock_cursor.fetchall.return_value = rows
         return mock_conn
 
-    # Return a sentinel that side_effects the two connect calls in order
-    return [_make_single_conn(futures_rows), _make_single_conn(non_futures_rows)]
+    # Futures templates: one ES row in instruments (asset_class='futures')
+    es_template = (
+        "ES",
+        "ES",
+        {
+            "symbol": "ES",
+            "base": "ES",
+            "name": "E-mini S&P 500",
+            "asset_class": "futures",
+            "exchange": "CME",
+            "sector": "equity_index",
+            "tick_size": 0.25,
+            "point_value": 50.0,
+            "session_id": "futures_24_5",
+            "provider_meta": {},
+            "expiry": "",
+        },
+    )
+
+    return [
+        _make_single_conn([es_template]),  # conn 1: futures templates from instruments
+        _make_single_conn(futures_rows),  # conn 2: contract_metadata front-month query
+        _make_single_conn(non_futures_rows),  # conn 3: instruments non-futures query
+    ]
 
 
 # Sample non-futures row: (symbol, base, contract_details dict)
@@ -133,13 +136,13 @@ class TestGetActiveContractsAlwaysOn:
             assert isinstance(item, Instrument), f"Expected Instrument, got {type(item)}"
 
     def test_always_queries_db(self):
-        """DB must always be queried (two queries: futures + non-futures)."""
+        """DB must always be queried (three queries: templates + futures + non-futures)."""
         mock_settings = _make_settings()
         conns = _make_mock_db_conn([], [])
         with patch("psycopg2.connect", side_effect=conns) as mock_connect:
             get_active_contracts(mock_settings)
-        # Two connect() calls: one for contract_metadata, one for instruments
-        assert mock_connect.call_count == 2
+        # Three connect() calls: templates (instruments WHERE futures), contract_metadata, instruments non-futures
+        assert mock_connect.call_count == 3
 
     def test_db_error_returns_empty_when_cache_cold(self):
         """On DB error with cold cache, must return empty list (not s.contracts)."""
@@ -222,8 +225,8 @@ class TestGetActiveContractsDbEnabled:
         conns = _make_mock_db_conn([], [])
         with patch("psycopg2.connect", side_effect=conns):
             get_active_contracts(mock_settings)
-        # First connection's cursor holds the futures SQL
-        futures_cursor = conns[0].cursor.return_value.__enter__.return_value
+        # Second connection (index 1) holds the contract_metadata SQL
+        futures_cursor = conns[1].cursor.return_value.__enter__.return_value
         executed_sql = futures_cursor.execute.call_args[0][0]
         assert (
             "is_front_month" in executed_sql
@@ -235,8 +238,8 @@ class TestGetActiveContractsDbEnabled:
         conns = _make_mock_db_conn([], [])
         with patch("psycopg2.connect", side_effect=conns):
             get_active_contracts(mock_settings)
-        # Second connection's cursor holds the non-futures SQL
-        nf_cursor = conns[1].cursor.return_value.__enter__.return_value
+        # Third connection (index 2) holds the non-futures SQL
+        nf_cursor = conns[2].cursor.return_value.__enter__.return_value
         executed_sql = nf_cursor.execute.call_args[0][0]
         assert (
             "FROM instruments" in executed_sql
@@ -295,9 +298,9 @@ class TestGetActiveContractsCache:
         with patch("psycopg2.connect", side_effect=conns) as mock_connect:
             result1 = get_active_contracts(mock_settings)
             result2 = get_active_contracts(mock_settings)
-        # Two connect calls on first query (futures + non-futures); zero on second (cached)
+        # Three connect calls on first query (templates + futures + non-futures); zero on second (cached)
         assert (
-            mock_connect.call_count == 2
+            mock_connect.call_count == 3
         ), f"DB must only be queried on first call within cache TTL, called {mock_connect.call_count} times"
         assert result1 == result2
 
@@ -314,8 +317,10 @@ class TestGetActiveContractsCache:
             settings_mod._active_contracts_last_refresh = time.monotonic() - 61.0
             get_active_contracts(mock_settings)
             call_count_after_second = mock_connect.call_count
-        assert call_count_after_first == 2, "First query: 2 connect calls (futures + non-futures)"
-        assert call_count_after_second == 4, "DB must be re-queried after cache expires (4 total)"
+        assert (
+            call_count_after_first == 3
+        ), "First query: 3 connect calls (templates + futures + non-futures)"
+        assert call_count_after_second == 6, "DB must be re-queried after cache expires (6 total)"
 
 
 # ---------------------------------------------------------------------------

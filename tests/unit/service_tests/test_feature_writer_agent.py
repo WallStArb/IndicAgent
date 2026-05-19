@@ -437,14 +437,12 @@ def test_kafka_consumer_group_is_feature_writer_group():
 
 
 class TestBuildExpiryMap:
-    """Tests for _build_expiry_map pure function."""
+    """Tests for _build_expiry_map pure function.
 
-    def _make_settings_with(self, instruments):
-        from unittest.mock import MagicMock
-
-        s = MagicMock()
-        s.contracts = instruments
-        return s
+    _build_expiry_map calls get_active_contracts(settings). Since settings.contracts
+    was removed in Plan 091-04, tests now patch get_active_contracts directly to
+    control the instrument list without touching the DB.
+    """
 
     def _futures_inst(self, symbol, expiry):
         from src.core.models import AssetClass, Instrument
@@ -464,11 +462,13 @@ class TestBuildExpiryMap:
     def test_futures_yyyymmdd_parsed(self):
         """YYYYMMDD expiry string -> correct date in map."""
         from datetime import date
+        from unittest.mock import patch
 
         from services.feature_writer_agent import _build_expiry_map
 
-        settings = self._make_settings_with([self._futures_inst("ESH6", "20260320")])
-        result = _build_expiry_map(settings)
+        instruments = [self._futures_inst("ESH6", "20260320")]
+        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+            result = _build_expiry_map(None)
 
         assert "ESH6" in result
         assert result["ESH6"] == date(2026, 3, 20)
@@ -476,30 +476,38 @@ class TestBuildExpiryMap:
     def test_futures_yyyymm_last_day_of_month(self):
         """YYYYMM expiry (VX-style) -> last day of that month."""
         from datetime import date
+        from unittest.mock import patch
 
         from services.feature_writer_agent import _build_expiry_map
 
-        settings = self._make_settings_with([self._futures_inst("VXJ6", "202604")])
-        result = _build_expiry_map(settings)
+        instruments = [self._futures_inst("VXJ6", "202604")]
+        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+            result = _build_expiry_map(None)
 
         assert "VXJ6" in result
         assert result["VXJ6"] == date(2026, 4, 30)
 
     def test_fx_excluded_from_map(self):
         """FX instruments not in expiry map."""
+        from unittest.mock import patch
+
         from services.feature_writer_agent import _build_expiry_map
 
-        settings = self._make_settings_with([self._fx_inst("EURUSD")])
-        result = _build_expiry_map(settings)
+        instruments = [self._fx_inst("EURUSD")]
+        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+            result = _build_expiry_map(None)
 
         assert "EURUSD" not in result
 
     def test_crypto_excluded_from_map(self):
         """CRYPTO instruments not in expiry map."""
+        from unittest.mock import patch
+
         from services.feature_writer_agent import _build_expiry_map
 
-        settings = self._make_settings_with([self._crypto_inst("BTCUSD")])
-        result = _build_expiry_map(settings)
+        instruments = [self._crypto_inst("BTCUSD")]
+        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+            result = _build_expiry_map(None)
 
         assert "BTCUSD" not in result
 
