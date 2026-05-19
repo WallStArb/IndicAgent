@@ -54,6 +54,11 @@ class TestBuildContractsBaseSymbolTemplates:
         s = Settings()
         assert not hasattr(s, "contracts"), "Settings.contracts removed; use get_active_contracts()"
 
+    def test_settings_has_no_contracts_attribute(self):
+        """Lock-in test: Settings must not have a contracts attribute post Plan 091-04."""
+        s = Settings()
+        assert not hasattr(s, "contracts"), "Settings.contracts removed; use get_active_contracts()"
+
 
 # ---------------------------------------------------------------------------
 # Plan 067-01 Task 2: Alerting Settings Fields
