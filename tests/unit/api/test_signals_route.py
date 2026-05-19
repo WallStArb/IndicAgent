@@ -215,18 +215,31 @@ class TestGetSignals:
     @pytest.mark.unit
     def test_get_signals_base_symbol_resolved(self):
         """Base symbol 'ES' resolves to the active ES contract before the DB query."""
-        from src.config.settings import get_active_contracts
+        from unittest.mock import patch
 
-        active_es = next(c.symbol for c in get_active_contracts() if c.base == "ES")
+        from src.core.models import AssetClass, Instrument
+
+        fake_es = Instrument(
+            symbol="ESM6",
+            base="ES",
+            exchange="CME",
+            expiry="202606",
+            name="E-mini S&P 500",
+            point_value=50,
+            tick_size=0.25,
+            sector="equity_index",
+            asset_class=AssetClass.FUTURES,
+        )
 
         mock_db = _make_mock_db()
         mock_db.fetch = AsyncMock(return_value=[])
 
         client = _make_client(mock_db)
-        response = client.get("/api/signals/ES")
+        with patch("src.api.routes.signals._resolve_contract", return_value="ESM6"):
+            response = client.get("/api/signals/ES")
 
         assert response.status_code == 200
         call_args = mock_db.fetch.call_args
         positional = list(call_args.args)
         # positional[0] is the SQL query, positional[1] is the resolved contract symbol
-        assert positional[1] == active_es
+        assert positional[1] == "ESM6"
