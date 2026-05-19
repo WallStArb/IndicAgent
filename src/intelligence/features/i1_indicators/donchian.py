@@ -66,7 +66,7 @@ class DonchianChannelsPlugin:
             "low_window": deque(lows, maxlen=self.period),
         }
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")

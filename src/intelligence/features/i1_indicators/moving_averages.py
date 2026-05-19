@@ -94,7 +94,7 @@ class MovingAveragesPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -105,9 +105,9 @@ class MovingAveragesPlugin:
         # SMA incremental: sliding window with running sum
         for p in self.sma_periods:
             key = f"sma_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             window = s["window"]
             # Subtract value that will be removed (leftmost when full)
             if len(window) == p:
@@ -120,13 +120,14 @@ class MovingAveragesPlugin:
         # EMA incremental: alpha * new + (1-alpha) * prev
         for p in self.ema_periods:
             key = f"ema_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
             alpha = 2.0 / (p + 1)
-            new_ema = alpha * new_close + (1 - alpha) * self._state[key]
-            self._state[key] = new_ema
+            new_ema = alpha * new_close + (1 - alpha) * state[key]
+            state[key] = new_ema
             out[key] = new_ema
 
+        out["_state"] = state
         return out
 
 

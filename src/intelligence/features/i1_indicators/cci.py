@@ -59,7 +59,9 @@ class CCIPlugin:
                 "tp_window": deque(tp_vals, maxlen=p),
             }
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")

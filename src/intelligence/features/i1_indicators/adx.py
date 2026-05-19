@@ -128,7 +128,7 @@ class ADXPlugin:
 
         return float(adx), float(final_plus_di), float(final_minus_di), state
 
-    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
         df = windows.get("main")

@@ -28,13 +28,11 @@ class MockIncrementalPlugin:
     supports_incremental = True
     _state: dict = {}
 
-    def compute_full(self, frames, *, state=None):
-        if state is None:
-            state = {}
-        state.setdefault("counter", 0)
-        state["counter"] += 1
-        state["path"] = "full"
-        return {"counter": state["counter"]}
+    def compute_full(self, frames):
+        self._state.setdefault("counter", 0)
+        self._state["counter"] += 1
+        self._state["path"] = "full"
+        return {"counter": self._state["counter"], "path": "full"}
 
     def compute_next(self, windows, *, state=None):
         if state is None:
@@ -125,9 +123,8 @@ class TestStateParamDrivesIncrementalGating:
         frames = {}
 
         # Empty state must take compute_full path.
-        state_empty = {}
-        _timed_plugin_call(plugin, frames, state_empty)
-        assert state_empty.get("path") == "full"
+        result_full, _ = _timed_plugin_call(plugin, frames, {})
+        assert result_full.get("path") == "full"
 
         # Non-empty state must take compute_next path.
         state_full = {"counter": 5}
@@ -143,12 +140,11 @@ class TestStateParamDrivesIncrementalGating:
         plugin = MockIncrementalPlugin()
         frames = {}
 
-        state = {}
-        result, duration_ms = _timed_plugin_call(plugin, frames, state)
+        result, duration_ms = _timed_plugin_call(plugin, frames, {})
 
         assert (
-            state.get("path") == "full"
-        ), f"Empty state should trigger compute_full, but path was {state.get('path')}"
+            result.get("path") == "full"
+        ), f"Empty state should trigger compute_full, but path was {result.get('path')}"
         assert isinstance(duration_ms, float)
 
     def test_nonempty_state_takes_compute_next_path(self):
@@ -194,8 +190,8 @@ class TestStateParamDrivesIncrementalGating:
         frames = {}
         state = {}  # Fresh state for this bar — should trigger compute_full
 
-        _timed_plugin_call(plugin, frames, state)
+        result, _ = _timed_plugin_call(plugin, frames, state)
 
         assert (
-            state.get("path") == "full"
+            result.get("path") == "full"
         ), "Empty state parameter should force compute_full even if plugin._state is truthy"

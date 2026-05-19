@@ -24,7 +24,7 @@ from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
-from src.core.service_utils import min_bars_for_tf, normalize_session_type
+from src.core.service_utils import min_bars_for_tf, normalize_session_type, parse_iso_ts
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
@@ -441,7 +441,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Bars arrive from an internal trusted producer (bar-aggregator), so
         # field shapes are guaranteed by the upstream contract. Falls back to
         # full validation on error to surface schema violations via DLQ.
+        # ts arrives as ISO string from Kafka; model_construct won't coerce it.
         try:
+            if isinstance(msg.get("ts"), str):
+                msg = {**msg, "ts": parse_iso_ts(msg["ts"])}
             return BarMessage.model_construct(**msg)
         except (ValueError, TypeError):
             try:

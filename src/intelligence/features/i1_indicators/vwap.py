@@ -73,8 +73,10 @@ class VWAPPlugin:
             "vwap_std": float(std),
         }
 
-    def compute_next(self, windows: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        if not self._state:
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -84,18 +86,18 @@ class VWAPPlugin:
         # Reset on session boundary (new trading day)
         if "timestamp" in df.columns:
             bar_date = pd.to_datetime(row["timestamp"], utc=True).date()
-            if bar_date != self._state.get("session_date"):
+            if bar_date != state.get("session_date"):
                 return self.compute_full(windows)
 
         tp = (float(row["high"]) + float(row["low"]) + float(row["close"])) / 3.0
         vol = float(row["volume"])
-        self._state["cum_pv"] += tp * vol
-        self._state["cum_vol"] += vol
-        self._state["cum_tp_sq_vol"] += tp**2 * vol
-        if self._state["cum_vol"] == 0:
+        state["cum_pv"] += tp * vol
+        state["cum_vol"] += vol
+        state["cum_tp_sq_vol"] += tp**2 * vol
+        if state["cum_vol"] == 0:
             return {}
-        vwap_val = self._state["cum_pv"] / self._state["cum_vol"]
-        variance = self._state["cum_tp_sq_vol"] / self._state["cum_vol"] - vwap_val**2
+        vwap_val = state["cum_pv"] / state["cum_vol"]
+        variance = state["cum_tp_sq_vol"] / state["cum_vol"] - vwap_val**2
         std = math.sqrt(max(variance, 0.0))
         return {
             "vwap": vwap_val,
@@ -104,6 +106,7 @@ class VWAPPlugin:
             "vwap_upper_2": vwap_val + 2 * std,
             "vwap_lower_2": vwap_val - 2 * std,
             "vwap_std": std,
+            "_state": state,
         }
 
 
