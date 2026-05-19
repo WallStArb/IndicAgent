@@ -1379,7 +1379,13 @@ Plans:
   4. `IBKR_CONTRACTS_JSON` env var still seeds DB on empty-DB first startup; backward compatibility preserved
   5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
 
-**Plans**: TBD
+**Plans:** 6 plans
+- [ ] 091-01-PLAN.md - Fix FX collision in upsert_instruments(), add USDJPY row, install pg_notify trigger (INST-01, INST-05)
+- [ ] 091-02-PLAN.md - Add LISTEN/NOTIFY consumer to CacheManager with reconnect-backoff; wire task into intelligence_pipeline_agent (INST-03)
+- [ ] 091-03-PLAN.md - Flip get_active_contracts() non-futures path to DB; count-gate startup seeding; update api/utils.resolve_contract (INST-01, INST-04, INST-05)
+- [ ] 091-04-PLAN.md - Idempotent migration script + remove Instrument defaults and contracts field from settings.py (INST-01, INST-04, INST-05)
+- [ ] 091-05-PLAN.md - Fix 16+ broken tests; mock get_active_contracts() instead of constructing Settings(contracts=[...]) (INST-05)
+- [ ] 091-06-PLAN.md - Add POST/PUT/DELETE endpoints to src/api/routes/instruments.py with Pydantic validation (INST-02)
 
 ### Phase 090: Signal Ledger Hardening + Thread Safety
 
