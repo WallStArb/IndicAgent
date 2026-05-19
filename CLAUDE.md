@@ -162,6 +162,9 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **`BaseWriterAgent._parse_payload` return contract**: returning `None` triggers `_maybe_route_to_dlq` on the whole payload. When doing per-signal validation, return `[]` for the all-invalid case to prevent the base writer from double-DLQ-ing the payload; only return `None` for a truly empty/unparseable payload with no signals at all.
 - **API health router prefix is `/health`** not `/api/health`: `app.include_router(health.router, prefix="/health", ...)` at `src/api/main.py:131`. Routes are `/health/system`, `/health/database`, etc.
 - **`agent_last_message_timestamp_seconds` label key is `agent`** not `agent_id`: `self._last_msg_ts_attrs = {"agent": name}` in `src/core/agent/base.py`. Use `r["metric"].get("agent")` when querying this metric from Prometheus.
+- **gemma4:e4b JSON enforcement:** outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt. `_strip_thinking_tags` only removes `<think>` tags — does not catch prose.
+- **Swarm raw signal confidence field:** `calibrated_confidence` is null in Kafka signal payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
+- **CIS weights never loaded:** `seed_cis_weights()` in `cache_manager.py` is never called externally — scorer runs bootstrap weights (equal ~0.2) forever despite `cis_weights` table having learned values. Avg CIS ≈ 0.046 is the symptom. Fix: load from DB on startup + 15m refresh.
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
@@ -188,5 +191,6 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Roll flow:** `RollComputeAgent` → `RollEvent` → `ContractMetadataWriterAgent` → `is_front_month` → restart `indicagent-ibkr-provider`.
 - **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
+- **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Check VRAM: `cat /sys/class/drm/card1/device/mem_info_vram_total`. Benchmark: `curl -s http://localhost:11434/api/generate -d '{"model":"...","prompt":"...","stream":false}'`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.
 
 > Sudo, INDICAGENT_ENV debug, more: `docs/operations/infrastructure-reference.md`
