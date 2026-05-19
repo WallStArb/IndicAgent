@@ -106,6 +106,15 @@ class MarketProfilePlugin:
         return self._build_output(close, poc_level, va_high, va_low, atr_14)
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        """Incremental volume profile update.
+
+        Falls back to compute_full when state is None or empty.
+
+        State keys:
+            tick_size (float): price bucket size, seeded by compute_full; read-only here.
+            volume_buckets (dict[float, float]): accumulated TPO counts per price level.
+            bar_count (int): running bar count since last compute_full.
+        """
         if state is None or not state:
             return self.compute_full(windows, state=state)
 

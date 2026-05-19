@@ -293,6 +293,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._worker_manager = PerKeyWorkerManager(
             processor=self._process_bar_inner,
             symbol_filter=_symbol_filter_pkw,
+            queue_maxsize=self.settings.intelligence_pipeline_queue_maxsize,
         )
         self._worker_manager.start_per_key_workers()
 
@@ -399,7 +400,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     try:
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
-                            self._cache_mgr.update_cross_asset(tf, payload)
+                            await self._cache_mgr.update_cross_asset(tf, payload)
                         elif _topic == _macro_topic:
                             tf = payload.get("timeframe", payload.get("tf", "1m"))
                             macro_fields = {
@@ -412,7 +413,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                                 )
                                 if k in payload
                             }
-                            self._cache_mgr.update_macro(tf, macro_fields)
+                            await self._cache_mgr.update_macro(tf, macro_fields)
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         else:
@@ -479,7 +480,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._cache_mgr.update_hmm_regime(fp_result.hmm_regime)  # D-25
         # Cache HTF intel for lower-TF bars to use as cross-tf context (D-19)
         if bar.tf in ("15m", "1h", "4h", "1d"):
-            self._cache_mgr.update_htf_intel(bar.tf, fp_result.event.model_dump())
+            await self._cache_mgr.update_htf_intel(bar.tf, fp_result.event.model_dump())
         msg_key = message_key(bar.symbol, bar.tf)
         env = self.settings.env_name
         intel_topic = (
