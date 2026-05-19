@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 091-06-PLAN.md
-last_updated: "2026-05-19T22:06:12.791Z"
+stopped_at: Completed 091-instrument-registry 091-04-PLAN.md
+last_updated: "2026-05-19T22:25:28.288Z"
 last_activity: 2026-05-19
 progress:
   total_phases: 32
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 091 (instrument-registry) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-05-19
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
@@ -132,6 +132,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 - [Phase 091-02]: Lazy import of invalidate_active_contracts_cache inside _reload_instruments_cache to avoid circular import at module level
 - [Phase 091-06]: Soft-delete (is_active=false via UPDATE) used instead of hard DELETE so DB trigger fires pg_notify and audit history is preserved
 - [Phase 091-06]: No explicit pg_notify call in route handlers; DB trigger from 091-01 fires automatically on INSERT/UPDATE
+- [Phase 091-instrument-registry]: Use c.symbol (not c.base) as upsert PK for instruments table - fixes FX collision where USDJPY/USDCHF both had base=USD
+- [Phase 091-instrument-registry]: Restored get_point_value() and get_tick_size() to settings.py (reimplemented via get_active_contracts) after signal_tracker_compute_agent import dependency discovered
 
 ### Analysis Docs (produced 2026-05-16)
 
@@ -147,8 +149,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-19T22:06:12.788Z
-Stopped at: Completed 091-06-PLAN.md
+Last session: 2026-05-19T22:25:28.283Z
+Stopped at: Completed 091-instrument-registry 091-04-PLAN.md
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
@@ -234,3 +236,4 @@ Next: /gsd:execute-phase 088
 | Phase 091 P01 | 3 | 3 tasks | 3 files |
 | Phase 091-instrument-registry P02 | 525563 | 3 tasks | 3 files |
 | Phase 091 P06 | 4 | 2 tasks | 2 files |
+| Phase 091-instrument-registry P04 | 90 | 2 tasks | 9 files |
