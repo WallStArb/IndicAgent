@@ -86,6 +86,7 @@ _QUERY = """
         mae,
         mfe,
         outcome,
+        entry_type,
         confidence,
         exit_at,
         market_entry_pnl_r,
@@ -304,6 +305,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "regime_type": mr.regime_type,
                             "window_days": mr.window_days,
                             "symbol": mr.symbol,
+                            "entry_type": mr.entry_type,
                             "n": mr.n,
                             "n_outliers": mr.n_outliers,
                             "never_activated_pct": mr.never_activated_pct,
@@ -314,9 +316,15 @@ class SignalMetricsComputeAgent(BaseAgent):
                             "p_value": mr.p_value,
                             "avg_mae": mr.avg_mae,
                             "avg_mfe": mr.avg_mfe,
+                            "skewness": mr.skewness,
+                            "kurtosis": mr.kurtosis,
+                            "min_r": mr.min_r,
+                            "p5_r": mr.p5_r,
+                            "recovery_factor": mr.recovery_factor,
+                            "cvar_5": mr.cvar_5,
                             "computed_at": mr.computed_at.isoformat(),
                         },
-                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}:{mr.symbol}",
+                        key=f"metrics:{track}:{mr.setup_plugin}:{mr.tf}:{mr.regime_type}:{window_days}:{mr.symbol}:{mr.entry_type}",
                     )
 
             # IC metrics (measures confidence predictive power; not track-split)
