@@ -1392,6 +1392,7 @@ Plans:
   5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
 
 **Plans:** 6 plans
+
 - [ ] 091-01-PLAN.md - Fix FX collision in upsert_instruments(), add USDJPY row, install pg_notify trigger (INST-01, INST-05)
 - [ ] 091-02-PLAN.md - Add LISTEN/NOTIFY consumer to CacheManager with reconnect-backoff; wire task into intelligence_pipeline_agent (INST-03)
 - [ ] 091-03-PLAN.md - Flip get_active_contracts() non-futures path to DB; count-gate startup seeding; update api/utils.resolve_contract (INST-01, INST-04, INST-05)
@@ -1418,6 +1419,7 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
+
 - [ ] 091.1-01-PLAN.md — cache_manager.py: callback injection, dead state removal, asyncio fix, listener health metric
 - [ ] 091.1-02-PLAN.md — settings.py: consolidate to one psycopg2 connection per miss
 - [ ] 091.1-03-PLAN.md — database_manager.py: ensure_instruments_trigger idempotent method
@@ -1437,6 +1439,7 @@ Plans:
   4. All existing signal_ledger write paths pass tests unchanged
 
 **Plans:** 2/2 plans complete
+
 - [x] 090-01-PLAN.md - Signal ledger _to_row() refactor + dynamic tuple-count guard test (LEDGER-01, LEDGER-02)
 - [x] 090-02-PLAN.md - settings.py RLock thread safety + CacheManager.snapshot() sync-invariant comment (THREAD-01, THREAD-02)
 
@@ -1453,10 +1456,10 @@ Plans:
   4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
 
 **Plans:** 3/3 plans complete
+
 - [x] 092-01-PLAN.md — Foundation: schema migration + DistributionShape helper + MetricsComputedEvent extension + consumer guards (QUAL-01, QUAL-03)
 - [x] 092-02-PLAN.md — Compute: per-symbol + per-entry_type grouping in compute_signal_metrics (QUAL-02, QUAL-03)
 - [x] 092-03-PLAN.md — Governance: tail-risk gate + SHADOW_TAIL_RISK_BLOCKED counter in shadow_auditor_agent (QUAL-04)
-
 
 <details>
 <summary>v2.7 AI Agent Platform Modernization (Phases 093-099) — ACTIVE</summary>
@@ -1469,11 +1472,13 @@ Plans:
 **Depends on**: Phase 092
 **Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05
 **Success Criteria** (what must be TRUE):
+
   1. `LiteLLMBackend` handles calls to Ollama (primary) and OpenRouter (fallback) via LiteLLM model strings; no custom HTTP code remains
   2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile without modification
   3. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows; Grafana token-spend panel shows real values
   4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
   5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
+
 **Plans**: TBD
 
 ### Phase 094: Instructor Structured Output
@@ -1482,17 +1487,27 @@ Plans:
 **Depends on**: Phase 093
 **Requirements**: STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
 **Success Criteria** (what must be TRUE):
+
   1. `InstructorClient` wraps `LiteLLMBackend`; all agent JSON parsing routes through a single `client.chat.completions.create(response_model=...)` call
   2. A deliberate invalid response in a unit test triggers Instructor retry with `ValidationError` in prompt; agent never implements its own retry loop
   3. `llm_calls.parse_success` shows a before/after parse failure rate delta; metric is queryable to validate the hypothesis
   4. All `_parse_*_response` and `_validate_*_fields` boilerplate methods are deleted from agent files; each agent declares exactly one `BaseModel` result class
+
 **Plans:** 5 plans, 3 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 094-01-PLAN.md (TDD, wave 1) — Install instructor, structured_client.py singleton, BaseAIAgent._llm_generate_structured + 3 unit tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 094-02-PLAN.md (execute, wave 2) — Migrate SkepticAgent: SkepticResult, delete _validate_skeptic_fields + output_schema
 - [ ] 094-03-PLAN.md (execute, wave 2) — Migrate CorrelationAgent: CorrelationResult, delete _validate_correlation_fields + output_schema
 - [ ] 094-04-PLAN.md (execute, wave 2) — Migrate CounterfactualAgent: CounterfactualResult, delete _validate_counterfactual_fields + output_schema
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 094-05-PLAN.md (execute, wave 3) — Migrate RegimeCoherenceAgent + delete BaseMultiplierAgent._parse_multiplier_response + live smoke test + alpha-swarm restart
 
 ### Phase 095: Pydantic AI Agent Adapter
@@ -1501,11 +1516,13 @@ Plans:
 **Depends on**: Phase 094
 **Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
 **Success Criteria** (what must be TRUE):
+
   1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
   2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]` without constructor injection
   3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents run on `BaseAIAgent` unchanged
   4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; promotion requires explicit operator action
   5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
+
 **Plans**: TBD
 
 ### Phase 096: Agent Registry
@@ -1514,10 +1531,12 @@ Plans:
 **Depends on**: Phase 095
 **Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
 **Success Criteria** (what must be TRUE):
+
   1. `agents.yaml` exists; adding a new entry with valid `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version` and restarting the service instantiates the agent without code changes
   2. `AgentRegistry` reads `agents.yaml` at startup and constructs agent instances; the registry is the sole construction path — no agent is instantiated elsewhere
   3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
   4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
+
 **Plans**: TBD
 
 ### Phase 097: Zep Episodic Memory
@@ -1526,10 +1545,12 @@ Plans:
 **Depends on**: Phase 096
 **Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
 **Success Criteria** (what must be TRUE):
+
   1. `ZepMemoryClient.recall(context)` returns `list[Episode]` scoped to `(regime_type, symbol, setup_type)`; `store(episode)` writes outcomes; the interface is testable with a mock client
   2. Agents receive `memory_client` via `AgentDeps`; no agent imports `ZepMemoryClient` directly
   3. `ZEP_MEMORY_ENABLED=false` by default; setting it to `true` activates recall without code changes; shadow-mode recall quality is logged before enabling
   4. OTel histogram `zep_recall_latency_ms` exists; a recall that exceeds 50ms p95 is visible in Grafana before the feature is promoted
+
 **Plans**: TBD
 
 ### Phase 098: DSPy Offline Optimizer
@@ -1538,10 +1559,12 @@ Plans:
 **Depends on**: Phase 097
 **Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
 **Success Criteria** (what must be TRUE):
+
   1. `DSPyOptimizer` reads `(prompt, result, outcome)` tuples from `llm_calls WHERE outcome IS NOT NULL` and produces compiled prompt variants offline
   2. Compiled prompts are stored in `prompt_versions` table with A/B assignment; `llm_calls.prompt_version` links each call to a specific compiled variant
   3. The optimizer is a timer-triggered batch job (not a daemon); it has zero code path in the live inference loop; a failure in the optimizer does not affect signal generation
   4. An A/B comparison report showing win rate delta, parse failure delta, and `calibrated_confidence` delta is produced before any optimized prompt is promoted to default
+
 **Plans**: TBD
 
 ### Phase 099: Guardrails AI Validation
@@ -1550,9 +1573,11 @@ Plans:
 **Depends on**: Phase 098
 **Requirements**: GUARD-01, GUARD-02, GUARD-03
 **Success Criteria** (what must be TRUE):
+
   1. `GuardrailsAIValidator` implements the same interface as the existing `GuardrailsValidator`; all call sites are unchanged; a grep for `GuardrailsValidator` finds only the new class
   2. `_validate_*_fields` boilerplate methods are deleted from agent files; total custom validation LOC in the AI layer is reduced (measured before/after)
   3. OTel histogram `guardrails_latency_ms` exists; p95 latency overhead vs the old validator is documented in the phase summary; must not exceed 10ms
+
 **Plans**: TBD
 
 </details>
