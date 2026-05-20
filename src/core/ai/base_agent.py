@@ -84,6 +84,7 @@ class BaseAIAgent(BaseAgent, ABC):
         super().__init__(*args, name=name, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
         self._lineage: LineageRecorder | None = None
+        self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
 
     async def compute(self, context: AIContext) -> AgentOutput:
         """Run _compute() with timing capture + exception safety.
@@ -164,10 +165,6 @@ class BaseAIAgent(BaseAgent, ABC):
         payload dict containing agent-specific results.
         """
         ...
-
-    @property
-    def _agent_labels(self) -> dict[str, str]:
-        return {"agent_id": self.agent_id, "group": self.group}
 
     def _record_metrics(self, status: str, latency_ms: float) -> None:
         AI_AGENT_INVOCATIONS_TOTAL.add(1, {**self._agent_labels, "status": status})
@@ -281,7 +278,7 @@ class BaseAIAgent(BaseAgent, ABC):
         """
         AI_AGENT_ERRORS_TOTAL.add(
             1,
-            {"agent_id": self.agent_id, "error_type": type(error).__name__},
+            {**self._agent_labels, "error_type": type(error).__name__},
         )
         if self._lineage is not None:
             self._lineage.record(

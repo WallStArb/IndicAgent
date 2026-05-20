@@ -272,7 +272,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-        await self._db_manager.ensure_instruments_trigger()
+        await self._db.ensure_instruments_trigger()
         listener_task = self._cache_mgr.start_instruments_listener()
         self._background_tasks.add(listener_task)
         listener_task.add_done_callback(self._background_tasks.discard)
