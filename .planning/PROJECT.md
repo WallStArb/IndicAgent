@@ -261,17 +261,25 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.6 — Foundation Hardening & Signal Transform
+## Current Milestone: v2.7 — AI Agent Platform Modernization
 
-**Goal:** Harden base infrastructure to eliminate silent failures, decompose the intelligence pipeline god class, and advance the signal transform architecture — fix the leverage points, not each symptom, to set a clean foundation for horizontal (qualitative) and vertical (deeper quant) expansion.
+**Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack — each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged.
+
+**Design principles (Jim Simons / Renaissance standard):**
+- Every library adoption is a measurable hypothesis — shadow mode first, promote on evidence
+- No layer added without a concrete parse failure rate, latency, or maintenance burden metric
+- Compute costs count — Zep/DSPy only if ROI is measurable
+- Keep what works: BaseGroupService, CircuitBreaker, OTel, shadow_registry, signal_ledger untouched
+- DAG modularity: each new layer is independently deployable and testable
 
 **Target phases:**
-- Phase 084: Base Agent Hardening — enforced Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup
-- Phase 085: Persistence Writer Migration — all 6 writers adopt 084 contracts; fix lineage_writer silent data loss; named params across all positional-tuple writers
-- Phase 086: Pipeline Hardening — wire PluginCircuitBreaker per-plugin; validate_signal() at I7 output boundary; checkpoint fail-fast; output queue block/retry
-- Phase 087: Signal Transform Architecture Phases 2-4 — gated on ~May 25 data accumulation
-- Phase 088: God Class Decomposition — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from 1892-line IntelligencePipelineComputeAgent
-- Phase 089: First Qualitative Intelligence Lane — one lane (earnings or macro events) validated in shadow mode before expansion
+- Phase 093: LiteLLM backend — replace OllamaProvider/OpenRouterProvider/LLMChain internals; `LLMProviderChain.generate()` interface unchanged
+- Phase 094: Instructor structured output — replace manual JSON parsing; Instructor retry loop injects validation errors back into prompt
+- Phase 095: Pydantic AI agent adapter — typed Agent[AgentDeps, ResultType] replaces BaseAIAgent boilerplate; shadow mode first
+- Phase 096: Agent Registry — YAML-driven agent instantiation; operators add agents without code deploy
+- Phase 097: Zep episodic memory — persistent agent context by (regime, symbol, setup_type); shadow mode before enabling
+- Phase 098: DSPy offline optimizer — compile prompts from signal_ledger outcome data; A/B tested against baseline
+- Phase 099: Guardrails AI — output validation replacing custom GuardrailsValidator; parse failure rate comparison
 
 ---
 ## Evolution
@@ -292,4 +300,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 — v2.5 archived (Phases 69-83). v2.6 Foundation Hardening & Signal Transform started. Phases 084-089 defined.*
+*Last updated: 2026-05-20 — v2.6 complete (Phases 084-092). v2.7 AI Agent Platform Modernization started. Phases 093-099 defined.*
