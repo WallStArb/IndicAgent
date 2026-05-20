@@ -23,11 +23,11 @@ import pytest
 from src.intelligence.pipeline.cache_manager import CacheManager
 
 
-def make_cm(rows: list | None = None) -> CacheManager:
+def make_cm(rows: list | None = None, on_instruments_changed=None) -> CacheManager:
     """Create a CacheManager with a mock DB that returns `rows` for all queries."""
     db = AsyncMock()
     db.execute_query = AsyncMock(return_value=rows if rows is not None else [])
-    return CacheManager(db=db, settings=MagicMock())
+    return CacheManager(db=db, settings=MagicMock(), on_instruments_changed=on_instruments_changed)
 
 
 # ---------------------------------------------------------------------------
@@ -380,17 +380,12 @@ def test_start_instruments_listener_returns_one_task():
 
 
 @pytest.mark.asyncio
-async def test_reload_instruments_cache_calls_invalidate(monkeypatch):
-    """_reload_instruments_cache calls invalidate_active_contracts_cache() exactly once."""
+async def test_reload_instruments_cache_calls_invalidate():
+    """_reload_instruments_cache calls the injected on_instruments_changed callback exactly once."""
     from unittest.mock import MagicMock
 
     invalidate_mock = MagicMock()
-    monkeypatch.setattr(
-        "src.config.settings.invalidate_active_contracts_cache",
-        invalidate_mock,
-    )
-
-    cm = make_cm(rows=[])
+    cm = make_cm(rows=[], on_instruments_changed=invalidate_mock)
     await cm._reload_instruments_cache()
 
     invalidate_mock.assert_called_once()
