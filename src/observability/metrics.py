@@ -397,6 +397,21 @@ LLM_RATE_LIMIT_WAIT = _meter.create_histogram(
     unit="s",
 )
 
+LLM_EMPTY_RESPONSES = _meter.create_counter(
+    "llm_empty_responses_total",
+    description="LLM calls that returned no response (all providers failed or circuits open)",
+)
+
+LLM_PARSE_FAILURES = _meter.create_counter(
+    "llm_parse_failures_total",
+    description="LLM responses that passed guardrails but failed JSON parsing in the agent",
+)
+
+LLM_RESPONSE_CHARS = _meter.create_histogram(
+    "llm_response_chars",
+    description="Character length of successful LLM responses per provider and call_type",
+)
+
 # ---------------------------------------------------------------------------
 # AI agent execution metrics
 # ---------------------------------------------------------------------------

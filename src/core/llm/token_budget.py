@@ -49,5 +49,9 @@ class TokenBudget:
         self._check_rollover()
         return self._tokens
 
+    def utilization_pct(self) -> float:
+        self._check_rollover()
+        return min(100.0, self._tokens / max(1, self._limit) * 100.0)
+
     def estimated_cost_today(self) -> float:
         return (self._tokens / 1000.0) * self._cost_per_1k

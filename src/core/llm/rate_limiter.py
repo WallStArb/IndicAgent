@@ -10,6 +10,8 @@ import time
 
 import structlog
 
+from src.observability.metrics import LLM_RATE_LIMIT_WAIT
+
 logger = structlog.get_logger(__name__)
 
 _MIN_BACKOFF_S = 0.1
@@ -19,9 +21,10 @@ _MAX_BACKOFF_S = 30.0
 class RateLimiter:
     """Per-provider token bucket rate limiter."""
 
-    def __init__(self, rpm: int, tpm: int) -> None:
+    def __init__(self, rpm: int, tpm: int, provider_id: str = "unknown") -> None:
         self._rpm = rpm
         self._tpm = tpm
+        self._provider_id = provider_id
         # Sliding window: list of (monotonic_ts, tokens)
         self._requests: list[float] = []
         self._tokens: list[tuple[float, int]] = []
@@ -39,6 +42,7 @@ class RateLimiter:
 
     async def acquire(self, tokens: int) -> None:
         """Wait until rate limits allow this request, then record it."""
+        wait_start = time.monotonic()
         backoff = _MIN_BACKOFF_S
         while True:
             self._prune()
@@ -47,6 +51,9 @@ class RateLimiter:
                 and self._tokens_in_window() + tokens <= self._tpm
             ):
                 now = time.monotonic()
+                waited_s = now - wait_start
+                if waited_s > 0.01:
+                    LLM_RATE_LIMIT_WAIT.record(waited_s, {"provider": self._provider_id})
                 self._requests.append(now)
                 self._tokens.append((now, tokens))
                 return
