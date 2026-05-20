@@ -5,11 +5,13 @@ Resets at UTC midnight. Exceeding the daily limit falls back to Ollama-only.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import time
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+_SECS_PER_DAY = 86400
 
 
 class TokenBudget:
@@ -18,12 +20,12 @@ class TokenBudget:
     def __init__(self, daily_token_limit: int, cost_per_1k: float = 0.0) -> None:
         self._limit = daily_token_limit
         self._cost_per_1k = cost_per_1k
-        self._day: str = datetime.now(UTC).strftime("%Y-%m-%d")
+        self._day: int = int(time.time() // _SECS_PER_DAY)
         self._tokens: int = 0
         self._by_type: dict[str, int] = {}
 
     def _check_rollover(self) -> None:
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        today = int(time.time() // _SECS_PER_DAY)
         if today != self._day:
             self._day = today
             self._tokens = 0

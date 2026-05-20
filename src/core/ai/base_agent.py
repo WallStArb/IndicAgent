@@ -165,15 +165,13 @@ class BaseAIAgent(BaseAgent, ABC):
         """
         ...
 
+    @property
+    def _agent_labels(self) -> dict[str, str]:
+        return {"agent_id": self.agent_id, "group": self.group}
+
     def _record_metrics(self, status: str, latency_ms: float) -> None:
-        AI_AGENT_INVOCATIONS_TOTAL.add(
-            1,
-            {"agent_id": self.agent_id, "group": self.group, "status": status},
-        )
-        AI_AGENT_DURATION_MS.record(
-            latency_ms,
-            {"agent_id": self.agent_id, "group": self.group},
-        )
+        AI_AGENT_INVOCATIONS_TOTAL.add(1, {**self._agent_labels, "status": status})
+        AI_AGENT_DURATION_MS.record(latency_ms, self._agent_labels)
 
     def _neutral(self, error: str, latency_ms: float) -> AgentOutput:
         """Return neutral AgentOutput for error/timeout cases."""
@@ -250,7 +248,7 @@ class BaseAIAgent(BaseAgent, ABC):
                 )
                 if result is None:
                     span.set_attribute("llm.empty_response", True)
-                    LLM_EMPTY_RESPONSES.add(1, {"agent_id": self.agent_id, "group": self.group})
+                    LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
                 return result, call_id
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
@@ -264,7 +262,7 @@ class BaseAIAgent(BaseAgent, ABC):
         JSON parsing of that response fails. Routes through the LLM chain's
         producer so the writer can UPDATE the llm_calls row.
         """
-        LLM_PARSE_FAILURES.add(1, {"agent_id": self.agent_id, "group": self.group})
+        LLM_PARSE_FAILURES.add(1, self._agent_labels)
         try:
             await self._llm._publish_parse_failure(call_id)
         except Exception as exc:

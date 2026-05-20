@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 import structlog
-from opentelemetry import metrics as _otel_metrics
+from opentelemetry.metrics import CallbackOptions
 from opentelemetry.metrics import Observation as _Observation
 from opentelemetry.trace import StatusCode
 
@@ -23,6 +23,7 @@ from src.observability.metrics import (
     LLM_CACHE_HITS,
     LLM_GUARDRAILS_REJECTIONS,
     LLM_RESPONSE_CHARS,
+    _meter,
     record_llm_call,
 )
 from src.observability.otel import get_tracer
@@ -36,11 +37,14 @@ _budget = TokenBudget(daily_token_limit=1_000_000, cost_per_1k=0.001)
 _guardrails = GuardrailsValidator()
 
 
-def _observe_budget_pct(options: object):  # type: ignore[type-arg]
-    yield _Observation(_budget.utilization_pct(), {})
+_EMPTY_ATTRS: dict[str, str] = {}
 
 
-_otel_metrics.get_meter("indicagent").create_observable_gauge(
+def _observe_budget_pct(options: CallbackOptions):
+    yield _Observation(_budget.utilization_pct(), _EMPTY_ATTRS)
+
+
+_meter.create_observable_gauge(
     "llm_token_budget_pct_used",
     callbacks=[_observe_budget_pct],
     description="Daily token budget utilization 0-100",
@@ -108,7 +112,8 @@ class LLMProviderChain:
 
         return providers
 
-    def _make_rate_limiters(self, settings: Any) -> dict[str, RateLimiter]:
+    @staticmethod
+    def _make_rate_limiters(settings: Any) -> dict[str, RateLimiter]:
         limiters: dict[str, RateLimiter] = {}
         if settings is not None:
             for provider_id, limits in getattr(settings, "LLM_RATE_LIMITS", {}).items():
@@ -158,7 +163,6 @@ class LLMProviderChain:
         model: str,
         audit_context: dict | None,
     ) -> str | None:
-        # 1. Cache lookup
         if self._cache_ttl > 0:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
@@ -167,14 +171,12 @@ class LLMProviderChain:
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
-        # 2. Rate limiter
         limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
             iter(self._rate_limiters.values()), None
         )
         if limiter is not None:
             await limiter.acquire(tokens=max_tokens)
 
-        # 3. LLM call
         t0 = time.monotonic()
         response = await self._inner.generate(
             prompt, system, max_tokens=max_tokens, timeout=timeout
@@ -184,13 +186,11 @@ class LLMProviderChain:
         span.set_attribute("llm.provider", provider_id)
         span.set_attribute("llm.latency_ms", round(latency_s * 1000, 1))
 
-        # 4. Failure
         if response is None:
             record_llm_call(provider_id, self._call_type, latency_s, status="failure")
             span.set_attribute("llm.status", "failure")
             return None
 
-        # 5. Guardrails
         if _guardrails.has_schema(self._call_type):
             validated = _guardrails.validate(self._call_type, response)
             if validated is None:
@@ -202,12 +202,10 @@ class LLMProviderChain:
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
-        # 6. Response character length
         LLM_RESPONSE_CHARS.record(
             len(response), {"provider": provider_id, "call_type": self._call_type}
         )
 
-        # 7. Token counting — provider-reported or len/4 estimate
         token_usage = self._inner.last_token_usage
         actual_total = token_usage.get("total_tokens") if isinstance(token_usage, dict) else None
         tokens = (
@@ -217,7 +215,7 @@ class LLMProviderChain:
         )
         span.set_attribute("llm.tokens", tokens)
 
-        # 8. Budget recording (observability — never gates execution)
+        # budget is observability-only — never gates execution
         _budget.record(call_type=self._call_type, provider=provider_id, tokens=tokens)
         if _budget.is_exceeded():
             logger.warning(
@@ -227,16 +225,13 @@ class LLMProviderChain:
                 estimated_cost=_budget.estimated_cost_today(),
             )
 
-        # 9. Metrics
         record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
 
-        # 10. Cache put
         if self._cache_ttl > 0:
             _cache.put(
                 system=system, prompt=prompt, model=model, response=response, ttl=self._cache_ttl
             )
 
-        # 11. Audit trail
         await self._publish_audit(audit_context, provider_id, latency_s, tokens, response, model)
 
         logger.debug(
