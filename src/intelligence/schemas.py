@@ -1003,6 +1003,7 @@ class MetricsComputedEvent(BaseModel):
     regime_type: str
     window_days: int
     symbol: str = "*"
+    entry_type: str = "*"
     n: int
     n_outliers: int
     never_activated_pct: float | None = None
@@ -1013,6 +1014,12 @@ class MetricsComputedEvent(BaseModel):
     p_value: float | None = None
     avg_mae: float | None = None
     avg_mfe: float | None = None
+    skewness: float | None = None
+    kurtosis: float | None = None
+    min_r: float | None = None
+    p5_r: float | None = None
+    recovery_factor: float | None = None
+    cvar_5: float | None = None
     computed_at: str
 
 
