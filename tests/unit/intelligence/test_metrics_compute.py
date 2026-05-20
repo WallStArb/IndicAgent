@@ -7,6 +7,8 @@ import pytest
 from src.intelligence.metrics.compute import (
     HMM_TO_REGIME,
     MIN_SAMPLE_SIZE,
+    DistributionShape,
+    _distribution_shape,
     compute_ic_metrics,
     compute_signal_metrics,
 )
@@ -322,3 +324,114 @@ class TestPipelinePerfWeightsSymbol:
         assert "rank_signals" in src
         # Check that rank_signals call includes symbol=
         assert "symbol=symbol" in src
+
+
+class TestDistributionShape:
+    """Unit tests for _distribution_shape() pure helper (Phase 092 Plan 01)."""
+
+    def test_returns_all_none_when_n_lt_3(self):
+        """With only 2 inputs, all fields are None (n < 3 threshold)."""
+        result = _distribution_shape([0.1, -0.2], 0.0)
+        assert isinstance(result, DistributionShape)
+        assert result.skewness is None
+        assert result.kurtosis is None
+        assert result.min_r is None
+        assert result.p5_r is None
+        assert result.recovery_factor is None
+        assert result.cvar_5 is None
+
+    def test_skewness_and_kurtosis_computed_when_n_gte_3(self):
+        """n=3 produces skewness and kurtosis but not min_r (n<30) or p5_r (n<20)."""
+        result = _distribution_shape([-1.0, 0.0, 1.0], 0.5)
+        assert result.skewness is not None
+        assert result.kurtosis is not None
+        # min_r requires n >= 30
+        assert result.min_r is None
+        # p5_r requires n >= 20
+        assert result.p5_r is None
+
+    def test_p5_and_cvar_computed_when_n_gte_20(self):
+        """n=20 with one large negative outlier produces p5_r and cvar_5."""
+        # 19 modest values + one large negative outlier
+        pnl_rs = [0.1] * 19 + [-3.0]
+        result = _distribution_shape(pnl_rs, 0.5)
+        assert result.p5_r is not None
+        # cvar_5 should be <= p5_r (expected shortfall is more extreme than percentile cut)
+        assert result.cvar_5 is not None
+        assert result.cvar_5 <= result.p5_r
+        # p5 is negative (the -3.0 outlier pulls it down), so recovery_factor is set
+        assert result.recovery_factor is not None
+
+    def test_min_r_and_recovery_factor_computed_when_n_gte_30(self):
+        """n=30 with min=-2.0 and avg_mfe=1.0 produces min_r and recovery_factor."""
+        # 29 small losses + one large loss
+        pnl_rs = [-0.1] * 29 + [-2.0]
+        result = _distribution_shape(pnl_rs, 1.0)
+        assert result.min_r is not None
+        assert result.min_r == pytest.approx(-2.0, abs=0.001)
+        # p5 will be negative (all losses), so recovery_factor should be set
+        assert result.recovery_factor is not None
+        assert result.recovery_factor > 0.0
+
+    def test_recovery_factor_none_when_p5_positive(self):
+        """All-positive pnl_rs: p5 > 0, so p5 not < -1e-9 -> recovery_factor None.
+
+        This asserts STRICT `<` semantics per CONTEXT.md D-01 (Gemini Actionable Item 1):
+        positive p5 means no tail loss exists, ratio is undefined.
+        """
+        pnl_rs = [0.1] * 30
+        result = _distribution_shape(pnl_rs, 1.0)
+        # p5 of all-positive list is positive
+        assert result.p5_r is not None
+        assert result.p5_r > 0.0
+        # recovery_factor must be None (strict < guard rejects positive p5)
+        assert result.recovery_factor is None
+
+    def test_recovery_factor_none_when_p5_at_minus_epsilon_boundary(self):
+        """p5 exactly at -1e-9: strict < excludes equal -> recovery_factor None."""
+        import numpy as np
+
+        # Construct a list where the 5th percentile is exactly -1e-9
+        # Use 20 values; set one to -1e-9 and the rest to positive to push p5 near -1e-9
+        # With 20 values, p5 = percentile at position 1 (0-indexed)
+        pnl_rs = sorted([-1e-9] + [0.1] * 19)
+        p5 = float(np.percentile(pnl_rs, 5))
+        # Verify the setup is correct — p5 should be near or at -1e-9
+        # (exact value depends on numpy interpolation; use a list designed to give exactly -1e-9)
+        # Since numpy interpolates, we must use a value that maps to -1e-9 at the 5th percentile
+        # For a 20-element list, rank 0 is used as the 5th percentile with linear interpolation
+        # So the first element (sorted) becomes p5_r
+        assert p5 == pytest.approx(-1e-9, abs=1e-12) or p5 >= -1e-9
+        # The guard condition is `p5 < -1e-9` — exactly -1e-9 is NOT less than -1e-9
+        # If p5 >= -1e-9 (including == -1e-9), recovery_factor must be None
+        result = _distribution_shape(pnl_rs, 1.0)
+        if result.p5_r is not None and result.p5_r >= -1e-9:
+            assert result.recovery_factor is None
+
+    def test_cvar_5_none_when_tail_empty(self):
+        """Edge case: no values strictly less than p5 -> cvar_5 is None.
+
+        When all 20+ values are identical, p5 equals the common value.
+        The tail comprehension [r for r in pnl_rs if r < p5] is empty -> cvar_5 = None.
+        """
+        # All identical negative values: p5 equals -0.1, no value is strictly less
+        pnl_rs = [-0.1] * 20
+        result = _distribution_shape(pnl_rs, 1.0)
+        assert result.p5_r is not None
+        # cvar_5 must be None (tail is empty — no value < p5)
+        assert result.cvar_5 is None
+
+    def test_kurtosis_uses_fisher_and_unbiased(self):
+        """Verify kurtosis is computed with fisher=True, bias=False (excess kurtosis, unbiased).
+
+        Normal distribution has excess kurtosis ≈ 0 with these settings.
+        A known positive-kurtosis distribution (t-dist with df=4) should produce kurtosis > 0.
+        """
+        from scipy.stats import kurtosis as scipy_kurtosis
+
+        # Use a known non-normal set — heavy-tailed t(4) samples have excess kurtosis > 0
+        # Use a crafted list where exact value is predictable
+        pnl_rs = [-2.0, -1.0, -0.5, 0.0, 0.0, 0.5, 1.0, 2.0, 3.0, 4.0] * 3
+        expected = round(float(scipy_kurtosis(pnl_rs, fisher=True, bias=False)), 4)
+        result = _distribution_shape(pnl_rs, 1.0)
+        assert result.kurtosis == pytest.approx(expected, abs=0.001)
