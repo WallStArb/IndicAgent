@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -124,10 +125,12 @@ class CacheManager:
         db: DatabaseManager,
         settings: Settings,
         symbols: frozenset[str] | None = None,
+        on_instruments_changed: Callable[[], None] | None = None,
     ) -> None:
         self._db = db
         self._settings = settings
         self._symbol_filter = symbols  # None = all symbols (D-30)
+        self._on_instruments_changed = on_instruments_changed or (lambda: None)
         self._logger = structlog.get_logger(__name__)
 
         # 6 cache dicts — atomic replacement on every load
@@ -158,10 +161,6 @@ class CacheManager:
         self._cross_asset_lock = asyncio.Lock()
         self._macro_lock = asyncio.Lock()
         self._htf_intel_lock = asyncio.Lock()
-
-        # Instruments cache — populated by the LISTEN/NOTIFY handler (INST-03).
-        # Non-futures only (asset_class != 'futures'). Atomic replacement on reload.
-        self._instruments_cache: list = []
 
     # ------------------------------------------------------------------
     # Properties (read surface)
@@ -433,14 +432,13 @@ class CacheManager:
         )
 
     async def _reload_instruments_cache(self) -> None:
-        """Reload non-futures instruments from DB and invalidate the settings TTL cache.
+        """Reload non-futures instruments from DB and invoke the on_instruments_changed callback.
 
-        On success: atomically replaces self._instruments_cache and calls
-        invalidate_active_contracts_cache() so the next get_active_contracts() call
-        re-queries.
+        On success: builds the instrument list and calls self._on_instruments_changed()
+        so the caller (e.g. intelligence_pipeline_agent) can invalidate its TTL cache.
 
-        On failure: logs at ERROR and leaves self._instruments_cache untouched so the
-        pipeline continues operating on the last good state.
+        On failure: logs at ERROR and leaves state unchanged so the pipeline continues
+        operating on the last good state.
         """
         try:
             rows = await self._db.execute_query(
@@ -448,11 +446,7 @@ class CacheManager:
                 " WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
             )
             instruments = [_instrument_from_row(r) for r in rows]
-            self._instruments_cache = instruments
-            # Lazy import to avoid circular import at module level.
-            from src.config.settings import invalidate_active_contracts_cache  # noqa: PLC0415
-
-            invalidate_active_contracts_cache()
+            self._on_instruments_changed()
             self._logger.info("cache_manager.instruments_reloaded", count=len(instruments))
         except Exception as exc:
             self._logger.error(
