@@ -95,6 +95,11 @@ class Settings(BaseSettings):
             "Set OPENROUTER_MODELS in .env to pin specific models."
         ),
     )
+    ollama_enabled: bool = Field(
+        default=True,
+        validation_alias="OLLAMA_ENABLED",
+        description="Set false to skip local Ollama and use OpenRouter as primary provider.",
+    )
     ollama_model: str = Field(
         default="gemma4:e4b",
         validation_alias="OLLAMA_MODEL",

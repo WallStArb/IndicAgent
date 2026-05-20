@@ -72,21 +72,23 @@ class LLMProviderChain:
         return self._inner.last_provider_id
 
     def _build_providers(self, settings: Any) -> list:
-        """Build ordered provider list: Ollama first, OpenRouter models as fallback.
+        """Build ordered provider list. LLMChain tries providers in order — first non-None wins.
 
-        LLMChain tries providers in order — first non-None response wins.
-        OpenRouter fallback activates automatically when Ollama's circuit opens.
+        When OLLAMA_ENABLED=false, Ollama is skipped and OpenRouter becomes primary.
         """
         if settings is None:
             return [OllamaProvider(model="nemotron-3-nano:4b", num_ctx=4096)]
 
-        providers: list = [
-            OllamaProvider(
-                model=settings.ollama_model,
-                base_url=settings.ollama_base_url,
-                num_ctx=settings.ollama_num_ctx,
+        providers: list = []
+
+        if getattr(settings, "ollama_enabled", True):
+            providers.append(
+                OllamaProvider(
+                    model=settings.ollama_model,
+                    base_url=settings.ollama_base_url,
+                    num_ctx=settings.ollama_num_ctx,
+                )
             )
-        ]
 
         if settings.openrouter_api_key:
             for model in settings.openrouter_models.split(","):
