@@ -35,6 +35,50 @@ _AGENT_NAME = "signal_metrics_writer"
 _CONSUMER_GROUP = "signal_metrics_writer_consumer"
 
 
+async def _ensure_schema(conn) -> None:
+    """Idempotent startup migration: add entry_type + six distribution columns and rebuild PK.
+
+    Each ALTER TABLE uses IF NOT EXISTS — safe to run on every startup.
+    The PK rebuild is guarded by information_schema.key_column_usage check so a second
+    concurrent startup is a no-op. SET LOCAL statement_timeout = '30s' is applied inside
+    an explicit transaction to bound lock acquisition time (Gemini LOW concern).
+
+    Signal_metrics is ~1.6k rows; PK rebuild is instant in practice.
+    """
+    # Add entry_type column (NOT NULL with DEFAULT ensures existing rows get '*')
+    await conn.execute(
+        "ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS entry_type text NOT NULL DEFAULT '*'"
+    )
+    # Add six distribution shape columns (all nullable float)
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS skewness float")
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS kurtosis float")
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS min_r float")
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS p5_r float")
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS recovery_factor float")
+    await conn.execute("ALTER TABLE signal_metrics ADD COLUMN IF NOT EXISTS cvar_5 float")
+
+    # Rebuild PK to include entry_type — wrapped in explicit transaction so that
+    # SET LOCAL statement_timeout bounds the lock acquisition to 30 seconds.
+    async with conn.transaction():
+        await conn.execute("SET LOCAL statement_timeout = '30s'")
+        await conn.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.key_column_usage
+                    WHERE table_name = 'signal_metrics'
+                      AND constraint_name = 'signal_metrics_pkey'
+                      AND column_name = 'entry_type'
+                ) THEN
+                    ALTER TABLE signal_metrics DROP CONSTRAINT IF EXISTS signal_metrics_pkey;
+                    ALTER TABLE signal_metrics ADD PRIMARY KEY
+                        (track, setup_plugin, tf, regime_type, window_days, symbol, entry_type);
+                END IF;
+            END $$;
+            """)
+
+
 async def _handle_metrics_computed(conn, event: dict) -> None:
     """Upsert one row to signal_metrics. Also updates setup_performance shim
     for market track / 'all' regime / 30d window."""
@@ -43,12 +87,14 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
     await conn.execute(
         """
         INSERT INTO signal_metrics
-            (track, setup_plugin, tf, regime_type, window_days, symbol,
+            (track, setup_plugin, tf, regime_type, window_days, symbol, entry_type,
              n, n_outliers, never_activated_pct,
              win_rate, avg_r, std_r, sharpe, p_value,
-             avg_mae, avg_mfe, computed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-        ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol)
+             avg_mae, avg_mfe,
+             skewness, kurtosis, min_r, p5_r, recovery_factor, cvar_5,
+             computed_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol, entry_type)
         DO UPDATE SET
             n                   = EXCLUDED.n,
             n_outliers          = EXCLUDED.n_outliers,
@@ -60,6 +106,12 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
             p_value             = EXCLUDED.p_value,
             avg_mae             = EXCLUDED.avg_mae,
             avg_mfe             = EXCLUDED.avg_mfe,
+            skewness            = EXCLUDED.skewness,
+            kurtosis            = EXCLUDED.kurtosis,
+            min_r               = EXCLUDED.min_r,
+            p5_r                = EXCLUDED.p5_r,
+            recovery_factor     = EXCLUDED.recovery_factor,
+            cvar_5              = EXCLUDED.cvar_5,
             computed_at         = EXCLUDED.computed_at
         """,
         event["track"],
@@ -68,6 +120,7 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         event["regime_type"],
         event["window_days"],
         event.get("symbol", "*"),
+        event.get("entry_type", "*"),
         event["n"],
         event["n_outliers"],
         event.get("never_activated_pct"),
@@ -78,6 +131,12 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         event.get("p_value"),
         event.get("avg_mae"),
         event.get("avg_mfe"),
+        event.get("skewness"),
+        event.get("kurtosis"),
+        event.get("min_r"),
+        event.get("p5_r"),
+        event.get("recovery_factor"),
+        event.get("cvar_5"),
         computed_at,
     )
 
@@ -211,9 +270,12 @@ class SignalMetricsWriterAgent(BaseWriterAgent):
                     )
 
     async def _setup(self) -> None:
-        """Connect DB pool and Kafka consumer."""
+        """Connect DB pool, run schema migration, then start Kafka consumer."""
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
+
+        async with self._db.get_connection() as conn:
+            await _ensure_schema(conn)
 
         self._create_consumer()
         await self._consumer.start()
