@@ -28,12 +28,21 @@ from src.observability.metrics import (
     SHADOW_EV_R,
     SHADOW_N_RESOLVED,
     SHADOW_PROMOTION_READY,
+    SHADOW_TAIL_GATE_DB_ERROR,
+    SHADOW_TAIL_RISK_BLOCKED,
     SHADOW_WIN_RATE,
 )
 
 logger = structlog.get_logger(__name__)
 
 _WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
+
+# ---------------------------------------------------------------------------
+# Tail-risk gate thresholds
+# ---------------------------------------------------------------------------
+
+TAIL_GATE_MIN_SKEWNESS: float = -2.0
+TAIL_GATE_MIN_RECOVERY: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +60,19 @@ def _should_demote(new_count: int, min_evaluations: int) -> bool:
 
 def _ev_r_below_threshold(ev_r: float, threshold: float) -> bool:
     return ev_r < threshold
+
+
+def _tail_risk_blocks_promotion(
+    skewness: float | None,
+    recovery_factor: float | None,
+    min_skewness: float,
+    min_recovery: float,
+) -> bool:
+    if skewness is not None and skewness < min_skewness:
+        return True
+    if recovery_factor is not None and recovery_factor < min_recovery:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +130,8 @@ async def _check_promotion(
 
     now = datetime.now(UTC)
 
+    # Update shadow_registry stats and fetch tail-risk metrics in a single connection.
+    metrics_row = None
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -123,6 +147,23 @@ async def _check_promotion(
             now,
             name,
         )
+        try:
+            metrics_row = await conn.fetchrow(
+                """
+                SELECT skewness, recovery_factor
+                FROM signal_metrics
+                WHERE setup_plugin = $1
+                  AND symbol = '*'
+                  AND entry_type = '*'
+                  AND track = 'market'
+                ORDER BY computed_at DESC
+                LIMIT 1
+                """,
+                name,
+            )
+        except Exception as exc:
+            SHADOW_TAIL_GATE_DB_ERROR.add(1, {"plugin": name})
+            logger.warning("shadow_audit.tail_gate_db_error", plugin=name, error=str(exc))
 
     # OTel metrics
     SHADOW_N_RESOLVED.add(n, {"plugin": name})
@@ -151,6 +192,29 @@ async def _check_promotion(
     SHADOW_DAYS_TO_GATE.add(
         round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf"), {"plugin": name}
     )
+
+    # Tail-risk gate — blocks promotion when distribution shape is adverse.
+    # Skips when metrics_row is None (plugin too new) or when DB error occurred (fail-open).
+    if metrics_row is not None and _tail_risk_blocks_promotion(
+        metrics_row["skewness"],
+        metrics_row["recovery_factor"],
+        TAIL_GATE_MIN_SKEWNESS,
+        TAIL_GATE_MIN_RECOVERY,
+    ):
+        reason = (
+            "skewness"
+            if metrics_row["skewness"] is not None
+            and metrics_row["skewness"] < TAIL_GATE_MIN_SKEWNESS
+            else "recovery_factor"
+        )
+        SHADOW_TAIL_RISK_BLOCKED.add(1, {"plugin": name, "reason": reason})
+        logger.info(
+            "shadow_audit.tail_risk_blocked",
+            plugin=name,
+            skewness=metrics_row["skewness"],
+            recovery_factor=metrics_row["recovery_factor"],
+        )
+        return
 
     if _should_promote(n, ci_lower, row["min_n"], row["min_ev_r"]):
         async with pool.acquire() as conn:
