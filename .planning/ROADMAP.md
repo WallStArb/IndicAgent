@@ -1440,9 +1440,9 @@ Plans:
   3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
   4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
 
-**Plans:** 3 plans
-- [ ] 092-01-PLAN.md — Foundation: schema migration + DistributionShape helper + MetricsComputedEvent extension + consumer guards (QUAL-01, QUAL-03)
-- [ ] 092-02-PLAN.md — Compute: per-symbol + per-entry_type grouping in compute_signal_metrics (QUAL-02, QUAL-03)
-- [ ] 092-03-PLAN.md — Governance: tail-risk gate + SHADOW_TAIL_RISK_BLOCKED counter in shadow_auditor_agent (QUAL-04)
+**Plans:** 3/3 plans complete
+- [x] 092-01-PLAN.md — Foundation: schema migration + DistributionShape helper + MetricsComputedEvent extension + consumer guards (QUAL-01, QUAL-03)
+- [x] 092-02-PLAN.md — Compute: per-symbol + per-entry_type grouping in compute_signal_metrics (QUAL-02, QUAL-03)
+- [x] 092-03-PLAN.md — Governance: tail-risk gate + SHADOW_TAIL_RISK_BLOCKED counter in shadow_auditor_agent (QUAL-04)
 
 </details>
