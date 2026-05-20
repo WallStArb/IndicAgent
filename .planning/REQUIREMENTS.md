@@ -1,86 +1,86 @@
-# Milestone v2.6 Requirements — Foundation Hardening & Signal Transform
+# Milestone v2.7 Requirements — AI Agent Platform Modernization
 
-**Milestone:** v2.6 — Foundation Hardening & Signal Transform
+**Milestone:** v2.7 — AI Agent Platform Modernization
 **Status:** Active
-**Created:** 2026-05-16
-**Previous milestone:** v2.5 (archived, Phases 69-83)
+**Created:** 2026-05-20
+**Previous milestone:** v2.6 (archived, Phases 084-092)
+
+---
+
+## Design Contract (Renaissance Standard)
+
+Every requirement in this milestone must satisfy:
+1. **Measurable hypothesis** — adoption justified by a concrete metric (parse failure rate, latency, maintenance burden, LOC reduction)
+2. **Shadow mode first** — no new behavior promoted to production without evidence gate
+3. **Zero blast radius** — existing `BaseGroupService`, `CircuitBreaker`, `OTel`, `shadow_registry`, `signal_ledger`, `Kafka` topology unchanged
+4. **Single responsibility** — each layer has one job; no two layers solve the same problem
+5. **Compute cost justified** — external service dependencies (Zep, DSPy) only enabled if ROI is measurable
 
 ---
 
 ## Active Requirements
 
-### INFRA — Base Agent Hardening
+### LLM-INFRA — LiteLLM Provider Abstraction
 
-- [ ] **INFRA-01**: Developer can subclass BaseWriterAgent and declare a Pydantic payload model; the base validates each message and auto-DLQs malformed payloads without any per-writer boilerplate
-- [ ] **INFRA-02**: BaseWriterAgent._flush_batch() contract enforces raise-or-DLQ on error; swallowing exceptions is no longer possible by default
-- [ ] **INFRA-03**: BaseAgent._setup_with_retry() provides configurable retry logic that eliminates the 3x duplicated retry scaffolding across current agent subclasses
-- [ ] **INFRA-04**: BaseAIAgent._on_error() emits an OTel counter on every agent error (call site exists; body is currently `pass`)
-- [ ] **INFRA-05**: Developer can opt any BaseAgent subclass into circuit-breaker protection via a single class attribute (no per-agent wiring)
-- [ ] **INFRA-06**: Dead graduation loop and LineageRecorder are either fully wired and tested or deleted; no silent dead code remains in base classes
+- [ ] **LLM-INFRA-01**: `LiteLLMBackend` class wraps `litellm.acompletion()` with existing `PluginCircuitBreaker` instances; Ollama (primary) and OpenRouter (fallbacks) configured via model strings
+- [ ] **LLM-INFRA-02**: `LLMProviderChain.generate()` public interface is unchanged after migration; `BaseGroupService` and all callers require zero modification
+- [ ] **LLM-INFRA-03**: Kafka audit callbacks, `SemanticCache`, and `TokenBudget` integrations are preserved unchanged through the LiteLLM backend swap
+- [ ] **LLM-INFRA-04**: `last_provider_id` and `last_token_usage` fields are populated by `LiteLLMBackend` to maintain parity with existing provider tracking
+- [ ] **LLM-INFRA-05**: Custom `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` internal classes are deleted after migration; no dead code remains
 
-### PERSIST — Persistence Writer Migration
+### STRUCT-OUT — Instructor Structured Output
 
-- [ ] **PERSIST-01**: lineage_writer_agent adopts BaseWriterAgent contracts; all messages either persist or land in DLQ; silent data loss is eliminated
-- [ ] **PERSIST-02**: feature_snapshot_writer_agent replaces clear-on-error with bounded retry via the new base contract
-- [ ] **PERSIST-03**: llm_writer_service re-raises outcome errors instead of swallowing them; failures are visible in logs and metrics
-- [ ] **PERSIST-04**: signal_metrics_writer_agent writes in batches rather than per-record
-- [ ] **PERSIST-05**: All positional-tuple writers migrated to named parameter style (contract_metadata_writer_agent is the reference template)
+- [ ] **STRUCT-OUT-01**: `InstructorClient` wraps `LiteLLMBackend` with Instructor's `from_litellm()` integration; all agent JSON parsing routes through Instructor retry loop
+- [ ] **STRUCT-OUT-02**: On parse failure, Instructor injects the Pydantic `ValidationError` back into the prompt and retries up to `max_retries=3`; no agent implements its own retry loop
+- [ ] **STRUCT-OUT-03**: Parse failure rate (measured via `llm_calls` table parse_success field) is observable before and after migration; metric exists to validate hypothesis
+- [ ] **STRUCT-OUT-04**: Each agent declares one typed `BaseModel` result class; `_parse_multiplier_response` and `_validate_*_fields` boilerplate methods are deleted after migration
 
-### PIPE — Pipeline Hardening
+### AGENT-EXEC — Pydantic AI Agent Execution Layer
 
-- [ ] **PIPE-01**: PluginCircuitBreaker is wired per-plugin in the intelligence pipeline; a breached plugin opens the breaker and is skipped rather than crashing the bar
-- [ ] **PIPE-02**: validate_signal() is called at the I7 output boundary in SignalWriterAgent; invalid signal payloads are DLQ'd before persisting
-- [ ] **PIPE-03**: Checkpoint write failure raises an exception; errors are not swallowed silently
-- [ ] **PIPE-04**: Output queue uses block/retry instead of put_nowait; a full queue no longer silently drops bars
+- [ ] **AGENT-EXEC-01**: `PydanticAIAdapter` provides a bridge that wraps `pydantic_ai.Agent[AgentDeps, ResultType]` behind the existing `_compute()` protocol; agents need not know about Pydantic AI internals
+- [ ] **AGENT-EXEC-02**: `AgentDeps` typed dependency container threads `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client` to agents via Pydantic AI's `RunContext[AgentDeps]`
+- [ ] **AGENT-EXEC-03**: One agent (Skeptic) is migrated to Pydantic AI as the reference implementation; all other agents remain on existing `BaseAIAgent` until migrated individually
+- [ ] **AGENT-EXEC-04**: Migrated agents run in shadow mode (`shadow_only=True`) until calibrated_confidence delta vs baseline is measured over >= 100 inferences; promotion requires explicit operator action
+- [ ] **AGENT-EXEC-05**: `BaseAIAgent` is not deleted; it remains as the base for unmigrated agents; migration is incremental, not big-bang
 
-### SIGXFM — Signal Transform Architecture Phases 2-4
+### AGENT-REG — Agent Registry
 
-- [ ] **SIGXFM-01**: Signal transform Phase 2 implemented (graduation from dual-write to unified schema); gated on ~May 25 data accumulation
-- [ ] **SIGXFM-02**: Signal transform Phase 3 implemented
-- [ ] **SIGXFM-03**: Signal transform Phase 4 implemented; full transform pipeline active and validated
+- [ ] **AGENT-REG-01**: `agents.yaml` defines all agent identities: `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version`; runtime reads this at startup
+- [ ] **AGENT-REG-02**: `AgentRegistry` class instantiates agents from YAML spec; operator can add an agent by editing `agents.yaml` and restarting the service — no Python file changes required
+- [ ] **AGENT-REG-03**: `AgentRegistry` enforces that all registered agents implement the `_compute()` protocol; startup fails fast if any agent spec is invalid
+- [ ] **AGENT-REG-04**: `shadow_registry` DB table remains the promotion/demotion authority; `agents.yaml` controls identity and config, not graduation status
 
-### ARCH — God Class Decomposition
+### MEM — Episodic Memory (Zep)
 
-- [ ] **ARCH-01**: PluginExecutor class extracted from IntelligencePipelineComputeAgent; owns tiers, thread pool, and plugin cache
-- [ ] **ARCH-02**: PluginStateManager class extracted; owns _plugin_states, per-key locks, checkpoint save/restore
-- [ ] **ARCH-03**: SignalProcessor class extracted; owns I7 execution, regime gating, ranking, and aggregation
-- [ ] **ARCH-04**: CacheManager class extracted; owns all 6 refresh loops and DB cache reads
-- [ ] **ARCH-05**: OutputQueue class extracted; owns asyncio.Queue, drain loop, enqueue, and Kafka publish
+- [ ] **MEM-01**: `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)` interface; agents receive it via `AgentDeps.memory_client`
+- [ ] **MEM-02**: Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
+- [ ] **MEM-03**: Memory is gated behind a feature flag (`ZEP_MEMORY_ENABLED`); disabled by default; enabled only after shadow-mode recall quality is validated
+- [ ] **MEM-04**: Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
 
-### OBS — Observability Completeness
+### OPT — DSPy Offline Prompt Optimizer
 
-- [ ] **OBS-01**: Per-plugin OTel latency histogram tracked in the intelligence pipeline; developers can see which plugin is the slowest at the p50/p95 level without adding instrumentation
-- [ ] **OBS-02**: Single `/api/health/system` endpoint returns machine-readable JSON covering consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
-- [ ] **OBS-03**: BaseAgent exposes a `last_processed_at` heartbeat timestamp; service_auditor detects stalled agents (process alive, no bar progress) and triggers restart
+- [ ] **OPT-01**: `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` table where `outcome` is non-null; compiles optimized prompt variants offline
+- [ ] **OPT-02**: Optimized prompts are stored in `prompt_versions` table with A/B test assignment; `prompt_version` field in `llm_calls` enables controlled comparison
+- [ ] **OPT-03**: DSPy optimizer runs as a timer-triggered batch job (not a daemon); optimizer does not touch the live inference path
+- [ ] **OPT-04**: A/B comparison report (win rate delta, parse failure delta, calibrated_confidence delta) must show measurable improvement before any optimized prompt is promoted to default
 
-### PERF — Compute Performance Optimization
+### GUARD — Guardrails AI Output Validation
 
-- [ ] **PERF-01**: `_build_features_from_event()` is called once per bar and its result reused across all I7 plugins; the current per-call 7× Pydantic `model_dump()` allocations are eliminated
-- [ ] **PERF-02**: The flat `features` dual-write path (maintained in parallel with the tiered dict across every wave merge) is profiled and removed if no active plugin requires it; per-bar wave merge overhead is reduced
-- [ ] **PERF-03**: Plugin state is passed as a parameter to `compute_full()`/`compute_next()` rather than mutating `plugin._state` before thread pool dispatch; the race condition on concurrent symbol/tf submissions is eliminated
-- [ ] **PERF-04**: OBS-01 histogram data is used to identify plugins executing O(N) full bar-history recomputation on every bar; each identified plugin is converted to incremental O(1) compute where an algorithmic incremental form exists
-- [ ] **PERF-05**: `IntelligenceEvent` construction comprehensions (`{k: v ... if v is not None}` × 7 tiers) are replaced with pre-filtered dicts assembled during wave merging; None-filtering no longer happens at event construction time
-- [ ] **PERF-06**: `_drain_output` publishes Kafka messages in batches (drain up to N items per iteration) rather than one message per `await`; Kafka round-trip overhead is amortized across bursts
-- [ ] **PERF-07**: Bar processing is parallelized per (symbol, tf) key — independent keys are dispatched to per-key workers concurrently rather than processed sequentially; a bar for ES:1m does not block NQ:5m
-- [ ] **PERF-08**: `BarMessage(**msg)` hot-path parse uses `model_construct()` (skip validation) for messages from trusted internal producers; full Pydantic validation reserved for DLQ/error paths
-- [ ] **PERF-09**: `bar.model_copy(update={"gap_preceding": True})` replaced with a zero-allocation alternative (gap flag passed as parameter or BarMessage constructed with field set at parse time)
-- [ ] **PERF-10**: `_write_local_checkpoint()` moved off the hot path to a periodic background asyncio.Task; checkpoint writes never block bar processing
+- [ ] **GUARD-01**: `GuardrailsAIValidator` implements the same interface as existing `GuardrailsValidator`; drop-in replacement with zero call-site changes
+- [ ] **GUARD-02**: Guardrails AI replaces custom field-level validation in `_validate_*_fields` methods; total custom validation LOC is reduced
+- [ ] **GUARD-03**: Latency overhead of Guardrails AI validation is measured and documented; must not exceed 10ms p95 vs existing validator
 
 ---
 
-## Future Requirements
+## Future Requirements (deferred)
 
-*(Deferred from this milestone — well-understood, not yet scheduled)*
-
-**v2.7 Horizontal Intelligence Foundation (next milestone):**
-- Qualitative lane: macro event calendar (FOMC/NFP/CPI), sector intelligence, company-specific (earnings dates, guidance, analyst ratings) — three sub-lanes, individual equities in scope for v2.7
-- Fundamental lane: economic regime indicators, valuation context for equities (P/E, EPS, sector rotation), macro FCI
-- Lane aggregation architecture: how qualitative/fundamental conviction combines with I7 timeseries signals
-- All lanes shadow-only at launch; QUAL-01/02 requirements move here
-
-**Other deferred:**
-- Auth layer / Cloudflare Tunnel — no external consumers yet
-- Portfolio-level signal aggregation — intelligence platform scope boundary
+| Requirement | Reason for deferral |
+|-------------|---------------------|
+| Multi-agent orchestration (CrewAI / AutoGen) | Not needed until agent count justifies coordination overhead |
+| Fine-tuned local models | Requires labeled dataset accumulation — minimum 10K resolved signals per setup type |
+| Streaming structured output | No consumer needs token-level streaming today |
+| External user-created agents (plugin marketplace) | Future milestone — requires auth layer first |
+| RAG over market data | No evidence that document retrieval improves signal quality vs episodic memory |
 
 ---
 
@@ -88,89 +88,22 @@
 
 | Feature | Reason |
 |---------|--------|
-| Order execution / position sizing | Intelligence platform only |
-| Real-time latency SLAs / co-location | Not a HFT system |
-| Kubernetes / HPA | Systemd + Prometheus lag monitoring is the scaling model |
-| Additional broker adapters beyond IBKR | Deferred until provider abstraction fully validated |
-
-### INST — Instrument Registry
-
-- [ ] **INST-01**: `instruments` DB table is the single source of truth for all instrument configuration; `contract_details` JSONB holds point_value, tick_size, session_id, exchange, sector, asset_class; settings.py contains only infrastructure config (kafka, db, ibkr connection params)
-- [ ] **INST-02**: API endpoints (`POST /api/instruments`, `PUT /api/instruments/{symbol}`, `DELETE /api/instruments/{symbol}`) add/update/deactivate instruments without code deploy or service restart
-- [ ] **INST-03**: Pipeline picks up instrument changes within 1 second via asyncpg LISTEN on `instruments` channel; `invalidate_active_contracts_cache()` is replaced by event-driven invalidation
-- [ ] **INST-04**: Empty-DB bootstrap: `IBKR_CONTRACTS_JSON` env var seeds `instruments` table on first startup; subsequent startups read DB only
-- [ ] **INST-05**: One-time migration populates `instruments.contract_details` from existing settings.py instrument objects; all callers of `get_active_contracts()` unchanged
-
-### LEDGER — Signal Ledger Hardening
-
-- [ ] **LEDGER-01**: `LedgerEntry.to_insert_params()` replaced with `_to_row()` named-field helper; adding a new column requires one line edit, not positional reordering of a 65-element tuple
-- [ ] **LEDGER-02**: All signal_ledger lifecycle update queries (exit_at, outcome, mae, mfe) use named-field style consistent with `_to_row()`
-
-### THREAD — Thread Safety
-
-- [ ] **THREAD-01**: `_settings_singleton` module-level global in settings.py protected with `threading.RLock`; concurrent reads from ThreadPoolExecutor threads are race-free
-- [ ] **THREAD-02**: `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async reads/writes from per-key workers (PERF-07) are safe
-
-### QUAL — Signal Quality Completeness
-
-- [ ] **QUAL-01**: `signal_metrics` table adds skewness and kurtosis columns for R-multiple distribution shape; negative skewness flags left-tail blowup risk
-- [ ] **QUAL-02**: `signal_metrics` table adds min_r (worst single pnl_r), p5_r (5th percentile — outlier-robust tail), and recovery_factor (avg_mfe / abs(p5_r)) columns
-- [ ] **QUAL-03**: `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') alongside global '*' aggregate; enables per-instrument quality evaluation
-- [ ] **QUAL-04**: DB migration for new columns is idempotent (IF NOT EXISTS); all existing signal_metrics consumers work unchanged; new columns nullable with NULL default
+| Replacing BaseGroupService | It owns Kafka, DB pool, metrics — it works; no justification for replacement |
+| Replacing CircuitBreaker | LiteLLM's failure handling lacks true half-open state; existing CircuitBreaker is superior |
+| Replacing OTel / structlog | Infrastructure layer — no AI-specific reason to change |
+| Removing shadow_registry / graduation | Core quality gate — cannot be removed |
+| Real-time prompt optimization | DSPy is an offline compiler; online optimization is a different problem class |
 
 ---
 
 ## Traceability
 
-| REQ-ID | Phase | Status |
-|--------|-------|--------|
-| INFRA-01 | Phase 084 | Pending |
-| INFRA-02 | Phase 084 | Pending |
-| INFRA-03 | Phase 084 | Pending |
-| INFRA-04 | Phase 084 | Pending |
-| INFRA-05 | Phase 084 | Pending |
-| INFRA-06 | Phase 084 | Pending |
-| OBS-01 | Phase 084 | Pending |
-| PERSIST-01 | Phase 085 | Pending |
-| PERSIST-02 | Phase 085 | Pending |
-| PERSIST-03 | Phase 085 | Pending |
-| PERSIST-04 | Phase 085 | Pending |
-| PERSIST-05 | Phase 085 | Pending |
-| PIPE-01 | Phase 086 | Pending |
-| PIPE-02 | Phase 086 | Pending |
-| PIPE-03 | Phase 086 | Pending |
-| PIPE-04 | Phase 086 | Pending |
-| OBS-02 | Phase 086 | Pending |
-| OBS-03 | Phase 086 | Pending |
-| SIGXFM-01 | Phase 087 | Pending (gated ~May 25) |
-| SIGXFM-02 | Phase 087 | Pending (gated ~May 25) |
-| SIGXFM-03 | Phase 087 | Pending (gated ~May 25) |
-| ARCH-01 | Phase 088 | Pending |
-| ARCH-02 | Phase 088 | Pending |
-| ARCH-03 | Phase 088 | Pending |
-| ARCH-04 | Phase 088 | Pending |
-| ARCH-05 | Phase 088 | Pending |
-| PERF-01 | Phase 089 | Pending |
-| PERF-02 | Phase 089 | Pending |
-| PERF-03 | Phase 089 | Pending |
-| PERF-04 | Phase 089 | Pending |
-| PERF-05 | Phase 089 | Pending |
-| PERF-06 | Phase 089 | Pending |
-| PERF-07 | Phase 089 | Pending |
-| PERF-08 | Phase 089 | Pending |
-| PERF-09 | Phase 089 | Pending |
-| PERF-10 | Phase 089 | Pending |
-| PERF-10 | Phase 089 | Pending |
-| INST-01 | Phase 091 | Pending |
-| INST-02 | Phase 091 | Pending |
-| INST-03 | Phase 091 | Pending |
-| INST-04 | Phase 091 | Pending |
-| INST-05 | Phase 091 | Pending |
-| LEDGER-01 | Phase 090 | Pending |
-| LEDGER-02 | Phase 090 | Pending |
-| THREAD-01 | Phase 090 | Pending |
-| THREAD-02 | Phase 090 | Pending |
-| QUAL-01 | Phase 092 | Pending |
-| QUAL-02 | Phase 092 | Pending |
-| QUAL-03 | Phase 092 | Pending |
-| QUAL-04 | Phase 092 | Pending |
+| Phase | Requirements covered |
+|-------|---------------------|
+| 093 | LLM-INFRA-01–05 |
+| 094 | STRUCT-OUT-01–04 |
+| 095 | AGENT-EXEC-01–05 |
+| 096 | AGENT-REG-01–04 |
+| 097 | MEM-01–04 |
+| 098 | OPT-01–04 |
+| 099 | GUARD-01–03 |
