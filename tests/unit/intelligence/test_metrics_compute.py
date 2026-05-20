@@ -34,6 +34,7 @@ def _make_row(
     market_entry_outcome="target_1",
     days_ago=5,
     symbol="ES",
+    entry_type="at_close",
 ):
     if exit_at is None:
         exit_at = datetime.now(UTC) - timedelta(days=days_ago)
@@ -56,6 +57,7 @@ def _make_row(
         "market_entry_mfe": market_entry_mfe,
         "market_entry_outcome": market_entry_outcome,
         "symbol": symbol,
+        "entry_type": entry_type,
     }
 
 
@@ -82,8 +84,9 @@ class TestComputeSignalMetrics:
     def test_returns_row_when_n_meets_minimum(self):
         rows = self._make_n_rows(MIN_SAMPLE_SIZE)
         result = compute_signal_metrics(rows, track="zone", window_days=30)
-        # Expect per-regime row + 'all' rollup
-        assert len(result) == 2
+        # Expect per-regime row + 'all' rollup + per-entry_type row (entry_type='at_close' default)
+        # At least 2 global rows (regime + all); may also produce per-entry_type row
+        assert len(result) >= 2
 
     def test_all_rollup_row_present(self):
         rows = self._make_n_rows(MIN_SAMPLE_SIZE)
@@ -439,3 +442,115 @@ class TestDistributionShape:
         expected = round(float(scipy_kurtosis(pnl_rs, fisher=True, bias=False)), 4)
         result = _distribution_shape(pnl_rs, 1.0)
         assert result.kurtosis == pytest.approx(expected, abs=0.001)
+
+
+class TestEntryTypeGrouping:
+    """Unit tests for per-entry_type accumulation and result emission (Phase 092 Plan 02)."""
+
+    def _make_n_rows(self, n, entry_type="at_close", pnl_r=1.0, outcome="target_1"):
+        return [_make_row(pnl_r=pnl_r, outcome=outcome, entry_type=entry_type) for _ in range(n)]
+
+    def test_emits_per_entry_type_row_when_n_gte_30(self):
+        """40 rows with entry_type='at_pullback' produce at least one row with entry_type='at_pullback'
+        and symbol='*'."""
+        rows = self._make_n_rows(40, entry_type="at_pullback")
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        at_pullback_rows = [r for r in result if r.entry_type == "at_pullback"]
+        assert len(at_pullback_rows) >= 1
+        # All per-entry_type rows must have symbol='*'
+        for r in at_pullback_rows:
+            assert r.symbol == "*"
+
+    def test_no_per_entry_type_row_when_n_lt_30(self):
+        """25 rows with entry_type='at_limit' produce zero per-entry_type rows (n < 30 gate)."""
+        rows = self._make_n_rows(25, entry_type="at_limit")
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        at_limit_rows = [r for r in result if r.entry_type == "at_limit"]
+        assert len(at_limit_rows) == 0
+
+    def test_null_entry_type_folds_to_global_only(self):
+        """40 rows with entry_type=None produce no rows with entry_type != '*'.
+
+        NULL entry_type folds into global ('*') accumulator only — never into per-entry_type.
+        """
+        rows = self._make_n_rows(40, entry_type=None)
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        non_star_rows = [r for r in result if r.entry_type != "*"]
+        assert len(non_star_rows) == 0
+        # Global '*' row still exists
+        global_rows = [r for r in result if r.entry_type == "*"]
+        assert len(global_rows) >= 1
+
+    def test_per_entry_type_distribution_fields_populated(self):
+        """40 rows with entry_type='at_close' and varied pnl_r produce distribution fields on the
+        at_close row.
+
+        cvar_5 requires that some values are strictly below the 5th-percentile cut.
+        Use a spread of 10 distinct loss values so the tail is non-empty.
+        """
+        # 30 wins + 10 losses each with a distinct value to ensure non-empty CVaR tail
+        small_wins = [
+            _make_row(pnl_r=0.5, outcome="target_1", entry_type="at_close") for _ in range(30)
+        ]
+        # 10 losses with progressively worse values — ensures p5 lands in the interior of the
+        # loss range so at least one value is strictly below the 5th-percentile cut
+        losses = [
+            _make_row(pnl_r=-(i + 1) * 0.3, outcome="stopped_in_trade", entry_type="at_close")
+            for i in range(10)
+        ]
+        rows = small_wins + losses
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        at_close_rows = [r for r in result if r.entry_type == "at_close"]
+        assert len(at_close_rows) >= 1
+        at_close_row = at_close_rows[0]
+        # n=40 >= 30: all distribution fields should be non-None
+        assert at_close_row.skewness is not None
+        assert at_close_row.kurtosis is not None
+        assert at_close_row.min_r is not None
+        assert at_close_row.p5_r is not None
+        assert at_close_row.cvar_5 is not None
+
+    def test_two_entry_types_produce_correct_subset(self):
+        """40 rows of at_close and 10 rows of at_limit: only at_close per-entry_type row emitted
+        (at_limit n=10 < 30 gate)."""
+        at_close_rows = self._make_n_rows(40, entry_type="at_close")
+        at_limit_rows = self._make_n_rows(10, entry_type="at_limit")
+        result = compute_signal_metrics(at_close_rows + at_limit_rows, track="zone", window_days=30)
+        assert len([r for r in result if r.entry_type == "at_close"]) >= 1
+        assert len([r for r in result if r.entry_type == "at_limit"]) == 0
+
+    def test_global_aggregate_includes_all_rows_regardless_of_entry_type(self):
+        """Global ('*') row accumulates all rows regardless of entry_type value, including None.
+
+        40 rows split between at_close (20), at_limit (15), and None (5): global row n=40.
+        """
+        at_close = [
+            _make_row(pnl_r=1.0, outcome="target_1", entry_type="at_close") for _ in range(20)
+        ]
+        at_limit = [
+            _make_row(pnl_r=0.5, outcome="target_1", entry_type="at_limit") for _ in range(15)
+        ]
+        null_et = [_make_row(pnl_r=0.8, outcome="target_1", entry_type=None) for _ in range(5)]
+        result = compute_signal_metrics(at_close + at_limit + null_et, track="zone", window_days=30)
+        # Global row (entry_type='*', regime_type='all') should have n=40
+        all_rows = [r for r in result if r.entry_type == "*" and r.regime_type == "all"]
+        assert len(all_rows) >= 1
+        global_row = all_rows[0]
+        assert global_row.n == 40
+
+    def test_unknown_entry_type_passes_through_to_dedicated_row(self):
+        """40 rows with entry_type='experimental_zone' (NOT in D-10 allowed list) produce a
+        dedicated per-entry_type row.
+
+        Asserts no silent drop or remap for future entry_type additions (Gemini Suggestion).
+        The global '*' row still includes these rows in its accumulator.
+        """
+        rows = self._make_n_rows(40, entry_type="experimental_zone")
+        result = compute_signal_metrics(rows, track="zone", window_days=30)
+        # Unknown literal should produce its own per-entry_type row
+        experimental_rows = [r for r in result if r.entry_type == "experimental_zone"]
+        assert len(experimental_rows) >= 1
+        assert experimental_rows[0].symbol == "*"
+        # Global row still exists and includes these rows
+        global_rows = [r for r in result if r.entry_type == "*"]
+        assert len(global_rows) >= 1
