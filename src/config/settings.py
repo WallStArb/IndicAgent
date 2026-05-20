@@ -383,16 +383,32 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
     try:
         import psycopg2
 
-        # Build lookup tables from DB instruments table (futures templates only).
-        # These provide point_value, tick_size, session_id etc. for front-month symbols.
+        # All three queries share one connection (one-third the overhead of 3 separate connects).
         with psycopg2.connect(s.database_url) as conn:
             with conn.cursor() as cur:
+                # 1. Futures templates — provide point_value, tick_size, session_id etc.
                 cur.execute(
                     "SELECT symbol, base, contract_details "
                     "FROM instruments "
                     "WHERE contract_details->>'asset_class' = 'futures'"
                 )
                 tmpl_rows = cur.fetchall()
+
+                # 2. Front-month futures contracts from contract_metadata
+                cur.execute(
+                    "SELECT symbol, base_symbol, exchange "
+                    "FROM contract_metadata "
+                    "WHERE is_front_month = true AND asset_class = 'futures'"
+                )
+                rows = cur.fetchall()
+
+                # 3. Non-futures (equities, FX, crypto) from instruments table
+                cur.execute(
+                    "SELECT symbol, base, contract_details "
+                    "FROM instruments "
+                    "WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
+                )
+                nf_rows = cur.fetchall()
 
         config_by_base: dict[str, Instrument] = {}
         config_by_symbol: dict[str, Instrument] = {}
@@ -408,29 +424,10 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
             except Exception:
                 pass
 
-        with psycopg2.connect(s.database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT symbol, base_symbol, exchange "
-                    "FROM contract_metadata "
-                    "WHERE is_front_month = true AND asset_class = 'futures'"
-                )
-                rows = cur.fetchall()
-
         # Build DB-sourced futures Instruments
         db_instruments: list[Instrument] = [
             _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
         ]
-
-        # Query non-futures (equities, FX, crypto) from instruments table
-        with psycopg2.connect(s.database_url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT symbol, base, contract_details "
-                    "FROM instruments "
-                    "WHERE is_active = true AND contract_details->>'asset_class' != 'futures'"
-                )
-                nf_rows = cur.fetchall()
 
         non_futures: list[Instrument] = []
         for row in nf_rows:
