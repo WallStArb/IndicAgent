@@ -12,6 +12,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import numpy as np
+from scipy.stats import kurtosis as _scipy_kurtosis
+from scipy.stats import skew as _scipy_skew
 from scipy.stats import t as _scipy_t
 
 from src.intelligence.metrics.validator import validate_signal_row
@@ -39,6 +42,68 @@ HMM_TO_REGIME: dict[int, str] = {
 
 
 @dataclass
+class DistributionShape:
+    """Distribution shape metrics derived from pnl_rs list."""
+
+    skewness: float | None
+    kurtosis: float | None
+    min_r: float | None
+    p5_r: float | None
+    recovery_factor: float | None
+    cvar_5: float | None
+
+
+def _distribution_shape(pnl_rs: list[float], avg_mfe: float) -> DistributionShape:
+    """Compute distribution shape metrics from a list of pnl_r values.
+
+    Threshold gates (CONTEXT.md D-01/D-02):
+      skewness, kurtosis: NULL when n < 3
+      p5_r, cvar_5:       NULL when n < 20
+      min_r:              NULL when n < 30
+      recovery_factor:    NULL when n < 20 or p5_r >= -1e-9 (no real tail loss)
+
+    CRITICAL: recovery_factor uses strict `p5 < -1e-9` (NOT abs()) per D-01.
+    Positive or near-zero p5 means no tail loss exists — ratio is undefined.
+    """
+    from statistics import mean as _mean
+
+    n = len(pnl_rs)
+
+    # skewness and kurtosis: require n >= 3
+    if n >= 3:
+        skewness: float | None = round(float(_scipy_skew(pnl_rs, bias=False)), 4)
+        kurtosis: float | None = round(float(_scipy_kurtosis(pnl_rs, fisher=True, bias=False)), 4)
+    else:
+        skewness = None
+        kurtosis = None
+
+    # min_r: require n >= 30
+    min_r: float | None = round(min(pnl_rs), 4) if n >= 30 else None
+
+    # p5_r, cvar_5, recovery_factor: require n >= 20
+    if n >= 20:
+        p5 = float(np.percentile(pnl_rs, 5))
+        p5_r: float | None = round(p5, 4)
+        tail = [r for r in pnl_rs if r < p5]
+        cvar_5: float | None = round(_mean(tail), 4) if tail else None
+        # STRICT `<` per CONTEXT.md D-01: positive/zero p5 means no tail loss -> undefined ratio
+        recovery_factor: float | None = round(avg_mfe / abs(p5), 4) if p5 < -1e-9 else None
+    else:
+        p5_r = None
+        cvar_5 = None
+        recovery_factor = None
+
+    return DistributionShape(
+        skewness=skewness,
+        kurtosis=kurtosis,
+        min_r=min_r,
+        p5_r=p5_r,
+        recovery_factor=recovery_factor,
+        cvar_5=cvar_5,
+    )
+
+
+@dataclass
 class SignalMetricsResult:
     track: str
     setup_plugin: str
@@ -46,6 +111,7 @@ class SignalMetricsResult:
     regime_type: str
     window_days: int
     symbol: str  # '*' = global sentinel (cross-instrument aggregate)
+    entry_type: str  # '*' = global sentinel (all entry types aggregated)
     n: int
     n_outliers: int
     never_activated_pct: float | None
@@ -56,6 +122,12 @@ class SignalMetricsResult:
     p_value: float | None
     avg_mae: float | None
     avg_mfe: float | None
+    skewness: float | None
+    kurtosis: float | None
+    min_r: float | None
+    p5_r: float | None
+    recovery_factor: float | None
+    cvar_5: float | None
     computed_at: datetime
 
 
@@ -96,6 +168,7 @@ def _build_metrics_result(
     regime_type: str,
     window_days: int,
     symbol: str = "*",
+    entry_type: str = "*",
 ) -> SignalMetricsResult:
     """Compute statistics from an accumulated group dict and return a SignalMetricsResult."""
     pnl_rs = acc["pnl_rs"]
@@ -118,6 +191,7 @@ def _build_metrics_result(
             regime_type=regime_type,
             window_days=window_days,
             symbol=symbol,
+            entry_type=entry_type,
             n=0,
             n_outliers=n_outliers,
             never_activated_pct=never_act_pct,
@@ -128,6 +202,12 @@ def _build_metrics_result(
             p_value=None,
             avg_mae=None,
             avg_mfe=None,
+            skewness=None,
+            kurtosis=None,
+            min_r=None,
+            p5_r=None,
+            recovery_factor=None,
+            cvar_5=None,
             computed_at=now,
         )
 
@@ -140,6 +220,8 @@ def _build_metrics_result(
     avg_mae = sum(maes) / len(maes) if maes else None
     avg_mfe = sum(mfes) / len(mfes) if mfes else None
 
+    shape = _distribution_shape(pnl_rs, avg_mfe or 0.0)
+
     return SignalMetricsResult(
         track=track,
         setup_plugin=setup_plugin,
@@ -147,6 +229,7 @@ def _build_metrics_result(
         regime_type=regime_type,
         window_days=window_days,
         symbol=symbol,
+        entry_type=entry_type,
         n=n,
         n_outliers=n_outliers,
         never_activated_pct=never_act_pct,
@@ -157,6 +240,12 @@ def _build_metrics_result(
         p_value=round(p_val, 4) if p_val is not None else None,
         avg_mae=round(avg_mae, 4) if avg_mae is not None else None,
         avg_mfe=round(avg_mfe, 4) if avg_mfe is not None else None,
+        skewness=shape.skewness,
+        kurtosis=shape.kurtosis,
+        min_r=shape.min_r,
+        p5_r=shape.p5_r,
+        recovery_factor=shape.recovery_factor,
+        cvar_5=shape.cvar_5,
         computed_at=now,
     )
 

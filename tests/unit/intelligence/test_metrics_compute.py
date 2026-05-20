@@ -213,6 +213,7 @@ class TestComputeAgentSymbolPublish:
             regime_type="trend",
             window_days=30,
             symbol="ES",
+            entry_type="*",
             n=50,
             n_outliers=0,
             never_activated_pct=None,
@@ -223,6 +224,12 @@ class TestComputeAgentSymbolPublish:
             p_value=0.04,
             avg_mae=-0.4,
             avg_mfe=0.9,
+            skewness=None,
+            kurtosis=None,
+            min_r=None,
+            p5_r=None,
+            recovery_factor=None,
+            cvar_5=None,
             computed_at=datetime.now(UTC),
         )
         # Verify the field is accessible
