@@ -145,3 +145,24 @@ class DatabaseManager:
         await self.execute_batch(sql, params)
         logger.info("Upserted instruments", count=len(params))
         return len(params)
+
+    async def ensure_instruments_trigger(self) -> None:
+        """Idempotently install the pg_notify trigger on the instruments table.
+
+        Uses CREATE OR REPLACE - safe to call on every startup. Eliminates the
+        need to manually apply production/scripts/add_instruments_trigger.sql
+        on fresh deployments or after DB restores.
+        """
+        sql = """
+        CREATE OR REPLACE FUNCTION notify_instrument_change()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+            PERFORM pg_notify('instruments', COALESCE(NEW.symbol, OLD.symbol));
+            RETURN COALESCE(NEW, OLD);
+        END;
+        $$;
+        CREATE OR REPLACE TRIGGER trg_instruments_notify
+        AFTER INSERT OR UPDATE OR DELETE ON instruments
+        FOR EACH ROW EXECUTE FUNCTION notify_instrument_change();
+        """
+        await self.execute_command(sql)
