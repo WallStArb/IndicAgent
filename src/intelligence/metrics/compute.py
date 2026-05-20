@@ -275,7 +275,8 @@ def compute_signal_metrics(
     NULL pnl_r (zone never activated) counts toward never_activated_pct.
 
     Returns one SignalMetricsResult per (setup_plugin, tf, regime_type, symbol) group
-    with n >= MIN_SAMPLE_SIZE, plus an 'all' rollup row per (setup, tf, symbol).
+    with n >= MIN_SAMPLE_SIZE, plus an 'all' rollup row per (setup, tf, symbol), and
+    per-entry_type rows (symbol='*') gated at n >= 30.
 
     Args:
         rows:       list of signal_ledger row dicts (already fetched from DB)
@@ -287,6 +288,9 @@ def compute_signal_metrics(
     regime_accs: dict[tuple, dict] = defaultdict(_empty_acc)
     # Rollup accumulators keyed by (plugin, tf, symbol)
     all_accs: dict[tuple, dict] = defaultdict(_empty_acc)
+    # Per-entry_type accumulators keyed by (plugin, tf, regime_label, entry_type)
+    # NULL entry_type rows fold into global only — NOT accumulated here (D-10 / threat_model)
+    by_entry_type: dict[tuple, dict] = defaultdict(_empty_acc)
 
     for row in rows:
         plugin = row.get("setup_plugin")
@@ -296,6 +300,10 @@ def compute_signal_metrics(
             continue
 
         symbol_val = row.get("symbol") or "*"
+
+        # entry_type: NULL/empty folds to global only; unknown literals pass through unchanged
+        entry_type_raw = row.get("entry_type")
+        entry_type_val = entry_type_raw if entry_type_raw else None
 
         if track == "zone":
             pnl_r = row.get("pnl_r")
@@ -345,6 +353,19 @@ def compute_signal_metrics(
                 acc["mfes"].append(float(mfe))
             acc["win_flags"].append(outcome in WIN_OUTCOMES)
 
+        # Per-entry_type accumulation: only when entry_type_val is not None (non-NULL)
+        # No whitelist check — unknown entry_type literals flow to their own accumulator key
+        if entry_type_val is not None:
+            et_key = (plugin, tf_val, regime_label, entry_type_val)
+            et_acc = by_entry_type[et_key]
+            et_acc["n_total"] += 1
+            et_acc["pnl_rs"].append(float(pnl_r))
+            if mae is not None:
+                et_acc["maes"].append(float(mae))
+            if mfe is not None:
+                et_acc["mfes"].append(float(mfe))
+            et_acc["win_flags"].append(outcome in WIN_OUTCOMES)
+
     result: list[SignalMetricsResult] = []
 
     for (plugin, tf_val, regime_label, sym), acc in regime_accs.items():
@@ -359,6 +380,7 @@ def compute_signal_metrics(
                 regime_label,
                 window_days,
                 symbol=sym,
+                entry_type="*",
             )
         )
 
@@ -374,6 +396,24 @@ def compute_signal_metrics(
                 "all",
                 window_days,
                 symbol=sym,
+                entry_type="*",
+            )
+        )
+
+    # Per-entry_type result emission: symbol='*', entry_type=actual value, gated at n >= 30
+    for (plugin, tf_val, regime_label, et_val), acc in by_entry_type.items():
+        if len(acc["pnl_rs"]) < 30:
+            continue
+        result.append(
+            _build_metrics_result(
+                acc,
+                track,
+                plugin,
+                tf_val,
+                regime_label,
+                window_days,
+                symbol="*",
+                entry_type=et_val,
             )
         )
 
