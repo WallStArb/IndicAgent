@@ -191,6 +191,14 @@ SHADOW_PROMOTION_READY = _meter.create_up_down_counter(
     "shadow_promotion_ready",
     description="1 when all gate conditions met",
 )
+SHADOW_TAIL_RISK_BLOCKED = _meter.create_counter(
+    "shadow_tail_risk_blocked_total",
+    description="Shadow promotions blocked by tail-risk gate (skewness or recovery_factor)",
+)
+SHADOW_TAIL_GATE_DB_ERROR = _meter.create_counter(
+    "shadow_tail_gate_db_error_total",
+    description="Shadow tail gate DB query failures (fail-open: gate skipped, _should_promote still authoritative)",
+)
 
 # ---------------------------------------------------------------------------
 # Agent liveness
