@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
+milestone_name: Foundation Hardening & Signal Transform
 status: executing
-stopped_at: Completed 091-instrument-registry 091-05-PLAN.md
-last_updated: "2026-05-19T22:31:09.547Z"
-last_activity: 2026-05-19
+stopped_at: context exhaustion at 75% (2026-05-20)
+last_updated: "2026-05-20T12:23:19.154Z"
+last_activity: 2026-05-20 -- Phase 092 planning complete
 progress:
-  total_phases: 32
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 9
+  completed_phases: 8
+  total_plans: 39
+  completed_plans: 36
+  percent: 89
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 091 — instrument-registry
+**Current focus:** Phase 091.1 — instrument-registry-hardening
 
 ## Current Position
 
-Phase: 091 (instrument-registry) — EXECUTING
+Phase: 091 — COMPLETE
 Plan: 6 of 6
 Status: Ready to execute
-Last activity: 2026-05-19
+Last activity: 2026-05-20 -- Phase 092 planning complete
 Last completed: Phase 086 — Pipeline Hardening (4 plans, 2026-05-17)
 
 Progress: [████████░░] 50% (3/6 phases)
@@ -150,8 +150,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-19T22:31:09.543Z
-Stopped at: Completed 091-instrument-registry 091-05-PLAN.md
+Last session: 2026-05-20T05:05:15.498Z
+Stopped at: context exhaustion at 75% (2026-05-20)
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
