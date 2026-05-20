@@ -1387,6 +1387,31 @@ Plans:
 - [ ] 091-05-PLAN.md - Fix 16+ broken tests; mock get_active_contracts() instead of constructing Settings(contracts=[...]) (INST-05)
 - [ ] 091-06-PLAN.md - Add POST/PUT/DELETE endpoints to src/api/routes/instruments.py with Pydantic validation (INST-02)
 
+### Phase 091.1: Instrument Registry Hardening
+
+**Goal**: Apply 8 post-execution architectural corrections to Phase 091: callback injection for correct dependency direction, dead state removal, startup fail-fast, one DB connection per miss, asyncio.get_running_loop() fix, listener health metric, automated trigger installation, and automated integration tests.
+**Depends on**: Phase 091 (instrument registry shipped)
+**Requirements**: INST-06
+**Success Criteria** (what must be TRUE):
+
+  1. CacheManager has zero imports from `src.config.settings`; `on_instruments_changed` callback injected at construction time in intelligence_pipeline_agent
+  2. `self._instruments_cache` dead state removed from CacheManager; no code reads it
+  3. Pipeline raises RuntimeError at startup when `get_active_contracts()` returns empty list
+  4. `get_active_contracts()` uses one `psycopg2.connect()` block with three cursor operations (not three separate connects)
+  5. `asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()` in `_on_instrument_notify()`
+  6. `instruments_listener_connected` OTel gauge emits 1 when connected, -1 when reconnecting
+  7. `DatabaseManager.ensure_instruments_trigger()` idempotently installs the pg_notify trigger on startup; no manual SQL required
+  8. `tests/integration/test_instrument_registry.py` exists with 3 automated tests; `pytest tests/unit/ -q` stays green
+
+**Plans:** 5 plans
+
+Plans:
+- [ ] 091.1-01-PLAN.md — cache_manager.py: callback injection, dead state removal, asyncio fix, listener health metric
+- [ ] 091.1-02-PLAN.md — settings.py: consolidate to one psycopg2 connection per miss
+- [ ] 091.1-03-PLAN.md — database_manager.py: ensure_instruments_trigger idempotent method
+- [ ] 091.1-04-PLAN.md — intelligence_pipeline_agent.py: wire callback, startup guard, trigger call
+- [ ] 091.1-05-PLAN.md — tests: update unit test factory, create integration tests
+
 ### Phase 090: Signal Ledger Hardening + Thread Safety
 
 **Goal**: Finish the PERSIST-05 job for the highest-volume writer — `signal_ledger_repository.py`'s 65-element positional tuple replaced with named-field `_to_row()` helper. Fix latent thread-safety races on shared module-level caches that worsen post-Phase-089 per-key concurrency.
