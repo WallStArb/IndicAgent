@@ -685,7 +685,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
 | 093. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
-| 094. Instructor Structured Output | v2.7 | 0/TBD | Not started | - |
+| 094. Instructor Structured Output | v2.7 | 0/5 | Planned | - |
 | 095. Pydantic AI Agent Adapter | v2.7 | 0/TBD | Not started | - |
 | 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
@@ -1486,7 +1486,14 @@ Plans:
   2. A deliberate invalid response in a unit test triggers Instructor retry with `ValidationError` in prompt; agent never implements its own retry loop
   3. `llm_calls.parse_success` shows a before/after parse failure rate delta; metric is queryable to validate the hypothesis
   4. All `_parse_*_response` and `_validate_*_fields` boilerplate methods are deleted from agent files; each agent declares exactly one `BaseModel` result class
-**Plans**: TBD
+**Plans:** 5 plans, 3 waves
+
+Plans:
+- [ ] 094-01-PLAN.md (TDD, wave 1) — Install instructor, structured_client.py singleton, BaseAIAgent._llm_generate_structured + 3 unit tests
+- [ ] 094-02-PLAN.md (execute, wave 2) — Migrate SkepticAgent: SkepticResult, delete _validate_skeptic_fields + output_schema
+- [ ] 094-03-PLAN.md (execute, wave 2) — Migrate CorrelationAgent: CorrelationResult, delete _validate_correlation_fields + output_schema
+- [ ] 094-04-PLAN.md (execute, wave 2) — Migrate CounterfactualAgent: CounterfactualResult, delete _validate_counterfactual_fields + output_schema
+- [ ] 094-05-PLAN.md (execute, wave 3) — Migrate RegimeCoherenceAgent + delete BaseMultiplierAgent._parse_multiplier_response + live smoke test + alpha-swarm restart
 
 ### Phase 095: Pydantic AI Agent Adapter
 
