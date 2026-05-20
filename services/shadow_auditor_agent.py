@@ -67,12 +67,13 @@ def _tail_risk_blocks_promotion(
     recovery_factor: float | None,
     min_skewness: float,
     min_recovery: float,
-) -> bool:
+) -> str | None:
+    """Return the name of the breached metric, or None if promotion is not blocked."""
     if skewness is not None and skewness < min_skewness:
-        return True
+        return "skewness"
     if recovery_factor is not None and recovery_factor < min_recovery:
-        return True
-    return False
+        return "recovery_factor"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -195,26 +196,22 @@ async def _check_promotion(
 
     # Tail-risk gate — blocks promotion when distribution shape is adverse.
     # Skips when metrics_row is None (plugin too new) or when DB error occurred (fail-open).
-    if metrics_row is not None and _tail_risk_blocks_promotion(
-        metrics_row["skewness"],
-        metrics_row["recovery_factor"],
-        TAIL_GATE_MIN_SKEWNESS,
-        TAIL_GATE_MIN_RECOVERY,
-    ):
-        reason = (
-            "skewness"
-            if metrics_row["skewness"] is not None
-            and metrics_row["skewness"] < TAIL_GATE_MIN_SKEWNESS
-            else "recovery_factor"
+    if metrics_row is not None:
+        tail_block_reason = _tail_risk_blocks_promotion(
+            metrics_row["skewness"],
+            metrics_row["recovery_factor"],
+            TAIL_GATE_MIN_SKEWNESS,
+            TAIL_GATE_MIN_RECOVERY,
         )
-        SHADOW_TAIL_RISK_BLOCKED.add(1, {"plugin": name, "reason": reason})
-        logger.info(
-            "shadow_audit.tail_risk_blocked",
-            plugin=name,
-            skewness=metrics_row["skewness"],
-            recovery_factor=metrics_row["recovery_factor"],
-        )
-        return
+        if tail_block_reason is not None:
+            SHADOW_TAIL_RISK_BLOCKED.add(1, {"plugin": name, "reason": tail_block_reason})
+            logger.info(
+                "shadow_audit.tail_risk_blocked",
+                plugin=name,
+                skewness=metrics_row["skewness"],
+                recovery_factor=metrics_row["recovery_factor"],
+            )
+            return
 
     if _should_promote(n, ci_lower, row["min_n"], row["min_ev_r"]):
         async with pool.acquire() as conn:

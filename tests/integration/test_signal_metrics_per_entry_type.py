@@ -22,18 +22,22 @@ import pytest
 from services.signal_metrics_writer_agent import _ensure_schema, _handle_metrics_computed
 
 
+def _make_conn_with_transaction():
+    conn = AsyncMock()
+    tx_ctx = MagicMock()
+    tx_ctx.__aenter__ = AsyncMock(return_value=None)
+    tx_ctx.__aexit__ = AsyncMock(return_value=False)
+    conn.transaction = MagicMock(return_value=tx_ctx)
+    return conn
+
+
 class TestEnsureSchemaIdempotent:
     """_ensure_schema() must be safe to call repeatedly (startup idempotency)."""
 
     @pytest.mark.asyncio
     async def test_ensure_schema_idempotent(self):
         """Call _ensure_schema(mock_conn) twice; no exception raised, DDL attempted each time."""
-        conn = AsyncMock()
-        # Simulate transaction context manager
-        tx_ctx = MagicMock()
-        tx_ctx.__aenter__ = AsyncMock(return_value=None)
-        tx_ctx.__aexit__ = AsyncMock(return_value=False)
-        conn.transaction = MagicMock(return_value=tx_ctx)
+        conn = _make_conn_with_transaction()
 
         await _ensure_schema(conn)
         await _ensure_schema(conn)
@@ -45,11 +49,7 @@ class TestEnsureSchemaIdempotent:
     @pytest.mark.asyncio
     async def test_ensure_schema_calls_add_column_for_entry_type(self):
         """_ensure_schema emits an ALTER TABLE ... ADD COLUMN ... entry_type statement."""
-        conn = AsyncMock()
-        tx_ctx = MagicMock()
-        tx_ctx.__aenter__ = AsyncMock(return_value=None)
-        tx_ctx.__aexit__ = AsyncMock(return_value=False)
-        conn.transaction = MagicMock(return_value=tx_ctx)
+        conn = _make_conn_with_transaction()
 
         await _ensure_schema(conn)
 
@@ -60,11 +60,7 @@ class TestEnsureSchemaIdempotent:
     @pytest.mark.asyncio
     async def test_ensure_schema_calls_add_column_for_six_distribution_fields(self):
         """_ensure_schema adds all six distribution shape columns."""
-        conn = AsyncMock()
-        tx_ctx = MagicMock()
-        tx_ctx.__aenter__ = AsyncMock(return_value=None)
-        tx_ctx.__aexit__ = AsyncMock(return_value=False)
-        conn.transaction = MagicMock(return_value=tx_ctx)
+        conn = _make_conn_with_transaction()
 
         await _ensure_schema(conn)
 

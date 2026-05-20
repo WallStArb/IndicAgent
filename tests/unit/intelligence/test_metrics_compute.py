@@ -72,43 +72,45 @@ class TestHmmToRegimeMapping:
         assert HMM_TO_REGIME[2] == "trend"
 
 
+def _make_n_rows(n, **kwargs):
+    return [_make_row(**kwargs) for _ in range(n)]
+
+
 class TestComputeSignalMetrics:
-    def _make_n_rows(self, n, pnl_r=1.0, outcome="target_1", hmm_regime=1):
-        return [_make_row(pnl_r=pnl_r, outcome=outcome, hmm_regime=hmm_regime) for _ in range(n)]
 
     def test_returns_empty_when_insufficient_n(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE - 1)
+        rows = _make_n_rows(MIN_SAMPLE_SIZE - 1)
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         assert result == []
 
     def test_returns_row_when_n_meets_minimum(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE)
+        rows = _make_n_rows(MIN_SAMPLE_SIZE)
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         # Expect per-regime row + 'all' rollup + per-entry_type row (entry_type='at_close' default)
         # At least 2 global rows (regime + all); may also produce per-entry_type row
         assert len(result) >= 2
 
     def test_all_rollup_row_present(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE)
+        rows = _make_n_rows(MIN_SAMPLE_SIZE)
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         regime_types = {r.regime_type for r in result}
         assert "all" in regime_types
 
     def test_win_rate_all_wins(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE, pnl_r=1.0, outcome="target_1")
+        rows = _make_n_rows(MIN_SAMPLE_SIZE, pnl_r=1.0, outcome="target_1")
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
         assert all_row.win_rate == pytest.approx(1.0, abs=0.001)
 
     def test_win_rate_all_losses(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE, pnl_r=-1.0, outcome="stopped_in_trade")
+        rows = _make_n_rows(MIN_SAMPLE_SIZE, pnl_r=-1.0, outcome="stopped_in_trade")
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
         assert all_row.win_rate == pytest.approx(0.0, abs=0.001)
 
     def test_never_activated_pct_counted(self):
         # 30 valid rows + 10 never-activated (pnl_r=None, outcome=never_activated)
-        valid = self._make_n_rows(MIN_SAMPLE_SIZE, pnl_r=1.0, outcome="target_1")
+        valid = _make_n_rows(MIN_SAMPLE_SIZE, pnl_r=1.0, outcome="target_1")
         never_act = [_make_row(pnl_r=None, outcome="never_activated") for _ in range(10)]
         result = compute_signal_metrics(valid + never_act, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
@@ -116,7 +118,7 @@ class TestComputeSignalMetrics:
 
     def test_dq_invalid_rows_excluded_and_counted(self):
         # 30 valid + 5 with bad risk (should be caught by validator -> n_outliers)
-        valid = self._make_n_rows(MIN_SAMPLE_SIZE)
+        valid = _make_n_rows(MIN_SAMPLE_SIZE)
         bad = [_make_row(entry_price=5000.0, stop_loss=5000.01, pnl_r=-193.0) for _ in range(5)]
         result = compute_signal_metrics(valid + bad, track="zone", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
@@ -124,22 +126,22 @@ class TestComputeSignalMetrics:
         assert all_row.n_outliers == 5
 
     def test_market_track_uses_market_entry_fields(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE, pnl_r=-2.0)
+        rows = _make_n_rows(MIN_SAMPLE_SIZE, pnl_r=-2.0)
         # market_entry_pnl_r defaults to 0.8 in _make_row
         result = compute_signal_metrics(rows, track="market", window_days=30)
         all_row = next(r for r in result if r.regime_type == "all")
         assert all_row.avg_r == pytest.approx(0.8, abs=0.01)
 
     def test_track_field_set_correctly(self):
-        rows = self._make_n_rows(MIN_SAMPLE_SIZE)
+        rows = _make_n_rows(MIN_SAMPLE_SIZE)
         zone = compute_signal_metrics(rows, track="zone", window_days=30)
         market = compute_signal_metrics(rows, track="market", window_days=30)
         assert all(r.track == "zone" for r in zone)
         assert all(r.track == "market" for r in market)
 
     def test_multiple_regimes_produce_separate_rows(self):
-        trend_rows = self._make_n_rows(MIN_SAMPLE_SIZE, hmm_regime=1)
-        mr_rows = self._make_n_rows(MIN_SAMPLE_SIZE, hmm_regime=0)
+        trend_rows = _make_n_rows(MIN_SAMPLE_SIZE, hmm_regime=1)
+        mr_rows = _make_n_rows(MIN_SAMPLE_SIZE, hmm_regime=0)
         result = compute_signal_metrics(trend_rows + mr_rows, track="zone", window_days=30)
         regime_types = {r.regime_type for r in result}
         assert "trend" in regime_types
@@ -447,13 +449,10 @@ class TestDistributionShape:
 class TestEntryTypeGrouping:
     """Unit tests for per-entry_type accumulation and result emission (Phase 092 Plan 02)."""
 
-    def _make_n_rows(self, n, entry_type="at_close", pnl_r=1.0, outcome="target_1"):
-        return [_make_row(pnl_r=pnl_r, outcome=outcome, entry_type=entry_type) for _ in range(n)]
-
     def test_emits_per_entry_type_row_when_n_gte_30(self):
         """40 rows with entry_type='at_pullback' produce at least one row with entry_type='at_pullback'
         and symbol='*'."""
-        rows = self._make_n_rows(40, entry_type="at_pullback")
+        rows = _make_n_rows(40, entry_type="at_pullback")
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         at_pullback_rows = [r for r in result if r.entry_type == "at_pullback"]
         assert len(at_pullback_rows) >= 1
@@ -463,7 +462,7 @@ class TestEntryTypeGrouping:
 
     def test_no_per_entry_type_row_when_n_lt_30(self):
         """25 rows with entry_type='at_limit' produce zero per-entry_type rows (n < 30 gate)."""
-        rows = self._make_n_rows(25, entry_type="at_limit")
+        rows = _make_n_rows(25, entry_type="at_limit")
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         at_limit_rows = [r for r in result if r.entry_type == "at_limit"]
         assert len(at_limit_rows) == 0
@@ -473,7 +472,7 @@ class TestEntryTypeGrouping:
 
         NULL entry_type folds into global ('*') accumulator only — never into per-entry_type.
         """
-        rows = self._make_n_rows(40, entry_type=None)
+        rows = _make_n_rows(40, entry_type=None)
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         non_star_rows = [r for r in result if r.entry_type != "*"]
         assert len(non_star_rows) == 0
@@ -513,8 +512,8 @@ class TestEntryTypeGrouping:
     def test_two_entry_types_produce_correct_subset(self):
         """40 rows of at_close and 10 rows of at_limit: only at_close per-entry_type row emitted
         (at_limit n=10 < 30 gate)."""
-        at_close_rows = self._make_n_rows(40, entry_type="at_close")
-        at_limit_rows = self._make_n_rows(10, entry_type="at_limit")
+        at_close_rows = _make_n_rows(40, entry_type="at_close")
+        at_limit_rows = _make_n_rows(10, entry_type="at_limit")
         result = compute_signal_metrics(at_close_rows + at_limit_rows, track="zone", window_days=30)
         assert len([r for r in result if r.entry_type == "at_close"]) >= 1
         assert len([r for r in result if r.entry_type == "at_limit"]) == 0
@@ -545,7 +544,7 @@ class TestEntryTypeGrouping:
         Asserts no silent drop or remap for future entry_type additions (Gemini Suggestion).
         The global '*' row still includes these rows in its accumulator.
         """
-        rows = self._make_n_rows(40, entry_type="experimental_zone")
+        rows = _make_n_rows(40, entry_type="experimental_zone")
         result = compute_signal_metrics(rows, track="zone", window_days=30)
         # Unknown literal should produce its own per-entry_type row
         experimental_rows = [r for r in result if r.entry_type == "experimental_zone"]
