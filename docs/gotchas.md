@@ -14,6 +14,10 @@ Moved from CLAUDE.md to reduce per-turn token cost. These are real issues that b
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise service silently fails mid-test with a misleading error.
 - **ServiceSpec fields in tests**: `ServiceSpec(unit, metrics_port, lag_threshold_messages, dag_order, market_hours_only)` — check `services/service_auditor_agent.py` for current fields before constructing test fixtures.
 
+## Observability / Metrics
+
+- **Two-tier OTel metric pattern**: `src/observability/metrics.py` is for shared/cross-cutting metrics referenced by multiple services (shadow promotion stats, persistence latency, circuit breaker state, etc.). Service-local operational metrics (`_COMPUTE_CYCLES`, `_BARS_WRITTEN`, etc.) belong inline in the service file using a private `_xxx_meter = _otel_metrics.get_meter("indicagent")`. All meters share the same underlying `MeterProvider` so there is no functional difference — the distinction is purely organisational. Do not add service-local counters to `metrics.py`, and do not mix both patterns in the same file.
+
 ## Tooling
 
 - **GSD phase directory padding**: `gsd-sdk` returns `phase_dir` without zero-padding (e.g., `67-observability-alerting-automation`) but actual directories use padded names (`067-*`). If init returns `plan_count: 0` but plan files exist, check both directory variants.
