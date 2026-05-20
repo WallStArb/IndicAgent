@@ -18,7 +18,11 @@ from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.config.settings import get_active_contracts, get_settings
+from src.config.settings import (
+    get_active_contracts,
+    get_settings,
+    invalidate_active_contracts_cache,
+)
 from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
@@ -112,6 +116,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
 
         self._contracts = get_active_contracts(self.settings)
+        if not self._contracts:
+            raise RuntimeError(
+                "intelligence_pipeline_agent: no active instruments at startup. "
+                "DB unreachable or instruments table empty. Check DB connectivity "
+                "and ensure production/scripts/migrate_instruments.py has been run."
+            )
         self._symbols = [c.symbol for c in self._contracts]
         self._timeframes = list(_STANDARD_TFS)
 
@@ -249,7 +259,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
         _symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
-        self._cache_mgr = CacheManager(db=self._db, settings=self.settings, symbols=_symbol_filter)
+        self._cache_mgr = CacheManager(
+            db=self._db,
+            settings=self.settings,
+            symbols=_symbol_filter,
+            on_instruments_changed=invalidate_active_contracts_cache,
+        )
         async with self._db.pool.acquire() as conn:
             await enroll_all_plugins(conn)
         await self._cache_mgr.load_initial()
@@ -257,6 +272,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
+        await self._db_manager.ensure_instruments_trigger()
         listener_task = self._cache_mgr.start_instruments_listener()
         self._background_tasks.add(listener_task)
         listener_task.add_done_callback(self._background_tasks.discard)
