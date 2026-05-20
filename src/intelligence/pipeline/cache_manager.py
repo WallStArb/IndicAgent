@@ -31,6 +31,7 @@ import asyncpg
 import structlog
 
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from src.observability.metrics import gauge
 
 if TYPE_CHECKING:
     from src.config.settings import Settings
@@ -131,6 +132,10 @@ class CacheManager:
         self._settings = settings
         self._symbol_filter = symbols  # None = all symbols (D-30)
         self._on_instruments_changed = on_instruments_changed or (lambda: None)
+        self._listener_connected = gauge(
+            "instruments_listener_connected",
+            "1 when LISTEN instruments connection is active, 0 when reconnecting",
+        )
         self._logger = structlog.get_logger(__name__)
 
         # 6 cache dicts — atomic replacement on every load
@@ -402,6 +407,7 @@ class CacheManager:
                 conn = await asyncpg.connect(self._settings.database_url)
                 try:
                     await conn.execute("LISTEN instruments")
+                    self._listener_connected.add(1)
                     conn.add_listener("instruments", self._on_instrument_notify)
                     # Heartbeat loop — asyncpg delivers NOTIFY via the event loop
                     # without polling; the sleep just keeps this task alive.
@@ -418,6 +424,7 @@ class CacheManager:
                     "cache_manager.instruments_listener_error",
                     error=str(exc),
                 )
+                self._listener_connected.add(-1)
                 await asyncio.sleep(5)
 
     def _on_instrument_notify(self, conn: object, pid: int, channel: str, payload: str) -> None:
@@ -427,7 +434,7 @@ class CacheManager:
         asyncio.ensure_future so this sync callback never blocks the event loop.
         """
         self._logger.info("cache_manager.instrument_changed", symbol=payload)
-        asyncio.get_event_loop().call_soon_threadsafe(
+        asyncio.get_running_loop().call_soon_threadsafe(
             lambda: asyncio.ensure_future(self._reload_instruments_cache())
         )
 
