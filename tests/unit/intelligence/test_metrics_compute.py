@@ -270,7 +270,11 @@ class TestWriterSymbolInsert:
         await _handle_metrics_computed(conn, event)
         sql = conn.execute.call_args_list[0][0][0]
         assert "symbol" in sql
-        assert "ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol)" in sql
+        assert "entry_type" in sql
+        assert (
+            "ON CONFLICT (track, setup_plugin, tf, regime_type, window_days, symbol, entry_type)"
+            in sql
+        )
 
     @pytest.mark.asyncio
     async def test_signal_metrics_ic_insert_includes_symbol(self):
