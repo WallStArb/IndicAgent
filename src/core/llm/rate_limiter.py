@@ -42,7 +42,7 @@ class RateLimiter:
 
     async def acquire(self, tokens: int) -> None:
         """Wait until rate limits allow this request, then record it."""
-        wait_start = time.monotonic()
+        wait_start: float | None = None
         backoff = _MIN_BACKOFF_S
         while True:
             self._prune()
@@ -51,12 +51,13 @@ class RateLimiter:
                 and self._tokens_in_window() + tokens <= self._tpm
             ):
                 now = time.monotonic()
-                waited_s = now - wait_start
-                if waited_s > 0.01:
-                    LLM_RATE_LIMIT_WAIT.record(waited_s, {"provider": self._provider_id})
+                if wait_start is not None:
+                    LLM_RATE_LIMIT_WAIT.record(now - wait_start, {"provider": self._provider_id})
                 self._requests.append(now)
                 self._tokens.append((now, tokens))
                 return
+            if wait_start is None:
+                wait_start = time.monotonic()
             logger.debug("rate_limiter.waiting", backoff_s=backoff)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _MAX_BACKOFF_S)
