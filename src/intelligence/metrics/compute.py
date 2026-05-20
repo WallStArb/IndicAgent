@@ -303,7 +303,7 @@ def compute_signal_metrics(
 
         # entry_type: NULL/empty folds to global only; unknown literals pass through unchanged
         entry_type_raw = row.get("entry_type")
-        entry_type_val = entry_type_raw if entry_type_raw else None
+        entry_type_val = entry_type_raw or None
 
         if track == "zone":
             pnl_r = row.get("pnl_r")
@@ -353,8 +353,7 @@ def compute_signal_metrics(
                 acc["mfes"].append(float(mfe))
             acc["win_flags"].append(outcome in WIN_OUTCOMES)
 
-        # Per-entry_type accumulation: only when entry_type_val is not None (non-NULL)
-        # No whitelist check — unknown entry_type literals flow to their own accumulator key
+        # No whitelist — unknown entry_type literals flow to their own accumulator key
         if entry_type_val is not None:
             et_key = (plugin, tf_val, regime_label, entry_type_val)
             et_acc = by_entry_type[et_key]
