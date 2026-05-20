@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v2.7
 milestone_name: AI Agent Platform Modernization
-status: planning
+status: active
 last_updated: "2026-05-20T19:02:21.472Z"
 last_activity: 2026-05-20
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,25 +20,26 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 091.1 — instrument-registry-hardening
+**Current focus:** Phase 093 — LiteLLM Backend (v2.7 start)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 093 (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-20 — Milestone v2.7 started
+Status: Roadmap created, planning Phase 093
+Last activity: 2026-05-20 — v2.7 roadmap written
 
 ## Phase Overview
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 084 | Base Agent Hardening | INFRA-01–06, OBS-01 | Complete (2026-05-16) |
-| 085 | Persistence Writer Migration | PERSIST-01–05 | Complete (2026-05-17) |
-| 086 | Pipeline Hardening | PIPE-01–04, OBS-02–03 | Complete (2026-05-17) |
-| 087 | Signal Transform Architecture Phases 2-4 | SIGXFM-01–03 | Not started (gated ~May 25) |
-| 088 | God Class Decomposition | ARCH-01–05 | Not started |
-| 089 | Compute Performance Optimization | PERF-01–05 | Not started |
+| 093 | LiteLLM Backend | LLM-INFRA-01–05 | Not started |
+| 094 | Instructor Structured Output | STRUCT-OUT-01–04 | Not started |
+| 095 | Pydantic AI Agent Adapter | AGENT-EXEC-01–05 | Not started |
+| 096 | Agent Registry | AGENT-REG-01–04 | Not started |
+| 097 | Zep Episodic Memory | MEM-01–04 | Not started |
+| 098 | DSPy Offline Optimizer | OPT-01–04 | Not started |
+| 099 | Guardrails AI Validation | GUARD-01–03 | Not started |
 
 ## v2.6 Agreed Scope (2026-05-16)
 

@@ -18,7 +18,8 @@
 - ✅ **v2.3 ML Foundation** — Phases 64, 65, 66 (shipped 2026-05-14; Phase 64 03C USD strength deferred)
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
-- [ ] **v2.6 Foundation Hardening & Signal Transform** — Phases 084–089 (active)
+- ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
+- [ ] **v2.7 AI Agent Platform Modernization** — Phases 093–099 (active)
 
 ## Phases
 
@@ -566,7 +567,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). Next: v2.6 Signal Transform Architecture or backlog items.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). Next: v2.7 AI Agent Platform Modernization.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -676,9 +677,20 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 | - |
 | 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
-| 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Not started (gated ~May 25) | - |
+| 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Deferred | - |
 | 088. God Class Decomposition | v2.6 | 5/5 | Complete   | 2026-05-18 |
-| 089. First Qualitative Intelligence Lane | v2.6 | 0/TBD | Not started | - |
+| 089. Compute Performance Optimization | v2.6 | 6/6 | Complete | 2026-05-20 |
+| 090. Signal Ledger Hardening + Thread Safety | v2.6 | 2/2 | Complete | 2026-05-20 |
+| 091. Instrument Registry | v2.6 | 6/6 | Complete | 2026-05-20 |
+| 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
+| 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
+| 093. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
+| 094. Instructor Structured Output | v2.7 | 0/TBD | Not started | - |
+| 095. Pydantic AI Agent Adapter | v2.7 | 0/TBD | Not started | - |
+| 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
+| 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
+| 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
+| 099. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -1444,5 +1456,98 @@ Plans:
 - [x] 092-01-PLAN.md — Foundation: schema migration + DistributionShape helper + MetricsComputedEvent extension + consumer guards (QUAL-01, QUAL-03)
 - [x] 092-02-PLAN.md — Compute: per-symbol + per-entry_type grouping in compute_signal_metrics (QUAL-02, QUAL-03)
 - [x] 092-03-PLAN.md — Governance: tail-risk gate + SHADOW_TAIL_RISK_BLOCKED counter in shadow_auditor_agent (QUAL-04)
+
+
+<details>
+<summary>v2.7 AI Agent Platform Modernization (Phases 093-099) — ACTIVE</summary>
+
+**Milestone Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
+
+### Phase 093: LiteLLM Backend
+
+**Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
+**Depends on**: Phase 092
+**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05
+**Success Criteria** (what must be TRUE):
+  1. `LiteLLMBackend` handles calls to Ollama (primary) and OpenRouter (fallback) via LiteLLM model strings; no custom HTTP code remains
+  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile without modification
+  3. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows; Grafana token-spend panel shows real values
+  4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
+  5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
+**Plans**: TBD
+
+### Phase 094: Instructor Structured Output
+
+**Goal**: AI agents receive typed Python objects from the LLM instead of raw strings; parse failures are retried automatically with the validation error injected back into the prompt.
+**Depends on**: Phase 093
+**Requirements**: STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
+**Success Criteria** (what must be TRUE):
+  1. `InstructorClient` wraps `LiteLLMBackend`; all agent JSON parsing routes through a single `client.chat.completions.create(response_model=...)` call
+  2. A deliberate invalid response in a unit test triggers Instructor retry with `ValidationError` in prompt; agent never implements its own retry loop
+  3. `llm_calls.parse_success` shows a before/after parse failure rate delta; metric is queryable to validate the hypothesis
+  4. All `_parse_*_response` and `_validate_*_fields` boilerplate methods are deleted from agent files; each agent declares exactly one `BaseModel` result class
+**Plans**: TBD
+
+### Phase 095: Pydantic AI Agent Adapter
+
+**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
+**Depends on**: Phase 094
+**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
+**Success Criteria** (what must be TRUE):
+  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
+  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]` without constructor injection
+  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents run on `BaseAIAgent` unchanged
+  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; promotion requires explicit operator action
+  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
+**Plans**: TBD
+
+### Phase 096: Agent Registry
+
+**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
+**Depends on**: Phase 095
+**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
+**Success Criteria** (what must be TRUE):
+  1. `agents.yaml` exists; adding a new entry with valid `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version` and restarting the service instantiates the agent without code changes
+  2. `AgentRegistry` reads `agents.yaml` at startup and constructs agent instances; the registry is the sole construction path — no agent is instantiated elsewhere
+  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
+  4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
+**Plans**: TBD
+
+### Phase 097: Zep Episodic Memory
+
+**Goal**: Agents can surface contextually relevant past episodes by `(regime_type, symbol, setup_type)` without coupling to a specific memory backend; the feature is invisible to the live path until shadow validation passes.
+**Depends on**: Phase 096
+**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
+**Success Criteria** (what must be TRUE):
+  1. `ZepMemoryClient.recall(context)` returns `list[Episode]` scoped to `(regime_type, symbol, setup_type)`; `store(episode)` writes outcomes; the interface is testable with a mock client
+  2. Agents receive `memory_client` via `AgentDeps`; no agent imports `ZepMemoryClient` directly
+  3. `ZEP_MEMORY_ENABLED=false` by default; setting it to `true` activates recall without code changes; shadow-mode recall quality is logged before enabling
+  4. OTel histogram `zep_recall_latency_ms` exists; a recall that exceeds 50ms p95 is visible in Grafana before the feature is promoted
+**Plans**: TBD
+
+### Phase 098: DSPy Offline Optimizer
+
+**Goal**: Prompts are improved by statistical evidence from `llm_calls` outcome data; optimization runs offline and is A/B tested before any optimized prompt touches the live path.
+**Depends on**: Phase 097
+**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
+**Success Criteria** (what must be TRUE):
+  1. `DSPyOptimizer` reads `(prompt, result, outcome)` tuples from `llm_calls WHERE outcome IS NOT NULL` and produces compiled prompt variants offline
+  2. Compiled prompts are stored in `prompt_versions` table with A/B assignment; `llm_calls.prompt_version` links each call to a specific compiled variant
+  3. The optimizer is a timer-triggered batch job (not a daemon); it has zero code path in the live inference loop; a failure in the optimizer does not affect signal generation
+  4. An A/B comparison report showing win rate delta, parse failure delta, and `calibrated_confidence` delta is produced before any optimized prompt is promoted to default
+**Plans**: TBD
+
+### Phase 099: Guardrails AI Validation
+
+**Goal**: Output validation uses a maintained library with composable guard definitions instead of hand-written field-level checks; validation latency is measured and documented.
+**Depends on**: Phase 098
+**Requirements**: GUARD-01, GUARD-02, GUARD-03
+**Success Criteria** (what must be TRUE):
+  1. `GuardrailsAIValidator` implements the same interface as the existing `GuardrailsValidator`; all call sites are unchanged; a grep for `GuardrailsValidator` finds only the new class
+  2. `_validate_*_fields` boilerplate methods are deleted from agent files; total custom validation LOC in the AI layer is reduced (measured before/after)
+  3. OTel histogram `guardrails_latency_ms` exists; p95 latency overhead vs the old validator is documented in the phase summary; must not exceed 10ms
+**Plans**: TBD
+
+</details>
 
 </details>
