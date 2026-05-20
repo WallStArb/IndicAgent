@@ -10,6 +10,8 @@ import time
 from typing import Any
 
 import structlog
+from opentelemetry import metrics as _otel_metrics
+from opentelemetry.metrics import Observation as _Observation
 from opentelemetry.trace import StatusCode
 
 from src.core.llm.guardrails import GuardrailsValidator
@@ -20,6 +22,7 @@ from src.core.llm.token_budget import TokenBudget
 from src.observability.metrics import (
     LLM_CACHE_HITS,
     LLM_GUARDRAILS_REJECTIONS,
+    LLM_RESPONSE_CHARS,
     record_llm_call,
 )
 from src.observability.otel import get_tracer
@@ -31,6 +34,18 @@ _tracer = get_tracer("llm.chain")
 _cache = SemanticCache(max_size=500)
 _budget = TokenBudget(daily_token_limit=1_000_000, cost_per_1k=0.001)
 _guardrails = GuardrailsValidator()
+
+
+def _observe_budget_pct(options: object):  # type: ignore[type-arg]
+    yield _Observation(_budget.utilization_pct(), {})
+
+
+_otel_metrics.get_meter("indicagent").create_observable_gauge(
+    "llm_token_budget_pct_used",
+    callbacks=[_observe_budget_pct],
+    description="Daily token budget utilization 0-100",
+    unit="%",
+)
 
 
 class LLMProviderChain:
@@ -57,14 +72,7 @@ class LLMProviderChain:
         providers = self._build_providers(settings)
         self._inner = LLMChain(providers)
 
-        # Per-provider rate limiters (configurable via settings)
-        self._rate_limiters: dict[str, RateLimiter] = {}
-        if settings is not None:
-            for provider_id, limits in getattr(settings, "LLM_RATE_LIMITS", {}).items():
-                self._rate_limiters[provider_id] = RateLimiter(
-                    rpm=limits.get("rpm", 60),
-                    tpm=limits.get("tpm", 100_000),
-                )
+        self._rate_limiters: dict[str, RateLimiter] = self._make_rate_limiters(settings)
 
     @property
     def last_provider_id(self) -> str | None:
@@ -99,6 +107,17 @@ class LLMProviderChain:
                     )
 
         return providers
+
+    def _make_rate_limiters(self, settings: Any) -> dict[str, RateLimiter]:
+        limiters: dict[str, RateLimiter] = {}
+        if settings is not None:
+            for provider_id, limits in getattr(settings, "LLM_RATE_LIMITS", {}).items():
+                limiters[provider_id] = RateLimiter(
+                    rpm=limits.get("rpm", 60),
+                    tpm=limits.get("tpm", 100_000),
+                    provider_id=provider_id,
+                )
+        return limiters
 
     async def close(self) -> None:
         """Close any provider clients that hold persistent connections (e.g. httpx)."""
@@ -183,7 +202,12 @@ class LLMProviderChain:
                 logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
                 return None
 
-        # 6. Token counting — provider-reported or len/4 estimate
+        # 6. Response character length
+        LLM_RESPONSE_CHARS.record(
+            len(response), {"provider": provider_id, "call_type": self._call_type}
+        )
+
+        # 7. Token counting — provider-reported or len/4 estimate
         token_usage = self._inner.last_token_usage
         actual_total = token_usage.get("total_tokens") if isinstance(token_usage, dict) else None
         tokens = (
@@ -193,7 +217,7 @@ class LLMProviderChain:
         )
         span.set_attribute("llm.tokens", tokens)
 
-        # 7. Budget recording (observability — never gates execution)
+        # 8. Budget recording (observability — never gates execution)
         _budget.record(call_type=self._call_type, provider=provider_id, tokens=tokens)
         if _budget.is_exceeded():
             logger.warning(
@@ -203,16 +227,16 @@ class LLMProviderChain:
                 estimated_cost=_budget.estimated_cost_today(),
             )
 
-        # 8. Metrics
+        # 9. Metrics
         record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
 
-        # 9. Cache put
+        # 10. Cache put
         if self._cache_ttl > 0:
             _cache.put(
                 system=system, prompt=prompt, model=model, response=response, ttl=self._cache_ttl
             )
 
-        # 10. Audit trail
+        # 11. Audit trail
         await self._publish_audit(audit_context, provider_id, latency_s, tokens, response, model)
 
         logger.debug(

@@ -20,6 +20,8 @@ from src.observability.metrics import (
     AI_AGENT_DURATION_MS,
     AI_AGENT_ERRORS_TOTAL,
     AI_AGENT_INVOCATIONS_TOTAL,
+    LLM_EMPTY_RESPONSES,
+    LLM_PARSE_FAILURES,
 )
 from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
 
@@ -248,6 +250,7 @@ class BaseAIAgent(BaseAgent, ABC):
                 )
                 if result is None:
                     span.set_attribute("llm.empty_response", True)
+                    LLM_EMPTY_RESPONSES.add(1, {"agent_id": self.agent_id, "group": self.group})
                 return result, call_id
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
@@ -261,6 +264,7 @@ class BaseAIAgent(BaseAgent, ABC):
         JSON parsing of that response fails. Routes through the LLM chain's
         producer so the writer can UPDATE the llm_calls row.
         """
+        LLM_PARSE_FAILURES.add(1, {"agent_id": self.agent_id, "group": self.group})
         try:
             await self._llm._publish_parse_failure(call_id)
         except Exception as exc:

@@ -81,49 +81,50 @@ def test_shadow_transition_event_serializable():
 
 
 def test_tail_risk_blocks_when_skewness_too_negative():
-    assert _tail_risk_blocks_promotion(-2.5, 0.8, -2.0, 0.5) is True
+    assert _tail_risk_blocks_promotion(-2.5, 0.8, -2.0, 0.5) == "skewness"
 
 
 def test_tail_risk_blocks_when_recovery_too_low():
-    assert _tail_risk_blocks_promotion(-1.0, 0.3, -2.0, 0.5) is True
+    assert _tail_risk_blocks_promotion(-1.0, 0.3, -2.0, 0.5) == "recovery_factor"
 
 
 def test_tail_risk_blocks_when_both_below():
-    assert _tail_risk_blocks_promotion(-3.0, 0.1, -2.0, 0.5) is True
+    # skewness is checked first; that reason is returned
+    assert _tail_risk_blocks_promotion(-3.0, 0.1, -2.0, 0.5) == "skewness"
 
 
 def test_tail_risk_passes_when_both_acceptable():
-    assert _tail_risk_blocks_promotion(-1.5, 0.7, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(-1.5, 0.7, -2.0, 0.5) is None
 
 
 def test_tail_risk_passes_when_skewness_none_recovery_ok():
-    assert _tail_risk_blocks_promotion(None, 0.7, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(None, 0.7, -2.0, 0.5) is None
 
 
 def test_tail_risk_passes_when_recovery_none_skewness_ok():
-    assert _tail_risk_blocks_promotion(-1.5, None, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(-1.5, None, -2.0, 0.5) is None
 
 
 def test_tail_risk_passes_when_both_none():
-    assert _tail_risk_blocks_promotion(None, None, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(None, None, -2.0, 0.5) is None
 
 
 def test_tail_risk_blocks_when_skewness_below_with_recovery_none():
-    assert _tail_risk_blocks_promotion(-2.5, None, -2.0, 0.5) is True
+    assert _tail_risk_blocks_promotion(-2.5, None, -2.0, 0.5) == "skewness"
 
 
 def test_tail_risk_blocks_when_recovery_below_with_skewness_none():
-    assert _tail_risk_blocks_promotion(None, 0.3, -2.0, 0.5) is True
+    assert _tail_risk_blocks_promotion(None, 0.3, -2.0, 0.5) == "recovery_factor"
 
 
 def test_tail_risk_passes_at_exact_skewness_threshold():
     # strict < semantics: equal to threshold does not block
-    assert _tail_risk_blocks_promotion(-2.0, 0.7, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(-2.0, 0.7, -2.0, 0.5) is None
 
 
 def test_tail_risk_passes_at_exact_recovery_threshold():
     # strict < semantics: equal to threshold does not block
-    assert _tail_risk_blocks_promotion(-1.5, 0.5, -2.0, 0.5) is False
+    assert _tail_risk_blocks_promotion(-1.5, 0.5, -2.0, 0.5) is None
 
 
 def test_module_constants_match_locked_thresholds():
