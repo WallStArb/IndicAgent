@@ -32,6 +32,7 @@ from typing import Literal
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 from pydantic import ValidationError
 
+from src.config.settings import get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
@@ -86,7 +87,7 @@ class ProviderMergerComputeAgent(BaseAgent):
 
         # Instrument asset_class lookup: symbol -> asset_class string
         self._symbol_to_asset_class: dict[str, str] = {
-            instr.symbol: instr.asset_class.value for instr in self.settings.contracts
+            instr.symbol: instr.asset_class.value for instr in get_active_contracts(self.settings)
         }
 
         # Pre-cache labeled metric children to avoid dict lookup on every bar
