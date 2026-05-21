@@ -17,7 +17,7 @@ class StochasticPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     configs: list[tuple[int, int]] = None
 
     def __post_init__(self) -> None:
@@ -27,9 +27,7 @@ class StochasticPlugin:
             {key for (k, d) in self.configs for key in (f"stoch_k_{k}_{d}", f"stoch_d_{k}_{d}")}
         )
 
-    def compute_full(
-        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
-    ) -> dict[str, Any]:
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) == 0:
             return {}

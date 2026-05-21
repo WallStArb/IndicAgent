@@ -16,7 +16,7 @@ class CCIPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
 
     def __post_init__(self) -> None:

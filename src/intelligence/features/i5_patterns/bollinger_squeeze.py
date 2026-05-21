@@ -73,9 +73,6 @@ class BollingerSqueezePlugin:
         bw_pctile = 0.5
         if bandwidth_history:
             bw_arr = np.asarray(list(bandwidth_history), dtype=float)
-            k = int(len(bw_arr) * 0.20)
-            # np.partition(bw_arr, k)[k] == sorted(bw_arr)[k]: bit-equivalent, O(n)
-            _ = np.partition(bw_arr, k)[k]  # kth-element selection; confirms O(n) path
             rank = int(np.sum(bw_arr <= current_bw))
             bw_pctile = rank / len(bw_arr)
 
@@ -166,8 +163,6 @@ class BollingerSqueezePlugin:
         # O(n) average vs O(n log n) for full sort. k = int(len * 0.20) mirrors original
         # index lookup. Rank is computed via vectorized comparison — no sort needed.
         bw_arr = np.asarray(list(s["bandwidth_history"]), dtype=float)
-        k = int(len(bw_arr) * 0.20)
-        _ = np.partition(bw_arr, k)[k]  # kth-element selection; confirms O(n) path
         rank = int(np.sum(bw_arr <= bw))
         bw_pctile = rank / len(bw_arr)
 
