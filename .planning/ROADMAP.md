@@ -655,21 +655,40 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 100: Final Integration & Testing
+### Phase 100: Plugin Shared Infrastructure
 
-**Goal**: Complete v2.7 platform modernization with end-to-end integration testing, documentation, and operational readiness.
-**Depends on**: Phases 093-098
-**Requirements**: Integration testing, documentation, operational validation
+**Goal**: Reduce duplication across 132 plugins (I1-I7) through promoted shared utilities and a targeted IncrementalMixin for the 31 genuine incremental plugins.
+**Depends on**: Phase 093
+**Requirements**: PLUGIN-INFRA-01 through PLUGIN-INFRA-06
 **Success Criteria** (what must be TRUE):
 
-  1. End-to-end integration tests validate all agents (Skeptic, Correlation, Volume) run on Pydantic AI adapter with zero regression
-  2. Agent registry successfully loads and instantiates all agents from `agents.yaml` without code changes
-  3. Memory recall quality validated in shadow mode (precision/recall metrics documented)
-  4. DSPy optimizer has produced at least one optimized prompt variant with measurable improvement
-  5. Guardrails AI validation shows measurable reduction in custom validation LOC with no regression in accuracy
-  6. Complete documentation for operators: agent configuration, memory management, prompt optimization workflow
+  1. State archetype mixins exist for the 7 identified state shapes (Wilder's Accumulator, Rolling Window+Min/Max, etc.)
+  2. IncrementalMixin provides correct incremental update semantics for the 31 genuine incremental plugins
+  3. All 132 plugins continue to produce identical outputs (golden-file parity tests)
+  4. Shared validation utilities replace duplicated NaN/guard logic across all tiers
+  5. Plugin registration uses shared metadata helpers (no more ad-hoc `supports_incremental` patterns)
+  6. Zero increase in per-bar latency (shared code must not add overhead to hot path)
 
-**Plans**: TBD
+**Plans**: 6 plans in 4 waves
+
+Plans:
+**Wave 1**
+
+- [ ] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation
+- [ ] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 100-05-PLAN.md — Migrate I1/I2 plugins to get_main_df() (Bollinger, MovingAverages, MACD, ROC/PPO, AC Oscillator, CCI, AccelerationRegime)
+- [ ] 100-06-PLAN.md — Correct supports_incremental flags on delegation plugins (CVD, OFI, MAComposite) + conformance test
 
 </details>
 
@@ -704,7 +723,7 @@ Plans:
 ### Phase 102: Genetic Infrastructure
 
 **Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from failed agents.
-**Depends on**: Phase 100
+**Depends on**: Phase 101
 **Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
 **Success Criteria** (what must be TRUE):
 
@@ -924,7 +943,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
 | 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
 | 099. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
-| 100. Final Integration & Testing | v2.7 | 0/TBD | Not started | - |
+| 100. Plugin Shared Infrastructure | v2.7 | 0/TBD | Not started | - |
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
