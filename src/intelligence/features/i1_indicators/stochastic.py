@@ -1,3 +1,13 @@
+"""Stochastic oscillator plugin -- migrated to IncrementalMixin.
+
+Uses the rolling window min/max archetype:
+- _compute_full_core: full Stochastic computation via rolling pandas operations
+- _compute_next_core: incremental update using deque-based high/low windows
+- _seed_state: extracts {high_window, low_window, k_values} deques per config
+
+The mixin provides compute_full and compute_next -- StochasticPlugin defines none directly.
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -8,10 +18,19 @@ import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class StochasticPlugin:
+class StochasticPlugin(IncrementalMixin):
+    """Stochastic oscillator (%K and %D lines).
+
+    Uses IncrementalMixin to own the state contract. Implements:
+    - _compute_full_core: batch Stochastic via rolling pandas operations
+    - _compute_next_core: single-bar incremental update via deque rolling window
+    - _seed_state: seeds {high_window, low_window, k_values} deques per config
+    """
+
     name: str = "Stochastic"
     outputs: frozenset[str] = frozenset({"stoch_k_14_3", "stoch_d_14_3"})
     min_lookback: int = 20
@@ -27,12 +46,19 @@ class StochasticPlugin:
             {key for (k, d) in self.configs for key in (f"stoch_k_{k}_{d}", f"stoch_d_{k}_{d}")}
         )
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Compute Stochastic for all configs over full history.
+
+        Returns output values only -- no _state key. The mixin calls
+        _seed_state separately to attach state.
+
+        Returns:
+            Dict of {f"stoch_k_{k}_{d}": float, f"stoch_d_{k}_{d}": float} per config.
+            Returns {} when data is insufficient.
+        """
         df = frames.get("main")
         if df is None or len(df) == 0:
             return {}
-        # Convert to numpy arrays first to avoid pandas 3.x "No numeric types to aggregate" errors
-        # when Series has object dtype (can happen even with numeric values)
         # Convert once to float64 Series to avoid pandas 3.x dtype inference issues
         high_series = pd.Series(df["high"].to_numpy(copy=False), dtype="float64")
         low_series = pd.Series(df["low"].to_numpy(copy=False), dtype="float64")
@@ -53,20 +79,25 @@ class StochasticPlugin:
             out[f"stoch_d_{k_period}_{d_period}"] = (
                 float(d.iloc[-1]) if pd.notna(d.iloc[-1]) else 0.0
             )
-        state = {}
-        self._seed_state(high_series, low_series, close_series, state)
-        out["_state"] = state
         return out
 
-    def _seed_state(
-        self,
-        high_col: pd.Series,
-        low_col: pd.Series,
-        close_col: pd.Series,
-        state: dict,
-    ) -> None:
-        """Extract rolling high/low/K state for incremental Stochastic updates."""
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Extract rolling high/low/K state for incremental Stochastic updates.
+
+        Args:
+            frames: Same frames dict passed to _compute_full_core.
+
+        Returns:
+            State dict with deques {high_window, low_window, k_values} per config key.
+        """
+        df = frames.get("main")
+        if df is None or len(df) == 0:
+            return {}
+        high_col = pd.Series(df["high"].to_numpy(copy=False), dtype="float64")
+        low_col = pd.Series(df["low"].to_numpy(copy=False), dtype="float64")
+        close_col = pd.Series(df["close"].to_numpy(copy=False), dtype="float64")
         n = len(high_col)
+        state: dict[str, Any] = {}
         for k_period, d_period in self.configs:
             if n < k_period + d_period:
                 continue
@@ -88,13 +119,25 @@ class StochasticPlugin:
                 "low_window": deque(lows, maxlen=k_period),
                 "k_values": deque(k_vals, maxlen=d_period),
             }
+        return state
 
-    def compute_next(
-        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    def _compute_next_core(
+        self, frames: dict[str, pd.DataFrame], state: dict[str, Any]
     ) -> dict[str, Any]:
-        if not state:
-            return self.compute_full(windows)
-        df = windows.get("main")
+        """Incremental single-bar Stochastic update using rolling deque windows.
+
+        State is guaranteed non-None by the mixin. Mutates state in place.
+
+        Args:
+            frames: Plugin frames dict. Executor passes full historical frames.
+            state:  Mutable state dict. Expected keys: {f"stoch_{k}_{d}": {high_window,
+                    low_window, k_values}} per config.
+
+        Returns:
+            Dict of {f"stoch_k_{k}_{d}": float, f"stoch_d_{k}_{d}": float} for configs
+            present in state. Returns {} when data is insufficient.
+        """
+        df = frames.get("main")
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
@@ -120,7 +163,6 @@ class StochasticPlugin:
 
             out[f"stoch_k_{k_period}_{d_period}"] = k_val
             out[f"stoch_d_{k_period}_{d_period}"] = d_val
-        out["_state"] = state
         return out
 
 
