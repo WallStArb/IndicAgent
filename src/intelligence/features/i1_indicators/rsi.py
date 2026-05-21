@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import wilders_update
 
 
 @dataclass
@@ -35,16 +36,17 @@ class RSIPlugin:
             if len(close) >= p + 1:
                 rsi = self._rsi_np(close, p)
                 out[f"rsi_{p}"] = float(rsi[-1])
-        self._seed_state(frames)
-        out["_state"] = self._state
+        state = self._seed_state(frames)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
         """Extract Wilder's smoothing state from full computation."""
         df = frames.get("main")
         if df is None:
-            return
+            return {}
         close = df["close"].to_numpy(copy=False)
+        state_dict: dict = {}
         for p in self.periods:
             if len(close) < p + 1:
                 continue
@@ -55,16 +57,17 @@ class RSIPlugin:
             down_val = float(-seed.clip(max=0).sum() / p)
             for i in range(p, len(deltas)):
                 delta = float(deltas[i])
-                up_val = (up_val * (p - 1) + max(delta, 0)) / p
-                down_val = (down_val * (p - 1) + max(-delta, 0)) / p
-            self._state[f"rsi_{p}"] = {
+                up_val = wilders_update(up_val, max(delta, 0), p)
+                down_val = wilders_update(down_val, max(-delta, 0), p)
+            state_dict[f"rsi_{p}"] = {
                 "avg_gain": up_val,
                 "avg_loss": down_val,
                 "prev_close": float(close[-1]),
             }
+        return state_dict
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -73,14 +76,14 @@ class RSIPlugin:
         out: dict[str, Any] = {}
         for p in self.periods:
             key = f"rsi_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             delta = close - s["prev_close"]
             gain = max(delta, 0.0)
             loss = max(-delta, 0.0)
-            s["avg_gain"] = (s["avg_gain"] * (p - 1) + gain) / p
-            s["avg_loss"] = (s["avg_loss"] * (p - 1) + loss) / p
+            s["avg_gain"] = wilders_update(s["avg_gain"], gain, p)
+            s["avg_loss"] = wilders_update(s["avg_loss"], loss, p)
             s["prev_close"] = close
             # Zero-loss guard (Renaissance: data quality over model complexity)
             # When avg_loss == 0 (no downward moves), RSI returns 100.0 (maximum momentum)
@@ -90,6 +93,7 @@ class RSIPlugin:
             else:
                 rs = s["avg_gain"] / s["avg_loss"]
                 out[key] = 100.0 - 100.0 / (1.0 + rs)
+        out["_state"] = state
         return out
 
     @staticmethod
