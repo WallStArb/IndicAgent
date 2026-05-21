@@ -26,8 +26,8 @@ class MACompositePlugin:
                 "golden_cross_active",
                 "death_cross_active",
                 "golden_cross_bars_ago",
-                # Dynamic S/R using SMA 50
-                "price_above_sma_50",
+                # Dynamic S/R using SMA 200
+                "price_above_sma200",
                 "price_touch_sma_50",
                 "price_bounce_sma_50",
                 # Generic metrics
