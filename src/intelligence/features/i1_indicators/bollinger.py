@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -18,7 +18,7 @@ class BollingerPlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
-    configs: list[tuple] = None
+    configs: list[tuple] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not self.configs:
