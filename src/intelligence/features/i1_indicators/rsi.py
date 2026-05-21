@@ -67,7 +67,7 @@ class RSIPlugin:
         return state_dict
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not state:
+        if state is None:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
