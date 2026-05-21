@@ -1,10 +1,15 @@
-"""Volume Z-Score (I1) — rolling z-score of bar volume.
+"""Volume Z-Score (I1) -- rolling z-score of bar volume.
 
 Per Phase 78 D-21 / P78-MATH-PLUGINS: replaces the LLM VolumeAgent with
 deterministic math that lives in the I1 tier of the pipeline. Computed
 once per bar, stored in intelligence_features.i1.volume_z_score, and
 consumed by every downstream agent (skeptic_v2 reads it automatically
 via _render_full_context iterating AIContext.model_fields).
+
+Migrated to IncrementalMixin (Phase 100):
+- _compute_full_core: full z-score computation over entire history
+- _compute_next_core: incremental update by appending latest volume to deque
+- _seed_state: extracts {vol_history} deque from full computation
 
 Renaissance principle: compute once per bar, store once, consume everywhere.
 """
@@ -19,20 +24,26 @@ import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 _WINDOW = 20
 
 
 @dataclass
-class VolumeZscorePlugin:
-    """Rolling z-score of bar volume — I1 measurement plugin.
+class VolumeZscorePlugin(IncrementalMixin):
+    """Rolling z-score of bar volume -- I1 measurement plugin.
+
+    Uses IncrementalMixin to own the state contract. Implements:
+    - _compute_full_core: batch volume z-score via full history
+    - _compute_next_core: single-bar incremental update via deque append
+    - _seed_state: seeds {vol_history} deque
 
     SHADOW_SKIP=True: pure math, not a tradeable signal. Shadow enrollment
     is only relevant for I7 signal plugins.
     """
 
     name: str = "volume_zscore"
-    regime_type: ClassVar[str] = "any"  # I1 measurement, not signal — satisfies I7 directory guard
+    regime_type: ClassVar[str] = "any"  # I1 measurement, not signal -- satisfies I7 directory guard
     SHADOW_SKIP: ClassVar[bool] = True
     outputs: frozenset[str] = frozenset({"volume_z_score"})
     min_lookback: int = _WINDOW + 1
@@ -40,11 +51,15 @@ class VolumeZscorePlugin:
     capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: tuple = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Compute volume z-score from a full window DataFrame.
 
-        Seeds incremental state for compute_next calls.
-        Returns {"volume_z_score": 0.0} if insufficient data.
+        Returns output values only -- no _state key. The mixin calls
+        _seed_state separately to attach state.
+
+        Returns:
+            {"volume_z_score": float}. Returns {"volume_z_score": 0.0} if
+            insufficient data.
         """
         df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 2:
@@ -57,19 +72,44 @@ class VolumeZscorePlugin:
         for v in volumes:
             history.append(float(v))
 
-        # Store state for incremental updates
-        state = {"vol_history": history}
+        return self._compute_z(history)
 
-        return {**self._compute_z(history), "_state": state}
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Extract rolling volume history for incremental updates.
 
-    def compute_next(
-        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+        Args:
+            frames: Same frames dict passed to _compute_full_core.
+
+        Returns:
+            State dict with {vol_history: deque(_WINDOW)}.
+        """
+        df = frames.get("main")
+        if df is None or "volume" not in df.columns or len(df) < 2:
+            return {}
+
+        volumes = df["volume"].to_numpy(copy=False)
+        history: deque = deque(maxlen=_WINDOW)
+        for v in volumes:
+            history.append(float(v))
+
+        return {"vol_history": history}
+
+    def _compute_next_core(
+        self, frames: dict[str, pd.DataFrame], state: dict[str, Any]
     ) -> dict[str, Any]:
-        """Incremental update: append latest bar volume to rolling window."""
-        if not state:
-            return self.compute_full(windows)
+        """Incremental update: append latest bar volume to rolling window.
 
-        df = windows.get("main")
+        State is guaranteed non-None by the mixin. Mutates state in place.
+
+        Args:
+            frames: Plugin frames dict. Executor passes full historical frames.
+            state:  Mutable state dict. Expected key: {vol_history: deque}.
+
+        Returns:
+            {"volume_z_score": float}. Returns {"volume_z_score": 0.0} if
+            data is insufficient.
+        """
+        df = frames.get("main")
         if df is None or "volume" not in df.columns or len(df) < 1:
             return {"volume_z_score": 0.0}
 
@@ -77,7 +117,7 @@ class VolumeZscorePlugin:
         vol = float(df["volume"].iloc[-1])
         history.append(vol)
 
-        return {**self._compute_z(history), "_state": state}
+        return self._compute_z(history)
 
     @staticmethod
     def _compute_z(history: deque) -> dict[str, Any]:

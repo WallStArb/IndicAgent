@@ -1,3 +1,15 @@
+"""Money Flow Index (MFI) plugin -- migrated to IncrementalMixin.
+
+Uses the windowed money flow deque archetype:
+- _compute_full_core: full MFI computation via rolling pandas operations
+- _compute_next_core: incremental update using deque-based money flow windows
+- _seed_state: extracts {prev_tp, pos_mf_window, neg_mf_window} deques per period
+
+Phase 093 fix preserved: all-positive money flow returns 100.0 (not 0.0).
+
+The mixin provides compute_full and compute_next -- MFIPlugin defines none directly.
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -7,10 +19,22 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class MFIPlugin:
+class MFIPlugin(IncrementalMixin):
+    """Money Flow Index -- volume-weighted RSI variant.
+
+    Uses IncrementalMixin to own the state contract. Implements:
+    - _compute_full_core: batch MFI via rolling pandas operations
+    - _compute_next_core: single-bar incremental update via deque money flow windows
+    - _seed_state: seeds {prev_tp, pos_mf_window, neg_mf_window} deques per period
+
+    Phase 093 bug fix preserved: when neg_sum == 0 and pos_sum > 0, returns 100.0
+    (all-positive money flow). Without this fix, the original code returned 0.0.
+    """
+
     name: str = "MFI"
     outputs: frozenset[str] = frozenset({"mfi_14"})
     min_lookback: int = 20
@@ -24,7 +48,15 @@ class MFIPlugin:
             self.periods = [14]
         self.outputs = frozenset({f"mfi_{p}" for p in self.periods})
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Compute MFI for all periods over full history.
+
+        Returns output values only -- no _state key. The mixin calls
+        _seed_state separately to attach state.
+
+        Returns:
+            Dict of {f"mfi_{p}": float} per period. Returns {} when data is insufficient.
+        """
         df = frames.get("main")
         if df is None or not {"high", "low", "close", "volume"}.issubset(df.columns):
             return {}
@@ -40,23 +72,28 @@ class MFIPlugin:
             ns = float(neg_mf.iloc[-p:].sum(min_count=p))
             if pd.isna(ps) or pd.isna(ns):
                 continue
+            # Phase 093 bug fix: all-positive money flow returns 100.0 (not 0.0)
             if ns == 0:
                 out[f"mfi_{p}"] = 100.0 if ps > 0 else 0.0
             else:
                 out[f"mfi_{p}"] = 100.0 - 100.0 / (1.0 + ps / ns)
-        state = {}
-        self._seed_state(frames, state)
-        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
-        """Extract rolling money flow state for incremental MFI updates."""
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Extract rolling money flow state for incremental MFI updates.
+
+        Args:
+            frames: Same frames dict passed to _compute_full_core.
+
+        Returns:
+            State dict with {prev_tp, pos_mf_window, neg_mf_window} deques per period.
+        """
         df = frames.get("main")
         if df is None or not {"high", "low", "close", "volume"}.issubset(df.columns):
-            return
+            return {}
         tp = (df["high"] + df["low"] + df["close"]) / 3.0
         rmf = tp * df["volume"]
-
+        state: dict[str, Any] = {}
         for p in self.periods:
             if len(df) < p + 1:
                 continue
@@ -86,13 +123,26 @@ class MFIPlugin:
                 "pos_mf_window": deque(pos_mfs, maxlen=p),
                 "neg_mf_window": deque(neg_mfs, maxlen=p),
             }
+        return state
 
-    def compute_next(
-        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    def _compute_next_core(
+        self, frames: dict[str, pd.DataFrame], state: dict[str, Any]
     ) -> dict[str, Any]:
-        if not state:
-            return self.compute_full(windows)
-        df = windows.get("main")
+        """Incremental single-bar MFI update using rolling money flow deques.
+
+        State is guaranteed non-None by the mixin. Mutates state in place.
+        Preserves Phase 093 fix: neg_sum == 0 and pos_sum > 0 returns 100.0.
+
+        Args:
+            frames: Plugin frames dict. Executor passes full historical frames.
+            state:  Mutable state dict. Expected keys: {f"mfi_{p}": {prev_tp,
+                    pos_mf_window, neg_mf_window}} per period.
+
+        Returns:
+            Dict of {f"mfi_{p}": float} for periods present in state.
+            Returns {} when data is insufficient.
+        """
+        df = frames.get("main")
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
@@ -121,12 +171,12 @@ class MFIPlugin:
             pos_sum = sum(s["pos_mf_window"])
             neg_sum = sum(s["neg_mf_window"])
 
+            # Phase 093 bug fix: all-positive money flow returns 100.0 (not 0.0)
             if neg_sum == 0:
                 out[key] = 100.0 if pos_sum > 0 else 0.0
             else:
                 mfr = pos_sum / neg_sum
                 out[key] = 100.0 - 100.0 / (1.0 + mfr)
-        out["_state"] = state
         return out
 
 
