@@ -190,7 +190,9 @@ class MarketProfilePlugin:
         va_high = sorted_prices[hi]
         va_low = sorted_prices[lo]
 
-        return self._build_output(close, poc_level, va_high, va_low, atr_14)
+        out = self._build_output(close, poc_level, va_high, va_low, atr_14)
+        out["_state"] = state
+        return out
 
     def _build_output(
         self,
