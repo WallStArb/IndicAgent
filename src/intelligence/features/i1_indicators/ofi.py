@@ -39,7 +39,8 @@ class OFIPlugin:
         {"ofi_ewma_5", "ofi_ewma_20", "ofi_divergence", "ofi_spike_z", "ofi_variant"}
     )
     min_lookback: int = 5
-    supports_incremental: bool = True
+    # Delegation pattern: compute_next delegates to compute_full (per-symbol self._state architecture)
+    supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"volume", "microstructure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     _state: dict = field(default_factory=dict)
