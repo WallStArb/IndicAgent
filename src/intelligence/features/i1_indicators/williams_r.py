@@ -16,7 +16,7 @@ class WilliamsRPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
 
     def __post_init__(self) -> None:
@@ -24,9 +24,7 @@ class WilliamsRPlugin:
             self.periods = [14]
         self.outputs = frozenset({f"williams_r_{p}" for p in self.periods})
 
-    def compute_full(
-        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
-    ) -> dict[str, Any]:
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
         if df is None:
             return {}

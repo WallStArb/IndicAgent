@@ -190,8 +190,8 @@ class TestEfficiencyNumericEquivalence:
         ref_stoch = ta.stoch(
             df["high"], df["low"], df["close"], k=k_period, d=d_period, smooth_k=1, talib=False
         )
-        ref_k = ref_stoch.iloc[:, 0].iloc[warmup:].reset_index(drop=True)
-        ref_d = ref_stoch.iloc[:, 1].iloc[warmup:].reset_index(drop=True)
+        ref_k = ref_stoch[f"STOCHk_{k_period}_{d_period}_1"].iloc[warmup:].reset_index(drop=True)
+        ref_d = ref_stoch[f"STOCHd_{k_period}_{d_period}_1"].iloc[warmup:].reset_index(drop=True)
 
         assert_close_to_reference(
             pd.Series(our_k_vals),
