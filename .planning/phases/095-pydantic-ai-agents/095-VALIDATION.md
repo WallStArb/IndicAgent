@@ -1,5 +1,5 @@
 ---
-phase: 094
+phase: 095
 slug: pydantic-ai-agents
 status: draft
 nyquist_compliant: false
@@ -7,7 +7,7 @@ wave_0_complete: false
 created: 2026-05-20
 ---
 
-# Phase 094 — Validation Strategy
+# Phase 095 — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
 

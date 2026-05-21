@@ -46,7 +46,7 @@ class ACOscillatorPlugin:
         # Seed incremental state
         self._seed_state(midpoint, ao_series)
 
-        return {"ao": float(ao_val), "ac": float(ac_val)}
+        return {"ao": float(ao_val), "ac": float(ac_val), "_state": self._state}
 
     def _seed_state(self, midpoint_series: Any, ao_series: Any) -> None:
         """Seed rolling window state for incremental updates."""

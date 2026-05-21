@@ -1,11 +1,11 @@
 ---
-phase: 094
+phase: 095
 reviewers: [gemini, codex]
 reviewed_at: 2026-05-21T00:00:00Z
 plans_reviewed: [094-01-PLAN.md, 094-02-PLAN.md, 094-03-PLAN.md, 094-04-PLAN.md, 094-05-PLAN.md]
 ---
 
-# Cross-AI Plan Review — Phase 094
+# Cross-AI Plan Review — Phase 095
 
 ## Gemini Review
 
@@ -72,7 +72,7 @@ This plan is easy to correct and does not touch runtime behavior.
 - **HIGH**: `_compute()` returns `self._to_agent_output(...)` without `await`, but `_to_agent_output()` is async. This will return a coroutine instead of `AgentOutput`.
 - **HIGH**: It bypasses `BaseAIAgent._llm_generate()`, so existing audit publishing to `llm_calls`, parse tracking, provider fallback, rate limiting, semantic cache, guardrails, and token budget observability are not preserved.
 - **MEDIUM**: `user_prompt=str(context)` does not match the legacy Skeptic path. The legacy agent uses `build_skeptic_prompt(context)`, so success criterion 1 "same AgentOutput as legacy `_compute()` path" is unlikely.
-- **MEDIUM**: The adapter hardcodes `db_pool=None` and `memory_client=None`, but Phase 094 requires `AgentDeps` to carry these dependencies. There is no constructor path to inject them.
+- **MEDIUM**: The adapter hardcodes `db_pool=None` and `memory_client=None`, but Phase 095 requires `AgentDeps` to carry these dependencies. There is no constructor path to inject them.
 - **MEDIUM**: Test plan imports `SkepticComputeAgent` but does not use it.
 - **LOW**: Verification says `grep -q "extends BaseAIAgent"` but the code only says `class PydanticAIAdapter(BaseAIAgent)`. That grep will fail unless the docstring contains that exact phrase.
 

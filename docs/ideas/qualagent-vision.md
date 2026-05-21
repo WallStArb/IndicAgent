@@ -1,7 +1,7 @@
 # QualAgent — Qualitative Intelligence Platform (Vision)
 
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
+**Created:** 2026-03-04
+**Last Updated:** 2026-05-20  
 **Status:** Vision — active ideation / ideas capture  
 **Related:** `.planning/milestones/v1.0-REQUIREMENTS.md` (PLAT-01–04), `docs/ideas/jim-simons-renaissance-principles.md`, `docs/ideas/tradeagent-vision.md`
 

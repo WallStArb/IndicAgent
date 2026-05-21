@@ -1,4 +1,4 @@
-# Phase 094: Pydantic AI Agents - Pattern Map
+# Phase 095: Pydantic AI Agents - Pattern Map
 
 **Mapped:** 2026-05-20
 **Files analyzed:** 8

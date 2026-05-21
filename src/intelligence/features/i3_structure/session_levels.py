@@ -168,20 +168,17 @@ class SessionLevelsPlugin:
             result["asian_session_low"] = None
 
         # Seed incremental state from full computation
+        self._state = {}
         if state is not None:
             state["bar_count"] = n
             state["sess_n"] = sess_n
-            # Session tracking: track bar index of session start
             state["session_start_idx"] = n - sess_n
-            # Store prior session levels (finalized; won't change until next boundary)
             state["prior_session_high"] = result.get("prior_session_high")
             state["prior_session_low"] = result.get("prior_session_low")
             state["prior_session_close"] = result.get("prior_session_close")
-            # Current session running high/low (from session slice)
             state["session_high"] = float(session["high"].max()) if len(session) > 0 else None
             state["session_low"] = float(session["low"].min()) if len(session) > 0 else None
             state["session_open"] = float(session["open"].iloc[0]) if len(session) > 0 else None
-            # Weekly pivot levels (updated only when weekly data changes significantly)
             state["weekly_pivot"] = result.get("weekly_pivot")
             state["weekly_r1"] = result.get("weekly_r1")
             state["weekly_r2"] = result.get("weekly_r2")
@@ -198,14 +195,13 @@ class SessionLevelsPlugin:
                 if week_df is not None and len(week_df) > 0
                 else None
             )
-            # Overnight state: track the last OVERNIGHT_BARS segment
             state["overnight_n"] = overnight_n
             state["overnight_high"] = result.get("overnight_high")
             state["overnight_low"] = result.get("overnight_low")
-            # Asian session state
             state["asian_session_high"] = result.get("asian_session_high")
             state["asian_session_low"] = result.get("asian_session_low")
 
+        result["_state"] = state if state is not None else self._state
         return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

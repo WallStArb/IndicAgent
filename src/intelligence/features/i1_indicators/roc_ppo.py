@@ -65,6 +65,7 @@ class ROCPPOPlugin:
         out[f"ppo_signal_{self.ppo_fast}_{self.ppo_slow}"] = float(ppo_sig.iloc[-1])
 
         self._seed_state(frames)
+        out["_state"] = self._state
         return out
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:

@@ -1,6 +1,6 @@
 # Preserved Insights from Instructor Phase Planning
 
-> **Context:** Phase 094 (Instructor) was deprioritized in favor of direct Pydantic AI adoption. This document captures patterns and decisions that remain relevant for Phase 094 (renamed from 095).
+> **Context:** Phase 095 (Instructor) was deprioritized in favor of direct Pydantic AI adoption. This document captures patterns and decisions that remain relevant for Phase 095 (renamed from 095).
 
 ## Result Model Definitions (Preserved)
 

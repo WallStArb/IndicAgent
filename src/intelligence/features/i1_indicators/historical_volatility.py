@@ -60,7 +60,7 @@ class HistoricalVolatilityPlugin:
             "hv_window": deque(hv_values[-self.period :], maxlen=self.period),
         }
 
-        return {"hv_20": round(hv_20, 6), "hv_ratio_20": round(hv_ratio, 4)}
+        return {"hv_20": round(hv_20, 6), "hv_ratio_20": round(hv_ratio, 4), "_state": self._state}
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
