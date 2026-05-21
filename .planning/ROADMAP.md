@@ -552,17 +552,17 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
+- [x] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 093-02-PLAN.md — Tier 1 indicator reference validation vs pandas-ta (10 indicators) + ATR Wilder investigation
-- [ ] 093-03-PLAN.md — Kalman and GARCH stateful invariant tests
-- [ ] 093-04-PLAN.md — Hot-path efficiency fixes (np.percentile, remove .tolist()) + numeric equivalence guard
+- [x] 093-02-PLAN.md — Tier 1 indicator reference validation vs pandas-ta (10 indicators) + ATR Wilder investigation
+- [x] 093-03-PLAN.md — Kalman and GARCH stateful invariant tests
+- [x] 093-04-PLAN.md — Hot-path efficiency fixes (np.percentile, remove .tolist()) + numeric equivalence guard
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
+- [x] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
 
 ### Phase 094: LiteLLM Backend
 
@@ -917,7 +917,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091. Instrument Registry | v2.6 | 6/6 | Complete | 2026-05-20 |
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
-| 093. Renaissance Mathematical Correctness Audit | v2.7 | 0/TBD | Not started | - |
+| 093. Renaissance Mathematical Correctness Audit | v2.7 | 5/5 | Complete   | 2026-05-21 |
 | 094. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
 | 095. Pydantic AI Agent Adapter | v2.7 | 8/8 | Planned | - |
 | 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
