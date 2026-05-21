@@ -71,6 +71,7 @@ class VWAPPlugin:
             "vwap_upper_2": float(vwap_val + 2 * std),
             "vwap_lower_2": float(vwap_val - 2 * std),
             "vwap_std": float(std),
+            "_state": self._state,
         }
 
     def compute_next(

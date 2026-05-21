@@ -95,6 +95,7 @@ class SupertrendPlugin:
         return {
             "supertrend_value": float(supertrend_value),
             "supertrend_dir": direction,
+            "_state": self._state,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
