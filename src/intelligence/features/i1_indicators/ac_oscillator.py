@@ -126,7 +126,7 @@ class ACOscillatorPlugin:
         # AC = AO - SMA5(AO)
         ac = ao - s["ao5_sum"] / 5.0
 
-        return {"ao": float(ao), "ac": float(ac)}
+        return {"ao": float(ao), "ac": float(ac), "_state": self._state}
 
 
 plugin = ACOscillatorPlugin()
