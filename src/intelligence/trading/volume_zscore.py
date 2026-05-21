@@ -50,7 +50,7 @@ class VolumeZscorePlugin:
         if df is None or "volume" not in df.columns or len(df) < 2:
             return {"volume_z_score": 0.0}
 
-        volumes = df["volume"].tolist()
+        volumes = df["volume"].to_numpy(copy=False)
 
         # Build rolling window from the full series
         history: deque = deque(maxlen=_WINDOW)
