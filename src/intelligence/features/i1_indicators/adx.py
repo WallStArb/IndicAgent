@@ -69,7 +69,7 @@ class ADXPlugin(IncrementalMixin):
         close = df["close"].to_numpy(dtype=float)
         out: dict[str, Any] = {}
         for p in self.periods:
-            adx, plus_di, minus_di = self._adx_np(high, low, close, p)
+            adx, plus_di, minus_di, _ = self._adx_np(high, low, close, p)
             if adx is not None:
                 out[f"adx_{p}"] = adx
                 out[f"plus_di_{p}"] = plus_di
@@ -78,11 +78,16 @@ class ADXPlugin(IncrementalMixin):
 
     def _adx_np(
         self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int
-    ) -> tuple[float | None, float, float]:
-        """Compute ADX using Wilder's smoothing. Returns (adx, +DI, -DI)."""
+    ) -> tuple[float | None, float, float, dict]:
+        """Compute ADX using Wilder's smoothing. Returns (adx, +DI, -DI, state_dict).
+
+        state_dict contains the Wilder accumulators needed for incremental updates:
+        {smoothed_plus_dm, smoothed_minus_dm, smoothed_tr, adx, prev_high, prev_low, prev_close}.
+        Returns empty state_dict {} when data is insufficient.
+        """
         n = len(high)
         if n < period * 2 + 1:
-            return None, 0.0, 0.0
+            return None, 0.0, 0.0, {}
 
         # Directional Movement
         plus_dm = np.zeros(n)
@@ -125,7 +130,7 @@ class ADXPlugin(IncrementalMixin):
             dx_values.append(dx)
 
         if len(dx_values) < period:
-            return None, 0.0, 0.0
+            return None, 0.0, 0.0, {}
 
         # ADX: Wilder's smoothing of DX
         adx = float(np.mean(dx_values[:period]))
@@ -140,14 +145,24 @@ class ADXPlugin(IncrementalMixin):
             final_plus_di = 100.0 * smoothed_plus_dm / smoothed_tr
             final_minus_di = 100.0 * smoothed_minus_dm / smoothed_tr
 
-        return float(adx), float(final_plus_di), float(final_minus_di)
+        state_dict = {
+            "smoothed_plus_dm": smoothed_plus_dm,
+            "smoothed_minus_dm": smoothed_minus_dm,
+            "smoothed_tr": smoothed_tr,
+            "adx": adx,
+            "prev_high": float(high[-1]),
+            "prev_low": float(low[-1]),
+            "prev_close": float(close[-1]),
+        }
+        return float(adx), float(final_plus_di), float(final_minus_di), state_dict
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Extract incremental state from frames after full computation.
 
-        Returns a nested state dict keyed by period:
-        {f"adx_{p}": {smoothed_plus_dm, smoothed_minus_dm, smoothed_tr, adx,
-        prev_high, prev_low, prev_close}}.
+        Delegates to _adx_np (the authoritative implementation) to avoid
+        duplicating the Wilder's smoothing loop. Returns a nested state dict
+        keyed by period: {f"adx_{p}": {smoothed_plus_dm, smoothed_minus_dm,
+        smoothed_tr, adx, prev_high, prev_low, prev_close}}.
 
         Args:
             frames: Same frames dict passed to _compute_full_core.
@@ -163,63 +178,9 @@ class ADXPlugin(IncrementalMixin):
         close = df["close"].to_numpy(dtype=float)
         state: dict[str, Any] = {}
         for p in self.periods:
-            n = len(high)
-            if n < p * 2 + 1:
-                continue
-
-            plus_dm = np.zeros(n)
-            minus_dm = np.zeros(n)
-            tr = np.zeros(n)
-            tr[0] = high[0] - low[0]
-
-            for i in range(1, n):
-                up_move = high[i] - high[i - 1]
-                down_move = low[i - 1] - low[i]
-                plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
-                minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
-                tr[i] = max(
-                    high[i] - low[i],
-                    abs(high[i] - close[i - 1]),
-                    abs(low[i] - close[i - 1]),
-                )
-
-            smoothed_plus_dm = float(np.mean(plus_dm[1 : p + 1]))
-            smoothed_minus_dm = float(np.mean(minus_dm[1 : p + 1]))
-            smoothed_tr = float(np.mean(tr[1 : p + 1]))
-
-            dx_values = []
-            for i in range(p + 1, n):
-                smoothed_plus_dm = wilders_update(smoothed_plus_dm, plus_dm[i], p)
-                smoothed_minus_dm = wilders_update(smoothed_minus_dm, minus_dm[i], p)
-                smoothed_tr = wilders_update(smoothed_tr, tr[i], p)
-
-                if smoothed_tr == 0:
-                    plus_di = 0.0
-                    minus_di = 0.0
-                else:
-                    plus_di = 100.0 * smoothed_plus_dm / smoothed_tr
-                    minus_di = 100.0 * smoothed_minus_dm / smoothed_tr
-
-                di_sum = plus_di + minus_di
-                dx = 100.0 * abs(plus_di - minus_di) / di_sum if di_sum != 0 else 0.0
-                dx_values.append(dx)
-
-            if len(dx_values) < p:
-                continue
-
-            adx = float(np.mean(dx_values[:p]))
-            for dx in dx_values[p:]:
-                adx = wilders_update(adx, dx, p)
-
-            state[f"adx_{p}"] = {
-                "smoothed_plus_dm": smoothed_plus_dm,
-                "smoothed_minus_dm": smoothed_minus_dm,
-                "smoothed_tr": smoothed_tr,
-                "adx": adx,
-                "prev_high": float(high[-1]),
-                "prev_low": float(low[-1]),
-                "prev_close": float(close[-1]),
-            }
+            adx, _, _, p_state = self._adx_np(high, low, close, p)
+            if adx is not None:
+                state[f"adx_{p}"] = p_state
         return state
 
     def _compute_next_core(

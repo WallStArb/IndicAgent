@@ -301,7 +301,20 @@ def _get_all_registered_plugins() -> list[object]:
         ):
             plugins_by_name[obj.name] = obj
 
-    # Return only plugins that appear in tier lists
+    # Return only plugins resolvable as module-level attributes of register_plugins.
+    # Some plugins are registered inside register_all_plugins() without a module-level
+    # variable (e.g. ctx_HurstExponent, smc_* context plugins). These are excluded from
+    # the scan. Incremental correctness tests only act on supports_incremental=True
+    # plugins anyway, so missing non-incremental plugins don't reduce effective coverage.
+    missing = sorted(n for n in all_names if n not in plugins_by_name)
+    if missing:
+        import warnings
+
+        warnings.warn(
+            f"_get_all_registered_plugins: {len(missing)} tier list entries not found as "
+            f"register_plugins module-level attributes (skipped): {missing}",
+            stacklevel=2,
+        )
     return [plugins_by_name[name] for name in all_names if name in plugins_by_name]
 
 
