@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-__all__ = ["wilders_update", "update_ema", "get_main_df"]
+__all__ = ["wilders_update", "update_ema", "get_main_df", "IncrementalMixin"]
 
 
 def wilders_update(prev: float, new_val: float, period: int) -> float:
@@ -136,3 +136,151 @@ def get_main_df(frames: dict[str, Any] | None, min_bars: int) -> pd.DataFrame | 
     if len(df) < min_bars:
         return None
     return df
+
+
+class IncrementalMixin:
+    """Owns fallback-to-full and _state return contract for incremental plugins.
+
+    State ownership model (MUTABLE IN-PLACE CONTRACT):
+    - State is a plain dict, passed by reference to _compute_next_core.
+    - Plugins MUTATE state in place: state["key"] = new_value.
+    - The mixin attaches the SAME state dict back to output: result["_state"] = state.
+    - _compute_next_core MUST NOT return a new state dict -- it mutates the one it receives.
+    - This matches the existing ATR pattern: s["prev_atr"] = new_atr; s["prev_close"] = close.
+    - Deques, lists, and nested dicts in state are all valid -- mutation is by reference.
+
+    Executor window contract:
+    - The executor (executor.py line 322-328) passes the same `frames` dict to both
+      compute_full and compute_next via functools.partial. There is no per-call frame slicing.
+    - Therefore compute_next's fallback to compute_full(frames) is semantically correct:
+      it receives the full historical frames, not incremental single-bar windows.
+
+    Plugins implementing this mixin must provide:
+    - _compute_full_core(frames) -> dict: Pure computation, returns outputs only (no _state).
+      Returns {} when insufficient data.
+    - _compute_next_core(frames, state) -> dict: Pure incremental computation.
+      State is guaranteed non-None and non-empty (mixin guarantees this).
+      Mutate state in place -- do NOT create a new state dict.
+      Returns {} when computation cannot proceed.
+    - _seed_state(frames) -> dict: Extract state from full computation for incremental seeding.
+      Returns the initial state dict (may be empty {} if no state needed).
+
+    The mixin provides:
+    - compute_full(frames, *, state=None): Calls _compute_full_core, attaches _state via _seed_state.
+    - compute_next(frames, *, state=None): Falls back to compute_full if state is None,
+      else calls _compute_next_core and attaches _state (the same mutated dict).
+    """
+
+    def compute_full(self, frames: dict, *, state: dict | None = None) -> dict:
+        """Run full computation and attach seeded state.
+
+        Calls _compute_full_core for pure domain computation, then calls
+        _seed_state to extract incremental state from the result. Always
+        attaches _state to the output dict.
+
+        Args:
+            frames: Plugin frames dict (contains 'main' DataFrame and optional
+                    context frames).
+            state:  Ignored -- compute_full always reseeds state from scratch.
+
+        Returns:
+            Output dict from _compute_full_core with _state attached. Returns {}
+            when _compute_full_core returns {} (insufficient data).
+        """
+        result = self._compute_full_core(frames)
+        if not result:
+            return {}
+        result["_state"] = self._seed_state(frames)
+        return result
+
+    def compute_next(self, frames: dict, *, state: dict | None = None) -> dict:
+        """Run incremental computation using cached state.
+
+        Falls back to compute_full when state is None. Uses `state is None`
+        (not truthiness) -- an empty dict {} is a valid state and must NOT
+        trigger fallback. Calls _compute_next_core with the guaranteed non-None
+        state, then attaches the same (mutated) state dict back to the output.
+
+        Args:
+            frames: Plugin frames dict. Executor passes the same full historical
+                    frames to both compute_full and compute_next (no slicing).
+            state:  Cached state dict from previous call. Must be None (triggers
+                    fallback to compute_full) or a dict (passed to _compute_next_core).
+
+        Returns:
+            Output dict from _compute_next_core with _state attached. Returns {}
+            when _compute_next_core returns {} (insufficient data or missing keys).
+        """
+        if state is None:
+            return self.compute_full(frames)
+        result = self._compute_next_core(frames, state)
+        if not result:
+            return {}
+        result["_state"] = state
+        return result
+
+    def _compute_full_core(self, frames: dict) -> dict:
+        """Pure full computation returning outputs only (no _state key).
+
+        Implement in subclass. Returns {} when data is insufficient.
+
+        Args:
+            frames: Plugin frames dict (contains 'main' DataFrame).
+
+        Returns:
+            Dict of computed output values. Do NOT include _state -- the mixin
+            attaches state via _seed_state after this call.
+
+        Raises:
+            NotImplementedError: Subclass must implement this method.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _compute_full_core(frames) -> dict"
+        )
+
+    def _compute_next_core(self, frames: dict, state: dict) -> dict:
+        """Pure incremental computation that mutates state in place.
+
+        Implement in subclass. State is guaranteed non-None when called by the
+        mixin. Mutate state in place (state["key"] = new_value) -- do NOT
+        create or return a new state dict. Returns {} when computation cannot
+        proceed (e.g. missing state keys or insufficient data).
+
+        Args:
+            frames: Plugin frames dict (contains 'main' DataFrame).
+            state:  Mutable state dict from previous call. Guaranteed non-None.
+                    Mutate in place: state["prev_atr"] = new_atr, etc.
+
+        Returns:
+            Dict of computed output values. Do NOT include _state -- the mixin
+            attaches state (the same mutated dict) after this call.
+
+        Raises:
+            NotImplementedError: Subclass must implement this method.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _compute_next_core(frames, state) -> dict"
+        )
+
+    def _seed_state(self, frames: dict) -> dict:
+        """Extract incremental state from frames after full computation.
+
+        Implement in subclass. Called by compute_full after _compute_full_core
+        succeeds. Returns the initial state dict used to seed the first
+        compute_next call.
+
+        Args:
+            frames: Plugin frames dict (contains 'main' DataFrame). Same frames
+                    passed to _compute_full_core so subclass can re-read the data
+                    to extract state values.
+
+        Returns:
+            Initial state dict for incremental seeding. May be empty {} if the
+            plugin needs no persistent state.
+
+        Raises:
+            NotImplementedError: Subclass must implement this method.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _seed_state(frames) -> dict"
+        )
