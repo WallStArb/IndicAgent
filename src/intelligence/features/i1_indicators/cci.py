@@ -55,7 +55,7 @@ class CCIPlugin:
         for p in self.periods:
             if len(df) < p + 1:
                 continue
-            tp_vals = tp.iloc[-p:].tolist()
+            tp_vals = tp.iloc[-p:].to_numpy(copy=False)
             state[f"cci_{p}"] = {
                 "tp_window": deque(tp_vals, maxlen=p),
             }
