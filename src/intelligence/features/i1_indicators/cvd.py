@@ -33,7 +33,8 @@ class CVDPlugin:
     name: str = "ind_CVD"
     outputs: frozenset[str] = frozenset({"cvd", "cvd_slope_5bar", "cvd_divergence", "cvd_spike_z"})
     min_lookback: int = 2
-    supports_incremental: bool = True
+    # Delegation pattern: compute_next delegates to compute_full (per-symbol self._state architecture)
+    supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"volume", "microstructure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     _state: dict = field(default_factory=dict)

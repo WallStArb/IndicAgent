@@ -45,7 +45,8 @@ class MACompositePlugin:
         )
     )
     min_lookback: int = 200
-    supports_incremental: bool = True
+    # Delegation pattern: simple golden cross/death cross comparison, no incremental state
+    supports_incremental: bool = False
     capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
     inputs: list[InputSpec] = ()  # Consumes upstream features dicts
     _state: dict = field(default_factory=dict)
