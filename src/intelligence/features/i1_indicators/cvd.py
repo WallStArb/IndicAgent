@@ -33,7 +33,9 @@ class CVDPlugin:
     name: str = "ind_CVD"
     outputs: frozenset[str] = frozenset({"cvd", "cvd_slope_5bar", "cvd_divergence", "cvd_spike_z"})
     min_lookback: int = 2
-    # Delegation pattern: compute_next delegates to compute_full (per-symbol self._state architecture)
+    # Delegation pattern: compute_next delegates to compute_full.
+    # State is keyed per (symbol, timeframe) following the OFI plugin pattern
+    # to prevent cross-symbol contamination in multi-symbol deployments.
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"volume", "microstructure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
@@ -42,9 +44,15 @@ class CVDPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
         tick_buf = frames.get("tick_buffer") or []
+        symbol = frames.get("__symbol__", "_")
+        tf = frames.get("__timeframe__", "_")
+        state_key = f"{symbol}_{tf}"
 
         if df is None or len(df) < self.min_lookback:
             return {}
+
+        # Per-(symbol, timeframe) state — see OFI plugin for the same pattern
+        state = self._state.setdefault(state_key, {})
 
         # Session reset check: extract timestamp and convert to ET
         ts = self._extract_ts(df)
@@ -53,10 +61,10 @@ class CVDPlugin:
             et_hour = et_dt.hour
             et_minute = et_dt.minute
             et_date: date = et_dt.date()
-            last_session_date = self._state.get("last_session_date")
+            last_session_date = state.get("last_session_date")
             if et_hour == 9 and et_minute >= 30 and et_date != last_session_date:
-                self._state["cum_cvd"] = 0.0
-                self._state["last_session_date"] = et_date
+                state["cum_cvd"] = 0.0
+                state["last_session_date"] = et_date
 
         # Compute single-bar delta
         if tick_buf:
@@ -65,20 +73,20 @@ class CVDPlugin:
             bar_delta = self._compute_proxy_delta(df)
 
         # Accumulate CVD
-        self._state["cum_cvd"] = self._state.get("cum_cvd", 0.0) + bar_delta
+        state["cum_cvd"] = state.get("cum_cvd", 0.0) + bar_delta
 
         # Update CVD history (for slope)
-        if "cvd_history" not in self._state:
-            self._state["cvd_history"] = deque(maxlen=100)
-        self._state["cvd_history"].append(self._state["cum_cvd"])
+        if "cvd_history" not in state:
+            state["cvd_history"] = deque(maxlen=100)
+        state["cvd_history"].append(state["cum_cvd"])
 
         # Update delta history (for spike_z)
-        if "delta_history" not in self._state:
-            self._state["delta_history"] = deque(maxlen=100)
-        self._state["delta_history"].append(bar_delta)
+        if "delta_history" not in state:
+            state["delta_history"] = deque(maxlen=100)
+        state["delta_history"].append(bar_delta)
 
         # Slope: polyfit over last 5 CVD values
-        cvd_hist = list(self._state["cvd_history"])
+        cvd_hist = list(state["cvd_history"])
         if len(cvd_hist) >= 5:
             last_5 = cvd_hist[-5:]
             slope = float(np.polyfit(np.arange(5), last_5, 1)[0])
@@ -99,7 +107,7 @@ class CVDPlugin:
         divergence = float(slope_dir - price_dir)
 
         # Spike z-score: current bar_delta vs rolling 100-bar delta history
-        delta_hist = list(self._state["delta_history"])
+        delta_hist = list(state["delta_history"])
         if len(delta_hist) >= 5:
             hist_arr = np.array(delta_hist[:-1])  # exclude current bar
             mean = float(np.mean(hist_arr))
@@ -109,7 +117,7 @@ class CVDPlugin:
             spike_z = 0.0
 
         return {
-            "cvd": round(float(self._state["cum_cvd"]), 6),
+            "cvd": round(float(state["cum_cvd"]), 6),
             "cvd_slope_5bar": round(slope, 6),
             "cvd_divergence": round(divergence, 4),
             "cvd_spike_z": round(spike_z, 4),
