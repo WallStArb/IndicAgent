@@ -17,9 +17,9 @@ class TestRSIZeroLossCharacterization:
     def test_rsi_zero_loss_returns_100(self):
         """Characterization: when avg_loss decays to 0.0, RSI must return exactly 100.0."""
         p = RSIPlugin()
-        p._state = {"rsi_14": {"avg_gain": 1.5, "avg_loss": 0.0, "prev_close": 100.0}}
+        state = {"rsi_14": {"avg_gain": 1.5, "avg_loss": 0.0, "prev_close": 100.0}}
         df = pd.DataFrame({"close": [101.0]})
-        result = p.compute_next({"main": df})
+        result = p.compute_next({"main": df}, state=state)
         assert result["rsi_14"] == 100.0
 
     def test_rsi_normal_path_formula(self):
@@ -31,9 +31,9 @@ class TestRSIZeroLossCharacterization:
         - RS stays 1.0, RSI stays 50.0
         """
         p = RSIPlugin()
-        p._state = {"rsi_14": {"avg_gain": 1.0, "avg_loss": 1.0, "prev_close": 100.0}}
+        state = {"rsi_14": {"avg_gain": 1.0, "avg_loss": 1.0, "prev_close": 100.0}}
         df = pd.DataFrame({"close": [100.0]})
-        result = p.compute_next({"main": df})
+        result = p.compute_next({"main": df}, state=state)
         assert result["rsi_14"] == pytest.approx(50.0, abs=0.01)
 
     def test_rsi_state_persists_across_calls(self):
@@ -52,14 +52,16 @@ class TestRSIZeroLossCharacterization:
           RSI2 < RSI1 (loss added, gain decayed)
         """
         p = RSIPlugin()
-        p._state = {"rsi_14": {"avg_gain": 0.5, "avg_loss": 0.5, "prev_close": 100.0}}
+        state = {"rsi_14": {"avg_gain": 0.5, "avg_loss": 0.5, "prev_close": 100.0}}
 
         df1 = pd.DataFrame({"close": [101.0]})
-        result1 = p.compute_next({"main": df1})
+        result1 = p.compute_next({"main": df1}, state=state)
         rsi1 = result1["rsi_14"]
+        # Use the returned state for the next call (state is updated in-place and returned)
+        state = result1["_state"]
 
         df2 = pd.DataFrame({"close": [100.5]})
-        result2 = p.compute_next({"main": df2})
+        result2 = p.compute_next({"main": df2}, state=state)
         rsi2 = result2["rsi_14"]
 
         assert 0.0 <= rsi1 <= 100.0, f"RSI1 out of range: {rsi1}"

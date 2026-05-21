@@ -379,6 +379,7 @@ class SessionLevelsPlugin:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
 
+        result["_state"] = state
         return result
 
 
