@@ -50,14 +50,14 @@ class CMFPlugin:
         vol_sum = float(np.sum(vol_win))
         cmf = float(np.sum(mfv_win)) / vol_sum if vol_sum > 0 else 0.0
 
-        self._state = {
+        state = {
             "mfv_window": deque(mfv_win.tolist(), maxlen=self.period),
             "vol_window": deque(vol_win.tolist(), maxlen=self.period),
         }
-        return {"cmf_20": round(cmf, 6), "_state": self._state}
+        return {"cmf_20": round(cmf, 6), "_state": state}
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -68,7 +68,7 @@ class CMFPlugin:
         low_price = float(row["low"])
         c = float(row["close"])
         v = float(row["volume"])
-        s = self._state
+        s = state
 
         hl = h - low_price
         mfm = (2 * c - h - low_price) / hl if hl > 0 else 0.0
@@ -77,7 +77,9 @@ class CMFPlugin:
 
         vol_sum = sum(s["vol_window"])
         cmf = sum(s["mfv_window"]) / vol_sum if vol_sum > 0 else 0.0
-        return {"cmf_20": round(cmf, 6)}
+        out = {"cmf_20": round(cmf, 6)}
+        out["_state"] = state
+        return out
 
 
 plugin = CMFPlugin()
