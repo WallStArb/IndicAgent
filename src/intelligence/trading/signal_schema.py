@@ -55,6 +55,14 @@ def validate_signal(signal: dict) -> bool:
     targets = signal.get("targets")
     if not isinstance(targets, list) or len(targets) == 0:
         return False
+    # Stop must be on the correct side of entry.
+    entry = signal.get("entry_price")
+    stop = signal.get("stop_loss")
+    if isinstance(entry, (int, float)) and isinstance(stop, (int, float)):
+        if int(direction) == 1 and stop >= entry:
+            return False
+        if int(direction) == -1 and stop <= entry:
+            return False
     return True
 
 

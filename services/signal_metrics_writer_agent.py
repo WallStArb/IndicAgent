@@ -148,6 +148,7 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         and event["regime_type"] == "all"
         and event["window_days"] == 30
         and event.get("avg_r") is not None
+        and event.get("sharpe") is not None
         and event["n"] >= 30
     ):
         await conn.execute(
