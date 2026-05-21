@@ -15,7 +15,7 @@ Wired into _build_all_ranked() (plan 29-05) to gate setup classes by market regi
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -109,10 +109,9 @@ class HurstExponentPlugin:
         {"hurst_exponent", "hurst_trend_quality", "hurst_mr_quality"}
     )
     min_lookback: int = 64
-    supports_incremental: bool = True
+    supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"context", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=256),)
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
