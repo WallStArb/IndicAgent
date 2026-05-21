@@ -205,7 +205,9 @@ class HMMRegimePlugin:
 
         self._state["prev_close"] = float(close[-1])
 
-        return self._build_output(self._state)
+        result = self._build_output(self._state)
+        result["_state"] = self._state
+        return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not state or "alpha" not in state:
