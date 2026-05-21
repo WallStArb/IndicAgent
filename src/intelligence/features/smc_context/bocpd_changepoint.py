@@ -103,6 +103,7 @@ class BOCPDChangePointPlugin:
             "cp_run_length": float(run_length),
             "cp_confirmation": round(float(confirmation), 4),
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
+            "_state": self._state,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
