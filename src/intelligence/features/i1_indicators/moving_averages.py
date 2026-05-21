@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
@@ -39,8 +40,8 @@ class MovingAveragesPlugin:
     def compute_full(
         self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        df = frames.get("main")
-        if df is None or len(df) < min(self.sma_periods + self.ema_periods) + 1:
+        df = get_main_df(frames, self.min_lookback)
+        if df is None:
             return {}
         close = df["close"]
         out: dict[str, Any] = {}
@@ -69,7 +70,7 @@ class MovingAveragesPlugin:
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
         """Extract rolling window and EMA state for incremental updates."""
-        df = frames.get("main")
+        df = get_main_df(frames, 1)
         if df is None:
             return
         close = df["close"]
@@ -97,8 +98,8 @@ class MovingAveragesPlugin:
     ) -> dict[str, Any]:
         if not state:
             return self.compute_full(windows)
-        df = windows.get("main")
-        if df is None or len(df) < 1:
+        df = get_main_df(windows, 1)
+        if df is None:
             return {}
         new_close = float(df["close"].iloc[-1])
         out: dict[str, Any] = {}
