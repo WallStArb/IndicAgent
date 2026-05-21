@@ -101,9 +101,8 @@ Every requirement in this milestone must satisfy:
 | Phase | Requirements covered |
 |-------|---------------------|
 | 093 | LLM-INFRA-01–05 |
-| 094 | STRUCT-OUT-01–04 |
-| 095 | AGENT-EXEC-01–05 |
-| 096 | AGENT-REG-01–04 |
-| 097 | MEM-01–04 |
-| 098 | OPT-01–04 |
-| 099 | GUARD-01–03 |
+| 094 | AGENT-EXEC-01–05 |
+| 095 | AGENT-REG-01–04 |
+| 096 | MEM-01–04 |
+| 097 | OPT-01–04 |
+| 098 | GUARD-01–03 |
