@@ -11,7 +11,7 @@ The mixin provides compute_full and compute_next -- StochasticPlugin defines non
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -37,7 +37,7 @@ class StochasticPlugin(IncrementalMixin):
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
-    configs: list[tuple[int, int]] = None
+    configs: list[tuple[int, int]] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not self.configs:

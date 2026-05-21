@@ -12,7 +12,7 @@ The mixin provides compute_full and compute_next -- ADXPlugin defines none of th
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -42,7 +42,7 @@ class ADXPlugin(IncrementalMixin):
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
-    periods: list[int] = None
+    periods: list[int] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not self.periods:

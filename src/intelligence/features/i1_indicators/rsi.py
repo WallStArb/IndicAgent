@@ -18,7 +18,7 @@ class RSIPlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
-    periods: list[int] = None
+    periods: list[int] | None = field(default=None)
     _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:

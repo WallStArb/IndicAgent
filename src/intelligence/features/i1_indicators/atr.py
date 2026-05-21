@@ -13,7 +13,7 @@ State ownership (MUTABLE IN-PLACE CONTRACT):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -41,7 +41,7 @@ class ATRPlugin(IncrementalMixin):
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
-    periods: list[int] = None
+    periods: list[int] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not self.periods:
