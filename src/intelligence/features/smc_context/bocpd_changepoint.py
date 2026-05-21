@@ -6,6 +6,7 @@
 # or use BOCPD only on selected timeframes. Do NOT force O(1) -- document here.
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass, field
 from typing import Any
@@ -103,7 +104,7 @@ class BOCPDChangePointPlugin:
             "cp_run_length": float(run_length),
             "cp_confirmation": round(float(confirmation), 4),
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
-            "_state": dict(self._state),  # Shallow copy to prevent caller mutation
+            "_state": copy.deepcopy(self._state),  # Deep copy: numpy arrays in state must be independent
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
