@@ -12,7 +12,7 @@ Renaissance principle: compute once per bar, store once, consume everywhere.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import numpy as np
@@ -39,7 +39,6 @@ class VolumeZscorePlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: tuple = (InputSpec(symbol=".*", lookback=_WINDOW + 5),)
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         """Compute volume z-score from a full window DataFrame.
@@ -59,26 +58,26 @@ class VolumeZscorePlugin:
             history.append(float(v))
 
         # Store state for incremental updates
-        self._state["vol_history"] = history
+        state = {"vol_history": history}
 
-        return self._compute_z(history)
+        return {**self._compute_z(history), "_state": state}
 
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
         """Incremental update: append latest bar volume to rolling window."""
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
 
         df = windows.get("main")
         if df is None or "volume" not in df.columns or len(df) < 1:
             return {"volume_z_score": 0.0}
 
-        history: deque = self._state["vol_history"]
+        history: deque = state["vol_history"]
         vol = float(df["volume"].iloc[-1])
         history.append(vol)
 
-        return self._compute_z(history)
+        return {**self._compute_z(history), "_state": state}
 
     @staticmethod
     def _compute_z(history: deque) -> dict[str, Any]:

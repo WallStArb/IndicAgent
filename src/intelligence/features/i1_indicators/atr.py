@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -17,7 +17,6 @@ class ATRPlugin:
     capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
@@ -41,44 +40,23 @@ class ATRPlugin:
             axis=1,
         ).max(axis=1)
         out: dict[str, Any] = {}
+        state = {}
         for p in self.periods:
             atr = tr.ewm(alpha=1 / p, adjust=False, min_periods=p).mean()
             val = atr.iloc[-1]
             if pd.notna(val):
                 out[f"atr_{p}"] = float(val)
-        self._seed_state(frames)
+                state[f"atr_{p}"] = {
+                    "prev_atr": float(val),
+                    "prev_close": float(close.iloc[-1]),
+                }
+        out["_state"] = state
         return out
-
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
-        """Extract ATR state from full computation for incremental updates."""
-        df = frames.get("main")
-        if df is None:
-            return
-        high = df["high"]
-        low = df["low"]
-        close = df["close"]
-        prev_close = close.shift(1)
-        tr = pd.concat(
-            [
-                (high - low).abs(),
-                (high - prev_close).abs(),
-                (low - prev_close).abs(),
-            ],
-            axis=1,
-        ).max(axis=1)
-        for p in self.periods:
-            if len(df) < p + 1:
-                continue
-            atr = tr.ewm(alpha=1 / p, adjust=False, min_periods=p).mean()
-            self._state[f"atr_{p}"] = {
-                "prev_atr": float(atr.iloc[-1]),
-                "prev_close": float(close.iloc[-1]),
-            }
 
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -90,9 +68,9 @@ class ATRPlugin:
         out: dict[str, Any] = {}
         for p in self.periods:
             key = f"atr_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             # True Range
             hl = abs(high - low)
             hc = abs(high - s["prev_close"])
@@ -104,6 +82,7 @@ class ATRPlugin:
             s["prev_atr"] = new_atr
             s["prev_close"] = close
             out[key] = new_atr
+        out["_state"] = state
         return out
 
 

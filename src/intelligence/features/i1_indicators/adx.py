@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -24,7 +24,6 @@ class ADXPlugin:
     capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     periods: list[int] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
@@ -41,13 +40,15 @@ class ADXPlugin:
         low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
         out: dict[str, Any] = {}
+        out_state: dict[str, Any] = {}
         for p in self.periods:
-            adx, plus_di, minus_di, state = self._adx_np(high, low, close, p)
+            adx, plus_di, minus_di, p_state = self._adx_np(high, low, close, p)
             if adx is not None:
                 out[f"adx_{p}"] = adx
                 out[f"plus_di_{p}"] = plus_di
                 out[f"minus_di_{p}"] = minus_di
-                self._state[f"adx_{p}"] = state
+                out_state[f"adx_{p}"] = p_state
+        out["_state"] = out_state
         return out
 
     def _adx_np(
@@ -129,7 +130,7 @@ class ADXPlugin:
         return float(adx), float(final_plus_di), float(final_minus_di), state
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -142,9 +143,9 @@ class ADXPlugin:
 
         for p in self.periods:
             key = f"adx_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             alpha = 1.0 / p
 
             # Directional Movement
@@ -180,6 +181,7 @@ class ADXPlugin:
             out[f"plus_di_{p}"] = plus_di
             out[f"minus_di_{p}"] = minus_di
 
+        out["_state"] = state
         return out
 
 

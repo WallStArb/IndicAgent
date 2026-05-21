@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -18,7 +18,6 @@ class BollingerPlugin:
     capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     configs: list[tuple] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.configs:
@@ -35,14 +34,13 @@ class BollingerPlugin:
             }
         )
 
-    def compute_full(
-        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
-    ) -> dict[str, Any]:
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
         if df is None:
             return {}
         close = df["close"]
         out: dict[str, Any] = {}
+        state = {}
         for period, std_dev in self.configs:
             if len(close) < period + 1:
                 continue
@@ -53,33 +51,62 @@ class BollingerPlugin:
             out[f"bb_{period}_{int(std_dev)}_upper"] = float(upper.iloc[-1])
             out[f"bb_{period}_{int(std_dev)}_mid"] = float(mid.iloc[-1])
             out[f"bb_{period}_{int(std_dev)}_lower"] = float(lower.iloc[-1])
-        self._seed_state(frames)
-        return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
-        """Extract rolling window state for incremental Bollinger Band updates."""
-        df = frames.get("main")
-        if df is None:
-            return
-        close = df["close"]
-        for period, std_dev in self.configs:
-            if len(close) < period + 1:
-                continue
-            window_data = close.iloc[-period:].tolist()
+            # Initialize state for incremental updates
+            window_data = close.iloc[-period:].to_numpy(copy=False)
             key = f"bb_{period}_{int(std_dev)}"
-            self._state[key] = {
+            state[key] = {
                 "window": deque(window_data, maxlen=period),
-                "sum": sum(window_data),
-                "sum_sq": sum(x * x for x in window_data),
+                "sum": float(window_data.sum()),
+                "sum_sq": float((window_data**2).sum()),
                 "std_dev": std_dev,
                 "period": period,
             }
+        out["_state"] = state
+        return out
 
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
+
+        out: dict[str, Any] = {}
+        close = windows.get("main", {}).get("close")
+        if close is None or len(close) == 0:
+            return {}
+
+        for period, std_dev in self.configs:
+            key = f"bb_{period}_{int(std_dev)}"
+            if key not in state:
+                continue
+
+            s = state[key]
+            window = s["window"]
+            new_val = float(close.iloc[-1])
+
+            # Update rolling window
+            old_val = window[0] if len(window) == period else 0.0
+            window.append(new_val)
+
+            # Update running statistics
+            s["sum"] += new_val - old_val
+            s["sum_sq"] += new_val * new_val - old_val * old_val
+
+            # Compute Bollinger Bands
+            mean = s["sum"] / period
+            variance = (s["sum_sq"] / period) - (mean**2)
+            std = variance**0.5
+            mid = mean
+            upper = mid + std_dev * std
+            lower = mid - std_dev * std
+
+            out[f"bb_{period}_{int(std_dev)}_upper"] = float(upper)
+            out[f"bb_{period}_{int(std_dev)}_mid"] = float(mid)
+            out[f"bb_{period}_{int(std_dev)}_lower"] = float(lower)
+
+        out["_state"] = state
+        return out
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
@@ -87,9 +114,9 @@ class BollingerPlugin:
         out: dict[str, Any] = {}
         for period, std_dev in self.configs:
             key = f"bb_{period}_{int(std_dev)}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             window = s["window"]
             # Remove oldest value from running sums
             if len(window) == period:

@@ -32,7 +32,7 @@ class MockIncrementalPlugin:
         self._state.setdefault("counter", 0)
         self._state["counter"] += 1
         self._state["path"] = "full"
-        return {"counter": self._state["counter"], "path": "full"}
+        return {"counter": self._state["counter"], "path": "full", "_state": dict(self._state)}
 
     def compute_next(self, windows, *, state=None):
         if state is None:
@@ -40,7 +40,7 @@ class MockIncrementalPlugin:
         state.setdefault("counter", 0)
         state["counter"] += 1
         state["path"] = "next"
-        return {"counter": state["counter"]}
+        return {"counter": state["counter"], "_state": state}
 
 
 class MockFullOnlyPlugin:

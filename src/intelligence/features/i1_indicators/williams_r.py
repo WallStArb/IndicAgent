@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -18,7 +18,6 @@ class WilliamsRPlugin:
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
@@ -44,10 +43,12 @@ class WilliamsRPlugin:
             wr = -100 * (hh - close) / denom
             val = wr.iloc[-1]
             out[f"williams_r_{p}"] = float(val) if pd.notna(val) else 0.0
-        self._seed_state(frames)
+        state = {}
+        self._seed_state(frames, state)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract rolling high/low state for incremental Williams %R updates."""
         df = frames.get("main")
         if df is None:
@@ -57,7 +58,7 @@ class WilliamsRPlugin:
                 continue
             highs = df["high"].iloc[-p:].tolist()
             lows = df["low"].iloc[-p:].tolist()
-            self._state[f"wr_{p}"] = {
+            state[f"wr_{p}"] = {
                 "high_window": deque(highs, maxlen=p),
                 "low_window": deque(lows, maxlen=p),
             }
@@ -65,7 +66,7 @@ class WilliamsRPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -77,9 +78,9 @@ class WilliamsRPlugin:
         out: dict[str, Any] = {}
         for p in self.periods:
             key = f"wr_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             s["high_window"].append(high)
             s["low_window"].append(low)
 
@@ -91,6 +92,7 @@ class WilliamsRPlugin:
                 out[f"williams_r_{p}"] = 0.0
             else:
                 out[f"williams_r_{p}"] = -100.0 * (hh - close) / denom
+        out["_state"] = state
         return out
 
 

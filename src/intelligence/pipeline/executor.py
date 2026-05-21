@@ -99,13 +99,16 @@ def _timed_plugin_call(plugin, frames, state: dict) -> Any:
     else:
         result = plugin.compute_full(frames)
     duration_ms = (time.perf_counter() - t0) * 1000
-    # Legacy write-back: plugins that mutate self._state (not yet migrated to
-    # return {"_state": ...}) have their state captured here so PluginStateManager
-    # persists it for the next incremental call.
-    if isinstance(result, dict) and "_state" not in result:
-        legacy_state = getattr(plugin, "_state", None)
-        if legacy_state:
-            result["_state"] = dict(legacy_state)
+
+    # Renaissance validation: Ensure incremental plugins return state for persistence
+    # This prevents the state corruption bug that occurred during PERF-03 migration
+    if getattr(plugin, "supports_incremental", False) and isinstance(result, dict):
+        if "_state" not in result:
+            raise ValueError(
+                f"{plugin.name}: incremental plugins MUST return _state in result dict. "
+                f"This prevents state corruption. Pattern: return {{**outputs, '_state': state}}"
+            )
+
     return result, duration_ms
 
 

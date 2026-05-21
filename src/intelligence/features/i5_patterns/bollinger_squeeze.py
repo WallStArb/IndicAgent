@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -25,7 +25,6 @@ class BollingerSqueezePlugin:
     kc_period: int = 20
     kc_mult: float = 1.5
     bandwidth_history_len: int = 100
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -83,25 +82,29 @@ class BollingerSqueezePlugin:
                 fired = 1.0
 
         # Seed incremental state
-        self._state = {
-            "squeeze_count": squeeze_count if current_squeeze else 0,
-            "prev_squeeze": current_squeeze,
-            "bandwidth_history": bandwidth_history,
-            "close_window": deque(close[-self.bb_period :], maxlen=self.bb_period),
-            "high_window": deque(high[-self.kc_period :], maxlen=self.kc_period),
-            "low_window": deque(low[-self.kc_period :], maxlen=self.kc_period),
-            "prev_close": float(close[-1]),
-        }
+        state = {}
+        state.update(
+            {
+                "squeeze_count": squeeze_count if current_squeeze else 0,
+                "prev_squeeze": current_squeeze,
+                "bandwidth_history": bandwidth_history,
+                "close_window": deque(close[-self.bb_period :], maxlen=self.bb_period),
+                "high_window": deque(high[-self.kc_period :], maxlen=self.kc_period),
+                "low_window": deque(low[-self.kc_period :], maxlen=self.kc_period),
+                "prev_close": float(close[-1]),
+            }
+        )
 
         return {
             "squeeze_active": 1.0 if current_squeeze else 0.0,
             "squeeze_duration": float(squeeze_count if current_squeeze else 0),
             "squeeze_bandwidth_pctile": bw_pctile,
             "squeeze_fired": fired,
+            "_state": state,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -111,7 +114,7 @@ class BollingerSqueezePlugin:
         h = float(row["high"])
         lo = float(row["low"])
 
-        s = self._state
+        s = state
         s["close_window"].append(c)
         s["high_window"].append(h)
         s["low_window"].append(lo)
@@ -165,6 +168,7 @@ class BollingerSqueezePlugin:
             "squeeze_duration": float(s["squeeze_count"]),
             "squeeze_bandwidth_pctile": bw_pctile,
             "squeeze_fired": fired,
+            "_state": state,
         }
 
     @staticmethod
