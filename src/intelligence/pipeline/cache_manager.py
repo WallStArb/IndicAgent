@@ -408,14 +408,14 @@ class CacheManager:
                 try:
                     await conn.execute("LISTEN instruments")
                     self._listener_connected.add(1)
-                    conn.add_listener("instruments", self._on_instrument_notify)
+                    await conn.add_listener("instruments", self._on_instrument_notify)
                     # Heartbeat loop — asyncpg delivers NOTIFY via the event loop
                     # without polling; the sleep just keeps this task alive.
                     while not conn.is_closed():
                         await asyncio.sleep(10)
                 finally:
                     if conn is not None:
-                        conn.remove_listener("instruments", self._on_instrument_notify)
+                        await conn.remove_listener("instruments", self._on_instrument_notify)
                         await conn.close()
             except asyncio.CancelledError:
                 raise
