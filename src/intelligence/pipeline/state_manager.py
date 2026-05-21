@@ -201,17 +201,14 @@ class PluginStateManager:
                 restored_states[_restore_tuple_key(k)] = v
             self._plugin_states = restored_states
 
-            # Build the cross-owned fields dict for the orchestrator
             extra_fields: dict[str, Any] = {}
             for field in _CHECKPOINT_FIELDS:
                 if field == "plugin_states":
                     continue
                 raw_field = _untag_value(raw.get(field, {}))
-                # Restore tuple keys for dict fields
                 if isinstance(raw_field, dict):
-                    extra_fields[field] = {_restore_tuple_key(k): v for k, v in raw_field.items()}
-                else:
-                    extra_fields[field] = raw_field
+                    raw_field = {_restore_tuple_key(k): v for k, v in raw_field.items()}
+                extra_fields[field] = raw_field
 
             self._logger.info(
                 "state.checkpoint_restored",
