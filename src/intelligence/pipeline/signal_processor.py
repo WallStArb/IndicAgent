@@ -266,10 +266,7 @@ class SignalProcessor:
 
         # D-22: total signals entering the pipeline
         SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL.add(len(raw_signals))
-
-        # Track signals count
-        for _ in raw_signals:
-            self._signals_generated.add(1)
+        self._signals_generated.add(len(raw_signals))
 
         if not raw_signals:
             return SignalProcessorResult(
@@ -328,38 +325,34 @@ class SignalProcessor:
         # Kalman-filter the CIS score to smooth bar-to-bar noise
         kalman_key = (symbol, tf)
         if kalman_key not in self._kalman_state:
-            kp = (
-                cache_snapshot.calibration_curves.get(tf)
-                if cache_snapshot.calibration_curves.get(tf)
-                else None
-            )
-            # Use default Kalman params if no calibration available
-            Q = 0.01
             R = {"1m": 0.5, "5m": 0.3, "15m": 0.2, "1h": 0.1}.get(tf, 0.3)
-            self._kalman_state[kalman_key] = {"x": raw_cis, "P": 1.0, "Q": Q, "R": R}
+            self._kalman_state[kalman_key] = {"x": raw_cis, "P": 1.0, "Q": 0.01, "R": R}
         ks = self._kalman_state[kalman_key]
         filtered_cis, new_P = _cis_kalman_update(raw_cis, ks["x"], ks["P"], ks["Q"], ks["R"])
-        self._kalman_state[kalman_key]["x"] = filtered_cis
-        self._kalman_state[kalman_key]["P"] = new_P
+        ks["x"] = filtered_cis
+        ks["P"] = new_P
 
         # Attribution capture: BEFORE quality gate
         for sig in raw_signals:
             sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
+
+        def _record_dropped(gate: str, before: list, after: list) -> None:
+            dropped = len(before) - len(after)
+            if dropped > 0:
+                SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(dropped, {"gate": gate})
+
+        def _stamp_pre(stage_key: str, sigs: list[dict]) -> None:
+            for sig in sigs:
+                sig[stage_key] = sig.get("confidence", 0.0)
 
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = await apply_quality_gate(
             raw_signals, features, tf=tf, recorder=self._transform_recorder
         )
-        # D-22: gate rejection counter — signals dropped by quality gate
-        quality_dropped = len(raw_signals) - len(quality_gated)
-        if quality_dropped > 0:
-            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(quality_dropped, {"gate": "quality"})
+        _record_dropped("quality", raw_signals, quality_gated)
 
-        # Attribution capture: AFTER quality gate, BEFORE regime gate
-        for sig in quality_gated:
-            sig["pre_regime_confidence"] = sig.get("confidence", 0.0)
-
+        _stamp_pre("pre_regime_confidence", quality_gated)
         regime_gated = await apply_regime_gate(
             quality_gated,
             features,
@@ -369,8 +362,6 @@ class SignalProcessor:
             tf=tf,
             recorder=self._transform_recorder,
         )
-
-        # Regime suppression metric
         for sig in regime_gated:
             if not sig.get("regime_eligible", True):
                 REGIME_GATE_SUPPRESSIONS_TOTAL.add(
@@ -381,15 +372,9 @@ class SignalProcessor:
                         "tf": tf,
                     },
                 )
-        # D-22: gate rejection counter — signals dropped by regime gate
-        regime_dropped = len(quality_gated) - len(regime_gated)
-        if regime_dropped > 0:
-            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(regime_dropped, {"gate": "regime"})
+        _record_dropped("regime", quality_gated, regime_gated)
 
-        # Attribution capture: AFTER regime gate, BEFORE TOD adjustment
-        for sig in regime_gated:
-            sig["pre_tod_confidence"] = sig.get("confidence", 0.0)
-
+        _stamp_pre("pre_tod_confidence", regime_gated)
         tod_adjusted = await apply_tod_adjustment(
             regime_gated,
             cache_snapshot.tod_priors,
@@ -398,15 +383,9 @@ class SignalProcessor:
             symbol=symbol,
             recorder=self._transform_recorder,
         )
-        # D-22: gate rejection counter — signals dropped by TOD gate
-        tod_dropped = len(regime_gated) - len(tod_adjusted)
-        if tod_dropped > 0:
-            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(tod_dropped, {"gate": "tod"})
+        _record_dropped("tod", regime_gated, tod_adjusted)
 
-        # Attribution capture: BEFORE calibration
-        for sig in tod_adjusted:
-            sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
-
+        _stamp_pre("pre_calibration_confidence", tod_adjusted)
         calibrated = await apply_calibration(
             tod_adjusted,
             cache_snapshot.calibration_curves,
@@ -414,10 +393,7 @@ class SignalProcessor:
             symbol=symbol,
             recorder=self._transform_recorder,
         )
-        # D-22: gate rejection counter — signals dropped by calibration gate
-        calibration_dropped = len(tod_adjusted) - len(calibrated)
-        if calibration_dropped > 0:
-            SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL.add(calibration_dropped, {"gate": "calibration"})
+        _record_dropped("calibration", tod_adjusted, calibrated)
         ranked = await rank_signals(
             calibrated,
             cache_snapshot.perf_weights,

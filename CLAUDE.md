@@ -16,7 +16,7 @@ uv venv .venv && source .venv/bin/activate && uv pip install -r requirements.txt
 .venv/bin/ruff check . --fix && .venv/bin/black .
 sudo systemctl start indicagent-intelligence-pipeline
 cd dashboard && npm run dev
-/simplify && /coderabbit:code-review  # pre-commit mandatory
+/review  # pre-commit mandatory (code-simplifier agent runs automatically post-coding)
 ```
 
 **Requires:** Python 3.11+, Docker (TimescaleDB, Redpanda), systemd, Node.js 18+.
@@ -26,7 +26,7 @@ cd dashboard && npm run dev
 Run these steps in order when a coding session is complete, before pushing.
 
 ```
-1. /simplify               # clean up changed code
+1. code-simplifier agent   # clean up changed code (invoke automatically, not a slash command)
 2. /review                 # peer code review (or /coderabbit:code-review)
 3. pytest tests/unit/ -q   # must be green
 4. commit on feature branch
