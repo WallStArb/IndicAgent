@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
@@ -35,7 +36,7 @@ class BollingerPlugin:
         )
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        df = frames.get("main")
+        df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
         close = df["close"]
@@ -71,11 +72,14 @@ class BollingerPlugin:
         if not state:
             return self.compute_full(windows)
 
-        out: dict[str, Any] = {}
-        close = windows.get("main", {}).get("close")
-        if close is None or len(close) == 0:
+        df = get_main_df(windows, 1)
+        if df is None:
+            return {}
+        close = df["close"]
+        if len(close) == 0:
             return {}
 
+        out: dict[str, Any] = {}
         for period, std_dev in self.configs:
             key = f"bb_{period}_{int(std_dev)}"
             if key not in state:
@@ -106,36 +110,6 @@ class BollingerPlugin:
             out[f"bb_{period}_{int(std_dev)}_lower"] = float(lower)
 
         out["_state"] = state
-        return out
-        df = windows.get("main")
-        if df is None or len(df) < 1:
-            return {}
-        new_close = float(df["close"].iloc[-1])
-        out: dict[str, Any] = {}
-        for period, std_dev in self.configs:
-            key = f"bb_{period}_{int(std_dev)}"
-            if key not in state:
-                continue
-            s = state[key]
-            window = s["window"]
-            # Remove oldest value from running sums
-            if len(window) == period:
-                old_val = window[0]
-                s["sum"] -= old_val
-                s["sum_sq"] -= old_val * old_val
-            # Add new value
-            window.append(new_close)
-            s["sum"] += new_close
-            s["sum_sq"] += new_close * new_close
-
-            if len(window) == period:
-                mean = s["sum"] / period
-                # Population variance (ddof=0)
-                variance = s["sum_sq"] / period - mean * mean
-                sd = variance**0.5 if variance > 0 else 0.0
-                out[f"bb_{period}_{int(std_dev)}_upper"] = mean + std_dev * sd
-                out[f"bb_{period}_{int(std_dev)}_mid"] = mean
-                out[f"bb_{period}_{int(std_dev)}_lower"] = mean - std_dev * sd
         return out
 
 

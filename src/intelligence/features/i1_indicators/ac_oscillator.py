@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
@@ -29,8 +30,8 @@ class ACOscillatorPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        df = frames.get("main")
-        if df is None or len(df) < self.min_lookback:
+        df = get_main_df(frames, self.min_lookback)
+        if df is None:
             return {}
 
         midpoint = (df["high"] + df["low"]) / 2
@@ -83,8 +84,8 @@ class ACOscillatorPlugin:
         if not self._state:
             return self.compute_full(windows)
 
-        df = windows.get("main")
-        if df is None or len(df) < 1:
+        df = get_main_df(windows, 1)
+        if df is None:
             return {}
 
         bar = df.iloc[-1]
