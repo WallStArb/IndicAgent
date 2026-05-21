@@ -415,7 +415,8 @@ class CacheManager:
                         await asyncio.sleep(10)
                 finally:
                     if conn is not None:
-                        await conn.remove_listener("instruments", self._on_instrument_notify)
+                        if not conn.is_closed():
+                            await conn.remove_listener("instruments", self._on_instrument_notify)
                         await conn.close()
             except asyncio.CancelledError:
                 raise
