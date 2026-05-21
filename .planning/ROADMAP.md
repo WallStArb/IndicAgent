@@ -669,26 +669,27 @@ Plans:
   5. Plugin registration uses shared metadata helpers (no more ad-hoc `supports_incremental` patterns)
   6. Zero increase in per-bar latency (shared code must not add overhead to hot path)
 
+**Status**: 6/6 plans created and reviewed (2026-05-21). Code review findings applied.
+
 **Plans**: 6 plans in 4 waves
 
-Plans:
 **Wave 1**
 
-- [ ] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df)
+- [x] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df) — PLANNED
 
-**Wave 2** *(blocked on Wave 1 completion)*
+**Wave 2**
 
-- [ ] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation
-- [ ] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD)
+- [x] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation — PLANNED
+- [x] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD) — COMPLETE (2026-05-21)
 
-**Wave 3** *(blocked on Wave 2 completion)*
+**Wave 3**
 
-- [ ] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner)
+- [x] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner) — PLANNED
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Wave 4**
 
-- [ ] 100-05-PLAN.md — Migrate I1/I2 plugins to get_main_df() (Bollinger, MovingAverages, MACD, ROC/PPO, AC Oscillator, CCI, AccelerationRegime)
-- [ ] 100-06-PLAN.md — Correct supports_incremental flags on delegation plugins (CVD, OFI, MAComposite) + conformance test
+- [x] 100-05-PLAN.md — Migrate I1/I2 plugins to get_main_df() (Bollinger, MovingAverages, MACD, ROC/PPO, AC Oscillator, CCI, AccelerationRegime) — PLANNED
+- [x] 100-06-PLAN.md — Correct supports_incremental flags on delegation plugins (CVD, OFI, MAComposite) + conformance test — PLANNED
 
 </details>
 
@@ -936,9 +937,10 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091. Instrument Registry | v2.6 | 6/6 | Complete | 2026-05-20 |
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
-| 093. Renaissance Mathematical Correctness Audit | v2.7 | 5/5 | Complete    | 2026-05-21 |
-| 094. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
-| 095. Pydantic AI Agent Adapter | v2.7 | 8/8 | Planned | - |
+| 093. Renaissance Mathematical Correctness Audit | v2.7 | 5/5 | Complete | 2026-05-21 |
+| 100. Plugin Shared Infrastructure | v2.7 | 1/6 | In Progress|  |
+| 094. LiteLLM Backend | v2.7 | 0/2 | Not Started | - |
+| 095. Pydantic AI Agent Adapter | v2.7 | 0/8 | Not Started | - |
 | 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
 | 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
