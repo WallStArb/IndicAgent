@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -18,7 +18,6 @@ class CCIPlugin:
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
@@ -42,10 +41,12 @@ class CCIPlugin:
                 out[f"cci_{p}"] = 0.0
             else:
                 out[f"cci_{p}"] = (float(tp.iloc[-1]) - mean_tp) / (0.015 * mad)
-        self._seed_state(frames)
+        state = {}
+        self._seed_state(frames, state)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract rolling typical price window for incremental CCI updates."""
         df = frames.get("main")
         if df is None:
@@ -55,14 +56,14 @@ class CCIPlugin:
             if len(df) < p + 1:
                 continue
             tp_vals = tp.iloc[-p:].tolist()
-            self._state[f"cci_{p}"] = {
+            state[f"cci_{p}"] = {
                 "tp_window": deque(tp_vals, maxlen=p),
             }
 
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -72,9 +73,9 @@ class CCIPlugin:
         out: dict[str, Any] = {}
         for p in self.periods:
             key = f"cci_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             s["tp_window"].append(tp)
 
             if len(s["tp_window"]) == p:
@@ -85,6 +86,7 @@ class CCIPlugin:
                     out[key] = 0.0
                 else:
                     out[key] = (tp - mean_tp) / (0.015 * mad)
+        out["_state"] = state
         return out
 
 

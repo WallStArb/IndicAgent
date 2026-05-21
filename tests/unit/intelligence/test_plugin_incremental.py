@@ -46,13 +46,15 @@ REL_TOL = 0.005  # 0.5%
 
 def assert_values_close(incremental: dict, full: dict, plugin_name: str, rel_tol: float = REL_TOL):
     """Assert that incremental and full computation results are close."""
-    assert set(incremental.keys()) == set(full.keys()), (
-        f"{plugin_name}: Key mismatch - incremental={set(incremental.keys())}, "
-        f"full={set(full.keys())}"
+    inc_numeric = {k: v for k, v in incremental.items() if k != "_state"}
+    full_numeric = {k: v for k, v in full.items() if k != "_state"}
+    assert set(inc_numeric.keys()) == set(full_numeric.keys()), (
+        f"{plugin_name}: Key mismatch - incremental={set(inc_numeric.keys())}, "
+        f"full={set(full_numeric.keys())}"
     )
-    for key in full:
-        inc_val = incremental[key]
-        full_val = full[key]
+    for key in full_numeric:
+        inc_val = inc_numeric[key]
+        full_val = full_numeric[key]
         if abs(full_val) < 1e-10:
             # For near-zero values, use absolute tolerance
             assert abs(inc_val - full_val) < 0.1, (

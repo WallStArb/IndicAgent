@@ -23,11 +23,12 @@ class TestADXRefactor:
         assert 0 <= result["minus_di_14"] <= 100
 
     def test_state_populated_after_compute_full(self):
-        """compute_full should populate _state (for compute_next protocol)."""
+        """compute_full should return _state (for compute_next protocol)."""
         plugin = ADXPlugin()
-        plugin.compute_full({"main": _make_ohlc()})
-        assert "adx_14" in plugin._state
-        assert "smoothed_plus_dm" in plugin._state["adx_14"]
+        result = plugin.compute_full({"main": _make_ohlc()})
+        assert "_state" in result
+        assert "adx_14" in result["_state"]
+        assert "smoothed_plus_dm" in result["_state"]["adx_14"]
 
     def test_short_data_returns_empty(self):
         plugin = ADXPlugin()

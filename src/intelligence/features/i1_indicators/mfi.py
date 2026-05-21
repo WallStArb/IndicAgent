@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -18,7 +18,6 @@ class MFIPlugin:
     capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
@@ -43,10 +42,12 @@ class MFIPlugin:
             mfi = 100 - (100 / (1 + mfr))
             val = mfi.iloc[-1]
             out[f"mfi_{p}"] = float(val) if pd.notna(val) else 0.0
-        self._seed_state(frames)
+        state = {}
+        self._seed_state(frames, state)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract rolling money flow state for incremental MFI updates."""
         df = frames.get("main")
         if df is None or not {"high", "low", "close", "volume"}.issubset(df.columns):
@@ -78,7 +79,7 @@ class MFIPlugin:
             pos_mfs = pos_mfs[-p:]
             neg_mfs = neg_mfs[-p:]
 
-            self._state[f"mfi_{p}"] = {
+            state[f"mfi_{p}"] = {
                 "prev_tp": tp_vals[-1],
                 "pos_mf_window": deque(pos_mfs, maxlen=p),
                 "neg_mf_window": deque(neg_mfs, maxlen=p),
@@ -87,7 +88,7 @@ class MFIPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -98,9 +99,9 @@ class MFIPlugin:
         out: dict[str, Any] = {}
         for p in self.periods:
             key = f"mfi_{p}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             prev_tp = s["prev_tp"]
 
             if tp > prev_tp:
@@ -123,6 +124,7 @@ class MFIPlugin:
             else:
                 mfr = pos_sum / neg_sum
                 out[key] = 100.0 - 100.0 / (1.0 + mfr)
+        out["_state"] = state
         return out
 
 

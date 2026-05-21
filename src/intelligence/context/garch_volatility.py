@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -31,7 +31,6 @@ class GARCHVolatilityPlugin:
     omega: float = 0.00001
     alpha: float = 0.10
     beta: float = 0.85
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -96,29 +95,33 @@ class GARCHVolatilityPlugin:
         shock = last_epsilon**2 / sigma2_prior_last if sigma2_prior_last > 1e-15 else 0.0
 
         # Save state for incremental
-        self._state = {
-            "prev_sigma2": sigma2,
-            "prev_close": float(close[-1]),
-            "sigma_history": list(sigma_history[-100:]),
-            "realized_returns": list(realized_returns),
-        }
+        state = {}
+        state.update(
+            {
+                "prev_sigma2": sigma2,
+                "prev_close": float(close[-1]),
+                "sigma_history": list(sigma_history[-100:]),
+                "realized_returns": list(realized_returns),
+            }
+        )
 
         return {
             "garch_sigma": float(garch_sigma),
             "garch_vol_ratio": float(vol_ratio),
             "garch_vol_regime": vol_regime,
             "garch_shock": float(shock),
+            "_state": state,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
         c = float(row["close"])
-        s = self._state
+        s = state
 
         epsilon = math.log(c / s["prev_close"]) if s["prev_close"] > 0 else 0.0
         sigma2 = self.omega + self.alpha * epsilon**2 + self.beta * s["prev_sigma2"]
@@ -148,18 +151,21 @@ class GARCHVolatilityPlugin:
         # Use prev_sigma2 (prior) not sigma2 (posterior) for unbiased shock
         shock = epsilon**2 / s["prev_sigma2"] if s["prev_sigma2"] > 1e-15 else 0.0
 
-        self._state = {
-            "prev_sigma2": sigma2,
-            "prev_close": c,
-            "sigma_history": sigma_history,
-            "realized_returns": list(realized_returns),
-        }
+        state.update(
+            {
+                "prev_sigma2": sigma2,
+                "prev_close": c,
+                "sigma_history": sigma_history,
+                "realized_returns": list(realized_returns),
+            }
+        )
 
         return {
             "garch_sigma": float(garch_sigma),
             "garch_vol_ratio": float(vol_ratio),
             "garch_vol_regime": vol_regime,
             "garch_shock": float(shock),
+            "_state": state,
         }
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -19,7 +19,6 @@ class StochasticPlugin:
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     configs: list[tuple[int, int]] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.configs:
@@ -56,7 +55,9 @@ class StochasticPlugin:
             out[f"stoch_d_{k_period}_{d_period}"] = (
                 float(d.iloc[-1]) if pd.notna(d.iloc[-1]) else 0.0
             )
-        self._seed_state(high_series, low_series, close_series)
+        state = {}
+        self._seed_state(high_series, low_series, close_series, state)
+        out["_state"] = state
         return out
 
     def _seed_state(
@@ -64,6 +65,7 @@ class StochasticPlugin:
         high_col: pd.Series,
         low_col: pd.Series,
         close_col: pd.Series,
+        state: dict,
     ) -> None:
         """Extract rolling high/low/K state for incremental Stochastic updates."""
         n = len(high_col)
@@ -83,7 +85,7 @@ class StochasticPlugin:
             k_vals = [v if pd.notna(v) else 0.0 for v in k_vals]
 
             key = f"stoch_{k_period}_{d_period}"
-            self._state[key] = {
+            state[key] = {
                 "high_window": deque(highs, maxlen=k_period),
                 "low_window": deque(lows, maxlen=k_period),
                 "k_values": deque(k_vals, maxlen=d_period),
@@ -92,7 +94,7 @@ class StochasticPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -104,9 +106,9 @@ class StochasticPlugin:
         out: dict[str, Any] = {}
         for k_period, d_period in self.configs:
             key = f"stoch_{k_period}_{d_period}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             s["high_window"].append(high)
             s["low_window"].append(low)
 
@@ -120,6 +122,7 @@ class StochasticPlugin:
 
             out[f"stoch_k_{k_period}_{d_period}"] = k_val
             out[f"stoch_d_{k_period}_{d_period}"] = d_val
+        out["_state"] = state
         return out
 
 

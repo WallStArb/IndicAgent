@@ -65,7 +65,6 @@ class KalmanTrendPlugin:
     capability_tags: frozenset[str] = frozenset({"context", "trend"})
     inputs: list[InputSpec] = field(default_factory=lambda: [InputSpec(symbol=".*", lookback=200)])
     use_garch_adaptive: bool = False
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         params = _load_parameters()
@@ -160,17 +159,22 @@ class KalmanTrendPlugin:
         K = K_history[-1]
 
         # Save state for incremental updates
-        self._state = {
-            "x_est": x_est,
-            "P_est": P_est,
-            "trend_history": trend_history,
-            "R": R,
-        }
+        state = {}
+        state.update(
+            {
+                "x_est": x_est,
+                "P_est": P_est,
+                "trend_history": trend_history,
+                "R": R,
+            }
+        )
 
-        return self._build_result(float(closes[-1]), x_est, P_est, K, trend_history)
+        result = self._build_result(float(closes[-1]), x_est, P_est, K, trend_history)
+        result["_state"] = state
+        return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
 
         df = windows.get("main")
@@ -179,12 +183,12 @@ class KalmanTrendPlugin:
 
         close = float(df.iloc[-1]["close"])
         features = windows.get("features", {})
-        R = self._get_R(features) if self.use_garch_adaptive else self._state["R"]
+        R = self._get_R(features) if self.use_garch_adaptive else state["R"]
         Q = self._Q
 
-        x_est = self._state["x_est"]
-        P_est = self._state["P_est"]
-        trend_history: list[float] = list(self._state["trend_history"])
+        x_est = state["x_est"]
+        P_est = state["P_est"]
+        trend_history: list[float] = list(state["trend_history"])
 
         # Predict + update
         P_pred = P_est + Q
@@ -196,14 +200,18 @@ class KalmanTrendPlugin:
         if len(trend_history) > 6:
             trend_history = trend_history[-6:]
 
-        self._state = {
-            "x_est": x_est,
-            "P_est": P_est,
-            "trend_history": trend_history,
-            "R": R,
-        }
+        state.update(
+            {
+                "x_est": x_est,
+                "P_est": P_est,
+                "trend_history": trend_history,
+                "R": R,
+            }
+        )
 
-        return self._build_result(close, x_est, P_est, K, trend_history)
+        result = self._build_result(close, x_est, P_est, K, trend_history)
+        result["_state"] = state
+        return result
 
 
 plugin = KalmanTrendPlugin()

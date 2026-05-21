@@ -81,12 +81,13 @@ class TestKalmanTrend:
         df_minus_1 = df.iloc[:-1].reset_index(drop=True)
         df_last = df.iloc[-1:]
 
-        # Warm up plugin_next on all-but-last bars
-        plugin_next.compute_full({"main": df_minus_1})
+        # Warm up plugin_next on all-but-last bars, extract state
+        seed_result = plugin_next.compute_full({"main": df_minus_1})
+        seed_state = seed_result.get("_state")
 
         # Both process the full series
         result_full = plugin_full.compute_full({"main": df})
-        result_next = plugin_next.compute_next({"main": df_last})
+        result_next = plugin_next.compute_next({"main": df_last}, state=seed_state)
 
         assert abs(result_full["kalman_trend"] - result_next["kalman_trend"]) < 0.01
 

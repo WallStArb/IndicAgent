@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -19,7 +19,6 @@ class MACDPlugin:
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=200),)
     configs: list[tuple] = None
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.configs:
@@ -53,10 +52,12 @@ class MACDPlugin:
             out[f"macd_{fast}_{slow}_{signal}"] = float(macd_line.iloc[-1])
             out[f"macd_signal_{fast}_{slow}_{signal}"] = float(macd_signal.iloc[-1])
             out[f"macd_histogram_{fast}_{slow}_{signal}"] = float(macd_hist.iloc[-1])
-        self._seed_state(frames)
+        state = {}
+        self._seed_state(frames, state)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract EMA state for incremental MACD updates."""
         df = frames.get("main")
         if df is None:
@@ -71,7 +72,7 @@ class MACDPlugin:
             macd_signal_series = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
 
             key = f"macd_{fast}_{slow}_{signal}"
-            self._state[key] = {
+            state[key] = {
                 "ema_fast": float(ema_fast_series.iloc[-1]),
                 "ema_slow": float(ema_slow_series.iloc[-1]),
                 "ema_signal": float(macd_signal_series.iloc[-1]),
@@ -80,7 +81,7 @@ class MACDPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not self._state:
+        if not state:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
@@ -89,9 +90,9 @@ class MACDPlugin:
         out: dict[str, Any] = {}
         for fast, slow, signal in self.configs:
             key = f"macd_{fast}_{slow}_{signal}"
-            if key not in self._state:
+            if key not in state:
                 continue
-            s = self._state[key]
+            s = state[key]
             # Update fast EMA
             alpha_fast = 2.0 / (fast + 1)
             s["ema_fast"] = alpha_fast * new_close + (1 - alpha_fast) * s["ema_fast"]
@@ -109,6 +110,7 @@ class MACDPlugin:
             out[f"macd_{fast}_{slow}_{signal}"] = macd_val
             out[f"macd_signal_{fast}_{slow}_{signal}"] = s["ema_signal"]
             out[f"macd_histogram_{fast}_{slow}_{signal}"] = histogram
+        out["_state"] = state
         return out
 
 
