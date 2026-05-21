@@ -56,8 +56,8 @@ class WilliamsRPlugin:
         for p in self.periods:
             if len(df) < p + 1:
                 continue
-            highs = df["high"].iloc[-p:].tolist()
-            lows = df["low"].iloc[-p:].tolist()
+            highs = df["high"].iloc[-p:].to_numpy(copy=False)
+            lows = df["low"].iloc[-p:].to_numpy(copy=False)
             state[f"wr_{p}"] = {
                 "high_window": deque(highs, maxlen=p),
                 "low_window": deque(lows, maxlen=p),
