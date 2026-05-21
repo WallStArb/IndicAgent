@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df, update_ema
 
 
 @dataclass
@@ -36,7 +37,7 @@ class MACDPlugin:
         )
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        df = frames.get("main")
+        df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
         close = df["close"]
@@ -59,7 +60,7 @@ class MACDPlugin:
 
     def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract EMA state for incremental MACD updates."""
-        df = frames.get("main")
+        df = get_main_df(frames, 1)
         if df is None:
             return
         close = df["close"]
@@ -83,8 +84,8 @@ class MACDPlugin:
     ) -> dict[str, Any]:
         if not state:
             return self.compute_full(windows)
-        df = windows.get("main")
-        if df is None or len(df) < 1:
+        df = get_main_df(windows, 1)
+        if df is None:
             return {}
         new_close = float(df["close"].iloc[-1])
         out: dict[str, Any] = {}
@@ -94,16 +95,13 @@ class MACDPlugin:
                 continue
             s = state[key]
             # Update fast EMA
-            alpha_fast = 2.0 / (fast + 1)
-            s["ema_fast"] = alpha_fast * new_close + (1 - alpha_fast) * s["ema_fast"]
+            s["ema_fast"] = update_ema(new_close, s["ema_fast"], fast)
             # Update slow EMA
-            alpha_slow = 2.0 / (slow + 1)
-            s["ema_slow"] = alpha_slow * new_close + (1 - alpha_slow) * s["ema_slow"]
+            s["ema_slow"] = update_ema(new_close, s["ema_slow"], slow)
             # MACD line
             macd_val = s["ema_fast"] - s["ema_slow"]
             # Update signal EMA
-            alpha_sig = 2.0 / (signal + 1)
-            s["ema_signal"] = alpha_sig * macd_val + (1 - alpha_sig) * s["ema_signal"]
+            s["ema_signal"] = update_ema(macd_val, s["ema_signal"], signal)
             # Histogram
             histogram = macd_val - s["ema_signal"]
 
