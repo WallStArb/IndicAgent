@@ -60,32 +60,29 @@ def select_winner(
     return winner, signals, method
 
 
+def _stamp_winner(selected: dict, active: list[dict]) -> dict:
+    winner_direction = selected.get("direction", 0)
+    selected["n_agreeing_signals"] = sum(
+        1 for s in active if s.get("direction") == winner_direction
+    )
+    selected["n_opposing_signals"] = sum(
+        1 for s in active if s.get("direction") != winner_direction and s.get("direction", 0) != 0
+    )
+    selected["status"] = SignalStatus.PENDING.value
+    return selected
+
+
 def _aggregate_via_cis(
     active: list[dict],
     cis_result: Any,
     all_ranked: list[dict],
 ) -> tuple[dict | None, str]:
-    """Select winner matching CIS direction, capture agreeing/opposing counts."""
     cis_direction = cis_result.direction
     matching = [s for s in active if s.get("direction", 0) == cis_direction]
-
     if not matching:
         return None, "no_match"
-
-    matching_sorted = sorted(matching, key=lambda s: s.get("adjusted_rank", 999))
-    selected = dict(matching_sorted[0])
-
-    # Capture agreeing/opposing counts instead of boosting confidence
-    winner_direction = selected.get("direction", 0)
-    selected["n_agreeing_signals"] = len(
-        [s for s in active if s.get("direction") == winner_direction]
-    )
-    selected["n_opposing_signals"] = len(
-        [s for s in active if s.get("direction") != winner_direction and s.get("direction", 0) != 0]
-    )
-    selected["status"] = SignalStatus.PENDING.value
-
-    return selected, "cis_override"
+    selected = dict(min(matching, key=lambda s: s.get("adjusted_rank", 999)))
+    return _stamp_winner(selected, active), "cis_override"
 
 
 def _aggregate_fallback(
@@ -102,12 +99,10 @@ def _aggregate_fallback(
     longs = len(by_direction.get(1, []))
     shorts = len(by_direction.get(-1, []))
 
-    # Tie (longs == shorts): parameterize via long_bias
     if longs == shorts:
         if long_bias:
             majority_group = by_direction[1]
         else:
-            # No bias — pick highest-ranked signal regardless of direction
             majority_group = sorted(active, key=lambda s: s.get("adjusted_rank", 999))[:1]
     else:
         majority_group = by_direction[1] if longs > shorts else by_direction[-1]
@@ -115,17 +110,5 @@ def _aggregate_fallback(
     if not majority_group:
         return None, "no_signal"
 
-    sorted_group = sorted(majority_group, key=lambda s: s.get("adjusted_rank", 999))
-    selected = dict(sorted_group[0])
-
-    # Capture agreeing/opposing counts
-    winner_direction = selected.get("direction", 0)
-    selected["n_agreeing_signals"] = len(
-        [s for s in active if s.get("direction") == winner_direction]
-    )
-    selected["n_opposing_signals"] = len(
-        [s for s in active if s.get("direction") != winner_direction and s.get("direction", 0) != 0]
-    )
-    selected["status"] = SignalStatus.PENDING.value
-
-    return selected, "priority_majority"
+    selected = dict(min(majority_group, key=lambda s: s.get("adjusted_rank", 999)))
+    return _stamp_winner(selected, active), "priority_majority"

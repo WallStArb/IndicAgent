@@ -126,7 +126,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._timeframes = list(_STANDARD_TFS)
 
         register_all_plugins()
-        for tier_list, tier_name in [
+        for tier_list, tier_name in (
             (TIER_I1, "I1"),
             (TIER_I2, "I2"),
             (TIER_I3, "I3"),
@@ -135,7 +135,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             (TIER_SMC, "SMC"),
             (TIER_I6, "I6"),
             (TIER_I7, "I7"),
-        ]:
+        ):
             registry.validate_tier(tier_list, tier_name)
 
         from src.core.plugin_validator import PluginValidator
@@ -144,12 +144,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Plugin cache — used by PluginExecutor (the orchestrator's copy was redundant with
         # PluginExecutor's own copy; deleted D-24). Build once for PluginExecutor constructor.
-        _plugin_cache: dict[str, Any] = {}
-        for n in TIER_I1:
-            _plugin_cache[n] = registry.get_indicator(n)
+        self._plugin_cache: dict[str, Any] = {n: registry.get_indicator(n) for n in TIER_I1}
         for n in TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7:
-            _plugin_cache[n] = registry.get_pattern(n)
-        self._plugin_cache = _plugin_cache  # kept for _setup reference only; executor owns copy
+            self._plugin_cache[n] = registry.get_pattern(n)
 
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
@@ -194,11 +191,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "Per-bar pipeline latency in milliseconds",
         )
 
-        self._vix_symbol: str | None = None
-        for c in self._contracts:
-            if c.symbol == "VX":
-                self._vix_symbol = "VX"
-                break
+        self._vix_symbol: str | None = (
+            "VX" if any(c.symbol == "VX" for c in self._contracts) else None
+        )
 
     async def stop(self) -> None:
         self.logger.info("agent.shutdown_initiated", agent=self.name)
@@ -258,11 +253,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
 
         _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
-        _symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
+        symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
         self._cache_mgr = CacheManager(
             db=self._db,
             settings=self.settings,
-            symbols=_symbol_filter,
+            symbols=symbol_filter,
             on_instruments_changed=invalidate_active_contracts_cache,
         )
         async with self._db.pool.acquire() as conn:
@@ -310,10 +305,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self._sig_proc.restore_setup_last_fire(extra.get("setup_last_fire", {}))
 
         # Per-key concurrency — PERF-07 (D-01, D-03, D-16, D-28)
-        _symbol_filter_pkw = frozenset(self.settings.intelligence_pipeline_symbol_filter) or None
         self._worker_manager = PerKeyWorkerManager(
             processor=self._process_bar_inner,
-            symbol_filter=_symbol_filter_pkw,
+            symbol_filter=symbol_filter,
             queue_maxsize=self.settings.intelligence_pipeline_queue_maxsize,
         )
         self._worker_manager.start_per_key_workers()
@@ -572,20 +566,23 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
 
+        if winner is None:
+            winner_plugin = None
+            winner_confidence = None
+            winner_direction = None
+        else:
+            winner_plugin = winner.get("setup_plugin")
+            winner_direction = winner.get("direction")
+            winner_confidence = winner.get("calibrated_confidence")
+            if winner_confidence is None:
+                winner_confidence = winner.get("confidence")
+
         record = BarIntelligenceRecord(
             intelligence=event,
             ranked_signals=ranked_signals,
-            winner_plugin=winner.get("setup_plugin") if winner else None,
-            winner_confidence=(
-                (
-                    winner.get("calibrated_confidence")
-                    if winner.get("calibrated_confidence") is not None
-                    else winner.get("confidence")
-                )
-                if winner
-                else None
-            ),
-            winner_direction=winner.get("direction") if winner else None,
+            winner_plugin=winner_plugin,
+            winner_confidence=winner_confidence,
+            winner_direction=winner_direction,
             signals_evaluated=i7.get("signals_evaluated", 0),
             signals_after_quality=i7.get("signals_after_quality", 0),
             signals_after_regime=i7.get("signals_after_regime", 0),

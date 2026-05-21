@@ -670,20 +670,18 @@ class SignalTrackerComputeAgent(BaseAgent):
                 if transition.bars_in_trade is None:
                     transition = self._enrich_exit_transition(transition, sid)
                 # Stop-loss exits return outcome=None from lifecycle_tracker because
-                # bars_in_trade context is only available here in the service.
-                # When bars_in_trade is still None after enrichment (signal not in
+                # bars_in_trade context is only available here in the service. When
+                # bars_in_trade is still None after enrichment (signal not in
                 # _signal_states), fall back to mfe alone so signals that moved
                 # meaningfully in profit before stopping aren't forced to stopped_at_entry.
                 if transition.outcome is None and transition.exit_reason == "stop_loss":
-                    mfe = transition.mfe if transition.mfe is not None else 0.0
-                    if transition.bars_in_trade is None:
-                        transition.outcome = (
-                            SignalOutcome.STOPPED_IN_TRADE
-                            if mfe > 0.05
-                            else SignalOutcome.STOPPED_AT_ENTRY
-                        )
-                    else:
+                    mfe = transition.mfe or 0.0
+                    if transition.bars_in_trade is not None:
                         transition.outcome = _classify_stop_outcome(mfe, transition.bars_in_trade)
+                    elif mfe > 0.05:
+                        transition.outcome = SignalOutcome.STOPPED_IN_TRADE
+                    else:
+                        transition.outcome = SignalOutcome.STOPPED_AT_ENTRY
 
             # Map to LifecycleTransition and publish
             lifecycle_t = self._transition_to_lifecycle(transition, symbol, timeframe, bar_time)

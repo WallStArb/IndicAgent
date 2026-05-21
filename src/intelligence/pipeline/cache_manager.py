@@ -402,7 +402,6 @@ class CacheManager:
         On any other exception, logs at WARNING and retries after 5s backoff.
         """
         while True:
-            conn: asyncpg.Connection | None = None
             try:
                 conn = await asyncpg.connect(self._settings.database_url)
                 try:
@@ -414,10 +413,11 @@ class CacheManager:
                     while not conn.is_closed():
                         await asyncio.sleep(10)
                 finally:
-                    if conn is not None:
-                        if not conn.is_closed():
-                            await conn.remove_listener("instruments", self._on_instrument_notify)
-                        await conn.close()
+                    # Guard remove_listener: a connection closed mid-loop would
+                    # raise ConnectionDoesNotExistError and mask the real error.
+                    if not conn.is_closed():
+                        await conn.remove_listener("instruments", self._on_instrument_notify)
+                    await conn.close()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -478,60 +478,22 @@ class CacheManager:
         try:
             current_regime = self.current_hmm_regime_label()
 
-            if self._symbol_filter is not None:
-                symbol_list = list(self._symbol_filter)
-                # Primary query: regime-conditioned, symbol-scoped
-                rows = await self._db.execute_query(
-                    """
-                    SELECT setup_plugin, tf, symbol, sharpe
-                    FROM signal_metrics
-                    WHERE symbol = ANY($1::text[])
-                      AND track = 'market'
-                      AND regime_type = $2
-                      AND window_days = 30
-                      AND n >= 30
-                    """,
-                    symbol_list,
-                    current_regime,
+            async def _fetch(regime: str) -> list:
+                base = (
+                    "SELECT setup_plugin, tf, symbol, sharpe FROM signal_metrics"
+                    " WHERE track = 'market' AND window_days = 30 AND n >= 30"
                 )
-            else:
-                rows = await self._db.execute_query(
-                    """
-                    SELECT setup_plugin, tf, symbol, sharpe
-                    FROM signal_metrics
-                    WHERE track = 'market'
-                      AND regime_type = $1
-                      AND window_days = 30
-                      AND n >= 30
-                    """,
-                    current_regime,
-                )
-
-            if not rows:
-                # Fallback to 'all' regime rollup (bootstrap phase)
                 if self._symbol_filter is not None:
-                    symbol_list = list(self._symbol_filter)
-                    rows = await self._db.execute_query(
-                        """
-                        SELECT setup_plugin, tf, symbol, sharpe
-                        FROM signal_metrics
-                        WHERE symbol = ANY($1::text[])
-                          AND track = 'market'
-                          AND regime_type = 'all'
-                          AND window_days = 30
-                          AND n >= 30
-                        """,
-                        symbol_list,
+                    return await self._db.execute_query(
+                        f"{base} AND regime_type = $1 AND symbol = ANY($2::text[])",
+                        regime,
+                        list(self._symbol_filter),
                     )
-                else:
-                    rows = await self._db.execute_query("""
-                        SELECT setup_plugin, tf, symbol, sharpe
-                        FROM signal_metrics
-                        WHERE track = 'market'
-                          AND regime_type = 'all'
-                          AND window_days = 30
-                          AND n >= 30
-                        """)
+                return await self._db.execute_query(f"{base} AND regime_type = $1", regime)
+
+            rows = await _fetch(current_regime)
+            if not rows:
+                rows = await _fetch("all")
 
             if not rows:
                 self._perf_weights = {}
@@ -614,20 +576,13 @@ class CacheManager:
         try:
             import numpy as np
 
+            base = "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
             if self._symbol_filter is not None:
-                symbol_list = list(self._symbol_filter)
                 rows = await self._db.execute_query(
-                    """
-                    SELECT setup_plugin, symbol, curve_data
-                    FROM calibration_curves
-                    WHERE symbol = ANY($1::text[])
-                    """,
-                    symbol_list,
+                    f"{base} WHERE symbol = ANY($1::text[])", list(self._symbol_filter)
                 )
             else:
-                rows = await self._db.execute_query(
-                    "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
-                )
+                rows = await self._db.execute_query(base)
             curves: dict = {}
             for r in rows:
                 curve_data = r.get("curve_data") or {}
@@ -652,20 +607,13 @@ class CacheManager:
         if self._db is None:
             return
         try:
+            base = "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
             if self._symbol_filter is not None:
-                symbol_list = list(self._symbol_filter)
                 rows = await self._db.execute_query(
-                    """
-                    SELECT regime_type, tf, hour_et, symbol, multiplier
-                    FROM tod_multipliers
-                    WHERE symbol = ANY($1::text[])
-                    """,
-                    symbol_list,
+                    f"{base} WHERE symbol = ANY($1::text[])", list(self._symbol_filter)
                 )
             else:
-                rows = await self._db.execute_query(
-                    "SELECT regime_type, tf, hour_et, symbol, multiplier FROM tod_multipliers"
-                )
+                rows = await self._db.execute_query(base)
             priors: dict = {}
             for r in rows:
                 key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
