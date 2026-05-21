@@ -102,7 +102,10 @@ def _timed_plugin_call(plugin, frames, state: dict) -> Any:
 
     # Renaissance validation: Ensure incremental plugins return state for persistence
     # This prevents the state corruption bug that occurred during PERF-03 migration
-    if getattr(plugin, "supports_incremental", False) and isinstance(result, dict):
+    # Only validate non-empty results — empty {} means "no data this bar" and is valid.
+    # An empty result on an incremental plugin does not update state_updates, so the
+    # executor reuses the previous bar's state on the next call (safe recovery path).
+    if getattr(plugin, "supports_incremental", False) and isinstance(result, dict) and result:
         if "_state" not in result:
             raise ValueError(
                 f"{plugin.name}: incremental plugins MUST return _state in result dict. "

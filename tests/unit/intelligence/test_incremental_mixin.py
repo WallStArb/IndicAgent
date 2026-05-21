@@ -637,10 +637,15 @@ class TestLatencyBenchmark:
                 plugin.compute_full({"main": df_100})
             full_mean_ms = (time.perf_counter() - t0) * 1000 / self.N_ITERATIONS
 
-            # Benchmark compute_next (reuse same state -- measures single-bar cost)
+            # Benchmark compute_next using a fresh deep-copy of state each iteration.
+            # Without this, _compute_next_core mutates the dict in place and later
+            # iterations run from an evolved state, skewing timing (deque plugins
+            # fill with repeated values, reducing min/max scan variance artificially).
+            import copy
+
             t0 = time.perf_counter()
             for _ in range(self.N_ITERATIONS):
-                plugin.compute_next({"main": df_101}, state=state)
+                plugin.compute_next({"main": df_101}, state=copy.deepcopy(state))
             next_mean_ms = (time.perf_counter() - t0) * 1000 / self.N_ITERATIONS
 
             print(f"{name:<14} {full_mean_ms:<24.4f} {next_mean_ms:<24.4f}")
