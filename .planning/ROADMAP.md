@@ -550,10 +550,18 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 093-02-PLAN.md — Tier 1 indicator reference validation vs pandas-ta (10 indicators) + ATR Wilder investigation
 - [ ] 093-03-PLAN.md — Kalman and GARCH stateful invariant tests
 - [ ] 093-04-PLAN.md — Hot-path efficiency fixes (np.percentile, remove .tolist()) + numeric equivalence guard
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
 
 ### Phase 094: LiteLLM Backend
@@ -734,6 +742,7 @@ Plans:
 **Foundation from Phase 095:**
 
 Phase 095 provides the genome infrastructure required for v2.8:
+
 - ✅ AgentGenome with chromosome structure (Plan 07)
 - ✅ Lineage tracking (parent_ids, generation) (Plan 07)
 - ✅ Genome versioning (SHA256 hash) (Plan 07)
@@ -741,6 +750,7 @@ Phase 095 provides the genome infrastructure required for v2.8:
 - ✅ DemotionGate with soft death preservation (Plan 08)
 
 v2.8 builds on this foundation by adding:
+
 - Rigorous fitness evaluation (Phase 101) — required before evolution
 - Gene bank extraction (Phase 102) — learn from failures
 - Reproductive operators (Phase 103) — enable evolution
