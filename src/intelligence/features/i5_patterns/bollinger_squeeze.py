@@ -65,14 +65,9 @@ class BollingerSqueezePlugin:
         current_bw = (bb_upper[last] - bb_lower[last]) / sma[last] if sma[last] != 0 else 0.0
 
         # Bandwidth percentile
-        # np.partition places the kth element in its final sorted position — arr[k] equals
-        # sorted(arr)[k] exactly, with O(n) average cost vs O(n log n) for a full sort.
-        # For rank-based percentile, sort is not required at all; we count b <= current_bw
-        # directly on the raw array. np.partition is retained here to expose the O(n)
-        # kth-element selection pattern (k = int(len * 0.20) mirrors the original index).
         bw_pctile = 0.5
         if bandwidth_history:
-            bw_arr = np.asarray(list(bandwidth_history), dtype=float)
+            bw_arr = np.asarray(bandwidth_history, dtype=float)
             rank = int(np.sum(bw_arr <= current_bw))
             bw_pctile = rank / len(bw_arr)
 
@@ -159,10 +154,7 @@ class BollingerSqueezePlugin:
         # Bandwidth
         bw = (bb_upper - bb_lower) / mean_c if mean_c != 0 else 0.0
         s["bandwidth_history"].append(bw)
-        # np.partition(arr, k)[k] == sorted(arr)[k]: bit-equivalent kth-element selection,
-        # O(n) average vs O(n log n) for full sort. k = int(len * 0.20) mirrors original
-        # index lookup. Rank is computed via vectorized comparison — no sort needed.
-        bw_arr = np.asarray(list(s["bandwidth_history"]), dtype=float)
+        bw_arr = np.asarray(s["bandwidth_history"], dtype=float)
         rank = int(np.sum(bw_arr <= bw))
         bw_pctile = rank / len(bw_arr)
 

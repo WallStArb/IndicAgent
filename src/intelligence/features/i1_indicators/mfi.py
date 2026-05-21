@@ -36,11 +36,11 @@ class MFIPlugin:
                 continue
             pos_mf = rmf.where(tp > tp.shift(1), 0.0)
             neg_mf = rmf.where(tp < tp.shift(1), 0.0)
-            ps = float(pos_mf.rolling(window=p, min_periods=p).sum().iloc[-1])
-            ns = float(neg_mf.rolling(window=p, min_periods=p).sum().iloc[-1])
+            ps = float(pos_mf.iloc[-p:].sum(min_count=p))
+            ns = float(neg_mf.iloc[-p:].sum(min_count=p))
             if pd.isna(ps) or pd.isna(ns):
                 continue
-            elif ns == 0:
+            if ns == 0:
                 out[f"mfi_{p}"] = 100.0 if ps > 0 else 0.0
             else:
                 out[f"mfi_{p}"] = 100.0 - 100.0 / (1.0 + ps / ns)
