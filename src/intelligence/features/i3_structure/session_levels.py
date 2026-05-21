@@ -167,8 +167,7 @@ class SessionLevelsPlugin:
             result["asian_session_high"] = None
             result["asian_session_low"] = None
 
-        # Seed incremental state from full computation
-        self._state = {}
+        # Seed incremental state from full computation (only when needed)
         if state is not None:
             state["bar_count"] = n
             state["sess_n"] = sess_n
@@ -200,8 +199,10 @@ class SessionLevelsPlugin:
             state["overnight_low"] = result.get("overnight_low")
             state["asian_session_high"] = result.get("asian_session_high")
             state["asian_session_low"] = result.get("asian_session_low")
+            result["_state"] = state
+        else:
+            result["_state"] = {}
 
-        result["_state"] = state if state is not None else self._state
         return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
