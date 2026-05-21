@@ -19,7 +19,8 @@
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
-- [ ] **v2.7 AI Agent Platform Modernization** — Phases 093–099 (active)
+- [ ] **v2.7 Mathematical Correctness & AI Platform Modernization** — Phases 093–103 (active)
+- [ ] **v2.8 Evolvable AI Foundation** — Phases 104–106 (planned)
 
 ## Phases
 
@@ -528,11 +529,34 @@ Plans:
 </details>
 
 <details>
-<summary>v2.7 AI Agent Platform Modernization (Phases 093-099) — ACTIVE</summary>
+<summary>v2.7 Mathematical Correctness & AI Platform Modernization (Phases 093-103) — ACTIVE</summary>
 
-**Milestone Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
+**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Replace hand-rolled LLM boilerplate with a composable, measurable stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
 
-### Phase 093: LiteLLM Backend
+### Phase 093: Renaissance Mathematical Correctness Audit
+
+**Goal**: Fix ATR bug and systematically validate all mathematical computations against reference implementations. Ensure every indicator, transform, and statistical function is mathematically correct with invariant tests and edge case coverage.
+**Depends on**: Phase 092
+**Requirements**: MATH-01, MATH-02, MATH-03, MATH-04, MATH-05
+**Success Criteria** (what must be TRUE):
+
+  1. ATR bug is fixed and validated against pandas-ta or TA-lib reference implementation
+  2. All Tier 1 financial math (ATR, Bollinger, VWAP, Volume Profile, MACD, RSI, Stochastic, GARCH, Kalman) has reference validation tests
+  3. All stateful computations (Kalman filters, GARCH models, rolling windows) have invariant tests
+  4. Edge case coverage for gap handling, zero volatility, numerical stability
+  5. CI gate prevents merges with failing correctness tests
+  6. No regression in existing functionality
+
+**Plans**: 5 plans
+
+Plans:
+- [ ] 093-01-PLAN.md — Test infrastructure (pandas-ta install, correctness/ package, conftest fixtures)
+- [ ] 093-02-PLAN.md — Tier 1 indicator reference validation vs pandas-ta (10 indicators) + ATR Wilder investigation
+- [ ] 093-03-PLAN.md — Kalman and GARCH stateful invariant tests
+- [ ] 093-04-PLAN.md — Hot-path efficiency fixes (np.percentile, remove .tolist()) + numeric equivalence guard
+- [ ] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
+
+### Phase 094: LiteLLM Backend
 
 **Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
 **Depends on**: Phase 092
@@ -547,7 +571,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 094: Pydantic AI Agent Adapter
+### Phase 095: Pydantic AI Agent Adapter
 
 **Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
 **Depends on**: Phase 093
@@ -568,7 +592,7 @@ Plans:
 - [ ] 094-04-PLAN.md — SkepticComputeAgentPydantic implementation (Wave 2)
 - [ ] 094-05-PLAN.md — Service registration + pydantic-ai dependency (Wave 3)
 
-### Phase 095: Agent Registry
+### Phase 096: Agent Registry
 
 **Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
 **Depends on**: Phase 094
@@ -582,7 +606,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 096: Zep Episodic Memory
+### Phase 097: Zep Episodic Memory
 
 **Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag and validated for quality before production use.
 **Depends on**: Phase 095
@@ -596,7 +620,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 097: DSPy Offline Prompt Optimizer
+### Phase 098: DSPy Offline Prompt Optimizer
 
 **Goal**: DSPy optimizer reads labeled (prompt, result, outcome) tuples from `llm_calls` table, compiles optimized prompts, and stores them for A/B testing.
 **Depends on**: Phase 096
@@ -610,7 +634,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 098: Guardrails AI Validation
+### Phase 099: Guardrails AI Validation
 
 **Goal**: `GuardrailsAIValidator` implements the same interface as existing validators; drop-in replacement with zero call-site changes.
 **Depends on**: Phase 097
@@ -622,6 +646,106 @@ Plans:
   3. Latency overhead of Guardrails AI validation is measured and documented; must not exceed 10ms p95 vs existing validator
 
 **Plans**: TBD
+
+### Phase 100: Final Integration & Testing
+
+**Goal**: Complete v2.7 platform modernization with end-to-end integration testing, documentation, and operational readiness.
+**Depends on**: Phases 093-098
+**Requirements**: Integration testing, documentation, operational validation
+**Success Criteria** (what must be TRUE):
+
+  1. End-to-end integration tests validate all agents (Skeptic, Correlation, Volume) run on Pydantic AI adapter with zero regression
+  2. Agent registry successfully loads and instantiates all agents from `agents.yaml` without code changes
+  3. Memory recall quality validated in shadow mode (precision/recall metrics documented)
+  4. DSPy optimizer has produced at least one optimized prompt variant with measurable improvement
+  5. Guardrails AI validation shows measurable reduction in custom validation LOC with no regression in accuracy
+  6. Complete documentation for operators: agent configuration, memory management, prompt optimization workflow
+
+**Plans**: TBD
+
+</details>
+
+<details>
+<summary>v2.8 Evolvable AI Foundation (Phases 101-103) — PLANNED</summary>
+
+**Milestone Goal**: Implement composite fitness function, genetic infrastructure, and reproductive operators to enable evolvable AI agents. Build on genome foundation from Phase 095 (AgentGenome, promotion/demotion gates).
+
+### Phase 101: Composite Fitness Function
+
+**Goal**: Build rigorous fitness evaluation across 5 dimensions (accuracy, novelty, calibration, regime specificity, efficiency) before enabling reproductive operators.
+**Depends on**: Phase 099
+**Requirements**: FIT-01, FIT-02, FIT-03, FIT-04, FIT-05, FIT-06
+**Success Criteria** (what must be TRUE):
+
+  1. Accuracy metrics computed: bootstrap CI, Sharpe ratio, win rate with statistical significance
+  2. Novelty metrics computed: decorrelation from live agent population, uniqueness score
+  3. Calibration metrics computed: confidence vs reality alignment, reliability diagrams
+  4. Regime specificity computed: performance by market regime (bull/bear/sideways/volatile)
+  5. Efficiency metrics computed: fitness per compute cost, latency per prediction
+  6. Composite score integrated: weighted combination of all 5 dimensions with validation gates
+
+**Plans**: 6 plans
+
+- [ ] 101-01-PLAN.md — Accuracy metrics (bootstrap CI, Sharpe, win rate)
+- [ ] 101-02-PLAN.md — Novelty metrics (decorrelation from agent population)
+- [ ] 101-03-PLAN.md — Calibration metrics (confidence vs reality)
+- [ ] 101-04-PLAN.md — Regime specificity (performance by market regime)
+- [ ] 101-05-PLAN.md — Efficiency metrics (fitness per compute cost)
+- [ ] 101-06-PLAN.md — Composite score integration (weighted combination)
+
+### Phase 102: Genetic Infrastructure
+
+**Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from failed agents.
+**Depends on**: Phase 100
+**Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
+**Success Criteria** (what must be TRUE):
+
+  1. Frozen archive exists: TimescaleDB table `agent_genomes` with full genome serialization
+  2. Gene bank exists: catalog of best chromosome segments from dead agents (prompts, configs, tool sets)
+  3. Decomposition algorithms: extract best-performing chromosomes from failed agents
+  4. Resurrection evaluation: test dead agents against new data to identify resurrection candidates
+
+**Plans**: 4 plans
+
+- [ ] 102-01-PLAN.md — Frozen archive (TimescaleDB table for agent genomes)
+- [ ] 102-02-PLAN.md — Gene bank extraction (best segment catalog)
+- [ ] 102-03-PLAN.md — Decomposition algorithms (chromosome extraction)
+- [ ] 102-04-PLAN.md — Resurrection evaluation (test dead agents against new data)
+
+### Phase 103: Reproductive Operators
+
+**Goal**: Implement mutation, recombination, and LLM-directed operators to enable agent evolution with validated fitness function.
+**Depends on**: Phase 101
+**Requirements**: REPRO-01, REPRO-02, REPRO-03, REPRO-04
+**Success Criteria** (what must be TRUE):
+
+  1. Mutation operator: random perturbations to prompts, configs, parameters
+  2. Recombination operator: crossover between parent agents to create offspring
+  3. LLM-directed operator: analyze parent performance, propose targeted improvements
+  4. Adaptive operator selection: track which operators work best, allocate budget accordingly
+
+**Plans**: 4 plans
+
+- [ ] 102-01-PLAN.md — Mutation operator (prompt nudges, parameter shifts)
+- [ ] 102-02-PLAN.md — Recombination operator (crossover between parents)
+- [ ] 102-03-PLAN.md — LLM-directed operator (analyze parent, propose improvements)
+- [ ] 102-04-PLAN.md — Adaptive operator selection (track which works best)
+
+**Foundation from Phase 095:**
+
+Phase 095 provides the genome infrastructure required for v2.8:
+- ✅ AgentGenome with chromosome structure (Plan 07)
+- ✅ Lineage tracking (parent_ids, generation) (Plan 07)
+- ✅ Genome versioning (SHA256 hash) (Plan 07)
+- ✅ PromotionGate with automated criteria (Plan 08)
+- ✅ DemotionGate with soft death preservation (Plan 08)
+
+v2.8 builds on this foundation by adding:
+- Rigorous fitness evaluation (Phase 101) — required before evolution
+- Gene bank extraction (Phase 102) — learn from failures
+- Reproductive operators (Phase 103) — enable evolution
+
+**Note**: Per your eAI research, 80% of effort should be on fitness function (Phase 101), 20% on reproductive mechanics (Phase 103). Governance gates (Plan 08) ensure no agent promotes without proven fitness.
 
 </details>
 
@@ -665,7 +789,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). Next: v2.7 AI Agent Platform Modernization.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). Next: v2.7 Mathematical Correctness & AI Platform Modernization.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -782,12 +906,16 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091. Instrument Registry | v2.6 | 6/6 | Complete | 2026-05-20 |
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
-| 093. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
-| 094. Pydantic AI Agent Adapter | v2.7 | 5/5 | Planned | - |
-| 095. Agent Registry | v2.7 | 0/TBD | Not started | - |
-| 096. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
-| 097. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
-| 098. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
-| 099. Agent Registry | v2.7 | 0/TBD | Not started | - |
+| 093. Renaissance Mathematical Correctness Audit | v2.7 | 0/TBD | Not started | - |
+| 094. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
+| 095. Pydantic AI Agent Adapter | v2.7 | 8/8 | Planned | - |
+| 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
+| 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
+| 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
+| 099. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
+| 100. Final Integration & Testing | v2.7 | 0/TBD | Not started | - |
+| 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
+| 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
+| 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
 
 (... remaining ROADMAP content unchanged ...)
