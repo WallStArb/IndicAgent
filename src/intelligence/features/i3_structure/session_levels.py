@@ -178,6 +178,9 @@ class SessionLevelsPlugin:
             state["session_high"] = float(session["high"].max()) if len(session) > 0 else None
             state["session_low"] = float(session["low"].min()) if len(session) > 0 else None
             state["session_open"] = float(session["open"].iloc[0]) if len(session) > 0 else None
+            state["session_close_running"] = (
+                float(session["close"].iloc[-1]) if len(session) > 0 else None
+            )
             state["weekly_pivot"] = result.get("weekly_pivot")
             state["weekly_r1"] = result.get("weekly_r1")
             state["weekly_r2"] = result.get("weekly_r2")
@@ -263,15 +266,18 @@ class SessionLevelsPlugin:
         new_session = current_session_length > _SESSION_BARS
 
         if new_session:
-            # Roll: current session becomes prior session
+            # Roll: current session becomes prior session.
+            # Use session_close_running (last close of the old session), NOT bar_close
+            # which is the first bar of the new session.
             state["prior_session_high"] = state.get("session_high")
             state["prior_session_low"] = state.get("session_low")
-            state["prior_session_close"] = bar_close  # last bar of old session
+            state["prior_session_close"] = state.get("session_close_running")
             # Reset current session
             state["session_start_idx"] = n - 1
             state["session_high"] = bar_high
             state["session_low"] = bar_low
             state["session_open"] = bar_open
+            state["session_close_running"] = bar_close
             # Update weekly data from the now-prior session
             psh = state.get("prior_session_high")
             psl = state.get("prior_session_low")
@@ -291,11 +297,12 @@ class SessionLevelsPlugin:
                 state["weekly_low"] = wl
                 state["weekly_close"] = wc
         else:
-            # Update running session high/low
+            # Update running session high/low/close
             prev_sh = state.get("session_high")
             prev_sl = state.get("session_low")
             state["session_high"] = max(prev_sh, bar_high) if prev_sh is not None else bar_high
             state["session_low"] = min(prev_sl, bar_low) if prev_sl is not None else bar_low
+            state["session_close_running"] = bar_close
 
         state["bar_count"] = n
 
