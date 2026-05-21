@@ -123,6 +123,7 @@ class ROCPPOPlugin:
         out[f"ppo_{self.ppo_fast}_{self.ppo_slow}"] = ppo_val
         out[f"ppo_signal_{self.ppo_fast}_{self.ppo_slow}"] = s["ppo_signal_ema"]
 
+        out["_state"] = self._state
         return out
 
 
