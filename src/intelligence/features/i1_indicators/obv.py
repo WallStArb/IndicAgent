@@ -30,6 +30,7 @@ class OBVPlugin:
         # Seed state for incremental updates
         self._state["prev_close"] = float(df["close"].iloc[-1])
         self._state["cum_obv"] = float(obv.iloc[-1])
+        result["_state"] = self._state
         return result
 
     def compute_next(
