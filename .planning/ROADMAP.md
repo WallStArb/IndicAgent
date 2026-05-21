@@ -189,12 +189,12 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 51: Signal & Indicator Validation Framework** — per-layer sanity checks (I1→I7 output values statistically sensible); signal outcome completeness audit; automated validation on each deploy — COMPLETE
 - [x] **Phase 52: Infrastructure Hardening** — Docker restart policies, log rotation, deploy scripts delivered incrementally via 52.x subphases; gap-fill automation → Phase 53.1 (v2.2) — ABSORBED
 - [x] **Phase 52.1: Wiring Fixes + Doc Naming** — fixed `topic_feature_processed` ImportError; fixed naive `datetime.now()` calls; wired `persistence_batch_latency`/`persistence_consumer_lag` metrics — COMPLETE
-- [x] **Phase 52.2: BaseAgent Infrastructure + IndicatorComputeAgent Rename** — TDD BaseAgent + AgentRegistry; renamed IndicatorService → IndicatorComputeAgent; fixed 4 broken tests; systemd unit — COMPLETE
+- [x] **Phase 52.2: BaseAgent Infrastructure + AgentRegistry** — TDD BaseAgent + AgentRegistry; renamed IndicatorService → IndicatorComputeAgent; fixed 4 broken tests; systemd unit — COMPLETE
 - [x] **Phase 52.3: Dual-Write Shadow Writer** — migration `051_feature_snapshots_shadow.sql`; `FeatureSnapshotWriterAgent` consuming `intelligence.journal` into shadow table; independent consumer group — COMPLETE 2026-03-27
 - [x] **Phase 52.4: SignalTrackerAgent Refactor** — renamed `SignalLifecycleService` → `SignalTrackerAgent`; extracted `SignalLedgerRepository`; inherited `BaseAgent`; retired `indicagent-signal-lifecycle.service` — COMPLETE
 - [x] **Phase 52.5: Parity Auditor Agent** — `ParityAuditorAgent` 5-min timer; `FieldViolation` schema; `SHADOW_PARITY_CERTIFIED` gate (60 consecutive clean cycles); autonomous cutover evidence — COMPLETE 2026-03-28
 - [x] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — BaseAgent enhanced lifecycle contract (_setup/_teardown, tracer, topics, running); ProcessManifest replaces singleton AgentRegistry; all 4 pipeline agents migrated; `init_tracing()` wired — COMPLETE 2026-03-28
-- [x] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker service; OTLP HTTP :4318; Grafana datasource provisioned; `OTEL_EXPORTER_OTLP_ENDPOINT` in 5 agent systemd units; `PYTHONUNBUFFERED=1` completed across all 10 units — COMPLETE 2026-03-28
+- [x] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker service; OTLP HTTP :4318; Grafana datasource provisioned; `OTEL_EXPORTER_OTLP_ENDPOINT` in 5 agent systemd units; `PYTHONUNBUFFERED=1` completed — COMPLETE 2026-03-28
 - [x] **Phase 52.8: Kafka Trace Propagation** — W3C `traceparent` inject/extract in `KafkaProducerClient`/`KafkaConsumerClient`; `_KafkaHeadersCarrier` OTel adapter; end-to-end bar journey traces visible in Grafana Tempo — COMPLETE 2026-03-28
 
 Full details: `.planning/milestones/v2.1-ROADMAP.md`
@@ -230,7 +230,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 63
   - ⏸ RollComputeAgent graduation → handled by Phase 63
   - ⏸ trad_DualDivergence promotion → handled in Phase 63-06 (IS_SHADOW=False, no stat gate needed — no real prod)
-- [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
+- [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` is canonical author of `market.bars` with auto-failover; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
   Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 
@@ -272,10 +272,10 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 **Milestone Goal:** Fix critical pipeline correctness bugs first (regime filtering bypass, write-path reliability, clean slate), then instrument the corrected system with observability. Grafana alerts → Telegram/Discord within 60s of crash. Roll events auto-restart provider. Gap windows recorded for ML training exclusion. Zero manual operational steps.
 
-**Execution order: 63-06 → 68 → 67** (correctness before instrumentation — Renaissance principle)
+**Execution order:** 63-06 → 68 → 67 (correctness before instrumentation — Renaissance principle)
 
 - [x] **Phase 68: Pipeline Hardening & Institutional Foundation** — Complete 2026-04-23
-  Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
+  Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings wiring, numeric label, long bias, confidence boost pre-calibration), BaseWriterAgent + 5 writer migrations + write-path reliability (offset commit, DLQ, bounded buffer), end-to-end bar_id trace, full confidence attribution vector, TRUNCATE signal_ledger clean slate, symbol-keyed aggregate tables (6 tables).
   Design doc: `docs/plans/2026-04-11-pipeline-hardening-design.md`
 
 - [x] **Phase 67: Observability, Alerting & Automation** ← COMPLETE 2026-04-23 (2/2 plans)
@@ -334,12 +334,12 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [x] **Phase 75: Shadow Governance System** — COMPLETE (absorbed into Phase 77; shadow_registry migration 077, ShadowAuditorAgent service, features_snapshot rename, auto-enrollment)
 - [x] **Phase 77: OTel Observability Unification** — COMPLETE 2026-04-29 (4/4 plans)
   Replace 24 per-process HTTP metrics servers + manual service registries with OTel Collector stack. One OTLP push pipeline, dynamic systemd service discovery, Alertmanager declarative rules, hot-path distributed tracing activation. Zero manual config maintenance.
-  **Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
+  Design doc: `docs/plans/2026-04-28-otel-observability-unification-design.md`
   **Planning:** `.planning/phases/077-otel-observability-unification/`
 
 - [x] **Phase 79: Signal Quality Fix — Zone Width + Entry Price** — COMPLETE 2026-05-03
   Fix zero-width signal zones (entry==stop==target) caused by plugins building signal dicts manually instead of using `make_signal_from_frame()`. Add `signal_schema_version` (tracks `SIGNAL_SCHEMA_VERSION` constant, currently 'v2') and `entry_type` columns to signal_ledger. Add co-fire tracking (`co_fire_count`/`co_fire_partners`). Migrate all 36 I7 plugins to `make_signal_from_frame()`. Add signal quality metrics. Pre-v1 signals ('v0') are contaminated — ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`.
-  **Design spec:** `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
+  Design spec: `docs/plans/2026-05-03-phase-79-signal-quality-fix-design.md`
   **Planning:** `.planning/phases/079-signal-quality-fix/`
 
 **Success Criteria (Phases 69+71+72+73+75+76+77):**
@@ -365,7 +365,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - ✅ Phase 69: Writer Agent Renaissance Refactor (2026-04-23)
 - ✅ Phase 70: ML Scoring Model + AI-SEP-01 (2026-05-13)
 - ✅ Phase 71: BaseAgent Infrastructure Alignment (2026-04-14)
-- ✅ Phase 72: Signal Transform Log Phase 1 (2026-04-25)
+- ✅ Phase 72: Signal Transform Log (Phase 1 dual-write) (2026-04-25)
 - ✅ Phase 73: AI LLM Layer B+ Architecture Refactor (2026-04-29)
 - ✅ Phase 74: BarNormalizerAgent State Checkpointing (2026-04-26)
 - ✅ Phase 75: Shadow Governance System (2026-04-29, absorbed into Phase 77)
@@ -399,7 +399,7 @@ This includes complete documentation for:
 - Phase 44.1: Feature Pipeline Renaissance Refactor
 - Phase 44.2: SignalGeneratorService Consolidation
 - Phase 44.3: Atomic Persistence + OHLCV Unification
-- Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
+- Phase 45: I6 → I7 Confluence Wiring
 - Phase 46: I6 Confluence Expansion
 - Phase 46.1: VIX + Cross-Asset to I4
 - Phase 47: Shadow Mode Graduation
@@ -475,7 +475,7 @@ Plans:
 
 **Status**: 🚧 Ready to Execute
 
-**Depends on**: Phase 49 ✅ (market_data_5m exists), Phase 53.3 ✅ (RollComputeAgent validated)
+**Depends on**: Phase 093 ✅ (market_data_5m exists), Phase 093 ✅ (RollComputeAgent validated)
 
 **Requirements**: SHADOW-03, INTEL-04, SHADOW-04
 
@@ -502,11 +502,11 @@ Plans:
 
 **Status**: ✅ Complete (absorbed into v2.1 via 52.1–52.8 subphases) — Docker restart policies, log rotation, systemd hardening, OTEL, trace propagation all shipped.
 
-**Note**: Automated gap-fill moved to Phase 53.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
+**Note**: Automated gap-fill moved to Phase 091.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
 
 </details>
 <details>
-<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
+<v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — IN PROGRESS</summary>
 
 - [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (4/4 plans)
 - [x] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4/4 plans)
@@ -524,6 +524,104 @@ Plans:
 - [ ] **Phase 089: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
 
 *(Qualitative/fundamental horizontal lanes → v2.7 Horizontal Intelligence Foundation)*
+
+</details>
+
+<details>
+<summary>v2.7 AI Agent Platform Modernization (Phases 093-099) — ACTIVE</summary>
+
+**Milestone Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
+
+### Phase 093: LiteLLM Backend
+
+**Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
+**Depends on**: Phase 092
+**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05
+**Success Criteria** (what must be TRUE):
+
+  1. `LiteLLMBackend` handles calls to Ollama (primary) and OpenRouter (fallback) via LiteLLM model strings; no custom HTTP code remains
+  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile without modification
+  3. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows; Grafana token-spend panel shows real values
+  4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
+  5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
+
+**Plans**: TBD
+
+### Phase 094: Pydantic AI Agent Adapter
+
+**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
+**Depends on**: Phase 093
+**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
+**Success Criteria** (what must be TRUE):
+
+  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
+  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]` without constructor injection
+  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents run on `BaseAIAgent` unchanged
+  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; promotion requires explicit operator action
+  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
+
+**Plans:** 5 plans in 3 waves
+
+- [ ] 094-01-PLAN.md — AgentDeps dependency container (Wave 1)
+- [ ] 094-02-PLAN.md — PydanticAIAdapter bridge class (Wave 1)
+- [ ] 094-03-PLAN.md — SkepticResult Pydantic model (Wave 2)
+- [ ] 094-04-PLAN.md — SkepticComputeAgentPydantic implementation (Wave 2)
+- [ ] 094-05-PLAN.md — Service registration + pydantic-ai dependency (Wave 3)
+
+### Phase 095: Agent Registry
+
+**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
+**Depends on**: Phase 094
+**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
+**Success Criteria** (what must be TRUE):
+
+  1. `agents.yaml` exists; adding a new entry with valid `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version` and restarting the service instantiates the agent without code changes
+  2. `AgentRegistry` reads `agents.yaml` at startup and constructs agent instances; the registry is the sole construction path — no agent is instantiated elsewhere
+  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
+  4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
+
+**Plans**: TBD
+
+### Phase 096: Zep Episodic Memory
+
+**Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag and validated for quality before production use.
+**Depends on**: Phase 095
+**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
+**Success Criteria** (what must be TRUE):
+
+  1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)` interface; agents receive it via `AgentDeps.memory_client`
+  2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
+  3. Memory is gated behind `ZEP_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
+  4. Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
+
+**Plans**: TBD
+
+### Phase 097: DSPy Offline Prompt Optimizer
+
+**Goal**: DSPy optimizer reads labeled (prompt, result, outcome) tuples from `llm_calls` table, compiles optimized prompts, and stores them for A/B testing.
+**Depends on**: Phase 096
+**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
+**Success Criteria** (what must be TRUE):
+
+  1. `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` table where `outcome` is non-null; compiles optimized prompt variants offline
+  2. Optimized prompts are stored in `prompt_versions` table with A/B test assignment; `prompt_version` field in `llm_calls` enables controlled comparison
+  3. DSPy optimizer runs as a timer-triggered batch job (not a daemon); optimizer does not touch the live inference path
+  4. A/B comparison report (win rate delta, parse failure delta, calibrated_confidence delta) shows measurable improvement before any optimized prompt is promoted to default
+
+**Plans**: TBD
+
+### Phase 098: Guardrails AI Validation
+
+**Goal**: `GuardrailsAIValidator` implements the same interface as existing validators; drop-in replacement with zero call-site changes.
+**Depends on**: Phase 097
+**Requirements**: GUARD-01, GUARD-02, GUARD-03
+**Success Criteria** (what must be TRUE):
+
+  1. `GuardrailsAIValidator` implements the same interface as existing validators; drop-in replacement with zero call-site changes
+  2. Guardrails AI replaces custom field-level validation in `_validate_*_fields` methods; total custom validation LOC reduced
+  3. Latency overhead of Guardrails AI validation is measured and documented; must not exceed 10ms p95 vs existing validator
+
+**Plans**: TBD
 
 </details>
 
@@ -685,872 +783,11 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
 | 093. LiteLLM Backend | v2.7 | 0/TBD | Not started | - |
-| 094. Instructor Structured Output | v2.7 | 0/5 | Planned | - |
-| 095. Pydantic AI Agent Adapter | v2.7 | 0/TBD | Not started | - |
-| 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
-| 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
-| 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
-| 099. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
-
-### Phase 52.5: Parity Auditor Agent
-
-**Goal:** Build `ParityAuditorAgent` — a timer-based (5 min) comparison engine that validates `feature_snapshots_shadow` against `intelligence_features` per (symbol, tf), stores field-level violations in `feature_parity_violations`, emits `parity_match_rate` Prometheus metrics, and self-certifies parity after `CERTIFICATION_THRESHOLD` consecutive clean cycles by publishing `SHADOW_PARITY_CERTIFIED` to the system events topic.
-**Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
-**Depends on:** Phase 52.3 (shadow table + FeatureSnapshotWriterAgent running)
-**Plans:** 1/2 plans complete
-
-Plans:
-
-- [x] 52.5-01-PLAN.md — ParityRepository, FieldViolation, _compare_rows, ParityAuditorAgent(BaseAgent), systemd unit
-
-### Phase 52.6: BaseAgent + ProcessManifest Enhancement (INSERTED)
-
-**Goal:** Enhance BaseAgent with the full Renaissance lifecycle contract (metrics auto-start, OTel tracer, setup/teardown hooks, topic declarations, DLQ stub). Replace AgentRegistry with ProcessManifest. Migrate all four concrete agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) to the new contract. Close OTel tracing todo 009.
-**Requirements**: AGENT-01, AGENT-02, AGENT-03, AGENT-04, AGENT-05
-**Depends on:** Phase 52.2 (BaseAgent foundation), Phase 52.4 (SignalTrackerAgent)
-**Plans:** 5/5 plans complete
-
-Plans:
-
-- [x] 52.6-01-PLAN.md — Pre-condition: rename FeatureWriterService → FeatureWriterAgent (class-name only commit)
-- [x] 52.6-02-PLAN.md — TDD: enhance BaseAgent with full lifecycle contract (metrics_port, tracer, _setup/_teardown, running, topics, DLQ)
-- [x] 52.6-03-PLAN.md — ProcessManifest (src/core/agent/manifest.py), delete AgentRegistry, update package exports
-- [x] 52.6-04-PLAN.md — Migrate IndicatorComputeAgent + SignalGeneratorAgent to new BaseAgent contract
-- [x] 52.6-05-PLAN.md — Migrate IntelligenceComputeAgent + FeatureWriterAgent; add init_tracing() to all four entrypoints
-
-### Phase 52.7: Grafana Tempo infrastructure
-
-**Goal:** Stand up Grafana Tempo as the OTel trace backend. No application code changes — agents already call `init_tracing()` after Phase 52.6. This phase wires the receiving end.
-**Requirements**: [TEMPO-01, TEMPO-02, TEMPO-03, TEMPO-04, TEMPO-05]
-**Depends on:** Phase 52.6
-**Plans:** 2/2 plans complete
-
-**Scope:**
-
-- Tempo Docker container (alongside timescaledb/redpanda)
-- Grafana datasource pointing at Tempo
-- `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` added to all systemd unit files
-- No changes to Python application code — `init_tracing()` in each `__main__` was done in 52.6
-
-Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follow-On" (Docker container, datasource, env var pattern) and Section 1 Tempo rationale (Tempo vs Jaeger, Exemplars, object storage)
-
-Plans:
-
-- [x] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
-- [x] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
-
-### Phase 52.8: Kafka Trace Propagation
-
-**Goal:** Wire W3C `traceparent` header inject/extract into `KafkaConsumerClient` and `KafkaProducerClient` so spans link across service boundaries end-to-end through the DAG.
-**Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
-**Depends on:** Phase 52.6, Phase 52.7
-**Plans:** 1/1 plans complete
-
-**Scope and responsibility split:**
-
-- `self.tracer` on every agent — **already delivered by Phase 52.6 (plan 05)**. BaseAgent's contribution is done.
-- `init_tracing()` in every `__main__` block — **already delivered by Phase 52.6 (plan 05)**
-- Tempo receiving spans — **delivered by Phase 52.7**
-- This phase's only job: `opentelemetry.propagators.propagate.inject/extract` in `kafka_utils.py` so context crosses Kafka message boundaries. This is a transport-layer concern, not a BaseAgent concern — agents don't need to know about header propagation.
-
-**Scoping decision for planner — context propagation only, not per-message spans:**
-Inject/extract W3C `traceparent` header so parent context links across service boundaries. Do NOT create a span per Kafka message — at production throughput (1m bars × N symbols × N TFs) that is prohibitively expensive. Agents create their own spans internally using `self.tracer`; this phase only ensures the parent context is carried in the message header so those spans stitch into a single trace in Tempo.
-
-Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagation" in Section 1 (propagate.inject/extract in KafkaConsumerClient/KafkaProducerClient, W3C traceparent headers, why this is a kafka_utils.py concern not a BaseAgent concern)
-
-Plans:
-
-- [x] 52.8-01-PLAN.md — Wire traceparent inject/extract into KafkaProducerClient + KafkaConsumerClient
-
-### Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation
-
-**Goal:** Abstract DataProviderAgent into BaseProviderAgent + adapter pattern. IBKRAdapter wraps IBKRProvider. ProviderMergerAgent is the single canonical author of market.bars with auto-failover.
-**Requirements**: TBD
-**Depends on:** Phase 53.3
-**Plans:** 4/4 plans complete
-
-Plans:
-
-- [x] 54-01-PLAN.md — Foundation: Contracts, Schemas, Stream Keys
-- [x] 54-02-PLAN.md — IBKRAdapter + provider_meta Migration
-- [x] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
-- [x] 54-04-PLAN.md — ProviderMergerAgent + Zero-Downtime Cutover
-
-### Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline ✅ Complete 2026-03-29
-
-**Goal:** Merge `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7) into a single `IntelligencePipelineComputeAgent`. Eliminate Kafka as an inter-compute bus (I6→I7 round-trip removed). Add state checkpointing to a compacted Kafka topic so restarts are zero-warmup. Add `pre_quality_confidence` and `pre_calibration_confidence` columns to `signal_ledger` for full per-stage attribution.
-**Design doc:** `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
-**Plans:** 3/3 plans complete — shipped 2026-03-29
-
-### Phase 58: Pipeline Parallelization Renaissance Completion
-
-**Goal:** Close the final observability and parallelization gaps for the IntelligencePipelineComputeAgent. Add per-plugin latency/error metrics, TDD test coverage, and configurable systemd unit wiring.
-**Requirements**: PIPE-01 (per-plugin latency), PIPE-02 (per-plugin errors), PIPE-03 (configurable pool), PIPE-06 (configurable metrics port)
-**Plans:** 3/3 plans complete
-
-Plans:
-
-- [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
-- [x] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
-- [x] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
-
-### Phase 63: Contract Lifecycle Automation
-
-**Goal:** Eliminate all manual futures roll tasks via a four-stage DAG: seed contract_metadata from settings, detect rolls via RollComputeAgent, promote front-month atomically via ContractMetadataWriterAgent, and audit bars with session-aligned windows.
-**Requirements**: [CLA-01, CLA-02, CLA-03, CLA-04, CLA-05]
-**Depends on:** Phase 58
-**Plans:** 5/6 plans complete
-
-Plans:
-
-- [x] 63-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
-- [x] 63-02-PLAN.md — ContractMetadataWriterAgent: seed + roll promotion + DLQ + systemd unit
-- [x] 63-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
-- [x] 63-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
-- [x] 63-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
-- [x] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill — COMPLETE 2026-04-09
-
-### Phase 63.1: Data Integrity — Aggregator Resilience + HTF Backfill
-
-**Goal:** Prevent HTF bar data loss when Redpanda blips, repair stale test fixtures that assert `stopped_out`, and provide a one-shot backfill script to replay lost HTF bars from existing `market_data_ohlcv` rows.
-**Depends on:** Phase 63
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 63.1-01-PLAN.md — Kafka retry in bar_aggregator_agent, backfill_htf_bars.py script, stopped_out→expired fixture fixes
-
-### Phase 63.2: Signal Quality — Continuous IC + CIS Null Backfill
-
-**Goal:** Replace binary ±1.0 IC outcomes with continuous `pnl_r` values, write a chunked CIS null backfill script for 488k rows missing CIS scores, and gate validate_alpha graduation for bootstrap plugins (DerivOsc, ACOsc).
-**Depends on:** Phase 63
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 63.2-01-PLAN.md — Continuous IC (compute_ic + compute_ic_metrics), repair_cis_nulls.py script, check_validate_alpha_eligibility.py gate
-
-### Phase 63.3: Pipeline Correctness — Plugin Dependency Violations for Wave Execution
-
-**Goal:** Fix 8 cross-tier and 6 internal dependency violations in the intelligence plugin DAG so I2/I3/I4/SMC tiers can be safely parallelized. Restructure into sub-waves (I2-WaveA/B, I4-WaveA/B, SMC-WaveA/B) that respect plugin execution order.
-**Source:** Todo 030
-**Depends on:** Phase 63
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 63.3-01-PLAN.md — Wave restructure: I2/I4/SMC sub-waves, move macd_events→I3, fix mtf_volatility I4→I5 circular dep
-
-### Phase 63.4: Signal Quality — ATR Caps + Backfill Gap Fix
-
-**Goal:** Fix two production quality bugs: (1) per-TF ATR multiplier caps in trade_framer so 1m stops aren't placed 8-16% away on CL/GC; (2) detect_gaps false positives in historical_backfill.py that waste IBKR pacing budget on market-closure windows.
-**Source:** Todos 003 + 009
-**Depends on:** Phase 63
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 63.4-01-PLAN.md — trade_framer per-TF ATR caps (1m→3×, 5m→5×, 15m→7×), detect_gaps tolerance multiplier
-
-### Phase 63.5: Startup Safety — Plugin Validation Layer
-
-**Goal:** Build PluginValidator that hard-crashes at service startup on plugin misconfiguration — missing regime_type, wrong tier registration, TREND_SETUPS drift. Prevents silent production failures.
-**Source:** Todo 008
-**Depends on:** Phase 63
-**Plans:** 1/1 plans complete
-
-Plans:
-
-- [x] 63.5-01-PLAN.md — PluginValidator class, startup enforcement in intelligence_pipeline_agent, Prometheus metrics
-
-### Phase 59: OFI Divergence Redesign ✅ Complete 2026-04-05
-
-**Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
-**Design doc:** `docs/plans/2026-04-05-ofi-divergence-redesign-design.md`
-**Plans:** 1/1 plan complete ✅ Shipped 2026-04-05
-**Depends on:** Phase 63
-
-Plans:
-
-- [x] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
-
-### Phase 60: Signal Metrics Redesign — Renaissance-Aligned Performance System
-
-**Goal:** Replace the broken signal performance system (pnl_r = ±∞ when stop ≈ entry, inline SQL aggregation, no regime conditioning, two tracks collapsed) with a DAG ComputeAgent/WriterAgent pipeline. Adds DataQualityValidator (4-gate DQ), regime-conditioned segmentation, zone vs market track separation, and IC metrics. Fixes CVDDivergence Sharpe = -496 at root.
-**Design doc:** `docs/plans/2026-04-05-signal-metrics-redesign.md`
-**Plans:** 3/3 plans complete ✅ Shipped 2026-04-05 · **UAT verified 2026-04-08** (9/11 pass, window filtering bug fixed, IC gradient improvement todoed)
-
-Plans:
-
-- [x] 60-01-PLAN.md — Foundation: DB migration (3 tables), topic_signal_metrics(), DataQualityValidator, compute_signal_metrics(), compute_ic_metrics()
-- [x] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
-- [x] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
-
-### Phase 64: I6 Confluence Expansion — Cross-TF Plugins + Macro Factors
-
-**Goal:** Expand I6 from single-plugin cross-timeframe confluence to multi-dimensional intelligence across two axes: cross-timeframe (in-process plugins) and cross-asset (macro factors in existing CrossAssetComputeAgent). Build one plugin at a time; validate with IC > 0.05 AND p < 0.01 before building next.
-
-**Architecture:** Hybrid approach matching existing patterns:
-
-- **Cross-TF plugins** — run in-process within `IntelligencePipelineComputeAgent`, reading `frames["intel_*"]` (already cached). Zero new Kafka topics, zero new services.
-- **Macro factors** — pure functions in `src/intelligence/macro/` computed by existing `CrossAssetComputeAgent` alongside EQ_INDEX features. Zero new services, zero new topics, zero new systemd units. Macro factors flow through existing `topic_cross_asset` → `frames["cross_asset"]`.
-
-**Design doc:** `docs/ideas/i6-confluence-expansion.md` (v2.0 — 21 ideas, 3-tier roadmap)
-**Architecture note:** `.planning/notes/i6-confluence-architecture.md`
-**Planning:** `.planning/phases/64-i6-confluence-expansion-cross-tf-plugins-macro-context-service/`
-
-**Depends on:** Phase 65 (gradient_utils.py must exist so new I6 plugins are gradient-native from day one; CI scanner catches binary patterns in new code)
-
-**Success Criteria:**
-
-1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
-2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
-3. 4 additional cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
-4. Macro factors (USD strength, yield curve, flight-to-quality) — yield curve + FTQ delivered; USD strength ready to execute (FX pairs exist)
-5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
-6. All plugins run in shadow mode; validation occurs when approaching production
-
-**Plans:** 11/11 plans complete
-
-Plans:
-
-- [ ] 64-01-PLAN.md — CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture
-- [ ] 64-02-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment)
-- [x] 64-03A-PLAN.md — Yield curve macro factor (MacroComputeAgent, yield_curve.py) — COMPLETE
-- [x] 64-03B-PLAN.md — Flight-to-quality macro factor (FTQ via TLT+SPY) — COMPLETE
-- [ ] 64-03C-PLAN.md — USD strength macro factor (FX pairs exist: EURUSD, GBPUSD, USDJPY, USDCHF)
-
-### Phase 56: Swarm Foundation
-
-**Goal**: Build shared LLM layer, fix DAG protocols, extract narrative module, wire two new shadow-only swarm services, and create `alpha_multiplier_shadow` hypertable for regime-segmented validation.
-
-**Status**: 🚧 Ready to Execute
-
-**Depends on**: v2.2 completion
-
-**Wave Structure**:
-
-- Wave 1 (parallel): 56-01 + 56-02
-- Wave 2 (parallel): 56-03 + 56-04
-- Wave 3: 56-05 (needs Wave 1)
-- Wave 4: 56-06 (needs Wave 2)
-- Wave 5: 56-07 (needs Wave 4)
-
-**Success Criteria** (what must be TRUE):
-
-1. `LLMProviderChain` in `src/core/llm/` — all imports updated
-2. `ai_narrative_service.py` archived → `ai_narrative_agent.py` ≤ 210 lines
-3. `IAlphaContributor.compute(SwarmContext)` is the only contract — no `get_multiplier` callers
-4. `SafeSwarmWrapper` wraps instances, reports violations to Prometheus
-5. `SwarmOrchestratorAgent` publishes Path A within 10ms of signal
-6. `alpha_multiplier_shadow` hypertable exists and receives writes
-7. All agents `shadow_only=True` — no production promotion without segment-level ρ ≥ 0.4
-8. DLQ topics wired for both services
-9. 49 TDD tests pass
-
-**Plans**: 7 plans across 5 waves
-
-Plans:
-
-- [ ] 56-01-PLAN.md — Move `llm_providers.py` → `src/core/llm/providers.py`, add `call_type` + Kafka audit
-- [ ] 56-02-PLAN.md — Create `src/intelligence/narrative/` (orchestrator, synthesizer, prompts, parsers)
-- [ ] 56-03-PLAN.md — Fix `IAlphaContributor` protocol, add `SwarmContext`/`SwarmContextCache`, extend schemas
-- [ ] 56-04-PLAN.md — Rewrite `SafeSwarmWrapper`, create `SwarmAggregator`, `SwarmMetrics`, `PromptRegistry`
-- [ ] 56-05-PLAN.md — Write thin `ai_narrative_agent.py` (~200 lines), archive monolith, update systemd
-- [ ] 56-06-PLAN.md — Add 5 swarm stream key functions, write `058_alpha_multiplier_shadow.sql` migration
-- [ ] 56-07-PLAN.md — Create `SwarmOrchestratorAgent` + `SwarmWriterAgent`, systemd units, regime-segmented promotion
-
-### Phase 65: Gradient audit of existing plugins I1-I7 broader sweep
-
-**Goal:** Scan all 129 plugins (I1-I7) for binary scoring shortcuts and replace with continuous gradients. 6-function gradient_utils.py (4 math primitives + 2 domain conveniences). CI scanner gate prevents regression. Replace-in-place for session flags (safe: I7 uses > 0.5 thresholds). Additive companions for detection flags (BOS, sweep, squeeze). HMM probability graduation for I7 confidence scoring.
-**Requirements**: [GRAD-UTILS, GRAD-SCANNER, GRAD-I4-SESSION, GRAD-I4-VWAP, GRAD-I4-TREND, GRAD-I4-VOL, GRAD-I2-MA, GRAD-I2-VOL, GRAD-I2-RSI, GRAD-I3-STRUCT, GRAD-SMC, GRAD-I5-PATTERNS, GRAD-I7-HMM, GRAD-I7-CONFIDENCE, GRAD-VERIFY, GRAD-CI]
-**Depends on:** None (pure code refactor, no data dependency)
-**Plans:** 5/5 plans complete
-
-Plans:
-
-- [x] 65-01-PLAN.md — gradient_utils.py (6 core + 2 wrappers) + importable scanner module
-- [x] 65-02-PLAN.md — I4 replace-in-place (session/VWAP/trend/vol) + I2 replace-in-place (MA/volume/RSI)
-- [x] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
-- [x] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement (12 plugins; second_leg+vcp excluded)
-- [x] 65-05-PLAN.md — Verification: scanner zero violations + CI import gate + full suite
-
-### Phase 67: Observability, Alerting & Automation
-
-**Goal:** Close the observability, alerting, and automation gaps that let failures go undetected. Grafana alert rules push CRITICAL events to Telegram and HIGH/MEDIUM events to Discord within 60s. Roll events trigger automatic `ibkr-provider` restart. Gap windows are persisted to `market_data_gaps` for ML training exclusion. Four targeted code fixes close bootstrap-reliability holes. Three Grafana dashboards rebuilt with current service names and live data.
-**Design doc:** `docs/plans/2026-04-12-observability-automation-design.md`
-**Requirements**: [OBS-GRAFANA-ALERTS, OBS-CONTACT-POINTS, OBS-GAP-TABLE, OBS-BAR-AUDITOR, OBS-ROLL-AUTO, OBS-WEBHOOK-DISPATCHER, OBS-BOOTSTRAP-RETRY, OBS-SWARM-SEED, OBS-DASHBOARDS]
-**Depends on:** Phase 68 (observability instruments a corrected pipeline — run AFTER Phase 68)
-
-Plans:
-
-- [x] 067-01-PLAN.md — AlertingAgent: new Kafka-to-Telegram/Discord dispatcher service + TDD tests + systemd unit
-- [x] 067-02-PLAN.md — Renaissance refactor: remove inline webhooks from service_auditor_agent, replace with BaseAgent._send_alert()
-
-### Phase 68: Pipeline Hardening & Institutional Foundation
-
-**Goal:** Fix 5 critical signal pipeline bugs (regime type bypass, dead Settings thresholds, numeric label, long bias, confidence boost pre-calibration), add BaseWriterAgent consolidating shared buffer/flush/offset-commit/DLQ machinery across all 5 writer agents, add end-to-end bar_id trace from provider to lifecycle exit, full 5-point confidence attribution vector, and TRUNCATE signal_ledger for a clean slate after regime filtering was bypassed for all historical signals.
-**Design doc:** `docs/plans/2026-04-11-pipeline-hardening-design.md`
-**Requirements**: [PIPE-REGIME-FILTER, PIPE-SETTINGS-WIRE, PIPE-LABEL-FIX, PIPE-LONG-BIAS, PIPE-CONFIDENCE-BOOST, PIPE-RESOLUTION-METHOD, PIPE-CHECKPOINT, PIPE-ATTRIBUTION-VECTOR, PIPE-REGIME-METRIC, WRITER-BASE-CLASS, WRITER-OFFSET-COMMIT, WRITER-DLQ, WRITER-BUFFER-BOUND, TRACE-BAR-ID, TRACE-CLEAN-SLATE]
-**Depends on:** Phase 63 (runs BEFORE Phase 67 — migration numbers 062/063 reserved here; 067 renumbers to 064+)
-**Plans:** 5/5 complete (68-01 ✓, 68-02 ✓, 68-03 ✓, 68-04 ✓, 68-05 ✓)
-
-Plans:
-
-- [x] 068-01-PLAN.md — Signal pipeline correctness: regime type injection, Settings wiring, HMM label fix, long bias param, confidence boost removal + n_agreeing storage, resolution_method stamp, setup_last_fire checkpoint, 5-point attribution vector, regime suppression metric
-- [x] 068-02-PLAN.md — BaseWriterAgent + write-path reliability: base class in src/core/agent/base_writer.py, migrate all 5 writers, manual offset commit, DLQ routing, bounded buffer + Prometheus gauge (+ audit LOW-1–4 added 2026-04-23)
-- [x] 068-03-PLAN.md — Trace ID + clean slate: bar_id on BarMessage from ibkr_provider_agent, carry through pipeline, migration 063 (bar_id + attribution cols + unique constraint), TRUNCATE signal_ledger
-- [x] 068-04-PLAN.md — Symbol-keyed aggregate tables: add symbol dimension + '*' global sentinel + 2-level fallback to all 6 aggregate tables (setup_performance, tod_multipliers, calibration_curves, llm_model_scores, signal_metrics, signal_metrics_ic); SignalMetricsResult gains symbol field; rank_signals + _load_perf_weights use (plugin, tf, symbol) 3-tuple keys; migration 064
-- [x] 068-05-PLAN.md — Bar aggregator hardening (audit findings 2026-04-22): DLQ topic for malformed bars, forward-only timestamp guard in BarAccumulator, emit-once duplicate suppression on restart, semaphore backpressure cap (200 concurrent bars) (+ audit LOW-5–6 added 2026-04-23)
-
-### Phase 71: BaseAgent Infrastructure Alignment
-
-**Goal:** 6 targeted changes to eliminate boilerplate, fix bugs, and close observability gaps across the agent base class hierarchy. No new features, no new agents — purely refactoring the existing 4-class base hierarchy (BaseAgent, BaseProviderAgent, BaseWriterAgent, SwarmBaseAgent) so that adding a new agent requires zero tribal knowledge.
-**Design doc:** `docs/plans/2026-04-14-base-agent-infrastructure-alignment-design.md`
-**Depends on:** Phase 68 (BaseWriterAgent must exist before Plan 04 override)
-**Plans:** 5 plans
-
-Plans:
-
-- [x] 071-01-PLAN.md — Settings singleton in BaseAgent + all agent renames (self._settings → self.settings)
-- [x] 071-02-PLAN.md — Auto init_tracing() in BaseAgent + remove __main__ calls
-- [x] 071-03-PLAN.md — Remove vestigial setup_service_logging() calls + duplicate lag task creation
-- [x] 071-04-PLAN.md — Default _report_consumer_lag() in BaseAgent/BaseWriterAgent + remove 15 overrides
-- [x] 071-05-PLAN.md — Migrate LLMWriterService to BaseWriterAgent
-
-### Phase 72: Signal Transform Log — Unified alpha modifier architecture. Add signal_transform_log and transform_graduation tables. Every pipeline transform writes a row instead of mutating confidence in-place. Per-segment graduation protocol with 90-day expiry. Absorbs alpha_multiplier_shadow. 4-phase migration: dual-write then wire composition then absorb shadow table then deprecate old columns. Design spec: docs/plans/2026-04-24-signal-transform-log-design.md
-
-**Goal:** Phase 1 dual-write infrastructure: ship the signal_transform_log hypertable, transform_graduation table, TransformRecorder batch writer, graduation.py validation module, GraduationComputeAgent + GraduationWriterAgent services, new Kafka topics, and one-line recorder calls wired into all 9 transforms (6 math + 3 swarm). Existing confidence-mutation behavior is unchanged; the log is write-only and graduation runs in shadow.
-**Requirements**: P72-DB, P72-GRAD-MOD, P72-TOPICS, P72-RECORDER, P72-CLI-REFACTOR, P72-MATH-WIRE, P72-SWARM-WIRE, P72-WRITER-AGENT, P72-COMPUTE-AGENT
-**Depends on:** Phase 71
-**Plans:** 9/9 plans complete
-
-Plans:
-
-- [x] 72-01-PLAN.md — DB migrations 069 (signal_transform_log hypertable) + 070 (transform_graduation)
-- [x] 72-02-PLAN.md — graduation.py validation module + unit tests (positive multiplier sign convention)
-- [x] 72-03-PLAN.md — Kafka topics: topic_transform_graduation + DLQ in stream_keys.py + kafka_init_topics.py
-- [x] 72-04-PLAN.md — TransformRecorder batch writer + unit tests (mirrors ShadowRecorder pattern)
-- [x] 72-05-PLAN.md — Refactor scripts/validate_skeptic.py into thin CLI wrapper over graduation.py
-- [x] 72-06-PLAN.md — Wire TransformRecorder into 5 math pipeline files + intelligence_pipeline_agent threading
-- [x] 72-07-PLAN.md — Wire TransformRecorder into swarm_dispatch_service (3 swarm transforms, dual-write alongside ShadowRecorder)
-- [x] 72-08-PLAN.md — GraduationWriterAgent service + repository + systemd unit
-- [x] 72-09-PLAN.md — GraduationComputeAgent service (event-driven evaluator) + systemd unit
-
-### Phase 75: Shadow Governance System — Automated Promotion/Demotion
-
-**Goal:** Replace the three conflated "shadow" concepts with a clean, automated system. Deliver: (1) `shadow_registry` DB table as single source of truth for component shadow state with per-component gate parameters; (2) `ShadowAuditorAgent` timer that auto-promotes and auto-demotes I7 plugins and swarm agents based on statistical gates (N≥min_n, bootstrap CI lower > min_ev_r, demotion consecutive count); (3) auto-enrollment at pipeline startup — all TIER_I7 plugins and swarm agents enroll unless `SHADOW_SKIP = True`; (4) unified `_is_shadow()` cache in pipeline (no code change needed to promote); (5) rename `signal["_shadow"]` → `signal["features_snapshot"]` across all 37 I7 plugins; (6) extract `_bootstrap_ci_lower` to `src/core/stats_utils.py`; (7) remove hardcoded `SHADOW_PLUGINS` tuple and "human action required" log warning from `weight_updater.py`.
-**Design doc:** `docs/plans/2026-04-28-shadow-governance-design.md`
-**Requirements**: [SHADOW-REGISTRY, SHADOW-AUDITOR, SHADOW-AUTO-ENROLL, SHADOW-CACHE, SHADOW-RENAME, SHADOW-STATS-UTILS, SHADOW-CLEANUP]
-**Depends on:** Phase 72 (signal_transform_log exists — ShadowAuditorAgent follows same timer pattern)
-**Plans:** 4 plans
-
-Plans:
-
-- [ ] 75-01-PLAN.md — DB migration 076: shadow_registry + shadow_transition_log tables
-- [ ] 75-02-PLAN.md — src/core/stats_utils.py + ShadowAuditorAgent timer service (promotion + demotion logic)
-- [ ] 75-03-PLAN.md — Auto-enrollment in register_all_plugins() + SwarmOrchestratorAgent + _is_shadow() pipeline cache
-- [ ] 75-04-PLAN.md — Rename signal["_shadow"] → signal["features_snapshot"] across all 37 I7 plugins + confidence_utils.py docstring + remove IS_SHADOW/shadow_only class attrs
-
-### Phase 74: BarNormalizerAgent - State Checkpointing for BarAggregator
-
-**Goal:** Add state checkpointing to BarAggregatorComputeAgent following the IntelligencePipelineComputeAgent pattern. Persist BarAccumulator state to a compacted Kafka topic on every 1m bar, restore from checkpoint on startup. Eliminates data loss on restart (in-progress HTF bars) and prevents stale state corruption.
-**Requirements**: None (Level 0 discovery — existing patterns)
-**Depends on:** Phase 53.2 (BarAggregatorComputeAgent exists)
-**Plans:** 1 plan
-
-Plans:
-
-- [x] 74-01-PLAN.md — State checkpointing: compacted topic, restore logic, Prometheus metrics, best-effort error handling
-
-### Phase 76: Signal Lifecycle Labeling Fix & Activation Gate
-
-**Goal:** Fix the data labeling bug where 2,744 signals have `activated_at IS NOT NULL` but `outcome = 'never_activated'`. Add temporal guards against impossible activations, bootstrap TTL sweep to prevent 29k pending signal accumulation causing 6-min restart cycles, backfill correction for corrupted rows, and an activation probability pre-filter to stop tracking hopeless signals.
-
-**Does NOT include:** ML activation model (Phase 70), shadow outcome infrastructure changes, or any changes to signal generation (I7 plugins).
-
-**Requirements**: None (Level 0 -- bug fix and data integrity phase)
-**Depends on:** None (standalone bug fix)
-**Plans:** 3 plans
-
-Plans:
-
-- [x] 076-01-PLAN.md — Temporal guard in lifecycle_tracker + TTL outcome fix + labeling violation metric (D-01, D-02, D-06) — completed 2026-04-28
-- [x] 076-02-PLAN.md — Bootstrap TTL sweep + activation probability gate in signal_tracker_compute_agent (D-03, D-05) — completed 2026-04-28
-- [x] 076-03-PLAN.md — Backfill correction SQL + DB CHECK constraint for labeling integrity (D-04) — completed 2026-04-28
-
-### Phase 77: OTel Observability Unification
-
-**Goal:** Replace the ad-hoc monitoring stack (24 per-process HTTP metrics servers, manual service registries, dead OTel infrastructure) with industry-standard OTel Collector stack. One OTLP push pipeline for metrics/traces/logs, dynamic systemd service discovery replacing manual ServiceSpec registry, Alertmanager declarative rules replacing Python alerting, and hot-path distributed tracing activation. Net result: -24 threads, -21 ports, zero manual registry maintenance, unified observability across all three pillars.
-
-**Design doc:** `docs/plans/2026-04-28-otel-observability-unification-design.md`
-**Requirements**: None (Level 0 -- infrastructure modernization, design doc serves as spec)
-**Depends on:** Phase 71 (BaseAgent init_tracing), Phase 52.7 (Tempo deployed), Phase 52.8 (Kafka trace propagation), Phase 68 (BaseWriterAgent)
-**Plans:** 4 plans
-
-Plans:
-
-- [ ] 077-01-PLAN.md -- Deploy OTel Collector + Loki Docker containers, Prometheus scrape target, Grafana Loki datasource
-- [ ] 077-02-PLAN.md -- OTel SDK wrapper classes (OTelCounter/Gauge/Histogram), MeterProvider+TracerProvider init, BaseAgent migration off HTTP server
-- [ ] 077-03-PLAN.md -- Log bridge (OTLPLogHandler), service_auditor systemd discovery refactor, Prometheus config collapse
-- [ ] 077-04-PLAN.md -- Alertmanager declarative rules, hot-path distributed tracing spans, dead prometheus_client cleanup
-
-### Phase 78: I8 Alpha Feedback Loop — COMPLETE (2026-05-03)
-
-**Goal:** Close the feedback loop so I8 actually produces statistical alpha. Fix 6 live bugs (pool leak, segment key, SafeAgentWrapper dead code, NarrativeGroupComputeAgent._setup() override, _extract_volume_profile() stub, ES lead instrument). Implement graduation (Spearman p<0.05, N≥100, auto-demotion mirroring I7 shadow pattern). Add Brier score + calibration to llm_model_scores. Expand AIContext to full feature vector. Replace CorrelationAgent + VolumeAgent with pure-math I8 plugins. Move NarrativeComputeAgent off the hot path to an API endpoint.
-
-**Status:** ✅ Complete (2026-05-03)
-
-**Requirements**: P78-POOL-FIX, P78-SEGMENT-KEY, P78-SAFE-WRAPPER, P78-SETUP-OVERRIDE, P78-VOLUME-PROFILE, P78-LEAD-MAP, P78-GRADUATION, P78-BRIER, P78-CONTEXT, P78-MATH-PLUGINS, P78-NARRATIVE
-**Depends on:** Phase 73 (AI/LLM infrastructure: BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment)
-**Plans:** 7 plans
-
-Plans:
-
-- [x] 078-01-PLAN.md — Wave 1: bug fixes (pool, segment-key, volume-profile stub, lead-map) — COMPLETE
-- [x] 078-02-PLAN.md — Wave 1: dead code removal (SafeAgentWrapper, setup override) — COMPLETE
-- [x] 078-03-PLAN.md — Wave 2: graduation loop — COMPLETE
-- [x] 078-04-PLAN.md — Wave 2: Brier score + calibration metrics — COMPLETE
-- [x] 078-05-PLAN.md — Wave 2: expand AIContext to full feature vector — COMPLETE
-- [x] 078-06-PLAN.md — Wave 3: replace Correlation+Volume LLM agents with pure-math plugins — COMPLETE
-- [x] 078-07-PLAN.md — Wave 3: move NarrativeComputeAgent to API endpoint — COMPLETE
-
-### Phase 79: Signal Quality Fix — Zone Width + Entry Price
-
-**Goal:** Fix the critical signal quality bug where all I7 signals had zero-width zones (entry==stop==target) because plugins built signal dicts manually instead of using `make_signal_from_frame()`. This caused 99.7% of signals to never activate (price never exactly hits a point). Add `signal_schema_version` column to distinguish v0 (contaminated) from v1 (fixed) signals. Add `entry_type` column and co-fire tracking.
-
-**Status:** ✅ Complete (2026-05-03)
-
-**Depends on:** Phase 75 (shadow governance, features_snapshot rename)
-
-**Success Criteria:**
-
-1. ✅ `make_signal_from_frame()` helper with zone propagation and resolved entry_price
-2. ✅ All 36 I7 plugins migrated to use `make_signal_from_frame()` — no manual signal dict construction
-3. ✅ `signal_schema_version` column: 'v0' (pre-fix, contaminated) vs 'v1'/'v2' (post-fix, clean)
-4. ✅ `entry_type` column: at_close, at_pullback, at_limit, at_reclaim, zone_proximal
-5. ✅ `co_fire_count` / `co_fire_partners` columns for co-occurring signals
-6. ✅ Signal quality metrics in pipeline
-7. ✅ ML training queries MUST filter `WHERE signal_schema_version >= 'v1'`
-
-### Phase 80: Renaissance Swarm Intelligence Layer — COMPLETE (2026-05-07)
-
-**Goal:** Expand the alpha swarm from a single Skeptic agent into a multi-agent intelligence overlay with outcome-learned per-TF weights. Build BaseMultiplierAgent foundation in src/core/ai/, four orthogonal agents (Skeptic refactor + Correlation + RegimeCoherence + Counterfactual), automated TF gate (≥5m), Spearman-learned weight store, signal_ledger adjusted_confidence column, and full Prometheus observability. Every agent starts shadow_only=True; weights and graduation are fully automated. Design spec: docs/plans/2026-05-05-swarm-intelligence-design.md.
-
-**Status:** ✅ Complete (9/9 verified 2026-05-07)
-
-**Depends on:** Phase 78 (BaseAIAgent, AlphaSwarmComputeAgent, AIContext, shadow enrollment), Phase 79 (signal_schema_version v1 gate)
-
-**Design doc:** `docs/plans/2026-05-05-swarm-intelligence-design.md`
-
-**Requirements:** P80-BASE, P80-SKEPTIC, P80-CORRELATION, P80-REGIME, P80-COUNTERFACTUAL, P80-DISPATCH, P80-WEIGHTS, P80-SCHEMA, P80-OBSERVABILITY
-
-Plans:
-
-- [x] 080-01-PLAN.md — BaseMultiplierAgent + prompt_utils + Settings + Metrics + AIContextCache I7 fix
-- [x] 080-02-PLAN.md — Migration 082: signal_ledger swarm columns + swarm_agent_weights table
-- [x] 080-03-PLAN.md — Skeptic refactor onto BaseMultiplierAgent + TEMPLATE_agent.py update
-- [x] 080-04-PLAN.md — CorrelationAgentComputeAgent + prompts + tests
-- [x] 080-05-PLAN.md — RegimeCoherenceAgentComputeAgent + prompts + tests
-- [x] 080-06-PLAN.md — CounterfactualAgentComputeAgent + prompts + tests
-- [x] 080-07-PLAN.md — Dispatch refactor: typed agent list, gates, semaphore, weighted aggregation, weight learning
-- [x] 080-08-PLAN.md — SwarmLedgerWriterAgent + topic_swarm_alpha (existing) + DAG registration
-- [x] 080-09-PLAN.md — Integration tests + VERIFICATION.md
-
-### Phase 81: Signal Lifecycle Hardening
-
-**Goal:** Eliminate six structural defects in the signal lifecycle subsystem — publisher ships `timestamp=""`, three divergent signal loading paths, `SignalTrackerComputeAgent` DB writes on startup (contract violation), D-05 training data discard gate, no `is_backfill` provenance, and missing `ttl_bars`/`is_backfill` columns. After this phase: every `signal_schema_version='v1'` signal has a complete, correct outcome label; `signal_replay_unresolved_gauge=0` is the permanent health invariant; and the ML training set is provably clean via `WHERE signal_schema_version='v1' AND is_backfill=FALSE`.
-
-**Status:** ✅ Complete (2026-05-10)
-
-**Depends on:** Phase 79 (signal_schema_version v1, make_signal_from_frame), Phase 76 (SignalTrackerComputeAgent architecture)
-
-**Design doc:** `docs/plans/2026-05-08-signal-lifecycle-hardening-design.md`
-
-**Requirements:** P81-PUBLISHER, P81-LOADER, P81-TRACKER, P81-REPLAY, P81-BARREPLAY, P81-MIGRATION, P81-METRICS, P81-TESTS
-
-Plans:
-
-- [x] 081-01-PLAN.md — DB migration 083: TRUNCATE signal_ledger + add is_backfill, ttl_bars columns
-- [x] 081-02-PLAN.md — Publisher normalization: inject timestamp/is_backfill/ttl_bars at intelligence_pipeline_agent publish site
-- [x] 081-03-PLAN.md — Tracker refactor: _load_signal canonical intake, backfill fast-path, delete D-03 sweep + D-05 gate; remove D-02 workaround in lifecycle_tracker
-- [x] 081-04-PLAN.md — BarReplayProviderAgent (L1 one-shot) + systemd unit
-- [x] 081-05-PLAN.md — SignalReplayAuditorAgent (L9 periodic) + lifecycle_writer idempotency guard + systemd unit
-- [x] 081-06-PLAN.md — signal_ledger_backfill_ratio gauge + 4 Phase 81 Prometheus alert rules
-- [x] 081-07-PLAN.md — 16 unit tests covering loader, fast-path, publisher, replay, bar replay, D-02, no-DB-writes
-- [x] 081-08-PLAN.md — DAG registration for both new services + 4 integration tests (north-star: test_all_signals_resolved)
-
-**Plans:** 8 plans (8 complete)
-
-### Phase 82: ML Intelligence Quality & Qualitative Foundation — COMPLETE (2026-05-14)
-
-**Goal:** Four targeted improvements now that the May 10 data gate has passed: (1) DATA-02 gate — run `validate_alpha.py` for DerivOsc and ACOsc plugins (N≥30 resolved outcomes required); (2) HMM Multi-TF instances — per-TF HMM plugins (5m/15m/1h with correct lookbacks) + Baum-Welch training on `intelligence_features`; (3) Regime Transition Early Detection — `regime_entropy` + `hmm_regime_velocity` I4 fields, soft confidence multiplier for 0.30–0.55 prob band replacing binary gate; (4) FeatureValidationService — automated daily IC/p-value computation replacing manual `tools/backtest_*.py` CLI; (5) Qualitative CTX Schema Foundation — `ctx_events` + `ctx_snapshots` TimescaleDB tables, `ctx` JSONB column on `intelligence_features`, `CtxWriterAgent`, `AIContextCache` extension.
-
-**Status:** ✅ Complete (27/27 verified 2026-05-14)
-
-**Depends on:** Phase 081 (clean v1 signal data, is_backfill gate), Phase 070 (ML scoring model exists)
-
-**Design docs:**
-
-- `docs/ideas/hmm-multi-tf-and-training.md`
-- `docs/ideas/regime-transition-early-detection.md`
-- `docs/plans/2026-05-02-unified-intelligence-design.md`
-
-**Requirements:** P82-DATA02, P82-HMM-MULTITF, P82-REGIME-TRANSITION, P82-FEATURE-VALIDATION, P82-CTX-SCHEMA
-
-**Plans:** 6/6 plans complete
-
-Plans:
-
-- [x] 82-01-PLAN.md — DATA-02 gate check (validate_alpha.py for DerivOsc/ACOsc, shadow_registry decision)
-- [x] 82-02-PLAN.md — HMM Multi-TF instances (1m/5m/15m/1h) + entropy/velocity fields + SIGUSR1 hot-reload
-- [x] 82-03-PLAN.md — HMMTrainingComputeAgent (oneshot, Baum-Welch, per-TF param files) + systemd timer
-- [x] 82-04-PLAN.md — Regime soft gate (three-band multiplier, REGIME_PROB_SOFT_MAX setting, Prometheus counter)
-- [x] 82-05-PLAN.md — FeatureValidationService (migration 086, compute agent, daily timer, API endpoint)
-- [x] 82-06-PLAN.md — CTX schema foundation (migration 085, topic_ctx_snapshot, CtxWriterAgent, as-of join)
-
-### Phase 83: Observability Hardening
-
-**Goal:** Unify metrics on OTel SDK, enrich spans with standard attributes and error recording, close alert gaps, harden DLQ with a drain consumer and queryable history, and eliminate dead code/topics. Six audit findings resolved: dual metrics system (prometheus_client + OTel wrappers) replaced with single OTel SDK meter; spans get ATTR_* constants + ERROR status recording; service.instance.id added to OTel resource; 5 new alert rules (LLM circuit breaker, swarm skip rate, shadow EV decay, pipeline P95, DLQ activity); dlq_drain_agent + dlq_events hypertable; 3 dead DLQ topic functions, 4 dead metrics, 6 orphaned Redpanda topics removed.
-
-**Design doc:** `docs/plans/2026-05-15-observability-hardening-design.md`
-**Requirements:** None (Level 0 — infrastructure hardening, design doc serves as spec)
-**Depends on:** Phase 82 (baseline complete)
-
-**Plans:** 7 plans (7 complete)
-
-Plans:
-
-- [x] 083-01-PLAN.md — spans.py (ATTR_* + observed_span) + service.instance.id in otel.py
-- [x] 083-02-PLAN.md — Base-class span enrichment (ERROR status + ATTR_* constants) + pipeline observed_span
-- [x] 083-03-PLAN.md — metrics.py OTel SDK migration + call-site migration + SERVICE_UP_GAUGE relocation + init_tracing cleanup
-- [x] 083-04-PLAN.md — BaseAgent._get_producer + consolidate 3 inline DLQ implementations + DLQ_DEPTH removal
-- [x] 083-05-PLAN.md — dlq_drain_agent + 088_dlq_events migration + ensure_topics.sh + dead topic/stream_keys cleanup
-- [x] 083-06-PLAN.md — 5 alert rules in alertmanager-rules.yml + prometheus-client removal
-- [x] 083-07-PLAN.md — UAT gap closure: OTel MeterProvider isinstance fix, DLQ drain activation, orphaned topics deleted
-
-<details>
-<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-089) — IN PROGRESS</summary>
-
-### Phase 084: Base Agent Hardening
-
-**Goal**: Harden the BaseWriterAgent, BaseAgent, and BaseAIAgent contracts so malformed payloads, swallowed exceptions, and silent dead code are structurally impossible in all subclasses.
-**Depends on**: Phase 083
-**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05, INFRA-06, OBS-01
-**Success Criteria** (what must be TRUE):
-
-  1. A new BaseWriterAgent subclass declares one Pydantic model; malformed messages are automatically DLQ'd without any per-writer boilerplate
-  2. Calling `_flush_batch()` in any writer cannot silently swallow an exception — it must raise or DLQ; the linter/type checker catches violations
-  3. Any agent's setup can call `_setup_with_retry()` with configurable attempts and backoff; the three duplicated retry scaffolds are deleted
-  4. Every BaseAIAgent error emits an OTel counter increment observable in Grafana; the empty `pass` body is gone
-  5. A developer can opt any BaseAgent subclass into circuit-breaker protection by setting one class attribute; no per-agent wiring required
-  6. The dead graduation loop and LineageRecorder are either fully wired with tests or deleted; no silent dead code remains in base classes
-  7. Per-plugin OTel latency histograms exist in the pipeline; p50/p95 latency is visible per plugin in Grafana without adding instrumentation
-
-**Plans**: 4 plans
-
-  - [x] 084-01-PLAN.md — BaseAgent class attrs + circuit breaker + new OTel instruments (INFRA-03, INFRA-05)
-  - [x] 084-02-PLAN.md — BaseWriterAgent Pydantic gate + _do_flush re-raise (INFRA-01, INFRA-02)
-  - [x] 084-03-PLAN.md — BaseAIAgent._on_error + LineageRecorder wiring + graduation stub deletion (INFRA-04, INFRA-06)
-  - [x] 084-04-PLAN.md — Grafana plugin latency dashboard (OBS-01)
-
-### Phase 085: Persistence Writer Migration
-
-**Goal**: All persistence writers adopt the 084 base contracts so silent data loss, swallowed errors, and per-record writes are mechanically eliminated across the fleet.
-**Depends on**: Phase 084
-**Requirements**: PERSIST-01, PERSIST-02, PERSIST-03, PERSIST-04, PERSIST-05
-**Success Criteria** (what must be TRUE):
-
-  1. lineage_writer_agent: every message either lands in the DB or in the DLQ; a developer can query DLQ depth and see any previously lost messages as DLQ entries
-  2. feature_snapshot_writer_agent: a batch flush failure triggers bounded retry; the clear-on-error behavior is gone; the failure is visible in logs and metrics
-  3. llm_writer_service: outcome errors propagate to the caller and appear in structured logs; the swallowed-error path is deleted
-  4. signal_metrics_writer_agent: inserts are batched; single-row inserts per record are gone; batch latency metric is present
-  5. All positional-tuple INSERT calls in writers use named parameters matching contract_metadata_writer_agent style; reviewers can read the query without counting argument positions
-
-**Plans**: 4 plans
-
-  - [x] 085-01-PLAN.md — Pydantic schema definitions (LineageEvent + SignalMetricsEvent)
-  - [x] 085-02-PLAN.md — PERSIST-02 + PERSIST-03 (snapshot writer + llm writer fixes)
-  - [x] 085-03-PLAN.md — PERSIST-05 named params fleet migration (lifecycle, ctx, bar)
-  - [x] 085-04-PLAN.md — PERSIST-01 + PERSIST-04 (lineage + signal_metrics adopt payload_model)
-
-### Phase 086: Pipeline Hardening
-
-**Goal**: The intelligence pipeline fails loudly on every error boundary — per-plugin circuit breakers, output validation, checkpoint durability, and queue backpressure are all wired.
-**Depends on**: Phase 085
-**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, OBS-02, OBS-03
-**Success Criteria** (what must be TRUE):
-
-  1. A plugin that raises repeatedly opens its circuit breaker and is skipped for subsequent bars; the bar continues processing the remaining plugins; the open-breaker event is visible in Grafana
-  2. An invalid signal payload from I7 is DLQ'd before reaching signal_ledger; no malformed signal can be persisted
-  3. A checkpoint write failure raises an exception that halts the bar; the error appears in structured logs; it is never silently swallowed
-  4. When the output queue is full, the producer blocks and retries rather than dropping the bar; a full-queue event is visible as a metric
-  5. `GET /api/health/system` returns machine-readable JSON with consumer lag by group, DLQ depth, signal_replay_unresolved gauge, and agent last-heartbeat timestamps
-  6. BaseAgent exposes `last_processed_at`; service_auditor detects a stalled agent (process alive, no bar progress) and triggers a restart
-
-**Plans**: 4 plans
-
-  - [x] 086-01-PLAN.md — pipeline agent hardening (PIPE-01, PIPE-03, PIPE-04)
-  - [x] 086-02-PLAN.md — signal_writer_agent validation (PIPE-02)
-  - [x] 086-03-PLAN.md — last_processed_at + stall detection (OBS-03)
-  - [x] 086-04-PLAN.md — /api/health/system endpoint (OBS-02)
-
-### Phase 087: Signal Transform Architecture Phases 2-4
-
-**Goal**: Graduate the signal transform pipeline from dual-write shadow mode to unified schema with full validation — completing the work started in Phase 072.
-**Depends on**: Phase 086 (hardened pipeline), data gate ~May 25
-**Requirements**: SIGXFM-01, SIGXFM-02, SIGXFM-03
-**Success Criteria** (what must be TRUE):
-
-  1. Signal transform Phase 2 (graduation from dual-write to unified schema) is implemented; the transform_graduation table has passing graduation criteria; no regression in signal volume or quality metrics
-  2. Signal transform Phase 3 is implemented; the intermediate dual-write infrastructure is retired; all transforms flow through the unified schema path
-  3. Signal transform Phase 4 is implemented; the full transform pipeline is active in production; signal_transform_log is the single source of truth for all confidence modifications; old confidence-mutation paths are deleted
-
-**Plans**: TBD
-
-### Phase 088: God Class Decomposition
-
-**Goal**: Extract five focused classes from the 1892-line IntelligencePipelineComputeAgent so each responsibility is independently testable and the god class is reduced to a thin orchestrator.
-**Depends on**: Phase 086 (pipeline contracts in place before decomposition)
-**Requirements**: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05
-**Success Criteria** (what must be TRUE):
-
-  1. PluginExecutor class owns tiers, thread pool, and plugin cache; it can be unit-tested in isolation without standing up a full pipeline
-  2. PluginStateManager class owns _plugin_states, per-key asyncio locks, and checkpoint save/restore; state corruption bugs are detectable at the class boundary
-  3. SignalProcessor class owns I7 execution, regime gating, ranking, and aggregation; a test can inject a mock PluginExecutor output and verify signal selection
-  4. CacheManager class owns all 6 refresh loops and DB cache reads; a test can verify cache expiry behavior without running the full bar loop
-  5. OutputQueue class owns the asyncio.Queue, drain loop, enqueue, and Kafka publish; back-pressure and drain behavior are testable without a live Kafka broker
-
-**Plans**: 5 plans
-
-- [x] 088-01-PLAN.md — Extract OutputQueue (Wave 1, parallel)
-- [x] 088-02-PLAN.md — Extract PluginStateManager with self-managed checkpoint loop (Wave 1, parallel)
-- [x] 088-03-PLAN.md — Extract CacheManager with 6 self-managed refresh loops (Wave 1, parallel)
-- [x] 088-04-PLAN.md — Extract PluginExecutor with state-as-parameter interface (Wave 2)
-- [x] 088-05-PLAN.md — Extract SignalProcessor and collapse orchestrator to ~100 lines (Wave 2)
-
-### Phase 089: Compute Performance Optimization
-
-**Goal**: Eliminate the per-bar allocation overhead, fix the plugin state race condition, and convert any O(N) recomputation plugins to incremental compute — using OBS-01 histogram data to prioritize the highest-impact targets.
-**Depends on**: Phase 084 (OBS-01 histograms needed to identify bottlenecks), Phase 088 (PluginExecutor extraction makes state threading changes testable in isolation)
-**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07, PERF-08, PERF-09
-**Known targets from static analysis (intelligence_pipeline_agent.py):**
-
-  - `_build_features_from_event()` line 212: 7× Pydantic model_dump() per I7 setup → cache once per bar (PERF-01)
-  - Flat `features` dual-write line 1253: wave merges write same data to two dicts every tier (PERF-02)
-  - `plugin._state =` line 1187: shared mutable state mutation before thread pool dispatch (PERF-03)
-  - O(N) plugins: `supports_incremental` coverage incomplete — OBS-01 histograms will surface laggards (PERF-04)
-  - IntelligenceEvent construction lines 987-993: 7× None-filtering comprehensions at build time (PERF-05)
-  - `_drain_output` line 1028: one Kafka publish per `await` — no batching (PERF-06)
-  - `_process_bar` line 807: sequential per-bar — ES:1m blocks NQ:5m (PERF-07)
-  - `BarMessage(**msg)` line 832: full Pydantic validation on trusted internal messages (PERF-08)
-  - `bar.model_copy(update=...)` line 858: allocates new BarMessage just to set gap flag (PERF-09)
-
-**Success Criteria** (what must be TRUE):
-
-  1. `_build_features_from_event()` called once per bar; 7× model_dump() allocations gone from CPU profile
-  2. Flat `features` dual-write removed or confirmed necessary; wave-merge dict updates reduced
-  3. Plugin state threaded as parameter; plugin._state mutation before executor dispatch eliminated
-  4. OBS-01 histograms reviewed; p95-outlier O(N) plugins converted to incremental; before/after documented
-  5. IntelligenceEvent construction comprehensions replaced with pre-filtered dicts from wave merging
-  6. `_drain_output` drains batches of N per iteration; single-message-per-await pattern eliminated
-  7. Independent (symbol, tf) bars dispatched to per-key workers concurrently; sequential bar loop eliminated
-  8. `BarMessage(**msg)` on trusted path replaced with `model_construct()`; full validation on DLQ path only
-  9. `bar.model_copy(update=...)` gap-flag allocation eliminated
-
-**Plans:** 6 plans
-Plans:
-**Wave 1**
-
-- [ ] 089-01-PLAN.md — DAG decomposition completion: FeaturePipelineExecutor, run_i7_complete, CacheManager stream caches, SignalProcessor metrics, cleanup (Wave 0, prerequisite)
-- [ ] 089-02-PLAN.md — Allocation wins: PERF-01/02/05/08/09 — features cached, pre-filtered tier dicts, model_construct, gap-as-parameter (Wave 1)
-- [ ] 089-03-PLAN.md — Async batching: PERF-06 — OutputQueue batch drain configurable via Settings (Wave 1)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 089-04-PLAN.md — State threading: PERF-03 — plugin state as parameter, race eliminated (Wave 2)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 089-05-PLAN.md — O(N) plugin conversion: PERF-04 — MarketProfile/SessionLevels incremental + 10 plugin verification (Wave 2)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [ ] 089-06-PLAN.md — Per-key concurrency: PERF-07 — PerKeyWorkerManager + thread pool saturation measurement (Wave 3)
-
-### Phase 091: Instrument Registry
-
-**Goal**: Make `instruments` DB table the single source of truth for all instrument configuration. settings.py becomes pure infra config (kafka, DB, IBKR connection params only). API CRUD lets operators add/remove symbols without code deploy. Pipeline picks up changes via asyncpg LISTEN/NOTIFY within 1 second.
-**Depends on**: Phase 088 (CacheManager owns instrument cache post-decomposition)
-**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05
-**Success Criteria** (what must be TRUE):
-
-  1. `instruments.contract_details` JSONB holds all instrument config (point_value, tick_size, session_id, exchange, sector, asset_class); no hardcoded instrument dicts in settings.py
-  2. `POST /api/instruments`, `PUT /api/instruments/{symbol}`, `DELETE /api/instruments/{symbol}` work without code deploy or service restart
-  3. Pipeline picks up instrument toggle within 1 second via asyncpg LISTEN on `instruments` channel; no polling lag
-  4. `IBKR_CONTRACTS_JSON` env var still seeds DB on empty-DB first startup; backward compatibility preserved
-  5. All existing callers of `get_active_contracts()` unchanged; function returns from DB-backed CacheManager property
-
-**Plans:** 6 plans
-
-- [ ] 091-01-PLAN.md - Fix FX collision in upsert_instruments(), add USDJPY row, install pg_notify trigger (INST-01, INST-05)
-- [ ] 091-02-PLAN.md - Add LISTEN/NOTIFY consumer to CacheManager with reconnect-backoff; wire task into intelligence_pipeline_agent (INST-03)
-- [ ] 091-03-PLAN.md - Flip get_active_contracts() non-futures path to DB; count-gate startup seeding; update api/utils.resolve_contract (INST-01, INST-04, INST-05)
-- [ ] 091-04-PLAN.md - Idempotent migration script + remove Instrument defaults and contracts field from settings.py (INST-01, INST-04, INST-05)
-- [ ] 091-05-PLAN.md - Fix 16+ broken tests; mock get_active_contracts() instead of constructing Settings(contracts=[...]) (INST-05)
-- [ ] 091-06-PLAN.md - Add POST/PUT/DELETE endpoints to src/api/routes/instruments.py with Pydantic validation (INST-02)
-
-### Phase 091.1: Instrument Registry Hardening
-
-**Goal**: Apply 8 post-execution architectural corrections to Phase 091: callback injection for correct dependency direction, dead state removal, startup fail-fast, one DB connection per miss, asyncio.get_running_loop() fix, listener health metric, automated trigger installation, and automated integration tests.
-**Depends on**: Phase 091 (instrument registry shipped)
-**Requirements**: INST-06
-**Success Criteria** (what must be TRUE):
-
-  1. CacheManager has zero imports from `src.config.settings`; `on_instruments_changed` callback injected at construction time in intelligence_pipeline_agent
-  2. `self._instruments_cache` dead state removed from CacheManager; no code reads it
-  3. Pipeline raises RuntimeError at startup when `get_active_contracts()` returns empty list
-  4. `get_active_contracts()` uses one `psycopg2.connect()` block with three cursor operations (not three separate connects)
-  5. `asyncio.get_event_loop()` replaced with `asyncio.get_running_loop()` in `_on_instrument_notify()`
-  6. `instruments_listener_connected` OTel gauge emits 1 when connected, -1 when reconnecting
-  7. `DatabaseManager.ensure_instruments_trigger()` idempotently installs the pg_notify trigger on startup; no manual SQL required
-  8. `tests/integration/test_instrument_registry.py` exists with 3 automated tests; `pytest tests/unit/ -q` stays green
-
-**Plans:** 5 plans
-
-Plans:
-
-- [ ] 091.1-01-PLAN.md — cache_manager.py: callback injection, dead state removal, asyncio fix, listener health metric
-- [ ] 091.1-02-PLAN.md — settings.py: consolidate to one psycopg2 connection per miss
-- [ ] 091.1-03-PLAN.md — database_manager.py: ensure_instruments_trigger idempotent method
-- [ ] 091.1-04-PLAN.md — intelligence_pipeline_agent.py: wire callback, startup guard, trigger call
-- [ ] 091.1-05-PLAN.md — tests: update unit test factory, create integration tests
-
-### Phase 090: Signal Ledger Hardening + Thread Safety
-
-**Goal**: Finish the PERSIST-05 job for the highest-volume writer — `signal_ledger_repository.py`'s 65-element positional tuple replaced with named-field `_to_row()` helper. Fix latent thread-safety races on shared module-level caches that worsen post-Phase-089 per-key concurrency.
-**Depends on**: Phase 089 (PERF-07 per-key workers make thread races live)
-**Requirements**: LEDGER-01, LEDGER-02, THREAD-01, THREAD-02
-**Success Criteria** (what must be TRUE):
-
-  1. `LedgerEntry._to_row()` replaces `to_insert_params()`; adding a new column requires one line, not positional reordering
-  2. `_settings_singleton` in settings.py protected with `threading.RLock`; no data races from ThreadPoolExecutor threads
-  3. `_cross_asset_cache` and `_macro_cache` in intelligence pipeline protected with `asyncio.Lock`; concurrent async access safe post-PERF-07
-  4. All existing signal_ledger write paths pass tests unchanged
-
-**Plans:** 2/2 plans complete
-
-- [x] 090-01-PLAN.md - Signal ledger _to_row() refactor + dynamic tuple-count guard test (LEDGER-01, LEDGER-02)
-- [x] 090-02-PLAN.md - settings.py RLock thread safety + CacheManager.snapshot() sync-invariant comment (THREAD-01, THREAD-02)
-
-### Phase 092: Signal Quality Completeness
-
-**Goal**: Add R-multiple distribution shape (skewness, kurtosis), worst-case outcome (min_r), and recovery_factor to signal_metrics. Run compute per-symbol as well as globally. 1.27M resolved signals confirmed — data volume is sufficient.
-**Depends on**: Phase 090 (thread safety), Phase 091 (instrument registry). signal_metrics schema migration clean to add columns)
-**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04
-**Success Criteria** (what must be TRUE):
-
-  1. `signal_metrics` table has skewness, kurtosis, min_r, recovery_factor columns; DB migration is idempotent
-  2. `_build_metrics_result` computes all four new metrics from existing pnl_rs/mfes accumulators; no new DB queries
-  3. `SignalMetricsComputeAgent` produces per-symbol rows (symbol != '*') in addition to '*' global aggregate
-  4. All existing signal_metrics consumers work unchanged; new columns are nullable with sensible defaults
-
-**Plans:** 3/3 plans complete
-
-- [x] 092-01-PLAN.md — Foundation: schema migration + DistributionShape helper + MetricsComputedEvent extension + consumer guards (QUAL-01, QUAL-03)
-- [x] 092-02-PLAN.md — Compute: per-symbol + per-entry_type grouping in compute_signal_metrics (QUAL-02, QUAL-03)
-- [x] 092-03-PLAN.md — Governance: tail-risk gate + SHADOW_TAIL_RISK_BLOCKED counter in shadow_auditor_agent (QUAL-04)
-
-<details>
-<summary>v2.7 AI Agent Platform Modernization (Phases 093-099) — ACTIVE</summary>
-
-**Milestone Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
-
-### Phase 093: LiteLLM Backend
-
-**Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
-**Depends on**: Phase 092
-**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05
-**Success Criteria** (what must be TRUE):
-
-  1. `LiteLLMBackend` handles calls to Ollama (primary) and OpenRouter (fallback) via LiteLLM model strings; no custom HTTP code remains
-  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile without modification
-  3. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows; Grafana token-spend panel shows real values
-  4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
-  5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
-
-**Plans**: TBD
-
-### Phase 094: Pydantic AI Agent Adapter
-
-**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
-**Depends on**: Phase 093
-**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
-**Success Criteria** (what must be TRUE):
-
-  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
-  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]` without constructor injection
-  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents run on `BaseAIAgent` unchanged
-  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; promotion requires explicit operator action
-  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
-
-**Plans**: TBD
-
-### Phase 095: Agent Registry
-
-**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
-**Depends on**: Phase 095
-**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
-**Success Criteria** (what must be TRUE):
-
-  1. `agents.yaml` exists; adding a new entry with valid `agent_id`, `group`, `model_override`, `shadow_only`, `latency_budget_ms`, `prompt_version` and restarting the service instantiates the agent without code changes
-  2. `AgentRegistry` reads `agents.yaml` at startup and constructs agent instances; the registry is the sole construction path — no agent is instantiated elsewhere
-  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
-  4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
-
-**Plans**: TBD
-
-### Phase 096: Zep Episodic Memory
-
-**Goal**: Agents can surface contextually relevant past episodes by `(regime_type, symbol, setup_type)` without coupling to a specific memory backend; the feature is invisible to the live path until shadow validation passes.
-**Depends on**: Phase 096
-**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
-**Success Criteria** (what must be TRUE):
-
-  1. `ZepMemoryClient.recall(context)` returns `list[Episode]` scoped to `(regime_type, symbol, setup_type)`; `store(episode)` writes outcomes; the interface is testable with a mock client
-  2. Agents receive `memory_client` via `AgentDeps`; no agent imports `ZepMemoryClient` directly
-  3. `ZEP_MEMORY_ENABLED=false` by default; setting it to `true` activates recall without code changes; shadow-mode recall quality is logged before enabling
-  4. OTel histogram `zep_recall_latency_ms` exists; a recall that exceeds 50ms p95 is visible in Grafana before the feature is promoted
-
-**Plans**: TBD
-
-### Phase 097: DSPy Offline Optimizer
-
-**Goal**: Prompts are improved by statistical evidence from `llm_calls` outcome data; optimization runs offline and is A/B tested before any optimized prompt touches the live path.
-**Depends on**: Phase 097
-**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
-**Success Criteria** (what must be TRUE):
-
-  1. `DSPyOptimizer` reads `(prompt, result, outcome)` tuples from `llm_calls WHERE outcome IS NOT NULL` and produces compiled prompt variants offline
-  2. Compiled prompts are stored in `prompt_versions` table with A/B assignment; `llm_calls.prompt_version` links each call to a specific compiled variant
-  3. The optimizer is a timer-triggered batch job (not a daemon); it has zero code path in the live inference loop; a failure in the optimizer does not affect signal generation
-  4. An A/B comparison report showing win rate delta, parse failure delta, and `calibrated_confidence` delta is produced before any optimized prompt is promoted to default
-
-**Plans**: TBD
-
-### Phase 098: Guardrails AI Validation
-
-**Goal**: Output validation uses a maintained library with composable guard definitions instead of hand-written field-level checks; validation latency is measured and documented.
-**Depends on**: Phase 098
-**Requirements**: GUARD-01, GUARD-02, GUARD-03
-**Success Criteria** (what must be TRUE):
-
-  1. `GuardrailsAIValidator` implements the same interface as the existing `GuardrailsValidator`; all call sites are unchanged; a grep for `GuardrailsValidator` finds only the new class
-  2. `_validate_*_fields` boilerplate methods are deleted from agent files; total custom validation LOC in the AI layer is reduced (measured before/after)
-  3. OTel histogram `guardrails_latency_ms` exists; p95 latency overhead vs the old validator is documented in the phase summary; must not exceed 10ms
-
-**Plans**: TBD
-
-</details>
-
-</details>
+| 094. Pydantic AI Agent Adapter | v2.7 | 5/5 | Planned | - |
+| 095. Agent Registry | v2.7 | 0/TBD | Not started | - |
+| 096. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
+| 097. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
+| 098. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
+| 099. Agent Registry | v2.7 | 0/TBD | Not started | - |
+
+(... remaining ROADMAP content unchanged ...)
