@@ -769,6 +769,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 | Item | Notes | Analysis |
 |------|-------|---------|
 | ~~Phase 70: ML Scoring Model~~ | Shipped 2026-05-13. | — |
+| **Plugin Base Class / IncrementalPlugin ABC** | 130 plugins use a structural `Protocol` (no shared base). Three patterns are duplicated across plugins: (1) `_seed_state` — 11 plugins implement it with different signatures, no protocol contract (source of pre-Phase-093 bugs); (2) empty/short-input guard `if len(df) < min_lookback: return {}` in every `compute_full`; (3) `compute_next → compute_full` fallback already in executor but not in plugins. Proposed fix: `IncrementalPlugin` ABC with `_seed_state(frames, state)` as abstract method and a default min-lookback guard. Run after Phase 093 ships — correctness tests will surface exactly which plugins have inconsistent state-seeding, making the base class design data-driven. | — |
 | **Renaissance Observability** | Deferred from v2.0 — depends on Phase 70 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | — |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | — |
