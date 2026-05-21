@@ -69,7 +69,7 @@ class BollingerPlugin:
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
     ) -> dict[str, Any]:
-        if not state:
+        if state is None:
             return self.compute_full(windows)
 
         df = get_main_df(windows, 1)

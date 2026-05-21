@@ -57,7 +57,7 @@ class CMFPlugin:
         return {"cmf_20": round(cmf, 6), "_state": state}
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not state:
+        if state is None:
             return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
