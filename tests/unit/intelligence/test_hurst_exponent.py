@@ -89,7 +89,7 @@ class TestHurstExponentPluginMetadata:
         assert plugin.min_lookback == 64
 
     def test_supports_incremental(self):
-        assert plugin.supports_incremental is True
+        assert plugin.supports_incremental is False
 
     def test_capability_tags_contains_context_and_regime(self):
         assert "context" in plugin.capability_tags
