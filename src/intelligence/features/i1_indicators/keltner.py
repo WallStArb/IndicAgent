@@ -1,19 +1,35 @@
+"""Keltner Channels plugin -- migrated to IncrementalMixin.
+
+Uses the EMA chain + ATR hybrid archetype:
+- _compute_full_core: full Keltner computation via ewm pandas operations
+- _compute_next_core: incremental update using update_ema() and wilders_update()
+- _seed_state: extracts {ema, atr, prev_close} from full computation
+
+The mixin provides compute_full and compute_next -- KeltnerChannelsPlugin defines none directly.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin, update_ema, wilders_update
 
 
 @dataclass
-class KeltnerChannelsPlugin:
+class KeltnerChannelsPlugin(IncrementalMixin):
     """Keltner Channels: EMA +/- multiplier x ATR.
 
     Measures volatility-adjusted price channels. When Bollinger Bands
     contract inside Keltner Channels, a "squeeze" is forming.
+
+    Uses IncrementalMixin to own the state contract. Implements:
+    - _compute_full_core: batch Keltner via ewm pandas operations
+    - _compute_next_core: single-bar incremental update using update_ema and wilders_update
+    - _seed_state: seeds {ema, atr, prev_close}
     """
 
     name: str = "KeltnerChannels"
@@ -25,7 +41,6 @@ class KeltnerChannelsPlugin:
     period: int = 20
     atr_period: int = 20
     multiplier: float = 1.5
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.outputs = frozenset(
@@ -36,7 +51,16 @@ class KeltnerChannelsPlugin:
             }
         )
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Compute Keltner Channels over full history.
+
+        Returns output values only -- no _state key. The mixin calls
+        _seed_state separately to attach state.
+
+        Returns:
+            Dict of {kc_upper, kc_mid, kc_lower} keyed by period.
+            Returns {} when data is insufficient.
+        """
         df = frames.get("main")
         if df is None or len(df) < max(self.period, self.atr_period) + 1:
             return {}
@@ -61,19 +85,24 @@ class KeltnerChannelsPlugin:
 
         mid = float(ema.iloc[-1])
         atr_val = float(atr.iloc[-1])
-        out = {
+        return {
             f"kc_upper_{self.period}": mid + self.multiplier * atr_val,
             f"kc_mid_{self.period}": mid,
             f"kc_lower_{self.period}": mid - self.multiplier * atr_val,
         }
-        self._seed_state(frames)
-        out["_state"] = self._state
-        return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Extract EMA and ATR state for incremental Keltner updates.
+
+        Args:
+            frames: Same frames dict passed to _compute_full_core.
+
+        Returns:
+            State dict with {ema, atr, prev_close}.
+        """
         df = frames.get("main")
-        if df is None:
-            return
+        if df is None or len(df) < max(self.period, self.atr_period) + 1:
+            return {}
         close = df["close"]
         high = df["high"]
         low = df["low"]
@@ -91,16 +120,28 @@ class KeltnerChannelsPlugin:
         ).max(axis=1)
         atr = tr.ewm(alpha=1 / self.atr_period, adjust=False, min_periods=self.atr_period).mean()
 
-        self._state = {
+        return {
             "ema": float(ema.iloc[-1]),
             "atr": float(atr.iloc[-1]),
             "prev_close": float(close.iloc[-1]),
         }
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
-            return self.compute_full(windows)
-        df = windows.get("main")
+    def _compute_next_core(
+        self, frames: dict[str, pd.DataFrame], state: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Incremental single-bar Keltner update using shared EMA and ATR utilities.
+
+        State is guaranteed non-None by the mixin. Mutates state in place.
+
+        Args:
+            frames: Plugin frames dict. Executor passes full historical frames.
+            state:  Mutable state dict. Expected keys: {ema, atr, prev_close}.
+
+        Returns:
+            Dict of {kc_upper, kc_mid, kc_lower} keyed by period.
+            Returns {} when data is insufficient.
+        """
+        df = frames.get("main")
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
@@ -108,22 +149,19 @@ class KeltnerChannelsPlugin:
         lo = float(row["low"])
         c = float(row["close"])
 
-        s = self._state
-        # Update EMA
-        alpha_ema = 2.0 / (self.period + 1)
-        s["ema"] = alpha_ema * c + (1 - alpha_ema) * s["ema"]
+        # Update EMA via shared utility
+        state["ema"] = update_ema(c, state["ema"], self.period)
 
-        # Update ATR (Wilder's)
-        alpha_atr = 1.0 / self.atr_period
-        tr = max(h - lo, abs(h - s["prev_close"]), abs(lo - s["prev_close"]))
-        s["atr"] = (1 - alpha_atr) * s["atr"] + alpha_atr * tr
-        s["prev_close"] = c
+        # Update ATR via shared Wilder's utility
+        tr = max(h - lo, abs(h - state["prev_close"]), abs(lo - state["prev_close"]))
+        state["atr"] = wilders_update(state["atr"], tr, self.atr_period)
+        state["prev_close"] = c
 
-        mid = s["ema"]
+        mid = state["ema"]
         return {
-            f"kc_upper_{self.period}": mid + self.multiplier * s["atr"],
+            f"kc_upper_{self.period}": mid + self.multiplier * state["atr"],
             f"kc_mid_{self.period}": mid,
-            f"kc_lower_{self.period}": mid - self.multiplier * s["atr"],
+            f"kc_lower_{self.period}": mid - self.multiplier * state["atr"],
         }
 
 

@@ -1,3 +1,13 @@
+"""Williams %R plugin -- migrated to IncrementalMixin.
+
+Uses the rolling window min/max archetype (same as Stochastic):
+- _compute_full_core: full Williams %R computation via rolling pandas operations
+- _compute_next_core: incremental update using deque-based high/low windows
+- _seed_state: extracts {high_window, low_window} deques per period
+
+The mixin provides compute_full and compute_next -- WilliamsRPlugin defines none directly.
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -7,10 +17,19 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class WilliamsRPlugin:
+class WilliamsRPlugin(IncrementalMixin):
+    """Williams %R momentum oscillator.
+
+    Uses IncrementalMixin to own the state contract. Implements:
+    - _compute_full_core: batch Williams %R via rolling pandas operations
+    - _compute_next_core: single-bar incremental update via deque rolling window
+    - _seed_state: seeds {high_window, low_window} deques per period
+    """
+
     name: str = "WilliamsR"
     outputs: frozenset[str] = frozenset({"williams_r_14"})
     min_lookback: int = 20
@@ -24,7 +43,16 @@ class WilliamsRPlugin:
             self.periods = [14]
         self.outputs = frozenset({f"williams_r_{p}" for p in self.periods})
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Compute Williams %R for all periods over full history.
+
+        Returns output values only -- no _state key. The mixin calls
+        _seed_state separately to attach state.
+
+        Returns:
+            Dict of {f"williams_r_{p}": float} per period. Returns {} when
+            data is insufficient.
+        """
         df = frames.get("main")
         if df is None:
             return {}
@@ -41,16 +69,21 @@ class WilliamsRPlugin:
             wr = -100 * (hh - close) / denom
             val = wr.iloc[-1]
             out[f"williams_r_{p}"] = float(val) if pd.notna(val) else 0.0
-        state = {}
-        self._seed_state(frames, state)
-        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
-        """Extract rolling high/low state for incremental Williams %R updates."""
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Extract rolling high/low state for incremental Williams %R updates.
+
+        Args:
+            frames: Same frames dict passed to _compute_full_core.
+
+        Returns:
+            State dict with deques {high_window, low_window} per period key.
+        """
         df = frames.get("main")
         if df is None:
-            return
+            return {}
+        state: dict[str, Any] = {}
         for p in self.periods:
             if len(df) < p + 1:
                 continue
@@ -60,13 +93,25 @@ class WilliamsRPlugin:
                 "high_window": deque(highs, maxlen=p),
                 "low_window": deque(lows, maxlen=p),
             }
+        return state
 
-    def compute_next(
-        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    def _compute_next_core(
+        self, frames: dict[str, pd.DataFrame], state: dict[str, Any]
     ) -> dict[str, Any]:
-        if not state:
-            return self.compute_full(windows)
-        df = windows.get("main")
+        """Incremental single-bar Williams %R update using rolling deque windows.
+
+        State is guaranteed non-None by the mixin. Mutates state in place.
+
+        Args:
+            frames: Plugin frames dict. Executor passes full historical frames.
+            state:  Mutable state dict. Expected keys: {f"wr_{p}": {high_window,
+                    low_window}} per period.
+
+        Returns:
+            Dict of {f"williams_r_{p}": float} for periods present in state.
+            Returns {} when data is insufficient.
+        """
+        df = frames.get("main")
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
@@ -90,7 +135,6 @@ class WilliamsRPlugin:
                 out[f"williams_r_{p}"] = 0.0
             else:
                 out[f"williams_r_{p}"] = -100.0 * (hh - close) / denom
-        out["_state"] = state
         return out
 
 
