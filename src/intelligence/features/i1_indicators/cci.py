@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
@@ -25,7 +26,7 @@ class CCIPlugin:
         self.outputs = frozenset({f"cci_{p}" for p in self.periods})
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        df = frames.get("main")
+        df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
         tp = (df["high"] + df["low"] + df["close"]) / 3.0
@@ -48,7 +49,7 @@ class CCIPlugin:
 
     def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract rolling typical price window for incremental CCI updates."""
-        df = frames.get("main")
+        df = get_main_df(frames, 1)
         if df is None:
             return
         tp = (df["high"] + df["low"] + df["close"]) / 3.0
@@ -65,8 +66,8 @@ class CCIPlugin:
     ) -> dict[str, Any]:
         if not state:
             return self.compute_full(windows)
-        df = windows.get("main")
-        if df is None or len(df) < 1:
+        df = get_main_df(windows, 1)
+        if df is None:
             return {}
         row = df.iloc[-1]
         tp = (float(row["high"]) + float(row["low"]) + float(row["close"])) / 3.0

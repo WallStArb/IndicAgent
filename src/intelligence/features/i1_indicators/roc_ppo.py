@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import get_main_df, update_ema
 
 
 @dataclass
@@ -41,8 +42,8 @@ class ROCPPOPlugin:
         )
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        df = frames.get("main")
-        if df is None or len(df) < self.ppo_slow + self.ppo_signal + 1:
+        df = get_main_df(frames, self.min_lookback)
+        if df is None:
             return {}
         close = df["close"]
         out: dict[str, Any] = {}
@@ -69,7 +70,7 @@ class ROCPPOPlugin:
         return out
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
-        df = frames.get("main")
+        df = get_main_df(frames, 1)
         if df is None:
             return
         close = df["close"]
@@ -96,8 +97,8 @@ class ROCPPOPlugin:
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:
             return self.compute_full(windows)
-        df = windows.get("main")
-        if df is None or len(df) < 1:
+        df = get_main_df(windows, 1)
+        if df is None:
             return {}
         c = float(df["close"].iloc[-1])
         s = self._state
@@ -110,17 +111,14 @@ class ROCPPOPlugin:
             out[f"roc_{self.roc_period}"] = 100.0 * (c - past) / past if past != 0 else 0.0
 
         # PPO: update EMAs
-        alpha_fast = 2.0 / (self.ppo_fast + 1)
-        alpha_slow = 2.0 / (self.ppo_slow + 1)
-        s["ema_fast"] = alpha_fast * c + (1 - alpha_fast) * s["ema_fast"]
-        s["ema_slow"] = alpha_slow * c + (1 - alpha_slow) * s["ema_slow"]
+        s["ema_fast"] = update_ema(c, s["ema_fast"], self.ppo_fast)
+        s["ema_slow"] = update_ema(c, s["ema_slow"], self.ppo_slow)
 
         ppo_val = (
             100.0 * (s["ema_fast"] - s["ema_slow"]) / s["ema_slow"] if s["ema_slow"] != 0 else 0.0
         )
 
-        alpha_sig = 2.0 / (self.ppo_signal + 1)
-        s["ppo_signal_ema"] = alpha_sig * ppo_val + (1 - alpha_sig) * s["ppo_signal_ema"]
+        s["ppo_signal_ema"] = update_ema(ppo_val, s["ppo_signal_ema"], self.ppo_signal)
 
         out[f"ppo_{self.ppo_fast}_{self.ppo_slow}"] = ppo_val
         out[f"ppo_signal_{self.ppo_fast}_{self.ppo_slow}"] = s["ppo_signal_ema"]
