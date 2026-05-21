@@ -54,6 +54,7 @@ class AroonPlugin:
             "aroon_up_25": round(aroon_up, 2),
             "aroon_down_25": round(aroon_down, 2),
             "aroon_osc_25": round(aroon_up - aroon_down, 2),
+            "_state": self._state,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

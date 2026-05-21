@@ -99,7 +99,7 @@ class PSARPlugin:
             "prev_prev_high": prev_prev_h,
             "prev_prev_low": prev_prev_l,
         }
-        return {"psar_value": sar, "psar_direction": direction}
+        return {"psar_value": sar, "psar_direction": direction, "_state": self._state}
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:

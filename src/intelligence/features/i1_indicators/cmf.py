@@ -54,7 +54,7 @@ class CMFPlugin:
             "mfv_window": deque(mfv_win.tolist(), maxlen=self.period),
             "vol_window": deque(vol_win.tolist(), maxlen=self.period),
         }
-        return {"cmf_20": round(cmf, 6)}
+        return {"cmf_20": round(cmf, 6), "_state": self._state}
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         if not self._state:

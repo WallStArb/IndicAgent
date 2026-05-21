@@ -48,6 +48,7 @@ class MACompositePlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
     inputs: list[InputSpec] = ()  # Consumes upstream features dicts
+    _state: dict = field(default_factory=dict)
 
     atr_key: str = "atr_14"
     bb_mid_key: str = "bb_mid"
@@ -154,6 +155,7 @@ class MACompositePlugin:
                     if is_num(atr) and atr > 0:
                         out[f"dist_z_{key}"] = float((px - val) / atr)
 
+        out["_state"] = self._state
         return out
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

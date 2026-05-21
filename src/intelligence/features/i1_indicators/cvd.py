@@ -112,6 +112,7 @@ class CVDPlugin:
             "cvd_slope_5bar": round(slope, 6),
             "cvd_divergence": round(divergence, 4),
             "cvd_spike_z": round(spike_z, 4),
+            "_state": self._state,
         }
 
     def _extract_ts(self, df: Any) -> Any:

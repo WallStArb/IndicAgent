@@ -70,7 +70,7 @@ class StochRSIPlugin:
             "rsi_window": deque(rsi_series[-self.period :].tolist(), maxlen=self.period),
             "k_window": deque(k_values[-self.d_period :], maxlen=self.d_period),
         }
-        return {"stoch_rsi_k_14": round(k, 4), "stoch_rsi_d_14": round(d, 4)}
+        return {"stoch_rsi_k_14": round(k, 4), "stoch_rsi_d_14": round(d, 4), "_state": self._state}
 
     def _rsi_series(self, close: np.ndarray, period: int) -> np.ndarray:
         """Return RSI values starting after the seed period."""

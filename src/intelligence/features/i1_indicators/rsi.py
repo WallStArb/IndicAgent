@@ -36,6 +36,7 @@ class RSIPlugin:
                 rsi = self._rsi_np(close, p)
                 out[f"rsi_{p}"] = float(rsi[-1])
         self._seed_state(frames)
+        out["_state"] = self._state
         return out
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:

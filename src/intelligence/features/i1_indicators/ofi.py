@@ -111,6 +111,7 @@ class OFIPlugin:
             "ofi_divergence": divergence,
             "ofi_spike_z": round(spike_z, 4),
             "ofi_variant": variant,
+            "_state": self._state,
         }
 
     def _compute_tick_ofi(self, tick_buf: list[dict]) -> float:
