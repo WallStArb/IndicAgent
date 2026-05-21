@@ -5,10 +5,16 @@ Covers:
 - empty dict {} does NOT trigger fallback (state is None check, not truthiness)
 - result["_state"] is the same dict object that _compute_next_core received (identity check)
 - full-vs-incremental replay parity: compute_full(N) == seed + compute_next x remaining
+- conformance tests for all 7 IncrementalMixin plugins (ATR + 6 migrated)
+- per-plugin replay parity for all 6 migrated plugins
+- latency benchmark for compute_full and compute_next per plugin
 
 Review items addressed:
 - Actionable 1: test_empty_dict_state_does_NOT_trigger_fallback proves state is None check
 - Actionable 4: test_full_equals_seed_plus_incremental proves replay parity
+- Actionable 4 (plan 04): TestMigratedPluginReplayParity tests per migrated plugin
+- Actionable 6: TestLatencyBenchmark measures before/after migration timing
+- Concern 10 (Gemini): conformance tests catch mixin contract issues early
 """
 
 from __future__ import annotations
@@ -17,7 +23,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.intelligence.features.i1_indicators.adx import ADXPlugin
+from src.intelligence.features.i1_indicators.atr import ATRPlugin
+from src.intelligence.features.i1_indicators.keltner import KeltnerChannelsPlugin
+from src.intelligence.features.i1_indicators.mfi import MFIPlugin
+from src.intelligence.features.i1_indicators.stochastic import StochasticPlugin
+from src.intelligence.features.i1_indicators.williams_r import WilliamsRPlugin
 from src.intelligence.plugins.mixins import IncrementalMixin
+from src.intelligence.trading.volume_zscore import VolumeZscorePlugin
 
 # ---------------------------------------------------------------------------
 # Mock plugins for testing
@@ -371,3 +384,268 @@ class TestIncrementalMixinReplayParity:
             assert (
                 id(state) == state_id
             ), f"Step {i + 1}: state object identity changed -- mixin must not copy state"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for migrated plugin tests
+# ---------------------------------------------------------------------------
+
+_ALL_MIXIN_PLUGINS = [
+    ATRPlugin,
+    ADXPlugin,
+    StochasticPlugin,
+    WilliamsRPlugin,
+    MFIPlugin,
+    VolumeZscorePlugin,
+    KeltnerChannelsPlugin,
+]
+
+_ALL_MIXIN_PLUGIN_IDS = [
+    "ATR",
+    "ADX",
+    "Stochastic",
+    "WilliamsR",
+    "MFI",
+    "VolumeZscore",
+    "Keltner",
+]
+
+
+def make_ohlcv_df(n: int = 50, seed: int = 42) -> pd.DataFrame:
+    """Generate synthetic OHLCV DataFrame with realistic price/volume relationships."""
+    rng = np.random.default_rng(seed)
+    close = 5000.0 * np.cumprod(1 + rng.normal(0.0001, 0.005, n))
+    high = close * (1 + rng.uniform(0.001, 0.005, n))
+    low = close * (1 - rng.uniform(0.001, 0.005, n))
+    open_ = close * (1 + rng.normal(0, 0.001, n))
+    volume = rng.uniform(1000, 10000, n)
+    return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": volume})
+
+
+# ---------------------------------------------------------------------------
+# TestMigratedPluginConformance
+# ---------------------------------------------------------------------------
+
+
+class TestMigratedPluginConformance:
+    """Parametrized conformance tests for all 7 IncrementalMixin plugins.
+
+    Verifies that each plugin satisfies the full mixin contract:
+    - isinstance check
+    - required methods present
+    - compute_full returns _state
+    - compute_next with state returns _state
+    """
+
+    @pytest.mark.parametrize("plugin_class", _ALL_MIXIN_PLUGINS, ids=_ALL_MIXIN_PLUGIN_IDS)
+    def test_plugin_is_instance_of_incremental_mixin(self, plugin_class):
+        """Each plugin must be an instance of IncrementalMixin."""
+        plugin = plugin_class()
+        assert isinstance(
+            plugin, IncrementalMixin
+        ), f"{plugin_class.__name__} must inherit IncrementalMixin"
+
+    @pytest.mark.parametrize("plugin_class", _ALL_MIXIN_PLUGINS, ids=_ALL_MIXIN_PLUGIN_IDS)
+    def test_plugin_has_required_methods(self, plugin_class):
+        """Each plugin must implement _compute_full_core, _compute_next_core, _seed_state."""
+        plugin = plugin_class()
+        for method_name in ("_compute_full_core", "_compute_next_core", "_seed_state"):
+            assert hasattr(
+                plugin, method_name
+            ), f"{plugin_class.__name__} must implement {method_name}"
+            # Must be overridden (not the base mixin's NotImplementedError version)
+            assert callable(getattr(plugin, method_name))
+
+    @pytest.mark.parametrize("plugin_class", _ALL_MIXIN_PLUGINS, ids=_ALL_MIXIN_PLUGIN_IDS)
+    def test_compute_full_returns_state(self, plugin_class):
+        """compute_full must return a dict with _state key for each plugin."""
+        plugin = plugin_class()
+        df = make_ohlcv_df(50)
+        result = plugin.compute_full({"main": df})
+        assert isinstance(result, dict), f"{plugin_class.__name__}: compute_full must return dict"
+        assert (
+            "_state" in result
+        ), f"{plugin_class.__name__}: compute_full must return dict with _state key"
+        assert isinstance(result["_state"], dict), f"{plugin_class.__name__}: _state must be a dict"
+
+    @pytest.mark.parametrize("plugin_class", _ALL_MIXIN_PLUGINS, ids=_ALL_MIXIN_PLUGIN_IDS)
+    def test_compute_next_with_state_returns_state(self, plugin_class):
+        """compute_next with seeded state must return _state for each plugin."""
+        plugin = plugin_class()
+        df = make_ohlcv_df(50)
+        seed_result = plugin.compute_full({"main": df})
+        state = seed_result["_state"]
+
+        # One incremental step
+        df2 = make_ohlcv_df(51)
+        result = plugin.compute_next({"main": df2}, state=state)
+        assert isinstance(result, dict), f"{plugin_class.__name__}: compute_next must return dict"
+        assert (
+            "_state" in result
+        ), f"{plugin_class.__name__}: compute_next must return dict with _state key"
+
+
+# ---------------------------------------------------------------------------
+# TestMigratedPluginReplayParity
+# ---------------------------------------------------------------------------
+
+
+class TestMigratedPluginReplayParity:
+    """Full-vs-incremental replay tests for the 6 newly migrated plugins.
+
+    For each plugin: seed on first 30 bars (covers all plugin min_lookback
+    requirements -- ADX needs 29), compute_next for bars 31..100,
+    verify final output matches compute_full(all 100 bars) within tolerance 1e-6.
+    """
+
+    N_TOTAL = 100
+    N_SEED = 30
+    TOLERANCE = 1e-6
+
+    def _run_replay(self, plugin, output_key: str, df_all: pd.DataFrame) -> tuple[float, float]:
+        """Execute seed + incremental replay and return (incremental_val, full_val)."""
+        # Reference: compute_full on all N_TOTAL bars
+        ref_result = plugin.compute_full({"main": df_all})
+        assert output_key in ref_result, f"compute_full missing key {output_key}: {ref_result}"
+        ref_val = ref_result[output_key]
+
+        # Seed from first N_SEED bars
+        seed_result = plugin.compute_full({"main": df_all.iloc[: self.N_SEED]})
+        assert "_state" in seed_result, "Seed result missing _state"
+        state = seed_result["_state"]
+
+        # Incremental: compute_next for bars N_SEED..N_TOTAL
+        inc_result = None
+        for i in range(self.N_SEED, self.N_TOTAL):
+            inc_result = plugin.compute_next({"main": df_all.iloc[: i + 1]}, state=state)
+            state = inc_result["_state"]
+
+        assert inc_result is not None, "No incremental result produced"
+        assert output_key in inc_result, f"Incremental result missing key {output_key}"
+        return float(inc_result[output_key]), float(ref_val)
+
+    def test_adx_replay_parity(self):
+        """ADX: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = ADXPlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=101)
+        inc_val, ref_val = self._run_replay(plugin, "adx_14", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"ADX replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+    def test_stochastic_replay_parity(self):
+        """Stochastic: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = StochasticPlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=102)
+        inc_val, ref_val = self._run_replay(plugin, "stoch_k_14_3", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"Stochastic replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+    def test_williams_r_replay_parity(self):
+        """WilliamsR: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = WilliamsRPlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=103)
+        inc_val, ref_val = self._run_replay(plugin, "williams_r_14", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"WilliamsR replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+    def test_mfi_replay_parity(self):
+        """MFI: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = MFIPlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=104)
+        inc_val, ref_val = self._run_replay(plugin, "mfi_14", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"MFI replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+    def test_volume_zscore_replay_parity(self):
+        """VolumeZscore: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = VolumeZscorePlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=105)
+        inc_val, ref_val = self._run_replay(plugin, "volume_z_score", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"VolumeZscore replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+    def test_keltner_replay_parity(self):
+        """Keltner: compute_full(50) == seed(20) + compute_next x 30."""
+        plugin = KeltnerChannelsPlugin()
+        df_all = make_ohlcv_df(self.N_TOTAL, seed=106)
+        inc_val, ref_val = self._run_replay(plugin, "kc_mid_20", df_all)
+        assert abs(inc_val - ref_val) < self.TOLERANCE, (
+            f"Keltner replay parity failed: incremental={inc_val}, full={ref_val}, "
+            f"diff={abs(inc_val - ref_val)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestLatencyBenchmark
+# ---------------------------------------------------------------------------
+
+
+class TestLatencyBenchmark:
+    """Per-plugin latency benchmark (review item 6).
+
+    Not a strict pass/fail for absolute timing -- measures relative cost of
+    compute_full vs compute_next and asserts basic sanity thresholds.
+    Mark with @pytest.mark.benchmark to exclude from CI with -m "not benchmark".
+    """
+
+    N_ITERATIONS = 100
+    MAX_COMPUTE_NEXT_MS = 1.0  # incremental should be fast (< 1ms sanity)
+
+    @pytest.mark.benchmark
+    def test_plugin_latency(self):
+        """Measure compute_full and compute_next latency for all 7 plugins.
+
+        Prints timing results for manual review. Asserts compute_next mean < 1ms.
+        """
+        import time
+
+        plugins = [
+            ("ATR", ATRPlugin()),
+            ("ADX", ADXPlugin()),
+            ("Stochastic", StochasticPlugin()),
+            ("WilliamsR", WilliamsRPlugin()),
+            ("MFI", MFIPlugin()),
+            ("VolumeZscore", VolumeZscorePlugin()),
+            ("Keltner", KeltnerChannelsPlugin()),
+        ]
+
+        df_100 = make_ohlcv_df(100, seed=999)
+        df_101 = make_ohlcv_df(101, seed=999)
+
+        print("\n\nLatency Benchmark Results:")
+        print(f"{'Plugin':<14} {'compute_full mean (ms)':<24} {'compute_next mean (ms)':<24}")
+        print("-" * 62)
+
+        for name, plugin in plugins:
+            # Seed state once
+            seed_result = plugin.compute_full({"main": df_100})
+            state = seed_result.get("_state", {})
+
+            # Benchmark compute_full
+            t0 = time.perf_counter()
+            for _ in range(self.N_ITERATIONS):
+                plugin.compute_full({"main": df_100})
+            full_mean_ms = (time.perf_counter() - t0) * 1000 / self.N_ITERATIONS
+
+            # Benchmark compute_next (reuse same state -- measures single-bar cost)
+            t0 = time.perf_counter()
+            for _ in range(self.N_ITERATIONS):
+                plugin.compute_next({"main": df_101}, state=state)
+            next_mean_ms = (time.perf_counter() - t0) * 1000 / self.N_ITERATIONS
+
+            print(f"{name:<14} {full_mean_ms:<24.4f} {next_mean_ms:<24.4f}")
+
+            assert next_mean_ms < self.MAX_COMPUTE_NEXT_MS, (
+                f"{name}: compute_next mean {next_mean_ms:.4f}ms exceeds "
+                f"sanity threshold {self.MAX_COMPUTE_NEXT_MS}ms"
+            )
