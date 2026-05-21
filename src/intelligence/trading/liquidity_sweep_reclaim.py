@@ -70,11 +70,18 @@ class LiquiditySweepReclaimPlugin:
 
         entry = float(close[-1])
 
-        # Stop loss
+        # Stop loss — below sweep_level for longs, above for shorts
         if direction == 1:
             stop = sweep_level - atr * 0.5
         else:
             stop = sweep_level + atr * 0.5
+
+        # Guard: stop must be on the correct side of entry.
+        # If price hasn't yet reclaimed sweep_level, stop inverts — skip signal.
+        if direction == 1 and stop >= entry:
+            return no_signal()
+        if direction == -1 and stop <= entry:
+            return no_signal()
 
         # Targets
         if direction == 1:

@@ -40,6 +40,7 @@ from src.core.stream_keys import (
 from src.intelligence.trading.lifecycle_tracker import (
     STALENESS_SCORE_THRESHOLD,
     MarketTransition,
+    _classify_stop_outcome,
     compute_staleness_score,
     evaluate_market_entry,
     evaluate_signal,
@@ -667,6 +668,12 @@ class SignalTrackerComputeAgent(BaseAgent):
                 # Compute bars_in_trade if available
                 if transition.bars_in_trade is None:
                     transition = self._enrich_exit_transition(transition, sid)
+                # Stop-loss exits return outcome=None from lifecycle_tracker because
+                # bars_in_trade context is only available here in the service.
+                if transition.outcome is None and transition.exit_reason == "stop_loss":
+                    transition.outcome = _classify_stop_outcome(
+                        transition.mfe, transition.bars_in_trade
+                    )
 
             # Map to LifecycleTransition and publish
             lifecycle_t = self._transition_to_lifecycle(transition, symbol, timeframe, bar_time)
