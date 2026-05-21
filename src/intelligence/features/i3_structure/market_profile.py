@@ -89,24 +89,27 @@ class MarketProfilePlugin:
         va_high = float(buckets[hi])
         va_low = float(buckets[lo])
 
-        # Seed incremental state
-        tick_size_inc = price_range / 100.0
-        bucket_dict: dict[float, float] = {}
-        for idx, cnt in enumerate(tpo_counts):
-            if cnt > 0:
-                bucket_dict[round(float(buckets[idx]), 10)] = float(cnt)
-        self._state = {
-            "tick_size": tick_size_inc,
-            "price_min": float(low.min()),
-            "volume_buckets": bucket_dict,
-            "bar_count": len(df),
-            "session_id": "full",
-        }
-        if state is not None:
-            state.update(self._state)
-
         result = self._build_output(close, poc_level, va_high, va_low, atr_14)
-        result["_state"] = self._state
+
+        # Seed incremental state only when needed (avoid hot-path bloat)
+        if state is not None:
+            tick_size_inc = price_range / 100.0
+            bucket_dict: dict[float, float] = {}
+            for idx, cnt in enumerate(tpo_counts):
+                if cnt > 0:
+                    bucket_dict[round(float(buckets[idx]), 10)] = float(cnt)
+            self._state = {
+                "tick_size": tick_size_inc,
+                "price_min": float(low.min()),
+                "volume_buckets": bucket_dict,
+                "bar_count": len(df),
+                "session_id": "full",
+            }
+            state.update(self._state)
+            result["_state"] = self._state
+        else:
+            result["_state"] = {}
+
         return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
