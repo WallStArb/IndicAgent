@@ -1481,39 +1481,10 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 094: Instructor Structured Output
-
-**Goal**: AI agents receive typed Python objects from the LLM instead of raw strings; parse failures are retried automatically with the validation error injected back into the prompt.
-**Depends on**: Phase 093
-**Requirements**: STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
-**Success Criteria** (what must be TRUE):
-
-  1. `InstructorClient` wraps `LiteLLMBackend`; all agent JSON parsing routes through a single `client.chat.completions.create(response_model=...)` call
-  2. A deliberate invalid response in a unit test triggers Instructor retry with `ValidationError` in prompt; agent never implements its own retry loop
-  3. `llm_calls.parse_success` shows a before/after parse failure rate delta; metric is queryable to validate the hypothesis
-  4. All `_parse_*_response` and `_validate_*_fields` boilerplate methods are deleted from agent files; each agent declares exactly one `BaseModel` result class
-
-**Plans:** 5 plans, 3 waves
-
-Plans:
-**Wave 1**
-
-- [ ] 094-01-PLAN.md (TDD, wave 1) — Install instructor, structured_client.py singleton, BaseAIAgent._llm_generate_structured + 3 unit tests
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 094-02-PLAN.md (execute, wave 2) — Migrate SkepticAgent: SkepticResult, delete _validate_skeptic_fields + output_schema
-- [ ] 094-03-PLAN.md (execute, wave 2) — Migrate CorrelationAgent: CorrelationResult, delete _validate_correlation_fields + output_schema
-- [ ] 094-04-PLAN.md (execute, wave 2) — Migrate CounterfactualAgent: CounterfactualResult, delete _validate_counterfactual_fields + output_schema
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 094-05-PLAN.md (execute, wave 3) — Migrate RegimeCoherenceAgent + delete BaseMultiplierAgent._parse_multiplier_response + live smoke test + alpha-swarm restart
-
-### Phase 095: Pydantic AI Agent Adapter
+### Phase 094: Pydantic AI Agent Adapter
 
 **Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
-**Depends on**: Phase 094
+**Depends on**: Phase 093
 **Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
 **Success Criteria** (what must be TRUE):
 
@@ -1525,7 +1496,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 096: Agent Registry
+### Phase 095: Agent Registry
 
 **Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
 **Depends on**: Phase 095
@@ -1539,7 +1510,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 097: Zep Episodic Memory
+### Phase 096: Zep Episodic Memory
 
 **Goal**: Agents can surface contextually relevant past episodes by `(regime_type, symbol, setup_type)` without coupling to a specific memory backend; the feature is invisible to the live path until shadow validation passes.
 **Depends on**: Phase 096
@@ -1553,7 +1524,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 098: DSPy Offline Optimizer
+### Phase 097: DSPy Offline Optimizer
 
 **Goal**: Prompts are improved by statistical evidence from `llm_calls` outcome data; optimization runs offline and is A/B tested before any optimized prompt touches the live path.
 **Depends on**: Phase 097
@@ -1567,7 +1538,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 099: Guardrails AI Validation
+### Phase 098: Guardrails AI Validation
 
 **Goal**: Output validation uses a maintained library with composable guard definitions instead of hand-written field-level checks; validation latency is measured and documented.
 **Depends on**: Phase 098

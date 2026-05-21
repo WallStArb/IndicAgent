@@ -1039,6 +1039,181 @@ Ideas that are harder to validate but worth capturing:
 
 ---
 
+## External Research Validation — JPMorgan Patent Patterns
+
+**Source:** JPMorgan patent application for AI-generated stock ratings (published April 2026, filed Feb 2025)
+
+This patent describes an LLM-based system that generates analyst-style ratings (Strong Buy → Strong Sell) using fundamentals, market data, news, and sentiment. Key empirical findings from their testing:
+
+**Validation results:**
+- LLMs outperformed analysts at short horizons (1-3 months); analysts were slightly better at 18 months
+- Fundamentals alone beat news alone
+- Fundamentals + sentiment performed best (modest lift over fundamentals alone)
+- News alone skewed positive and underperformed
+- Chain-of-verification (date check + explanation consistency) improved LLM reliability
+
+### Pattern 1: Sentiment Calibration / Positivity Bias Detection
+
+**Problem:** News-derived sentiment alone pushed ratings toward positive values.
+
+**Solution:** Track `positivity_drift` per news source — average sentiment when market is flat. Subtract this bias from all future readings.
+
+```sql
+CREATE TABLE source_calibration (
+    source TEXT PRIMARY KEY,
+    bias_mean FLOAT,
+    bias_std FLOAT,
+    sample_size INT,
+    last_calibrated_at TIMESTAMPTZ,
+    is_active BOOLEAN DEFAULT TRUE
+);
+```
+
+**Integration:** Calibrate at news_provider level; emit `sentiment_raw` and `sentiment_calibrated` to `ctx_snapshots`.
+
+---
+
+### Pattern 2: Chain-of-Verification for LLM Outputs
+
+**Problem:** LLMs can generate coherent but unsupported outputs.
+
+**Solution:** Before accepting any LLM-derived signal, validate:
+1. **Date consistency:** Did the model correctly calculate future dates referenced in the output?
+2. **Explanation coherence:** Does the explanation reference factors that actually exist in the input context?
+
+**Integration with skeptic_agent:**
+- Add `coherence_score` to validation output
+- If validation fails, return `neutral` with `error="verification_failed"`
+- Store verification results in `llm_calls` for analysis
+
+---
+
+### Pattern 3: Multi-Horizon Confidence Decay
+
+**Problem:** LLM performance degrades over longer prediction horizons.
+
+**Solution:** Apply horizon-based confidence penalty when QualScore is used as signal modifier:
+
+| Horizon | Confidence Multiplier |
+|---------|----------------------|
+| ≤1 month | 1.0 (full) |
+| 1-3 months | 0.95 |
+| 3-6 months | 0.85 |
+| 6-12 months | 0.70 |
+| ≥12 months | 0.50 (strong penalty) |
+
+**Integration:** Store `confidence_raw`, `confidence_adjusted`, and `decay_factor` in `qual_regime_history`.
+
+---
+
+### Pattern 4: News Freshness Weighting
+
+**Finding:** News more useful for short-term predictions; fundamentals better across 3/6/12-month horizons.
+
+**Solution:** Apply exponential decay to news-derived features: `weight = exp(-days_old / tau)`
+
+| Signal Type | Tau (half-life) |
+|-------------|----------------|
+| News sentiment | 1 day |
+| Earnings surprise | 30 days |
+| Fundamental metrics | 45 days |
+
+**Integration:** Add `freshness_weight` and `weighted_value` to `ctx_snapshots` for time-sensitive features.
+
+---
+
+### Pattern 5: Quintile-Based Signal Normalization
+
+**Finding:** Future returns divided into quintiles and mapped to rating categories created sector-neutral rankings.
+
+**Solution:** Map fundamental metrics to quintiles within sector/universe before using as signals:
+
+```sql
+SELECT symbol, ntile(5) OVER (PARTITION BY sector ORDER BY pe_ratio) as pe_quintile
+FROM fundamental_metrics;
+```
+
+**Integration:** Add `sector_quintile` to `intelligence_features`. Use quintile instead of raw value for fundamental confluence.
+
+---
+
+### Pattern 6: Fundamentals × Sentiment Interaction Terms
+
+**Finding:** Fundamentals + sentiment performed best, but the patent may have missed interaction effects.
+
+**Solution:** Compute interaction matrix:
+
+| Fundamentals | Sentiment | Signal Interpretation |
+|-------------|-----------|----------------------|
+| Strong (Q4-5) | Positive | Momentum_long |
+| Strong (Q4-5) | Negative | Value_long (contrarian opportunity) |
+| Weak (Q1-2) | Positive | Hope_short (fade the optimism) |
+| Weak (Q1-2) | Negative | Confirm_short |
+
+**Integration:** Add `fundamental_sentiment_interaction` to `ctx_snapshots`. Use interaction state as a regime modifier.
+
+---
+
+### Pattern 7: Peer-Relative Forward Returns for Ground Truth
+
+**Finding:** Patent used `stock_return - sector_return` to reduce regime noise in ground truth labels.
+
+**Solution:** In `signal_ledger`, add:
+- `sector_return_r` — sector performance over trade period
+- `excess_return_r` — `pnl_r - sector_return_r`
+
+Use `excess_return_r` as target for ML training to separate alpha from beta.
+
+---
+
+### Pattern 8: Pre-Processing LLM for News Filtering
+
+**Finding:** Lightweight LLM pass filtered/summarized news before main prediction model.
+
+**Solution:** News summarization stage that:
+1. Filters articles irrelevant to instrument (symbol matching, sector relevance)
+2. Summarizes to 3-5 key developments per ticker per day
+3. Tags each summary: `["earnings", "guidance", "macro", "sector_news", "company_specific"]`
+
+**Integration:** Add to `narrative_compute_agent`. Downstream agents consume compressed, tagged signals.
+
+---
+
+### Extended Ideas — Beyond the Patent
+
+Based on the patent patterns plus IndicAgent's architecture:
+
+**Idea 1: Regime-Dependent Signal Weights**
+
+Instead of fixed QualScore weights, make them regime-dependent:
+- Tightening cycle: upweight COT positioning, downwidth sentiment
+- Easing cycle: upweight prediction market dislocations, downwidth crowding
+- High volatility: upweight economic surprise, downwidth news sentiment
+
+Store weight schedules in `regime_weight_profiles` table.
+
+**Idea 2: Sentiment Velocity + Acceleration**
+
+Track not just sentiment level but its rate of change:
+- `sentiment_velocity = (sentiment_t - sentiment_t-N) / N`
+- `sentiment_acceleration` = second derivative
+
+Flag inflection points (acceleration crossing zero) as regime transition signals.
+
+**Idea 3: Cross-Asset Sentiment Contagion**
+
+When sentiment shifts in one asset (e.g., tech stocks), measure propagation speed to correlated assets (ES, NQ). Fast contagion = regime instability; slow contagion = disciplined rotation.
+
+**Idea 4: LLM Hallucination Detection via Consensus**
+
+Run multiple LLMs (different providers/models) on the same context. If outputs diverge significantly, flag as low-confidence and reduce signal weight.
+
+**Idea 5: Causal Inference for Qual Signals**
+
+Use Granger causality tests to determine whether qual signals *cause* price moves or just *correlate*. Only promote signals with causal precedence to live path.
+
+---
+
 ## Updated open questions
 
 1. **Bus architecture:** Shared DragonflyDB instance with IndicAgent, or QualAgent-owned? The interface needs to be defined precisely — probably a lightweight REST API for regime state + optional shared stream keys for real-time signals.
