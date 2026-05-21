@@ -260,3 +260,167 @@ class TestGetMainDf:
             assert result is df
         else:
             assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestSupportsIncrementalFlagCorrectness
+# ---------------------------------------------------------------------------
+
+
+def _get_all_registered_plugins() -> list[object]:
+    """Return all plugin instances from every tier list in register_plugins."""
+    import inspect
+
+    from src.intelligence import register_plugins as rp
+
+    all_names: set[str] = set()
+    for tier_attr in (
+        "TIER_I1",
+        "TIER_I2",
+        "TIER_I3",
+        "TIER_I4",
+        "TIER_I5",
+        "TIER_SMC",
+        "TIER_I6",
+        "TIER_I7",
+    ):
+        tier_list = getattr(rp, tier_attr, [])
+        all_names.update(tier_list)
+
+    # Build plugin name -> plugin instance map from module-level plugin imports
+    plugins_by_name: dict[str, object] = {}
+    for attr_name in dir(rp):
+        obj = getattr(rp, attr_name)
+        # Check if it's a plugin instance (has .name, .supports_incremental, .compute_next)
+        if (
+            not inspect.isclass(obj)
+            and hasattr(obj, "name")
+            and hasattr(obj, "supports_incremental")
+            and hasattr(obj, "compute_next")
+            and isinstance(getattr(obj, "name", None), str)
+        ):
+            plugins_by_name[obj.name] = obj
+
+    # Return only plugins that appear in tier lists
+    return [plugins_by_name[name] for name in all_names if name in plugins_by_name]
+
+
+class TestSupportsIncrementalFlagCorrectness:
+    """Conformance tests ensuring supports_incremental flags match actual behavior."""
+
+    def test_delegation_plugins_have_false_flag(self):
+        """Regression test: CVD, OFI, MAComposite are delegation plugins and must have False flag."""
+        from src.intelligence.composites.ma_composites import MACompositePlugin
+        from src.intelligence.features.i1_indicators.cvd import CVDPlugin
+        from src.intelligence.features.i1_indicators.ofi import OFIPlugin
+
+        assert (
+            CVDPlugin.supports_incremental is False
+        ), "CVD uses delegation pattern (compute_next calls compute_full) — must be False"
+        assert (
+            OFIPlugin.supports_incremental is False
+        ), "OFI uses delegation pattern (compute_next calls compute_full) — must be False"
+        assert (
+            MACompositePlugin.supports_incremental is False
+        ), "MAComposite uses delegation pattern (compute_next calls compute_full) — must be False"
+
+    def test_incremental_plugins_use_state_parameter(self):
+        """Plugins with supports_incremental=True should not read self._state in compute_next body.
+
+        A plugin that reads self._state in compute_next instead of the `state` parameter
+        violates the protocol (PERF-03) and was the root cause of the bugs fixed in plan 03.
+        We check the first 10 lines of compute_next body to catch obvious violations.
+
+        Exemptions: HMM regime plugins use a legitimate self._model reference (not self._state),
+        and BOCPD correctly returns _state in compute_next from the state parameter.
+        """
+        import inspect
+
+        from src.intelligence.plugins.mixins import IncrementalMixin
+
+        plugins = _get_all_registered_plugins()
+        violations: list[str] = []
+
+        for plugin in plugins:
+            if not getattr(plugin, "supports_incremental", False):
+                continue
+
+            # Plugins using IncrementalMixin are governed by the mixin -- skip
+            if isinstance(plugin, IncrementalMixin):
+                continue
+
+            plugin_cls = type(plugin)
+            try:
+                source = inspect.getsource(plugin_cls.compute_next)
+            except (OSError, TypeError):
+                continue
+
+            # Remove the method signature line, focus on body
+            lines = source.splitlines()
+            body_lines = [line for line in lines if "def compute_next" not in line]
+            first_body = "\n".join(body_lines[:10])
+
+            # Flag plugins that read self._state in early compute_next body
+            # (self._state in return statements or late lines is less critical)
+            if (
+                "self._state" in first_body
+                and "state" not in inspect.signature(plugin_cls.compute_next).parameters
+            ):
+                violations.append(
+                    f"{plugin_cls.__name__}: reads self._state in compute_next without accepting state= parameter"
+                )
+
+        assert not violations, "Plugins violating state parameter protocol:\n" + "\n".join(
+            violations
+        )
+
+    def test_incremental_plugins_return_state(self):
+        """Plugins with supports_incremental=True should return _state in compute_next.
+
+        Without returning _state, the executor cannot thread state across bars and
+        incremental mode silently does nothing useful.
+
+        Plugins using IncrementalMixin are exempt -- the mixin guarantees _state return.
+        """
+        import inspect
+
+        from src.intelligence.plugins.mixins import IncrementalMixin
+
+        plugins = _get_all_registered_plugins()
+        violations: list[str] = []
+
+        for plugin in plugins:
+            if not getattr(plugin, "supports_incremental", False):
+                continue
+
+            # IncrementalMixin guarantees _state return -- skip
+            if isinstance(plugin, IncrementalMixin):
+                continue
+
+            plugin_cls = type(plugin)
+            try:
+                source = inspect.getsource(plugin_cls.compute_next)
+            except (OSError, TypeError):
+                continue
+
+            # If compute_next body just delegates to compute_full, check compute_full instead
+            # (delegation plugins should have supports_incremental=False, but as a safety net)
+            if "compute_full" in source and "_state" not in source:
+                violations.append(
+                    f"{plugin_cls.__name__}: compute_next delegates to compute_full "
+                    f"but returns no _state -- consider supports_incremental=False"
+                )
+                continue
+
+            # Check that _state appears somewhere in the compute_next source
+            if "_state" not in source:
+                violations.append(
+                    f"{plugin_cls.__name__}: compute_next has no _state reference "
+                    f"(state will not be threaded across bars)"
+                )
+
+        assert (
+            not violations
+        ), "Plugins with supports_incremental=True missing _state in compute_next:\n" + "\n".join(
+            violations
+        )
