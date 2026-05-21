@@ -73,16 +73,16 @@ class StochasticPlugin:
             if n < k_period + d_period:
                 continue
             # Keep last k_period highs and lows for rolling min/max
-            highs = high_col.iloc[-k_period:].tolist()
-            lows = low_col.iloc[-k_period:].tolist()
+            highs = high_col.iloc[-k_period:].to_numpy(copy=False)
+            lows = low_col.iloc[-k_period:].to_numpy(copy=False)
 
             # Compute last d_period %K values for %D SMA
             lowest_low = low_col.rolling(window=k_period, min_periods=k_period).min()
             highest_high = high_col.rolling(window=k_period, min_periods=k_period).max()
             denom = (highest_high - lowest_low).replace(0, np.nan)
             k_series = 100 * (close_col - lowest_low) / denom
-            k_vals = k_series.iloc[-d_period:].tolist()
-            k_vals = [v if pd.notna(v) else 0.0 for v in k_vals]
+            k_raw = k_series.iloc[-d_period:].to_numpy(copy=False)
+            k_vals = [float(v) if not np.isnan(v) else 0.0 for v in k_raw]
 
             key = f"stoch_{k_period}_{d_period}"
             state[key] = {

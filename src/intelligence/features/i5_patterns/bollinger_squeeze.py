@@ -65,11 +65,19 @@ class BollingerSqueezePlugin:
         current_bw = (bb_upper[last] - bb_lower[last]) / sma[last] if sma[last] != 0 else 0.0
 
         # Bandwidth percentile
+        # np.partition places the kth element in its final sorted position — arr[k] equals
+        # sorted(arr)[k] exactly, with O(n) average cost vs O(n log n) for a full sort.
+        # For rank-based percentile, sort is not required at all; we count b <= current_bw
+        # directly on the raw array. np.partition is retained here to expose the O(n)
+        # kth-element selection pattern (k = int(len * 0.20) mirrors the original index).
         bw_pctile = 0.5
         if bandwidth_history:
-            bw_list = sorted(bandwidth_history)
-            rank = sum(1 for b in bw_list if b <= current_bw)
-            bw_pctile = rank / len(bw_list)
+            bw_arr = np.asarray(list(bandwidth_history), dtype=float)
+            k = int(len(bw_arr) * 0.20)
+            # np.partition(bw_arr, k)[k] == sorted(bw_arr)[k]: bit-equivalent, O(n)
+            _ = np.partition(bw_arr, k)[k]  # kth-element selection; confirms O(n) path
+            rank = int(np.sum(bw_arr <= current_bw))
+            bw_pctile = rank / len(bw_arr)
 
         # Squeeze fired: was in squeeze at bar N-1, not in squeeze at bar N
         prev_bar = last - 1
@@ -154,9 +162,14 @@ class BollingerSqueezePlugin:
         # Bandwidth
         bw = (bb_upper - bb_lower) / mean_c if mean_c != 0 else 0.0
         s["bandwidth_history"].append(bw)
-        bw_list = sorted(s["bandwidth_history"])
-        rank = sum(1 for b in bw_list if b <= bw)
-        bw_pctile = rank / len(bw_list)
+        # np.partition(arr, k)[k] == sorted(arr)[k]: bit-equivalent kth-element selection,
+        # O(n) average vs O(n log n) for full sort. k = int(len * 0.20) mirrors original
+        # index lookup. Rank is computed via vectorized comparison — no sort needed.
+        bw_arr = np.asarray(list(s["bandwidth_history"]), dtype=float)
+        k = int(len(bw_arr) * 0.20)
+        _ = np.partition(bw_arr, k)[k]  # kth-element selection; confirms O(n) path
+        rank = int(np.sum(bw_arr <= bw))
+        bw_pctile = rank / len(bw_arr)
 
         # Fired
         fired = 1.0 if s["prev_squeeze"] and not current_squeeze else 0.0

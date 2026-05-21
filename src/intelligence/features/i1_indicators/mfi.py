@@ -59,8 +59,8 @@ class MFIPlugin:
             if len(df) < p + 1:
                 continue
             # Get last p+1 TPs and money flows to derive last p pos/neg flows
-            tp_vals = tp.iloc[-(p + 1) :].tolist()
-            rmf_vals = rmf.iloc[-(p + 1) :].tolist()
+            tp_vals = tp.iloc[-(p + 1) :].to_numpy(copy=False)
+            rmf_vals = rmf.iloc[-(p + 1) :].to_numpy(copy=False)
 
             pos_mfs = []
             neg_mfs = []
