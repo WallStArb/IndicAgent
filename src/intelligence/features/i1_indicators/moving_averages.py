@@ -64,12 +64,16 @@ class MovingAveragesPlugin:
             except Exception:
                 pass
 
-        self._seed_state(frames)
-        out["_state"] = self._state
+        new_state: dict = {}
+        self._seed_state(frames, new_state)
+        self._state = new_state
+        out["_state"] = new_state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict | None = None) -> None:
         """Extract rolling window and EMA state for incremental updates."""
+        if state is None:
+            state = self._state
         df = get_main_df(frames, 1)
         if df is None:
             return
@@ -80,7 +84,7 @@ class MovingAveragesPlugin:
             if len(close) < p:
                 continue
             window_data = close.iloc[-p:].tolist()
-            self._state[f"sma_{p}"] = {
+            state[f"sma_{p}"] = {
                 "window": deque(window_data, maxlen=p),
                 "sum": sum(window_data),
             }
@@ -91,7 +95,7 @@ class MovingAveragesPlugin:
                 continue
             ema_val = close.ewm(span=p, adjust=False, min_periods=p).mean().iloc[-1]
             if pd.notna(ema_val):
-                self._state[f"ema_{p}"] = float(ema_val)
+                state[f"ema_{p}"] = float(ema_val)
 
     def compute_next(
         self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
