@@ -29,14 +29,14 @@ tests/unit/intelligence test_name_follows_i4_convention
 tests/unit/intelligence test_outputs_frozenset_correct
 
 # Service interface contracts: every service test validates wiring
-tests/unit/service_tests test_inherits_base_agent
-tests/unit/service_tests test_topics_consumed
-tests/unit/service_tests test_topics_produced
+tests/unit/services test_inherits_base_agent
+tests/unit/services test_topics_consumed
+tests/unit/services test_topics_produced
 
 # BaseMultiplierAgent subclasses (correlation, counterfactual, regime_coherence) share
 # the same interface contract — these tests verify that contract on each implementation
-tests/unit/service_tests test_class_attributes
-tests/unit/service_tests test_multiplier_formula_semantics
-tests/unit/service_tests test_validator_accepts_valid_payload
-tests/unit/service_tests test_validator_clamps_out_of_range
-tests/unit/service_tests test_validator_rejects_non_numeric_confidence
+tests/unit/services test_class_attributes
+tests/unit/services test_multiplier_formula_semantics
+tests/unit/services test_validator_accepts_valid_payload
+tests/unit/services test_validator_clamps_out_of_range
+tests/unit/services test_validator_rejects_non_numeric_confidence
