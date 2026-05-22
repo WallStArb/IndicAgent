@@ -41,12 +41,10 @@ from src.intelligence.register_plugins import (
 )
 from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
-    CIRCUIT_BREAKER_STATE,
     FEATURES_COMPUTED_TOTAL,
-    PLUGIN_DURATION_MS,
-    PLUGIN_ERRORS_TOTAL,
     counter,
 )
+from src.observability.plugin_observer import NoOpPluginObserver, PluginObserver
 
 # ---------------------------------------------------------------------------
 # Type aliases (shared with orchestrator)
@@ -168,6 +166,7 @@ class PluginExecutor:
         plugin_cache: dict,
         instrument_map: dict,
         circuit_breakers: dict,
+        observer: PluginObserver | NoOpPluginObserver | None = None,
     ) -> None:
         self._thread_pool = thread_pool
         self._plugin_cache = plugin_cache
@@ -175,6 +174,9 @@ class PluginExecutor:
         self._plugin_circuit_breakers: dict[str, CircuitBreaker] = dict(circuit_breakers)
         self._plugin_call_counts: dict = {}
         self._logger = structlog.get_logger(__name__)
+        self._observer: NoOpPluginObserver = (
+            observer if observer is not None else NoOpPluginObserver()
+        )
 
         # OTel metric owned by executor (D-16): skipped plugin counter
         self._plugin_skipped_total = counter(
@@ -253,10 +255,10 @@ class PluginExecutor:
             cb = self._get_plugin_cb(task.plugin_name)
 
             if isinstance(out, Exception):
-                PLUGIN_ERRORS_TOTAL.add(1, {"plugin_name": task.plugin_name, "tier": tier})
+                self._observer.record_error(task.plugin_name, tier, str(out))
                 cb.record_failure()
                 if cb.state == CircuitState.OPEN:
-                    CIRCUIT_BREAKER_STATE.set(1, {"plugin_name": task.plugin_name})
+                    self._observer.record_circuit_breaker_change(task.plugin_name, "open")
                     self._logger.warning("plugin.circuit_breaker_opened", plugin=task.plugin_name)
                 self._logger.warning(
                     f"{log_prefix}.error",
@@ -266,8 +268,13 @@ class PluginExecutor:
                 )
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
-                PLUGIN_DURATION_MS.record(
-                    duration_ms, {"plugin_name": task.plugin_name, "tier": tier}
+                used_incremental = getattr(task, "_used_incremental", False)
+                self._observer.record_result(
+                    task.plugin_name,
+                    tier,
+                    duration_ms,
+                    used_incremental=used_incremental,
+                    null_count=0,
                 )
                 if isinstance(result_dict, dict):
                     # Handle SMC-specific field renaming
@@ -285,7 +292,7 @@ class PluginExecutor:
                     prev_state = cb.state
                     cb.record_success()
                     if prev_state != CircuitState.CLOSED:
-                        CIRCUIT_BREAKER_STATE.set(0, {"plugin_name": task.plugin_name})
+                        self._observer.record_circuit_breaker_change(task.plugin_name, "closed")
                         self._logger.info("plugin.circuit_breaker_closed", plugin=task.plugin_name)
                     outputs.append(result_dict)
 
@@ -322,6 +329,7 @@ class PluginExecutor:
         tasks: list[PluginTask] = []
         loop = asyncio.get_running_loop()
 
+        df_main = frames.get("main")
         for plugin_name in TIER_I1:
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
@@ -335,6 +343,14 @@ class PluginExecutor:
                 continue
             cb = self._get_plugin_cb(plugin_name)
             if not cb.allow_request():
+                continue
+
+            # Frame pre-validation: skip plugins whose min_lookback is not met.
+            # Plugins may set allows_partial_output=True to opt out (e.g. session-boundary plugins).
+            min_lb = getattr(plugin, "min_lookback", 0)
+            allows_partial = getattr(plugin, "allows_partial_output", False)
+            if not allows_partial and min_lb > 0 and (df_main is None or len(df_main) < min_lb):
+                self._observer.record_warmup_skip(plugin_name, "I1")
                 continue
 
             # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
@@ -389,6 +405,7 @@ class PluginExecutor:
         Returns (tier_outputs, state_updates) keyed by (plugin_name, symbol, tf).
         """
         tasks: list[PluginTask] = []
+        df_main_tier = frames.get("main")
         for plugin_name in tier_plugins:
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
@@ -402,6 +419,17 @@ class PluginExecutor:
                 continue
             cb = self._get_plugin_cb(plugin_name)
             if not cb.allow_request():
+                continue
+
+            # Frame pre-validation: skip plugins whose min_lookback is not met.
+            min_lb = getattr(plugin, "min_lookback", 0)
+            allows_partial = getattr(plugin, "allows_partial_output", False)
+            if (
+                not allows_partial
+                and min_lb > 0
+                and (df_main_tier is None or len(df_main_tier) < min_lb)
+            ):
+                self._observer.record_warmup_skip(plugin_name, tier_key)
                 continue
 
             # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
@@ -541,6 +569,7 @@ class PluginExecutor:
         """
         tasks: list[PluginTask] = []
         loop = asyncio.get_running_loop()
+        df_main_i7 = plugin_input.get("main")
 
         for plugin_name in TIER_I7:
             plugin = self._plugin_cache.get(plugin_name)
@@ -555,6 +584,17 @@ class PluginExecutor:
                 continue
             cb = self._get_plugin_cb(plugin_name)
             if not cb.allow_request():
+                continue
+
+            # Frame pre-validation: skip plugins whose min_lookback is not met.
+            min_lb = getattr(plugin, "min_lookback", 0)
+            allows_partial = getattr(plugin, "allows_partial_output", False)
+            if (
+                not allows_partial
+                and min_lb > 0
+                and (df_main_i7 is None or len(df_main_i7) < min_lb)
+            ):
+                self._observer.record_warmup_skip(plugin_name, "i7")
                 continue
 
             # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
