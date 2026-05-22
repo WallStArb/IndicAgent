@@ -62,7 +62,8 @@ CONSUMER_NAME: str = "feature_writer_1"
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i2, i3, i4, i5, smc, i6, i7,
+    bar, technical_indicators, market_context, pattern_detections, regime_features,
+    confluence_scores, smc, cross_timeframe_context, trading_signals,
     bar_close_ts, i1_computed_at, computed_at,
     winner_plugin, winner_confidence, winner_direction,
     signals_evaluated, signals_after_quality, signals_after_regime,
@@ -97,7 +98,7 @@ ON CONFLICT (ts, symbol, tf) DO NOTHING
 # with NULL mandatory columns before the main BarIntelligenceRecord arrives.
 _UPDATE_I7_MERGE_SQL = """
 UPDATE intelligence_features
-SET i7 = COALESCE(i7, '{}'::jsonb) || $4::jsonb
+SET trading_signals = COALESCE(trading_signals, '{}'::jsonb) || $4::jsonb
 WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
 
