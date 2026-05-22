@@ -5,15 +5,6 @@
 # latency of 23-35ms is due to NumPy overhead on small arrays, not algorithmic
 # complexity. Reduction options: Cython/Numba for the inner loop, or increase
 # thread pool workers so concurrent HMM instances overlap. Do NOT force O(1).
-"""HMMRegime plugin -- migrated to IncrementalMixin.
-
-State ownership: IncrementalMixin handles _state lifecycle.
-Implements:
-- _compute_full_core(frames) -> dict: full HMM forward pass computation
-- _compute_next_core(frames, state) -> dict: single-bar incremental update
-- _seed_state(frames) -> dict: extract forward algorithm state
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,11 +19,10 @@ import pandas as pd
 import structlog
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import IncrementalMixin
 
 logger = structlog.get_logger(__name__)
 
-# Default parameters -- sensible starting points for 1m futures bars.
+# Default parameters — sensible starting points for 1m futures bars.
 # Override via config/hmm_parameters.json if trained on your data.
 
 _DEFAULT_TRANSITION = np.array(
@@ -111,7 +101,7 @@ def _diag_gaussian_log_prob(x: np.ndarray, means: np.ndarray, variances: np.ndar
 
 
 @dataclass
-class HMMRegimePlugin(IncrementalMixin):
+class HMMRegimePlugin:
     """Hidden Markov Model regime classifier.
 
     Classifies market into 3 regimes (ranging/trending-up/trending-down)
@@ -123,11 +113,11 @@ class HMMRegimePlugin(IncrementalMixin):
     present, falling back to the base ``config/hmm_parameters.json``.
     """
 
-    # Init params -- drive name, inputs, and parameter file resolution.
+    # Init params — drive name, inputs, and parameter file resolution.
     timeframe: str = "1m"
     lookback: int = 200
 
-    # Derived fields -- set in __post_init__, not passed to __init__.
+    # Derived fields — set in __post_init__, not passed to __init__.
     name: str = field(init=False)
     outputs: frozenset[str] = field(init=False)
     inputs: tuple[InputSpec, ...] = field(init=False)
@@ -137,6 +127,7 @@ class HMMRegimePlugin(IncrementalMixin):
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"smart_money"})
     vol_window: int = 20  # Rolling window for realized vol
+    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.name = f"smc_HMMRegime_{self.timeframe}"
@@ -169,14 +160,15 @@ class HMMRegimePlugin(IncrementalMixin):
     def reload_parameters(self) -> None:
         """Hot-reload HMM parameters from disk (called by SIGUSR1 handler).
 
-        Idempotent -- safe to call multiple times. Replaces transition matrix,
+        Idempotent — safe to call multiple times. Replaces transition matrix,
         emission means, and variances. Does NOT reset forward algorithm state.
         """
         self._A, self._means, self._variances = self._load_tf_parameters()
         self._K = self._A.shape[0]
 
-    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        """Full HMM forward pass computation. Returns outputs only (no _state)."""
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -196,70 +188,41 @@ class HMMRegimePlugin(IncrementalMixin):
         features = frames.get("features")
         n_dims = self._resolve_dims(features)
 
-        # Initialize state and process all bars through forward algorithm
-        hmm_state = self._make_initial_state(n_dims)
+        # Initialize state
+        self._reset_state()
+        self._state["n_dims"] = n_dims
 
+        # Process all bars through forward algorithm
         for i in range(len(returns)):
-            hmm_state["return_buffer"].append(returns[i])
+            self._state["return_buffer"].append(returns[i])
             obs = self._build_observation(
                 returns[i],
-                list(hmm_state["return_buffer"]),
+                list(self._state["return_buffer"]),
                 features,
                 n_dims,
             )
-            self._forward_step(obs, n_dims, hmm_state)
+            self._forward_step(obs, n_dims, self._state)
 
-        hmm_state["prev_close"] = float(close[-1])
+        self._state["prev_close"] = float(close[-1])
 
-        return self._build_output(hmm_state)
+        result = self._build_output(self._state)
+        result["_state"] = self._state
+        return result
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
-        """Extract forward algorithm state for incremental seeding."""
-        df = frames.get("main")
-        if df is None or len(df) < self.min_lookback:
-            return {}
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        if not state or "alpha" not in state:
+            return self.compute_full(windows)
 
-        close = df["close"].to_numpy(dtype=float)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ratios = close[1:] / close[:-1]
-            ratios = np.where(ratios > 0, ratios, 1e-10)
-            returns = np.log(ratios)
-
-        if len(returns) < self.vol_window:
-            return {}
-
-        features = frames.get("features")
-        n_dims = self._resolve_dims(features)
-
-        hmm_state = self._make_initial_state(n_dims)
-
-        for i in range(len(returns)):
-            hmm_state["return_buffer"].append(returns[i])
-            obs = self._build_observation(
-                returns[i],
-                list(hmm_state["return_buffer"]),
-                features,
-                n_dims,
-            )
-            self._forward_step(obs, n_dims, hmm_state)
-
-        hmm_state["prev_close"] = float(close[-1])
-
-        return hmm_state
-
-    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
-        """Single-bar incremental HMM update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 2:
-            return {}
+            return self.compute_full(windows)
 
         close = df["close"].to_numpy(dtype=float)
         current_close = float(close[-1])
         prev_close = state.get("prev_close", current_close)
 
         if prev_close <= 0 or current_close <= 0:
-            return {}
+            return self.compute_full(windows)
 
         ret = math.log(current_close / prev_close)
         state["return_buffer"].append(ret)
@@ -273,21 +236,9 @@ class HMMRegimePlugin(IncrementalMixin):
 
         state["prev_close"] = current_close
 
-        return self._build_output(state)
-
-    def _make_initial_state(self, n_dims: int) -> dict:
-        """Create a fresh HMM forward algorithm state dict."""
-        velocity_window = VELOCITY_WINDOW_BY_TF.get(self.timeframe, 5)
-        return {
-            "alpha": np.full(self._K, 1.0 / self._K),  # Uniform prior
-            "prev_close": 0.0,
-            "return_buffer": deque(maxlen=self.vol_window),
-            "prev_regime": 0,
-            "regime_duration": 1,
-            "bars_processed": 0,
-            "n_dims": n_dims,
-            "prob_history": deque(maxlen=velocity_window),
-        }
+        result = self._build_output(state)
+        result["_state"] = state
+        return result
 
     def _resolve_dims(self, features: Any) -> int:
         """Determine how many emission dimensions to use."""
@@ -374,6 +325,20 @@ class HMMRegimePlugin(IncrementalMixin):
         state["alpha"] = alpha_new
         state["bars_processed"] = state.get("bars_processed", 0) + 1
 
+    def _reset_state(self) -> None:
+        """Initialize forward algorithm state."""
+        velocity_window = VELOCITY_WINDOW_BY_TF.get(self.timeframe, 5)
+        self._state = {
+            "alpha": np.full(self._K, 1.0 / self._K),  # Uniform prior
+            "prev_close": 0.0,
+            "return_buffer": deque(maxlen=self.vol_window),
+            "prev_regime": 0,
+            "regime_duration": 1,
+            "bars_processed": 0,
+            "n_dims": 2,
+            "prob_history": deque(maxlen=velocity_window),
+        }
+
     def _build_output(self, state: dict) -> dict[str, Any]:
         """Build output dict from current state."""
         alpha = state["alpha"]
@@ -382,7 +347,7 @@ class HMMRegimePlugin(IncrementalMixin):
         warmed_up = bars_processed >= self.min_lookback
         regime_prob = round(float(alpha[regime]), 6)
 
-        # Shannon entropy across 3 state probabilities -- high = regime transition window.
+        # Shannon entropy across 3 state probabilities — high = regime transition window.
         hmm_regime_entropy = float(-np.sum(alpha * np.log2(alpha + 1e-10)))
 
         # Velocity: rate of change of dominant-state probability over the history window.
