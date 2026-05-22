@@ -1,8 +1,7 @@
 """FeatureRepository — write-side persistence for intelligence feature vectors.
 
-Accepts a configurable table_name so the same SQL template is reused by both
-FeatureWriterService (-> intelligence_features) and FeatureSnapshotWriterAgent
-(-> feature_snapshots_shadow). Never duplicate the 31-column INSERT.
+Accepts a configurable table_name so the same SQL template is reused by
+FeatureWriterService (-> intelligence_features). Never duplicate the 31-column INSERT.
 """
 
 from __future__ import annotations

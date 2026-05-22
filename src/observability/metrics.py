@@ -285,27 +285,6 @@ AI_AGENT_ERRORS_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Parity auditor metrics
-# ---------------------------------------------------------------------------
-
-PARITY_MATCH_RATE = _meter.create_up_down_counter(
-    "parity_match_rate",
-    description="Fraction of rows matching between primary and shadow (0.0-1.0)",
-)
-SHADOW_AHEAD_ROWS_TOTAL = _meter.create_counter(
-    "shadow_ahead_rows_total",
-    description="Rows present in shadow but not yet in primary (timing race)",
-)
-PARITY_VIOLATIONS_TOTAL = _meter.create_counter(
-    "parity_violations_total",
-    description="Total field-level parity violations detected",
-)
-PARITY_CYCLES_TOTAL = _meter.create_counter(
-    "parity_cycles_total",
-    description="Total comparison cycles executed by ParityAuditorAgent",
-)
-
-# ---------------------------------------------------------------------------
 # ML observability metrics
 # ---------------------------------------------------------------------------
 
