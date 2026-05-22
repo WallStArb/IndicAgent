@@ -6,9 +6,12 @@ Plugins import what they need; no inheritance required.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from src.intelligence.trading.trade_framer import TradeFrame
 
 
 def no_signal() -> dict[str, Any]:
@@ -72,3 +75,65 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def emit_signal(
+    trade_frame: TradeFrame,
+    *,
+    confidence: float,
+    entry_type: str,
+    stop_loss: float,
+    target_1: float,
+    target_2: float | None = None,
+    **signal_fields: Any,
+) -> dict[str, Any]:
+    """Build and validate a signal dict from a TradeFrame.
+
+    Calls validate_signal() at construction and raises ValueError on failure
+    — invalid signals never enter the pipeline.
+
+    Writes features_snapshot only when trade_frame.features is non-empty.
+
+    Args:
+        trade_frame: Populated TradeFrame from trade_framer.py.
+        confidence:  Signal confidence value (use compose_confidence()).
+        entry_type:  Entry type string ("at_close", "at_pullback", etc.).
+        stop_loss:   Absolute stop loss price.
+        target_1:    First target price.
+        target_2:    Optional second target price.
+        **signal_fields: Additional required fields forwarded to make_signal_from_frame:
+            symbol, timeframe, timestamp, signal_type, setup_plugin,
+            direction, regime_context, confluence_score, supporting_factors,
+            invalidation_conditions. Optional: ttl_bars.
+
+    Returns:
+        Validated signal dict with type "signal.v1".
+
+    Raises:
+        ValueError: If validate_signal() fails or trade_frame.viable is False.
+    """
+    from src.intelligence.trading.signal_schema import (  # noqa: PLC0415
+        make_signal_from_frame,
+        validate_signal,
+    )
+
+    # features_snapshot: only capture when non-empty (avoid polluting signal with empty dicts)
+    raw_features = getattr(trade_frame, "features", {}) or {}
+    features_snapshot = raw_features if raw_features else None
+
+    # Delegate to make_signal_from_frame for full framing + validation
+    signal = make_signal_from_frame(
+        trade_frame,
+        confidence=confidence,
+        features_snapshot=features_snapshot,
+        **signal_fields,
+    )
+
+    # Hard validation gate — raises ValueError on failure
+    if not validate_signal(signal):
+        raise ValueError(
+            f"emit_signal: produced invalid signal for plugin "
+            f"{signal_fields.get('setup_plugin', '?')}: missing required fields or invalid values"
+        )
+
+    return signal
