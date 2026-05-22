@@ -37,7 +37,7 @@ from src.intelligence.cross_asset_features import (
     compute_eq_index_features,
     resolve_eq_index_base,
 )
-from src.observability.metrics import counter, gauge
+from src.observability.metrics import counter, point_gauge
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -137,7 +137,7 @@ class CrossAssetComputeAgent(BaseAgent):
             "cross_asset_spreads_published",
             "Spread feature payloads published to cross_asset topic",
         )
-        self._quality_gauge = gauge(
+        self._quality_gauge = point_gauge(
             "cross_asset_data_quality",
             "EQ_INDEX data quality score (fraction of fresh symbols)",
         )

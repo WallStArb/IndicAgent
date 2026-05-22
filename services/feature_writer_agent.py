@@ -48,6 +48,7 @@ from src.observability.metrics import (
     PERSISTENCE_CONSUMER_LAG,
     counter,
     gauge,
+    point_gauge,
 )
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -242,11 +243,11 @@ class FeatureWriterAgent(BaseWriterAgent):
             "feature_writer_batch_writes_total",
             "Total batch writes to intelligence_features",
         )
-        self.events_buffered_gauge = gauge(
+        self.events_buffered_gauge = point_gauge(
             "feature_writer_buffer_size",
             "Current number of events in write buffer",
         )
-        self.service_uptime_seconds = gauge(
+        self.service_uptime_seconds = point_gauge(
             "feature_writer_service_uptime_seconds",
             "Feature writer service uptime in seconds",
         )
@@ -325,7 +326,7 @@ class FeatureWriterAgent(BaseWriterAgent):
 
         self.batch_writes_total.add(1)
         self._total_batches += 1
-        self.events_buffered_gauge.add(0)
+        self.events_buffered_gauge.set(0)
         # Single authoritative lag update after flush (not duplicated before + after)
         PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer"})
         self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
@@ -486,7 +487,7 @@ class FeatureWriterAgent(BaseWriterAgent):
                         # Parse failed — route to DLQ for analysis
                         await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
                         self.error_count_total.add(1)
-                    self.events_buffered_gauge.add(len(self._buffer))
+                    self.events_buffered_gauge.set(len(self._buffer))
                     await self.maybe_flush()
 
             except asyncio.CancelledError:
@@ -517,7 +518,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
-                self._consumer_lag_metric.set(len(self._buffer))
+                PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), {"agent_id": "feature_writer"})
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",

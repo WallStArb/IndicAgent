@@ -89,6 +89,7 @@ class DonchianChannelsPlugin:
             f"donchian_upper_{self.period}": upper,
             f"donchian_mid_{self.period}": mid,
             f"donchian_lower_{self.period}": lower,
+            "_state": self._state,
         }
 
 

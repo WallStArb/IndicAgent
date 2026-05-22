@@ -7,7 +7,8 @@ objects — no prometheus_client, no wrapper classes.
 
 Call-site API:
   Counter:   METRIC.add(1, {"label_key": value})
-  Gauge:     METRIC.add(value, {"label_key": value})  (up_down_counter)
+  UpDownCounter (gauge): METRIC.add(delta, {"label_key": value})
+  PointGauge:            METRIC.set(value, {"label_key": value})
   Histogram: METRIC.record(value, {"label_key": value})
 """
 
@@ -24,8 +25,13 @@ def counter(name: str, documentation: str):
 
 
 def gauge(name: str, documentation: str):
-    """Create a named OTel up_down_counter (gauge semantics). Used by services dynamically."""
+    """Create a named OTel up_down_counter. Use .add(delta) for cumulative tracking."""
     return _meter.create_up_down_counter(name, description=documentation)
+
+
+def point_gauge(name: str, documentation: str):
+    """Create a named OTel gauge for point-in-time absolute values. Use .set(value)."""
+    return _meter.create_gauge(name, description=documentation)
 
 
 # ---------------------------------------------------------------------------

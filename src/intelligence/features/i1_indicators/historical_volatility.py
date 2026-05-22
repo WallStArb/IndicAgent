@@ -84,7 +84,7 @@ class HistoricalVolatilityPlugin:
         hv_mean = float(np.mean(list(s["hv_window"])))
         hv_ratio = hv_20 / hv_mean if hv_mean > 1e-10 else 1.0
 
-        return {"hv_20": round(hv_20, 6), "hv_ratio_20": round(hv_ratio, 4)}
+        return {"hv_20": round(hv_20, 6), "hv_ratio_20": round(hv_ratio, 4), "_state": self._state}
 
 
 plugin = HistoricalVolatilityPlugin()
