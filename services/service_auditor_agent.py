@@ -79,12 +79,10 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-metrics-writer": 8,
     "indicagent-graduation-compute": 8,
     "indicagent-graduation-writer": 8,
-    "indicagent-feature-snapshot-writer": 8,
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,
     "indicagent-signal-replay": 9,
-    "indicagent-parity-auditor": 9,
     "indicagent-alerting-agent": 9,
     "indicagent-dlq-drain": 9,
     # Layer 8 — meta: monitors and restarts all of the above
@@ -117,7 +115,6 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-swarm-ledger-writer": 500,
     "indicagent-signal-metrics-writer": 500,
     "indicagent-graduation-writer": 500,
-    "indicagent-feature-snapshot-writer": 500,
     "indicagent-ctx-writer": 500,
     "indicagent-dlq-drain": 500,
 }
@@ -138,7 +135,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "provider_merger_agent": "indicagent-provider-merger",
     "lifecycle_writer_agent": "indicagent-lifecycle-writer",
     "lineage_writer_agent": "indicagent-lineage-writer",
-    "FeatureSnapshotWriterAgent": "indicagent-feature-snapshot-writer",
     "signal_metrics_compute": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
     "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
@@ -148,7 +144,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
     "contract_metadata_writer_agent": "indicagent-contract-metadata-writer",
-    "ParityAuditorAgent": "indicagent-parity-auditor",
     "GraduationComputeAgent": "indicagent-graduation-compute",
     "graduation_writer_agent": "indicagent-graduation-writer",
     "ctx_writer_agent": "indicagent-ctx-writer",
