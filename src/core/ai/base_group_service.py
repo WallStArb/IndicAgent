@@ -176,10 +176,11 @@ class BaseGroupService(BaseAgent, ABC):
         async with self._pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT DISTINCT ON (symbol, tf)
-                    symbol, tf, ts, bar, i1, i2, i3, i4, i5, i6, i7, smc
+                    symbol, tf, ts, bar, technical_indicators, market_context, pattern_detections,
+                    regime_features, confluence_scores, cross_timeframe_context, trading_signals, smc
                 FROM intelligence_features
                 WHERE ts > NOW() - INTERVAL '7 days'
-                  AND i1 IS NOT NULL AND i4 IS NOT NULL
+                  AND technical_indicators IS NOT NULL AND regime_features IS NOT NULL
                 ORDER BY symbol, tf, ts DESC
             """)
         for row in rows:

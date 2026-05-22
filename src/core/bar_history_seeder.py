@@ -106,7 +106,8 @@ class BarHistorySeeder:
                 try:
                     rows = await db.execute_query(
                         f"""
-                        SELECT ts, bar, i1, i2, i3, i4, i5, smc, i6,
+                        SELECT ts, bar, technical_indicators, market_context, pattern_detections,
+                               regime_features, confluence_scores, smc, cross_timeframe_context,
                                bar_close_ts, i1_computed_at, computed_at
                         FROM intelligence_features
                         WHERE symbol = $1 AND tf = $2
@@ -176,13 +177,13 @@ class BarHistorySeeder:
                             c=float(bar_json.get("c", 0)),
                             v=int(bar_json.get("v", 0)),
                         ),
-                        i1=I1Indicators(**_tier("i1")),
-                        i2=I2Events(**_tier("i2")),
-                        i3=I3Structure(**_tier("i3")),
-                        i4=I4Context(**_tier("i4")),
-                        i5=I5Patterns(**_tier("i5")),
+                        i1=I1Indicators(**_tier("technical_indicators")),
+                        i2=I2Events(**_tier("market_context")),
+                        i3=I3Structure(**_tier("pattern_detections")),
+                        i4=I4Context(**_tier("regime_features")),
+                        i5=I5Patterns(**_tier("confluence_scores")),
                         smc=SMCContext(**_tier("smc")),
-                        i6=I6Confluence(**_tier("i6")),
+                        i6=I6Confluence(**_tier("cross_timeframe_context")),
                         bar_close_ts=latest["bar_close_ts"],
                         i1_computed_at=latest["i1_computed_at"],
                         computed_at=latest["computed_at"],

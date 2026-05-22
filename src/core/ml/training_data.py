@@ -21,25 +21,25 @@ SELECT
     f.symbol,
     f.tf,
     -- i1 features (from JSONB)
-    (f.i1->>'atr_14')::float          AS atr,
-    (f.i1->>'rsi_14')::float          AS rsi,
-    (f.i1->>'adx')::float             AS adx,
-    (f.i1->>'macd')::float            AS macd,
-    (f.i1->>'macd_signal')::float     AS macd_signal,
-    (f.i1->>'volume_ratio')::float    AS volume_ratio,
+    (f.technical_indicators->>'atr_14')::float          AS atr,
+    (f.technical_indicators->>'rsi_14')::float          AS rsi,
+    (f.technical_indicators->>'adx')::float             AS adx,
+    (f.technical_indicators->>'macd')::float            AS macd,
+    (f.technical_indicators->>'macd_signal')::float     AS macd_signal,
+    (f.technical_indicators->>'volume_ratio')::float    AS volume_ratio,
     -- i4 features
-    (f.i4->>'hmm_regime')::int        AS hmm_regime,
-    (f.i4->>'hmm_regime_prob')::float AS hmm_prob,
-    (f.i4->>'hurst_exponent')::float  AS hurst_exponent,
-    (f.i4->>'kalman_trend')::float    AS kalman_trend,
-    (f.i4->>'vol_percentile')::float  AS vol_percentile,
-    (f.i4->>'garch_vol_ratio')::float AS garch_vol_ratio,
+    (f.regime_features->>'hmm_regime')::int        AS hmm_regime,
+    (f.regime_features->>'hmm_regime_prob')::float AS hmm_prob,
+    (f.regime_features->>'hurst_exponent')::float  AS hurst_exponent,
+    (f.regime_features->>'kalman_trend')::float    AS kalman_trend,
+    (f.regime_features->>'vol_percentile')::float  AS vol_percentile,
+    (f.regime_features->>'garch_vol_ratio')::float AS garch_vol_ratio,
     -- i6 features
-    (f.i6->>'ctf_score')::float       AS ctf_score,
-    (f.i6->>'ctf_trend_alignment')::float AS ctf_trend_alignment,
-    (f.i6->>'ctf_regime_agreement')::float AS ctf_regime_agreement,
+    (f.cross_timeframe_context->>'ctf_score')::float       AS ctf_score,
+    (f.cross_timeframe_context->>'ctf_trend_alignment')::float AS ctf_trend_alignment,
+    (f.cross_timeframe_context->>'ctf_regime_agreement')::float AS ctf_regime_agreement,
     -- i7 CIS
-    (f.i7->'cis'->>'score')::float    AS cis_score,
+    (f.trading_signals->'cis'->>'score')::float    AS cis_score,
     -- Signal outcome columns
     sl.outcome,
     sl.pnl_r,
@@ -62,7 +62,7 @@ ORDER BY f.ts
 
 _REGIME_SQL = _BASE_SQL.replace(
     "ORDER BY f.ts",
-    "  AND (f.i4->>'hmm_regime')::int = $5\nORDER BY f.ts",
+    "  AND (f.regime_features->>'hmm_regime')::int = $5\nORDER BY f.ts",
 )
 
 
