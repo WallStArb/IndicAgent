@@ -223,7 +223,7 @@ class TestEfficiencyNumericEquivalence:
         df = synthetic_ohlcv_trending
         plugin = CCIPlugin()
         p = 14
-        warmup = p + 1
+        warmup = 20  # need p+1 = 15 bars; use 20 for safety (matches min_lookback)
 
         # Seed state
         result_full = plugin.compute_full(frames_from_ohlcv(df.iloc[:warmup]))
