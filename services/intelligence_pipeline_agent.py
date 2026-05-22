@@ -75,6 +75,7 @@ from src.intelligence.schemas import (
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.metrics import THREAD_POOL_WORKERS, gauge
+from src.observability.plugin_observer import PluginObserver
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -281,6 +282,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin_cache=self._plugin_cache,
             instrument_map=self._instrument_map,
             circuit_breakers={},
+            observer=PluginObserver(),
         )
 
         # FeaturePipelineExecutor — 6th DAG node (D-18, Plan 01 Task 5)
