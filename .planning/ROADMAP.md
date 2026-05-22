@@ -709,7 +709,7 @@ Plans:
 
 **Wave 1** — Observability layer (independent)
 
-- [ ] 100.5-PLAN.md Task 1 — Add 5 new OTel instruments + rename plugin_fallbacks_total
+- [x] 100.5-PLAN.md Task 1 — Add 5 new OTel instruments + rename plugin_fallbacks_total
 - [ ] 100.5-PLAN.md Task 2 — Move plugin_validator inline metrics to metrics.py
 - [ ] 100.5-PLAN.md Task 3 — Add PluginCallResult dataclass to executor.py
 - [ ] 100.5-PLAN.md Task 4 — Create PluginObserver + NoOpPluginObserver
