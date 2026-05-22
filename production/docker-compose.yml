@@ -74,6 +74,38 @@ services:
     volumes:
       - ollama-data:/root/.ollama
 
+  # node-exporter: exposes host-level RAM, disk, CPU metrics to Prometheus
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: indicagent-node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "9100:9100"
+
+  # postgres-exporter: exposes TimescaleDB metrics (dead tuples, connections, table sizes)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: indicagent-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@timescaledb:5432/indicagent?sslmode=disable"
+      PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
+      PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - timescaledb
+
   # Prometheus: scrapes IndicAgent service /metrics (ports 9109, 9112–9116 on host)
   prometheus:
     image: prom/prometheus:v2.47.0
@@ -225,6 +257,7 @@ volumes:
   timescale-data:
   redpanda-data:
   ollama-data:
+  node-exporter-data:
   prometheus-data:
   grafana-data:
   tempo-data:

@@ -1,4 +1,79 @@
 groups:
+  - name: system_health
+    rules:
+      - alert: MemoryAvailableCritical
+        expr: node_memory_MemAvailable_bytes < 2 * 1024 * 1024 * 1024
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Available RAM below 2 GB — OOM kills imminent"
+          description: "Available: {{ $value | humanize1024 }}B. Services will crash. Reduce shared_buffers, kill idle processes, or restart Ollama."
+
+      - alert: MemoryAvailableWarning
+        expr: node_memory_MemAvailable_bytes < 4 * 1024 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Available RAM below 4 GB — system under memory pressure"
+          description: "Available: {{ $value | humanize1024 }}B. Review large consumers before this becomes critical."
+
+      - alert: DiskSpaceCritical
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"}
+          / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) < 0.20
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk less than 20% free on /"
+          description: "{{ $value | humanizePercentage }} free. Run: docker system df, du -sh /var/lib/docker/volumes/*"
+
+      - alert: DiskSpaceWarning
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"}
+          / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) < 0.40
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk less than 40% free on /"
+          description: "{{ $value | humanizePercentage }} free. Monitor TimescaleDB volume growth."
+
+  - name: postgres_health
+    rules:
+      - alert: DeadTupleRatioHigh
+        expr: >
+          pg_stat_user_tables_n_dead_tup
+          / (pg_stat_user_tables_n_live_tup + pg_stat_user_tables_n_dead_tup + 1) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead tuple ratio > 5% on {{ $labels.relname }}"
+          description: "{{ $value | humanizePercentage }} dead on {{ $labels.relname }}. Run: VACUUM ANALYZE {{ $labels.relname }}. Root cause: OOM kills leaving aborted transactions."
+
+      - alert: PostgresConnectionsHigh
+        expr: pg_stat_activity_count{state="active"} > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres active connections above 80 (max_connections=100)"
+          description: "{{ $value }} active connections. Connection pool exhaustion risk."
+
+      - alert: TimescaleCompressionJobFailed
+        expr: >
+          increase(pg_stat_bgwriter_checkpoints_req_total[1h]) == 0
+          unless on() (time() - pg_stat_bgwriter_stats_reset_timestamp) < 3600
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Check TimescaleDB compression jobs"
+          description: "Verify SELECT * FROM timescaledb_information.jobs WHERE last_run_status = 'Error';"
+
   - name: indicagent_pipeline
     rules:
       - alert: ProviderDataStoppage
