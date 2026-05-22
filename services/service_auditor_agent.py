@@ -32,7 +32,12 @@ from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
-from src.core.stream_keys import topic_health_events, topic_health_events_dlq, topic_roll_events
+from src.core.stream_keys import (
+    topic_alert_requests,
+    topic_health_events,
+    topic_health_events_dlq,
+    topic_roll_events,
+)
 from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, SERVICE_UP_GAUGE
 
 _ESCALATION_WINDOW = timedelta(minutes=10)
@@ -294,6 +299,33 @@ class ServiceAuditorAgent(BaseAgent):
 
     # -- Check loops ----------------------------------------------------------
 
+    async def _check_feature_pipeline_freshness(self) -> None:
+        """SQL-based freshness check replacing parity_auditor (Phase 104)."""
+        if not self._db_pool:
+            return
+        try:
+            async with self._db_pool.acquire() as conn:
+                stale = await conn.fetch("SELECT * FROM check_feature_pipeline_freshness()")
+            for row in stale:
+                self.logger.warning(
+                    "service_auditor.feature_stale",
+                    symbol=row["symbol"],
+                    tf=row["tf"],
+                    gap_minutes=round(row["gap_minutes"], 1),
+                )
+                await self._kafka_producer.publish(
+                    topic_alert_requests(self.env_name),
+                    {
+                        "alert_type": "feature_pipeline_stale",
+                        "symbol": row["symbol"],
+                        "tf": row["tf"],
+                        "gap_minutes": round(row["gap_minutes"], 1),
+                    },
+                    row["symbol"],
+                )
+        except Exception as exc:
+            self.logger.error("service_auditor.freshness_check_failed", error=str(exc))
+
     async def _prometheus_check_loop(self) -> None:
         while self.running:
             await asyncio.sleep(self._prometheus_check_interval)
@@ -329,6 +361,9 @@ class ServiceAuditorAgent(BaseAgent):
                         threshold_seconds=_STALL_THRESHOLD_SECONDS,
                     )
                     await self._restart_service_by_unit(unit)
+
+                # Feature pipeline freshness (replaces parity_auditor)
+                await self._check_feature_pipeline_freshness()
             except Exception as exc:
                 self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
 
