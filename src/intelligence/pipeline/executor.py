@@ -61,6 +61,21 @@ type _AnalysisWave = tuple[_WaveTierDef, ...]
 # ---------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
+class PluginCallResult:
+    """Result container from _timed_plugin_call.
+
+    Replaces the (result, duration_ms) tuple with a named, typed container
+    that also carries incremental execution metadata for observer recording.
+    """
+
+    outputs: dict
+    duration_ms: float
+    used_incremental: bool
+    null_count: int
+    state: dict | None
+
+
 @dataclass
 class PluginTask:
     """Container for parallel plugin execution metadata."""
