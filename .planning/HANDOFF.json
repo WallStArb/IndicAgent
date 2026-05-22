@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-05-22T11:48:26.640Z",
+  "phase": null,
+  "phase_name": "ad-hoc maintenance — ops health check",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Health check: all services, DB freshness, consumer lag, Docker", "status": "done", "commit": "7cab1b50"},
+    {"id": 2, "name": "Fix 6 I1 plugins missing _state in compute_next (circuit breakers reopening every bar)", "status": "done", "commit": "5b9db4e7"},
+    {"id": 3, "name": "Fix gauge() vs point_gauge() OTel type mismatch (feature_writer, pipeline, cross_asset)", "status": "done", "commit": "5b9db4e7"},
+    {"id": 4, "name": "Mark 25,712 corrupt intelligence_features rows with ctx.data_quality flag", "status": "done", "commit": "7cab1b50"},
+    {"id": 5, "name": "Delete 39 rotated log files and empty stub logs", "status": "done", "commit": "7cab1b50"}
+  ],
+  "remaining_tasks": [
+    {"id": 6, "name": "Add startup validator in executor.py — fail pipeline hard at boot if any incremental plugin violates _state contract", "status": "not_started"},
+    {"id": 7, "name": "Add CI unit test tests/unit/intelligence/test_plugin_state_contract.py — iterate all TIER_I* plugins, call compute_next() with seeded state, assert '_state' in result", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "Mark corrupt rows with ctx.data_quality flag instead of deleting", "rationale": "98K signal_ledger rows reference the window — deletion would create orphans. Flag preserves referential integrity while letting ML/backtest queries filter with WHERE ctx->>'data_quality' IS NULL", "phase": "ops"},
+    {"decision": "Add point_gauge() factory separate from gauge()", "rationale": "gauge() has many .add() callers (correct UpDownCounter semantics); only 3 callsites needed .set() semantics. Changing gauge() broke pipeline. point_gauge() = create_gauge for point-in-time absolute values.", "phase": "ops"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Implement startup validator in src/intelligence/pipeline/executor.py — at PluginExecutor.__init__ or plugin registration, call compute_next() on each incremental plugin with dummy seeded state and assert '_state' in result. If violation found, raise RuntimeError with plugin name. Then write the CI test.",
+  "context_notes": "Root cause of recurring _state bug: direct compute_next() implementors must manually include '_state' — the mixin enforces it automatically but ~30 plugins used the direct pattern. All are now fixed, but there is no structural prevention. The Jim Simons fix is fail-at-startup + CI test. Corrupt data window: 2026-05-21T18:53 to 2026-05-22T11:38."
+}
