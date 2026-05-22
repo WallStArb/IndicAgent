@@ -1,15 +1,25 @@
+"""MarketProfile plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full TPO market profile computation
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract volume_buckets and tick_size state
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class MarketProfilePlugin:
+class MarketProfilePlugin(IncrementalMixin):
     """TPO-based market profile: Point of Control and Value Area."""
 
     name: str = "struct_MarketProfile"
@@ -32,9 +42,9 @@ class MarketProfilePlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
-    _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Full TPO market profile computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -89,42 +99,52 @@ class MarketProfilePlugin:
         va_high = float(buckets[hi])
         va_low = float(buckets[lo])
 
-        result = self._build_output(close, poc_level, va_high, va_low, atr_14)
+        return self._build_output(close, poc_level, va_high, va_low, atr_14)
 
-        # Seed incremental state only when needed (avoid hot-path bloat)
-        if state is not None:
-            tick_size_inc = price_range / 100.0
-            bucket_dict: dict[float, float] = {}
-            for idx, cnt in enumerate(tpo_counts):
-                if cnt > 0:
-                    bucket_dict[round(float(buckets[idx]), 10)] = float(cnt)
-            self._state = {
-                "tick_size": tick_size_inc,
-                "price_min": float(low.min()),
-                "volume_buckets": bucket_dict,
-                "bar_count": len(df),
-                "session_id": "full",
-            }
-            state.update(self._state)
-            result["_state"] = self._state
-        else:
-            result["_state"] = {}
+    def _seed_state(self, frames: dict[str, Any]) -> dict:
+        """Extract volume_buckets and tick_size state for incremental seeding."""
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
 
-        return result
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        """Incremental volume profile update.
+        price_range = float(high.max() - low.min())
+        if price_range <= 0:
+            return {}
 
-        Falls back to compute_full when state is None or empty.
+        tick_size = price_range / 100.0
+        buckets = np.arange(float(low.min()), float(high.max()) + tick_size, tick_size)
+        if len(buckets) < 2:
+            return {}
+
+        low_2d = low[:, np.newaxis]
+        high_2d = high[:, np.newaxis]
+        b_2d = buckets[np.newaxis, :]
+        tpo_counts = ((b_2d >= low_2d) & (b_2d <= high_2d)).sum(axis=0).astype(float)
+
+        bucket_dict: dict[float, float] = {}
+        for idx, cnt in enumerate(tpo_counts):
+            if cnt > 0:
+                bucket_dict[round(float(buckets[idx]), 10)] = float(cnt)
+
+        return {
+            "tick_size": tick_size,
+            "price_min": float(low.min()),
+            "volume_buckets": bucket_dict,
+            "bar_count": len(df),
+            "session_id": "full",
+        }
+
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Incremental volume profile update. Mutates state in place.
 
         State keys:
-            tick_size (float): price bucket size, seeded by compute_full; read-only here.
+            tick_size (float): price bucket size, seeded by _seed_state; read-only here.
             volume_buckets (dict[float, float]): accumulated TPO counts per price level.
             bar_count (int): running bar count since last compute_full.
         """
-        if state is None or not state:
-            return self.compute_full(windows, state=state)
-
         df = windows.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -139,12 +159,11 @@ class MarketProfilePlugin:
 
         tick_size = state.get("tick_size")
         if tick_size is None or tick_size <= 0:
-            return self.compute_full(windows, state=state)
+            return {}
 
         volume_buckets: dict[float, float] = state.get("volume_buckets", {})
 
-        # Distribute this bar's TPO count (1.0 per bucket it spans) incrementally
-        # Match the compute_full algorithm: count = 1 for each bucket in [low, high]
+        # Distribute this bar's TPO count incrementally
         bucket_low = round(bar_low - (bar_low % tick_size), 10)
         bucket = bucket_low
         while bucket <= bar_high + tick_size * 0.5:
@@ -155,7 +174,7 @@ class MarketProfilePlugin:
         state["volume_buckets"] = volume_buckets
         state["bar_count"] = state.get("bar_count", 0) + 1
 
-        # Recompute POC/VAH/VAL from accumulated buckets - O(K) where K = num buckets
+        # Recompute POC/VAH/VAL from accumulated buckets
         if not volume_buckets:
             return {}
 
@@ -190,9 +209,7 @@ class MarketProfilePlugin:
         va_high = sorted_prices[hi]
         va_low = sorted_prices[lo]
 
-        out = self._build_output(close, poc_level, va_high, va_low, atr_14)
-        out["_state"] = state
-        return out
+        return self._build_output(close, poc_level, va_high, va_low, atr_14)
 
     def _build_output(
         self,
@@ -214,7 +231,6 @@ class MarketProfilePlugin:
             else None
         )
 
-        # Gradient companions
         va_width = va_high - va_low
         if price_in_va and va_width > 0:
             va_position_pct = (close - va_low) / va_width

@@ -1,12 +1,22 @@
+"""SessionLevels plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full session level computation
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract session tracking state from full computation
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 _SESSION_BARS = 390  # ~1 trading day on 1m
 _WEEK_BARS = 1950  # ~5 trading days on 1m
@@ -15,7 +25,7 @@ _ET_TZ = ZoneInfo("America/New_York")  # DST-aware; replaces fixed UTC-5 offset
 
 
 @dataclass
-class SessionLevelsPlugin:
+class SessionLevelsPlugin(IncrementalMixin):
     """Session and weekly pivot levels derived from bar-count windows."""
 
     name: str = "struct_SessionLevels"
@@ -43,9 +53,9 @@ class SessionLevelsPlugin:
     supports_incremental: bool = True
     capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=520),)
-    _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Full session level computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -151,7 +161,7 @@ class SessionLevelsPlugin:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
 
-        # Asian session H/L — vectorized: DST-aware ET, 20:00-04:00 ET wraps midnight
+        # Asian session H/L
         if "timestamp" in df.columns and len(df) > 0:
             ts_utc = pd.to_datetime(df["timestamp"], utc=True)
             et_hours = ts_utc.dt.tz_convert(_ET_TZ).dt.hour
@@ -167,49 +177,103 @@ class SessionLevelsPlugin:
             result["asian_session_high"] = None
             result["asian_session_low"] = None
 
-        # Seed incremental state from full computation (only when needed)
-        if state is not None:
-            state["bar_count"] = n
-            state["sess_n"] = sess_n
-            state["session_start_idx"] = n - sess_n
-            state["prior_session_high"] = result.get("prior_session_high")
-            state["prior_session_low"] = result.get("prior_session_low")
-            state["prior_session_close"] = result.get("prior_session_close")
-            state["session_high"] = float(session["high"].max()) if len(session) > 0 else None
-            state["session_low"] = float(session["low"].min()) if len(session) > 0 else None
-            state["session_open"] = float(session["open"].iloc[0]) if len(session) > 0 else None
-            state["session_close_running"] = (
-                float(session["close"].iloc[-1]) if len(session) > 0 else None
-            )
-            state["weekly_pivot"] = result.get("weekly_pivot")
-            state["weekly_r1"] = result.get("weekly_r1")
-            state["weekly_r2"] = result.get("weekly_r2")
-            state["weekly_s1"] = result.get("weekly_s1")
-            state["weekly_s2"] = result.get("weekly_s2")
-            state["weekly_high"] = (
-                float(week_df["high"].max()) if week_df is not None and len(week_df) > 0 else None
-            )
-            state["weekly_low"] = (
-                float(week_df["low"].min()) if week_df is not None and len(week_df) > 0 else None
-            )
-            state["weekly_close"] = (
-                float(week_df["close"].iloc[-1])
-                if week_df is not None and len(week_df) > 0
-                else None
-            )
-            state["overnight_n"] = overnight_n
-            state["overnight_high"] = result.get("overnight_high")
-            state["overnight_low"] = result.get("overnight_low")
-            state["asian_session_high"] = result.get("asian_session_high")
-            state["asian_session_low"] = result.get("asian_session_low")
-            result["_state"] = state
-        else:
-            result["_state"] = {}
-
         return result
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        """Incremental session level update.
+    def _seed_state(self, frames: dict[str, Any]) -> dict:
+        """Extract session tracking state for incremental seeding."""
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        features = frames.get("features") or {}
+        n = len(df)
+        sess_n = min(_SESSION_BARS, n)
+        session = df.iloc[-sess_n:]
+
+        prior_end = n - sess_n
+        prior_n = min(_SESSION_BARS, prior_end)
+        prior = df.iloc[prior_end - prior_n : prior_end] if prior_n > 0 else None
+
+        overnight_n = min(_OVERNIGHT_BARS, sess_n // 4)
+        overnight = df.iloc[-overnight_n:] if overnight_n > 0 else None
+
+        # Weekly pivot computation
+        week_end = n - sess_n
+        week_start = max(0, n - _WEEK_BARS)
+        week_df = df.iloc[week_start:week_end] if week_end > week_start else None
+        if week_df is None or len(week_df) < 5:
+            week_df = prior
+
+        weekly_vals: dict[str, Any] = {}
+        if week_df is not None and len(week_df) > 0:
+            wh = float(week_df["high"].max())
+            wl = float(week_df["low"].min())
+            wc = float(week_df["close"].iloc[-1])
+            wp = (wh + wl + wc) / 3.0
+            wr = wh - wl
+            weekly_vals = {
+                "weekly_pivot": wp,
+                "weekly_r1": 2.0 * wp - wl,
+                "weekly_r2": wp + wr,
+                "weekly_s1": 2.0 * wp - wh,
+                "weekly_s2": wp - wr,
+                "weekly_high": wh,
+                "weekly_low": wl,
+                "weekly_close": wc,
+            }
+
+        prior_vals: dict[str, Any] = {}
+        if prior is not None and len(prior) > 0:
+            prior_vals = {
+                "prior_session_high": float(prior["high"].max()),
+                "prior_session_low": float(prior["low"].min()),
+                "prior_session_close": float(prior["close"].iloc[-1]),
+            }
+        else:
+            prior_vals = {
+                "prior_session_high": None,
+                "prior_session_low": None,
+                "prior_session_close": None,
+            }
+
+        on_high = None
+        on_low = None
+        if overnight is not None and len(overnight) > 0:
+            on_high = float(overnight["high"].max())
+            on_low = float(overnight["low"].min())
+
+        # Asian session
+        asian_high = None
+        asian_low = None
+        if "timestamp" in df.columns and len(df) > 0:
+            ts_utc = pd.to_datetime(df["timestamp"], utc=True)
+            et_hours = ts_utc.dt.tz_convert(_ET_TZ).dt.hour
+            asia_mask = (et_hours >= 20) | (et_hours < 4)
+            asia_bars = df[asia_mask]
+            if len(asia_bars) > 0:
+                asian_high = float(asia_bars["high"].max())
+                asian_low = float(asia_bars["low"].min())
+
+        state: dict[str, Any] = {
+            "bar_count": n,
+            "sess_n": sess_n,
+            "session_start_idx": n - sess_n,
+            "session_high": float(session["high"].max()) if len(session) > 0 else None,
+            "session_low": float(session["low"].min()) if len(session) > 0 else None,
+            "session_open": float(session["open"].iloc[0]) if len(session) > 0 else None,
+            "session_close_running": float(session["close"].iloc[-1]) if len(session) > 0 else None,
+            "overnight_n": overnight_n,
+            "overnight_high": on_high,
+            "overnight_low": on_low,
+            "asian_session_high": asian_high,
+            "asian_session_low": asian_low,
+        }
+        state.update(prior_vals)
+        state.update(weekly_vals)
+        return state
+
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Incremental session level update. Mutates state in place.
 
         Session boundary detection: the "session" is the last _SESSION_BARS bars.
         When bar_count mod _SESSION_BARS crosses a boundary (new session), we:
@@ -217,31 +281,18 @@ class SessionLevelsPlugin:
         2. Reset current session state from the new bar.
         3. Recompute weekly pivots from the now-prior-session data.
 
-        All other fields (overnight, asian session) are approximated from
-        running state maintained per-bar.
-
-        Falls back to compute_full when state is None or empty.
-
         State keys:
             bar_count (int): total bars processed; tracks session boundary.
             session_start_idx (int): df index where current session began.
             session_high (float | None): current session running high.
             session_low (float | None): current session running low.
             session_open (float | None): first bar open of current session.
-            prior_session_high (float | None): previous session high.
-            prior_session_low (float | None): previous session low.
-            prior_session_close (float | None): last bar close of previous session.
-            overnight_high (float | None): high over last overnight_n bars.
-            overnight_low (float | None): low over last overnight_n bars.
+            prior_session_high/low/close (float | None): previous session values.
+            overnight_high/low (float | None): overnight price range.
             overnight_n (int): number of overnight bars (derived once, then cached).
-            asian_session_high (float | None): high over Asian-hour bars.
-            asian_session_low (float | None): low over Asian-hour bars.
-            weekly_pivot / weekly_r1 / weekly_r2 / weekly_s1 / weekly_s2 (float | None).
-            weekly_high / weekly_low / weekly_close (float | None).
+            asian_session_high/low (float | None): Asian session price range.
+            weekly_pivot/r1/r2/s1/s2/high/low/close (float | None): weekly levels.
         """
-        if state is None or not state:
-            return self.compute_full(windows, state=state)
-
         df = windows.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -257,18 +308,14 @@ class SessionLevelsPlugin:
         bar_close = float(bar["close"])
         bar_open = float(bar["open"])
 
-        prev_bar_count = state.get("bar_count", n - 1)
         prev_session_start = state.get("session_start_idx", max(0, n - _SESSION_BARS))
 
-        # Detect session boundary: a new session starts when we've accumulated
-        # _SESSION_BARS bars since the last session start
+        # Detect session boundary
         current_session_length = n - prev_session_start
         new_session = current_session_length > _SESSION_BARS
 
         if new_session:
-            # Roll: current session becomes prior session.
-            # Use session_close_running (last close of the old session), NOT bar_close
-            # which is the first bar of the new session.
+            # Roll: current session becomes prior session
             state["prior_session_high"] = state.get("session_high")
             state["prior_session_low"] = state.get("session_low")
             state["prior_session_close"] = state.get("session_close_running")
@@ -315,8 +362,7 @@ class SessionLevelsPlugin:
             state["overnight_high"] = on_high
             state["overnight_low"] = on_low
 
-        # Asian session: recompute from df if timestamp column available
-        # (fast path: only update if timestamp present, else keep last state value)
+        # Asian session
         if "timestamp" in df.columns and len(df) > 0:
             ts_utc = pd.to_datetime(df["timestamp"], utc=True)
             et_hours = ts_utc.dt.tz_convert(_ET_TZ).dt.hour
@@ -386,7 +432,6 @@ class SessionLevelsPlugin:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
 
-        result["_state"] = state
         return result
 
 

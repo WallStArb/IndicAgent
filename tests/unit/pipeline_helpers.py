@@ -22,6 +22,7 @@ from src.intelligence.pipeline.output_queue import OutputQueue
 from src.intelligence.pipeline.signal_processor import SignalProcessor
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.trading.cis_scorer import CISScorer
+from src.observability.plugin_observer import NoOpPluginObserver
 
 
 def make_agent() -> IntelligencePipelineComputeAgent:
@@ -73,6 +74,7 @@ def make_agent() -> IntelligencePipelineComputeAgent:
         plugin_cache=agent._plugin_cache,
         instrument_map=agent._instrument_map,
         circuit_breakers={},
+        observer=NoOpPluginObserver(),
     )
     # SignalProcessor owns kalman_state, setup_last_fire, and the I7 signal pipeline stages.
     agent._sig_proc = SignalProcessor(

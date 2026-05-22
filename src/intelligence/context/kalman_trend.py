@@ -1,3 +1,12 @@
+"""Kalman trend plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full Kalman filter computation
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract filter state (x_est, P_est, trend_history)
+"""
+
 from __future__ import annotations
 
 import math
@@ -8,11 +17,12 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..plugins.mixins import IncrementalMixin
 
 _CONFIG_PATH = Path(__file__).resolve().parents[3] / "src" / "config" / "kalman_parameters.json"
 
 # Scale factor for converting garch_sigma (log-return units) to price-unit R.
-# garch_sigma is typically 0.001–0.02; squaring and scaling maps to R range 0.1–40.
+# garch_sigma is typically 0.001--0.02; squaring and scaling maps to R range 0.1--40.
 _GARCH_R_SCALE = 10_000.0
 
 
@@ -31,7 +41,7 @@ def _load_parameters() -> dict[str, float]:
 
 
 @dataclass
-class KalmanTrendPlugin:
+class KalmanTrendPlugin(IncrementalMixin):
     """1D Kalman filter (local level model) for trend estimation.
 
     Produces a filtered 'fair value' price and standardized deviation signal.
@@ -142,7 +152,8 @@ class KalmanTrendPlugin:
             "kalman_gain": float(K),
         }
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Full Kalman filter computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -158,25 +169,33 @@ class KalmanTrendPlugin:
         P_est = P_history[-1]
         K = K_history[-1]
 
-        # Save state for incremental updates
-        state = {}
-        state.update(
-            {
-                "x_est": x_est,
-                "P_est": P_est,
-                "trend_history": trend_history,
-                "R": R,
-            }
-        )
+        return self._build_result(float(closes[-1]), x_est, P_est, K, trend_history)
 
-        result = self._build_result(float(closes[-1]), x_est, P_est, K, trend_history)
-        result["_state"] = state
-        return result
+    def _seed_state(self, frames: dict[str, Any]) -> dict:
+        """Extract filter state for incremental seeding."""
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not state:
-            return self.compute_full(windows)
+        features = frames.get("features", {})
+        R = self._get_R(features)
+        closes = df["close"].to_numpy(dtype=float)
 
+        x_history, P_history, K_history = self._run_filter(closes, R)
+
+        trend_history = x_history[-6:]
+        x_est = x_history[-1]
+        P_est = P_history[-1]
+
+        return {
+            "x_est": x_est,
+            "P_est": P_est,
+            "trend_history": trend_history,
+            "R": R,
+        }
+
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental Kalman update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
@@ -200,18 +219,12 @@ class KalmanTrendPlugin:
         if len(trend_history) > 6:
             trend_history = trend_history[-6:]
 
-        state.update(
-            {
-                "x_est": x_est,
-                "P_est": P_est,
-                "trend_history": trend_history,
-                "R": R,
-            }
-        )
+        state["x_est"] = x_est
+        state["P_est"] = P_est
+        state["trend_history"] = trend_history
+        state["R"] = R
 
-        result = self._build_result(close, x_est, P_est, K, trend_history)
-        result["_state"] = state
-        return result
+        return self._build_result(close, x_est, P_est, K, trend_history)
 
 
 plugin = KalmanTrendPlugin()

@@ -4,17 +4,27 @@
 # without approximation (particle filter, pruning). The p95 latency of ~77ms
 # is expected for R=200 on 1m bars. Reduction options: lower max_run_length,
 # or use BOCPD only on selected timeframes. Do NOT force O(1) -- document here.
+"""BOCPDChangePoint plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full BOCPD computation
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract run-length distribution state
+"""
+
 from __future__ import annotations
 
 import copy
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 def _student_t_pdf(x: np.ndarray, df: np.ndarray, loc: np.ndarray, scale: np.ndarray) -> np.ndarray:
@@ -33,7 +43,7 @@ def _student_t_pdf(x: np.ndarray, df: np.ndarray, loc: np.ndarray, scale: np.nda
 
 
 @dataclass
-class BOCPDChangePointPlugin:
+class BOCPDChangePointPlugin(IncrementalMixin):
     """Bayesian Online Change Point Detection (Adams & MacKay 2007).
 
     Detects the moment market regime changes using log returns.
@@ -63,11 +73,9 @@ class BOCPDChangePointPlugin:
     kappa0: float = 1.0
     alpha0: float = 0.1
     beta0: float = 0.01
-    _state: dict = field(default_factory=dict)
 
-    def compute_full(
-        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
-    ) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Full BOCPD computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -83,18 +91,16 @@ class BOCPDChangePointPlugin:
         if len(returns) < 2:
             return {}
 
-        # Run BOCPD on all returns, building state as we go
-        self._reset_state()
+        # Run BOCPD on all returns
+        bocpd_state = self._make_initial_state()
         for x in returns:
-            self._update(float(x), self._state)
+            self._update(float(x), bocpd_state)
 
-        raw_prob = self._state["cp_prob"]
-        run_length = int(np.argmax(self._state["run_length_probs"]))
+        bocpd_state["prev_close"] = float(close[-1])
 
-        # Store prev_close for incremental
-        self._state["prev_close"] = float(close[-1])
+        raw_prob = bocpd_state["cp_prob"]
+        run_length = int(np.argmax(bocpd_state["run_length_probs"]))
 
-        # Feature confirmation
         confirmation = self._compute_confirmation(df, frames)
         adjusted = raw_prob * (0.5 + 0.5 * confirmation)
 
@@ -104,23 +110,48 @@ class BOCPDChangePointPlugin:
             "cp_run_length": float(run_length),
             "cp_confirmation": round(float(confirmation), 4),
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
-            "_state": copy.deepcopy(self._state),  # Deep copy: numpy arrays in state must be independent
         }
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not state or "run_length_probs" not in state:
-            return self.compute_full(windows)
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
+        """Extract run-length distribution state for incremental seeding.
 
+        Deep-copies numpy arrays so they are independent from this call's state.
+        """
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        close = df["close"].to_numpy(dtype=float)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratios = close[1:] / close[:-1]
+            ratios = np.where(ratios > 0, ratios, 1e-10)
+            returns = np.log(ratios)
+
+        if len(returns) < 2:
+            return {}
+
+        bocpd_state = self._make_initial_state()
+        for x in returns:
+            self._update(float(x), bocpd_state)
+
+        bocpd_state["prev_close"] = float(close[-1])
+
+        # Deep copy: numpy arrays in state must be independent from future calls
+        return copy.deepcopy(bocpd_state)
+
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental BOCPD update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 2:
-            return self.compute_full(windows)
+            return {}
 
         close = df["close"].to_numpy(dtype=float)
         current_close = float(close[-1])
         prev_close = state.get("prev_close", current_close)
 
         if prev_close <= 0 or current_close <= 0:
-            return self.compute_full(windows)
+            return {}
 
         x = math.log(current_close / prev_close)
         self._update(x, state)
@@ -138,13 +169,12 @@ class BOCPDChangePointPlugin:
             "cp_run_length": float(run_length),
             "cp_confirmation": round(float(confirmation), 4),
             "cp_detected": 1.0 if adjusted > self.cp_threshold else 0.0,
-            "_state": state,
         }
 
-    def _reset_state(self) -> None:
-        """Initialize BOCPD state for a fresh run."""
+    def _make_initial_state(self) -> dict:
+        """Create a fresh BOCPD state dict."""
         R = self.max_run_length
-        self._state = {
+        state: dict = {
             "run_length_probs": np.zeros(R),
             "mu": np.full(R, self.mu0),
             "kappa": np.full(R, self.kappa0),
@@ -152,7 +182,8 @@ class BOCPDChangePointPlugin:
             "beta": np.full(R, self.beta0),
             "cp_prob": 0.0,
         }
-        self._state["run_length_probs"][0] = 1.0
+        state["run_length_probs"][0] = 1.0
+        return state
 
     def _update(self, x: float, state: dict) -> None:
         """Process one observation through the BOCPD forward pass."""
@@ -216,7 +247,7 @@ class BOCPDChangePointPlugin:
         """Score feature confirmation from I1 outputs (0-1)."""
         features = frames.get("features")
         if not isinstance(features, dict):
-            return 0.5  # No features available — neutral
+            return 0.5  # No features available -- neutral
 
         confirmation = 0.0
         close = df["close"].to_numpy(dtype=float)

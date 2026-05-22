@@ -1,16 +1,26 @@
+"""Parabolic SAR plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full PSAR replay
+- _compute_next_core(frames, state) -> dict: single-bar SAR step
+- _seed_state(frames) -> dict: extract SAR state from full replay
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class PSARPlugin:
-    """Parabolic SAR — trailing stop and reversal system.
+class PSARPlugin(IncrementalMixin):
+    """Parabolic SAR -- trailing stop and reversal system.
 
     psar_value     : current SAR price level
     psar_direction : +1.0 (bull, SAR below price) / -1.0 (bear, SAR above price)
@@ -26,18 +36,33 @@ class PSARPlugin:
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=50),)
     af_step: float = 0.02
     af_max: float = 0.20
-    _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Full PSAR computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
             return {}
 
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
-        n = len(high)
+        _, sar, direction = self._replay_psar(high, low)
 
-        # Initialize from first 5 bars
+        return {"psar_value": sar, "psar_direction": direction}
+
+    def _seed_state(self, frames: dict[str, Any]) -> dict:
+        """Extract PSAR state from full replay for incremental updates."""
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
+        state, _, _ = self._replay_psar(high, low)
+        return state
+
+    def _replay_psar(self, high: np.ndarray, low: np.ndarray) -> tuple[dict, float, float]:
+        """Replay full PSAR over arrays. Returns (state_dict, sar, direction)."""
+        n = len(high)
         init = min(5, n // 2)
         if high[init - 1] >= high[0]:
             direction = 1.0
@@ -89,7 +114,7 @@ class PSARPlugin:
             prev_l = curr_l
             sar = new_sar
 
-        self._state = {
+        state = {
             "sar": sar,
             "ep": ep,
             "af": af,
@@ -99,11 +124,10 @@ class PSARPlugin:
             "prev_prev_high": prev_prev_h,
             "prev_prev_low": prev_prev_l,
         }
-        return {"psar_value": sar, "psar_direction": direction, "_state": self._state}
+        return state, sar, direction
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
-            return self.compute_full(windows)
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental PSAR update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
@@ -111,40 +135,39 @@ class PSARPlugin:
         row = df.iloc[-1]
         curr_h = float(row["high"])
         curr_l = float(row["low"])
-        s = self._state
 
-        if s["direction"] == 1.0:
-            new_sar = s["sar"] + s["af"] * (s["ep"] - s["sar"])
-            new_sar = min(new_sar, s["prev_low"], s["prev_prev_low"])
+        if state["direction"] == 1.0:
+            new_sar = state["sar"] + state["af"] * (state["ep"] - state["sar"])
+            new_sar = min(new_sar, state["prev_low"], state["prev_prev_low"])
             if curr_l < new_sar:
-                s["direction"] = -1.0
-                new_sar = s["ep"]
-                s["ep"] = curr_l
-                s["af"] = self.af_step
+                state["direction"] = -1.0
+                new_sar = state["ep"]
+                state["ep"] = curr_l
+                state["af"] = self.af_step
             else:
-                if curr_h > s["ep"]:
-                    s["ep"] = curr_h
-                    s["af"] = min(s["af"] + self.af_step, self.af_max)
+                if curr_h > state["ep"]:
+                    state["ep"] = curr_h
+                    state["af"] = min(state["af"] + self.af_step, self.af_max)
         else:
-            new_sar = s["sar"] + s["af"] * (s["ep"] - s["sar"])
-            new_sar = max(new_sar, s["prev_high"], s["prev_prev_high"])
+            new_sar = state["sar"] + state["af"] * (state["ep"] - state["sar"])
+            new_sar = max(new_sar, state["prev_high"], state["prev_prev_high"])
             if curr_h > new_sar:
-                s["direction"] = 1.0
-                new_sar = s["ep"]
-                s["ep"] = curr_h
-                s["af"] = self.af_step
+                state["direction"] = 1.0
+                new_sar = state["ep"]
+                state["ep"] = curr_h
+                state["af"] = self.af_step
             else:
-                if curr_l < s["ep"]:
-                    s["ep"] = curr_l
-                    s["af"] = min(s["af"] + self.af_step, self.af_max)
+                if curr_l < state["ep"]:
+                    state["ep"] = curr_l
+                    state["af"] = min(state["af"] + self.af_step, self.af_max)
 
-        s["prev_prev_high"] = s["prev_high"]
-        s["prev_prev_low"] = s["prev_low"]
-        s["prev_high"] = curr_h
-        s["prev_low"] = curr_l
-        s["sar"] = new_sar
+        state["prev_prev_high"] = state["prev_high"]
+        state["prev_prev_low"] = state["prev_low"]
+        state["prev_high"] = curr_h
+        state["prev_low"] = curr_l
+        state["sar"] = new_sar
 
-        return {"psar_value": new_sar, "psar_direction": s["direction"], "_state": self._state}
+        return {"psar_value": new_sar, "psar_direction": state["direction"]}
 
 
 plugin = PSARPlugin()

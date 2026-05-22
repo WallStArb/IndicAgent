@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from opentelemetry import metrics as _otel_metrics
 
 from src.core.service_utils import setup_service_logging
 
@@ -27,22 +26,16 @@ from src.intelligence.register_plugins import (
 from src.intelligence.trading.aggregator import TREND_SETUPS
 
 # ---------------------------------------------------------------------------
-# Module-level OTel metrics
+# Module-level OTel metrics (imported from central registry — Task 2)
 # ---------------------------------------------------------------------------
-
-_pv_meter = _otel_metrics.get_meter("indicagent")
-
-_REGISTERED_PLUGINS_GAUGE = _pv_meter.create_up_down_counter(
-    "plugin_validator_registered_plugins_total",
-    description="Total registered plugins per tier",
+from src.observability.metrics import (  # noqa: E402
+    PLUGIN_VALIDATOR_ERRORS as _VALIDATION_ERRORS_COUNTER,
 )
-_VALIDATION_STATUS_GAUGE = _pv_meter.create_up_down_counter(
-    "plugin_validator_validation_status",
-    description="Validation result status",
+from src.observability.metrics import (
+    PLUGIN_VALIDATOR_REGISTERED_PLUGINS as _REGISTERED_PLUGINS_GAUGE,
 )
-_VALIDATION_ERRORS_COUNTER = _pv_meter.create_counter(
-    "plugin_validator_validation_errors_total",
-    description="Total validation errors",
+from src.observability.metrics import (
+    PLUGIN_VALIDATOR_VALIDATION_STATUS as _VALIDATION_STATUS_GAUGE,
 )
 
 
@@ -58,9 +51,7 @@ def build_synthetic_frames(n: int = 60, seed: int = 0) -> dict[str, pd.DataFrame
     high = np.maximum(high, np.maximum(open_, close))
     low = np.minimum(low, np.minimum(open_, close))
     volume = rng.lognormal(10, 0.5, n).astype(float)
-    df = pd.DataFrame(
-        {"open": open_, "high": high, "low": low, "close": close, "volume": volume}
-    )
+    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": volume})
     return {"main": df}
 
 
@@ -131,7 +122,7 @@ class PluginValidator:
         self.registry = registry
         setup_service_logging("logs/plugin_validator.log")
 
-        # Reference module-level Prometheus constants (guarded against dup registration)
+        # Reference module-level OTel instruments (imported from metrics.py)
         self._registered_plugins_gauge = _REGISTERED_PLUGINS_GAUGE
         self._validation_status_gauge = _VALIDATION_STATUS_GAUGE
         self._validation_errors_counter = _VALIDATION_ERRORS_COUNTER

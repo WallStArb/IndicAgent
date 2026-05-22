@@ -1,3 +1,12 @@
+"""RSI (Relative Strength Index) plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full RSI computation via Wilder's smoothing
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract Wilder's avg_gain/avg_loss from full computation
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,11 +16,11 @@ import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import wilders_update
+from src.intelligence.plugins.mixins import IncrementalMixin, wilders_update
 
 
 @dataclass
-class RSIPlugin:
+class RSIPlugin(IncrementalMixin):
     name: str = "RSI"
     outputs: frozenset[str] = frozenset({"rsi_14"})
     min_lookback: int = 20
@@ -19,14 +28,14 @@ class RSIPlugin:
     capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     periods: list[int] | None = field(default=None)
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.periods:
             self.periods = [14]
         self.outputs = frozenset({f"rsi_{p}" for p in self.periods})
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Full RSI computation using Wilder's smoothing. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < min(self.periods) + 1:
             return {}
@@ -36,8 +45,6 @@ class RSIPlugin:
             if len(close) >= p + 1:
                 rsi = self._rsi_np(close, p)
                 out[f"rsi_{p}"] = float(rsi[-1])
-        state = self._seed_state(frames)
-        out["_state"] = state
         return out
 
     def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
@@ -66,9 +73,8 @@ class RSIPlugin:
             }
         return state_dict
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if state is None:
-            return self.compute_full(windows)
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental RSI update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
@@ -87,13 +93,11 @@ class RSIPlugin:
             s["prev_close"] = close
             # Zero-loss guard (Renaissance: data quality over model complexity)
             # When avg_loss == 0 (no downward moves), RSI returns 100.0 (maximum momentum)
-            # This is mathematically correct: if no loss ever occurred, price only went up
             if s["avg_loss"] == 0:
                 out[key] = 100.0
             else:
                 rs = s["avg_gain"] / s["avg_loss"]
                 out[key] = 100.0 - 100.0 / (1.0 + rs)
-        out["_state"] = state
         return out
 
     @staticmethod

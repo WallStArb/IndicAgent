@@ -1,0 +1,18 @@
+{
+  "inputs": {
+    "n_bars": 2000,
+    "seed": 42
+  },
+  "outputs": {
+    "garch_sigma": 0.009138967746334298,
+    "garch_vol_ratio": 2.4557936030525456,
+    "garch_vol_regime": 1,
+    "garch_shock": 1.7145309116344805
+  },
+  "state_keys": [
+    "prev_sigma2",
+    "prev_close",
+    "sigma_history",
+    "realized_returns"
+  ]
+}

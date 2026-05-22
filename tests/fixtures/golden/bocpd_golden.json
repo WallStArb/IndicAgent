@@ -1,0 +1,22 @@
+{
+  "inputs": {
+    "n_bars": 2000,
+    "seed": 42
+  },
+  "outputs": {
+    "cp_probability": 0.067473,
+    "cp_raw_probability": 0.089964,
+    "cp_run_length": 199.0,
+    "cp_confirmation": 0.5,
+    "cp_detected": 0.0
+  },
+  "state_keys": [
+    "run_length_probs",
+    "mu",
+    "kappa",
+    "alpha",
+    "beta",
+    "cp_prob",
+    "prev_close"
+  ]
+}
