@@ -1,0 +1,10 @@
+[Unit]
+Description=ML Signal Training Materialize Timer -- nightly 02:00 UTC (runs before ml-training at 03:00)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+Unit=indicagent-ml-signal-training-materialize.service
+
+[Install]
+WantedBy=timers.target
