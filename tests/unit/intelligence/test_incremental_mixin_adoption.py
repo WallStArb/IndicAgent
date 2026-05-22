@@ -24,18 +24,7 @@ from src.intelligence.register_plugins import (
 # Plugins with supports_incremental=True that have NOT yet been migrated to IncrementalMixin.
 # Remove each plugin name from this set when its migration commit lands.
 # When this set is empty (Task 16), the test body flips to a hard assertion.
-UNMIGRATED_PLUGINS: frozenset[str] = frozenset(
-    {
-        # Group 3: Model-state plugins (Task 14): BOCPD, HMM (all TFs), GARCH, Kalman
-        "smc_BOCPDChangePoint",
-        "smc_HMMRegime_1m",
-        "smc_HMMRegime_5m",
-        "smc_HMMRegime_15m",
-        "smc_HMMRegime_1h",
-        "ctx_GARCHVolatility",
-        "ctx_KalmanTrend",
-    }
-)
+UNMIGRATED_PLUGINS: frozenset[str] = frozenset()
 
 _ALL_TIERS = [
     TIER_I1,
