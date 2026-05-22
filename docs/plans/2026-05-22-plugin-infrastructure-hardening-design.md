@@ -265,15 +265,15 @@ All 5 follow the existing pattern (module-level constants, OTel SDK):
 
 | Instrument | Type | Labels | Alert Threshold |
 |------------|------|--------|-----------------|
-| `intelligence_plugin_warmup_skip_total` | counter | plugin_name, tier | rate > 50% after 30 bars in session |
-| `intelligence_plugin_output_null_total` | counter | plugin_name, tier | rate > 10x rolling baseline |
-| `intelligence_plugin_state_validation_errors_total` | counter | plugin_name | any non-zero = CRITICAL |
-| `intelligence_plugin_signal_emit_total` | counter | plugin_name, direction | zero for I7 plugin over 4 market hours |
-| `intelligence_plugin_confidence_histogram` | histogram | plugin_name | p50 < 0.15 over 1h |
+| `intelligence_pipeline_plugin_warmup_skip_total` | counter | plugin_name, tier | rate > 50% after 30 bars in session |
+| `intelligence_pipeline_plugin_output_null_total` | counter | plugin_name, tier | rate > 10x rolling baseline |
+| `intelligence_pipeline_plugin_state_validation_errors_total` | counter | plugin_name | any non-zero = CRITICAL |
+| `intelligence_pipeline_plugin_signal_emit_total` | counter | plugin_name, direction | zero for I7 plugin over 4 market hours |
+| `intelligence_pipeline_plugin_confidence_histogram` | histogram | plugin_name | p50 < 0.15 over 1h |
 
 Buckets for confidence histogram: [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95]
 
-Existing `PLUGIN_FALLBACK_TOTAL` (already in metrics.py, currently unrecorded)
+Existing `PLUGIN_FALLBACK_TOTAL` (exists as `plugin_fallbacks_total` — rename to `intelligence_pipeline_plugin_fallback_total` in this phase)
 is wired in this phase.
 
 **Cardinality budget:** ~2,000 new time series. Well within Prometheus capacity.
