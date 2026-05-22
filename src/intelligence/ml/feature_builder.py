@@ -82,7 +82,7 @@ _CATEGORICAL_KEYS: tuple[str, ...] = (
 )
 
 # Training SQL — selects from signal_ledger JOIN intelligence_features.
-# tod_multiplier sourced from i7 JSONB array element 0 (the I7 trading signal payload).
+# tod_multiplier sourced from trading_signals JSONB array element 0 (the I7 trading signal payload).
 # COALESCE to 1.0 so inference and training feature vectors keep identical shape when absent.
 # No-lookahead enforced: f.ts < sl.activated_at.
 _TRAINING_SQL = """
@@ -93,12 +93,12 @@ SELECT
     sl.pnl_r,
     (sl.pnl_r > 0)::int AS win_label,
     sl.features_snapshot,
-    (f.i4->>'hmm_regime')::int AS hmm_regime,
-    (f.i4->>'trend_regime')::float AS trend_regime,
+    (f.regime_features->>'hmm_regime')::int AS hmm_regime,
+    (f.regime_features->>'trend_regime')::float AS trend_regime,
     f.session_type,
-    (f.i1->>'atr_pct')::float AS atr_pct,
-    (f.i1->>'volume_z_score')::float AS volume_z_score,
-    COALESCE((f.i7->0->>'tod_multiplier')::float, 1.0) AS tod_multiplier
+    (f.technical_indicators->>'atr_pct')::float AS atr_pct,
+    (f.technical_indicators->>'volume_z_score')::float AS volume_z_score,
+    COALESCE((f.trading_signals->0->>'tod_multiplier')::float, 1.0) AS tod_multiplier
 FROM signal_ledger sl
 JOIN intelligence_features f
   ON f.symbol = sl.symbol

@@ -264,7 +264,7 @@ class SignalAuditorAgent(BaseAgent):
         return gap_events
 
     async def _check_pipeline_lag(self, instruments: list) -> None:
-        """Observe P50/P95 pipeline_lag_ms from signal_ledger for the last 1h.
+        """Observe P50/P95 pipeline_latency_ms from intelligence_features for the last 1h.
 
         Logs WARNING when P95 > _LAG_P95_WARN_MS. Updates Prometheus gauges.
         """
@@ -275,13 +275,13 @@ class SignalAuditorAgent(BaseAgent):
                     row = await conn.fetchrow(
                         """
                         SELECT
-                          percentile_cont(0.50) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p50,
-                          percentile_cont(0.95) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p95
-                        FROM signal_ledger
+                          percentile_cont(0.50) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p50,
+                          percentile_cont(0.95) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p95
+                        FROM intelligence_features
                         WHERE symbol = $1
-                          AND timeframe = $2
-                          AND feature_ts >= NOW() - INTERVAL '1 hour'
-                          AND pipeline_lag_ms IS NOT NULL
+                          AND tf = $2
+                          AND ts >= NOW() - INTERVAL '1 hour'
+                          AND pipeline_latency_ms IS NOT NULL
                         """,
                         instrument.symbol,
                         tf,
@@ -321,11 +321,14 @@ class SignalAuditorAgent(BaseAgent):
                 row = await conn.fetchrow(
                     """
                     SELECT
-                      AVG(cis_score)    AS cis_mean,
-                      STDDEV(cis_score) AS cis_stddev
-                    FROM signal_ledger
-                    WHERE timeframe = $1
-                      AND feature_ts >= NOW() - ($2 * INTERVAL '1 day')
+                      AVG((tf_sig.value->>'cis_score')::float)    AS cis_mean,
+                      STDDEV((tf_sig.value->>'cis_score')::float) AS cis_stddev
+                    FROM signal_ledger sl
+                    JOIN intelligence_features f ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
+                    JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
+                        ON tf_sig.value->>'signal_id' = sl.signal_id::text
+                    WHERE sl.timeframe = $1
+                      AND sl.feature_ts >= NOW() - ($2 * INTERVAL '1 day')
                     """,
                     tf,
                     _CIS_LOOKBACK_DAYS,

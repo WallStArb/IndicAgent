@@ -235,12 +235,13 @@ class AIContextCache:
             tf=tf,
             ts=row["ts"],
             bar=types.SimpleNamespace(**(row.get("bar") or {})),
-            i1=I1Indicators.model_validate(row.get("i1") or {}),
-            i2=I2Events.model_validate(row.get("i2") or {}),
-            i3=I3Structure.model_validate(row.get("i3") or {}),
-            i4=I4Context.model_validate(row.get("i4") or {}),
-            i5=I5Patterns.model_validate(row.get("i5") or {}),
-            i6=I6Confluence.model_validate(row.get("i6") or {}),
+            i1=I1Indicators.model_validate(row.get("technical_indicators") or {}),
+            i2=I2Events.model_validate(row.get("market_context") or {}),
+            i3=I3Structure.model_validate(row.get("pattern_detections") or {}),
+            i4=I4Context.model_validate(row.get("regime_features") or {}),
+            i5=I5Patterns.model_validate(row.get("confluence_scores") or {}),
+            i6=I6Confluence.model_validate(row.get("cross_timeframe_context") or {}),
+            i7=None,  # trading_signals JSONB array, not unpacked here
             smc=SMCContext.model_validate(row.get("smc") or {}),
         )
         self._cache[(symbol, tf)] = (proxy, time.monotonic())

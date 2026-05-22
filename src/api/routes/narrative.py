@@ -113,12 +113,16 @@ def _build_context_from_row(row) -> AIContext:
         timeframe=row["feature_tf"],
         ts=row["timestamp"],
         bar=bar_ctx,
-        i1=_maybe_validate(I1Indicators, _parse_jsonb(row.get("i1"), default=None)),
-        i2=_maybe_validate(I2Events, _parse_jsonb(row.get("i2"), default=None)),
-        i3=_maybe_validate(I3Structure, _parse_jsonb(row.get("i3"), default=None)),
-        i4=_maybe_validate(I4Context, _parse_jsonb(row.get("i4"), default=None)),
-        i5=_maybe_validate(I5Patterns, _parse_jsonb(row.get("i5"), default=None)),
-        i6=_maybe_validate(I6Confluence, _parse_jsonb(row.get("i6"), default=None)),
+        i1=_maybe_validate(
+            I1Indicators, _parse_jsonb(row.get("technical_indicators"), default=None)
+        ),
+        i2=_maybe_validate(I2Events, _parse_jsonb(row.get("market_context"), default=None)),
+        i3=_maybe_validate(I3Structure, _parse_jsonb(row.get("pattern_detections"), default=None)),
+        i4=_maybe_validate(I4Context, _parse_jsonb(row.get("regime_features"), default=None)),
+        i5=_maybe_validate(I5Patterns, _parse_jsonb(row.get("confluence_scores"), default=None)),
+        i6=_maybe_validate(
+            I6Confluence, _parse_jsonb(row.get("cross_timeframe_context"), default=None)
+        ),
         smc=_maybe_validate(SMCContext, _parse_jsonb(row.get("smc"), default=None)),
         i7=i7_ctx,
     )
@@ -138,14 +142,20 @@ def _prompt_hash(context: AIContext) -> str:
 _SIGNAL_QUERY = """
     SELECT sl.signal_id, sl.symbol, sl.timestamp, sl.feature_tf,
            sl.setup_plugin, sl.direction, sl.confidence,
-           sl.entry_price, sl.stop_loss, sl.targets,
-           sl.regime_type_at_fire, sl.entry_type,
-           f.bar, f.i1, f.i2, f.i3, f.i4, f.i5, f.smc, f.i6
+           tf_sig.value->>'entry_price' AS entry_price,
+           tf_sig.value->>'stop_loss' AS stop_loss,
+           tf_sig.value->'targets' AS targets,
+           tf_sig.value->>'regime_type_at_fire' AS regime_type_at_fire,
+           tf_sig.value->>'entry_type' AS entry_type,
+           f.bar, f.technical_indicators, f.market_context, f.pattern_detections,
+           f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
     FROM signal_ledger sl
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
      AND sl.feature_ts = f.ts
      AND sl.feature_tf = f.tf
+    LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
+        ON tf_sig.value->>'signal_id' = sl.signal_id::text
     WHERE sl.signal_id = $1::uuid
     LIMIT 1
 """
