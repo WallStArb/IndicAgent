@@ -64,6 +64,7 @@ services:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_NUM_PARALLEL=2
       - HSA_OVERRIDE_GFX_VERSION=11.5.0
+      - OLLAMA_KEEP_ALIVE=5m
     devices:
       - /dev/kfd
       - /dev/dri

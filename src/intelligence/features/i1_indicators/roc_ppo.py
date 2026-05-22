@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
@@ -87,11 +88,16 @@ class ROCPPOPlugin:
             span=self.ppo_signal, adjust=False, min_periods=self.ppo_signal
         ).mean()
 
+        ema_fast_val = float(ema_fast.iloc[-1])
+        ema_slow_val = float(ema_slow.iloc[-1])
+        ppo_sig_val = float(ppo_sig.iloc[-1])
+        if math.isnan(ema_fast_val) or math.isnan(ema_slow_val) or math.isnan(ppo_sig_val):
+            return
         self._state = {
             "roc_window": roc_window,
-            "ema_fast": float(ema_fast.iloc[-1]),
-            "ema_slow": float(ema_slow.iloc[-1]),
-            "ppo_signal_ema": float(ppo_sig.iloc[-1]),
+            "ema_fast": ema_fast_val,
+            "ema_slow": ema_slow_val,
+            "ppo_signal_ema": ppo_sig_val,
         }
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
