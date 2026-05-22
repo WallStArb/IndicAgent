@@ -164,7 +164,6 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **`agent_last_message_timestamp_seconds` label key is `agent`** not `agent_id`: `self._last_msg_ts_attrs = {"agent": name}` in `src/core/agent/base.py`. Use `r["metric"].get("agent")` when querying this metric from Prometheus.
 - **gemma4:e4b JSON enforcement:** outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt. `_strip_thinking_tags` only removes `<think>` tags — does not catch prose.
 - **Swarm raw signal confidence field:** `calibrated_confidence` is null in Kafka signal payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
-- **CIS weights column mismatch (FIXED in 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
