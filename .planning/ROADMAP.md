@@ -192,7 +192,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 52.1: Wiring Fixes + Doc Naming** — fixed `topic_feature_processed` ImportError; fixed naive `datetime.now()` calls; wired `persistence_batch_latency`/`persistence_consumer_lag` metrics — COMPLETE
 - [x] **Phase 52.2: BaseAgent Infrastructure + AgentRegistry** — TDD BaseAgent + AgentRegistry; renamed IndicatorService → IndicatorComputeAgent; fixed 4 broken tests; systemd unit — COMPLETE
 - [x] **Phase 52.3: Dual-Write Shadow Writer** — migration `051_feature_snapshots_shadow.sql`; `FeatureSnapshotWriterAgent` consuming `intelligence.journal` into shadow table; independent consumer group — COMPLETE 2026-03-27
-- [x] **Phase 52.4: SignalTrackerAgent Refactor** — renamed `SignalLifecycleService` → `SignalTrackerAgent`; extracted `SignalLedgerRepository`; inherited `BaseAgent`; retired `indicagent-signal-lifecycle.service` — COMPLETE
+- [x] **Phase 52.4: SignalTrackerAgent Refactor** — renamed `SignalLifecycleService` → `SignalTrackerAgent`; extracted `SignalLedgerRepository`; inherited `BaseAgent`; retired `indicagent-signal-lifecycle.service` — COMPLETE 2026-03-27
 - [x] **Phase 52.5: Parity Auditor Agent** — `ParityAuditorAgent` 5-min timer; `FieldViolation` schema; `SHADOW_PARITY_CERTIFIED` gate (60 consecutive clean cycles); autonomous cutover evidence — COMPLETE 2026-03-28
 - [x] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — BaseAgent enhanced lifecycle contract (_setup/_teardown, tracer, topics, running); ProcessManifest replaces singleton AgentRegistry; all 4 pipeline agents migrated; `init_tracing()` wired — COMPLETE 2026-03-28
 - [x] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker service; OTLP HTTP :4318; Grafana datasource provisioned; `OTEL_EXPORTER_OTLP_ENDPOINT` in 5 agent systemd units; `PYTHONUNBUFFERED=1` completed — COMPLETE 2026-03-28
@@ -507,7 +507,7 @@ Plans:
 
 </details>
 <details>
-<v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — SHIPPED 2026-05-20</summary>
+<summary>v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — SHIPPED 2026-05-20</summary>
 
 - [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (4/4 plans)
 - [x] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4/4 plans)
@@ -741,7 +741,7 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 104: Storage Architecture Redesign — ACTIVE (v2.7 tactical insertion)</summary>
+<summary>Phase 104: Storage Architecture Redesign — UPDATED (v2.7 tactical insertion)</summary>
 
 ### Phase 104: Storage Architecture Redesign
 
@@ -751,24 +751,33 @@ Plans:
 
 **Wave 1** *(parallel, no schema changes)*
 - [ ] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
-- [ ] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function
+- [ ] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function + consumer lag verification before group deletion
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN
+- [ ] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN; explicit systemctl stop/start sequence with verification; rollback procedure (pg_dump backup + reverse DDL); dashboard LATERAL JOIN performance note
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration
+- [ ] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
 
 **Success Criteria** (what must be TRUE):
 
   1. 9 hypertables have retention policies (timescaledb_information.jobs has 9+ policy_retention rows)
   2. 6 Kafka topics have retention.bytes=524288000 (no longer -1)
   3. feature_snapshots_shadow table no longer exists; 13 GB reclaimed
-  4. intelligence_features has 8 renamed columns (technical_indicators, market_context, pattern_detections, regime_features, confluence_scores, cross_timeframe_context, trading_signals, llm_narrative); no i1..i8 columns
-  5. signal_ledger has ~38 columns (down from 97); no entry_price/stop_loss/confidence/cis_score (live in trading_signals JSONB)
-  6. ml_signal_training hypertable exists, flat typed columns, nightly populated via systemd timer
-  7. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements join)
-  8. All affected services (feature_writer, signal_writer, signal_tracker_compute, lifecycle_writer, signal_auditor, signal_metrics_compute) restart cleanly with new schema
+  4. feature_snapshot_writer_group consumer group deleted only after verifying zero lag (orphan offsets prevented)
+  5. intelligence_features has 8 renamed columns (technical_indicators, market_context, pattern_detections, regime_features, confluence_scores, cross_timeframe_context, trading_signals, llm_narrative); no i1..i8 columns
+  6. signal_ledger has ~38 columns (down from 97); no entry_price/stop_loss/confidence/cis_score (live in trading_signals JSONB)
+  7. ml_signal_training hypertable exists, flat typed columns, nightly populated via systemd timer
+  8. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements join)
+  9. All affected services (feature_writer, signal_writer, signal_tracker_compute, lifecycle_writer, signal_auditor, signal_metrics_compute) restart cleanly with new schema
+  10. DB backup exists at /tmp/indicagent-pre-migration-*.dump and rollback procedure documented
+  11. Dashboard LATERAL JOIN latency monitored (target <500ms p95)
+  12. ml_signal_training outcome backfill uses UPSERT pattern for idempotent updates
+
+**Revision notes (2026-05-22):**
+- Plan 02: Added consumer lag verification before deleting feature_snapshot_writer_group to prevent orphan offsets
+- Plan 03: Added explicit systemctl stop sequence with verification; added pg_dump backup and rollback DDL procedure; added LATERAL JOIN performance note for dashboard API
+- Plan 04: Clarified outcome backfill strategy using ON CONFLICT DO UPDATE UPSERT pattern; handles late-resolving pnl_r/mae/mfe idempotently
 
 </details>
 
@@ -1006,7 +1015,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 81. Signal Lifecycle Hardening | v2.5 | 8/8 | Complete | 2026-05-10 |
 | 82. ML Intelligence Quality & Qualitative Foundation | v2.5 | 6/6 | Complete | 2026-05-14 |
 | 83. Observability Hardening | v2.5 | 7/7 | Complete | 2026-05-16 |
-| 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 | - |
+| 084. Base Agent Hardening | v2.6 | 4/4 | Complete | 2026-05-16 |
 | 085. Persistence Writer Migration | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 086. Pipeline Hardening | v2.6 | 4/4 | Complete | 2026-05-17 |
 | 087. Signal Transform Architecture Phases 2-4 | v2.6 | 0/TBD | Deferred | - |
@@ -1028,6 +1037,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 104. Storage Architecture Redesign | v2.7 | 0/4 | Planned | - |
-
-(... remaining ROADMAP content unchanged ...)
+| 104. Storage Architecture Redesign | v2.7 | 0/4 | UPDATED | - |
