@@ -750,14 +750,14 @@ Plans:
 **Plans**: 4 plans in 3 waves
 
 **Wave 1** *(parallel, no schema changes)*
-- [ ] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
-- [ ] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function + consumer lag verification before group deletion
+- [x] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
+- [x] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function + consumer lag verification before group deletion
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN; explicit systemctl stop/start sequence with verification; rollback procedure (pg_dump backup + reverse DDL); dashboard LATERAL JOIN performance note
+- [x] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN; explicit systemctl stop/start sequence with verification; rollback procedure (pg_dump backup + reverse DDL); dashboard LATERAL JOIN performance note
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
+- [x] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
 
 **Success Criteria** (what must be TRUE):
 
@@ -1037,4 +1037,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 104. Storage Architecture Redesign | v2.7 | 0/4 | UPDATED | - |
+| 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete   | 2026-05-22 |
