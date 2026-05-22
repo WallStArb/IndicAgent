@@ -1,12 +1,3 @@
-"""MACD (Moving Average Convergence Divergence) plugin -- migrated to IncrementalMixin.
-
-State ownership: IncrementalMixin handles _state lifecycle.
-Implements:
-- _compute_full_core(frames) -> dict: full MACD computation via pandas EWM
-- _compute_next_core(frames, state) -> dict: single-bar EMA update
-- _seed_state(frames) -> dict: extract final EMA values for incremental seeding
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,11 +6,11 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import IncrementalMixin, get_main_df, update_ema
+from src.intelligence.plugins.mixins import get_main_df, update_ema
 
 
 @dataclass
-class MACDPlugin(IncrementalMixin):
+class MACDPlugin:
     name: str = "MACD"
     outputs: frozenset[str] = frozenset(
         {"macd_12_26_9", "macd_signal_12_26_9", "macd_histogram_12_26_9"}
@@ -45,8 +36,7 @@ class MACDPlugin(IncrementalMixin):
             }
         )
 
-    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        """Full MACD computation using pandas EWM. Returns outputs only (no _state)."""
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
@@ -63,15 +53,17 @@ class MACDPlugin(IncrementalMixin):
             out[f"macd_{fast}_{slow}_{signal}"] = float(macd_line.iloc[-1])
             out[f"macd_signal_{fast}_{slow}_{signal}"] = float(macd_signal.iloc[-1])
             out[f"macd_histogram_{fast}_{slow}_{signal}"] = float(macd_hist.iloc[-1])
+        state = {}
+        self._seed_state(frames, state)
+        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
         """Extract EMA state for incremental MACD updates."""
         df = get_main_df(frames, 1)
         if df is None:
-            return {}
+            return
         close = df["close"]
-        state: dict = {}
         for fast, slow, signal in self.configs:
             if len(close) < slow + signal + 1:
                 continue
@@ -86,10 +78,12 @@ class MACDPlugin(IncrementalMixin):
                 "ema_slow": float(ema_slow_series.iloc[-1]),
                 "ema_signal": float(macd_signal_series.iloc[-1]),
             }
-        return state
 
-    def _compute_next_core(self, windows: dict[str, pd.DataFrame], state: dict) -> dict[str, Any]:
-        """Single-bar incremental MACD update. Mutates state in place."""
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
+        if state is None:
+            return self.compute_full(windows)
         df = get_main_df(windows, 1)
         if df is None:
             return {}
@@ -114,6 +108,7 @@ class MACDPlugin(IncrementalMixin):
             out[f"macd_{fast}_{slow}_{signal}"] = macd_val
             out[f"macd_signal_{fast}_{slow}_{signal}"] = s["ema_signal"]
             out[f"macd_histogram_{fast}_{slow}_{signal}"] = histogram
+        out["_state"] = state
         return out
 
 

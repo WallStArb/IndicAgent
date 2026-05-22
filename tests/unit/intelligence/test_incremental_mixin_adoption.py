@@ -26,9 +26,6 @@ from src.intelligence.register_plugins import (
 # When this set is empty (Task 16), the test body flips to a hard assertion.
 UNMIGRATED_PLUGINS: frozenset[str] = frozenset(
     {
-        # Group 1A (Task 9): RSI, MACD
-        "RSI",
-        "MACD",
         # Group 1B (Task 10): CCI, Aroon, Chandelier, CMF
         "CCI",
         "ind_Aroon",
