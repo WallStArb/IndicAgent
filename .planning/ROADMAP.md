@@ -507,7 +507,7 @@ Plans:
 
 </details>
 <details>
-<v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — IN PROGRESS</summary>
+<v2.6 Foundation Hardening & Signal Transform (Phases 084-092) — SHIPPED 2026-05-20</summary>
 
 - [x] **Phase 084: Base Agent Hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (4/4 plans)
 - [x] **Phase 085: Persistence Writer Migration** — all 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params across positional-tuple writers (4/4 plans)
@@ -520,16 +520,20 @@ Plans:
   - [x] 086-02-PLAN.md — PIPE-02 (signal_writer_agent: validate_signal gate + DLQ buffer)
   - [x] 086-03-PLAN.md — OBS-03 (BaseAgent.last_processed_at + service_auditor stall detection)
   - [x] 086-04-PLAN.md — OBS-02 (/api/health/system Prometheus aggregation route)
-- [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — gated on ~May 25 data accumulation (0/TBD plans)
-- [ ] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent (0/5 plans)
-- [ ] **Phase 089: Compute Performance Optimization** — eliminate per-bar allocation waste, fix plugin state race condition, convert O(N) plugins to incremental compute (0/TBD plans)
+- [ ] **Phase 087: Signal Transform Architecture Phases 2-4** — deferred; gated on data accumulation (0/TBD plans)
+- [x] **Phase 088: God Class Decomposition** — extract PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue from IntelligencePipelineComputeAgent; 1928→763 lines (5/5 plans)
+- [x] **Phase 089: Compute Performance Optimization** — per-bar allocation waste eliminated; plugin state race fixed; per-key concurrency via PerKeyWorkerManager (6/6 plans)
+- [x] **Phase 090: Signal Ledger Thread Safety** — signal_ledger_repository `_to_row` + field annotations; threading.RLock for settings.py globals (2/2 plans) — verified 2026-05-19
+- [x] **Phase 091: Instrument Registry** — FX PK collision fix, pg_notify trigger, asyncpg LISTEN, soft-delete route (6/6 plans)
+- [x] **Phase 091.1: Instrument Registry Hardening** — BarAuditorAgent gap-fill; additional registry hardening (5/5 plans)
+- [x] **Phase 092: Signal Quality Completeness** — (3/3 plans)
 
 *(Qualitative/fundamental horizontal lanes → v2.7 Horizontal Intelligence Foundation)*
 
 </details>
 
 <details>
-<summary>v2.7 Mathematical Correctness & AI Platform Modernization (Phases 093-103) — ACTIVE</summary>
+<summary>v2.7 Mathematical Correctness & AI Platform Modernization (Phases 093-103) — ACTIVE (093 ✅, 100 ✅, 100.5 next)</summary>
 
 **Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Replace hand-rolled LLM boilerplate with a composable, measurable stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
 
@@ -669,27 +673,102 @@ Plans:
   5. Plugin registration uses shared metadata helpers (no more ad-hoc `supports_incremental` patterns)
   6. Zero increase in per-bar latency (shared code must not add overhead to hot path)
 
-**Status**: 6/6 plans created and reviewed (2026-05-21). Code review findings applied.
+**Status**: ✅ COMPLETE — 6/6 plans executed and verified (2026-05-22)
 
 **Plans**: 6 plans in 4 waves
 
 **Wave 1**
 
-- [x] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df) — PLANNED
+- [x] 100-01-PLAN.md — Shared utility functions (wilders_update, update_ema, get_main_df)
 
 **Wave 2**
 
-- [x] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation — PLANNED
-- [x] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD) — COMPLETE (2026-05-21)
+- [x] 100-02-PLAN.md — IncrementalMixin class + ATR reference implementation
+- [x] 100-03-PLAN.md — Fix 5 HIGH bugs (RSI, CMF, MarketProfile, SessionLevels, BOCPD)
 
 **Wave 3**
 
-- [x] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner) — PLANNED
+- [x] 100-04-PLAN.md — Migrate 6 easy plugins to IncrementalMixin (ADX, Stochastic, WilliamsR, MFI, VolumeZscore, Keltner)
 
 **Wave 4**
 
 - [x] 100-05-PLAN.md — Migrate I1/I2 plugins to get_main_df() (Bollinger, MovingAverages, MACD, ROC/PPO, AC Oscillator, CCI, AccelerationRegime) — PLANNED
 - [x] 100-06-PLAN.md — Correct supports_incremental flags on delegation plugins (CVD, OFI, MAComposite) + conformance test — PLANNED
+
+</details>
+
+<details>
+<summary>Phase 100.5: Plugin Infrastructure Hardening — ACTIVE</summary>
+
+### Phase 100.5: Plugin Infrastructure Hardening
+
+**Goal**: Eliminate silent failure in the plugin system by enforcing structural contracts, wiring production-grade observability, and migrating 24 incremental plugins from ad-hoc state management to IncrementalMixin.
+**Depends on**: Phase 100 (IncrementalMixin + ATR reference), Phase 093 (mathematical correctness)
+
+**Architecture:** PluginObserver (single recording surface) + IncrementalMixin (state lifecycle) + emit_signal() (validate at construction).
+
+**Wave 1** — Observability layer (independent)
+
+- [ ] 100.5-PLAN.md Task 1 — Add 5 new OTel instruments + rename plugin_fallbacks_total
+- [ ] 100.5-PLAN.md Task 2 — Move plugin_validator inline metrics to metrics.py
+- [ ] 100.5-PLAN.md Task 3 — Add PluginCallResult dataclass to executor.py
+- [ ] 100.5-PLAN.md Task 4 — Create PluginObserver + NoOpPluginObserver
+
+**Wave 2** — Executor integration (requires Wave 1)
+
+- [ ] 100.5-PLAN.md Task 5 — Wire PluginObserver into PluginExecutor + frame pre-validation
+
+**Wave 3** — Signal contract + CI gates (independent)
+
+- [ ] 100.5-PLAN.md Task 6 — Add emit_signal() to plugin_utils.py
+- [ ] 100.5-PLAN.md Task 7 — CI hard-block: test_incremental_mixin_adoption.py
+- [ ] 100.5-PLAN.md Task 8 — Equivalence test infrastructure + fixture directory
+
+**Wave 4** — Plugin migrations (requires Task 8)
+
+- [ ] 100.5-PLAN.md Task 9  — Migrate Group 1A: RSI, MACD (reference implementations)
+- [ ] 100.5-PLAN.md Task 10 — Migrate Group 1B: CCI, Aroon, Chandelier, CMF
+- [ ] 100.5-PLAN.md Task 11 — Migrate Group 1C: HV, ROC/PPO, PSAR, StochRSI, AC Oscillator
+- [ ] 100.5-PLAN.md Task 12 — Migrate remaining simple plugins (Bollinger, Donchian, MAs, OBV, SuperTrend, VWAP, SessionLevels, MarketProfile, BollingerSqueeze)
+- [ ] 100.5-PLAN.md Task 13 — (consolidated into Task 12)
+- [ ] 100.5-PLAN.md Task 14 — Migrate Group 3: BOCPD, HMM, GARCH, Kalman (src/intelligence/context/)
+
+**Wave 5** — Output consistency + cleanup (requires Wave 4)
+
+- [ ] 100.5-PLAN.md Task 15 — Output key consistency CI test
+- [ ] 100.5-PLAN.md Task 16 — Final verification + legacy fixture cleanup + service restart
+
+</details>
+
+<details>
+<summary>Phase 104: Storage Architecture Redesign — ACTIVE (v2.7 tactical insertion)</summary>
+
+### Phase 104: Storage Architecture Redesign
+
+**Goal**: Eliminate 39 GB/week disk growth from 3 structural violations. Establish 3-store architecture: intelligence_features (canonical, renamed columns) + signal_ledger (slimmed to ~25 columns, lifecycle/outcome only) + ml_signal_training (nightly materialized typed-column store). Apply retention policies to 9 hypertables and byte caps to 6 unbounded Kafka topics.
+**Depends on**: None (tactical insertion - no upstream phase blockers)
+**Plans**: 4 plans in 3 waves
+
+**Wave 1** *(parallel, no schema changes)*
+- [ ] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
+- [ ] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration
+
+**Success Criteria** (what must be TRUE):
+
+  1. 9 hypertables have retention policies (timescaledb_information.jobs has 9+ policy_retention rows)
+  2. 6 Kafka topics have retention.bytes=524288000 (no longer -1)
+  3. feature_snapshots_shadow table no longer exists; 13 GB reclaimed
+  4. intelligence_features has 8 renamed columns (technical_indicators, market_context, pattern_detections, regime_features, confluence_scores, cross_timeframe_context, trading_signals, llm_narrative); no i1..i8 columns
+  5. signal_ledger has ~38 columns (down from 97); no entry_price/stop_loss/confidence/cis_score (live in trading_signals JSONB)
+  6. ml_signal_training hypertable exists, flat typed columns, nightly populated via systemd timer
+  7. Dashboard /api/signals/active continues to return fire-time fields (via LATERAL jsonb_array_elements join)
+  8. All affected services (feature_writer, signal_writer, signal_tracker_compute, lifecycle_writer, signal_auditor, signal_metrics_compute) restart cleanly with new schema
 
 </details>
 
@@ -949,5 +1028,6 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
+| 104. Storage Architecture Redesign | v2.7 | 0/4 | Planned | - |
 
 (... remaining ROADMAP content unchanged ...)
