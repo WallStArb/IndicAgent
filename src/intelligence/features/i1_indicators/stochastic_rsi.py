@@ -115,7 +115,7 @@ class StochRSIPlugin:
             return {}
 
         d = sum(s["k_window"]) / len(s["k_window"])
-        return {"stoch_rsi_k_14": round(k, 4), "stoch_rsi_d_14": round(d, 4)}
+        return {"stoch_rsi_k_14": round(k, 4), "stoch_rsi_d_14": round(d, 4), "_state": self._state}
 
 
 plugin = StochRSIPlugin()

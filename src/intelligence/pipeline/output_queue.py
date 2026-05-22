@@ -22,7 +22,7 @@ from typing import Any
 import structlog
 
 from src.core.kafka_utils import KafkaProducerClient
-from src.observability.metrics import counter, gauge
+from src.observability.metrics import counter, point_gauge
 
 
 class OutputQueue:
@@ -62,7 +62,7 @@ class OutputQueue:
             "intelligence_pipeline_output_buffer_drops_total",
             "Output buffer drops due to queue full",
         )
-        self._buffer_depth = gauge(
+        self._buffer_depth = point_gauge(
             "intelligence_pipeline_output_buffer_depth",
             "Current depth of async output queue",
         )
@@ -154,7 +154,7 @@ class OutputQueue:
                     break
 
             # Update depth metric once per batch
-            self._buffer_depth.add(self._queue.qsize())
+            self._buffer_depth.set(self._queue.qsize())
 
             # Publish all items with per-item error isolation.
             # ``handled`` tracks items whose task_done() has been called so that

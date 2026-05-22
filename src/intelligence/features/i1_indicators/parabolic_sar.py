@@ -144,7 +144,7 @@ class PSARPlugin:
         s["prev_low"] = curr_l
         s["sar"] = new_sar
 
-        return {"psar_value": new_sar, "psar_direction": s["direction"]}
+        return {"psar_value": new_sar, "psar_direction": s["direction"], "_state": self._state}
 
 
 plugin = PSARPlugin()

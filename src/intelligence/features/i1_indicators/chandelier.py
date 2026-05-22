@@ -101,6 +101,7 @@ class ChandelierPlugin:
         return {
             "chandelier_long_22": round(highest_high - self.multiplier * s["atr"], 6),
             "chandelier_short_22": round(lowest_low + self.multiplier * s["atr"], 6),
+            "_state": self._state,
         }
 
 
