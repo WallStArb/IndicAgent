@@ -85,6 +85,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-graduation-compute": 8,
     "indicagent-graduation-writer": 8,
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
+    "indicagent-ml-signal-training-materialize": 8,  # oneshot timer service; no lag threshold needed
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,
     "indicagent-signal-replay": 9,
