@@ -26,11 +26,6 @@ from src.intelligence.register_plugins import (
 # When this set is empty (Task 16), the test body flips to a hard assertion.
 UNMIGRATED_PLUGINS: frozenset[str] = frozenset(
     {
-        # Group 1B (Task 10): CCI, Aroon, Chandelier, CMF
-        "CCI",
-        "ind_Aroon",
-        "ind_ChandelierExit",
-        "ind_CMF",
         # Group 1C (Task 11): HistoricalVolatility, ROC/PPO, ParabolicSAR, StochRSI, ACOscillator
         "ind_HistoricalVolatility",
         "ROC_PPO",

@@ -1,17 +1,27 @@
+"""Chandelier Exit plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full Chandelier via Wilder ATR
+- _compute_next_core(frames, state) -> dict: single-bar ATR + rolling window update
+- _seed_state(frames) -> dict: extract ATR + rolling high/low windows
+"""
+
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class ChandelierPlugin:
-    """Chandelier Exit — ATR-based adaptive trailing stop levels.
+class ChandelierPlugin(IncrementalMixin):
+    """Chandelier Exit -- ATR-based adaptive trailing stop levels.
 
     Long stop  = highest_high(period) - multiplier * ATR(period)
     Short stop = lowest_low(period)   + multiplier * ATR(period)
@@ -28,9 +38,9 @@ class ChandelierPlugin:
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 22
     multiplier: float = 3.0
-    _state: dict = field(default_factory=dict)
 
-    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
+        """Full Chandelier computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.period + 1:
             return {}
@@ -43,17 +53,54 @@ class ChandelierPlugin:
         highest_high = float(np.max(high[-self.period :]))
         lowest_low = float(np.min(low[-self.period :]))
 
-        self._state = {
+        return {
+            "chandelier_long_22": round(highest_high - self.multiplier * atr, 6),
+            "chandelier_short_22": round(lowest_low + self.multiplier * atr, 6),
+        }
+
+    def _seed_state(self, frames: dict[str, Any]) -> dict:
+        """Extract ATR and rolling high/low windows for incremental Chandelier updates."""
+        df = frames.get("main")
+        if df is None or len(df) < self.period + 1:
+            return {}
+
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
+        close = df["close"].to_numpy(dtype=float)
+
+        atr = self._compute_atr(high, low, close, self.period)
+
+        return {
             "atr": atr,
             "prev_close": float(close[-1]),
             "high_window": deque(high[-self.period :].tolist(), maxlen=self.period),
             "low_window": deque(low[-self.period :].tolist(), maxlen=self.period),
         }
 
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental Chandelier update. Mutates state in place."""
+        df = windows.get("main")
+        if df is None or len(df) < 1:
+            return {}
+
+        row = df.iloc[-1]
+        h = float(row["high"])
+        low_price = float(row["low"])
+        c = float(row["close"])
+
+        tr = max(h - low_price, abs(h - state["prev_close"]), abs(low_price - state["prev_close"]))
+        alpha = 1.0 / self.period
+        state["atr"] = (1 - alpha) * state["atr"] + alpha * tr
+        state["prev_close"] = c
+        state["high_window"].append(h)
+        state["low_window"].append(low_price)
+
+        highest_high = max(state["high_window"])
+        lowest_low = min(state["low_window"])
+
         return {
-            "chandelier_long_22": round(highest_high - self.multiplier * atr, 6),
-            "chandelier_short_22": round(lowest_low + self.multiplier * atr, 6),
-            "_state": self._state,
+            "chandelier_long_22": round(highest_high - self.multiplier * state["atr"], 6),
+            "chandelier_short_22": round(lowest_low + self.multiplier * state["atr"], 6),
         }
 
     def _compute_atr(
@@ -74,35 +121,6 @@ class ChandelierPlugin:
         for i in range(period + 1, n):
             atr = (1 - alpha) * atr + alpha * float(tr[i])
         return atr
-
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
-            return self.compute_full(windows)
-        df = windows.get("main")
-        if df is None or len(df) < 1:
-            return {}
-
-        row = df.iloc[-1]
-        h = float(row["high"])
-        low_price = float(row["low"])
-        c = float(row["close"])
-        s = self._state
-
-        tr = max(h - low_price, abs(h - s["prev_close"]), abs(low_price - s["prev_close"]))
-        alpha = 1.0 / self.period
-        s["atr"] = (1 - alpha) * s["atr"] + alpha * tr
-        s["prev_close"] = c
-        s["high_window"].append(h)
-        s["low_window"].append(low_price)
-
-        highest_high = max(s["high_window"])
-        lowest_low = min(s["low_window"])
-
-        return {
-            "chandelier_long_22": round(highest_high - self.multiplier * s["atr"], 6),
-            "chandelier_short_22": round(lowest_low + self.multiplier * s["atr"], 6),
-            "_state": self._state,
-        }
 
 
 plugin = ChandelierPlugin()

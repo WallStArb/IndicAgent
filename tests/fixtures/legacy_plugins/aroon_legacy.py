@@ -1,27 +1,17 @@
-"""Aroon indicator plugin -- migrated to IncrementalMixin.
-
-State ownership: IncrementalMixin handles _state lifecycle.
-Implements:
-- _compute_full_core(frames) -> dict: full Aroon via numpy argmax/argmin
-- _compute_next_core(frames, state) -> dict: single-bar rolling window update
-- _seed_state(frames) -> dict: extract rolling high/low windows
-"""
-
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class AroonPlugin(IncrementalMixin):
-    """Aroon indicator -- measures bars since the period high/low.
+class AroonPlugin:
+    """Aroon indicator — measures bars since the period high/low.
 
     aroon_up  = argmax(highs over period+1 bars) / period * 100
     aroon_down = argmin(lows over period+1 bars) / period * 100
@@ -38,9 +28,9 @@ class AroonPlugin(IncrementalMixin):
     capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 25
+    _state: dict = field(default_factory=dict)
 
-    def _compute_full_core(self, frames: dict[str, Any]) -> dict[str, Any]:
-        """Full Aroon computation. Returns outputs only (no _state)."""
+    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.period + 1:
             return {}
@@ -48,49 +38,42 @@ class AroonPlugin(IncrementalMixin):
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
 
+        # Window of (period+1) bars: oldest at index 0, current at index period
         h_win = high[-(self.period + 1) :]
         l_win = low[-(self.period + 1) :]
 
         aroon_up = float(np.argmax(h_win)) / self.period * 100.0
         aroon_down = float(np.argmin(l_win)) / self.period * 100.0
 
-        return {
-            "aroon_up_25": round(aroon_up, 2),
-            "aroon_down_25": round(aroon_down, 2),
-            "aroon_osc_25": round(aroon_up - aroon_down, 2),
-        }
-
-    def _seed_state(self, frames: dict[str, Any]) -> dict:
-        """Extract rolling high/low windows for incremental Aroon updates."""
-        df = frames.get("main")
-        if df is None or len(df) < self.period + 1:
-            return {}
-
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-        h_win = high[-(self.period + 1) :]
-        l_win = low[-(self.period + 1) :]
-
-        return {
+        self._state = {
             "high_window": deque(h_win.tolist(), maxlen=self.period + 1),
             "low_window": deque(l_win.tolist(), maxlen=self.period + 1),
         }
 
-    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
-        """Single-bar incremental Aroon update. Mutates state in place."""
+        return {
+            "aroon_up_25": round(aroon_up, 2),
+            "aroon_down_25": round(aroon_down, 2),
+            "aroon_osc_25": round(aroon_up - aroon_down, 2),
+            "_state": self._state,
+        }
+
+    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
+        if not self._state:
+            return self.compute_full(windows)
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
 
         row = df.iloc[-1]
-        state["high_window"].append(float(row["high"]))
-        state["low_window"].append(float(row["low"]))
+        s = self._state
+        s["high_window"].append(float(row["high"]))
+        s["low_window"].append(float(row["low"]))
 
-        if len(state["high_window"]) < self.period + 1:
+        if len(s["high_window"]) < self.period + 1:
             return {}
 
-        hw = list(state["high_window"])
-        lw = list(state["low_window"])
+        hw = list(s["high_window"])
+        lw = list(s["low_window"])
 
         aroon_up = float(np.argmax(hw)) / self.period * 100.0
         aroon_down = float(np.argmin(lw)) / self.period * 100.0
@@ -99,6 +82,7 @@ class AroonPlugin(IncrementalMixin):
             "aroon_up_25": round(aroon_up, 2),
             "aroon_down_25": round(aroon_down, 2),
             "aroon_osc_25": round(aroon_up - aroon_down, 2),
+            "_state": self._state,
         }
 
 
