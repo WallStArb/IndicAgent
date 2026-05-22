@@ -149,3 +149,18 @@ None - plan executed exactly as written. All acceptance criteria met:
 This completes Phase 104 Plan 04. The ml_signal_training hypertable is ready to receive nightly materializations. The next 02:00 UTC trigger will materialize the previous trading day's signals with flat typed columns. ML training pipeline can now be updated to read from ml_signal_training instead of ad-hoc JSONB unnesting.
 
 **Integration note:** The `feature_builder.py` `_TRAINING_SQL` query (used by ML training) currently does `f.trading_signals->0->>'tod_multiplier'` for array access. After this plan, ML training can directly read `tod_multiplier` from the typed column in `ml_signal_training`, eliminating the JSONB path entirely. This update will be done in a future ML training refinement phase.
+
+## Self-Check: PASSED
+
+All created files verified:
+- db/migrations/094_create_ml_signal_training.sql ✓
+- src/intelligence/services/ml_signal_training_materialize_agent.py ✓
+- services/ml_signal_training_agent.py ✓
+- production/systemd/indicagent-ml-signal-training-materialize.service ✓
+- production/systemd/indicagent-ml-signal-training-materialize.timer ✓
+- .planning/phases/104-storage-architecture-redesign/104-04-SUMMARY.md ✓
+
+All commits verified:
+- 064f221f: feat(104-04): create ml_signal_training hypertable + materialize agent ✓
+- 8648eecb: feat(104-04): add systemd timer + service units + service_auditor registration ✓
+- f13ae858: docs(104-04): complete ML signal training materialized store plan ✓
