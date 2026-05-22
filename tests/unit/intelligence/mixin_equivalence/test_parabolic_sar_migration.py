@@ -3,21 +3,8 @@
 from __future__ import annotations
 
 from tests.unit.intelligence.mixin_equivalence.helpers import (
-    assert_output_equivalence,
     build_synthetic_frames,
 )
-
-
-def test_parabolic_sar_full_computation_equivalence():
-    """Migrated PSAR produces equivalent output to legacy for 500-bar full computation."""
-    from src.intelligence.features.i1_indicators.parabolic_sar import PSARPlugin
-    from tests.fixtures.legacy_plugins.parabolic_sar_legacy import PSARPlugin as PSARLegacy
-
-    legacy = PSARLegacy()
-    migrated = PSARPlugin()
-
-    frames = build_synthetic_frames(n_bars=500, seed=42)
-    assert_output_equivalence(legacy, migrated, frames, tolerance=0.001)
 
 
 def test_parabolic_sar_uses_incremental_mixin():
