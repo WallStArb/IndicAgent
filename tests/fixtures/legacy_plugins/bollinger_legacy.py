@@ -1,12 +1,3 @@
-"""Bollinger Bands plugin -- migrated to IncrementalMixin.
-
-State ownership: IncrementalMixin handles _state lifecycle.
-Implements:
-- _compute_full_core(frames) -> dict: full Bollinger computation
-- _compute_next_core(frames, state) -> dict: single-bar incremental update
-- _seed_state(frames) -> dict: extract rolling window state from full computation
-"""
-
 from __future__ import annotations
 
 from collections import deque
@@ -16,11 +7,11 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import IncrementalMixin, get_main_df
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
-class BollingerPlugin(IncrementalMixin):
+class BollingerPlugin:
     name: str = "BollingerBands"
     outputs: frozenset[str] = frozenset({"bb_20_2_upper", "bb_20_2_mid", "bb_20_2_lower"})
     min_lookback: int = 25
@@ -44,13 +35,13 @@ class BollingerPlugin(IncrementalMixin):
             }
         )
 
-    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        """Full Bollinger computation. Returns outputs only (no _state)."""
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
         close = df["close"]
         out: dict[str, Any] = {}
+        state = {}
         for period, std_dev in self.configs:
             if len(close) < period + 1:
                 continue
@@ -61,18 +52,8 @@ class BollingerPlugin(IncrementalMixin):
             out[f"bb_{period}_{int(std_dev)}_upper"] = float(upper.iloc[-1])
             out[f"bb_{period}_{int(std_dev)}_mid"] = float(mid.iloc[-1])
             out[f"bb_{period}_{int(std_dev)}_lower"] = float(lower.iloc[-1])
-        return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
-        """Extract rolling window state for incremental updates."""
-        df = get_main_df(frames, 1)
-        if df is None:
-            return {}
-        close = df["close"]
-        state: dict = {}
-        for period, std_dev in self.configs:
-            if len(close) < period:
-                continue
+            # Initialize state for incremental updates
             window_data = close.iloc[-period:].to_numpy(copy=False)
             key = f"bb_{period}_{int(std_dev)}"
             state[key] = {
@@ -82,10 +63,15 @@ class BollingerPlugin(IncrementalMixin):
                 "std_dev": std_dev,
                 "period": period,
             }
-        return state
+        out["_state"] = state
+        return out
 
-    def _compute_next_core(self, windows: dict[str, pd.DataFrame], state: dict) -> dict[str, Any]:
-        """Single-bar incremental Bollinger update. Mutates state in place."""
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
+        if state is None:
+            return self.compute_full(windows)
+
         df = get_main_df(windows, 1)
         if df is None:
             return {}
@@ -123,6 +109,7 @@ class BollingerPlugin(IncrementalMixin):
             out[f"bb_{period}_{int(std_dev)}_mid"] = float(mid)
             out[f"bb_{period}_{int(std_dev)}_lower"] = float(lower)
 
+        out["_state"] = state
         return out
 
 
