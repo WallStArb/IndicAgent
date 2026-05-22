@@ -181,7 +181,8 @@ class IncrementalMixin:
         Args:
             frames: Plugin frames dict (contains 'main' DataFrame and optional
                     context frames).
-            state:  Ignored -- compute_full always reseeds state from scratch.
+            state:  Optional external dict to populate with seeded state.
+                    When provided, mutated in place for backward compatibility.
 
         Returns:
             Output dict from _compute_full_core with _state attached. Returns {}
@@ -190,7 +191,10 @@ class IncrementalMixin:
         result = self._compute_full_core(frames)
         if not result:
             return {}
-        result["_state"] = self._seed_state(frames)
+        seeded_state = self._seed_state(frames)
+        result["_state"] = seeded_state
+        if state is not None:
+            state.update(seeded_state)
         return result
 
     def compute_next(self, frames: dict, *, state: dict | None = None) -> dict:
