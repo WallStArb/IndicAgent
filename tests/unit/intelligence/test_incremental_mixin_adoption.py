@@ -26,17 +26,6 @@ from src.intelligence.register_plugins import (
 # When this set is empty (Task 16), the test body flips to a hard assertion.
 UNMIGRATED_PLUGINS: frozenset[str] = frozenset(
     {
-        # Group simple (Task 12): Bollinger, Donchian, MovingAverages, OBV, Supertrend, VWAP,
-        #                          SessionLevels, MarketProfile, BollingerSqueeze
-        "BollingerBands",
-        "DonchianChannels",
-        "MovingAverages",
-        "OBV",
-        "Supertrend",
-        "VWAP",
-        "struct_SessionLevels",
-        "struct_MarketProfile",
-        "BollingerSqueeze",
         # Group 3: Model-state plugins (Task 14): BOCPD, HMM (all TFs), GARCH, Kalman
         "smc_BOCPDChangePoint",
         "smc_HMMRegime_1m",

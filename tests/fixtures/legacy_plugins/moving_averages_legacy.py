@@ -1,12 +1,3 @@
-"""Moving Averages plugin -- migrated to IncrementalMixin.
-
-State ownership: IncrementalMixin handles _state lifecycle.
-Implements:
-- _compute_full_core(frames) -> dict: full SMA/EMA computation
-- _compute_next_core(frames, state) -> dict: single-bar incremental update
-- _seed_state(frames) -> dict: extract rolling window + EMA state
-"""
-
 from __future__ import annotations
 
 from collections import deque
@@ -16,11 +7,11 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import IncrementalMixin, get_main_df
+from src.intelligence.plugins.mixins import get_main_df
 
 
 @dataclass
-class MovingAveragesPlugin(IncrementalMixin):
+class MovingAveragesPlugin:
     name: str = "MovingAverages"
     outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
@@ -44,9 +35,11 @@ class MovingAveragesPlugin(IncrementalMixin):
 
     sma_periods: list[int] = field(default_factory=lambda: [20, 50, 100, 200])
     ema_periods: list[int] = field(default_factory=lambda: [8, 9, 13, 21, 55])
+    _state: dict = field(default_factory=dict)
 
-    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
-        """Full SMA/EMA computation. Returns outputs only (no _state)."""
+    def compute_full(
+        self, frames: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
         df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
@@ -71,15 +64,20 @@ class MovingAveragesPlugin(IncrementalMixin):
             except Exception:
                 pass
 
+        new_state: dict = {}
+        self._seed_state(frames, new_state)
+        self._state = new_state
+        out["_state"] = new_state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
+    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict | None = None) -> None:
         """Extract rolling window and EMA state for incremental updates."""
+        if state is None:
+            state = self._state
         df = get_main_df(frames, 1)
         if df is None:
-            return {}
+            return
         close = df["close"]
-        state: dict = {}
 
         # SMA: keep rolling window + running sum
         for p in self.sma_periods:
@@ -99,10 +97,11 @@ class MovingAveragesPlugin(IncrementalMixin):
             if pd.notna(ema_val):
                 state[f"ema_{p}"] = float(ema_val)
 
-        return state
-
-    def _compute_next_core(self, windows: dict[str, pd.DataFrame], state: dict) -> dict[str, Any]:
-        """Single-bar incremental SMA/EMA update. Mutates state in place."""
+    def compute_next(
+        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
+    ) -> dict[str, Any]:
+        if state is None:
+            return self.compute_full(windows)
         df = get_main_df(windows, 1)
         if df is None:
             return {}
@@ -134,6 +133,7 @@ class MovingAveragesPlugin(IncrementalMixin):
             state[key] = new_ema
             out[key] = new_ema
 
+        out["_state"] = state
         return out
 
 
