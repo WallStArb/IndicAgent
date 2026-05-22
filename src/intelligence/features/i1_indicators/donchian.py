@@ -1,16 +1,26 @@
+"""Donchian Channels plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full Donchian computation
+- _compute_next_core(frames, state) -> dict: single-bar incremental update
+- _seed_state(frames) -> dict: extract deque state from full computation
+"""
+
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.plugins.mixins import IncrementalMixin
 
 
 @dataclass
-class DonchianChannelsPlugin:
+class DonchianChannelsPlugin(IncrementalMixin):
     """Donchian Channels: N-period highest high / lowest low.
 
     Breakout indicator used in turtle trading systems.
@@ -26,7 +36,6 @@ class DonchianChannelsPlugin:
     capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=100),)
     period: int = 20
-    _state: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.outputs = frozenset(
@@ -37,7 +46,8 @@ class DonchianChannelsPlugin:
             }
         )
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Full Donchian computation. Returns outputs only (no _state)."""
         df = frames.get("main")
         if df is None or len(df) < self.period:
             return {}
@@ -48,28 +58,26 @@ class DonchianChannelsPlugin:
         lower = float(low.iloc[-self.period :].min())
         mid = (upper + lower) / 2.0
 
-        self._seed_state(frames)
         return {
             f"donchian_upper_{self.period}": upper,
             f"donchian_mid_{self.period}": mid,
             f"donchian_lower_{self.period}": lower,
-            "_state": self._state,
         }
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
+        """Extract deque state from full computation for incremental seeding."""
         df = frames.get("main")
         if df is None:
-            return
+            return {}
         highs = df["high"].iloc[-self.period :].tolist()
         lows = df["low"].iloc[-self.period :].tolist()
-        self._state = {
+        return {
             "high_window": deque(highs, maxlen=self.period),
             "low_window": deque(lows, maxlen=self.period),
         }
 
-    def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
-        if not self._state:
-            return self.compute_full(windows)
+    def _compute_next_core(self, windows: dict[str, Any], state: dict) -> dict[str, Any]:
+        """Single-bar incremental Donchian update. Mutates state in place."""
         df = windows.get("main")
         if df is None or len(df) < 1:
             return {}
@@ -77,19 +85,17 @@ class DonchianChannelsPlugin:
         h = float(row["high"])
         lo = float(row["low"])
 
-        s = self._state
-        s["high_window"].append(h)
-        s["low_window"].append(lo)
+        state["high_window"].append(h)
+        state["low_window"].append(lo)
 
-        upper = max(s["high_window"])
-        lower = min(s["low_window"])
+        upper = max(state["high_window"])
+        lower = min(state["low_window"])
         mid = (upper + lower) / 2.0
 
         return {
             f"donchian_upper_{self.period}": upper,
             f"donchian_mid_{self.period}": mid,
             f"donchian_lower_{self.period}": lower,
-            "_state": self._state,
         }
 
 

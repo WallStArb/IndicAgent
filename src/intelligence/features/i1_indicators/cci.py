@@ -1,3 +1,12 @@
+"""CCI (Commodity Channel Index) plugin -- migrated to IncrementalMixin.
+
+State ownership: IncrementalMixin handles _state lifecycle.
+Implements:
+- _compute_full_core(frames) -> dict: full CCI via Lambert's formula
+- _compute_next_core(frames, state) -> dict: single-bar rolling window update
+- _seed_state(frames) -> dict: extract rolling typical-price window
+"""
+
 from __future__ import annotations
 
 from collections import deque
@@ -7,11 +16,11 @@ from typing import Any
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
-from src.intelligence.plugins.mixins import get_main_df
+from src.intelligence.plugins.mixins import IncrementalMixin, get_main_df
 
 
 @dataclass
-class CCIPlugin:
+class CCIPlugin(IncrementalMixin):
     name: str = "CCI"
     outputs: frozenset[str] = frozenset({"cci_14"})
     min_lookback: int = 20
@@ -25,7 +34,8 @@ class CCIPlugin:
             self.periods = [14]
         self.outputs = frozenset({f"cci_{p}" for p in self.periods})
 
-    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    def _compute_full_core(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        """Full CCI computation using Lambert's formula. Returns outputs only (no _state)."""
         df = get_main_df(frames, self.min_lookback)
         if df is None:
             return {}
@@ -34,7 +44,6 @@ class CCIPlugin:
         for p in self.periods:
             if len(df) < p + 1:
                 continue
-            # Standard Lambert CCI: MAD uses single window mean
             window = tp.iloc[-p:]
             mean_tp = float(window.mean())
             mad = float((window - mean_tp).abs().mean())
@@ -42,17 +51,15 @@ class CCIPlugin:
                 out[f"cci_{p}"] = 0.0
             else:
                 out[f"cci_{p}"] = (float(tp.iloc[-1]) - mean_tp) / (0.015 * mad)
-        state = {}
-        self._seed_state(frames, state)
-        out["_state"] = state
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame], state: dict) -> None:
+    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> dict:
         """Extract rolling typical price window for incremental CCI updates."""
         df = get_main_df(frames, 1)
         if df is None:
-            return
+            return {}
         tp = (df["high"] + df["low"] + df["close"]) / 3.0
+        state: dict = {}
         for p in self.periods:
             if len(df) < p + 1:
                 continue
@@ -60,12 +67,10 @@ class CCIPlugin:
             state[f"cci_{p}"] = {
                 "tp_window": deque(tp_vals, maxlen=p),
             }
+        return state
 
-    def compute_next(
-        self, windows: dict[str, pd.DataFrame], *, state: dict | None = None
-    ) -> dict[str, Any]:
-        if state is None:
-            return self.compute_full(windows)
+    def _compute_next_core(self, windows: dict[str, pd.DataFrame], state: dict) -> dict[str, Any]:
+        """Single-bar incremental CCI update. Mutates state in place."""
         df = get_main_df(windows, 1)
         if df is None:
             return {}
@@ -87,7 +92,6 @@ class CCIPlugin:
                     out[key] = 0.0
                 else:
                     out[key] = (tp - mean_tp) / (0.015 * mad)
-        out["_state"] = state
         return out
 
 

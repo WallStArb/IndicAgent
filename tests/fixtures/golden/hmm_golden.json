@@ -1,0 +1,28 @@
+{
+  "inputs": {
+    "n_bars": 2000,
+    "seed": 42
+  },
+  "outputs": {
+    "hmm_regime": 0.0,
+    "hmm_regime_prob": 0.945912,
+    "hmm_prob_ranging": 0.945912,
+    "hmm_prob_trending_up": 0.0357,
+    "hmm_prob_trending_down": 0.018388,
+    "hmm_regime_duration": 2000.0,
+    "hmm_n_dims": 2,
+    "hmm_warmed_up": true,
+    "hmm_regime_entropy": 0.353534,
+    "hmm_regime_velocity": 0.0
+  },
+  "state_keys": [
+    "alpha",
+    "prev_close",
+    "return_buffer",
+    "prev_regime",
+    "regime_duration",
+    "bars_processed",
+    "n_dims",
+    "prob_history"
+  ]
+}

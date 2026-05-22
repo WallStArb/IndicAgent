@@ -1,0 +1,21 @@
+{
+  "inputs": {
+    "n_bars": 2000,
+    "seed": 42
+  },
+  "outputs": {
+    "kalman_trend": 3409.701808558959,
+    "kalman_slope": 27.104652639142387,
+    "kalman_price_position": 24.49875015104762,
+    "kalman_uncertainty": 0.7807764064044153,
+    "kalman_upper": 3411.4690396207097,
+    "kalman_lower": 3407.934577497208,
+    "kalman_gain": 0.3903882032022075
+  },
+  "state_keys": [
+    "x_est",
+    "P_est",
+    "trend_history",
+    "R"
+  ]
+}

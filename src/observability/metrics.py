@@ -38,8 +38,14 @@ def point_gauge(name: str, documentation: str):
 # Plugin pipeline metrics
 # ---------------------------------------------------------------------------
 
+# Dual-emit: old name retained for Grafana dashboards (plugin_fallbacks_total appears
+# in production/grafana/dashboards/pipeline-health.json). Remove old name in follow-on phase.
 PLUGIN_FALLBACK_TOTAL = _meter.create_counter(
     "plugin_fallbacks_total",
+    description="[DEPRECATED] Plugin fallbacks to direct calculation. Use intelligence_pipeline_plugin_fallback_total.",
+)
+PLUGIN_FALLBACK_TOTAL_NEW = _meter.create_counter(
+    "intelligence_pipeline_plugin_fallback_total",
     description="Plugin fallbacks to direct calculation",
 )
 PLUGIN_DURATION_MS = _meter.create_histogram(
@@ -54,6 +60,48 @@ PLUGIN_ERRORS_TOTAL = _meter.create_counter(
 THREAD_POOL_WORKERS = _meter.create_up_down_counter(
     "intelligence_pipeline_thread_pool_workers",
     description="Current thread pool worker count",
+)
+
+# ---------------------------------------------------------------------------
+# New plugin observability metrics (Phase 100.5)
+# ---------------------------------------------------------------------------
+
+PLUGIN_WARMUP_SKIP_TOTAL = _meter.create_counter(
+    "intelligence_pipeline_plugin_warmup_skip_total",
+    description="Plugin executions skipped due to insufficient warmup bars (min_lookback not met)",
+)
+PLUGIN_OUTPUT_NULL_TOTAL = _meter.create_counter(
+    "intelligence_pipeline_plugin_output_null_total",
+    description="Plugin calls returning empty or None output (insufficient data bars)",
+)
+PLUGIN_STATE_VALIDATION_ERRORS_TOTAL = _meter.create_counter(
+    "intelligence_pipeline_plugin_state_validation_errors_total",
+    description="Plugin state validation errors (missing _state key in incremental plugin output)",
+)
+PLUGIN_SIGNAL_EMIT_TOTAL = _meter.create_counter(
+    "intelligence_pipeline_plugin_signal_emit_total",
+    description="I7 signals emitted via emit_signal(), labeled by plugin and direction",
+)
+PLUGIN_CONFIDENCE_HISTOGRAM = _meter.create_histogram(
+    "intelligence_pipeline_plugin_confidence",
+    description="Distribution of signal confidence values at emission",
+)
+
+# ---------------------------------------------------------------------------
+# Plugin validator metrics — absorbed from plugin_validator.py inline block (Task 2)
+# ---------------------------------------------------------------------------
+
+PLUGIN_VALIDATOR_REGISTERED_PLUGINS = _meter.create_up_down_counter(
+    "plugin_validator_registered_plugins_total",
+    description="Total registered plugins per tier",
+)
+PLUGIN_VALIDATOR_VALIDATION_STATUS = _meter.create_up_down_counter(
+    "plugin_validator_validation_status",
+    description="Validation result status",
+)
+PLUGIN_VALIDATOR_ERRORS = _meter.create_counter(
+    "plugin_validator_validation_errors_total",
+    description="Total validation errors",
 )
 
 LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = _meter.create_counter(
