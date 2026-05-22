@@ -255,6 +255,8 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         Guarantees:
         - Offset committed ONLY after _flush_batch succeeds (no data loss on crash)
         - On _flush_batch exception: buffer left intact for retry
+        - Flush failures are logged but do not crash the agent; the next flush
+          interval will retry the same batch.
 
         IMPORTANT: Subclasses MUST assign self._consumer in _setup() for offset
         commits to work. Using a different attribute name (e.g. self._kafka_consumer)
@@ -287,7 +289,6 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 self._flush_errors_total.add(1)
                 span.set_attribute("error", True)
                 self.logger.exception("flush_failed", batch_size=len(batch))
-                raise
 
     # -----------------------------------------------------------------------
     # Default consume loop — subclasses can override for custom routing
@@ -349,9 +350,22 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
     # -----------------------------------------------------------------------
 
     async def _teardown(self) -> None:
-        """Final flush before shutdown. Override to add consumer/DB cleanup."""
+        """Final flush before shutdown. Override to add consumer/DB cleanup.
+
+        Catches flush failures to prevent crash loops: a failed final flush is
+        logged as an error but does not prevent the agent from shutting down.
+        Unflushed records remain in Kafka (not committed) and will be retried
+        on next startup.
+        """
         if self._buffer:
-            await self._do_flush()
+            try:
+                await self._do_flush()
+            except Exception:
+                self.logger.exception(
+                    "teardown_flush_failed",
+                    buffer_size=len(self._buffer),
+                    note="unflushed records remain in Kafka; will retry on restart",
+                )
 
     # -----------------------------------------------------------------------
     # Consumer lag reporting (override of BaseAgent default)

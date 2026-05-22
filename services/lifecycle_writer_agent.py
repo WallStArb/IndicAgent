@@ -185,7 +185,6 @@ UPDATE signal_ledger
         t0 = time.perf_counter()
         assert self._repo is not None
 
-        # Group by transition_type — merge signal_id into data for batch_execute
         groups: dict[str, list[dict]] = defaultdict(list)
         for item in batch:
             entry = {"signal_id": item["signal_id"], **item["data"]}
@@ -194,9 +193,6 @@ UPDATE signal_ledger
 
         for ttype, items in groups.items():
             if ttype == "exit":
-                # Use idempotency-guarded writer (WHERE exit_at IS NULL) so
-                # live tracker and replay auditor can both emit EXIT transitions
-                # without coordination.  Second writer is always a no-op.
                 await self._flush_exit_items(items)
             else:
                 await self._repo.batch_execute(ttype, items)
