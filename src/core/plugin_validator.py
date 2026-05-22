@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from opentelemetry import metrics as _otel_metrics
 
 from src.core.service_utils import setup_service_logging
@@ -42,6 +44,24 @@ _VALIDATION_ERRORS_COUNTER = _pv_meter.create_counter(
     "plugin_validator_validation_errors_total",
     description="Total validation errors",
 )
+
+
+def build_synthetic_frames(n: int = 60, seed: int = 0) -> dict[str, pd.DataFrame]:
+    """Synthetic OHLCV frames for plugin state-contract probing."""
+    rng = np.random.default_rng(seed)
+    close = 5000.0 * np.cumprod(1 + rng.normal(0.0001, 0.005, n))
+    spread = rng.uniform(0.001, 0.003, n)
+    open_ = close * (1 + rng.normal(0, 0.001, n))
+    high = np.maximum(close * (1 + spread), close)
+    low = np.minimum(close * (1 - spread), close)
+    # Second pass ensures high/low envelope the perturbed open as well
+    high = np.maximum(high, np.maximum(open_, close))
+    low = np.minimum(low, np.minimum(open_, close))
+    volume = rng.lognormal(10, 0.5, n).astype(float)
+    df = pd.DataFrame(
+        {"open": open_, "high": high, "low": low, "close": close, "volume": volume}
+    )
+    return {"main": df}
 
 
 @dataclass
@@ -134,6 +154,9 @@ class PluginValidator:
 
         # 5. TREND_SETUPS sync
         report.add(self._validate_trend_sets_sync())
+
+        # 6. Incremental _state contract
+        report.add(self._validate_incremental_state_contract())
 
         # Emit metrics
         self._emit_metrics(report)
@@ -318,6 +341,90 @@ class PluginValidator:
             )
 
         return ValidationResult(name="trend_sets_sync", status="PASS", details=[])
+
+    def _validate_incremental_state_contract(self) -> ValidationResult:
+        """Verify every incremental plugin returns _state in compute_next() output.
+
+        Catches the class of bug where a developer sets supports_incremental=True
+        but forgets to include _state in the compute_next() return dict, causing
+        silent state corruption in production (the Renaissance bug).
+        """
+        frames = build_synthetic_frames()
+        all_tiers = [
+            ("I1", TIER_I1),
+            ("I2", TIER_I2),
+            ("I3", TIER_I3),
+            ("I4", TIER_I4),
+            ("I5", TIER_I5),
+            ("SMC", TIER_SMC),
+            ("I6", TIER_I6),
+            ("I7", TIER_I7),
+        ]
+
+        errors: list[ValidationError] = []
+
+        def add_error(tier: str, plugin: str, message: str) -> None:
+            errors.append(ValidationError(tier=tier, plugin=plugin, message=message))
+
+        missing_state_hint = "Pattern: return {**outputs, '_state': state}"
+
+        for tier_name, tier_list in all_tiers:
+            for plugin_name in tier_list:
+                plugin = self.registry.get_indicator(plugin_name) or self.registry.get_pattern(
+                    plugin_name
+                )
+                if plugin is None or not getattr(plugin, "supports_incremental", False):
+                    continue
+
+                # Phase 1: seed state via compute_full()
+                try:
+                    seed_result = plugin.compute_full(frames)
+                except Exception as exc:
+                    add_error(
+                        tier_name,
+                        plugin_name,
+                        f"compute_full() raised during state contract check: {exc}",
+                    )
+                    continue
+
+                if not isinstance(seed_result, dict) or not seed_result:
+                    continue
+
+                if "_state" not in seed_result:
+                    add_error(
+                        tier_name,
+                        plugin_name,
+                        f"compute_full() returned non-empty dict without _state. {missing_state_hint}",
+                    )
+                    continue
+
+                state = seed_result.get("_state")
+                if not state:
+                    continue
+
+                # Phase 2: incremental step via compute_next()
+                try:
+                    result = plugin.compute_next(frames, state=state)
+                except Exception as exc:
+                    add_error(
+                        tier_name,
+                        plugin_name,
+                        f"compute_next() raised during state contract check: {exc}",
+                    )
+                    continue
+
+                if isinstance(result, dict) and result and "_state" not in result:
+                    add_error(
+                        tier_name,
+                        plugin_name,
+                        f"compute_next() returned non-empty dict without _state. {missing_state_hint}",
+                    )
+
+        return ValidationResult(
+            name="incremental_state_contract",
+            status="PASS" if not errors else "FAIL",
+            details=errors,
+        )
 
     def _emit_metrics(self, report: ValidationReport) -> None:
         """Emit Prometheus metrics for instrumentation."""
