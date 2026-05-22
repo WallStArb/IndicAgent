@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.7
-milestone_name: Evolvable AI Foundation
-status: ready_to_plan
-stopped_at: Phase 100.5 complete (1/1) — ready to discuss Phase 101
-last_updated: 2026-05-22T17:21:44.066Z
-last_activity: 2026-05-22 -- Phase 100.5 execution started
+milestone_name: milestone
+status: executing
+stopped_at: Completed Phase 104-03 - Column rename + signal ledger slim
+last_updated: "2026-05-22T23:13:24.701Z"
+last_activity: 2026-05-22
 progress:
-  total_phases: 8
-  completed_phases: 2
-  total_plans: 21
-  completed_plans: 53
-  percent: 25
+  total_phases: 18
+  completed_phases: 12
+  total_plans: 69
+  completed_plans: 56
+  percent: 67
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 101 — composite fitness function
+**Current focus:** Phase 104 — storage-architecture-redesign
 
 ## Current Position
 
-Phase: 101
-Plan: Not started
-Status: Ready to plan
+Phase: 104 (storage-architecture-redesign) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-05-22
 
 ## Phase Overview
@@ -154,8 +154,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-22T14:00:00Z
-Stopped at: Phase 100.5 GSD structure created — ready to execute
+Last session: 2026-05-22T23:13:24.697Z
+Stopped at: Completed Phase 104-03 - Column rename + signal ledger slim
 Last session: 2026-05-18T20:57:19.608Z
 Stopped at: Completed 089-04-PLAN.md - PERF-03 plugin state race fix
 Resume file: None
@@ -243,3 +243,4 @@ Next: /gsd:execute-phase 088
 | Phase 091 P06 | 4 | 2 tasks | 2 files |
 | Phase 091-instrument-registry P04 | 90 | 2 tasks | 9 files |
 | Phase 091-instrument-registry P05 | 3 | 4 tasks | 1 files |
+| Phase 104 P03 | 45 | 3 tasks | 16 files |
