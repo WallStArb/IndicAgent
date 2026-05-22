@@ -47,7 +47,6 @@ from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     PERSISTENCE_CONSUMER_LAG,
     counter,
-    gauge,
     point_gauge,
 )
 

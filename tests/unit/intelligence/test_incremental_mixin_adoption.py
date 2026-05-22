@@ -1,8 +1,8 @@
 """CI adoption gate: every plugin with supports_incremental=True must use IncrementalMixin.
 
-Strategy: xfail(strict=True) with shrinking allowlist — CI stays green throughout migrations.
-Each migration commit removes the plugin name from UNMIGRATED_PLUGINS.
-Test flips to hard assertion when UNMIGRATED_PLUGINS is empty (Task 16).
+All plugins have been migrated (Tasks 9-14). This is now a hard assertion with no xfail
+allowlist. Any plugin that sets supports_incremental=True must be an instance of
+IncrementalMixin or this test fails immediately.
 """
 
 from __future__ import annotations
@@ -20,11 +20,6 @@ from src.intelligence.register_plugins import (
     TIER_I7,
     TIER_SMC,
 )
-
-# Plugins with supports_incremental=True that have NOT yet been migrated to IncrementalMixin.
-# Remove each plugin name from this set when its migration commit lands.
-# When this set is empty (Task 16), the test body flips to a hard assertion.
-UNMIGRATED_PLUGINS: frozenset[str] = frozenset()
 
 _ALL_TIERS = [
     TIER_I1,
@@ -62,21 +57,13 @@ _INCREMENTAL_PLUGINS = _collect_incremental_plugins()
 
 
 @pytest.mark.parametrize("plugin_name", _INCREMENTAL_PLUGINS)
-@pytest.mark.xfail(strict=True, reason="not yet migrated to IncrementalMixin")
 def test_plugin_uses_incremental_mixin(plugin_name: str) -> None:
     """Every incremental plugin must be an instance of IncrementalMixin.
 
-    xfail(strict=True): test is EXPECTED to fail for plugins in UNMIGRATED_PLUGINS.
-    When a plugin is removed from UNMIGRATED_PLUGINS, the test starts passing —
-    strict=True means a surprise pass becomes a test failure, preventing accidental
-    removal of a plugin from the allowlist without completing migration.
-
-    CI invariant: this file never intentionally causes red CI.
+    Hard assertion: no xfail allowlist. All plugins have been migrated in Tasks 9-14.
+    Adding supports_incremental=True to a new plugin without using IncrementalMixin
+    will fail this test immediately.
     """
-    if plugin_name not in UNMIGRATED_PLUGINS:
-        # Already migrated — skip the xfail body and run the real assertion
-        pytest.skip("already migrated — passes in test_plugin_uses_incremental_mixin_migrated")
-
     from src.intelligence.plugins import registry
 
     plugin = registry.get_indicator(plugin_name) or registry.get_pattern(plugin_name)
@@ -84,20 +71,4 @@ def test_plugin_uses_incremental_mixin(plugin_name: str) -> None:
     assert isinstance(plugin, IncrementalMixin), (
         f"{plugin_name} has supports_incremental=True but does not use IncrementalMixin. "
         f"Migrate: class {type(plugin).__name__}(IncrementalMixin)"
-    )
-
-
-@pytest.mark.parametrize(
-    "plugin_name",
-    [p for p in _INCREMENTAL_PLUGINS if p not in UNMIGRATED_PLUGINS],
-)
-def test_plugin_uses_incremental_mixin_migrated(plugin_name: str) -> None:
-    """Hard assertion: migrated plugins (not in UNMIGRATED_PLUGINS) MUST use IncrementalMixin."""
-    from src.intelligence.plugins import registry
-
-    plugin = registry.get_indicator(plugin_name) or registry.get_pattern(plugin_name)
-    assert plugin is not None, f"Plugin {plugin_name!r} not found in registry"
-    assert isinstance(plugin, IncrementalMixin), (
-        f"{plugin_name} was removed from UNMIGRATED_PLUGINS but does not use IncrementalMixin. "
-        f"Either complete the migration or add back to UNMIGRATED_PLUGINS."
     )

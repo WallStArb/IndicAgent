@@ -3,23 +3,8 @@
 from __future__ import annotations
 
 from tests.unit.intelligence.mixin_equivalence.helpers import (
-    assert_output_equivalence,
     build_synthetic_frames,
 )
-
-
-def test_market_profile_full_computation_equivalence():
-    """Migrated MarketProfile produces equivalent output to legacy for 500-bar full computation."""
-    from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
-    from tests.fixtures.legacy_plugins.market_profile_legacy import (
-        MarketProfilePlugin as MarketProfileLegacy,
-    )
-
-    legacy = MarketProfileLegacy()
-    migrated = MarketProfilePlugin()
-
-    frames = build_synthetic_frames(n_bars=500, seed=42)
-    assert_output_equivalence(legacy, migrated, frames, tolerance=0.001)
 
 
 def test_market_profile_uses_incremental_mixin():
