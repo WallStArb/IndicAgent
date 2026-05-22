@@ -26,12 +26,6 @@ from src.intelligence.register_plugins import (
 # When this set is empty (Task 16), the test body flips to a hard assertion.
 UNMIGRATED_PLUGINS: frozenset[str] = frozenset(
     {
-        # Group 1C (Task 11): HistoricalVolatility, ROC/PPO, ParabolicSAR, StochRSI, ACOscillator
-        "ind_HistoricalVolatility",
-        "ROC_PPO",
-        "ind_ParabolicSAR",
-        "ind_StochRSI",
-        "ind_ACOscillator",
         # Group simple (Task 12): Bollinger, Donchian, MovingAverages, OBV, Supertrend, VWAP,
         #                          SessionLevels, MarketProfile, BollingerSqueeze
         "BollingerBands",
