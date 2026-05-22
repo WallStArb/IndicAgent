@@ -6,7 +6,7 @@ lifecycle status, and querying active signals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -54,7 +54,7 @@ __all__ = ["SignalOutcome", "STOP_OUTCOMES", "TTL_OUTCOMES", "WIN_OUTCOMES"]
 
 @dataclass
 class LedgerEntry:
-    """Single row in the signal_ledger hypertable."""
+    """Single row in the signal_ledger hypertable (slim schema — lifecycle/outcome only)."""
 
     signal_id: str
     timestamp: datetime
@@ -63,67 +63,40 @@ class LedgerEntry:
     setup_plugin: str
     signal_type: str
     direction: int
-    entry_price: float
-    stop_loss: float
-    targets: list[float]
-    confidence: float
-    confluence_score: float
-    regime_context: str
-    supporting_factors: list[str]
     was_selected: bool
-    num_signals_bar: int
-    num_agreeing: int
-    num_conflicting: int
-    resolution_method: str
-    composite_rank: int
-    market_context: dict = field(default_factory=dict)
     status: SignalStatus = SignalStatus.PENDING
     feature_ts: datetime | None = None
     feature_tf: str | None = None
-    # CIS fields — populated by CIS aggregator at signal fire time (Phase 7)
-    cis_score: float | None = None  # CIS composite score in [-1.0, +1.0]
-    bucket_scores: dict | None = None  # {"trend": 0.4, ...} — serialised to JSONB
-    weights_version: int | None = None  # FK to cis_weights.version; 0 = bootstrap
     signal_quality: float | None = None  # populated by signal_lifecycle on exit
     signal_computed_at: datetime | None = None  # when signal_generator fired; NULL for backfill
-    # Institutional lifecycle fields — all nullable; populated progressively
-    # At signal determination time
-    determined_at: datetime | None = None
-    ask_at_signal: float | None = None
-    bid_at_signal: float | None = None
-    market_price_at_signal: float | None = None
-    entry_zone_low: float | None = None
-    entry_zone_high: float | None = None
-    zone_valid_at_signal: bool | None = None
-    # Attribution — per-constituent CIS contributions at signal fire time
-    cis_attribution: dict | None = None
     # At activation (set by signal_lifecycle_service)
     activation_price: float | None = None
     zone_entry_pct: float | None = None
     bars_to_activation: int | None = None
     # During/after trade
+    pnl_ticks: float | None = None
+    pnl_r: float | None = None
+    pnl_dollars: float | None = None
     mae: float | None = None
     mfe: float | None = None
     bars_in_trade: int | None = None
     outcome: str | None = None
     # Market-entry parallel track — Phase 1 field set at INSERT
-    # ask (long) / bid (short) at signal fire; NULL if unavailable
     market_entry_price: float | None = None
+    market_entry_exit_price: float | None = None
+    market_entry_outcome: str | None = None
+    market_entry_pnl_r: float | None = None
+    market_entry_mae: float | None = None
+    market_entry_mfe: float | None = None
+    market_entry_bars_in_trade: int | None = None
+    market_entry_gap_bars: int | None = None
     # Shadow signal flag — A/B matched-pair comparison (Phase 31)
     is_shadow: bool = False
-    # Stop basis fields — Phase 32 stop architecture (all nullable; NULL for pre-migration rows)
-    stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
-    stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
-    stop_structure_age_bars: int | None = None  # bars since structural level was formed
-    # |structural_stop - atr_fallback| / effective_atr
-    structural_stop_distance_atr: float | None = None
     # Fire-time point-in-time snapshots
     hmm_regime_at_fire: int | None = None  # HMM regime integer at signal fire
     garch_sigma_at_fire: float | None = None  # instantaneous GARCH σ at signal fire
     # Chandelier + trailing stop
-    chandelier_vol_source: str | None = None  # "garch_sigma" | "atr_14"
-    trailing_stop_price: list | None = None  # JSONB array [{ts, price}]
-    trailing_stop_tightening_rate: float | None = None
+    trailing_stop_price: float | None = None
     # Staleness
     staleness_score: float | None = None
     staleness_trigger_reason: str | None = None
@@ -132,104 +105,67 @@ class LedgerEntry:
     shadow_mae: float | None = None
     shadow_mfe: float | None = None
     shadow_outcome: str | None = None
-    # Phase 35: Calibration fields — all nullable
-    raw_cis_score: float | None = None  # CIS score before Kalman filter
-    filtered_cis_score: float | None = None  # Kalman-filtered CIS score
-    calibrated_confidence: float | None = None  # isotonic calibrated probability; NULL when N < 100
-    regime_type_at_fire: str | None = None  # regime_type of winning signal at fire time
-    # Phase 57: per-stage confidence attribution
-    pre_quality_confidence: float | None = None  # confidence before apply_quality_gate()
-    pre_calibration_confidence: float | None = None  # confidence before apply_calibration()
     # Phase 79: Signal quality fix — lineage + entry_type + co-fire
     signal_schema_version: str = SIGNAL_SCHEMA_VERSION
-    entry_type: str | None = None
-    co_fire_count: int = 1
-    co_fire_partners: list[str] = field(default_factory=list)
     is_backfill: bool = False
     ttl_bars: int | None = None
-    # Phase 70: ML training flat feature source — _shadow dict captured at signal fire time.
-    # NULL for legacy rows; always None if not present in incoming payload.
-    features_snapshot: dict | None = None
 
     def _to_row(self) -> tuple:
-        """Return a 67-element tuple of INSERT parameters for _INSERT_SQL.
-
-        JSONB columns (targets, supporting_factors, market_context, bucket_scores,
-        trailing_stop_price, features_snapshot) are passed as Python dicts/lists;
-        asyncpg serializes them to jsonb natively via codec.
-        """
+        """Return a tuple of INSERT parameters for _INSERT_SQL (slim schema)."""
         return (
             self.signal_id,  # $1 signal_id
             self.timestamp,  # $2 timestamp
             self.symbol,  # $3 symbol
             self.timeframe,  # $4 timeframe
-            self.setup_plugin,  # $5 setup_plugin
-            self.signal_type,  # $6 signal_type
-            self.direction,  # $7 direction
-            self.entry_price,  # $8 entry_price
-            self.stop_loss,  # $9 stop_loss
-            self.targets,  # $10::jsonb targets
-            self.confidence,  # $11 confidence
-            self.confluence_score,  # $12 confluence_score
-            self.regime_context,  # $13 regime_context
-            self.supporting_factors,  # $14::jsonb supporting_factors
-            self.was_selected,  # $15 was_selected
-            self.num_signals_bar,  # $16 num_signals_bar
-            self.num_agreeing,  # $17 num_agreeing
-            self.num_conflicting,  # $18 num_conflicting
-            self.resolution_method,  # $19 resolution_method
-            self.composite_rank,  # $20 composite_rank
-            self.market_context,  # $21::jsonb market_context
-            self.status,  # $22 status
-            self.feature_ts,  # $23 feature_ts
-            self.feature_tf,  # $24 feature_tf
-            self.cis_score,  # $25 cis_score
-            self.bucket_scores,  # $26::jsonb bucket_scores
-            self.weights_version,  # $27 weights_version
-            self.signal_quality,  # $28 signal_quality
-            self.signal_computed_at,  # $29 signal_computed_at
-            self.determined_at,  # $30 determined_at
-            self.ask_at_signal,  # $31 ask_at_signal
-            self.bid_at_signal,  # $32 bid_at_signal
-            self.market_price_at_signal,  # $33 market_price_at_signal
-            self.entry_zone_low,  # $34 entry_zone_low
-            self.entry_zone_high,  # $35 entry_zone_high
-            self.zone_valid_at_signal,  # $36 zone_valid_at_signal
-            self.cis_attribution,  # $37::jsonb cis_attribution
-            self.market_entry_price,  # $38 market_entry_price
-            self.is_shadow,  # $39 is_shadow
-            # Phase 32: stop basis fields
-            self.stop_basis,  # $40 stop_basis
-            self.stop_structure_type,  # $41 stop_structure_type
-            self.stop_structure_age_bars,  # $42 stop_structure_age_bars
-            self.structural_stop_distance_atr,  # $43 structural_stop_distance_atr
-            self.hmm_regime_at_fire,  # $44 hmm_regime_at_fire
-            self.garch_sigma_at_fire,  # $45 garch_sigma_at_fire
-            self.chandelier_vol_source,  # $46 chandelier_vol_source
-            self.trailing_stop_price,  # $47::jsonb trailing_stop_price
-            self.trailing_stop_tightening_rate,  # $48 trailing_stop_tightening_rate
-            self.staleness_score,  # $49 staleness_score
-            self.staleness_trigger_reason,  # $50 staleness_trigger_reason
-            self.shadow_tracking_start_ts,  # $51 shadow_tracking_start_ts
-            self.shadow_mae,  # $52 shadow_mae
-            self.shadow_mfe,  # $53 shadow_mfe
-            self.shadow_outcome,  # $54 shadow_outcome
-            self.raw_cis_score,  # $55 raw_cis_score
-            self.filtered_cis_score,  # $56 filtered_cis_score
-            self.calibrated_confidence,  # $57 calibrated_confidence
-            self.regime_type_at_fire,  # $58 regime_type_at_fire
-            # Phase 57: per-stage confidence attribution
-            self.pre_quality_confidence,  # $59 pre_quality_confidence
-            self.pre_calibration_confidence,  # $60 pre_calibration_confidence
-            # Phase 79: Signal quality fix
-            self.signal_schema_version,  # $61 signal_schema_version
-            self.entry_type,  # $62 entry_type
-            self.co_fire_count,  # $63 co_fire_count
-            self.co_fire_partners,  # $64::text[] co_fire_partners
-            # Phase 70: ML training feature source
-            self.features_snapshot,  # $65::jsonb features_snapshot
-            self.is_backfill,  # $66 is_backfill
-            self.ttl_bars,  # $67 ttl_bars
+            self.is_shadow,  # $5 is_shadow
+            self.was_selected,  # $6 was_selected
+            self.status,  # $7 status
+            self.is_backfill,  # $8 is_backfill
+            self.signal_schema_version,  # $9 signal_schema_version
+            self.setup_plugin,  # $10 setup_plugin
+            self.signal_type,  # $11 signal_type
+            self.direction,  # $12 direction
+            self.feature_ts,  # $13 feature_ts
+            self.feature_tf,  # $14 feature_tf
+            # Activation
+            self.signal_computed_at,  # $15 signal_computed_at
+            # During/after trade (initially NULL, set by lifecycle)
+            self.activation_price,  # $16 activation_price
+            self.zone_entry_pct,  # $17 zone_entry_pct
+            self.bars_to_activation,  # $18 bars_to_activation
+            # Exit (initially NULL)
+            self.pnl_ticks,  # $19 pnl_ticks
+            self.pnl_r,  # $20 pnl_r
+            self.pnl_dollars,  # $21 pnl_dollars
+            self.signal_quality,  # $22 signal_quality
+            self.mae,  # $23 mae
+            self.mfe,  # $24 mfe
+            self.bars_in_trade,  # $25 bars_in_trade
+            self.outcome,  # $26 outcome
+            # Market-entry track
+            self.market_entry_price,  # $27 market_entry_price
+            self.market_entry_exit_price,  # $28 market_entry_exit_price
+            self.market_entry_outcome,  # $29 market_entry_outcome
+            self.market_entry_pnl_r,  # $30 market_entry_pnl_r
+            self.market_entry_mae,  # $31 market_entry_mae
+            self.market_entry_mfe,  # $32 market_entry_mfe
+            self.market_entry_bars_in_trade,  # $33 market_entry_bars_in_trade
+            self.market_entry_gap_bars,  # $34 market_entry_gap_bars
+            # Trailing stop
+            self.trailing_stop_price,  # $35 trailing_stop_price
+            # Staleness
+            self.staleness_score,  # $36 staleness_score
+            self.staleness_trigger_reason,  # $37 staleness_trigger_reason
+            # Shadow tracking
+            self.shadow_tracking_start_ts,  # $38 shadow_tracking_start_ts
+            self.shadow_mae,  # $39 shadow_mae
+            self.shadow_mfe,  # $40 shadow_mfe
+            self.shadow_outcome,  # $41 shadow_outcome
+            # Fire-time snapshots
+            self.hmm_regime_at_fire,  # $42 hmm_regime_at_fire
+            self.garch_sigma_at_fire,  # $43 garch_sigma_at_fire
+            # TTL
+            self.ttl_bars,  # $44 ttl_bars
         )
 
 
@@ -239,59 +175,40 @@ class LedgerEntry:
 
 _INSERT_SQL = """
 INSERT INTO signal_ledger (
-    signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
-    direction, entry_price, stop_loss, targets,
-    confidence, confluence_score, regime_context, supporting_factors,
-    was_selected, num_signals_bar, num_agreeing, num_conflicting,
-    resolution_method, composite_rank, market_context, status,
+    signal_id, timestamp, symbol, timeframe,
+    is_shadow, was_selected, status, is_backfill,
+    signal_schema_version,
+    setup_plugin, signal_type, direction,
     feature_ts, feature_tf,
-    cis_score, bucket_scores, weights_version, signal_quality,
     signal_computed_at,
-    determined_at, ask_at_signal, bid_at_signal, market_price_at_signal,
-    entry_zone_low, entry_zone_high, zone_valid_at_signal,
-    cis_attribution,
-    market_entry_price,
-    is_shadow,
-    stop_basis, stop_structure_type, stop_structure_age_bars,
-    structural_stop_distance_atr,
-    hmm_regime_at_fire, garch_sigma_at_fire,
-    chandelier_vol_source,
-    trailing_stop_price, trailing_stop_tightening_rate,
+    activation_price, zone_entry_pct, bars_to_activation,
+    pnl_ticks, pnl_r, pnl_dollars, signal_quality,
+    mae, mfe, bars_in_trade, outcome,
+    market_entry_price, market_entry_exit_price, market_entry_outcome,
+    market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade,
+    market_entry_gap_bars,
+    trailing_stop_price,
     staleness_score, staleness_trigger_reason,
-    shadow_tracking_start_ts,
-    shadow_mae, shadow_mfe, shadow_outcome,
-    raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
-    pre_quality_confidence, pre_calibration_confidence,
-    signal_schema_version, entry_type, co_fire_count, co_fire_partners,
-    features_snapshot,
-    is_backfill, ttl_bars
+    shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
+    hmm_regime_at_fire, garch_sigma_at_fire,
+    ttl_bars
 ) VALUES (
-    $1::uuid, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10::jsonb,
-    $11, $12, $13, $14::jsonb,
-    $15, $16, $17, $18,
-    $19, $20, $21::jsonb, $22,
-    $23, $24,
-    $25, $26::jsonb, $27, $28,
-    $29,
-    $30, $31, $32, $33,
-    $34, $35, $36,
-    $37::jsonb,
-    $38,
-    $39,
-    $40, $41, $42,
-    $43,
-    $44, $45,
-    $46,
-    $47::jsonb, $48,
-    $49, $50,
-    $51,
-    $52, $53, $54,
-    $55, $56, $57, $58,
-    $59, $60,
-    $61, $62, $63, $64::text[],
-    $65::jsonb,
-    $66, $67
+    $1::uuid, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9,
+    $10, $11, $12,
+    $13, $14,
+    $15,
+    $16, $17, $18,
+    $19, $20, $21, $22,
+    $23, $24, $25, $26,
+    $27, $28, $29,
+    $30, $31, $32, $33, $34,
+    $35,
+    $36, $37,
+    $38, $39, $40, $41,
+    $42, $43,
+    $44
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
