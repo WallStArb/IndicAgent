@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.42.0 | Status: v2.5 complete — Phases 69–82 shipped. Next: v2.6 Signal Transform Architecture or backlog.
+Version: 5.42.0 | Status: v2.7 active — v2.6 complete (Phases 084–092 shipped). v2.7 in progress: 093 ✅, 100 ✅. Next: Phase 100.5 Plugin Infrastructure Hardening.
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
