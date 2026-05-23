@@ -19,8 +19,8 @@
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
-- [ ] **v2.7 Mathematical Correctness & AI Platform Modernization** — Phases 093–103 (active)
-- [ ] **v2.8 Evolvable AI Foundation** — Phases 104–106 (planned)
+- ✅ **v2.7 Mathematical Correctness & Storage Redesign** — Phases 093, 100, 100.5, 104 (shipped 2026-05-23)
+- [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (planned; 094-095 deferred from v2.7)
 
 ## Phases
 
@@ -533,9 +533,9 @@ Plans:
 </details>
 
 <details>
-<summary>v2.7 Mathematical Correctness & AI Platform Modernization (Phases 093-103) — ACTIVE (093 ✅, 100 ✅, 100.5 next)</summary>
+<summary>✅ v2.7 Mathematical Correctness & Storage Redesign (Phases 093, 100, 100.5, 104) — SHIPPED 2026-05-23</summary>
 
-**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Replace hand-rolled LLM boilerplate with a composable, measurable stack. Each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged. Shadow mode gates every promotion.
+**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). Phases 094-099 (AI platform) deferred to v2.8.
 
 ### Phase 093: Renaissance Mathematical Correctness Audit
 
@@ -568,7 +568,7 @@ Plans:
 
 - [x] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
 
-### Phase 094: LiteLLM Backend
+### Phase 094: LiteLLM Backend *(deferred to v2.8)*
 
 **Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
 **Depends on**: Phase 092
@@ -583,7 +583,7 @@ Plans:
 
 **Plans**: TBD
 
-### Phase 095: Pydantic AI Agent Adapter
+### Phase 095: Pydantic AI Agent Adapter *(deferred to v2.8)*
 
 **Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
 **Depends on**: Phase 093
@@ -782,9 +782,9 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 Evolvable AI Foundation (Phases 101-103) — PLANNED</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — PLANNED</summary>
 
-**Milestone Goal**: Implement composite fitness function, genetic infrastructure, and reproductive operators to enable evolvable AI agents. Build on genome foundation from Phase 095 (AgentGenome, promotion/demotion gates).
+**Milestone Goal**: Complete the AI platform modernization deferred from v2.7 (LiteLLM backend, Pydantic AI adapter, agent registry, episodic memory, optimizer, guardrails), then implement evolvable agent infrastructure (composite fitness function, genetic infrastructure, reproductive operators). Phases 094-095 have revised plans ready from v2.7.
 
 ### Phase 101: Composite Fitness Function
 
@@ -847,15 +847,15 @@ Plans:
 - [ ] 102-03-PLAN.md — LLM-directed operator (analyze parent, propose improvements)
 - [ ] 102-04-PLAN.md — Adaptive operator selection (track which works best)
 
-**Foundation from Phase 095:**
+**Dependency on Phase 095:**
 
-Phase 095 provides the genome infrastructure required for v2.8:
+Phase 095 (deferred to v2.8) must ship before evolvable agent work can begin:
 
-- ✅ AgentGenome with chromosome structure (Plan 07)
-- ✅ Lineage tracking (parent_ids, generation) (Plan 07)
-- ✅ Genome versioning (SHA256 hash) (Plan 07)
-- ✅ PromotionGate with automated criteria (Plan 08)
-- ✅ DemotionGate with soft death preservation (Plan 08)
+- [ ] AgentGenome with chromosome structure (Plan 07)
+- [ ] Lineage tracking (parent_ids, generation) (Plan 07)
+- [ ] Genome versioning (SHA256 hash) (Plan 07)
+- [ ] PromotionGate with automated criteria (Plan 08)
+- [ ] DemotionGate with soft death preservation (Plan 08)
 
 v2.8 builds on this foundation by adding:
 
@@ -908,7 +908,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). Next: v2.7 Mathematical Correctness & AI Platform Modernization.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104 shipped 2026-05-23). Next: v2.8 AI Platform & Evolvable Agents.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1026,15 +1026,15 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 091.1. Instrument Registry Hardening | v2.6 | 5/5 | Complete | 2026-05-20 |
 | 092. Signal Quality Completeness | v2.6 | 3/3 | Complete | 2026-05-20 |
 | 093. Renaissance Mathematical Correctness Audit | v2.7 | 5/5 | Complete | 2026-05-21 |
-| 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete   | 2026-05-21 |
-| 094. LiteLLM Backend | v2.7 | 0/2 | Not Started | - |
-| 095. Pydantic AI Agent Adapter | v2.7 | 0/8 | Not Started | - |
-| 096. Agent Registry | v2.7 | 0/TBD | Not started | - |
-| 097. Zep Episodic Memory | v2.7 | 0/TBD | Not started | - |
-| 098. DSPy Offline Optimizer | v2.7 | 0/TBD | Not started | - |
-| 099. Guardrails AI Validation | v2.7 | 0/TBD | Not started | - |
-| 100. Plugin Shared Infrastructure | v2.7 | 0/TBD | Not started | - |
+| 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
+| 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
+| 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
+| 094. LiteLLM Backend | v2.8 | 2 plans written/0 executed | Deferred | - |
+| 095. Pydantic AI Agent Adapter | v2.8 | 8 plans written/0 executed | Deferred | - |
+| 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
+| 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
+| 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
+| 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete    | 2026-05-22 |
