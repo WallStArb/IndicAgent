@@ -65,7 +65,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class SignalState:
-    """Per-signal in-memory tracking state."""
+    """Per-signal in-memory tracking state for lifecycle evaluation."""
 
     mae: float = 0.0
     mfe: float = 0.0
@@ -82,8 +82,8 @@ class SignalTrackerComputeAgent(BaseAgent):
     """DB-ignorant lifecycle evaluation agent.
 
     Consumes bars from Kafka, evaluates signal lifecycle transitions using
-    evaluate_signal(), and publishes transitions to lifecycle.transitions
-    topic for LifecycleWriterAgent to persist.
+    evaluate_signal(), and publishes transitions to lifecycle.transitions topic
+    for LifecycleWriterAgent to persist.
 
     Invariants:
       - Never writes to DB (bootstrap is the only read)
@@ -279,15 +279,15 @@ class SignalTrackerComputeAgent(BaseAgent):
     def _load_signal(self, raw: dict) -> dict | None:
         """Canonical signal intake. Returns normalized dict or None (-> DLQ).
 
-        Both the Kafka consumer path and the bootstrap DB-SELECT path route
-        through this function. Output is a single dict shape — downstream
-        code never branches on source.
+        Both Kafka consumer and bootstrap DB-SELECT paths route through this.
+        Hard rejects: missing signal_id, empty symbol/tf, invalid/empty timestamp,
+        missing entry_price or stop_loss.
 
-        Hard rejects (return None + counter increment):
-            - signal_id missing
-            - symbol or timeframe empty
-            - timestamp is None, "", or not a tz-aware datetime
-            - entry_price or stop_loss missing
+        Args:
+            raw: Raw signal dict from Kafka or DB
+
+        Returns:
+            Normalized signal dict, or None if hard-rejected.
         """
 
         def _reject(reason: str) -> None:
@@ -336,8 +336,8 @@ class SignalTrackerComputeAgent(BaseAgent):
             "status": raw.get("status", "pending"),
             "direction": int(raw.get("direction", 1)),
             "targets": list(raw.get("targets", []) or []),
-            "entry_zone_low": float(raw.get("entry_zone_low") or entry_price),
-            "entry_zone_high": float(raw.get("entry_zone_high") or entry_price),
+            "entry_zone_low": float(raw.get("entry_zone_low", entry_price)),
+            "entry_zone_high": float(raw.get("entry_zone_high", entry_price)),
             "market_entry_price": raw.get("market_entry_price"),
             "activated_at": raw.get("activated_at"),
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
@@ -352,7 +352,8 @@ class SignalTrackerComputeAgent(BaseAgent):
     def _ingest_i7_payload(self, payload: dict) -> None:
         """Ingest a full i7.signals payload (contains multiple signals per bar).
 
-        Payload schema: {symbol, tf, bar_ts, computed_at, signals: list[dict]}
+        Args:
+            payload: Kafka message with {symbol, tf, bar_ts, computed_at, signals: list}
         """
         signals_list = payload.get("signals") or []
         symbol = payload.get("symbol", "")
@@ -381,12 +382,15 @@ class SignalTrackerComputeAgent(BaseAgent):
             self._ingest_signal(canonical)
 
     def _ingest_signal(self, canonical: dict) -> None:
-        """Ingest a canonical signal dict (output of _load_signal) into the active index.
+        """Ingest a canonical signal dict into the active index.
 
         Three-branch decision tree:
-          1. dedup: already tracked -> skip
-          2. backfill fast-path: TTL already elapsed -> publish TTL-expired, skip active index
-          3. normal path: enter active index
+          1. Dedup: skip if already tracked
+          2. Backfill fast-path: publish TTL-expired if elapsed, skip active index
+          3. Normal path: enter active index
+
+        Args:
+            canonical: Normalized signal dict from _load_signal
         """
         sid = canonical["signal_id"]
         if sid in self._signal_ids:
@@ -411,7 +415,11 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._signal_ids.add(sid)
 
     def _add_to_active_index(self, canonical: dict) -> None:
-        """Add a canonical signal to the in-memory active index and initialize tracking."""
+        """Add a canonical signal to the in-memory active index and initialize tracking.
+
+        Args:
+            canonical: Normalized signal dict from _load_signal
+        """
         sid = canonical["signal_id"]
         symbol = canonical["symbol"]
         tf = canonical["timeframe"]
@@ -862,8 +870,8 @@ class SignalTrackerComputeAgent(BaseAgent):
                 rows = await db.execute_query("""
                     SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.status, sl.direction,
                            sl.activated_at, sl.ttl_bars, sl.signal_schema_version, sl.is_backfill,
-                           tf_sig.value->>'entry_price' AS entry_price,
-                           tf_sig.value->>'stop_loss' AS stop_loss,
+                           COALESCE(tf_sig.value->>'entry_price', sl.entry_price) AS entry_price,
+                           COALESCE(tf_sig.value->>'stop_loss', sl.stop_loss) AS stop_loss,
                            tf_sig.value->'targets' AS targets,
                            tf_sig.value->>'entry_zone_low' AS entry_zone_low,
                            tf_sig.value->>'entry_zone_high' AS entry_zone_high,

@@ -15,24 +15,24 @@ MIGRATION_093="/home/bg/dev/indicagent/db/migrations/093_slim_signal_ledger.sql"
 
 # Services in reverse DAG order (stop order)
 SERVICES_STOP=(
-    "indicant-signal-auditor"
-    "indicant-signal-metrics-compute"
-    "indicant-lifecycle-writer"
-    "indicant-signal-tracker-compute"
-    "indicant-signal-writer"
-    "indicant-feature-writer"
-    "indicant-intelligence-pipeline"
+    "indicagent-signal-auditor"
+    "indicagent-signal-metrics-compute"
+    "indicagent-lifecycle-writer"
+    "indicagent-signal-tracker-compute"
+    "indicagent-signal-writer"
+    "indicagent-feature-writer"
+    "indicagent-intelligence-pipeline"
 )
 
 # Services in forward DAG order (start order)
 SERVICES_START=(
-    "indicant-intelligence-pipeline"
-    "indicant-feature-writer"
-    "indicant-signal-writer"
-    "indicant-signal-tracker-compute"
-    "indicant-lifecycle-writer"
-    "indicant-signal-metrics-compute"
-    "indicant-signal-auditor"
+    "indicagent-intelligence-pipeline"
+    "indicagent-feature-writer"
+    "indicagent-signal-writer"
+    "indicagent-signal-tracker-compute"
+    "indicagent-lifecycle-writer"
+    "indicagent-signal-metrics-compute"
+    "indicagent-signal-auditor"
 )
 
 echo "Step 1: Verify backup exists"
