@@ -1,7 +1,7 @@
 # High-Level Architecture Concepts
 
 **Status:** current
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-23
 
 > Conceptual overview of the *mechanisms* behind the IndicAgent architecture. **North Star rules** are in `principles.md`. **Layer-by-layer service map** is in `layered-architecture.md`. This doc explains the *how* — the design patterns and their consequences.
 
@@ -9,7 +9,7 @@
 
 ## Plugin DAG (Topological Execution)
 
-The intelligence pipeline runs 128 plugins across I1–I7 tiers. Execution order is not hardcoded — each plugin declares `inputs` and `outputs`, and Kahn's topological sort derives the order at startup. Circular dependencies cause a hard crash before any bar is processed.
+The intelligence pipeline runs 132 plugins across I1–I7 tiers. Execution order is not hardcoded — each plugin declares `inputs` and `outputs`, and Kahn's topological sort derives the order at startup. Circular dependencies cause a hard crash before any bar is processed.
 
 **What this enables:**
 - Adding a plugin that depends on an existing output requires only declaring the dependency — no pipeline changes.
@@ -71,13 +71,13 @@ ComputeAgent → Kafka topic → WriterAgent → TimescaleDB
 
 WriterAgents use a **Convergence Gate** (`StreamMerger`) to merge events from multiple upstream sources before writing. This guarantees atomic batch INSERTs: all fields from all contributing compute agents land in the same DB row in a single commit. A Kafka offset commit only advances after the DB write succeeds, so a crash mid-write replays from the last committed offset rather than silently dropping data.
 
-**Active WriterAgents:** `FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`, `BarWriterAgent`, `LineageWriterAgent`
+**Active WriterAgents:** `BarWriterAgent`, `FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`, `LineageWriterAgent`, `ContractMetadataWriterAgent`, `CtxWriterAgent`, `LLMWriterAgent`, `SwarmLedgerWriterAgent`
 
 ---
 
 ## Dead Letter Queue (DLQ)
 
-Every WriterAgent and AuditorAgent maintains a DLQ topic (`<domain>.dlq`). Messages that fail schema validation, have null CIS, or cannot be deserialized are routed there rather than crashing the consumer. The consumer logs the rejection and continues; the live data stream is unaffected.
+Every WriterAgent, TrackerAgent, and AuditorAgent maintains a DLQ topic (`<domain>.dlq`). Messages that fail schema validation, have null CIS, or cannot be deserialized are routed there rather than crashing the consumer. The consumer logs the rejection and continues; the live data stream is unaffected.
 
 **Operational rule:** A non-empty DLQ is a bug to investigate, not a normal operating state. The `ParityAuditorAgent` counts DLQ entries as part of pipeline health scoring. Null-CIS signals caught at the DLQ are the most common category — they indicate a plugin produced an incomplete `IntelligenceEvent`.
 
@@ -91,10 +91,11 @@ Each agent has exactly one role, encoded in its class name suffix. The suffix de
 |-------------|---------------|-----------|
 | `ProviderAgent` | External source → Kafka raw topic. No compute. | None |
 | `MergerAgent` | Multi-source routing + auto-failover. DB-ignorant. | None |
-| `ComputeAgent` | Math/stats transform. DB-ignorant. | None |
+| `ComputeAgent` | Math/stats transform. DB-ignorant at runtime (bootstrap read permitted). | None at runtime |
 | `WriterAgent` | DB persistence only. Reads Kafka, writes DB. | Write |
-| `TrackerAgent` | Business object lifecycle. Reads and writes signal state. | Read/Write |
+| `TrackerAgent` | Business object lifecycle. May read DB at bootstrap; no runtime writes. | Bootstrap read only |
 | `AuditorAgent` | Data integrity validation + self-healing. | Read |
+| `AIAgent` | LLM-backed specialist. Inherits `BaseAIAgent`. Shadow-gated, prompt-versioned. | None |
 
 **Why naming encodes SoC:** Anyone reading `IntelligencePipelineComputeAgent` immediately knows it has no DB access. Anyone reading `FeatureWriterAgent` knows it does. No documentation lookup needed. When someone tries to add a DB query to a `ComputeAgent`, the name itself signals the violation.
 
@@ -109,7 +110,7 @@ Every agent inherits a standard lifecycle contract from `BaseAgent` (`src/core/a
 **What every agent gets automatically:**
 - **Structured logging** — `structlog.BoundLogger` bound with `agent=name`; standard event types (`agent.starting`, `agent.stopped`, `agent.run_failed`) emitted at lifecycle boundaries
 - **OTel tracing** — `self.tracer = get_tracer(name)` available immediately; behaves as a no-op when tracing is not initialized, so it's safe to use before setup completes
-- **Prometheus metrics** — metrics server starts on the agent's declared port at `start()`; inherited counters for crash, setup success/failure, setup latency, and last-message timestamp (stall detection)
+- **OTel metrics** — direct OTel SDK via `src/observability/metrics.py` (`prometheus_client` removed in Phase 83); inherited counters for crash, setup success/failure, setup latency, and last-message timestamp (stall detection)
 - **Graceful shutdown** — SIGTERM/SIGINT both set a shared `_stop_event`; `_run()` loops check `self.running`; `_teardown()` drains queues and closes connections before exit
 - **DLQ routing** — `_send_to_dlq()` is called on unprocessable payloads; the default logs and discards, concrete agents override to produce to a named DLQ topic
 
@@ -123,7 +124,7 @@ The platform is an empty shell; intelligence is composed entirely of plugins.
 
 - **Single extension point:** Write a `PatternPlugin` subclass, register it in `TIER_I*` in `src/intelligence/register_plugins.py`. Nothing else changes — the DAG rebuilds, the topic schema absorbs the new output fields.
 - **Data contract:** `IntelligenceEvent` (tiered JSONB: i1, i2, i3, i4, i5, smc, i6) is the sole contract between compute and consumers. Plugins expose outputs via named fields in their tier's JSONB — consumers are decoupled from plugin internals.
-- **Shadow gate:** New I7 plugins deploy with `IS_SHADOW=True`. They compute and write to `signal_ledger` but are excluded from position sizing until regime-conditional win rate reaches statistical significance (p < 0.05, sufficient N).
+- **Shadow gate:** New I7 plugins deploy with `shadow_only = True`. They compute and write to `signal_ledger` but are excluded from position sizing until regime-conditional win rate reaches statistical significance (p < 0.05, sufficient N).
 
 ---
 
@@ -150,7 +151,7 @@ No agent calls another directly. Redpanda is the sole durable communication fabr
 - Each agent resumes from its committed Kafka offset — no in-flight data is lost.
 - Services can be deployed, restarted, or scaled independently.
 
-**Scaling:** Production runs on a single server with systemd. Horizontal scaling is achieved by adding systemd instances within a Kafka consumer group — multiple instances consume from the same topic and partition-balance automatically. Prometheus consumer lag alerts trigger manual scale decisions. No Kubernetes.
+**Scaling:** Production runs on a single server with systemd. Horizontal scaling is achieved by adding systemd instances within a Kafka consumer group — multiple instances consume from the same topic and partition-balance automatically. Grafana consumer lag dashboards (OTel metrics) trigger manual scale decisions. No Kubernetes.
 
 ---
 
@@ -200,7 +201,7 @@ Each agent receives the full signal context via `AIContext` (typed tier data), p
 
 **Shadow governance:** All swarm agents auto-enroll in shadow mode at startup. Promotion requires `signal_schema_version = 'v1'` and statistically significant weight learning. → [Swarm Intelligence](swarm-intelligence.md)
 
-**Current state (v2.5):** All 4 alpha agents implemented and running in shadow. Weight learning active. Graduation loop operational.
+**Current state (v2.8):** All 4 alpha agents implemented and running in shadow. Weight learning active. Graduation loop operational.
 
 ### ML Pipeline (Path A quality layer)
 
