@@ -3,7 +3,7 @@
 Hybrid three-layer design:
   systemd  -> process liveness (WatchdogSec kills hung processes)
   Prometheus -> metrics/lag (15s check cycle via /api/v1/query)
-  This agent -> intelligence: graduated response, DAG-ordered restarts, audit trail
+  This agent -> graduated response, DAG-ordered restarts, audit trail
 
 Graduated response policy:
   HEALTHY   no action
@@ -40,18 +40,18 @@ from src.core.stream_keys import (
 )
 from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, SERVICE_UP_GAUGE
 
+# Constants
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
 _PROMETHEUS_URL = "http://localhost:9090/api/v1/query"
 _SVC_DATA_PROVIDER = "indicagent-ibkr-provider"
 _SVC_ROLL_COMPUTE = "indicagent-roll-compute"
+_STALL_THRESHOLD_SECONDS = 360  # 300s in-process watchdog + 60s grace
 
 
 # ---------------------------------------------------------------------------
 # DAG topology: unit name -> restart priority (lower = restart first)
 # Changes rarely -- much smaller than the old ServiceSpec registry.
-# ---------------------------------------------------------------------------
-
 _DAG_ORDER: dict[str, int] = {
     # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,
@@ -77,7 +77,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-alpha-swarm": 7,
     "indicagent-narrative-compute": 7,
     "indicagent-llm-writer": 7,
-    "indicagent-swarm-ledger-writer": 7,  # L7: DB projection of swarm aggregate adjustments
+    "indicagent-swarm-ledger-writer": 7,
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-roll-compute": 8,
     "indicagent-signal-metrics-compute": 8,
@@ -94,11 +94,6 @@ _DAG_ORDER: dict[str, int] = {
     # Layer 8 — meta: monitors and restarts all of the above
     "indicagent-service-auditor": 10,
 }
-
-# Stall threshold: 300s in-process _stall_watchdog + 60s grace for external detection.
-# Must be strictly greater than max_idle_seconds on any agent (typically 300s) to avoid
-# racing with the in-process watchdog which calls sys.exit(1) at 300s.
-_STALL_THRESHOLD_SECONDS: int = 360
 
 # Lag thresholds per service (0 = not a Kafka consumer)
 _LAG_THRESHOLDS: dict[str, int] = {
@@ -166,6 +161,8 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 
 @dataclass
 class ServiceState:
+    """Per-service runtime state for graduated response tracking."""
+
     degraded_since: datetime | None = None
     degraded_check_count: int = 0
     restart_times: list[datetime] = field(default_factory=list)
@@ -179,7 +176,14 @@ class ServiceState:
 
 
 def _parse_systemctl_show(output: str) -> tuple[str, str]:
-    """Parse 'systemctl show --property=ActiveState,SubState' stdout."""
+    """Parse systemctl show output into (ActiveState, SubState) tuple.
+
+    Args:
+        output: Raw stdout from systemctl show --property=ActiveState,SubState
+
+    Returns:
+        Tuple of (active_state, sub_state) with "unknown" as fallback.
+    """
     props: dict[str, str] = {}
     for line in output.strip().splitlines():
         if "=" in line:
@@ -194,7 +198,16 @@ def _parse_systemctl_show(output: str) -> tuple[str, str]:
 
 
 class ServiceAuditorAgent(BaseAgent):
-    """Monitors all pipeline services, self-heals, and audits every event."""
+    """Monitors all pipeline services, self-heals, and audits every event.
+
+    Hybrid three-layer design:
+    - systemd for process liveness (WatchdogSec kills hung processes)
+    - Prometheus for metrics/lag (15s check cycle)
+    - This agent for graduated response, DAG-ordered restarts, and audit trail
+
+    Every state transition is persisted to service_health_events and published
+    to system.health.events -- both are permanent audit trails.
+    """
 
     def __init__(self) -> None:
         _settings = get_settings()
@@ -301,7 +314,11 @@ class ServiceAuditorAgent(BaseAgent):
     # -- Check loops ----------------------------------------------------------
 
     async def _check_feature_pipeline_freshness(self) -> None:
-        """SQL-based freshness check replacing parity_auditor (Phase 104)."""
+        """SQL-based freshness check replacing parity_auditor (Phase 104).
+
+        Queries check_feature_pipeline_freshness() and publishes alerts for
+        any (symbol, tf) with gaps exceeding the threshold.
+        """
         if not self._db_pool:
             return
         try:
