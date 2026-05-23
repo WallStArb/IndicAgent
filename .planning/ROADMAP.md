@@ -741,13 +741,13 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 104: Storage Architecture Redesign — UPDATED (v2.7 tactical insertion)</summary>
+<summary>✅ Phase 104: Storage Architecture Redesign — COMPLETE 2026-05-22</summary>
 
-### Phase 104: Storage Architecture Redesign
+### Phase 104: Storage Architecture Redesign ✅
 
 **Goal**: Eliminate 39 GB/week disk growth from 3 structural violations. Establish 3-store architecture: intelligence_features (canonical, renamed columns) + signal_ledger (slimmed to ~25 columns, lifecycle/outcome only) + ml_signal_training (nightly materialized typed-column store). Apply retention policies to 9 hypertables and byte caps to 6 unbounded Kafka topics.
 **Depends on**: None (tactical insertion - no upstream phase blockers)
-**Plans**: 4 plans in 3 waves
+**Plans**: 4 plans in 3 waves (completed 2026-05-22)
 
 **Wave 1** *(parallel, no schema changes)*
 - [x] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
