@@ -20,6 +20,7 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness & Storage Redesign** — Phases 093, 100, 100.5, 104 (shipped 2026-05-23)
+- [ ] **Pre-v2.8 Foundation Hardening** — Phases 105-106 (planned; prerequisite for v2.8)
 - [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (planned; 094-095 deferred from v2.7)
 
 ## Phases
@@ -782,6 +783,33 @@ Plans:
 </details>
 
 <details>
+<summary>Pre-v2.8 Foundation Hardening (Phases 105-106) — PLANNED</summary>
+
+**Milestone Goal**: Address 11 active bugs from the 2026-05-23 architectural audit (Phase 105 Architecture Hotfix Sprint), then eliminate all structural weaknesses that would create drag or failures during v2.8 (Phase 106 Foundation Hardening). Must complete before v2.8 AI Platform phases begin.
+
+### Phase 105: Architecture Hotfix Sprint
+
+**Goal**: Fix 11 active bugs identified in the 2026-05-23 architectural audit — shadow signal suppression, data loss in persistence writers, stall watchdog wiring, and FeatureWriter ghost-run on DB failure.
+**Depends on**: Phase 104
+**Status**: Planned — execute before Phase 106
+
+### Phase 106: Foundation Hardening
+
+**Goal**: Zero structural weaknesses from the audit that block v2.8. Full p50/p95/p99 latency visibility on hot path. DAG correctly models all deployed services. Dead code removed. PluginCircuitBreaker active. Queue backpressure in place.
+**Depends on**: Phase 105
+**Plans**: 6 plans
+
+Plans:
+- [ ] 106-01-PLAN.md — OTel instrument type fixes: latency histograms, shadow gauges, agent_id label, process_bar_inner span
+- [ ] 106-02-PLAN.md — DAG correctness: systemd unit wiring, _DAG_ORDER 11 missing services, priority reorder
+- [ ] 106-03-PLAN.md — Code reuse: bar_aggregator circuit_breaker, 3 JSONB bypass fixes, ctx_writer teardown, llm_writer stall
+- [ ] 106-04-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator, 6 Settings fields, TEMPLATE fix
+- [ ] 106-05-PLAN.md — PluginCircuitBreaker wiring: shadow-mode-first, OTel state gauge (Wave 2)
+- [ ] 106-06-PLAN.md — Queue backpressure: enqueue_blocking for intelligence topic, PluginStateManager O(1) index
+
+</details>
+
+<details>
 <summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — PLANNED</summary>
 
 **Milestone Goal**: Complete the AI platform modernization deferred from v2.7 (LiteLLM backend, Pydantic AI adapter, agent registry, episodic memory, optimizer, guardrails), then implement evolvable agent infrastructure (composite fitness function, genetic infrastructure, reproductive operators). Phases 094-095 have revised plans ready from v2.7.
@@ -908,7 +936,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104 shipped 2026-05-23). Next: v2.8 AI Platform & Evolvable Agents.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104 shipped 2026-05-23). Next: Pre-v2.8 Foundation Hardening (Phases 105-106), then v2.8 AI Platform & Evolvable Agents.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1029,6 +1057,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
 | 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
+| 105. Architecture Hotfix Sprint | Pre-v2.8 | 0/TBD | Not started | - |
+| 106. Foundation Hardening | Pre-v2.8 | 0/6 | Planned | - |
 | 094. LiteLLM Backend | v2.8 | 2 plans written/0 executed | Deferred | - |
 | 095. Pydantic AI Agent Adapter | v2.8 | 8 plans written/0 executed | Deferred | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
