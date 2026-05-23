@@ -112,11 +112,14 @@ logger = structlog.get_logger(__name__)
 
 
 def _build_expiry_map(settings: Settings) -> dict[str, date]:
-    """Build symbol -> expiry date lookup at service startup. Call once; cache result.
+    """Build symbol -> expiry date lookup at service startup.
 
-    VX format "YYYYMM" -> last calendar day of that month (conservative estimate).
+    VX format "YYYYMM" -> last calendar day of that month.
     Non-futures (FX, CRYPTO) -> omitted from map; _compute_days_to_expiry returns 0.
-    Malformed expiry strings are silently skipped (symbol omitted, returns 0).
+    Malformed expiry strings are silently skipped.
+
+    Returns:
+        Mapping of symbol to expiry date for futures contracts.
     """
     from src.core.models import AssetClass
 
@@ -144,9 +147,13 @@ def _compute_days_to_expiry(
 ) -> int | None:
     """Return calendar days to expiry for a symbol at bar_ts.
 
-    Returns 0 for non-futures (symbol not in expiry_map: FX, crypto).
-    Returns None if expiry_map is empty (service not yet initialized — signals uncached state).
-    Clamps at 0: never returns negative (post-expiry rows get 0, not a negative value).
+    Args:
+        symbol: Contract symbol
+        bar_ts: Bar timestamp
+        expiry_map: Symbol to expiry date mapping
+
+    Returns:
+        Days to expiry (0 for non-futures, None if map empty).
     """
     if not expiry_map:
         return None
@@ -160,7 +167,15 @@ def _record_to_insert_params(
     record: BarIntelligenceRecord,
     expiry_map: dict[str, date] | None = None,
 ) -> tuple:
-    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
+    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+
+    Args:
+        record: BarIntelligenceRecord from intelligence topic
+        expiry_map: Optional symbol-to-expiry mapping for days_to_expiry calculation
+
+    Returns:
+        Tuple of 31 parameters matching _INSERT_FEATURE_SQL placeholders.
+    """
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
 
@@ -208,11 +223,10 @@ def _record_to_insert_params(
 
 
 class FeatureWriterAgent(BaseWriterAgent):
-    """Async Kafka consumer agent: intelligence.record topic -> buffer -> batch INSERT to
-    intelligence_features.
+    """Async Kafka consumer agent: intelligence.record topic -> buffer -> batch INSERT.
 
-    Phase 44.3: Consumes development.intelligence.record only. Performs a single atomic
-    INSERT per bar with all columns from BarIntelligenceRecord. No i7/i8 two-phase writes.
+    Phase 44.3: Consumes intelligence.record only. Performs a single atomic INSERT
+    per bar with all columns from BarIntelligenceRecord. No i7/i8 two-phase writes.
     """
 
     BATCH_SIZE = BATCH_SIZE

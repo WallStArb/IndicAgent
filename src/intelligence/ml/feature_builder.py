@@ -1,25 +1,22 @@
 """Feature matrix construction for ML training (Phase 070).
 
 Called from MLTrainingComputeAgent on the nightly training cycle.
-Independent failure domain: any exception here propagates to the caller,
-which catches at the top level and exits 0 to preserve systemd timer cadence.
+Independent failure domain: any exception propagates to caller, which catches
+at the top level and exits 0 to preserve systemd timer cadence.
 
 Algorithm:
-  - Query signal_ledger (resolved, non-shadow, schema v2) JOIN intelligence_features
-    to extract the features_snapshot JSONB + bar context columns
-  - No-lookahead enforced by SQL clause: f.ts < sl.activated_at
-  - Flatten features_snapshot keys into top-level DataFrame columns
-  - Provide one-hot encoding for categorical features
-  - Provide walk-forward 60/20/20 temporal split (no shuffling)
-  - Provide segment filtering by hmm_regime
+  1. Query signal_ledger (resolved, non-shadow, schema v2) JOIN intelligence_features
+     to extract the features_snapshot JSONB + bar context columns
+  2. No-lookahead enforced by SQL clause: f.ts < sl.activated_at
+  3. Flatten features_snapshot keys into top-level DataFrame columns
+  4. Provide one-hot encoding for categorical features
+  5. Provide walk-forward 60/20/20 temporal split (no shuffling)
+  6. Provide segment filtering by hmm_regime
 
 CANONICAL FIELD NAMES:
-  - volume_z_score is the i1 JSONB key. D-01 lists a conceptual bare name for the
-    same field; always use volume_z_score exactly in SQL and Python code here.
-    This module, Plan 04's _extract_features, and the SHAP importance artifact ALL
-    use volume_z_score as the canonical column name.
-  - Bar context fields used by the SQL:
-      hmm_regime, trend_regime, session_type, atr_pct, volume_z_score, tod_multiplier
+  - volume_z_score is the i1 JSONB key (always use this exact name)
+  - Bar context fields: hmm_regime, trend_regime, session_type, atr_pct,
+    volume_z_score, tod_multiplier
 """
 
 from __future__ import annotations
@@ -91,24 +88,26 @@ SELECT
     sl.timestamp,
     sl.timeframe,
     sl.pnl_r,
-    (sl.pnl_r > 0)::int AS win_label,
-    sl.features_snapshot,
-    (f.regime_features->>'hmm_regime')::int AS hmm_regime,
-    (f.regime_features->>'trend_regime')::float AS trend_regime,
+    (sl.pnl_r > 0)::int                                            AS win_label,
+    tf_sig.value->'features_snapshot'                              AS features_snapshot,
+    (f.regime_features->>'hmm_regime')::int                        AS hmm_regime,
+    (f.regime_features->>'trend_regime')::float                    AS trend_regime,
     f.session_type,
-    (f.technical_indicators->>'atr_pct')::float AS atr_pct,
-    (f.technical_indicators->>'volume_z_score')::float AS volume_z_score,
-    COALESCE((f.trading_signals->0->>'tod_multiplier')::float, 1.0) AS tod_multiplier
+    (f.technical_indicators->>'atr_pct')::float                    AS atr_pct,
+    (f.technical_indicators->>'volume_z_score')::float             AS volume_z_score,
+    COALESCE((tf_sig.value->>'tod_multiplier')::float, 1.0)        AS tod_multiplier
 FROM signal_ledger sl
 JOIN intelligence_features f
   ON f.symbol = sl.symbol
  AND f.ts = sl.feature_ts
  AND f.tf = sl.feature_tf
  AND f.ts < sl.activated_at
+JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
+  ON tf_sig.value->>'signal_id' = sl.signal_id::text
 WHERE sl.outcome IS NOT NULL
   AND sl.is_shadow = FALSE
   AND sl.signal_schema_version = $1
-  AND sl.features_snapshot IS NOT NULL
+  AND tf_sig.value->'features_snapshot' IS NOT NULL
 ORDER BY sl.timestamp
 """
 

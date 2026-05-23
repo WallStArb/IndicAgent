@@ -2,21 +2,12 @@
 """SignalAuditorAgent — coverage validation and lag monitoring for signal_ledger.
 
 Runs a 5-minute audit loop during market hours. Checks:
-1. Signal coverage per (symbol, tf) — at least one signal fired in the last session.
-2. Pipeline lag P50/P95 from signal_ledger.pipeline_lag_ms over last 1h.
-3. CIS score distribution (mean/stddev) per tf over a rolling 5-day window.
+1. Signal coverage per (symbol, tf) — at least one signal fired in the last session
+2. Pipeline lag P50/P95 from signal_ledger.pipeline_lag_ms over last 1h
+3. CIS score distribution (mean/stddev) per tf over a rolling 5-day window
 
 Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
 DB-aware (reads signal_ledger). AuditorAgent role — read-only, never writes.
-
-Golden Signals:
-- Traffic: signal_auditor_audits_run_total, signal_auditor_coverage_gaps_published_total
-- Latency: signal_auditor_audit_duration_seconds
-- Errors: signal_auditor_audit_errors_total
-- Saturation: signal_coverage_pct{symbol, tf}
-
-Version: 1.0.0
-Phase: 61
 """
 
 from __future__ import annotations
@@ -35,18 +26,12 @@ from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_signal_audit
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
-
 _AUDIT_INTERVAL = 300  # 5 minutes between audit cycles
 _RTH_BUFFER_MINUTES = 30  # run audits RTH + 30 min buffer
-# Timeframes audited for signal coverage
-_COVERAGE_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
-# Pipeline lag threshold for WARNING log (not CRIT — lag is operational)
-_LAG_P95_WARN_MS = 500.0
-# Rolling window for CIS distribution check (5 trading days ≈ 5 calendar days)
-_CIS_LOOKBACK_DAYS = 5
+_COVERAGE_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")  # Timeframes audited for signal coverage
+_LAG_P95_WARN_MS = 500.0  # Pipeline lag threshold for WARNING log
+_CIS_LOOKBACK_DAYS = 5  # Rolling window for CIS distribution check
 
 # ---------------------------------------------------------------------------
 # Module-level OTel metrics
@@ -92,12 +77,11 @@ _CIS_STDDEV = _sa_meter.create_up_down_counter(
 
 
 class SignalAuditorAgent(BaseAgent):
-    """AuditorAgent: validates signal coverage and pipeline health.
+    """Validates signal coverage and pipeline health via periodic audits.
 
-    Reads signal_ledger every 5 minutes during market hours.
-    Emits SignalCoverageGapEvent to intelligence.signal.audit for missing coverage.
-
-    DB-aware (reads signal_ledger). Never writes.
+    Runs a 5-minute audit loop during market hours (plus 30-min buffer).
+    Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
+    Reads signal_ledger but never writes (AuditorAgent role).
     """
 
     def __init__(self) -> None:
@@ -163,7 +147,10 @@ class SignalAuditorAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _run_audit(self, instruments: list | None = None) -> None:
-        """Run a full audit cycle. Catches exceptions to keep the loop alive."""
+        """Run a full audit cycle.
+
+        Catches exceptions to keep the loop alive even on transient failures.
+        """
         if instruments is None:
             instruments = get_active_contracts(self.settings)
         try:
@@ -199,10 +186,13 @@ class SignalAuditorAgent(BaseAgent):
         """Check signal coverage for the last completed trading session.
 
         For each active symbol × _COVERAGE_TFS:
-        - Find the last completed session window via session_window_for_date(yesterday).
-        - Count signal_ledger rows in that window.
-        - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap).
-        - Return SignalCoverageGapEvent dicts for any (symbol, tf) with 0 signals.
+        - Find the last completed session window via session_window_for_date(yesterday)
+        - Count signal_ledger rows in that window
+        - Set signal_coverage_pct gauge (1.0 covered, 0.0 gap)
+        - Return SignalCoverageGapEvent dicts for any (symbol, tf) with 0 signals
+
+        Returns:
+            List of gap event dicts for missing signal coverage.
         """
         gap_events: list[dict] = []
         yesterday = date.today() - timedelta(days=1)
@@ -266,7 +256,7 @@ class SignalAuditorAgent(BaseAgent):
     async def _check_pipeline_lag(self, instruments: list) -> None:
         """Observe P50/P95 pipeline_latency_ms from intelligence_features for the last 1h.
 
-        Logs WARNING when P95 > _LAG_P95_WARN_MS. Updates Prometheus gauges.
+        Logs WARNING when P95 > _LAG_P95_WARN_MS and updates Prometheus gauges.
         """
         assert self._db_pool is not None
         async with self._db_pool.acquire() as conn:

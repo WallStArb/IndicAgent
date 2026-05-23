@@ -36,15 +36,16 @@ from src.persistence.repository.signal_ledger_repository import (
     SignalStatus,
 )
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
-
 CONSUMER_GROUP = "signal_writer_group"
 
 
 class SignalWriterAgent(BaseWriterAgent):
-    """WriterAgent: intelligence.i7.signals -> signal_ledger."""
+    """WriterAgent: intelligence.i7.signals -> signal_ledger.
+
+    Consumes I7 signals and batch-inserts them to signal_ledger hypertable.
+    DB-only, zero compute — no plugin execution.
+    """
 
     BATCH_SIZE = 100
     FLUSH_INTERVAL_SECS = 5.0
@@ -91,11 +92,16 @@ class SignalWriterAgent(BaseWriterAgent):
         self._events_consumed.add(1)
 
     def _parse_payload(self, payload: dict) -> list | None:
+        """Parse intelligence.i7.signals payload into LedgerEntry objects.
+
+        Returns None for truly empty payloads (triggers DLQ via base class).
+        Returns [] when all signals are invalid (prevents double-DLQ).
+        """
         symbol = payload.get("symbol", "")
         tf = payload.get("tf", "")
         signals: list[dict] = payload.get("signals", [])
 
-        # Empty payload — base class will DLQ the whole message via _maybe_route_to_dlq
+        # Empty payload — base class will DLQ the whole message
         if not signals:
             return None
 
@@ -117,9 +123,7 @@ class SignalWriterAgent(BaseWriterAgent):
             )
 
         rows = _payload_to_ledger_entries({**payload, "signals": valid})
-        # Return [] (not None) when all signals are invalid — prevents the base writer
-        # from double-DLQ-ing the whole payload via _maybe_route_to_dlq.
-        # The per-signal DLQ records in self._invalid_signals are drained in _flush_batch.
+        # Return [] when all signals invalid — prevents double-DLQ
         return rows if rows else []
 
     async def _flush_batch(self, batch: list) -> None:
@@ -154,7 +158,14 @@ class SignalWriterAgent(BaseWriterAgent):
 
 
 def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
-    """Convert an intelligence.i7.signals payload to a list of LedgerEntry objects."""
+    """Convert an intelligence.i7.signals payload to a list of LedgerEntry objects.
+
+    Args:
+        payload: Kafka message payload with symbol, tf, bar_ts, computed_at, signals
+
+    Returns:
+        List of LedgerEntry objects ready for database insertion.
+    """
     symbol = payload.get("symbol", "")
     tf = payload.get("tf", "")
     signals: list[dict] = payload.get("signals", [])

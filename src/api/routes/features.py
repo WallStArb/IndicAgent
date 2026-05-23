@@ -41,8 +41,7 @@ async def export_features(
     to_ts: datetime | None = Query(None, alias="to"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> Response:
-    """
-    Export intelligence_features as Parquet file.
+    """Export intelligence_features as Parquet file.
 
     Returns a Parquet binary with JSONB tier columns expanded into flat columns
     prefixed by tier name (e.g., i4_garch_sigma, i1_rsi_14).
@@ -113,8 +112,7 @@ async def get_features(
     limit: int = Query(100, ge=1, le=1000, description="Number of rows to return (max 1000)"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Get paginated intelligence_features rows for a symbol and timeframe.
+    """Get paginated intelligence_features rows for a symbol and timeframe.
 
     Accepts both base symbols (ES) and contract codes (ESH6).
     JSONB tier columns (bar, i1, i3, i4, i5, smc, i6) are returned as dicts.
