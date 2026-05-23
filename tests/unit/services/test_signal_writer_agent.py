@@ -208,6 +208,63 @@ class TestPayloadToLedgerEntries:
         assert entries[0].composite_rank == 1
         assert entries[1].composite_rank == 2
 
+    def test_definition_fields_populated(self):
+        from services.signal_writer_agent import _payload_to_ledger_entries
+
+        payload = {
+            "symbol": "ES",
+            "tf": "5m",
+            "bar_ts": "2026-01-01T10:00:00Z",
+            "computed_at": "2026-01-01T10:00:01Z",
+            "signals": [
+                {
+                    "signal_id": "aaaaaaaa-0000-0000-0000-000000000001",
+                    "setup_plugin": "momentum_breakout",
+                    "signal_type": "breakout",
+                    "direction": 1,
+                    "was_selected": True,
+                    "entry_price": 5100.0,
+                    "stop_loss": 5080.0,
+                    "targets": [5120.0, 5150.0],
+                    "entry_zone_low": 5095.0,
+                    "entry_zone_high": 5105.0,
+                }
+            ],
+        }
+        entries = _payload_to_ledger_entries(payload)
+        assert len(entries) == 1
+        e = entries[0]
+        assert e.entry_price == 5100.0
+        assert e.stop_loss == 5080.0
+        assert e.targets == [5120.0, 5150.0]
+        assert e.entry_zone_low == 5095.0
+        assert e.entry_zone_high == 5105.0
+
+    def test_definition_fields_none_when_absent(self):
+        from services.signal_writer_agent import _payload_to_ledger_entries
+
+        payload = {
+            "symbol": "ES",
+            "tf": "5m",
+            "bar_ts": "2026-01-01T10:00:00Z",
+            "computed_at": "2026-01-01T10:00:01Z",
+            "signals": [
+                {
+                    "signal_id": "aaaaaaaa-0000-0000-0000-000000000002",
+                    "setup_plugin": "momentum_breakout",
+                    "signal_type": "breakout",
+                    "direction": 1,
+                    "was_selected": False,
+                }
+            ],
+        }
+        entries = _payload_to_ledger_entries(payload)
+        assert entries[0].entry_price is None
+        assert entries[0].stop_loss is None
+        assert entries[0].targets is None
+        assert entries[0].entry_zone_low is None
+        assert entries[0].entry_zone_high is None
+
 
 # ---------------------------------------------------------------------------
 # Flush behavior (via _do_flush from BaseWriterAgent)

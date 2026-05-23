@@ -109,6 +109,12 @@ class LedgerEntry:
     signal_schema_version: str = SIGNAL_SCHEMA_VERSION
     is_backfill: bool = False
     ttl_bars: int | None = None
+    # Signal definition — fire-time immutable trade parameters (restored in 095)
+    entry_price: float | None = None
+    stop_loss: float | None = None
+    targets: list[float] | None = None
+    entry_zone_low: float | None = None
+    entry_zone_high: float | None = None
 
     def _to_row(self) -> tuple:
         """Return a tuple of INSERT parameters for _INSERT_SQL (slim schema)."""
@@ -166,6 +172,12 @@ class LedgerEntry:
             self.garch_sigma_at_fire,  # $43 garch_sigma_at_fire
             # TTL
             self.ttl_bars,  # $44 ttl_bars
+            # Signal definition
+            self.entry_price,  # $45 entry_price
+            self.stop_loss,  # $46 stop_loss
+            self.targets,  # $47 targets (asyncpg accepts list for JSONB)
+            self.entry_zone_low,  # $48 entry_zone_low
+            self.entry_zone_high,  # $49 entry_zone_high
         )
 
 
@@ -191,7 +203,8 @@ INSERT INTO signal_ledger (
     staleness_score, staleness_trigger_reason,
     shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
     hmm_regime_at_fire, garch_sigma_at_fire,
-    ttl_bars
+    ttl_bars,
+    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7, $8,
@@ -208,7 +221,8 @@ INSERT INTO signal_ledger (
     $36, $37,
     $38, $39, $40, $41,
     $42, $43,
-    $44
+    $44,
+    $45, $46, $47, $48, $49
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
