@@ -792,6 +792,20 @@ Plans:
 **Goal**: Fix 11 active bugs identified in the 2026-05-23 architectural audit — shadow signal suppression, data loss in persistence writers, stall watchdog wiring, and FeatureWriter ghost-run on DB failure.
 **Depends on**: Phase 104
 **Status**: Planned — execute before Phase 106
+**Plans**: 5 plans
+
+Plans:
+
+**Wave 1** *(parallel, non-overlapping files)*
+- [ ] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
+- [ ] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
+- [ ] 105-03-PLAN.md — OTel metric types: shadow gauges + pipeline latency histograms (HF-8 defs, HF-9)
+
+**Wave 2** *(blocked on 105-03 for shadow gauge definitions)*
+- [ ] 105-04-PLAN.md — Shadow signal suppression: is_shadow stamp, winner filter, auditor SQL + .set() (HF-1, HF-8 call sites)
+
+**Wave 3** *(blocked on all code fixes)*
+- [ ] 105-05-PLAN.md — Regression tests for shadow suppression + writer fixes; full unit suite green
 
 ### Phase 106: Foundation Hardening
 
