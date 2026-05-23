@@ -203,6 +203,11 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 signal_schema_version=sig.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
                 is_backfill=bool(sig.get("is_backfill", False)),
                 ttl_bars=sig.get("ttl_bars"),
+                entry_price=sig.get("entry_price"),
+                stop_loss=sig.get("stop_loss"),
+                targets=sig.get("targets") or None,
+                entry_zone_low=sig.get("entry_zone_low"),
+                entry_zone_high=sig.get("entry_zone_high"),
             )
         )
     return entries
