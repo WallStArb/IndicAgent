@@ -809,18 +809,23 @@ Plans:
 
 ### Phase 106: Foundation Hardening
 
-**Goal**: Zero structural weaknesses from the audit that block v2.8. Full p50/p95/p99 latency visibility on hot path. DAG correctly models all deployed services. Dead code removed. PluginCircuitBreaker active. Queue backpressure in place.
+**Goal**: Zero structural weaknesses from the audit that block v2.8. DAG correctly models all deployed services and never restarts oneshots. Dead code removed. Shared infrastructure reused (retry path, JSONB pool wrapper). PluginCircuitBreaker wired (shadow-mode-first). Queue backpressure and O(1) state lookup in place. Hot path traced via observed_span.
 **Depends on**: Phase 105
 **Plans**: 6 plans
 
 Plans:
-- [ ] 106-01-PLAN.md — OTel instrument type fixes: latency histograms, shadow gauges, agent_id label, process_bar_inner span
-- [ ] 106-02-PLAN.md — DAG correctness: systemd unit wiring, _DAG_ORDER 11 missing services, priority reorder
-- [ ] 106-03-PLAN.md — Code reuse: bar_aggregator circuit_breaker, 3 JSONB bypass fixes, ctx_writer teardown, llm_writer stall
-- [ ] 106-04-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator, 6 Settings fields, TEMPLATE fix
-- [ ] 106-05-PLAN.md — PluginCircuitBreaker wiring: shadow-mode-first, OTel state gauge (Wave 2)
-- [ ] 106-06-PLAN.md — Queue backpressure: enqueue_blocking for intelligence topic, PluginStateManager O(1) index
 
+**Wave 1** *(parallel, non-overlapping files; 106-04 depends on 105-03 for shared file)*
+- [ ] 106-01-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator (+ chain.py branch), 6+1 dead Settings fields
+- [ ] 106-02-PLAN.md — DAG correctness: 9 missing services, _ONESHOT_UNITS guard, lag thresholds, agent-id key, systemd unit fixes
+- [ ] 106-03-PLAN.md — Code reuse: bar_aggregator retry → BaseAgent._setup_with_retry, 3 JSONB create_pool bypasses
+- [ ] 106-04-PLAN.md — Queue backpressure (enqueue_blocking for intel/journal), PluginStateManager O(1) index, process_bar_inner span
+
+**Wave 2** *(blocked on 106-04 + 105-03/105-04 for shared intelligence_pipeline_agent.py)*
+- [ ] 106-05-PLAN.md — PluginCircuitBreaker wiring: populate circuit_breakers dict, shadow-mode enabled flag, OTel state gauge
+
+**Wave 3** *(blocked on all code changes)*
+- [ ] 106-06-PLAN.md — Regression tests: oneshot guard, state index parity, breaker wiring, backpressure; full suite green
 </details>
 
 <details>
