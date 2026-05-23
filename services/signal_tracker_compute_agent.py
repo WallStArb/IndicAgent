@@ -336,8 +336,12 @@ class SignalTrackerComputeAgent(BaseAgent):
             "status": raw.get("status", "pending"),
             "direction": int(raw.get("direction", 1)),
             "targets": list(raw.get("targets", []) or []),
-            "entry_zone_low": float(raw.get("entry_zone_low", entry_price)),
-            "entry_zone_high": float(raw.get("entry_zone_high", entry_price)),
+            "entry_zone_low": float(
+                raw["entry_zone_low"] if raw.get("entry_zone_low") is not None else entry_price
+            ),
+            "entry_zone_high": float(
+                raw["entry_zone_high"] if raw.get("entry_zone_high") is not None else entry_price
+            ),
             "market_entry_price": raw.get("market_entry_price"),
             "activated_at": raw.get("activated_at"),
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
