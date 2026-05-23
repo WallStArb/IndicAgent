@@ -207,3 +207,33 @@ async def test_sd_notify_called_after_bootstrap_not_before():
 
     assert len(agent._signal_ids) == 1
     assert "db_query" in call_order
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_null_entry_price_falls_back_to_activation_price():
+    """entry_price=NULL (pre-095 signal) uses COALESCE result from SQL.
+
+    The bootstrap query does COALESCE(sl.entry_price, sl.activation_price).
+    This test simulates what the DB returns after COALESCE resolves.
+    """
+    signal_id = "aaaaaaaa-0000-0000-0000-000000000099"
+    row = _make_signal_row(
+        signal_id,
+        activation_price=5050.0,
+        ttl_bars=10,
+        signal_schema_version="1",
+        is_backfill=False,
+    )
+    # SQL COALESCE(sl.entry_price=NULL, sl.activation_price=5050) → 5050
+    row["entry_price"] = 5050.0
+
+    agent = _make_agent()
+    mock_db = _make_db_mock([[row]])
+
+    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+        mock_db_cls.return_value = mock_db
+        await agent._bootstrap_active_signals()
+
+    assert signal_id in agent._signal_ids
+    loaded = agent._active_index[("ES", "5m")][0]
+    assert loaded["entry_price"] == 5050.0

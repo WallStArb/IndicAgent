@@ -872,30 +872,22 @@ class SignalTrackerComputeAgent(BaseAgent):
         _BOOTSTRAP_QUERY = """
             SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.status, sl.direction,
                    sl.activated_at, sl.ttl_bars, sl.signal_schema_version, sl.is_backfill,
-                   COALESCE(tf_sig.value->>'entry_price', sl.activation_price::text) AS entry_price,
-                   tf_sig.value->>'stop_loss' AS stop_loss,
-                   tf_sig.value->'targets' AS targets,
-                   tf_sig.value->>'entry_zone_low' AS entry_zone_low,
-                   tf_sig.value->>'entry_zone_high' AS entry_zone_high,
-                   tf_sig.value->>'market_entry_price' AS market_entry_price,
-                   tf_sig.value->>'garch_sigma_at_fire' AS garch_sigma_at_fire,
-                   tf_sig.value->>'hmm_regime_at_fire' AS hmm_regime_at_fire
+                   COALESCE(sl.entry_price, sl.activation_price) AS entry_price,
+                   sl.stop_loss,
+                   sl.targets,
+                   sl.entry_zone_low,
+                   sl.entry_zone_high,
+                   sl.market_entry_price,
+                   sl.garch_sigma_at_fire,
+                   sl.hmm_regime_at_fire
             FROM signal_ledger sl
-            LEFT JOIN intelligence_features f ON f.ts = sl.feature_ts AND f.symbol = sl.symbol AND f.tf = sl.feature_tf
-                AND f.ts > NOW() - INTERVAL '8 days'
-            LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
-                ON tf_sig.value->>'signal_id' = sl.signal_id::text
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')
               AND sl.timestamp > NOW() - INTERVAL '7 days'
         """
         try:
             for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):
-                # Disable merge join to avoid a 3GB+ disk-spill sort across the
-                # full intelligence_features hypertable. Hash join on the
-                # 8-day-restricted subset runs ~5s vs ~40s.
                 async with db.get_connection() as conn:
-                    await conn.execute("SET enable_mergejoin = off")
                     rows = [dict(r) for r in await conn.fetch(_BOOTSTRAP_QUERY)]
 
                 # If we got rows, load them and succeed
