@@ -892,8 +892,7 @@ class SignalTrackerComputeAgent(BaseAgent):
                 # 8-day-restricted subset runs ~5s vs ~40s.
                 async with db.get_connection() as conn:
                     await conn.execute("SET enable_mergejoin = off")
-                    raw_rows = await conn.fetch(_BOOTSTRAP_QUERY)
-                rows = [dict(r) for r in raw_rows]
+                    rows = [dict(r) for r in await conn.fetch(_BOOTSTRAP_QUERY)]
 
                 # If we got rows, load them and succeed
                 if rows:
