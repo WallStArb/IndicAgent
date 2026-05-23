@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.7
-milestone_name: milestone
-status: milestone_complete
-stopped_at: Milestone complete (Phase 104 was final phase)
-last_updated: 2026-05-22T23:21:32.031Z
-last_activity: 2026-05-22
+milestone: v2.8
+milestone_name: AI Platform & Evolvable Agents
+status: between_milestones
+stopped_at: v2.7 complete — shipped 2026-05-23
+last_updated: 2026-05-23T00:00:00.000Z
+last_activity: 2026-05-23
 progress:
-  total_phases: 18
-  completed_phases: 12
-  total_plans: 69
-  completed_plans: 57
-  percent: 67
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,34 +21,39 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** Between milestones — v2.7 complete, v2.8 not yet planned
 
 ## Current Position
 
-Phase: 104
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-05-22
+Phase: not started
+Plan: not started
+Status: Between milestones
+Last activity: 2026-05-23
 
-## Phase Overview
+## v2.7 Shipped Phases
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 088 | God Class Decomposition | ARCH-01–05 | Complete (5/5 plans, 2026-05-18) |
-| 089 | Compute Performance Optimization | PERF-01–07 | Complete (6/6 plans, 2026-05-20) |
-| 090 | Signal Ledger Thread Safety | — | Complete (2/2 plans, 2026-05-19) |
-| 091 | Instrument Registry | — | Complete (6/6 plans, 2026-05-20) |
-| 091.1 | Instrument Registry Hardening | — | Complete (5/5 plans, 2026-05-20) |
-| 092 | Signal Quality Completeness | — | Complete (3/3 plans) |
-| 093 | Mathematical Correctness Audit | MATH-CORRECT-01–05 | Complete (5/5 plans) |
+| 093 | Mathematical Correctness Audit | MATH-CORRECT-01–05 | Complete (5/5 plans, 2026-05-21) |
 | 100 | Plugin Shared Infrastructure | PLUGIN-INFRA-01–06 | Complete (6/6 plans, 2026-05-22) |
-| 100.5 | Plugin Infrastructure Hardening | — | Next — pre-execution |
-| 094 | LiteLLM Backend | LLM-INFRA-01–05 | Planned only (2 plans written, 0 executed) |
-| 095 | Pydantic AI Agent Adapter | AGENT-EXEC-01–05 | Planned only (8 plans written, 0 executed) |
-| 096–099 | AI Platform (Registry/Memory/Optimizer/Guardrails) | — | Not started |
-| 101–103 | Evolvable AI Foundation | — | Not started |
+| 100.5 | Plugin Infrastructure Hardening | — | Complete (1/1 plan, 2026-05-22) |
+| 104 | Storage Architecture Redesign | — | Complete (4/4 plans, 2026-05-22) |
 
-## v2.6 Agreed Scope (2026-05-16)
+## v2.8 Planned Phases
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 094 | LiteLLM Backend | Deferred from v2.7 — 2 plans written, not executed |
+| 095 | Pydantic AI Agent Adapter | Deferred from v2.7 — 8 revised plans written, not executed |
+| 096 | Agent Registry | Not started |
+| 097 | Zep Episodic Memory | Not started |
+| 098 | DSPy Offline Optimizer | Not started |
+| 099 | Guardrails AI Validation | Not started |
+| 101 | Composite Fitness Function | Not started |
+| 102 | Genetic Infrastructure | Not started |
+| 103 | Reproductive Operators | Not started |
+
+## v2.6 Agreed Scope (archived 2026-05-23)
 
 Phase order and focus agreed in session. Roadmap written. Next: /gsd:plan-phase 84.
 
