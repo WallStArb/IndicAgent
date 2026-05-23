@@ -870,8 +870,8 @@ class SignalTrackerComputeAgent(BaseAgent):
                 rows = await db.execute_query("""
                     SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.status, sl.direction,
                            sl.activated_at, sl.ttl_bars, sl.signal_schema_version, sl.is_backfill,
-                           COALESCE(tf_sig.value->>'entry_price', sl.entry_price) AS entry_price,
-                           COALESCE(tf_sig.value->>'stop_loss', sl.stop_loss) AS stop_loss,
+                           COALESCE(tf_sig.value->>'entry_price', sl.activation_price::text) AS entry_price,
+                           tf_sig.value->>'stop_loss' AS stop_loss,
                            tf_sig.value->'targets' AS targets,
                            tf_sig.value->>'entry_zone_low' AS entry_zone_low,
                            tf_sig.value->>'entry_zone_high' AS entry_zone_high,

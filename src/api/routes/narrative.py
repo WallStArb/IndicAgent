@@ -84,7 +84,14 @@ def _maybe_validate(model_cls, payload):
 
 
 def _build_context_from_row(row) -> AIContext:
-    """Construct typed AIContext from joined signal_ledger + intelligence_features row."""
+    """Construct typed AIContext from joined signal_ledger + intelligence_features row.
+
+    Args:
+        row: Database row with signal_ledger + intelligence_features columns
+
+    Returns:
+        Fully populated AIContext with all pipeline tiers populated.
+    """
     bar_data = _parse_jsonb(row.get("bar"), default={})
     bar_ctx = None
     if bar_data:
@@ -129,7 +136,14 @@ def _build_context_from_row(row) -> AIContext:
 
 
 def _prompt_hash(context: AIContext) -> str:
-    """Deterministic hash of AIContext for cache invalidation detection."""
+    """Compute deterministic hash of AIContext for cache invalidation detection.
+
+    Args:
+        context: AIContext to hash
+
+    Returns:
+        16-character hex digest of context content.
+    """
     h = hashlib.sha256()
     h.update(f"{context.symbol}|{context.timeframe}".encode())
     for tier in _HASH_TIERS:

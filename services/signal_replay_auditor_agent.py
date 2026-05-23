@@ -88,16 +88,25 @@ class SignalReplayAuditorAgent:
     async def _fetch_unresolved(self) -> list[asyncpg.Record]:
         """Fetch a bounded batch of unresolved signals past a 2-minute hold."""
         query = """
-            SELECT signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
-                   direction, targets, entry_zone_low, entry_zone_high,
-                   market_entry_price, ttl_bars, status, activated_at,
-                   hmm_regime_at_fire, garch_sigma_at_fire
-            FROM signal_ledger
-            WHERE exit_at IS NULL
-              AND status IN ('pending', 'active')
-              AND timestamp < NOW() - INTERVAL '2 minutes'
-              AND signal_schema_version = $1
-            ORDER BY timestamp ASC
+            SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.direction,
+                   sl.market_entry_price, sl.ttl_bars, sl.status, sl.activated_at,
+                   sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
+                   COALESCE((tf_sig.value->>'entry_price')::float,
+                             sl.activation_price)                AS entry_price,
+                   (tf_sig.value->>'stop_loss')::float           AS stop_loss,
+                   tf_sig.value->'targets'                       AS targets,
+                   (tf_sig.value->>'zone_low')::float            AS entry_zone_low,
+                   (tf_sig.value->>'zone_high')::float           AS entry_zone_high
+            FROM signal_ledger sl
+            LEFT JOIN intelligence_features f
+                ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
+            LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
+                ON tf_sig.value->>'signal_id' = sl.signal_id::text
+            WHERE sl.exit_at IS NULL
+              AND sl.status IN ('pending', 'active')
+              AND sl.timestamp < NOW() - INTERVAL '2 minutes'
+              AND sl.signal_schema_version = $1
+            ORDER BY sl.timestamp ASC
             LIMIT $2
         """
         assert self._pool is not None

@@ -50,6 +50,14 @@ def _compute_signal_tier(
     NULL cis_score → always Monitored (never Hero).
     Thresholds: confidence >= 0.40 (data-derived breakeven);
                 abs(cis_score) > 0.35 (CIS fire threshold).
+
+    Args:
+        was_selected: Whether the signal was selected for trading
+        confidence: Signal confidence score (0-1)
+        cis_score: Composite Intelligence Score
+
+    Returns:
+        One of "hero", "monitored", or "candidate".
     """
     if (
         was_selected
@@ -65,7 +73,15 @@ def _compute_signal_tier(
 
 
 def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
-    """Build signal response dict from asyncpg row."""
+    """Build signal response dict from asyncpg row.
+
+    Args:
+        row: Database row with signal_ledger columns
+        include_features: Whether to include joined intelligence_features
+
+    Returns:
+        Signal dict with all applicable fields populated.
+    """
     signal: dict[str, Any] = {
         "signal_id": str(row["signal_id"]),
         "timestamp": (
@@ -152,8 +168,7 @@ def _s(v: Any) -> str | None:
 async def get_active_signals(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    All currently pending or active signals from signal_ledger.
+    """All currently pending or active signals from signal_ledger.
 
     Called by the dashboard on SSE connect to pre-populate signal state
     before live SSE events arrive. Returns one row per (symbol, timeframe)
@@ -278,15 +293,17 @@ async def get_recent_signals(
     tier: str = Query("hero", pattern="^(hero|monitored|all)$", description="Quality tier filter"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Recent signals from signal_ledger for drill panel history.
+    """Recent signals from signal_ledger for drill panel history.
 
     Annotated with 30d setup performance from setup_performance table.
     Includes aggregate summary over the returned window.
+
+    Tier filter:
+        hero - only hero-quality signals (was_selected=true, high confidence/CIS)
+        monitored - all was_selected=true signals
+        all - all signals regardless of quality
     """
-    # Map tier to boolean filter flags for parameterized query.
-    # require_selected: hero + monitored only show was_selected=true signals
-    # require_hero_gate: hero additionally gates on confidence >= 0.40 AND abs(cis_score) > 0.35
+    # Map tier to boolean filter flags for parameterized query
     require_selected = tier in ("hero", "monitored")
     require_hero_gate = tier == "hero"
 
@@ -404,10 +421,11 @@ async def get_recent_signals(
 async def get_signals_stats(
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Command strip metrics: throughput, hero rate, avg confidence,
-    pipeline latency percentiles, alpha composite, edge trend.
-    Refreshes on a 60s client polling cadence.
+    """Command strip metrics: throughput, hero rate, avg confidence, pipeline latency.
+
+    Computes session counts, hero rate, average confidence, pipeline latency
+    percentiles (P50/P95), rolling PnL, and edge trend. Refreshes on a 60s
+    client polling cadence.
     """
     try:
         query = """
@@ -552,11 +570,15 @@ async def get_signals_attribution(
     track: str = Query("zone", pattern="^(zone|market)$"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Per-setup or per-asset-class alpha table, read from pre-computed signal_metrics.
+    """Per-setup or per-asset-class alpha table, read from pre-computed signal_metrics.
 
     track=zone  → structural setup quality (IC is primary metric)
     track=market → tradeable alpha (Sharpe is primary metric)
+
+    Args:
+        window: Time window (7d, 30d, or 90d)
+        group_by: Group by "setup" or "asset_class"
+        track: "zone" for structural quality, "market" for tradeable alpha
     """
     try:
         window_days_map = {"7d": 7, "30d": 30, "90d": 90}
@@ -700,10 +722,10 @@ async def get_signal_detail(
     signal_id: str,
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Full signal detail with intelligence_features JOIN.
-    Path is /signals/detail/{signal_id} (not /signals/{signal_id})
-    to avoid shadowing the existing /signals/{symbol} catch-all route.
+    """Full signal detail with intelligence_features JOIN.
+
+    Path is /signals/detail/{signal_id} (not /signals/{signal_id}) to avoid
+    shadowing the existing /signals/{symbol} catch-all route.
     """
     try:
         query = """
@@ -798,8 +820,7 @@ async def get_signals(
     limit: int = Query(100, ge=1, le=1000, description="Number of signals to return (max 1000)"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
-    """
-    Get signal history for a symbol from signal_ledger.
+    """Get signal history for a symbol from signal_ledger.
 
     Accepts both base symbols (ES) and contract codes (ESH6).
 
