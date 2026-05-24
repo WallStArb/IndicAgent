@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-stopped_at: pre-reboot save — signal_ledger definition fields work complete
-last_updated: "2026-05-24T06:09:38.422Z"
-last_activity: 2026-05-24 -- Phase 105 planning complete
+stopped_at: context exhaustion at 75% (2026-05-24)
+last_updated: "2026-05-24T11:40:00.067Z"
+last_activity: 2026-05-24 -- Phase 105 execution started
 progress:
   total_phases: 14
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Between milestones — v2.7 complete, v2.8 not yet planned
+**Current focus:** Phase 105 — Hotfix: Writer Service Bugs & Shadow Governance
 
 ## Current Position
 
-Phase: not started
-Plan: not started
-Status: Ready to execute
-Last activity: 2026-05-24 -- Phase 105 planning complete
+Phase: 105 (Hotfix: Writer Service Bugs & Shadow Governance) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 105
+Last activity: 2026-05-24 -- Phase 105 execution started
 
 ## v2.7 Shipped Phases
 
@@ -159,8 +159,8 @@ Candidates: todo 013 (earnings), todo 014 (macro events).
 
 ## Session Continuity
 
-Last session: 2026-05-23T15:39:00.000Z
-Stopped at: pre-reboot save — signal_ledger definition fields work complete
+Last session: 2026-05-24T11:32:01.521Z
+Stopped at: context exhaustion at 75% (2026-05-24)
 Resume file: None
 Next: post-reboot verify all services healthy, then continue v2.8 planning
 
