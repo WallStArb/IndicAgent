@@ -410,8 +410,8 @@ class FeatureWriterAgent(BaseWriterAgent):
             await self.db_manager.initialize()
             self.logger.info("Connected to database")
         except Exception as e:
-            self.logger.warning("Database unavailable, persistence disabled", error=str(e))
-            self.db_manager = None
+            self.logger.error("feature_writer.db_connect_failed", error=str(e))
+            raise
 
     async def _setup_kafka_clients(self) -> None:
         """Build expiry map and create Kafka consumer for intelligence.record topic."""
