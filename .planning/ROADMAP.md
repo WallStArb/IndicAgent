@@ -797,9 +797,9 @@ Plans:
 Plans:
 
 **Wave 1** *(parallel, non-overlapping files)*
-- [ ] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
-- [ ] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
-- [ ] 105-03-PLAN.md — OTel metric types: shadow gauges + pipeline latency histograms (HF-8 defs, HF-9)
+- [x] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
+- [x] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
+- [x] 105-03-PLAN.md — OTel metric types: shadow gauges + pipeline latency histograms (HF-8 defs, HF-9)
 
 **Wave 2** *(blocked on 105-03 for shadow gauge definitions)*
 - [ ] 105-04-PLAN.md — Shadow signal suppression: is_shadow stamp, winner filter, auditor SQL + .set() (HF-1, HF-8 call sites)
@@ -1076,7 +1076,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
 | 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
-| 105. Architecture Hotfix Sprint | Pre-v2.8 | 0/TBD | Not started | - |
+| 105. Architecture Hotfix Sprint | Pre-v2.8 | 3/5 | In Progress|  |
 | 106. Foundation Hardening | Pre-v2.8 | 0/6 | Planned | - |
 | 094. LiteLLM Backend | v2.8 | 2 plans written/0 executed | Deferred | - |
 | 095. Pydantic AI Agent Adapter | v2.8 | 8 plans written/0 executed | Deferred | - |
