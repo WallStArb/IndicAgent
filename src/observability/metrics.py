@@ -221,30 +221,12 @@ MERGER_BAR_LATENCY_SECONDS = _meter.create_histogram(
 # Shadow plugin metrics
 # ---------------------------------------------------------------------------
 
-SHADOW_N_RESOLVED = _meter.create_up_down_counter(
-    "shadow_n_resolved",
-    description="Resolved shadow signals",
-)
-SHADOW_WIN_RATE = _meter.create_up_down_counter(
-    "shadow_win_rate",
-    description="Shadow plugin win rate",
-)
-SHADOW_EV_R = _meter.create_up_down_counter(
-    "shadow_ev_r",
-    description="Shadow plugin E[PnL_R]",
-)
-SHADOW_EV_CI_LOWER = _meter.create_up_down_counter(
-    "shadow_ev_ci_lower",
-    description="Shadow 95% CI lower bound on E[PnL_R]",
-)
-SHADOW_DAYS_TO_GATE = _meter.create_up_down_counter(
-    "shadow_days_to_gate",
-    description="Estimated days to N=100 resolved",
-)
-SHADOW_PROMOTION_READY = _meter.create_up_down_counter(
-    "shadow_promotion_ready",
-    description="1 when all gate conditions met",
-)
+SHADOW_N_RESOLVED = point_gauge("shadow_n_resolved", "Resolved shadow signals")
+SHADOW_WIN_RATE = point_gauge("shadow_win_rate", "Shadow plugin win rate")
+SHADOW_EV_R = point_gauge("shadow_ev_r", "Shadow plugin E[PnL_R]")
+SHADOW_EV_CI_LOWER = point_gauge("shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]")
+SHADOW_DAYS_TO_GATE = point_gauge("shadow_days_to_gate", "Estimated days to N=100 resolved")
+SHADOW_PROMOTION_READY = point_gauge("shadow_promotion_ready", "1 when all gate conditions met")
 SHADOW_TAIL_RISK_BLOCKED = _meter.create_counter(
     "shadow_tail_risk_blocked_total",
     description="Shadow promotions blocked by tail-risk gate (skewness or recovery_factor)",
