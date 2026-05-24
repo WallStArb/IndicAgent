@@ -157,6 +157,8 @@ class TestExceptionIsolation:
     @pytest.mark.asyncio
     async def test_error_counter_increments_on_exception(self):
         """PLUGIN_ERRORS_TOTAL.add(1, {plugin_name, tier}) called when plugin raises."""
+        from src.observability.plugin_observer import PluginObserver
+
         agent = make_agent()
 
         failing_name = TIER_I1[0]
@@ -164,8 +166,13 @@ class TestExceptionIsolation:
 
         frames = {"main": MagicMock()}
 
-        with patch("src.intelligence.pipeline.executor.PLUGIN_ERRORS_TOTAL") as mock_errors:
-            await _run_i1_via_executor(agent, frames)
+        # Swap to a real PluginObserver and patch its errors counter
+        real_observer = PluginObserver()
+        mock_errors = MagicMock()
+        real_observer._errors_counter = mock_errors
+        agent._executor._observer = real_observer
+
+        await _run_i1_via_executor(agent, frames)
 
         # OTel counter: .add(1, {"plugin_name": ..., "tier": "I1"}) must have been called
         mock_errors.add.assert_called()
@@ -178,6 +185,8 @@ class TestExceptionIsolation:
     @pytest.mark.asyncio
     async def test_plugin_duration_recorded_on_success(self):
         """PLUGIN_DURATION_MS.record(value, {plugin_name, tier}) called with positive value."""
+        from src.observability.plugin_observer import PluginObserver
+
         agent = make_agent()
 
         plugin_name = TIER_I1[0]
@@ -185,8 +194,13 @@ class TestExceptionIsolation:
 
         frames = {"main": MagicMock()}
 
-        with patch("src.intelligence.pipeline.executor.PLUGIN_DURATION_MS") as mock_duration:
-            await _run_i1_via_executor(agent, frames)
+        # Swap to a real PluginObserver and patch its duration histogram
+        real_observer = PluginObserver()
+        mock_duration = MagicMock()
+        real_observer._duration_hist = mock_duration
+        agent._executor._observer = real_observer
+
+        await _run_i1_via_executor(agent, frames)
 
         # OTel histogram: .record(value, attrs) must have been called
         mock_duration.record.assert_called()

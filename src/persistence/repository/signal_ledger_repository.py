@@ -86,6 +86,8 @@ class LedgerEntry:
     bucket_scores: dict | None = None
     weights_version: int | None = None
     pipeline_lag_ms: float | None = None
+    pre_quality_confidence: float | None = None
+    pre_calibration_confidence: float | None = None
     # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
     status: SignalStatus = SignalStatus.PENDING
 
@@ -118,6 +120,8 @@ class LedgerEntry:
             self.bucket_scores,  # $25 dict → asyncpg JSONB
             self.weights_version,  # $26
             self.pipeline_lag_ms,  # $27
+            self.pre_quality_confidence,  # $28
+            self.pre_calibration_confidence,  # $29
         )
 
 
@@ -137,7 +141,8 @@ INSERT INTO signal_ledger (
     entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
     market_entry_price,
     cis_score, bucket_scores, weights_version,
-    pipeline_lag_ms
+    pipeline_lag_ms,
+    pre_quality_confidence, pre_calibration_confidence
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
@@ -149,7 +154,8 @@ INSERT INTO signal_ledger (
     $18, $19, $20::jsonb, $21, $22,
     $23,
     $24, $25::jsonb, $26,
-    $27
+    $27,
+    $28, $29
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """

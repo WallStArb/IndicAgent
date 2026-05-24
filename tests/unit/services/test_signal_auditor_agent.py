@@ -81,7 +81,7 @@ def _make_conn_mock(coverage_count: int = 0, lag_row=None, cis_row=None):
     async def fetchrow_side(query, *args):
         if "percentile_cont" in query:
             return lag_row
-        if "AVG(cis_score)" in query:
+        if "AVG(" in query and "cis_score" in query:
             return cis_row
         return None
 

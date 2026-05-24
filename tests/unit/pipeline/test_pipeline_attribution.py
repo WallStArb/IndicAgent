@@ -70,7 +70,7 @@ class TestAttributionInvariant:
         assert sig["calibrated_confidence"] == 0.0
 
     def test_attribution_fields_on_ledger_entry(self) -> None:
-        """LedgerEntry with attribution fields returns 64-element tuple."""
+        """LedgerEntry param count matches _INSERT_SQL placeholder count and attribution fields land at correct positions."""
         entry = LedgerEntry(
             signal_id="test-123",
             timestamp=datetime.now(UTC),
@@ -79,19 +79,7 @@ class TestAttributionInvariant:
             setup_plugin="test_plugin",
             signal_type="trend",
             direction=1,
-            entry_price=5500.0,
-            stop_loss=5490.0,
-            targets=[5520.0],
-            confidence=0.8,
-            confluence_score=0.6,
-            regime_context="trending",
-            supporting_factors=["factor_a"],
             was_selected=True,
-            num_signals_bar=1,
-            num_agreeing=1,
-            num_conflicting=0,
-            resolution_method="in_process",
-            composite_rank=1,
             pre_quality_confidence=0.80,
             pre_calibration_confidence=0.68,
         )
@@ -100,5 +88,5 @@ class TestAttributionInvariant:
         assert (
             len(params) == sql_param_count
         ), f"Expected {sql_param_count} params, got {len(params)}"
-        assert params[58] == 0.80, "pre_quality_confidence should be $59 (index 58)"
-        assert params[59] == 0.68, "pre_calibration_confidence should be $60 (index 59)"
+        assert params[27] == 0.80, "pre_quality_confidence must be $28 (index 27)"
+        assert params[28] == 0.68, "pre_calibration_confidence must be $29 (index 28)"

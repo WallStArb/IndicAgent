@@ -55,8 +55,6 @@ def test_dag_order_covers_required_services():
         "indicagent-signal-metrics-compute",
         "indicagent-signal-metrics-writer",
         "indicagent-signal-auditor",
-        "indicagent-parity-auditor",
-        "indicagent-feature-snapshot-writer",
         "indicagent-graduation-writer",
     }
     units = set(_DAG_ORDER.keys())

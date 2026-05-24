@@ -39,6 +39,8 @@ CREATE TABLE signal_ledger (
     bucket_scores           jsonb,
     weights_version         integer,
     pipeline_lag_ms         double precision,
+    pre_quality_confidence      double precision,
+    pre_calibration_confidence  double precision,
     PRIMARY KEY (signal_id, timestamp)
 );
 

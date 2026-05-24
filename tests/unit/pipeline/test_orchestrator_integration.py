@@ -81,6 +81,7 @@ def _wire_agent(agent, sig_proc_result, *, i7_state_updates=None):
     agent._shadow_mode = False
     agent._bars_processed = MagicMock()
     agent._i7_latency_ms = MagicMock()
+    agent._pipeline_latency = MagicMock()
 
     fake_event = MagicMock()
     fake_event.model_dump_json = MagicMock(return_value="{}")
