@@ -251,6 +251,8 @@ class BarWriterAgent(BaseWriterAgent):
                 await self._handle_contract_update(payload)
                 continue
 
+            self._record_message_consumed()  # Track liveness for stall detection
+
             try:
                 rows = self._parse_payload(payload)
                 if rows is not None:
