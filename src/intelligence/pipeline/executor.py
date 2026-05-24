@@ -619,7 +619,13 @@ class PluginExecutor:
             tasks, gather_results, lock, symbol, tf, log_prefix="i7.plugin"
         )
 
-        return tasks, outputs, state_updates
+        # Keep tasks aligned with outputs: only include tasks whose result was not an Exception.
+        # _collect_plugin_results skips exceptions, so len(outputs) <= len(tasks).
+        # zip(tasks, outputs) would silently misalign plugin identity on any exception.
+        successful_tasks = [
+            t for t, r in zip(tasks, gather_results) if not isinstance(r, Exception)
+        ]
+        return successful_tasks, outputs, state_updates
 
     # ------------------------------------------------------------------
     # I7 completion (D-20): consolidated 52-line I7 setup block

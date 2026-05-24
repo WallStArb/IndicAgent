@@ -36,7 +36,7 @@ from src.core.stream_keys import (
 )
 from src.observability.metrics import (
     counter,
-    gauge,
+    point_gauge,
 )
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -436,11 +436,11 @@ class LLMWriterAgent(BaseWriterAgent):
             "llm_writer_errors_total",
             "Total errors encountered by LLM writer agent",
         )
-        self.buffer_size_gauge = gauge(
+        self.buffer_size_gauge = point_gauge(
             "llm_writer_buffer_size",
             "Current number of LLM call events in write buffer",
         )
-        self.service_uptime_seconds = gauge(
+        self.service_uptime_seconds = point_gauge(
             "llm_writer_service_uptime_seconds",
             "LLM writer agent uptime in seconds",
         )
@@ -540,8 +540,10 @@ class LLMWriterAgent(BaseWriterAgent):
             await self.db_manager.initialize()
             self.logger.info("Connected to database")
         except Exception as e:
-            self.logger.warning("Database unavailable, persistence disabled", error=str(e))
-            self.db_manager = None
+            self.logger.error(
+                "Database unavailable — refusing to run without persistence", error=str(e)
+            )
+            raise
 
     async def _setup_kafka_clients(self) -> None:
         """Create Kafka consumer subscribed to llm.calls.
@@ -700,7 +702,7 @@ class LLMWriterAgent(BaseWriterAgent):
             self._buffer_rows([params])  # Updates _buffer_depth_gauge via BaseWriterAgent
             self.calls_consumed_total.add(1)
             self._total_calls += 1
-            self.buffer_size_gauge.add(len(self._buffer))
+            self.buffer_size_gauge.set(len(self._buffer))
 
             if len(self._buffer) >= self.BATCH_SIZE:
                 await self._do_flush()
@@ -986,7 +988,7 @@ class LLMWriterAgent(BaseWriterAgent):
         while not self._stop_event.is_set():
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
-                self.service_uptime_seconds.add(uptime)
+                self.service_uptime_seconds.set(uptime)
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",

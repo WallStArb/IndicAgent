@@ -77,11 +77,11 @@ _WRITE_ERRORS = _bw_meter.create_counter(
     "bar_writer_write_errors_total",
     description="Exceptions during batch INSERT — buffer left intact for retry",
 )
-_CONSUMER_LAG = _bw_meter.create_up_down_counter(
+_CONSUMER_LAG = _bw_meter.create_gauge(
     "bar_writer_persistence_consumer_lag",
     description="Current unwritten buffer depth (proxy for consumer lag)",
 )
-_CONTRACT_CACHE_SIZE = _bw_meter.create_up_down_counter(
+_CONTRACT_CACHE_SIZE = _bw_meter.create_gauge(
     "bar_writer_contract_cache_size",
     description="Number of entries in the contract->base symbol cache (from contract_metadata)",
 )
@@ -168,11 +168,13 @@ class BarWriterAgent(BaseWriterAgent):
         """Parse a bar payload into a buffer row tuple.
 
         Returns list with one 10-tuple, empty list if parse fails (not DLQ),
-        or None for non-bar payloads (contract updates handled separately).
+        or None for a truly unparseable payload (triggers DLQ in base class).
         """
+        if not isinstance(payload, dict) or not payload:
+            return None
         bar = self._parse_bar(payload)
         if bar is None:
-            return None
+            return []
 
         base = self._contract_cache.get(bar.symbol, bar.symbol)
         source = "live_1m" if bar.tf == "1m" else "live_htf"
@@ -268,7 +270,7 @@ class BarWriterAgent(BaseWriterAgent):
                 )
                 continue
 
-            _CONSUMER_LAG.add(len(self._buffer), self._consumer_lag_attrs)
+            _CONSUMER_LAG.set(len(self._buffer), self._consumer_lag_attrs)
             await self.maybe_flush()
 
     async def _teardown(self) -> None:
@@ -296,7 +298,7 @@ class BarWriterAgent(BaseWriterAgent):
 
         self._contract_cache = {row["symbol"]: row["base_symbol"] for row in rows}
         cache_size = len(self._contract_cache)
-        _CONTRACT_CACHE_SIZE.add(cache_size, self._contract_cache_size_attrs)
+        _CONTRACT_CACHE_SIZE.set(cache_size, self._contract_cache_size_attrs)
         _CONTRACT_CACHE_RELOADS.add(1, self._contract_cache_reloads_attrs)
 
         if cache_size == 0:
@@ -331,7 +333,7 @@ class BarWriterAgent(BaseWriterAgent):
             )
             self._contract_cache[event.new_contract] = event.base_symbol
             self._contract_cache.pop(event.old_contract, None)
-            _CONTRACT_CACHE_SIZE.add(len(self._contract_cache), self._contract_cache_size_attrs)
+            _CONTRACT_CACHE_SIZE.set(len(self._contract_cache), self._contract_cache_size_attrs)
             _CONTRACT_CACHE_RELOADS.add(1, self._contract_cache_reloads_attrs)
             self.logger.info(
                 "bar_writer_agent.contract_cache_updated",
