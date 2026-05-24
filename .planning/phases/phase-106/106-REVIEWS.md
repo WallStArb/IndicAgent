@@ -340,3 +340,84 @@ With: "run the full state evaluation unconditionally (OPEN/HALF_OPEN time-check,
 ### Agreed Assessment
 
 Both reviewers confirm 6/7 HIGH concerns are fully resolved. One concern (C6) is partially resolved due to an instruction wording issue in 106-05 Task 1 that could cause an implementation bug. The fix is a one-line wording correction requiring no architectural change. Overall phase risk is MEDIUM until the wording is corrected, after which it reduces to LOW.
+
+---
+
+# Cycle 3 Review — Phase 106
+
+---
+cycle: 3
+reviewer: claude-sonnet-4-6 (self-review: current session)
+reviewed_at: 2026-05-24T08:00:00Z
+plans_reviewed:
+  - 106-01-PLAN.md
+  - 106-02-PLAN.md
+  - 106-03-PLAN.md
+  - 106-04-PLAN.md
+  - 106-05-PLAN.md
+  - 106-06-PLAN.md
+context: "Final convergence check — verifying C6 is fully resolved in commit b79aaecb and checking all 6 plans for new HIGH issues."
+---
+
+## Cycle 3 — C6 Resolution Verification
+
+### C6: 106-05 Task 1 Step 3 allow_request() control-flow contradiction — FULLY RESOLVED
+
+**Previous state (Cycle 2):** The instruction read "return `True` immediately (transparent passthrough) but STILL run the state evaluation" — a dead-code contradiction. An implementer placing `return True` before the state machine would make the OPEN→HALF_OPEN check unreachable.
+
+**Fix (commit b79aaecb):** The wording now reads:
+
+> "run the full state-machine logic unconditionally (OPEN/HALF_OPEN time-check, HALF_OPEN→CLOSED recovery) so the breaker transitions state correctly even in shadow mode. At the point where an enabled breaker would return `False` (state is OPEN and timeout has not elapsed), substitute `return True` when `not self._enabled` — the state machine already ran, only the blocking effect is suppressed. Do NOT add an early-return before the state logic: returning True before the state evaluation means the state machine never runs and the breaker never transitions, making shadow observation meaningless."
+
+**Verification against actual code:** The current `CircuitBreaker.allow_request()` in `src/observability/circuit_breaker.py` (lines 76-84) has exactly the structure the plan now describes:
+1. Returns `True` for CLOSED/HALF_OPEN states (no blocking needed)
+2. For OPEN: checks timeout, transitions to HALF_OPEN if elapsed and returns `True` (the state machine transition)
+3. Otherwise returns `False` (the only blocking return)
+
+The fix correctly instructs: run the state machine (steps 1-2), then at step 3 (the `return False` line) substitute `return True` when `not self._enabled`. No control-flow contradiction remains. The implementation path is unambiguous.
+
+**Verdict: FULLY RESOLVED.**
+
+## Cycle 3 — Full Plan Review for New HIGH Issues
+
+### 106-01: Dead Code Deletion + AI Agent Base Hardening
+No new HIGH issues. All tasks follow the correct deletion-order pattern (remove consumers before deleting files). The `self._llm = None` declaration in `BaseAIAgent.__init__` with a `TYPE_CHECKING` guard is handled correctly. MEDIUM concerns from Cycle 1/2 (settings in non-code locations, shadow.py external scripts) remain MEDIUM and are appropriately scoped.
+
+### 106-02: DAG Correctness
+No new HIGH issues. C1 (priority comments) and C2 (oneshot guard all call sites) are both fully resolved. The `_ONESHOT_UNITS` guard pattern is explicit and comprehensive. The plan instructs grepping ALL `_restart_service_by_unit(` call sites, not only the two originally named paths — this directly addresses the Cycle 1 HIGH concern about incomplete guard coverage. LOW concern about maintenance drift remains LOW.
+
+### 106-03: Code Reuse: Retry + JSONB Pool
+No new HIGH issues. C3 (pool-name uniqueness) is fully resolved with an explicit pre-assignment grep. The double-close safety concern is correctly addressed with `getattr(self, "_consumer", None) is not None` guards. LOW concern about dynamically constructed pool names remains LOW.
+
+### 106-04: Queue Backpressure + O(1) State Lookup + Spans
+No new HIGH issues. C4 (blocking enqueue shutdown) is resolved — the plan requires `enqueue_blocking` to be cancellation-aware via a `timeout_sec` parameter or shutdown event hook, with an acceptance criterion asserting `asyncio.TimeoutError` on timeout. C5 (secondary index mutation paths) is resolved — the plan mandates grepping ALL `_plugin_states` mutation paths and mirroring every write/delete/clear/expiry operation. The plan is internally consistent.
+
+### 106-05: Plugin Circuit Breaker Wiring
+**C6: FULLY RESOLVED** (see above). No new HIGH issues.
+
+One minor observation (LOW, not HIGH): Task 1 step 3 mentions "HALF_OPEN→CLOSED recovery" as part of what `allow_request()` runs. Looking at the actual code, HALF_OPEN→CLOSED is handled in `record_success()`, not in `allow_request()`. This is a minor inaccuracy in the explanatory text but does NOT create an implementation bug — the instruction's action is precisely to intercept the `return False` at line 84, and no code change is implied for the HALF_OPEN→CLOSED path. The acceptance criteria correctly focus on the observable behavior (`allow_request()` returns True when not enabled while still updating state) rather than this explanatory aside. **Severity: LOW — documentation inaccuracy only, not actionable.**
+
+### 106-06: Regression Tests + Green Suite
+No new HIGH issues. The circuit-breaker shadow test (`test_breakers_default_shadow_mode` and `test_shadow_breaker_records_state_transitions`) correctly requires driving failures via `record_failure()` calls before asserting `allow_request()` returns True — this directly validates the C6 fix at test level. The `test_enqueue_blocking_shutdown_cancellation` test proves the C4 fix. All structural invariants have corresponding test coverage.
+
+## Cycle 3 — Consensus Summary
+
+### C6 Resolution Scorecard (Cycle 3 Final)
+
+| Concern | Cycle 1 | Cycle 2 | Cycle 3 | Final Verdict |
+|---------|---------|---------|---------|---------------|
+| C1: DAG priority comments | HIGH | RESOLVED | — | RESOLVED |
+| C2: Oneshot guard all call sites | HIGH | RESOLVED | — | RESOLVED |
+| C3: Pool-name uniqueness | HIGH | RESOLVED | — | RESOLVED |
+| C4: Blocking enqueue shutdown | HIGH | RESOLVED | — | RESOLVED |
+| C5: Secondary index all mutation paths | HIGH | RESOLVED | — | RESOLVED |
+| C6: Shadow mode allow_request() control flow | HIGH | PARTIALLY RESOLVED | **FULLY RESOLVED** | **RESOLVED** |
+| C7: Executor record paths unconditional | HIGH | RESOLVED | — | RESOLVED |
+
+**All 7 HIGH concerns from Cycle 1 are now FULLY RESOLVED.**
+
+### Phase 106 Final Risk Assessment
+
+**Overall Risk: LOW**
+
+All HIGH concerns are resolved. Remaining MEDIUM concerns (blocking enqueue deadlock risk, settings in non-code locations, dynamically constructed pool names) are well-mitigated by the plans and do not rise to HIGH. The phase is ready for implementation.
