@@ -340,8 +340,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         drain_task = asyncio.create_task(self._out_queue.drain_loop(lambda: self.running))
-        self._background_tasks.add(drain_task)
-        drain_task.add_done_callback(self._background_tasks.discard)
         tasks = [
             asyncio.create_task(self._process_loop()),
             drain_task,

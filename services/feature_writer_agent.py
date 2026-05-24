@@ -406,8 +406,9 @@ class FeatureWriterAgent(BaseWriterAgent):
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
         try:
-            self.db_manager = DatabaseManager(dsn)
-            await self.db_manager.initialize()
+            mgr = DatabaseManager(dsn)
+            await mgr.initialize()
+            self.db_manager = mgr
             self.logger.info("Connected to database")
         except Exception as e:
             self.logger.error("feature_writer.db_connect_failed", error=str(e))
