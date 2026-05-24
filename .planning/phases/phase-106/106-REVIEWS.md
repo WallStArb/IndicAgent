@@ -238,3 +238,105 @@ The phase targets the right structural weaknesses and the plans are mostly concr
 - **Overall risk level:** Gemini assessed LOW; Codex assessed MEDIUM-HIGH. Gemini focused on the quality of threat modeling in the plans; Codex focused on behavioral changes to production control flow (blocking queues, restart loops, circuit breakers) that are correct in design but carry runtime risk. The truth is closer to MEDIUM — the plans are well-designed but several changes affect live production paths with limited failure-mode test coverage in the current plan.
 
 - **106-01 deletion risk:** Gemini was satisfied with grep-based zero-caller verification; Codex flagged non-code locations (env files, docs, systemd units). Codex is more conservative here and the concern is valid for a production system.
+
+---
+
+# Cycle 2 Review — Phase 106
+
+---
+cycle: 2
+reviewers: [gemini, codex]
+reviewed_at: 2026-05-24T00:00:00Z
+plans_reviewed:
+  - 106-02-PLAN.md (revised)
+  - 106-03-PLAN.md (revised)
+  - 106-04-PLAN.md (revised)
+  - 106-05-PLAN.md (revised)
+  - 106-06-PLAN.md (revised)
+context: "Convergence check — verifying that the 7 HIGH concerns from Cycle 1 are resolved in the updated plans."
+---
+
+## Cycle 2 — Gemini Review
+
+### Cycle 2 Resolution Status
+
+- **[C1] (DAG priority assignment):** RESOLVED — Plan 106-02 mandates adding inline justification comments for every priority in `_DAG_ORDER`.
+- **[C2] (Oneshot guard):** RESOLVED — Plan 106-02 requires a codebase-wide grep for `_restart_service_by_unit` to ensure every call site is protected by the `_ONESHOT_UNITS` guard.
+- **[C3] (Pool-name uniqueness):** RESOLVED — Plan 106-03 mandates a codebase-wide grep for `pool_name=` before assigning names to ensure collisions are avoided.
+- **[C4] (Blocking enqueue shutdown):** RESOLVED — Plan 106-04 requires `enqueue_blocking` to be cancellation-aware (timeout or shutdown-hook) and mandates a test in 106-06 to verify this.
+- **[C5] (Secondary index mutation):** RESOLVED — Plan 106-04 mandates an audit of all `_plugin_states` mutation paths (including delete/clear/reset/expiry) and requires mirroring in `_states_by_key`.
+- **[C6] (Shadow mode semantics):** RESOLVED — Plan 106-05 explicitly requires shadow breakers to process state-machine logic in `allow_request()` while only suppressing the blocking effect.
+- **[C7] (Executor record paths):** RESOLVED — Plan 106-05 requires `executor.py` to call `record_success()`/`record_failure()` unconditionally around every plugin invocation, regardless of mode.
+
+### New Concerns
+
+- **MEDIUM — Testing of Shadow State Transitions:** Plan 106-06 includes a test for shadow breaker state accumulation, but the test must strictly ensure that the OTel state gauge update only happens when a state transition actually occurs (not on every `record_failure` call), to avoid excessive metric spam.
+- **LOW — `_ONESHOT_UNITS` Maintenance Drift:** The plan relies on manual grep-verification after implementation. As the codebase grows, this is susceptible to drift. A more robust approach would be a unit test that verifies `_restart_service_by_unit` cannot be called with a service in the `_ONESHOT_UNITS` set.
+
+### Risk Assessment
+
+**Overall Risk: LOW**
+
+The revised plans are comprehensive and address all high-severity concerns identified in Cycle 1. The inclusion of explicit grep-based verification and automated tests (Plan 106-06) effectively mitigates the identified threats. The new concerns are manageable through standard code-review discipline rather than structural flaws.
+
+---
+
+## Cycle 2 — Codex Review
+
+### Cycle 2 Resolution Status
+
+- **[C1] (DAG priority assignment):** RESOLVED — "Each service's priority in `_DAG_ORDER` has an inline comment justifying its position relative to its dependencies" and "For EVERY new service added in step 1, add a brief comment next to its priority value documenting the reasoning."
+- **[C2] (Oneshot guard):** RESOLVED — "grep ALL `_restart_service_by_unit(` call sites… verify each one checks `_ONESHOT_UNITS`" and acceptance criterion: "ALL call sites of `_restart_service_by_unit(` in the file reference `_ONESHOT_UNITS`."
+- **[C3] (Pool-name uniqueness):** RESOLVED — "verified by codebase grep before assignment" and "BEFORE assigning these names, run `grep -rn 'pool_name=' src/ services/` to enumerate all existing pool names."
+- **[C4] (Blocking enqueue shutdown):** RESOLVED — "enqueue_blocking does not hang shutdown indefinitely — either has a bounded timeout or hooks into a shutdown event" plus acceptance criterion requiring `timeout_sec` or shutdown-event support.
+- **[C5] (Secondary index mutation):** RESOLVED — "ALL `_plugin_states` mutation paths (write/delete/clear/reset/expiry) keep `_states_by_key` consistent" and "inspect every line… Write → mirror write… Delete → mirror delete… Clear/reset → mirror with `{}`; Expiry/eviction → mirror deletion."
+- **[C6] (Shadow mode semantics):** PARTIALLY RESOLVED — The plan correctly states "`allow_request()` alone does NOT accumulate failure data" and "executor is responsible for calling `record_failure()`/`record_success()` unconditionally." However, Task 1 wording is internally contradictory: "return `True` immediately (transparent passthrough) but STILL run the state evaluation." An immediate return before state evaluation is a control-flow contradiction. The intended behavior is correct elsewhere in the plan, but this instruction could cause an implementer to place the `return True` before the state machine code runs. The fix is a wording correction: "run state evaluation first, then force return True in shadow mode."
+- **[C7] (Executor record paths):** RESOLVED — "After a successful plugin invocation: `cb.record_success()`; In the exception handler… `cb.record_failure()`" and "These record calls must be unconditional — they run in BOTH shadow mode AND active mode."
+
+### New Concerns
+
+- **MEDIUM [106-05] — Shadow-mode `allow_request()` instruction contains a control-flow contradiction:** The text says "return `True` immediately" while also requiring state evaluation. This should be corrected before implementation: the instruction should read "run state evaluation first, then force return True if not enabled." This directly affects C6 and would cause an early-return bug if taken literally.
+- **LOW [106-02] — Oneshot guard verification is file-local:** The plan says grep `services/service_auditor_agent.py`. If `_restart_service_by_unit` is only in that file, this is fine. If it can be imported or wrapped elsewhere, the grep should be repo-wide. Current concern is low because the function appears auditor-specific.
+- **LOW [106-03] — Pool-name grep misses dynamic construction:** The plan's grep for literal `pool_name=` will catch current usage, but dynamically constructed names or wrapper defaults could be missed. Implementation should also inspect the database manager registry behavior if present.
+
+### Risk Assessment
+
+**Overall Risk: MEDIUM**
+
+Six of the seven HIGH concerns are now explicitly resolved. The remaining meaningful risk is the 106-05 shadow-mode control flow wording: the plan understands the semantics correctly, but one instruction could still produce a buggy early return before state evaluation. Fixing that wording before implementation would reduce overall risk to LOW.
+
+---
+
+## Cycle 2 — Consensus Summary
+
+### Resolution Scorecard
+
+| Concern | Plan | Gemini | Codex | Verdict |
+|---------|------|--------|-------|---------|
+| C1: DAG priority comments | 106-02 | RESOLVED | RESOLVED | RESOLVED |
+| C2: Oneshot guard all call sites | 106-02 | RESOLVED | RESOLVED | RESOLVED |
+| C3: Pool-name uniqueness grep | 106-03 | RESOLVED | RESOLVED | RESOLVED |
+| C4: Blocking enqueue shutdown timeout | 106-04 | RESOLVED | RESOLVED | RESOLVED |
+| C5: Secondary index all mutation paths | 106-04 | RESOLVED | RESOLVED | RESOLVED |
+| C6: Shadow mode semantics | 106-05 | RESOLVED | PARTIALLY RESOLVED | PARTIALLY RESOLVED |
+| C7: Executor record paths unconditional | 106-05 | RESOLVED | RESOLVED | RESOLVED |
+
+### Remaining Unresolved HIGH Concern
+
+**C6 — 106-05 shadow-mode `allow_request()` control-flow contradiction (PARTIALLY RESOLVED)**
+
+Codex identified a control-flow ambiguity in Task 1 of 106-05. The instruction reads: "if `not self._enabled`, return `True` immediately (transparent passthrough) but STILL run the state evaluation." A literal reading causes the state evaluation to be unreachable (code after a `return` is dead). The correct implementation is: run the state machine logic unconditionally, then at the end of `allow_request()` return `True` if not enabled instead of the evaluated CLOSED/HALF_OPEN result. The plan's intent is clear from context (the threat model and acceptance criteria correctly describe the semantics), but the Task 1 action instruction must be corrected before implementation to avoid a latent bug.
+
+**Recommended fix (wording only — no logic change):**
+Replace: "if `not self._enabled`, return `True` immediately (transparent passthrough) but STILL run the state evaluation"
+With: "run the full state evaluation unconditionally (OPEN/HALF_OPEN time-check, HALF_OPEN→CLOSED recovery); then at the end, if `not self._enabled`, return `True` instead of the evaluated gating result (transparent passthrough)"
+
+### New Cycle 2 Concerns
+
+- **MEDIUM [106-05]** — Shadow-mode control-flow instruction wording contradicts itself; could cause early-return bug before state evaluation. Wording fix required before implementation. (Both reviewers flagged this independently.)
+- **LOW [106-02]** — `_ONESHOT_UNITS` maintenance drift risk; grep verification is file-local. No structural issue; manageable with code review.
+- **LOW [106-03]** — Pool-name grep may miss dynamically constructed names. Acceptable for current usage; low risk.
+
+### Agreed Assessment
+
+Both reviewers confirm 6/7 HIGH concerns are fully resolved. One concern (C6) is partially resolved due to an instruction wording issue in 106-05 Task 1 that could cause an implementation bug. The fix is a one-line wording correction requiring no architectural change. Overall phase risk is MEDIUM until the wording is corrected, after which it reduces to LOW.
