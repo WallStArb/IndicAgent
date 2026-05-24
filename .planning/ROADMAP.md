@@ -805,7 +805,7 @@ Plans:
 - [x] 105-04-PLAN.md — Shadow signal suppression: is_shadow stamp, winner filter, auditor SQL + .set() (HF-1, HF-8 call sites)
 
 **Wave 3** *(blocked on all code fixes)*
-- [ ] 105-05-PLAN.md — Regression tests for shadow suppression + writer fixes; full unit suite green
+- [x] 105-05-PLAN.md — Regression tests for shadow suppression + writer fixes; full unit suite green
 
 ### Phase 106: Foundation Hardening
 
@@ -1076,7 +1076,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
 | 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
-| 105. Architecture Hotfix Sprint | Pre-v2.8 | 4/5 | In Progress|  |
+| 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete   | 2026-05-24 |
 | 106. Foundation Hardening | Pre-v2.8 | 0/6 | Planned | - |
 | 094. LiteLLM Backend | v2.8 | 2 plans written/0 executed | Deferred | - |
 | 095. Pydantic AI Agent Adapter | v2.8 | 8 plans written/0 executed | Deferred | - |
