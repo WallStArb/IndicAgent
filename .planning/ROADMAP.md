@@ -20,8 +20,7 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness & Storage Redesign** — Phases 093, 100, 100.5, 104 (shipped 2026-05-23)
-- [ ] **Pre-v2.8 Foundation Hardening** — Phases 105-106 (planned; prerequisite for v2.8)
-- [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (planned; 094-095 deferred from v2.7)
+- [ ] **v2.8 Infrastructure Hardening + AI Platform** — Phases 106-107, 094-099, 101-103 (active; Phase 105 complete 2026-05-24)
 
 ## Phases
 
@@ -783,37 +782,47 @@ Plans:
 </details>
 
 <details>
-<summary>Pre-v2.8 Foundation Hardening (Phases 105-106) — PLANNED</summary>
+<summary>✅ Phase 105: Architecture Hotfix Sprint — COMPLETE 2026-05-24</summary>
 
-**Milestone Goal**: Address 11 active bugs from the 2026-05-23 architectural audit (Phase 105 Architecture Hotfix Sprint), then eliminate all structural weaknesses that would create drag or failures during v2.8 (Phase 106 Foundation Hardening). Must complete before v2.8 AI Platform phases begin.
-
-### Phase 105: Architecture Hotfix Sprint
+### Phase 105: Architecture Hotfix Sprint ✅
 
 **Goal**: Fix 11 active bugs identified in the 2026-05-23 architectural audit — shadow signal suppression, data loss in persistence writers, stall watchdog wiring, and FeatureWriter ghost-run on DB failure.
 **Depends on**: Phase 104
-**Status**: Planned — execute before Phase 106
-**Plans**: 5 plans
+**Status**: ✅ Complete 2026-05-24 (5/5 plans)
 
-Plans:
-
-**Wave 1** *(parallel, non-overlapping files)*
 - [x] 105-01-PLAN.md — ctx_writer + llm_writer AttributeErrors, stall watchdog, dead topics (HF-2, HF-3, HF-6, HF-10, HF-11)
 - [x] 105-02-PLAN.md — feature_writer fail-fast, bar_writer liveness, swarm_ledger auto-commit (HF-4, HF-5, HF-7)
 - [x] 105-03-PLAN.md — OTel metric types: shadow gauges + pipeline latency histograms (HF-8 defs, HF-9)
-
-**Wave 2** *(blocked on 105-03 for shadow gauge definitions)*
 - [x] 105-04-PLAN.md — Shadow signal suppression: is_shadow stamp, winner filter, auditor SQL + .set() (HF-1, HF-8 call sites)
-
-**Wave 3** *(blocked on all code fixes)*
 - [x] 105-05-PLAN.md — Regression tests for shadow suppression + writer fixes; full unit suite green
+
+</details>
+
+<details>
+<summary>v2.8 Infrastructure Hardening + AI Platform (Phases 106-107, 094-099, 101-103) — ACTIVE</summary>
+
+**Milestone Goal**: Close structural debt from v2.7 audit and audit shadow graduation blockers (Phases 106-107), then execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099, 101-103). Each dependency earns its place before the next is added.
+
+**Design principles (Renaissance standard):**
+- Every AI platform phase states the metric it must move — no phase ships without naming the measurement
+- Evidence gates between phases: 099 (Guardrails) only if post-Instructor parse failure rate > 1%; 102-103 (genetics) only if FIT-06 discriminative power gate passes
+- DAG discipline: no new Kafka topics without named producer-consumer pair; no new daemons without justification; compute is in-process
+- Shadow mode by default: all new agent behavior runs shadow_only=True until >= 100 inferences measured
 
 ### Phase 106: Foundation Hardening
 
 **Goal**: Zero structural weaknesses from the audit that block v2.8. DAG correctly models all deployed services and never restarts oneshots. Dead code removed. Shared infrastructure reused (retry path, JSONB pool wrapper). PluginCircuitBreaker wired (shadow-mode-first). Queue backpressure and O(1) state lookup in place. Hot path traced via observed_span.
 **Depends on**: Phase 105
-**Plans**: 6 plans
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06
+**Success Criteria** (what must be TRUE):
+  1. `git grep -r "ShadowRecorder\|GuardrailsValidator"` returns zero results; dead Settings fields absent from Settings class
+  2. `_DAG_ORDER` lists all deployed services; starting the service auditor with an ML batch service active does not trigger a restart attempt
+  3. `bar_aggregator_agent` startup uses `BaseAgent._setup_with_retry`; all DB pool creation goes through the shared pool wrapper — no bare `asyncpg.create_pool` calls outside the wrapper
+  4. Sending a burst of 500 bars to the pipeline does not grow the output queue unboundedly; `enqueue_blocking` blocks callers rather than dropping; `process_bar_inner` emits an OTel span
+  5. `PluginCircuitBreaker` trips on repeated plugin failures and the OTel gauge reflects OPEN/CLOSED state; shadow-mode flag controls whether trips affect live processing
+  6. `pytest tests/unit/ -q` passes with no failures after all Phase 106 plans execute
 
-Plans:
+**Plans**: 6 plans
 
 **Wave 1** *(parallel, non-overlapping files; 106-04 depends on 105-03 for shared file)*
 - [ ] 106-01-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator (+ chain.py branch), 6+1 dead Settings fields
@@ -826,26 +835,115 @@ Plans:
 
 **Wave 3** *(blocked on all code changes)*
 - [ ] 106-06-PLAN.md — Regression tests: oneshot guard, state index parity, breaker wiring, backpressure; full suite green
-</details>
 
-<details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — PLANNED</summary>
+### Phase 107: Infrastructure Hygiene
 
-**Milestone Goal**: Complete the AI platform modernization deferred from v2.7 (LiteLLM backend, Pydantic AI adapter, agent registry, episodic memory, optimizer, guardrails), then implement evolvable agent infrastructure (composite fitness function, genetic infrastructure, reproductive operators). Phases 094-095 have revised plans ready from v2.7.
+**Goal**: Audit and close accumulated DB and observability debt before AI platform work begins. Dead DB tables dropped. Shadow graduation blockers documented and at least one unblocked. Metrics naming correct.
+**Depends on**: Phase 106
+**Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04
+**Success Criteria** (what must be TRUE):
+  1. An audit query identifies all tables with zero live writers/readers for >= 30 days; confirmed-unused tables are dropped via a numbered migration with rollback script; the migration number is higher than any existing migration
+  2. Every agent stuck at shadow_only=True has a documented root cause and at least one agent has a concrete, evidence-backed graduation path unblocked; zombie agents (no graduation path) are demoted in shadow_registry
+  3. A manual spot-check confirms shadow_registry bootstrap CI reads from `signal_ledger.pnl_r` and the computed CI lower bound matches a hand-calculated reference value within tolerance
+  4. `ruff check .` passes on all metric call sites; no Counter measuring a level, no UpDownCounter misused where Gauge is correct; all shadow-related metric names follow `indicagent_<service>_<metric>_<unit>`
+
+**Plans**: TBD
+
+### Phase 094: LiteLLM + Instructor Structured Output
+
+**Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
+**Depends on**: Phase 107
+**Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05, STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
+**Success Criteria** (what must be TRUE):
+  1. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references; net LOC reduction >= 300 lines
+  2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile and pass existing tests without modification
+  3. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap, verified by existing tests
+  4. `last_provider_id` and `last_token_usage` populate in `llm_calls` rows after migration
+  5. `llm_calls.parse_success` rate is measured before Phase 094 ships and after; result documented; if no improvement, STRUCT-OUT is flagged for review rather than silently promoted
+  6. Each agent declares one typed `BaseModel` result class; `_parse_multiplier_response` and `_validate_*_fields` boilerplate deleted; LOC reduction confirmed
+
+**Plans**: TBD (2 plans written from v2.7, not yet executed)
+
+### Phase 095: Pydantic AI Agent Execution Layer
+
+**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent. Skeptic is the reference implementation.
+**Depends on**: Phase 094
+**Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
+**Success Criteria** (what must be TRUE):
+  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
+  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]`
+  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents remain on `BaseAIAgent` unchanged
+  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; no automatic promotion
+  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
+
+**Plans**: 5 plans in 3 waves (8 written from v2.7 iteration)
+
+### Phase 096: Agent Registry
+
+**Goal**: Operators can add or reconfigure an agent by editing `agents.yaml` and restarting the service; no Python file changes, no deployment, no code review required.
+**Depends on**: Phase 095
+**Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
+**Success Criteria** (what must be TRUE):
+  1. Adding a new entry to `agents.yaml` with valid fields and restarting the service instantiates the agent without any Python file changes
+  2. `AgentRegistry` is the sole construction path — no agent is instantiated anywhere else at startup
+  3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
+  4. `shadow_registry` DB table remains the promotion/demotion authority; `agents.yaml` cannot force production promotion — that requires the statistical gate
+
+**Plans**: TBD
+
+### Phase 097: Zep Episodic Memory
+
+**Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
+**Depends on**: Phase 096
+**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
+**Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
+**Success Criteria** (what must be TRUE):
+  1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)`; agents receive it via `AgentDeps.memory_client`
+  2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
+  3. `ZEP_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
+  4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
+
+**Plans**: TBD
+
+### Phase 098: DSPy Offline Prompt Optimizer
+
+**Goal**: DSPy reads labeled (prompt, result, outcome) data from `llm_calls`, compiles optimized prompts offline, and stores them for A/B testing. Data gate verified before running.
+**Depends on**: Phase 096
+**Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
+**Data gate**: At least 500 resolved, labeled rows per agent in `llm_calls` (outcome IS NOT NULL) before running optimizer. If data gate not met, phase is deferred.
+**Success Criteria** (what must be TRUE):
+  1. `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` where outcome is non-null; data gate (>= 500 rows per agent) verified before first run
+  2. Optimized prompts are stored in `prompt_versions` table; `prompt_version` field in `llm_calls` enables controlled A/B comparison
+  3. `DSPyOptimizer` runs as a timer-triggered batch job; it does not touch the live inference path; no new systemd daemon required
+  4. A/B comparison report shows measurable improvement (win rate delta, parse failure delta, calibrated_confidence delta) before any optimized prompt is promoted to default
+
+**Plans**: TBD
+
+### Phase 099: Guardrails AI Validation
+
+**Goal**: `GuardrailsAIValidator` drops in as a replacement for existing validators, reducing residual parse failures that Instructor cannot handle.
+**Depends on**: Phase 094
+**Requirements**: GUARD-01, GUARD-02, GUARD-03
+**Evidence gate (CONDITIONAL)**: This phase executes ONLY IF post-Instructor parse failure rate (STRUCT-OUT-03) remains above 1%. If Instructor brings parse failures below 1%, Phase 099 is deferred — adding another validation layer without evidence is waste.
+**Success Criteria** (what must be TRUE):
+  1. `GuardrailsAIValidator` implements the same interface as existing validators; zero call-site changes required
+  2. Custom `_validate_*_fields` methods are replaced by Guardrails AI validation; total custom validation LOC is lower than post-Instructor baseline
+  3. Guardrails AI latency overhead is measured; must not exceed 10ms p95 vs existing validator
+
+**Plans**: TBD
 
 ### Phase 101: Composite Fitness Function
 
-**Goal**: Build rigorous fitness evaluation across 5 dimensions (accuracy, novelty, calibration, regime specificity, efficiency) before enabling reproductive operators.
-**Depends on**: Phase 099
+**Goal**: Build rigorous fitness evaluation across 5 dimensions before enabling reproductive operators. Gate for Phases 102-103: composite score variance across live agents must be >= 0.2.
+**Depends on**: Phase 099 (or Phase 094 if 099 is deferred)
 **Requirements**: FIT-01, FIT-02, FIT-03, FIT-04, FIT-05, FIT-06
 **Success Criteria** (what must be TRUE):
-
-  1. Accuracy metrics computed: bootstrap CI, Sharpe ratio, win rate with statistical significance
-  2. Novelty metrics computed: decorrelation from live agent population, uniqueness score
-  3. Calibration metrics computed: confidence vs reality alignment, reliability diagrams
-  4. Regime specificity computed: performance by market regime (bull/bear/sideways/volatile)
-  5. Efficiency metrics computed: fitness per compute cost, latency per prediction
-  6. Composite score integrated: weighted combination of all 5 dimensions with validation gates
+  1. Bootstrap CI, Sharpe ratio, and win rate with statistical significance are computed per agent and stored in `agent_fitness` table; all three readable before Phase 102 begins
+  2. Novelty score (decorrelation from live agent population) is computed and stored per agent; prevents redundant agents from surviving selection
+  3. Calibration metric (confidence vs realized outcome alignment) is computed per agent via reliability diagram; stored in `agent_fitness`
+  4. Regime specificity performance (segmented by `hmm_regime` label) is computed per agent and stored
+  5. Efficiency metric (output quality / latency * tokens) is computed and stored; penalizes expensive agents with marginal edge
+  6. Cross-agent composite score variance >= 0.2 across the live agent population; if variance < 0.2, Phases 102-103 are blocked until fitness function is revised
 
 **Plans**: 6 plans
 
@@ -854,63 +952,45 @@ Plans:
 - [ ] 101-03-PLAN.md — Calibration metrics (confidence vs reality)
 - [ ] 101-04-PLAN.md — Regime specificity (performance by market regime)
 - [ ] 101-05-PLAN.md — Efficiency metrics (fitness per compute cost)
-- [ ] 101-06-PLAN.md — Composite score integration (weighted combination)
+- [ ] 101-06-PLAN.md — Composite score integration + discriminative power gate
 
 ### Phase 102: Genetic Infrastructure
 
-**Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from failed agents.
-**Depends on**: Phase 101
+**Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from demoted agents.
+**Depends on**: Phase 101 (FIT-06 discriminative power gate passed)
 **Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
+**Evidence gate**: Phase 102 does not begin until FIT-06 composite score shows cross-agent variance >= 0.2.
 **Success Criteria** (what must be TRUE):
-
-  1. Frozen archive exists: TimescaleDB table `agent_genomes` with full genome serialization
-  2. Gene bank exists: catalog of best chromosome segments from dead agents (prompts, configs, tool sets)
-  3. Decomposition algorithms: extract best-performing chromosomes from failed agents
-  4. Resurrection evaluation: test dead agents against new data to identify resurrection candidates
+  1. `agent_genomes` TimescaleDB table exists with full genome serialization (prompt, config, tool set, `agent_id`); schema is versioned
+  2. Gene bank catalogs best-performing chromosome segments from demoted agents; queryable by segment type and historical fitness score
+  3. Decomposition algorithm extracts highest-fitness chromosomes from failed agents with documented extraction criteria; results are reproducible
+  4. Resurrection evaluation tests demoted agents against new data; candidates with fitness > promotion threshold are flagged for operator review — no automatic promotion
 
 **Plans**: 4 plans
 
-- [ ] 102-01-PLAN.md — Frozen archive (TimescaleDB table for agent genomes)
+- [ ] 102-01-PLAN.md — Frozen archive (agent_genomes TimescaleDB table)
 - [ ] 102-02-PLAN.md — Gene bank extraction (best segment catalog)
 - [ ] 102-03-PLAN.md — Decomposition algorithms (chromosome extraction)
-- [ ] 102-04-PLAN.md — Resurrection evaluation (test dead agents against new data)
+- [ ] 102-04-PLAN.md — Resurrection evaluation (test demoted agents against new data)
 
 ### Phase 103: Reproductive Operators
 
-**Goal**: Implement mutation, recombination, and LLM-directed operators to enable agent evolution with validated fitness function.
-**Depends on**: Phase 101
+**Goal**: Implement mutation, recombination, and LLM-directed operators to enable agent evolution. All offspring start shadow_only=True and require composite fitness >= parent before any promotion.
+**Depends on**: Phase 101 (FIT-06 gate passed) and Phase 102 (GENE-01–04 operational)
 **Requirements**: REPRO-01, REPRO-02, REPRO-03, REPRO-04
+**Evidence gate**: Phase 103 does not begin until FIT-06 gate passed and GENE-01–04 operational.
 **Success Criteria** (what must be TRUE):
-
-  1. Mutation operator: random perturbations to prompts, configs, parameters
-  2. Recombination operator: crossover between parent agents to create offspring
-  3. LLM-directed operator: analyze parent performance, propose targeted improvements
-  4. Adaptive operator selection: track which operators work best, allocate budget accordingly
+  1. Mutation operator applies perturbations to prompts, configs, and parameters; offspring are registered in `shadow_registry` as `shadow_only=True` — never auto-promoted
+  2. Recombination operator crosses two parent agents and creates offspring inheriting best chromosomes; offspring are evaluated via FIT composite score before any promotion
+  3. LLM-directed operator analyzes parent performance data from `llm_calls` and proposes targeted improvements; output is a candidate genome, not an auto-deployed agent
+  4. Adaptive operator selection tracks per-operator fitness improvement rate over >= 50 offspring and allocates budget proportionally to operator success rate
 
 **Plans**: 4 plans
 
-- [ ] 102-01-PLAN.md — Mutation operator (prompt nudges, parameter shifts)
-- [ ] 102-02-PLAN.md — Recombination operator (crossover between parents)
-- [ ] 102-03-PLAN.md — LLM-directed operator (analyze parent, propose improvements)
-- [ ] 102-04-PLAN.md — Adaptive operator selection (track which works best)
-
-**Dependency on Phase 095:**
-
-Phase 095 (deferred to v2.8) must ship before evolvable agent work can begin:
-
-- [ ] AgentGenome with chromosome structure (Plan 07)
-- [ ] Lineage tracking (parent_ids, generation) (Plan 07)
-- [ ] Genome versioning (SHA256 hash) (Plan 07)
-- [ ] PromotionGate with automated criteria (Plan 08)
-- [ ] DemotionGate with soft death preservation (Plan 08)
-
-v2.8 builds on this foundation by adding:
-
-- Rigorous fitness evaluation (Phase 101) — required before evolution
-- Gene bank extraction (Phase 102) — learn from failures
-- Reproductive operators (Phase 103) — enable evolution
-
-**Note**: Per your eAI research, 80% of effort should be on fitness function (Phase 101), 20% on reproductive mechanics (Phase 103). Governance gates (Plan 08) ensure no agent promotes without proven fitness.
+- [ ] 103-01-PLAN.md — Mutation operator (prompt nudges, parameter shifts)
+- [ ] 103-02-PLAN.md — Recombination operator (crossover between parents)
+- [ ] 103-03-PLAN.md — LLM-directed operator (analyze parent, propose improvements)
+- [ ] 103-04-PLAN.md — Adaptive operator selection (track which operators work best)
 
 </details>
 
@@ -955,7 +1035,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104 shipped 2026-05-23). Next: Pre-v2.8 Foundation Hardening (Phases 105-106), then v2.8 AI Platform & Evolvable Agents.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104 shipped 2026-05-23). Phase 105 complete (2026-05-24). Active: v2.8 Infrastructure Hardening + AI Platform (Phases 106-107, 094-099, 101-103).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1076,10 +1156,11 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 100. Plugin Shared Infrastructure | v2.7 | 6/6 | Complete | 2026-05-21 |
 | 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
-| 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete    | 2026-05-24 |
-| 106. Foundation Hardening | Pre-v2.8 | 0/6 | Planned | - |
-| 094. LiteLLM Backend | v2.8 | 2 plans written/0 executed | Deferred | - |
-| 095. Pydantic AI Agent Adapter | v2.8 | 8 plans written/0 executed | Deferred | - |
+| 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete | 2026-05-24 |
+| 106. Foundation Hardening | v2.8 | 0/6 | Planned | - |
+| 107. Infrastructure Hygiene | v2.8 | 0/TBD | Not started | - |
+| 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
+| 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
 | 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |

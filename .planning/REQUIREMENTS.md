@@ -174,16 +174,58 @@ All offspring start at `shadow_only=True`. No offspring are promoted without exp
 
 ## Traceability
 
-| Phase | Requirements |
-|-------|-------------|
-| 106 | FOUND-01–06 |
-| 107 | HYGIENE-01–04 |
-| 094 | LLM-INFRA-01–05, STRUCT-OUT-01–04 |
-| 095 | AGENT-EXEC-01–05 |
-| 096 | AGENT-REG-01–04 |
-| 097 | MEM-01–04 |
-| 098 | OPT-01–04 |
-| 099 | GUARD-01–03 (gated on STRUCT-OUT-03 parse failure rate) |
-| 101 | FIT-01–06 |
-| 102 | GENE-01–04 (gated on FIT-06) |
-| 103 | REPRO-01–04 (gated on FIT-06 + GENE-01–04) |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| FOUND-01 | 106 — Foundation Hardening | Pending |
+| FOUND-02 | 106 — Foundation Hardening | Pending |
+| FOUND-03 | 106 — Foundation Hardening | Pending |
+| FOUND-04 | 106 — Foundation Hardening | Pending |
+| FOUND-05 | 106 — Foundation Hardening | Pending |
+| FOUND-06 | 106 — Foundation Hardening | Pending |
+| HYGIENE-01 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-02 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-03 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-04 | 107 — Infrastructure Hygiene | Pending |
+| LLM-INFRA-01 | 094 — LiteLLM + Instructor | Pending |
+| LLM-INFRA-02 | 094 — LiteLLM + Instructor | Pending |
+| LLM-INFRA-03 | 094 — LiteLLM + Instructor | Pending |
+| LLM-INFRA-04 | 094 — LiteLLM + Instructor | Pending |
+| LLM-INFRA-05 | 094 — LiteLLM + Instructor | Pending |
+| STRUCT-OUT-01 | 094 — LiteLLM + Instructor | Pending |
+| STRUCT-OUT-02 | 094 — LiteLLM + Instructor | Pending |
+| STRUCT-OUT-03 | 094 — LiteLLM + Instructor | Pending |
+| STRUCT-OUT-04 | 094 — LiteLLM + Instructor | Pending |
+| AGENT-EXEC-01 | 095 — Pydantic AI Agent Execution Layer | Pending |
+| AGENT-EXEC-02 | 095 — Pydantic AI Agent Execution Layer | Pending |
+| AGENT-EXEC-03 | 095 — Pydantic AI Agent Execution Layer | Pending |
+| AGENT-EXEC-04 | 095 — Pydantic AI Agent Execution Layer | Pending |
+| AGENT-EXEC-05 | 095 — Pydantic AI Agent Execution Layer | Pending |
+| AGENT-REG-01 | 096 — Agent Registry | Pending |
+| AGENT-REG-02 | 096 — Agent Registry | Pending |
+| AGENT-REG-03 | 096 — Agent Registry | Pending |
+| AGENT-REG-04 | 096 — Agent Registry | Pending |
+| MEM-01 | 097 — Zep Episodic Memory | Pending |
+| MEM-02 | 097 — Zep Episodic Memory | Pending |
+| MEM-03 | 097 — Zep Episodic Memory | Pending |
+| MEM-04 | 097 — Zep Episodic Memory | Pending |
+| OPT-01 | 098 — DSPy Offline Optimizer | Pending |
+| OPT-02 | 098 — DSPy Offline Optimizer | Pending |
+| OPT-03 | 098 — DSPy Offline Optimizer | Pending |
+| OPT-04 | 098 — DSPy Offline Optimizer | Pending |
+| GUARD-01 | 099 — Guardrails AI (conditional: parse failure rate > 1%) | Pending |
+| GUARD-02 | 099 — Guardrails AI (conditional: parse failure rate > 1%) | Pending |
+| GUARD-03 | 099 — Guardrails AI (conditional: parse failure rate > 1%) | Pending |
+| FIT-01 | 101 — Composite Fitness Function | Pending |
+| FIT-02 | 101 — Composite Fitness Function | Pending |
+| FIT-03 | 101 — Composite Fitness Function | Pending |
+| FIT-04 | 101 — Composite Fitness Function | Pending |
+| FIT-05 | 101 — Composite Fitness Function | Pending |
+| FIT-06 | 101 — Composite Fitness Function (gates Phases 102-103) | Pending |
+| GENE-01 | 102 — Genetic Infrastructure (gated on FIT-06) | Pending |
+| GENE-02 | 102 — Genetic Infrastructure (gated on FIT-06) | Pending |
+| GENE-03 | 102 — Genetic Infrastructure (gated on FIT-06) | Pending |
+| GENE-04 | 102 — Genetic Infrastructure (gated on FIT-06) | Pending |
+| REPRO-01 | 103 — Reproductive Operators (gated on FIT-06 + GENE-01–04) | Pending |
+| REPRO-02 | 103 — Reproductive Operators (gated on FIT-06 + GENE-01–04) | Pending |
+| REPRO-03 | 103 — Reproductive Operators (gated on FIT-06 + GENE-01–04) | Pending |
+| REPRO-04 | 103 — Reproductive Operators (gated on FIT-06 + GENE-01–04) | Pending |
