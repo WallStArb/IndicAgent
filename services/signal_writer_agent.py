@@ -36,7 +36,6 @@ from src.persistence.repository.signal_ledger_repository import (
     SignalStatus,
 )
 
-# Constants
 CONSUMER_GROUP = "signal_writer_group"
 
 
@@ -176,7 +175,6 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
         return []
 
     entries: list[LedgerEntry] = []
-    num_signals = len(signals)
     for sig in signals:
         status = (
             SignalStatus.REGIME_SUPPRESSED
@@ -208,6 +206,11 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 targets=sig.get("targets") or None,
                 entry_zone_low=sig.get("entry_zone_low"),
                 entry_zone_high=sig.get("entry_zone_high"),
+                # cis_score column stores the filtered (regime-adjusted) score that drives ranking,
+                # not raw_cis_score. Both are stamped by signal_processor.
+                cis_score=sig.get("filtered_cis_score"),
+                bucket_scores=sig.get("bucket_scores"),
+                weights_version=sig.get("weights_version"),
             )
         )
     return entries

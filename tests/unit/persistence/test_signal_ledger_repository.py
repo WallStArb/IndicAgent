@@ -41,19 +41,13 @@ def test_to_row_returns_correct_count():
         setup_plugin="test_plugin",
         signal_type="long",
         direction=1,
+        was_selected=True,
         entry_price=4500.0,
         stop_loss=4490.0,
         targets=[],
-        confidence=0.75,
-        confluence_score=0.7,
-        regime_context="trending",
-        supporting_factors=[],
-        was_selected=True,
-        num_signals_bar=1,
-        num_agreeing=1,
-        num_conflicting=0,
-        resolution_method="in_process",
-        composite_rank=1,
+        cis_score=0.72,
+        bucket_scores={"trend": 0.8},
+        weights_version=3,
     )
     sql_param_count = len(re.findall(r"\$\d+", _INSERT_SQL))
     row = entry._to_row()

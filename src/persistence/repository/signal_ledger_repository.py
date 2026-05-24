@@ -115,6 +115,10 @@ class LedgerEntry:
     targets: list[float] | None = None
     entry_zone_low: float | None = None
     entry_zone_high: float | None = None
+    # CIS scoring — re-added migration 094
+    cis_score: float | None = None
+    bucket_scores: dict | None = None
+    weights_version: int | None = None
 
     def _to_row(self) -> tuple:
         """Return a tuple of INSERT parameters for _INSERT_SQL (slim schema)."""
@@ -178,6 +182,9 @@ class LedgerEntry:
             self.targets,  # $47 targets (asyncpg accepts list for JSONB)
             self.entry_zone_low,  # $48 entry_zone_low
             self.entry_zone_high,  # $49 entry_zone_high
+            self.cis_score,  # $50 cis_score
+            self.bucket_scores,  # $51 bucket_scores (dict → JSONB)
+            self.weights_version,  # $52 weights_version
         )
 
 
@@ -204,7 +211,8 @@ INSERT INTO signal_ledger (
     shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
     hmm_regime_at_fire, garch_sigma_at_fire,
     ttl_bars,
-    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
+    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
+    cis_score, bucket_scores, weights_version
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7, $8,
@@ -222,7 +230,8 @@ INSERT INTO signal_ledger (
     $38, $39, $40, $41,
     $42, $43,
     $44,
-    $45, $46, $47, $48, $49
+    $45, $46, $47, $48, $49,
+    $50, $51, $52
 )
 ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """

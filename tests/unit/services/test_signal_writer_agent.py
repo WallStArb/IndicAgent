@@ -63,12 +63,11 @@ def _make_payload(n_signals: int = 2, winner_idx: int = 0) -> dict:
                 "regime_context": "trending",
                 "supporting_factors": ["rsi_cross"],
                 "was_selected": i == winner_idx,
-                "num_signals_bar": n_signals,
-                "composite_rank": i + 1,
                 "status": "pending",
                 "is_shadow": False,
-                "pre_quality_confidence": 0.65,
-                "pre_calibration_confidence": 0.62,
+                "filtered_cis_score": 0.72,
+                "bucket_scores": {"trend": 0.8, "momentum": 0.6},
+                "weights_version": 3,
                 "regime_type": "trend",
             }
         )
@@ -177,14 +176,6 @@ class TestPayloadToLedgerEntries:
         assert entries[0].timeframe == "1m"
         assert entries[0].feature_tf == "1m"
 
-    def test_attribution_fields_preserved(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
-
-        payload = _make_payload(n_signals=1)
-        entries = _payload_to_ledger_entries(payload)
-        assert entries[0].pre_quality_confidence == pytest.approx(0.65)
-        assert entries[0].pre_calibration_confidence == pytest.approx(0.62)
-
     def test_is_shadow_propagated(self):
         from services.signal_writer_agent import _payload_to_ledger_entries
 
@@ -193,20 +184,26 @@ class TestPayloadToLedgerEntries:
         entries = _payload_to_ledger_entries(payload)
         assert entries[0].is_shadow is True
 
-    def test_num_signals_bar_set_from_payload(self):
+    def test_cis_fields_wired_from_payload(self):
+        """cis_score reads filtered_cis_score; bucket_scores/weights_version pass through."""
         from services.signal_writer_agent import _payload_to_ledger_entries
 
-        payload = _make_payload(n_signals=3)
+        payload = _make_payload(n_signals=1)
         entries = _payload_to_ledger_entries(payload)
-        assert all(e.num_signals_bar == 3 for e in entries)
+        assert entries[0].cis_score == pytest.approx(0.72)
+        assert entries[0].bucket_scores == {"trend": 0.8, "momentum": 0.6}
+        assert entries[0].weights_version == 3
 
-    def test_composite_rank_set(self):
+    def test_cis_fields_none_when_absent(self):
         from services.signal_writer_agent import _payload_to_ledger_entries
 
-        payload = _make_payload(n_signals=2)
+        payload = _make_payload(n_signals=1)
+        for key in ("filtered_cis_score", "bucket_scores", "weights_version"):
+            del payload["signals"][0][key]
         entries = _payload_to_ledger_entries(payload)
-        assert entries[0].composite_rank == 1
-        assert entries[1].composite_rank == 2
+        assert entries[0].cis_score is None
+        assert entries[0].bucket_scores is None
+        assert entries[0].weights_version is None
 
     def test_definition_fields_populated(self):
         from services.signal_writer_agent import _payload_to_ledger_entries
