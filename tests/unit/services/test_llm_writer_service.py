@@ -265,6 +265,236 @@ def test_process_i8_message_missing_ts_logs_warning():
     assert len(svc._i8_buffer) == 0, "Missing ts should not append to buffer"
 
 
+# ---------------------------------------------------------------------------
+# Phase-105 regression tests for LLMWriterAgent
+# ---------------------------------------------------------------------------
+
+
+def _make_llm_writer():
+    """Build LLMWriterAgent using __new__ (bypasses __init__ for unit testing)."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from services.llm_writer_service import LLMWriterAgent
+
+    w = LLMWriterAgent.__new__(LLMWriterAgent)
+    w.name = "llm_writer_agent"
+    w._stop_event = asyncio.Event()
+    w.logger = MagicMock()
+    w.settings = MagicMock(
+        env_name="dev",
+        kafka_bootstrap_servers="localhost:9092",
+        database_url="postgresql://test",
+    )
+    # env_name is a property on BaseAgent (derived from settings.env_name)
+    # so we do not set it directly
+    w._buffer = []
+    w._i8_buffer = []
+    w._consumer = None
+    w.db_manager = None
+    w._total_calls = 0
+    w._total_outcomes = 0
+    w._total_batches = 0
+    w._error_count = 0
+    w._last_score_recompute = 0.0
+    w._kafka_bootstrap = "localhost:9092"
+    w.config = {
+        "database": {"dsn": "postgresql://test"},
+        "service": {},
+        "logging": {"level": "INFO", "file": "logs/test.log"},
+    }
+    # Counter mocks
+    w.calls_consumed_total = MagicMock()
+    w.outcomes_processed_total = MagicMock()
+    w.batch_writes_total = MagicMock()
+    w.score_recomputes_total = MagicMock()
+    w.error_count_total = MagicMock()
+    w.buffer_size_gauge = MagicMock()
+    w.service_uptime_seconds = MagicMock()
+    w.i8_writes_total = MagicMock()
+    w.i8_update_miss_total = MagicMock()
+    # BaseWriterAgent attributes
+    w._batch_latency_attrs = {"agent_id": "llm_writer"}
+    from unittest.mock import MagicMock
+
+    w._buffer_depth_gauge = MagicMock()
+    w._buffer_overflow_total = MagicMock()
+    w._parse_failures_total = MagicMock()
+    w._flush_errors_total = MagicMock()
+    w._flush_latency = MagicMock()
+    w._commit_latency = MagicMock()
+    w._commit_errors_total = MagicMock()
+    return w
+
+
+def test_llm_writer_no_self_pool_attribute() -> None:
+    """LLMWriterAgent must not have a self._pool attribute.
+
+    Phase-105 HF-3: self._pool was a ghost reference — DatabaseManager was used
+    correctly via self.db_manager, but a stale self._pool assignment would shadow it.
+    Regression: the parse-update path (execute_command) must run without AttributeError.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    w = _make_llm_writer()
+
+    # db_manager.execute_command is the correct path (no _pool needed)
+    mock_db = MagicMock()
+    mock_db.execute_command = AsyncMock(return_value=None)
+    w.db_manager = mock_db
+
+    parse_update_payload = {
+        "_parse_update": True,
+        "call_id": "550e8400-e29b-41d4-a716-446655440000",
+        "parse_success": False,
+    }
+
+    # Must not raise AttributeError on _pool
+    asyncio.run(w._process_calls_message(parse_update_payload))
+
+    # Assert db_manager.execute_command was awaited with correct args
+    mock_db.execute_command.assert_awaited_once()
+    call_args = mock_db.execute_command.await_args
+    # First positional arg is the SQL string
+    from services.llm_writer_service import _UPDATE_PARSE_SQL
+
+    assert (
+        call_args[0][0] == _UPDATE_PARSE_SQL
+    ), "execute_command must be called with _UPDATE_PARSE_SQL as first arg"
+
+    # Ensure no _pool attribute is present (the stale reference should be gone)
+    assert not hasattr(
+        w, "_pool"
+    ), "LLMWriterAgent must not have a self._pool attribute — db_manager is the correct path"
+
+
+def test_llm_writer_i8_writes_uses_add_not_inc() -> None:
+    """i8_writes_total.add() must be called (never .inc()) when i8 batch is flushed.
+
+    Phase-105 HF-3: OTel counters expose .add() not .inc(). .inc() raises AttributeError.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    w = _make_llm_writer()
+
+    # Set up a minimal i8 batch
+    from datetime import UTC, datetime
+
+    w._i8_buffer = [
+        (datetime(2026, 1, 1, tzinfo=UTC), "ES", "1m", {"model": "test"}),
+    ]
+
+    mock_db = MagicMock()
+    mock_db.execute_batch = AsyncMock(return_value=None)
+    w.db_manager = mock_db
+
+    mock_i8_writes = MagicMock()
+    w.i8_writes_total = mock_i8_writes
+
+    asyncio.run(w._flush_i8())
+
+    # .add() must be called with the batch length
+    mock_i8_writes.add.assert_called_once_with(1)
+    # .inc() must never be called
+    assert (
+        not mock_i8_writes.inc.called
+    ), "OTel counter i8_writes_total must use .add(), never .inc()"
+
+
+@pytest.mark.asyncio
+async def test_llm_writer_process_loop_calls_record_message_consumed() -> None:
+    """_process_loop() must call _record_message_consumed() for each consumed message.
+
+    Phase-105 HF-5 regression: _record_message_consumed() updates the stall clock
+    and liveness gauge for stall detection.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    w = _make_llm_writer()
+
+    valid_payload = {
+        "call_id": "550e8400-e29b-41d4-a716-446655440001",
+        "called_at": "2026-01-01T09:30:00Z",
+        "symbol": "ES",
+    }
+
+    async def one_message():
+        yield ("dev.llm.calls", None, valid_payload)
+
+    mock_consumer = MagicMock()
+    mock_consumer.messages = one_message
+    w._consumer = mock_consumer
+
+    recorded_calls = []
+
+    def spy_record():
+        recorded_calls.append(1)
+
+    w._record_message_consumed = spy_record
+
+    with (
+        patch.object(w, "_process_calls_message", new_callable=AsyncMock, return_value=True),
+        patch.object(w, "maybe_flush", new_callable=AsyncMock),
+    ):
+        await w._process_loop()
+
+    assert len(recorded_calls) == 1, (
+        "_record_message_consumed() must be called once per consumed message "
+        "for stall detection liveness tracking"
+    )
+
+
+def test_llm_writer_kafka_setup_uses_earliest_and_no_auto_commit() -> None:
+    """KafkaConsumerClient must be constructed with auto_offset_reset='earliest' and enable_auto_commit=False.
+
+    Phase-105 HF-6 + HF-7: earliest ensures no message loss on restart; disable
+    auto-commit prevents advancing offsets before successful DB write.
+    """
+    import inspect
+
+    import services.llm_writer_service as mod
+
+    source = inspect.getsource(mod.LLMWriterAgent._setup_kafka_clients)
+    assert (
+        'auto_offset_reset="earliest"' in source
+    ), "LLMWriterAgent._setup_kafka_clients() must set auto_offset_reset='earliest'"
+    assert (
+        "enable_auto_commit=False" in source
+    ), "LLMWriterAgent._setup_kafka_clients() must set enable_auto_commit=False"
+
+
+def test_llm_writer_subscribes_only_to_calls_topic() -> None:
+    """LLMWriterAgent must subscribe only to the llm.calls topic (not llm.outcomes or intelligence.i8).
+
+    Phase-105 HF-10: llm.outcomes and intelligence.i8 had no active publishers as of
+    2026-05-23 audit. Dead subscriptions waste consumer group resources.
+    Regression: only the calls topic should be in the consumer subscription.
+    """
+    import inspect
+
+    import services.llm_writer_service as mod
+
+    source = inspect.getsource(mod.LLMWriterAgent._setup_kafka_clients)
+
+    # Strip comment lines before checking — the comment may reference removed topics
+    non_comment_lines = "\n".join(
+        ln for ln in source.splitlines() if not ln.strip().startswith("#")
+    )
+
+    # llm.calls must be in the subscription (actual code, not a comment)
+    assert (
+        "topic_llm_calls" in non_comment_lines
+    ), "LLMWriterAgent._setup_kafka_clients() must subscribe to topic_llm_calls"
+
+    # topic_llm_outcomes must not appear in actual code (only comments are OK)
+    assert "topic_llm_outcomes" not in non_comment_lines, (
+        "LLMWriterAgent._setup_kafka_clients() must NOT subscribe to llm.outcomes "
+        "(no active publishers as of 2026-05-23 audit)"
+    )
+
+
 def test_process_i8_message_uses_parse_ts():
     """_process_i8_message uses _parse_ts for timestamp parsing (returns datetime, not str)."""
     import asyncio
