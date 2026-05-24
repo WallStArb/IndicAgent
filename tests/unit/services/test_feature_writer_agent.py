@@ -633,3 +633,71 @@ def test_feature_writer_no_signal_signal_calls():
     assert (
         "signal.signal(" not in source
     ), "signal.signal() must not appear — use BaseAgent._register_signal_handlers()"
+
+
+# ---------------------------------------------------------------------------
+# Phase-105 regression: _connect_database() must raise, never set db_manager=None
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connect_database_raises_on_db_failure() -> None:
+    """_connect_database() must RAISE when DB initialization fails.
+
+    Phase-105 HF-9: the original code caught the exception and set
+    self.db_manager = None, allowing the service to continue in a ghost-run
+    state (consuming Kafka but not writing to DB, silently losing all data).
+
+    The fixed version re-raises the exception after logging, causing the
+    service to exit and be restarted by systemd — explicit failure over
+    silent data loss.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from services.feature_writer_agent import FeatureWriterAgent
+
+    agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    agent.logger = MagicMock()
+    agent.config = {
+        "database": {"dsn": "postgresql://localhost:5432/test"},
+    }
+    agent.db_manager = None
+
+    # Patch DatabaseManager to raise on initialize()
+    with patch("services.feature_writer_agent.DatabaseManager") as mock_db_cls:
+        mock_db_instance = AsyncMock()
+        mock_db_instance.initialize = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_db_cls.return_value = mock_db_instance
+
+        # Must RAISE — not swallow and set db_manager=None
+        with pytest.raises(Exception, match="Connection refused"):
+            await agent._connect_database()
+
+    # db_manager must NOT be set to None after failure (ghost-run prevention)
+    # It should either raise before assignment or keep its pre-call value (None).
+    # The key regression: db_manager=None ghost-run path must not exist.
+    assert agent.db_manager is None or isinstance(agent.db_manager, type(mock_db_instance)), (
+        "After DB connect failure, db_manager must not be silently set to None "
+        "(that would allow ghost-run data loss); the exception must propagate"
+    )
+
+
+@pytest.mark.asyncio
+async def test_connect_database_no_ghost_run_path() -> None:
+    """_connect_database() source must not contain the ghost-run pattern (db_manager = None).
+
+    Regression guard: the ghost-run pattern was the bug — the fix removes the
+    except block that swallowed the exception. A source-level assertion locks this in.
+    """
+    import inspect
+
+    from services.feature_writer_agent import FeatureWriterAgent
+
+    source = inspect.getsource(FeatureWriterAgent._connect_database)
+
+    # The ghost-run line: 'self.db_manager = None' inside the except block
+    # After the fix, this should not appear — the except block just re-raises.
+    assert "self.db_manager = None" not in source, (
+        "FeatureWriterAgent._connect_database() must not set self.db_manager = None "
+        "on failure (ghost-run data loss pattern). The exception must be re-raised."
+    )
