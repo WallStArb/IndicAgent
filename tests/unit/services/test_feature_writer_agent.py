@@ -701,3 +701,67 @@ async def test_connect_database_no_ghost_run_path() -> None:
         "FeatureWriterAgent._connect_database() must not set self.db_manager = None "
         "on failure (ghost-run data loss pattern). The exception must be re-raised."
     )
+
+
+# ── Cache-and-fold tests ──────────────────────────────────────────────────────
+
+
+def test_record_to_insert_params_folds_cross_asset_into_market_context():
+    """cross_asset_snapshot dict is merged into the market_context param."""
+    from services.feature_writer_agent import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    snapshot = {"cross_asset": {"es_nq_spread_z": 1.23, "corr_z": -0.5}}
+    params = _record_to_insert_params(record, cross_asset_snapshot=snapshot)
+
+    # $9 is market_context — confirm cross_asset key present
+    market_ctx = params[8]  # 0-indexed position 8 = $9
+    assert "cross_asset" in market_ctx
+    assert market_ctx["cross_asset"]["es_nq_spread_z"] == pytest.approx(1.23)
+
+
+def test_record_to_insert_params_empty_snapshot_leaves_market_context_unchanged():
+    """Empty cross_asset_snapshot does not corrupt market_context."""
+    from services.feature_writer_agent import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    params_without = _record_to_insert_params(record, cross_asset_snapshot=None)
+    params_with = _record_to_insert_params(record, cross_asset_snapshot={})
+
+    assert params_without[8] == params_with[8]
+
+
+def test_process_cross_asset_message_updates_cache_not_db():
+    """_process_cross_asset_message must update _cross_asset_cache, never call execute_batch."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.feature_writer_agent import FeatureWriterAgent
+
+    agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    agent._cross_asset_cache = {}
+    agent.db_manager = MagicMock()
+    agent.db_manager.execute_batch = AsyncMock()
+    agent.logger = MagicMock()
+
+    payload = {
+        "tf": "5m",
+        "ts": "2026-05-24T10:00:00Z",
+        "ready": True,
+        "es_nq_spread_z": 0.75,
+        "corr_z": -0.3,
+        "eq_corr_break": False,
+        "eq_vol_imbalance": 0.1,
+        "active_pair": "ES-NQ",
+        "pairs_confirming": 2,
+        "data_quality_score": 0.95,
+        "low_vol_flag": False,
+    }
+
+    asyncio.run(agent._process_cross_asset_message(payload))
+
+    # Cache updated
+    assert "5m" in agent._cross_asset_cache
+    assert agent._cross_asset_cache["5m"]["cross_asset"]["es_nq_spread_z"] == pytest.approx(0.75)
+    # DB never touched
+    agent.db_manager.execute_batch.assert_not_called()

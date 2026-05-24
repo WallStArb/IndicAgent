@@ -41,7 +41,6 @@ from src.core.stream_keys import (
     topic_intelligence_journal,
     topic_roll_events,
 )
-from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
 from src.intelligence.schemas import BarIntelligenceRecord
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
@@ -96,9 +95,9 @@ ON CONFLICT (ts, symbol, tf) DO NOTHING
 # Pure UPDATE — no-op if the main bar row doesn't exist yet.
 # Prevents roll boundary and cross-asset writes from creating sparse rows
 # with NULL mandatory columns before the main BarIntelligenceRecord arrives.
-_UPDATE_I7_MERGE_SQL = """
+_UPDATE_MARKET_CTX_SQL = """
 UPDATE intelligence_features
-SET trading_signals = COALESCE(trading_signals, '{}'::jsonb) || $4::jsonb
+SET market_context = COALESCE(market_context, '{}'::jsonb) || $4::jsonb
 WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
 
@@ -166,23 +165,18 @@ def _compute_days_to_expiry(
 def _record_to_insert_params(
     record: BarIntelligenceRecord,
     expiry_map: dict[str, date] | None = None,
+    cross_asset_snapshot: dict | None = None,
 ) -> tuple:
-    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
-
-    Args:
-        record: BarIntelligenceRecord from intelligence topic
-        expiry_map: Optional symbol-to-expiry mapping for days_to_expiry calculation
-
-    Returns:
-        Tuple of 31 parameters matching _INSERT_FEATURE_SQL placeholders.
-    """
+    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
-
-    # winner_direction: int in schema, stored as text in DB
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
-
     session_type_val = normalize_session_type(record.session_type)
+
+    market_ctx = {
+        **event.i2.model_dump(exclude_none=True),
+        **(cross_asset_snapshot or {}),
+    }
 
     return (
         event.ts,  # $1 ts
@@ -191,15 +185,15 @@ def _record_to_insert_params(
         event.platform,  # $4 platform
         event.source,  # $5 source
         record.schema_version,  # $6 schema_version
-        event.bar.model_dump(),  # $7 bar jsonb
-        event.i1.model_dump(),  # $8 i1 jsonb
-        event.i2.model_dump(exclude_none=True),  # $9 i2 jsonb
-        event.i3.model_dump(exclude_none=True),  # $10 i3 jsonb
-        event.i4.model_dump(exclude_none=True),  # $11 i4 jsonb
-        event.i5.model_dump(exclude_none=True),  # $12 i5 jsonb
-        event.smc.model_dump(exclude_none=True),  # $13 smc jsonb
-        event.i6.model_dump(exclude_none=True),  # $14 i6 jsonb
-        [s.model_dump() for s in record.ranked_signals],  # $15 i7 jsonb
+        event.bar.model_dump(),  # $7 bar
+        event.i1.model_dump(),  # $8 technical_indicators
+        market_ctx,  # $9 market_context (+ cross_asset)
+        event.i3.model_dump(exclude_none=True),  # $10 pattern_detections
+        event.i4.model_dump(exclude_none=True),  # $11 regime_features
+        event.i5.model_dump(exclude_none=True),  # $12 confluence_scores
+        event.smc.model_dump(exclude_none=True),  # $13 smc
+        event.i6.model_dump(exclude_none=True),  # $14 cross_timeframe_context
+        [s.model_dump() for s in record.ranked_signals],  # $15 trading_signals
         event.bar_close_ts,  # $16 bar_close_ts
         event.i1_computed_at,  # $17 i1_computed_at
         event.computed_at,  # $18 computed_at
@@ -279,6 +273,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         self._total_batches = 0
         self._error_count = 0
         self._expiry_map: dict[str, date] = {}
+        self._cross_asset_cache: dict[str, dict] = {}
 
     def _topic_name(self) -> str:
         return topic_intelligence_journal(self.env_name)
@@ -321,7 +316,8 @@ class FeatureWriterAgent(BaseWriterAgent):
         if record is None:
             return None
 
-        params = _record_to_insert_params(record, self._expiry_map)
+        cross_asset = getattr(self, "_cross_asset_cache", {}).get(record.intelligence.tf, {})
+        params = _record_to_insert_params(record, self._expiry_map, cross_asset)
         return [params]
 
     async def _flush_batch(self, batch: list) -> None:
@@ -589,7 +585,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         marker = {"roll_boundary": f"{old_symbol}->{new_symbol}"}
         try:
             await self.db_manager.execute_batch(
-                _UPDATE_I7_MERGE_SQL,
+                _UPDATE_MARKET_CTX_SQL,
                 [(detected_at, new_symbol, _ROLL_BOUNDARY_TF, marker)],
             )
 
@@ -621,28 +617,11 @@ class FeatureWriterAgent(BaseWriterAgent):
             self.error_count_total.add(1)
 
     async def _process_cross_asset_message(self, payload: dict) -> None:
-        """Persist cross-asset spread features to intelligence_features.
-
-        Cross-asset features are group-level snapshots (not symbol-specific).
-        They are persisted by merging into the i7 JSONB column for the most
-        recent intelligence_features row matching this tf + group timestamp.
-        Uses ON CONFLICT ... DO UPDATE to merge into any existing i7 data.
-        """
-        if not self.db_manager:
-            return
         try:
             tf = payload.get("tf", "")
-            ts_raw = payload.get("ts", "")
-            if not tf or not ts_raw or not payload.get("ready"):
-                self.logger.debug(
-                    "cross_asset_skip_incomplete",
-                    tf=tf,
-                    ts=ts_raw,
-                    ready=payload.get("ready"),
-                )
+            if not tf or not payload.get("ready"):
                 return
-            ts_dt = parse_iso_ts(ts_raw)
-            cross_asset_data = {
+            self._cross_asset_cache[tf] = {
                 "cross_asset": {
                     "es_nq_spread_z": payload.get("es_nq_spread_z"),
                     "es_rty_spread_z": payload.get("es_rty_spread_z"),
@@ -652,22 +631,11 @@ class FeatureWriterAgent(BaseWriterAgent):
                     "pairs_confirming": payload.get("pairs_confirming"),
                     "data_quality_score": payload.get("data_quality_score"),
                     "low_vol_flag": payload.get("low_vol_flag"),
-                    "corr_z": payload.get("corr_z"),  # P78-MATH-PLUGINS — Phase 78 D-20
+                    "corr_z": payload.get("corr_z"),
                 }
             }
-            # Persist cross-asset snapshot for each EQ_INDEX group member symbol.
-            # Pure UPDATE — no-op if the main bar row doesn't exist yet.
-            params = [(ts_dt, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
-            await self.db_manager.execute_batch(_UPDATE_I7_MERGE_SQL, params)
-
-            self.logger.debug(
-                "cross_asset_persisted",
-                tf=tf,
-                ts=ts_raw,
-                symbols=sorted(_EQ_INDEX_BASES),
-            )
         except Exception as e:
-            self.logger.warning("cross_asset_persist_failed", error=str(e))
+            self.logger.warning("cross_asset_cache_update_failed", error=str(e))
             self.error_count_total.add(1)
 
     async def _shutdown(self) -> None:
