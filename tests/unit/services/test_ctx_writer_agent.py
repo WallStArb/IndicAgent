@@ -269,6 +269,126 @@ class TestCtxWriterJsonbNotString:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Phase-105 regression: .add() not .inc() on write counters, super()._teardown() called
+# ---------------------------------------------------------------------------
+
+
+class TestCtxWriterFlushUsesAdd:
+    """Regression: _flush() must call .add() on write counters, never .inc().
+
+    Phase-105 HF-2: OTel counters expose .add() not .inc(). Calling .inc()
+    would raise AttributeError at runtime.
+    """
+
+    @pytest.mark.asyncio
+    async def test_flush_calls_add_not_inc_on_events_written(self):
+        """_flush() calls self._events_written.add(n), never .inc()."""
+        agent = _make_agent()
+
+        # Replace write counters with fresh Mocks so we can assert call patterns
+        mock_events_written = MagicMock()
+        mock_snapshots_written = MagicMock()
+        agent._events_written = mock_events_written
+        agent._snapshots_written = mock_snapshots_written
+
+        # Build a minimal flush environment — mock the pool/conn
+        mock_conn = AsyncMock()
+        mock_transaction = AsyncMock()
+        mock_transaction.__aenter__ = AsyncMock(return_value=None)
+        mock_transaction.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.transaction = MagicMock(return_value=mock_transaction)
+        mock_conn.executemany = AsyncMock()
+        mock_pool = MagicMock()
+        mock_pool_ctx = MagicMock()
+        mock_pool_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_pool_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_pool.acquire = MagicMock(return_value=mock_pool_ctx)
+
+        agent._db = MagicMock()
+        agent._db.pool = mock_pool
+
+        # One event row in the batch
+        event_batch = [(None, "ES", "earnings", "test", {})]
+        snapshot_batch: list = []
+
+        await agent._flush(event_batch, snapshot_batch)
+
+        # .add() must have been called with the batch length
+        mock_events_written.add.assert_called_once_with(1)
+        # .inc() must NEVER be called
+        assert (
+            not mock_events_written.inc.called
+        ), "OTel counter must use .add(), never .inc() — .inc() does not exist on OTel counters"
+
+    @pytest.mark.asyncio
+    async def test_flush_calls_add_not_inc_on_snapshots_written(self):
+        """_flush() calls self._snapshots_written.add(n), never .inc()."""
+        agent = _make_agent()
+
+        mock_events_written = MagicMock()
+        mock_snapshots_written = MagicMock()
+        agent._events_written = mock_events_written
+        agent._snapshots_written = mock_snapshots_written
+
+        mock_conn = AsyncMock()
+        mock_transaction = AsyncMock()
+        mock_transaction.__aenter__ = AsyncMock(return_value=None)
+        mock_transaction.__aexit__ = AsyncMock(return_value=False)
+        mock_conn.transaction = MagicMock(return_value=mock_transaction)
+        mock_conn.executemany = AsyncMock()
+        mock_pool = MagicMock()
+        mock_pool_ctx = MagicMock()
+        mock_pool_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_pool_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_pool.acquire = MagicMock(return_value=mock_pool_ctx)
+
+        agent._db = MagicMock()
+        agent._db.pool = mock_pool
+
+        event_batch: list = []
+        # One snapshot row (symbol, event_type, valid_from, ctx_dict)
+        snapshot_batch = [("ES", "earnings", "2026-01-01T00:00:00Z", {})]
+
+        await agent._flush(event_batch, snapshot_batch)
+
+        # .add() must have been called with batch length
+        mock_snapshots_written.add.assert_called_once_with(1)
+        assert not mock_snapshots_written.inc.called, "OTel counter must use .add(), never .inc()"
+
+
+class TestCtxWriterTeardownCallsSuper:
+    """Regression: _teardown() must call super()._teardown() first.
+
+    Phase-105 HF-11: missing super()._teardown() means BaseWriterAgent's final
+    flush and lifecycle cleanup never runs, leaving uncommitted messages.
+    """
+
+    @pytest.mark.asyncio
+    async def test_teardown_calls_super_teardown(self):
+        """_teardown() must invoke super()._teardown() (base lifecycle cleanup)."""
+        import inspect
+
+        import services.ctx_writer_agent as mod
+
+        source = inspect.getsource(mod.CtxWriterAgent._teardown)
+        # The fixed version calls super()._teardown()
+        assert "super()._teardown()" in source, (
+            "CtxWriterAgent._teardown() must call super()._teardown() "
+            "to trigger BaseWriterAgent final flush and lifecycle cleanup"
+        )
+
+        # Also confirm it is the FIRST await (order matters: base cleanup before custom flush)
+        lines = [ln.strip() for ln in source.splitlines() if ln.strip()]
+        # Find the first non-docstring meaningful line; strip inline comments
+        await_lines = [ln.split("#")[0].rstrip() for ln in lines if ln.startswith("await")]
+        assert await_lines, "No await statements in _teardown()"
+        assert await_lines[0] == "await super()._teardown()", (
+            "super()._teardown() must be the FIRST await in _teardown() "
+            f"so BaseWriterAgent flush runs before custom buffer flush; got: {await_lines[0]!r}"
+        )
+
+
 class TestFeatureWriterInsertIncludesCtx:
     """test_feature_writer_insert_includes_ctx_column"""
 
