@@ -340,7 +340,7 @@ class CtxWriterAgent(BaseWriterAgent):
                 # Write ctx_events
                 if event_batch:
                     await conn.executemany(_INSERT_CTX_EVENT_SQL, event_batch)
-                    self._events_written.inc(len(event_batch))
+                    self._events_written.add(len(event_batch))
 
                 # Upsert ctx_snapshots — batch close then batch insert (2 roundtrips, not N×2)
                 if snapshot_batch:
@@ -348,7 +348,7 @@ class CtxWriterAgent(BaseWriterAgent):
                     upsert_params = list(snapshot_batch)
                     await conn.executemany(_CLOSE_PRIOR_SNAPSHOT_SQL, close_params)
                     await conn.executemany(_UPSERT_CTX_SNAPSHOT_SQL, upsert_params)
-                    self._snapshots_written.inc(len(snapshot_batch))
+                    self._snapshots_written.add(len(snapshot_batch))
 
         self.logger.info(
             "ctx_writer.flushed",
@@ -374,6 +374,7 @@ class CtxWriterAgent(BaseWriterAgent):
         self.logger.info("ctx_writer.started", topic=self._topic_name())
 
     async def _teardown(self) -> None:
+        await super()._teardown()  # drains self._buffer (generic) and stops lifecycle
         if self._event_buffer or self._snapshot_buffer:
             try:
                 await self._flush(self._event_buffer[:], self._snapshot_buffer[:])
