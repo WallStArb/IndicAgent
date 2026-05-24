@@ -261,25 +261,29 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.7 — AI Agent Platform Modernization
+## Current Milestone: v2.8 — Infrastructure Hardening + AI Platform
 
-**Goal:** Replace hand-rolled LLM boilerplate with a composable, measurable, Renaissance-grade stack — each layer has one job, every dependency earns its place through measurable outcome improvement, and the existing DAG and domain infrastructure are unchanged.
+**Goal:** Close structural debt from v2.7 audit, audit and fix shadow graduation blockers, then execute the AI platform stack with measurable evidence gates at every layer — each dependency earns its place before the next is added.
 
-**Design principles (Jim Simons / Renaissance standard):**
-- Every library adoption is a measurable hypothesis — shadow mode first, promote on evidence
-- No layer added without a concrete parse failure rate, latency, or maintenance burden metric
-- Compute costs count — Zep/DSPy only if ROI is measurable
-- Keep what works: BaseGroupService, CircuitBreaker, OTel, shadow_registry, signal_ledger untouched
-- DAG modularity: each new layer is independently deployable and testable
+**Design principles (Renaissance standard):**
+- Every AI platform phase states the metric it must move — no phase ships without naming the measurement
+- Evidence gates between phases: 099 (Guardrails) only if Instructor parse failures stay > 1%; 102-103 (genetics) only if FIT-06 discriminative power gate passes
+- Compute costs counted: Zep RAM/latency documented before enabling; DSPy data gate (>=500 labeled rows per agent) verified before running
+- DAG discipline: no new Kafka topics without named producer-consumer pair; no new daemons without justification; compute is in-process
+- Shadow mode by default: all new agent behavior runs shadow_only=True until >= 100 inferences measured
 
-**Target phases:**
-- Phase 093: LiteLLM backend — replace OllamaProvider/OpenRouterProvider/LLMChain internals; `LLMProviderChain.generate()` interface unchanged
-- Phase 094: Instructor structured output — replace manual JSON parsing; Instructor retry loop injects validation errors back into prompt
-- Phase 095: Pydantic AI agent adapter — typed Agent[AgentDeps, ResultType] replaces BaseAIAgent boilerplate; shadow mode first
-- Phase 096: Agent Registry — YAML-driven agent instantiation; operators add agents without code deploy
-- Phase 097: Zep episodic memory — persistent agent context by (regime, symbol, setup_type); shadow mode before enabling
-- Phase 098: DSPy offline optimizer — compile prompts from signal_ledger outcome data; A/B tested against baseline
-- Phase 099: Guardrails AI — output validation replacing custom GuardrailsValidator; parse failure rate comparison
+**Target phases (in execution order):**
+- Phase 106: Foundation Hardening — DAG correctness, dead code, code reuse, queue backpressure, PluginCircuitBreaker (FOUND-01–06)
+- Phase 107: Infrastructure Hygiene — dead DB tables, shadow graduation unblock, metrics instrument audit (HYGIENE-01–04)
+- Phase 094: LiteLLM + Instructor — provider abstraction + structured output; parse failure rate measured before/after (LLM-INFRA, STRUCT-OUT)
+- Phase 095: Pydantic AI adapter — typed agent execution; Skeptic as reference implementation (AGENT-EXEC)
+- Phase 096: Agent Registry — YAML-driven instantiation; zero Python changes to add an agent (AGENT-REG)
+- Phase 097: Zep episodic memory — shadow mode recall quality gate; compute cost documented (MEM)
+- Phase 098: DSPy offline optimizer — data gate verified; A/B tested before any promotion (OPT)
+- Phase 099: Guardrails AI — conditional on post-Instructor parse failure rate > 1% (GUARD)
+- Phase 101: Composite Fitness Function — discriminative power gate gates all genetic work (FIT)
+- Phase 102: Genetic Infrastructure — gene bank + frozen archive (GENE; gated on FIT-06)
+- Phase 103: Reproductive Operators — mutation, recombination, LLM-directed (REPRO; gated on FIT-06)
 
 ---
 ## Evolution
