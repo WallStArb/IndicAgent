@@ -344,7 +344,7 @@ def verify_dataset(conn: Any, seed_mode: bool = False) -> tuple[bool, str]:
             cur.execute("""
                 SELECT symbol, timeframe, count(*) as n,
                        min(timestamp)::date, max(timestamp)::date
-                FROM signal_ledger
+                FROM signal_ledger_full
                 GROUP BY symbol, timeframe
                 ORDER BY symbol, timeframe
             """)

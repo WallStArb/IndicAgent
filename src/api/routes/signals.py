@@ -203,7 +203,7 @@ async def get_active_signals(
                 sl.timestamp,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger sl
+            FROM signal_ledger_full sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             LEFT JOIN intelligence_features f ON f.ts = sl.feature_ts AND f.symbol = sl.symbol AND f.tf = sl.feature_tf
             LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
@@ -330,7 +330,7 @@ async def get_recent_signals(
                 sl.symbol,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
-            FROM signal_ledger sl
+            FROM signal_ledger_full sl
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin AND sp.symbol = sl.symbol
             WHERE sl.timestamp >= NOW() - INTERVAL '90 days'
               AND ($1::text IS NULL OR sl.symbol = $1)
@@ -504,7 +504,7 @@ async def get_signals_stats(
                           AND timestamp >= NOW() - INTERVAL '30 days'
                     )::numeric, 4
                 ) AS avg_pnl_r_30d
-            FROM signal_ledger
+            FROM signal_ledger_full
             WHERE timestamp >= NOW() - INTERVAL '30 days'
         """
         row = await db_manager.fetchrow(query)
@@ -739,7 +739,7 @@ async def get_signal_detail(
                 sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
                 sl.activation_price, sl.mae, sl.mfe, sl.bars_in_trade,
                 f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
-            FROM signal_ledger sl
+            FROM signal_ledger_full sl
             LEFT JOIN intelligence_features f
               ON sl.symbol = f.symbol
              AND sl.feature_ts = f.ts
@@ -839,7 +839,7 @@ async def get_signals(
                        sl.market_price_at_signal, sl.ask_at_signal, sl.bid_at_signal,
                        sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
                        f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
-                FROM signal_ledger sl
+                FROM signal_ledger_full sl
                 LEFT JOIN intelligence_features f
                   ON sl.symbol = f.symbol
                  AND sl.feature_ts = f.ts
@@ -859,7 +859,7 @@ async def get_signals(
                        feature_ts, feature_tf, signal_computed_at,
                        market_price_at_signal, ask_at_signal, bid_at_signal,
                        entry_zone_low, entry_zone_high, zone_valid_at_signal
-                FROM signal_ledger
+                FROM signal_ledger_full
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
                   AND ($4::timestamptz IS NULL OR timestamp <= $4)

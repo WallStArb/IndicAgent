@@ -212,7 +212,7 @@ class SignalAuditorAgent(BaseAgent):
                     count = await conn.fetchval(
                         """
                         SELECT COUNT(*)
-                        FROM signal_ledger
+                        FROM signal_ledger_full
                         WHERE symbol = $1
                           AND timeframe = $2
                           AND feature_ts >= $3
@@ -313,7 +313,7 @@ class SignalAuditorAgent(BaseAgent):
                     SELECT
                       AVG((tf_sig.value->>'cis_score')::float)    AS cis_mean,
                       STDDEV((tf_sig.value->>'cis_score')::float) AS cis_stddev
-                    FROM signal_ledger sl
+                    FROM signal_ledger_full sl
                     JOIN intelligence_features f ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
                     JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
                         ON tf_sig.value->>'signal_id' = sl.signal_id::text

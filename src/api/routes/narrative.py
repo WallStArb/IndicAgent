@@ -163,7 +163,7 @@ _SIGNAL_QUERY = """
            tf_sig.value->>'entry_type' AS entry_type,
            f.bar, f.technical_indicators, f.market_context, f.pattern_detections,
            f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
-    FROM signal_ledger sl
+    FROM signal_ledger_full sl
     LEFT JOIN intelligence_features f
       ON sl.symbol = f.symbol
      AND sl.feature_ts = f.ts

@@ -97,7 +97,7 @@ class SignalReplayAuditorAgent:
                    tf_sig.value->'targets'                       AS targets,
                    (tf_sig.value->>'zone_low')::float            AS entry_zone_low,
                    (tf_sig.value->>'zone_high')::float           AS entry_zone_high
-            FROM signal_ledger sl
+            FROM signal_ledger_full sl
             LEFT JOIN intelligence_features f
                 ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
             LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
@@ -137,7 +137,7 @@ class SignalReplayAuditorAgent:
         async with self._pool.acquire() as conn:
             cnt = await conn.fetchval(
                 """
-                SELECT COUNT(*) FROM signal_ledger
+                SELECT COUNT(*) FROM signal_ledger_full
                 WHERE exit_at IS NULL
                   AND timestamp < NOW() - INTERVAL '2 minutes'
                   AND signal_schema_version = $1

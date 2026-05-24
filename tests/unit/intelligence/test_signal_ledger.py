@@ -31,17 +31,7 @@ def _make_entry(**overrides) -> LedgerEntry:
         entry_price=5100.0,
         stop_loss=5090.0,
         targets=[5110.0, 5120.0],
-        confidence=0.75,
-        confluence_score=0.82,
-        regime_context="bullish",
-        supporting_factors=["ema_alignment", "adx_strong"],
         was_selected=True,
-        num_signals_bar=3,
-        num_agreeing=2,
-        num_conflicting=1,
-        resolution_method="confidence_rank",
-        composite_rank=1,
-        market_context={"vol_regime": "normal"},
         status="pending",
     )
     defaults.update(overrides)
@@ -60,35 +50,26 @@ class TestLedgerEntry:
         assert entry.symbol == "ES"
         assert entry.direction == 1
         assert entry.status == "pending"
-        assert entry.market_context == {"vol_regime": "normal"}
 
     def test_to_insert_params(self):
         entry = _make_entry()
         params = entry._to_row()
 
-        assert (
-            len(params) == 67
-        )  # 58 prior + 2 Phase 57 + 4 Phase 79 + 1 Phase 70 (features_snapshot)
+        # New fire-time-only schema: 27 params (lifecycle columns moved to signal_outcomes)
+        assert len(params) == 27
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
-        # JSONB fields are passed as Python objects (asyncpg handles serialization)
-        assert params[9] == [5110.0, 5120.0]  # targets
-        assert params[13] == ["ema_alignment", "adx_strong"]  # supporting_factors
-        assert params[20] == {"vol_regime": "normal"}  # market_context
-        # feature_ts and feature_tf default to None ($23 and $24)
-        assert params[22] is None  # feature_ts
-        assert params[23] is None  # feature_tf
-        # CIS fields default to None ($25-$28)
-        assert params[24] is None  # cis_score
-        assert params[25] is None  # bucket_scores (JSON)
-        assert params[26] is None  # weights_version
-        assert params[27] is None  # signal_quality
-        # Timing field ($29)
-        assert params[28] is None  # signal_computed_at (default None)
+        # feature_ts ($13) and feature_tf ($14) default to None — indices 12 and 13
+        assert params[12] is None  # feature_ts
+        assert params[13] is None  # feature_tf
+        # CIS fields: cis_score=$24 (idx 23), bucket_scores=$25 (idx 24), weights_version=$26 (idx 25)
+        assert params[23] is None  # cis_score
+        assert params[24] is None  # bucket_scores
+        assert params[25] is None  # weights_version
 
     def test_to_insert_params_with_cis_fields(self):
-        """LedgerEntry with CIS fields — bucket_scores as Python dict at index 25."""
+        """LedgerEntry with CIS fields — bucket_scores as Python dict at $25 (index 24)."""
         entry = _make_entry(
             cis_score=0.47,
             bucket_scores={
@@ -100,25 +81,22 @@ class TestLedgerEntry:
                 "regime": 0.3,
             },
             weights_version=0,
-            signal_quality=None,
         )
         params = entry._to_row()
 
-        assert len(params) == 67  # 60 prior + 4 Phase 79 + 1 Phase 70 (features_snapshot)
-        assert params[24] == pytest.approx(0.47)  # $25 cis_score
-        # index 25 (0-based) = $26 (1-based) = bucket_scores as dict (asyncpg serializes to jsonb)
-        bucket_scores = params[25]
+        assert len(params) == 27
+        assert params[23] == pytest.approx(0.47)  # cis_score at $24 (index 23)
+        # index 24 = bucket_scores as dict (asyncpg serializes to jsonb)
+        bucket_scores = params[24]
         assert bucket_scores["trend"] == pytest.approx(0.4)
         assert bucket_scores["momentum"] == pytest.approx(0.3)
-        assert params[26] == 0  # $27 weights_version
-        assert params[27] is None  # $28 signal_quality still None at fire time
-        assert params[28] is None  # $29 signal_computed_at default None
+        assert params[25] == 0  # weights_version at $26 (index 25)
 
 
 @pytest.mark.unit
 class TestLedgerEntryNewFields:
     def test_ledger_entry_has_zone_fields(self):
-        """LedgerEntry dataclass includes all new institutional fields."""
+        """LedgerEntry dataclass includes entry_zone fields."""
         entry = LedgerEntry(
             signal_id="test-uuid",
             timestamp=datetime.now(UTC),
@@ -127,33 +105,12 @@ class TestLedgerEntryNewFields:
             setup_plugin="TrendFollowing",
             signal_type="trend_long",
             direction=1,
-            entry_price=5100.0,
-            stop_loss=5085.0,
-            targets=[5115.0, 5130.0],
-            confidence=0.8,
-            confluence_score=0.7,
-            regime_context="trending",
-            supporting_factors=["rsi_bull"],
             was_selected=True,
-            num_signals_bar=2,
-            num_agreeing=1,
-            num_conflicting=1,
-            resolution_method="priority",
-            composite_rank=1,
-            determined_at=datetime.now(UTC),
-            ask_at_signal=5101.5,
-            bid_at_signal=5101.0,
-            market_price_at_signal=5101.5,
             entry_zone_low=5095.0,
             entry_zone_high=5100.0,
-            zone_valid_at_signal=True,
         )
-        assert entry.determined_at is not None
-        assert entry.ask_at_signal == 5101.5
         assert entry.entry_zone_low == 5095.0
-        assert entry.zone_valid_at_signal is True
-        assert entry.mae is None
-        assert entry.outcome is None
+        assert entry.entry_zone_high == 5100.0
 
     def test_to_insert_params_length(self):
         """to_insert_params() returns correct number of elements for new SQL."""
@@ -165,81 +122,11 @@ class TestLedgerEntryNewFields:
             setup_plugin="TrendFollowing",
             signal_type="trend_long",
             direction=1,
-            entry_price=5100.0,
-            stop_loss=5085.0,
-            targets=[5115.0],
-            confidence=0.8,
-            confluence_score=0.7,
-            regime_context="trending",
-            supporting_factors=[],
             was_selected=True,
-            num_signals_bar=1,
-            num_agreeing=1,
-            num_conflicting=0,
-            resolution_method="sole",
-            composite_rank=1,
         )
         params = entry._to_row()
-        assert (
-            len(params) == 67
-        )  # 58 prior + 2 Phase 57 + 4 Phase 79 + 1 Phase 70 (features_snapshot)
-
-
-def test_ledger_entry_has_cis_attribution_field():
-    entry = LedgerEntry(
-        signal_id="test-id",
-        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-        symbol="ES",
-        timeframe="1m",
-        setup_plugin="test",
-        signal_type="test",
-        direction=1,
-        entry_price=5000.0,
-        stop_loss=4990.0,
-        targets=[5010.0],
-        confidence=0.8,
-        confluence_score=0.7,
-        regime_context="trending",
-        supporting_factors=[],
-        was_selected=True,
-        num_signals_bar=1,
-        num_agreeing=1,
-        num_conflicting=0,
-        resolution_method="solo",
-        composite_rank=1,
-        cis_attribution={"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}},
-    )
-    assert entry.cis_attribution == {"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}}
-
-
-def test_ledger_entry_to_insert_params_includes_attribution():
-    entry = LedgerEntry(
-        signal_id="test-id",
-        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-        symbol="ES",
-        timeframe="1m",
-        setup_plugin="test",
-        signal_type="test",
-        direction=1,
-        entry_price=5000.0,
-        stop_loss=4990.0,
-        targets=[],
-        confidence=0.8,
-        confluence_score=0.7,
-        regime_context="",
-        supporting_factors=[],
-        was_selected=True,
-        num_signals_bar=1,
-        num_agreeing=1,
-        num_conflicting=0,
-        resolution_method="solo",
-        composite_rank=1,
-        cis_attribution={"trend": {"psar_direction": 0.05}},
-    )
-    params = entry._to_row()
-    assert len(params) == 67  # 58 prior + 2 Phase 57 + 4 Phase 79 + 1 Phase 70 (features_snapshot)
-    # cis_attribution field at position 36 - checks nested dict structure
-    assert params[36] == {"trend": {"psar_direction": 0.05}}
+        # New fire-time-only schema: 27 params (lifecycle columns moved to signal_outcomes)
+        assert len(params) == 27
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +142,10 @@ class TestInsertSignals:
         entry = _make_entry()
         await SignalLedgerRepository(db).insert_signals([entry])
 
-        db.execute_batch.assert_awaited_once()
-        args = db.execute_batch.call_args
-        assert len(args[0][1]) == 1  # one row
+        # insert() calls execute_batch twice: once for signal_ledger, once for signal_outcomes
+        assert db.execute_batch.await_count == 2
+        ledger_call = db.execute_batch.call_args_list[0]
+        assert len(ledger_call[0][1]) == 1  # one ledger row
 
     @pytest.mark.asyncio
     async def test_insert_multiple_signals(self):
@@ -265,9 +153,9 @@ class TestInsertSignals:
         entries = [_make_entry(signal_id=f"id-{i}") for i in range(3)]
         await SignalLedgerRepository(db).insert_signals(entries)
 
-        db.execute_batch.assert_awaited_once()
-        args = db.execute_batch.call_args
-        assert len(args[0][1]) == 3
+        assert db.execute_batch.await_count == 2
+        ledger_call = db.execute_batch.call_args_list[0]
+        assert len(ledger_call[0][1]) == 3
 
     @pytest.mark.asyncio
     async def test_insert_empty_list_is_noop(self):
@@ -397,8 +285,13 @@ class TestRecordActivation:
         assert "market_entry" not in _RECORD_ACTIVATION_SQL  # no cross-contamination
 
     def test_activation_sql_does_not_touch_zone_resolution_columns(self):
-        for col in ["exit_at", "exit_price", "outcome", "pnl_r"]:
+        import re
+
+        # 'outcome' needs a word boundary check because 'signal_outcomes' contains 'outcome' as substring
+        for col in ["exit_at", "exit_price", "pnl_r"]:
             assert col not in _RECORD_ACTIVATION_SQL
+        # outcome column (not the table name signal_outcomes)
+        assert not re.search(r"\boutcome\b\s*=", _RECORD_ACTIVATION_SQL)
 
 
 @pytest.mark.unit
@@ -544,23 +437,25 @@ class TestIsShadowField:
 
     def test_to_insert_params_length_64(self):
         entry = _make_entry()
-        assert len(entry._to_row()) == 67  # 60 prior + 4 Phase 79 + 1 Phase 70 (features_snapshot)
+        # New fire-time-only schema: 27 params
+        assert len(entry._to_row()) == 27
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
         params = entry._to_row()
-        assert params[38] is False
+        # is_shadow is $9 in new schema (index 8)
+        assert params[8] is False
 
     def test_to_insert_params_is_shadow_position_true(self):
         entry = _make_entry(is_shadow=True)
         params = entry._to_row()
-        assert params[38] is True
+        # is_shadow is $9 in new schema (index 8)
+        assert params[8] is True
 
     def test_insert_sql_contains_is_shadow_and_dollar39(self):
         from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
 
         assert "is_shadow" in _INSERT_SQL
-        assert "$39" in _INSERT_SQL
 
 
 @pytest.mark.unit
@@ -616,79 +511,3 @@ class TestBuildFeatureRows:
 
         assert "ON CONFLICT" in _INSERT_FEATURES_SQL
         assert "DO NOTHING" in _INSERT_FEATURES_SQL
-
-
-@pytest.mark.unit
-class TestLedgerEntryPhase35CalibrationFields:
-    """Phase 35: LedgerEntry must carry calibration fields for isotonic regression pipeline."""
-
-    def test_has_raw_cis_score_field(self):
-        """raw_cis_score field must exist on LedgerEntry."""
-        assert "raw_cis_score" in LedgerEntry.__dataclass_fields__
-
-    def test_has_filtered_cis_score_field(self):
-        """filtered_cis_score field must exist on LedgerEntry."""
-        assert "filtered_cis_score" in LedgerEntry.__dataclass_fields__
-
-    def test_has_calibrated_confidence_field(self):
-        """calibrated_confidence field must exist on LedgerEntry."""
-        assert "calibrated_confidence" in LedgerEntry.__dataclass_fields__
-
-    def test_has_regime_type_at_fire_field(self):
-        """regime_type_at_fire field must exist on LedgerEntry."""
-        assert "regime_type_at_fire" in LedgerEntry.__dataclass_fields__
-
-    def test_calibration_fields_default_none(self):
-        """All Phase 35 calibration fields must default to None."""
-        entry = _make_entry()
-        assert entry.raw_cis_score is None
-        assert entry.filtered_cis_score is None
-        assert entry.calibrated_confidence is None
-        assert entry.regime_type_at_fire is None
-
-    def test_to_insert_params_returns_65_elements(self):
-        """to_insert_params() must return 65 elements after Phase 70 extension (was 64)."""
-        entry = _make_entry()
-        params = entry._to_row()
-        assert (
-            len(params) == 67
-        ), f"Expected 65 elements (60 prior + 4 Phase 79 + 1 Phase 70), got {len(params)}"
-
-    def test_to_insert_params_calibration_fields_at_positions_55_to_58(self):
-        """Phase 35 fields are at $55-$58 (0-indexed: 54-57)."""
-        entry = _make_entry(
-            raw_cis_score=0.72,
-            filtered_cis_score=0.68,
-            calibrated_confidence=0.61,
-            regime_type_at_fire="trend",
-        )
-        params = entry._to_row()
-        assert len(params) == 67
-        assert params[54] == pytest.approx(0.72)  # $55 raw_cis_score
-        assert params[55] == pytest.approx(0.68)  # $56 filtered_cis_score
-        assert params[56] == pytest.approx(0.61)  # $57 calibrated_confidence
-        assert params[57] == "trend"  # $58 regime_type_at_fire
-        assert params[58] is None  # $59 pre_quality_confidence
-        assert params[59] is None  # $60 pre_calibration_confidence
-
-    def test_to_insert_params_calibration_fields_nullable(self):
-        """Calibration fields must be NULL-able (None passes through unchanged)."""
-        entry = _make_entry()
-        params = entry._to_row()
-        assert params[54] is None  # raw_cis_score
-        assert params[55] is None  # filtered_cis_score
-        assert params[56] is None  # calibrated_confidence
-        assert params[57] is None  # regime_type_at_fire
-
-    def test_insert_sql_contains_calibration_columns(self):
-        """_INSERT_SQL must reference all four Phase 35 calibration columns."""
-        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
-
-        assert "raw_cis_score" in _INSERT_SQL
-        assert "filtered_cis_score" in _INSERT_SQL
-        assert "calibrated_confidence" in _INSERT_SQL
-        assert "regime_type_at_fire" in _INSERT_SQL
-        assert "$55" in _INSERT_SQL
-        assert "$56" in _INSERT_SQL
-        assert "$57" in _INSERT_SQL
-        assert "$58" in _INSERT_SQL

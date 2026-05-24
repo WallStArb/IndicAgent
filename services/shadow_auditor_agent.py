@@ -121,7 +121,7 @@ async def _check_promotion(
         signal_rows = await conn.fetch(
             """
             SELECT outcome, pnl_r, signal_computed_at
-            FROM signal_ledger
+            FROM signal_ledger_full
             WHERE setup_plugin = $1
               AND is_shadow = TRUE
               AND outcome IS NOT NULL
@@ -262,7 +262,7 @@ async def _check_demotion(
     async with pool.acquire() as conn:
         signal_rows = await conn.fetch(
             """
-            SELECT pnl_r FROM signal_ledger
+            SELECT pnl_r FROM signal_ledger_full
             WHERE setup_plugin = $1
               AND is_shadow = FALSE
               AND outcome IS NOT NULL
