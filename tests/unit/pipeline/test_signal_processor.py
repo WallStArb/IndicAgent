@@ -418,3 +418,120 @@ def test_module_level_helpers_exist():
     assert not inspect.ismethod(mod._apply_alpha_decay)
     assert not inspect.ismethod(mod._cis_kalman_update)
     assert not inspect.ismethod(mod._build_features_from_event)
+
+
+# ---------------------------------------------------------------------------
+# Phase-105 regression: shadow winner suppression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shadow_plugin_never_wins_even_with_highest_score():
+    """Shadow plugin cannot become the winner even when it has the top CIS score.
+
+    Regression guard for Phase-105 fix: eligible_ranked excludes shadow-cache plugins
+    before passing to select_winner, so select_winner never sees shadow signals.
+    """
+    from src.intelligence.trading.cis_scorer import CISResult
+
+    proc = _make_processor()
+
+    # CIS scorer returns a valid result — score value does not matter here
+    cis_result = CISResult(
+        cis_score=0.8,
+        direction=1,
+        bucket_scores={"trend": 0.8},
+        weights_version=0,
+        buckets_agreeing=5,
+    )
+    proc._cis_scorer.score = MagicMock(return_value=cis_result)
+
+    bar = _make_bar()
+
+    # Two plugins: shadow one has direction=1 (would score highest), live one has direction=1
+    shadow_plugin = "shadow_Plugin"
+    live_plugin = "trad_TrendFollowing"
+
+    raw_signals = [
+        {
+            "setup_plugin": shadow_plugin,
+            "direction": 1,
+            "confidence": 0.95,  # highest confidence — would win without shadow filter
+            "raw_cis_score": 0.8,
+            "filtered_cis_score": 0.8,
+            "bucket_scores": {},
+            "weights_version": 0,
+            "symbol": "ES",
+            "tf": "1m",
+            "regime_type": "trend",
+        },
+        {
+            "setup_plugin": live_plugin,
+            "direction": 1,
+            "confidence": 0.70,
+            "raw_cis_score": 0.8,
+            "filtered_cis_score": 0.8,
+            "bucket_scores": {},
+            "weights_version": 0,
+            "symbol": "ES",
+            "tf": "1m",
+            "regime_type": "trend",
+        },
+    ]
+
+    # shadow_cache marks shadow_plugin as shadow (True), live_plugin as live (False)
+    snapshot = _make_snapshot(
+        shadow_cache={shadow_plugin: True, live_plugin: False},
+    )
+
+    with (
+        patch(
+            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            return_value={"hmm_regime": 1},
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_quality_gate",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_regime_gate",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.apply_calibration",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+        patch(
+            "src.intelligence.pipeline.signal_processor.rank_signals",
+            side_effect=lambda sigs, *a, **kw: sigs,
+        ),
+    ):
+        result = await proc.process(
+            MagicMock(), {}, bar, "ES", "1m", raw_signals=raw_signals, cache_snapshot=snapshot
+        )
+
+    assert result.i7_result is not None
+    ranked = result.i7_result["ranked"]
+
+    # The shadow signal must appear in ranked (for auditor observation)
+    shadow_sigs = [s for s in ranked if s["setup_plugin"] == shadow_plugin]
+    assert len(shadow_sigs) == 1, "Shadow signal must be in ranked list"
+    shadow_sig = shadow_sigs[0]
+    assert shadow_sig.get("is_shadow") is True, "Shadow signal must be stamped is_shadow=True"
+    assert (
+        shadow_sig.get("status") == "regime_suppressed"
+    ), "Shadow signal status must be 'regime_suppressed'"
+
+    # The winner must never be the shadow plugin
+    if result.winner_payload is not None:
+        winner_plugin = result.winner_payload.get("setup_plugin")
+        assert (
+            winner_plugin != shadow_plugin
+        ), f"Shadow plugin '{shadow_plugin}' must never be the winner"
+        assert (
+            winner_plugin == live_plugin
+        ), f"Live plugin '{live_plugin}' must be the winner, got '{winner_plugin}'"
