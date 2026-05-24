@@ -109,7 +109,7 @@ async def _fetch_signals(
             sl.pnl_r,
             COALESCE(sl.regime_context, 'any')              AS regime_type,
             sl.feature_ts::date                             AS bar_date
-        FROM signal_ledger sl
+        FROM signal_ledger_full sl
         WHERE sl.feature_ts >= NOW() - INTERVAL $1
           AND sl.outcome IS NOT NULL
           AND ($2::text[] IS NULL OR symbol = ANY($2))

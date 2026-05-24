@@ -123,7 +123,7 @@ class LifecycleWriterAgent(BaseWriterAgent):
     # EXIT transitions; only the first one that finds exit_at IS NULL wins.
     # The second write is a no-op (UPDATE 0 rows) and increments the counter.
     _EXIT_IDEMPOTENT_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
    SET status = $2,
        exit_at = $3,
        exit_price = $4,

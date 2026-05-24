@@ -30,7 +30,7 @@ async def _amain() -> None:
         rows = await conn.fetch(
             """
             SELECT setup_plugin, count(*) AS resolved_n
-            FROM signal_ledger
+            FROM signal_ledger_full
             WHERE setup_plugin = ANY($1)
               AND outcome IS NOT NULL
               AND outcome != 'never_activated'

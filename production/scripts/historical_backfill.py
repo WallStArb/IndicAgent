@@ -724,24 +724,26 @@ _INSERT_SYNC_SQL = """
 INSERT INTO signal_ledger (
     signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
     direction, entry_price, stop_loss, targets,
-    confidence, confluence_score, regime_context, supporting_factors,
-    was_selected, num_signals_bar, num_agreeing, num_conflicting,
-    resolution_method, composite_rank, market_context, status,
+    was_selected,
     feature_ts, feature_tf,
-    cis_score, bucket_scores, weights_version, signal_quality,
+    cis_score, bucket_scores, weights_version,
     market_entry_price,
     is_backfill, signal_schema_version
 ) VALUES (
     %s::uuid, %s, %s, %s, %s, %s,
     %s, %s, %s, %s::jsonb,
-    %s, %s, %s, %s::jsonb,
-    %s, %s, %s, %s,
-    %s, %s, %s::jsonb, %s,
+    %s,
     %s, %s,
-    %s, %s::jsonb, %s, %s,
+    %s, %s::jsonb, %s,
     %s,
     TRUE, 'v1'
 ) ON CONFLICT DO NOTHING
+"""
+
+_INSERT_OUTCOMES_SYNC_SQL = """
+INSERT INTO signal_outcomes (signal_id, status)
+VALUES (%s::uuid, %s)
+ON CONFLICT (signal_id) DO NOTHING
 """
 
 
@@ -770,7 +772,6 @@ def _build_ledger_entries(
     if not result.all_ranked:
         return []
 
-    market_ctx = {k: features[k] for k in MARKET_CONTEXT_KEYS if k in features}
     bar_close = float(bar_history[-1]["close"]) if bar_history else None
 
     entries = []
@@ -789,18 +790,7 @@ def _build_ledger_entries(
                 entry_price=float(sig.get("entry_price", 0.0)),
                 stop_loss=float(sig.get("stop_loss", 0.0)),
                 targets=[float(t) for t in sig.get("targets", [])],
-                confidence=float(sig.get("confidence", 0.0)),
-                confluence_score=float(sig.get("confluence_score", 0.0)),
-                regime_context=str(sig.get("regime_context", "")),
-                supporting_factors=list(sig.get("supporting_factors", [])),
                 was_selected=was_selected,
-                num_signals_bar=result.num_signals_fired,
-                num_agreeing=result.num_agreeing,
-                num_conflicting=result.num_conflicting,
-                resolution_method=result.resolution_method,
-                composite_rank=rank,
-                market_context=market_ctx,
-                status="pending",
                 feature_ts=feature_ts,
                 feature_tf=feature_tf,
                 cis_score=result.cis_score,
@@ -813,12 +803,13 @@ def _build_ledger_entries(
 
 
 def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
-    """Synchronous psycopg2 batch insert into signal_ledger."""
+    """Synchronous psycopg2 batch insert into signal_ledger + signal_outcomes."""
     if not entries:
         return
-    params = []
+    ledger_params = []
+    outcomes_params = []
     for e in entries:
-        params.append(
+        ledger_params.append(
             (
                 e.signal_id,
                 e.timestamp,
@@ -830,29 +821,26 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 e.entry_price,
                 e.stop_loss,
                 json.dumps(e.targets),
-                e.confidence,
-                e.confluence_score,
-                e.regime_context,
-                json.dumps(e.supporting_factors),
                 e.was_selected,
-                e.num_signals_bar,
-                e.num_agreeing,
-                e.num_conflicting,
-                e.resolution_method,
-                e.composite_rank,
-                json.dumps(e.market_context),
-                e.status,
                 e.feature_ts,
                 e.feature_tf,
                 e.cis_score,
                 json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
                 e.weights_version,
-                None,  # signal_quality — populated by lifecycle on exit
                 e.market_entry_price,
             )
         )
+        outcomes_params.append(
+            (
+                e.signal_id,
+                e.status.value if hasattr(e.status, "value") else str(e.status),
+            )
+        )
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params, page_size=1000)
+        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, ledger_params, page_size=1000)
+        psycopg2.extras.execute_batch(
+            cur, _INSERT_OUTCOMES_SYNC_SQL, outcomes_params, page_size=1000
+        )
     conn.commit()
 
 
@@ -1805,7 +1793,16 @@ def main() -> None:
                 )
                 deleted_features = cur.rowcount
 
-                # Delete from signal_ledger (no CASCADE - no FKs exist)
+                # Delete lifecycle state first, then fire-time rows (no FK cascade)
+                cur.execute(
+                    """
+                    DELETE FROM signal_outcomes
+                    WHERE signal_id IN (
+                        SELECT signal_id FROM signal_ledger WHERE symbol = ANY(%s)
+                    );
+                """,
+                    (symbol_values,),
+                )
                 cur.execute(
                     """
                     DELETE FROM signal_ledger

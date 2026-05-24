@@ -54,7 +54,10 @@ __all__ = ["SignalOutcome", "STOP_OUTCOMES", "TTL_OUTCOMES", "WIN_OUTCOMES"]
 
 @dataclass
 class LedgerEntry:
-    """Single row in the signal_ledger hypertable (slim schema — lifecycle/outcome only)."""
+    """Fire-time signal record — set at emission, never updated.
+
+    All mutable lifecycle state lives in signal_outcomes (see SignalLedgerRepository).
+    """
 
     signal_id: str
     timestamp: datetime
@@ -64,127 +67,57 @@ class LedgerEntry:
     signal_type: str
     direction: int
     was_selected: bool
-    status: SignalStatus = SignalStatus.PENDING
+    is_shadow: bool = False
+    is_backfill: bool = False
+    signal_schema_version: str = SIGNAL_SCHEMA_VERSION
+    signal_computed_at: datetime | None = None
     feature_ts: datetime | None = None
     feature_tf: str | None = None
-    signal_quality: float | None = None  # populated by signal_lifecycle on exit
-    signal_computed_at: datetime | None = None  # when signal_generator fired; NULL for backfill
-    # At activation (set by signal_lifecycle_service)
-    activation_price: float | None = None
-    zone_entry_pct: float | None = None
-    bars_to_activation: int | None = None
-    # During/after trade
-    pnl_ticks: float | None = None
-    pnl_r: float | None = None
-    pnl_dollars: float | None = None
-    mae: float | None = None
-    mfe: float | None = None
-    bars_in_trade: int | None = None
-    outcome: str | None = None
-    # Market-entry parallel track — Phase 1 field set at INSERT
-    market_entry_price: float | None = None
-    market_entry_exit_price: float | None = None
-    market_entry_outcome: str | None = None
-    market_entry_pnl_r: float | None = None
-    market_entry_mae: float | None = None
-    market_entry_mfe: float | None = None
-    market_entry_bars_in_trade: int | None = None
-    market_entry_gap_bars: int | None = None
-    # Shadow signal flag — A/B matched-pair comparison (Phase 31)
-    is_shadow: bool = False
-    # Fire-time point-in-time snapshots
-    hmm_regime_at_fire: int | None = None  # HMM regime integer at signal fire
-    garch_sigma_at_fire: float | None = None  # instantaneous GARCH σ at signal fire
-    # Chandelier + trailing stop
-    trailing_stop_price: float | None = None
-    # Staleness
-    staleness_score: float | None = None
-    staleness_trigger_reason: str | None = None
-    # Shadow tracking
-    shadow_tracking_start_ts: datetime | None = None
-    shadow_mae: float | None = None
-    shadow_mfe: float | None = None
-    shadow_outcome: str | None = None
-    # Phase 79: Signal quality fix — lineage + entry_type + co-fire
-    signal_schema_version: str = SIGNAL_SCHEMA_VERSION
-    is_backfill: bool = False
+    hmm_regime_at_fire: int | None = None
+    garch_sigma_at_fire: float | None = None
     ttl_bars: int | None = None
-    # Signal definition — fire-time immutable trade parameters (restored in 095)
     entry_price: float | None = None
     stop_loss: float | None = None
     targets: list[float] | None = None
     entry_zone_low: float | None = None
     entry_zone_high: float | None = None
-    # CIS scoring — re-added migration 094
+    market_entry_price: float | None = None
     cis_score: float | None = None
     bucket_scores: dict | None = None
     weights_version: int | None = None
+    pipeline_lag_ms: float | None = None
+    # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
+    status: SignalStatus = SignalStatus.PENDING
 
     def _to_row(self) -> tuple:
-        """Return a tuple of INSERT parameters for _INSERT_SQL (slim schema)."""
         return (
-            self.signal_id,  # $1 signal_id
-            self.timestamp,  # $2 timestamp
-            self.symbol,  # $3 symbol
-            self.timeframe,  # $4 timeframe
-            self.is_shadow,  # $5 is_shadow
-            self.was_selected,  # $6 was_selected
-            self.status,  # $7 status
-            self.is_backfill,  # $8 is_backfill
-            self.signal_schema_version,  # $9 signal_schema_version
-            self.setup_plugin,  # $10 setup_plugin
-            self.signal_type,  # $11 signal_type
-            self.direction,  # $12 direction
-            self.feature_ts,  # $13 feature_ts
-            self.feature_tf,  # $14 feature_tf
-            # Activation
-            self.signal_computed_at,  # $15 signal_computed_at
-            # During/after trade (initially NULL, set by lifecycle)
-            self.activation_price,  # $16 activation_price
-            self.zone_entry_pct,  # $17 zone_entry_pct
-            self.bars_to_activation,  # $18 bars_to_activation
-            # Exit (initially NULL)
-            self.pnl_ticks,  # $19 pnl_ticks
-            self.pnl_r,  # $20 pnl_r
-            self.pnl_dollars,  # $21 pnl_dollars
-            self.signal_quality,  # $22 signal_quality
-            self.mae,  # $23 mae
-            self.mfe,  # $24 mfe
-            self.bars_in_trade,  # $25 bars_in_trade
-            self.outcome,  # $26 outcome
-            # Market-entry track
-            self.market_entry_price,  # $27 market_entry_price
-            self.market_entry_exit_price,  # $28 market_entry_exit_price
-            self.market_entry_outcome,  # $29 market_entry_outcome
-            self.market_entry_pnl_r,  # $30 market_entry_pnl_r
-            self.market_entry_mae,  # $31 market_entry_mae
-            self.market_entry_mfe,  # $32 market_entry_mfe
-            self.market_entry_bars_in_trade,  # $33 market_entry_bars_in_trade
-            self.market_entry_gap_bars,  # $34 market_entry_gap_bars
-            # Trailing stop
-            self.trailing_stop_price,  # $35 trailing_stop_price
-            # Staleness
-            self.staleness_score,  # $36 staleness_score
-            self.staleness_trigger_reason,  # $37 staleness_trigger_reason
-            # Shadow tracking
-            self.shadow_tracking_start_ts,  # $38 shadow_tracking_start_ts
-            self.shadow_mae,  # $39 shadow_mae
-            self.shadow_mfe,  # $40 shadow_mfe
-            self.shadow_outcome,  # $41 shadow_outcome
-            # Fire-time snapshots
-            self.hmm_regime_at_fire,  # $42 hmm_regime_at_fire
-            self.garch_sigma_at_fire,  # $43 garch_sigma_at_fire
-            # TTL
-            self.ttl_bars,  # $44 ttl_bars
-            # Signal definition
-            self.entry_price,  # $45 entry_price
-            self.stop_loss,  # $46 stop_loss
-            self.targets,  # $47 targets (asyncpg accepts list for JSONB)
-            self.entry_zone_low,  # $48 entry_zone_low
-            self.entry_zone_high,  # $49 entry_zone_high
-            self.cis_score,  # $50 cis_score
-            self.bucket_scores,  # $51 bucket_scores (dict → JSONB)
-            self.weights_version,  # $52 weights_version
+            self.signal_id,  # $1
+            self.timestamp,  # $2
+            self.symbol,  # $3
+            self.timeframe,  # $4
+            self.setup_plugin,  # $5
+            self.signal_type,  # $6
+            self.direction,  # $7
+            self.was_selected,  # $8
+            self.is_shadow,  # $9
+            self.is_backfill,  # $10
+            self.signal_schema_version,  # $11
+            self.signal_computed_at,  # $12
+            self.feature_ts,  # $13
+            self.feature_tf,  # $14
+            self.hmm_regime_at_fire,  # $15
+            self.garch_sigma_at_fire,  # $16
+            self.ttl_bars,  # $17
+            self.entry_price,  # $18
+            self.stop_loss,  # $19
+            self.targets,  # $20 list → asyncpg JSONB
+            self.entry_zone_low,  # $21
+            self.entry_zone_high,  # $22
+            self.market_entry_price,  # $23
+            self.cis_score,  # $24
+            self.bucket_scores,  # $25 dict → asyncpg JSONB
+            self.weights_version,  # $26
+            self.pipeline_lag_ms,  # $27
         )
 
 
@@ -195,45 +128,36 @@ class LedgerEntry:
 _INSERT_SQL = """
 INSERT INTO signal_ledger (
     signal_id, timestamp, symbol, timeframe,
-    is_shadow, was_selected, status, is_backfill,
-    signal_schema_version,
     setup_plugin, signal_type, direction,
+    was_selected, is_shadow, is_backfill,
+    signal_schema_version, signal_computed_at,
     feature_ts, feature_tf,
-    signal_computed_at,
-    activation_price, zone_entry_pct, bars_to_activation,
-    pnl_ticks, pnl_r, pnl_dollars, signal_quality,
-    mae, mfe, bars_in_trade, outcome,
-    market_entry_price, market_entry_exit_price, market_entry_outcome,
-    market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade,
-    market_entry_gap_bars,
-    trailing_stop_price,
-    staleness_score, staleness_trigger_reason,
-    shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
     hmm_regime_at_fire, garch_sigma_at_fire,
     ttl_bars,
     entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
-    cis_score, bucket_scores, weights_version
+    market_entry_price,
+    cis_score, bucket_scores, weights_version,
+    pipeline_lag_ms
 ) VALUES (
     $1::uuid, $2, $3, $4,
-    $5, $6, $7, $8,
-    $9,
-    $10, $11, $12,
+    $5, $6, $7,
+    $8, $9, $10,
+    $11, $12,
     $13, $14,
-    $15,
-    $16, $17, $18,
-    $19, $20, $21, $22,
-    $23, $24, $25, $26,
-    $27, $28, $29,
-    $30, $31, $32, $33, $34,
-    $35,
-    $36, $37,
-    $38, $39, $40, $41,
-    $42, $43,
-    $44,
-    $45, $46, $47, $48, $49,
-    $50, $51, $52
+    $15, $16,
+    $17,
+    $18, $19, $20::jsonb, $21, $22,
+    $23,
+    $24, $25::jsonb, $26,
+    $27
 )
-ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
+ON CONFLICT (signal_id, timestamp) DO NOTHING
+"""
+
+_INSERT_OUTCOMES_SQL = """
+INSERT INTO signal_outcomes (signal_id, status)
+VALUES ($1::uuid, $2)
+ON CONFLICT (signal_id) DO NOTHING
 """
 
 
@@ -347,7 +271,7 @@ def _build_feature_rows(
 
 
 _UPDATE_STATUS_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = $2,
     activated_at = $3,
     exit_at = $4,
@@ -386,20 +310,20 @@ _SELECT_ACTIVE_COLS = """
 
 _SELECT_ACTIVE_SQL = f"""
 SELECT {_SELECT_ACTIVE_COLS}
-FROM signal_ledger
+FROM signal_ledger_full
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
 
 _SELECT_ACTIVE_BY_SYMBOL_SQL = f"""
 SELECT {_SELECT_ACTIVE_COLS}
-FROM signal_ledger
+FROM signal_ledger_full
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1 AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
 
 _RECORD_ACTIVATION_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = 'active',
     activated_at = $2,
     activation_price = $3,
@@ -409,7 +333,7 @@ WHERE signal_id = $1::uuid
 """
 
 _RECORD_ZONE_RESOLUTION_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = $2,
     exit_at = $3,
     exit_price = $4,
@@ -425,7 +349,7 @@ WHERE signal_id = $1::uuid
 """
 
 _RECORD_MARKET_RESOLUTION_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET market_entry_at            = $2,
     market_entry_exit_price    = $3,
     market_entry_exit_at       = $4,
@@ -441,7 +365,7 @@ WHERE signal_id = $1::uuid
 _BATCH_MARKET_RESOLUTION_SQL = _RECORD_MARKET_RESOLUTION_SQL
 
 _RECORD_ZONE_WITH_ACTIVATION_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = $2,
     activated_at = $3,
     activation_price = $4,
@@ -467,24 +391,43 @@ class SignalLedgerRepository:
     def __init__(self, db_manager: Any):
         self._db_manager = db_manager
 
-    async def insert_signals(self, entries: list[LedgerEntry]) -> None:
-        """Batch-insert ledger entries. No-op when *entries* is empty."""
+    async def insert(self, entries: list[LedgerEntry]) -> None:
+        """Insert fire-time records into signal_ledger and seed signal_outcomes rows."""
         if not entries:
             return
-        params = [entry._to_row() for entry in entries]
-        await self._db_manager.execute_batch(_INSERT_SQL, params)
-        logger.info("Inserted signals into ledger", count=len(entries))
+        ledger_params = [e._to_row() for e in entries]
+        outcomes_params = [
+            (e.signal_id, e.status.value if isinstance(e.status, SignalStatus) else str(e.status))
+            for e in entries
+        ]
+        await self._db_manager.execute_batch(_INSERT_SQL, ledger_params)
+        await self._db_manager.execute_batch(_INSERT_OUTCOMES_SQL, outcomes_params)
+
+    async def insert_signals(self, entries: list[LedgerEntry]) -> None:
+        """Batch-insert ledger entries. No-op when *entries* is empty.
+
+        Delegates to insert() which handles both signal_ledger and signal_outcomes.
+        """
+        await self.insert(entries)
+        if entries:
+            logger.info("Inserted signals into ledger", count=len(entries))
 
     async def insert_signals_with_features(
         self, entries: list[LedgerEntry], features: dict, cis_result: Any = None
     ) -> None:
-        """Atomic write: signal_ledger + signal_features in one transaction per bar."""
+        """Atomic write: signal_ledger + signal_outcomes + signal_features in one transaction per bar."""
         if not entries or self._db_manager.pool is None:
             return
         async with self._db_manager.pool.acquire() as conn:
             async with conn.transaction():
                 for entry in entries:
                     await conn.execute(_INSERT_SQL, *entry._to_row())
+                    status_val = (
+                        entry.status.value
+                        if isinstance(entry.status, SignalStatus)
+                        else str(entry.status)
+                    )
+                    await conn.execute(_INSERT_OUTCOMES_SQL, entry.signal_id, status_val)
                     feature_rows = _build_feature_rows(
                         entry.signal_id,
                         entry.signal_computed_at or entry.timestamp,
@@ -620,7 +563,7 @@ class SignalLedgerRepository:
     ) -> None:
         """Persist in-memory MAE/MFE to signal_ledger for the given signal."""
         sql = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET mae = $2,
     mfe = $3
 WHERE signal_id = $1::uuid
@@ -631,7 +574,7 @@ WHERE signal_id = $1::uuid
         """Return pending/active/regime_suppressed signals for a specific symbol+timeframe."""
         sql = f"""
 SELECT {_SELECT_ACTIVE_COLS}
-FROM signal_ledger
+FROM signal_ledger_full
 WHERE status IN ('pending', 'active', 'regime_suppressed')
   AND symbol = $1
   AND timeframe = $2
@@ -646,7 +589,7 @@ ORDER BY timestamp DESC
 SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
        was_selected, status, feature_ts, feature_tf, activation_price,
        entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
-FROM signal_ledger
+FROM signal_ledger_full
 WHERE status = 'pending' AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
@@ -663,7 +606,7 @@ ORDER BY timestamp DESC
     ) -> None:
         """Persist Chandelier trailing stop state and staleness fields."""
         sql = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET trailing_stop_price = $2::jsonb,
     trailing_stop_tightening_rate = $3,
     staleness_score = $4,
@@ -684,7 +627,7 @@ WHERE signal_id = $1::uuid
     async def update_chandelier_vol_source(self, signal_id: str, vol_source: str) -> None:
         """Set chandelier_vol_source on first active bar if not already set."""
         sql = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET chandelier_vol_source = $2
 WHERE signal_id = $1::uuid AND chandelier_vol_source IS NULL
 """
@@ -700,7 +643,7 @@ WHERE signal_id = $1::uuid AND chandelier_vol_source IS NULL
     ) -> None:
         """Persist post-condition_expired shadow tracking outcome."""
         sql = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET shadow_tracking_start_ts = $2,
     shadow_mae = $3,
     shadow_mfe = $4,
@@ -719,7 +662,7 @@ WHERE signal_id = $1::uuid
     async def set_shadow_tracking_start(self, signal_id: str, start_ts: Any) -> None:
         """Record start timestamp when a signal enters shadow tracking mode."""
         sql = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET shadow_tracking_start_ts = $2
 WHERE signal_id = $1::uuid
 """
@@ -730,7 +673,7 @@ WHERE signal_id = $1::uuid
     # ------------------------------------------------------------------
 
     _BATCH_ACTIVATION_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = 'active',
     activated_at = $2,
     activation_price = $3,
@@ -740,7 +683,7 @@ WHERE signal_id = $1::uuid
 """
 
     _BATCH_EXIT_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET status = $2,
     exit_at = $3,
     exit_price = $4,
@@ -756,7 +699,7 @@ WHERE signal_id = $1::uuid
 """
 
     _BATCH_CHANDELIER_UPDATE_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET trailing_stop_price = $2::jsonb,
     trailing_stop_tightening_rate = $3,
     staleness_score = $4,
@@ -766,14 +709,14 @@ WHERE signal_id = $1::uuid
 """
 
     _BATCH_MAE_MFE_UPDATE_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET mae = $2,
     mfe = $3
 WHERE signal_id = $1::uuid
 """
 
     _BATCH_SHADOW_OUTCOME_SQL = """
-UPDATE signal_ledger
+UPDATE signal_outcomes
 SET shadow_tracking_start_ts = $2,
     shadow_mae = $3,
     shadow_mfe = $4,

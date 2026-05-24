@@ -333,20 +333,7 @@ def test_insert_signals_sync_writes_cis_fields():
         setup_plugin="trad_TrendFollowing",
         signal_type="long",
         direction=1,
-        entry_price=100.0,
-        stop_loss=99.0,
-        targets=[102.0],
-        confidence=0.7,
-        confluence_score=0.8,
-        regime_context="trend",
-        supporting_factors=[],
         was_selected=True,
-        num_signals_bar=1,
-        num_agreeing=1,
-        num_conflicting=0,
-        resolution_method="highest_rank",
-        composite_rank=1,
-        market_context={},
         status="pending",
         feature_ts=ts,
         feature_tf="1m",
@@ -372,13 +359,18 @@ def test_insert_signals_sync_writes_cis_fields():
     ):
         _insert_signals_sync(mock_conn, [entry])
 
-    assert len(captured_params) == 1
+    # Two execute_batch calls: one for signal_ledger (17 cols), one for signal_outcomes (2 cols)
+    assert len(captured_params) == 2
     row = captured_params[0]
-    # Positions 24, 25, 26 (0-indexed) are cis_score, bucket_scores, weights_version
-    assert row[24] == 0.55, f"Expected cis_score=0.55, got {row[24]}"
-    assert row[25] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[25]}"
-    assert row[26] == 1, f"Expected weights_version=1, got {row[26]}"
-    assert row[27] is None, "signal_quality should still be None"
+    # _INSERT_SYNC_SQL tuple (17 elements, fire-time only, no status/signal_quality):
+    # 0=signal_id,1=ts,2=symbol,3=tf,4=setup_plugin,5=signal_type,
+    # 6=direction,7=entry_price,8=stop_loss,9=targets(json),10=was_selected,
+    # 11=feature_ts,12=feature_tf,13=cis_score,14=bucket_scores(json),15=weights_version,
+    # 16=market_entry_price
+    assert len(row) == 17, f"Expected 17-element tuple, got {len(row)}"
+    assert row[13] == 0.55, f"Expected cis_score=0.55, got {row[13]}"
+    assert row[14] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[14]}"
+    assert row[15] == 1, f"Expected weights_version=1, got {row[15]}"
 
 
 def test_run_i7_and_persist_cis_null_when_no_raw_signals():
@@ -964,9 +956,11 @@ class TestCISColumnsInSQL:
         from historical_backfill import _INSERT_SYNC_SQL
 
         assert all(
-            col in _INSERT_SYNC_SQL
-            for col in ("cis_score", "bucket_scores", "weights_version", "signal_quality")
+            col in _INSERT_SYNC_SQL for col in ("cis_score", "bucket_scores", "weights_version")
         )
+        assert (
+            "signal_quality" not in _INSERT_SYNC_SQL
+        ), "signal_quality is lifecycle — lives in signal_outcomes"
 
     def test_insert_sync_sql_column_placeholder_balance(self):
         import re
@@ -993,20 +987,7 @@ class TestCISColumnsInSQL:
             setup_plugin="trad_TrendFollowing",
             signal_type="trend_follow",
             direction=1,
-            entry_price=5100.0,
-            stop_loss=5085.0,
-            targets=[5115.0],
-            confidence=0.75,
-            confluence_score=0.6,
-            regime_context="bullish",
-            supporting_factors=["ema_cross"],
             was_selected=True,
-            num_signals_bar=1,
-            num_agreeing=1,
-            num_conflicting=0,
-            resolution_method="sole",
-            composite_rank=1,
-            market_context={},
             status="pending",
             feature_ts=None,
             feature_tf=None,
@@ -1019,16 +1000,13 @@ class TestCISColumnsInSQL:
             side_effect=lambda cur, sql, params, **kw: captured.extend(params),
         ):
             _insert_signals_sync(mock_conn, [entry])
-        assert len(captured) == 1
-        row = captured[0]
-        assert len(row) == 29
-        assert (
-            row[24] is None
-            and row[25] is None
-            and row[26] is None
-            and row[27] is None
-            and row[28] is None
-        )
+        # Two execute_batch calls: ledger row + outcomes row
+        assert len(captured) == 2
+        row = captured[0]  # ledger row (17 fire-time cols, no status/signal_quality)
+        assert len(row) == 17
+        assert row[13] is None  # cis_score
+        assert row[14] is None  # bucket_scores
+        assert row[15] is None  # weights_version
 
 
 class TestDetectGaps:

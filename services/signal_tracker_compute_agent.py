@@ -880,7 +880,7 @@ class SignalTrackerComputeAgent(BaseAgent):
                    sl.market_entry_price,
                    sl.garch_sigma_at_fire,
                    sl.hmm_regime_at_fire
-            FROM signal_ledger sl
+            FROM signal_ledger_full sl
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')
               AND sl.timestamp > NOW() - INTERVAL '7 days'
@@ -917,7 +917,7 @@ class SignalTrackerComputeAgent(BaseAgent):
                 # No rows returned — check if ledger is truly empty or transient failure
                 count_row = await db.execute_query("""
                     SELECT COUNT(*) as count
-                    FROM signal_ledger
+                    FROM signal_ledger_full
                     WHERE status IN ('pending', 'active') AND exit_at IS NULL
                       AND timestamp > NOW() - INTERVAL '3 days'
                 """)

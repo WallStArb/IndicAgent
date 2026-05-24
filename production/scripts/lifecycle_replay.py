@@ -28,7 +28,7 @@ Design notes:
       open of bar N+1 as a fill approximation.
     - TIMEFRAMES default excludes '1d' — add explicitly if needed: --timeframes 1m,5m,15m,1h,1d
     - To reset bad data before a re-run:
-        UPDATE signal_ledger SET status='pending', outcome=NULL, exit_at=NULL,
+        UPDATE signal_outcomes SET status='pending', outcome=NULL, exit_at=NULL,
           exit_price=NULL, exit_reason=NULL, pnl_ticks=NULL, pnl_r=NULL,
           pnl_dollars=NULL, mae=NULL, mfe=NULL, bars_in_trade=NULL,
           signal_quality=NULL, activated_at=NULL, activation_price=NULL,
@@ -38,7 +38,9 @@ Design notes:
           market_entry_mae=NULL, market_entry_mfe=NULL,
           market_entry_bars_in_trade=NULL, market_entry_outcome=NULL,
           market_entry_gap_bars=NULL
-        WHERE symbol IN (...) AND outcome IS NOT NULL;
+        WHERE signal_id IN (
+          SELECT signal_id FROM signal_ledger WHERE symbol IN (...))
+          AND outcome IS NOT NULL;
 """
 
 from __future__ import annotations
@@ -181,7 +183,7 @@ async def _fetch_work_queue(
     async with db.get_connection() as conn:
         rows = await conn.fetch(
             """SELECT symbol, timeframe, COUNT(*) as cnt
-                FROM signal_ledger
+                FROM signal_ledger_full
                 WHERE status IN ('pending', 'regime_suppressed')
                   AND symbol = ANY($1)
                   AND timeframe = ANY($2)
@@ -245,7 +247,7 @@ async def _process_symbol_tf(
                           structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
                           chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
                           staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
-                   FROM signal_ledger
+                   FROM signal_ledger_full
                    WHERE status IN ('pending', 'regime_suppressed')
                      AND symbol = $1 AND timeframe = $2
                    ORDER BY timestamp ASC""",
@@ -694,7 +696,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
         )
         flat_values = [v for row in zone_exits for v in row]
         await conn.execute(
-            f"""UPDATE signal_ledger AS sl
+            f"""UPDATE signal_outcomes AS sl
                SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
                    exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
                    pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
@@ -702,8 +704,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                FROM (VALUES {values_clause}) AS v(signal_id, ts, status, exit_at, exit_price,
                    exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
                    mae, mfe, bars_in_trade, outcome)
-               WHERE sl.signal_id = v.signal_id
-                 AND sl."timestamp" = v.ts""",
+               WHERE sl.signal_id = v.signal_id""",
             *flat_values,
         )
 
@@ -715,7 +716,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
         )
         flat_values = [v for row in markets for v in row]
         await conn.execute(
-            f"""UPDATE signal_ledger AS sl
+            f"""UPDATE signal_outcomes AS sl
                SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
                    market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
                    market_entry_mae=v.mae, market_entry_mfe=v.mfe,
@@ -723,8 +724,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                    market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
                FROM (VALUES {values_clause}) AS v(signal_id, ts, entry_at, exit_price,
                    exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
-               WHERE sl.signal_id = v.signal_id
-                 AND sl."timestamp" = v.ts""",
+               WHERE sl.signal_id = v.signal_id""",
             *flat_values,
         )
 
@@ -736,14 +736,13 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
         )
         flat_values = [v for row in activations for v in row]
         await conn.execute(
-            f"""UPDATE signal_ledger AS sl
+            f"""UPDATE signal_outcomes AS sl
                SET status='active', activated_at=v.activated_at,
                    activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
                    bars_to_activation=v.bars_to_activation
                FROM (VALUES {values_clause}) AS v(signal_id, ts, activated_at,
                    activation_price, zone_entry_pct, bars_to_activation)
-               WHERE sl.signal_id = v.signal_id
-                 AND sl."timestamp" = v.ts""",
+               WHERE sl.signal_id = v.signal_id""",
             *flat_values,
         )
 
@@ -754,7 +753,7 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
         """SELECT COUNT(*) as total,
                   COUNT(outcome) as with_outcome,
                   COUNT(market_entry_outcome) as with_market_outcome
-           FROM signal_ledger
+           FROM signal_ledger_full
            WHERE status NOT IN ('pending', 'regime_suppressed')
              AND symbol = $1 AND timeframe = $2""",
         symbol,
