@@ -74,7 +74,7 @@ from src.intelligence.schemas import (
     signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
-from src.observability.metrics import THREAD_POOL_WORKERS, gauge
+from src.observability.metrics import THREAD_POOL_WORKERS, counter
 from src.observability.plugin_observer import PluginObserver
 
 # ---------------------------------------------------------------------------
@@ -173,23 +173,28 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._consumer_group = "intelligence_pipeline_group"
         self._background_tasks: set = set()
 
-        self._bars_processed = gauge(
+        self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
             "Bars processed through I1-I7 pipeline",
         )
-        self._i1_latency_ms = gauge(
-            "intelligence_pipeline_i1_latency_ms", "I1 tier execution time in milliseconds"
+        self._i1_latency_ms = self._meter.create_histogram(
+            "intelligence_pipeline_i1_latency_ms",
+            description="I1 tier execution time in milliseconds",
+            unit="ms",
         )
-        self._i7_latency_ms = gauge(
-            "intelligence_pipeline_i7_latency_ms", "I7 tier execution time in milliseconds"
+        self._i7_latency_ms = self._meter.create_histogram(
+            "intelligence_pipeline_i7_latency_ms",
+            description="I7 tier execution time in milliseconds",
+            unit="ms",
         )
-        self._pipeline_errors = gauge(
+        self._pipeline_errors = counter(
             "intelligence_pipeline_pipeline_errors_total",
             "Pipeline processing errors",
         )
-        self._pipeline_latency = gauge(
+        self._pipeline_latency = self._meter.create_histogram(
             "intelligence_pipeline_pipeline_latency_ms",
-            "Per-bar pipeline latency in milliseconds",
+            description="Per-bar pipeline latency in milliseconds",
+            unit="ms",
         )
 
         self._vix_symbol: str | None = (
@@ -486,12 +491,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
             return
         cache_snapshot = self._cache_mgr.snapshot()
+        i1_start = time.perf_counter()
         try:
             fp_result = await self._feature_pipeline.run(bar, cache_snapshot, gap=gap)
         except Exception as exc:
             self.logger.error("pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
             self._pipeline_errors.add(1)
             return
+        i1_duration_ms = (time.perf_counter() - i1_start) * 1000
+        self._i1_latency_ms.record(i1_duration_ms, {"symbol": bar.symbol, "tf": bar.tf})
         if fp_result.event is None:
             return
         self._cache_mgr.update_hmm_regime(fp_result.hmm_regime)  # D-25
@@ -514,7 +522,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
         if self._executor._last_i7_state_updates:
             self._state_mgr.update_batch(self._executor._last_i7_state_updates)
-        self._i7_latency_ms.add((time.perf_counter() - i7_start) * 1000)
+        i7_duration_ms = (time.perf_counter() - i7_start) * 1000
+        self._i7_latency_ms.record(i7_duration_ms, {"symbol": bar.symbol, "tf": bar.tf})
         result = await self._sig_proc.process(
             fp_result.event,
             fp_result.tiered,
@@ -537,6 +546,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             await self._out_queue.enqueue_blocking(
                 topic_signals_aggregated(env), msg_key, result.winner_payload
             )
+        pipeline_latency_ms = (time.perf_counter() - t0) * 1000
+        self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
         self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
         self._bars_processed.add(1)
 
