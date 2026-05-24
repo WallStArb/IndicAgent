@@ -382,7 +382,7 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
         DatabaseManager instance with execute_query / execute_command methods.
     """
     rows = await db_manager.execute_query("""
-        SELECT bucket_scores, outcome, confidence, symbol, timeframe
+        SELECT bucket_scores, outcome, symbol, timeframe
         FROM signal_ledger
         WHERE outcome IS NOT NULL
           AND bucket_scores IS NOT NULL
