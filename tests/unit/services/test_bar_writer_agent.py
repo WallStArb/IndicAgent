@@ -213,11 +213,12 @@ async def test_flush_batch_success():
 
 @pytest.mark.asyncio
 async def test_flush_batch_leaves_buffer_on_error():
-    """_do_flush leaves buffer intact when DB raises an exception."""
+    """_flush_batch raises on DB error; caller (maybe_flush) leaves buffer intact."""
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+    row = (ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")
+    agent._buffer.append(row)
 
     mock_pool = AsyncMock()
     mock_pool.acquire = MagicMock(
@@ -229,9 +230,9 @@ async def test_flush_batch_leaves_buffer_on_error():
     agent._db_pool = mock_pool
 
     with pytest.raises(Exception, match="DB connection refused"):
-        await agent._do_flush()
+        await agent._flush_batch(list(agent._buffer))
 
-    # Buffer must remain intact for retry
+    # Buffer untouched — _flush_batch does not mutate it; caller handles retry
     assert len(agent._buffer) == 1
 
 
