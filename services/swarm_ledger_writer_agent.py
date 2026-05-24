@@ -96,7 +96,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
             group_id="swarm_ledger_writer_consumer",
             auto_offset_reset="earliest",
-            enable_auto_commit=True,
+            enable_auto_commit=False,
         )
         await self._consumer.start()
         self.logger.info(
@@ -110,9 +110,14 @@ class SwarmLedgerWriterAgent(BaseAgent):
             if self._stop_event.is_set():
                 break
             try:
-                await self._handle_event(payload)
+                terminal = await self._handle_event(payload)
             except Exception as exc:
+                # transient (e.g. DB) failure: do NOT commit, allow re-delivery
                 self.logger.warning("swarm_ledger_writer.handle_failed", error=str(exc))
+                continue
+            if terminal:
+                # success OR terminal-invalid: commit so we do not replay forever
+                await self._consumer.commit()
 
     async def _teardown(self) -> None:
         if self._consumer is not None:
@@ -120,12 +125,17 @@ class SwarmLedgerWriterAgent(BaseAgent):
         if self._pool is not None:
             await self._pool.close()
 
-    async def _handle_event(self, payload: dict) -> None:
+    async def _handle_event(self, payload: dict) -> bool:
         """Validate payload and dispatch to _apply_projection.
 
         Extracts aggregate swarm fields (swarm_multiplier, adjusted_confidence,
         swarm_agent_count) and optionally ml_score / ml_model_id from the
         ml_scorer_v1 agent payload, if present in the aggregate event.
+
+        Returns True when the message reached a terminal state (successful write
+        or terminal-invalid payload). Returns True for invalid payloads because
+        a malformed payload will never become valid on re-delivery. Transient DB
+        errors propagate as exceptions so the caller can skip the commit.
         """
         signal_id = payload.get("signal_id")
         swarm_multiplier = payload.get("swarm_multiplier")
@@ -145,7 +155,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
                     if v is None or v == ""
                 ],
             )
-            return
+            return True
 
         # Extract ml_scorer_v1 payload from aggregate agent_outputs list if present.
         # The AlphaSwarmComputeAgent aggregate event carries individual agent payloads
@@ -171,6 +181,7 @@ class SwarmLedgerWriterAgent(BaseAgent):
             ml_score=ml_score,
             ml_model_id=ml_model_id,
         )
+        return True
 
     async def _apply_projection(
         self,
