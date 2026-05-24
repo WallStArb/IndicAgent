@@ -705,6 +705,7 @@ class PluginExecutor:
                 # regime_type looked up locally — no cross-class private access (D-20)
                 plugin_inst = self._plugin_cache.get(task.plugin_name)
                 sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
+                sig["is_shadow"] = self._is_shadow(task.plugin_name, cache_snapshot.shadow_cache)
                 raw_signals.append(sig)
 
         return raw_signals
