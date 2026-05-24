@@ -417,9 +417,24 @@ class SignalProcessor:
             sig["weights_version"] = cis_result.weights_version
             sig["bar_id"] = str(bar.bar_id)
 
+        # Stamp shadow signals with non-live status before winner selection.
+        # Full ranked list (including shadows) is kept for signal_ledger persistence
+        # so the auditor's promotion gate can count shadow observations (is_shadow=TRUE).
+        for sig in ranked:
+            if cache_snapshot.shadow_cache.get(sig.get("setup_plugin", ""), False):
+                sig["is_shadow"] = True
+                sig["status"] = "regime_suppressed"
+
+        # Exclude shadow plugins from winner selection — they must be observed but never traded live.
+        eligible_ranked = [
+            s
+            for s in ranked
+            if not cache_snapshot.shadow_cache.get(s.get("setup_plugin", ""), False)
+        ]
+
         # Select winner
         winner, _, resolution_method = select_winner(
-            ranked, cis_result, long_bias=getattr(self._settings, "winner_long_bias", True)
+            eligible_ranked, cis_result, long_bias=getattr(self._settings, "winner_long_bias", True)
         )
 
         # Stamp resolution_method on every ranked signal

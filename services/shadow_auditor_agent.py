@@ -95,6 +95,12 @@ async def _run_audit(pool: asyncpg.Pool, env_name: str) -> None:
         name = row["component_name"]
         ctype = row["component_type"]
 
+        # Swarm agents have no signal_ledger rows; evaluating them yields n=0 and
+        # resets demotion_consecutive_count to 0 every cycle, neutralizing demotion.
+        if ctype == "swarm_agent":
+            logger.debug("shadow_audit_skip_swarm_agent", component_name=name)
+            continue
+
         if row["is_shadow"]:
             await _check_promotion(pool, env_name, dict(row))
         else:
@@ -117,6 +123,7 @@ async def _check_promotion(
             SELECT outcome, pnl_r, signal_computed_at
             FROM signal_ledger
             WHERE setup_plugin = $1
+              AND is_shadow = TRUE
               AND outcome IS NOT NULL
               AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
             """,
@@ -166,12 +173,12 @@ async def _check_promotion(
             SHADOW_TAIL_GATE_DB_ERROR.add(1, {"plugin": name})
             logger.warning("shadow_audit.tail_gate_db_error", plugin=name, error=str(exc))
 
-    # OTel metrics
-    SHADOW_N_RESOLVED.add(n, {"plugin": name})
-    SHADOW_WIN_RATE.add(round(win_rate, 4), {"plugin": name})
-    SHADOW_EV_R.add(round(ev_r, 4), {"plugin": name})
+    # OTel metrics — point gauges use .set() (point-in-time absolute values)
+    SHADOW_N_RESOLVED.set(n, {"plugin": name})
+    SHADOW_WIN_RATE.set(round(win_rate, 4), {"plugin": name})
+    SHADOW_EV_R.set(round(ev_r, 4), {"plugin": name})
     ci_display = round(ci_lower, 4) if ci_lower != float("-inf") else float("-inf")
-    SHADOW_EV_CI_LOWER.add(ci_display, {"plugin": name})
+    SHADOW_EV_CI_LOWER.set(ci_display, {"plugin": name})
 
     # Days-to-gate estimate
     recent_30d = sum(
@@ -190,7 +197,7 @@ async def _check_promotion(
         days_to_gate = (remaining / recent_30d) * 30
     else:
         days_to_gate = float("inf")
-    SHADOW_DAYS_TO_GATE.add(
+    SHADOW_DAYS_TO_GATE.set(
         round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf"), {"plugin": name}
     )
 
@@ -238,10 +245,10 @@ async def _check_promotion(
                 ci_lower,
                 win_rate,
             )
-        SHADOW_PROMOTION_READY.add(1, {"plugin": name})
+        SHADOW_PROMOTION_READY.set(1, {"plugin": name})
         logger.info("shadow_promoted", component_name=name, n=n, ci_lower=ci_lower)
     else:
-        SHADOW_PROMOTION_READY.add(0, {"plugin": name})
+        SHADOW_PROMOTION_READY.set(0, {"plugin": name})
 
 
 async def _check_demotion(
@@ -257,6 +264,7 @@ async def _check_demotion(
             """
             SELECT pnl_r FROM signal_ledger
             WHERE setup_plugin = $1
+              AND is_shadow = FALSE
               AND outcome IS NOT NULL
               AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
               AND signal_computed_at > NOW() - INTERVAL '1 day' * $2
