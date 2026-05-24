@@ -126,6 +126,117 @@ async def test_invalid_event_skipped() -> None:
     w.logger.warning.assert_called()
 
 
+# ---------------------------------------------------------------------------
+# Phase-105 regression: enable_auto_commit=False + manual commit after success
+# ---------------------------------------------------------------------------
+
+
+def test_consumer_constructed_with_auto_commit_disabled() -> None:
+    """KafkaConsumerClient must be constructed with enable_auto_commit=False.
+
+    Phase-105 HF-7: auto_commit=True is the default and would silently advance
+    offsets even on transient DB failures, causing data loss.
+
+    Source inspection is the correct approach here — the constructor kwarg is a
+    static choice made at the call site, not a runtime value that needs mocking.
+    """
+    import inspect
+
+    import services.swarm_ledger_writer_agent as mod
+
+    source = inspect.getsource(mod.SwarmLedgerWriterAgent._setup)
+    assert "enable_auto_commit=False" in source, (
+        "SwarmLedgerWriterAgent._setup() must construct KafkaConsumerClient with "
+        "enable_auto_commit=False to prevent automatic offset advancement on transient DB failures"
+    )
+
+
+@pytest.mark.asyncio
+async def test_consumer_commit_called_after_successful_handle() -> None:
+    """consumer.commit() must be called after a successful _handle_event().
+
+    Phase-105 HF-7 regression: manual commit-after-success ensures offsets only
+    advance when the DB write succeeded. Without this, a crash mid-write would
+    cause offset advancement without data persistence (silent data loss).
+    """
+
+    w = _make_writer()
+
+    # A valid payload that _handle_event will process successfully
+    valid_payload = {
+        "signal_id": "00000000-0000-0000-0000-000000000001",
+        "swarm_multiplier": 1.2,
+        "adjusted_confidence": 0.75,
+        "swarm_agent_count": 3,
+    }
+
+    # Mock consumer: yields one message then stops
+    async def one_message():
+        yield ("test_topic", None, valid_payload)
+
+    mock_consumer = MagicMock()
+    mock_consumer.messages = one_message
+    mock_consumer.commit = AsyncMock()
+    mock_consumer.stop = AsyncMock()
+    w._consumer = mock_consumer
+
+    # Stop event fires after one iteration (consumer is exhausted by generator)
+    import asyncio
+
+    w._stop_event = asyncio.Event()
+
+    # _apply_projection succeeds (returns True via _handle_event)
+    w._pool = _mock_pool(["INSERT 1"])
+
+    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL"):
+        await w._run()
+
+    # commit() must have been called after the successful _handle_event
+    mock_consumer.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_consumer_commit_not_called_when_handle_raises() -> None:
+    """consumer.commit() must NOT be called when _handle_event() raises.
+
+    Transient DB failures must not advance the Kafka offset — the message
+    must be re-delivered for retry on next consumer restart.
+    """
+
+    w = _make_writer()
+
+    valid_payload = {
+        "signal_id": "00000000-0000-0000-0000-000000000002",
+        "swarm_multiplier": 1.1,
+        "adjusted_confidence": 0.65,
+        "swarm_agent_count": 2,
+    }
+
+    async def one_message():
+        yield ("test_topic", None, valid_payload)
+
+    mock_consumer = MagicMock()
+    mock_consumer.messages = one_message
+    mock_consumer.commit = AsyncMock()
+    mock_consumer.stop = AsyncMock()
+    w._consumer = mock_consumer
+
+    import asyncio
+
+    w._stop_event = asyncio.Event()
+
+    # Patch _apply_projection to raise a transient DB error
+    async def fail_projection(*args, **kwargs):
+        raise RuntimeError("DB connection lost")
+
+    w._apply_projection = fail_projection
+
+    await w._run()
+
+    # commit() must NOT have been called — transient failure → no offset advance
+    mock_consumer.commit.assert_not_awaited()
+
+
 def test_original_confidence_column_untouched_in_sql() -> None:
     src = pathlib.Path("services/swarm_ledger_writer_agent.py").read_text()
     # UPSERT must write the three AI enrichment columns

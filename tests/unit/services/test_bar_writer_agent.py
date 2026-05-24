@@ -58,6 +58,7 @@ def _make_agent():
     }
     agent._contract_cache_size_attrs = {"agent": "bar_writer_agent"}
     agent._contract_cache_reloads_attrs = {"agent": "bar_writer_agent"}
+    agent._consumer_lag_attrs = {"agent": "bar_writer_agent"}
     agent._buffer_depth_gauge = MagicMock()
     agent._buffer_overflow_total = MagicMock()
 
@@ -353,3 +354,57 @@ async def test_flush_batch_increments_tf_counter():
 
     # OTel counter: .add(1, {"agent": ..., "tf": "1m"}) must have been called
     mock_bars.add.assert_called_once_with(1, agent._bars_written_attrs["1m"])
+
+
+# ---------------------------------------------------------------------------
+# Phase-105 regression: _record_message_consumed() called in _run()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_calls_record_message_consumed() -> None:
+    """_run() must call _record_message_consumed() for each consumed bar message.
+
+    Phase-105 HF-5 regression: _record_message_consumed() updates the stall clock
+    and liveness gauge. Without it, _stall_watchdog() would fire false positives
+    and kill the service even while it is processing bars.
+    """
+    from unittest.mock import patch
+
+    agent = _make_agent()
+
+    # Provide a bar payload that parse will succeed on
+    payload = _make_bar_payload(tf="1m", symbol="ESM6")
+
+    # Consumer yields one bar message then exhausts (generator stops naturally)
+    async def one_bar():
+        yield ("dev.market.bars", None, payload)
+
+    mock_consumer = MagicMock()
+    mock_consumer.messages = one_bar
+    agent._kafka_consumer = mock_consumer
+
+    # _stop_event must not be set (running = True derived from it)
+    agent._stop_event = asyncio.Event()
+
+    recorded_calls = []
+
+    def spy_record():
+        recorded_calls.append(1)
+
+    agent._record_message_consumed = spy_record
+
+    # Patch _buffer_rows and _maybe_route_to_dlq so no actual DB is needed
+    with (
+        patch.object(agent, "_buffer_rows"),
+        patch.object(agent, "_maybe_route_to_dlq", new_callable=AsyncMock),
+        patch.object(agent, "maybe_flush", new_callable=AsyncMock),
+        patch("services.bar_writer_agent._EVENTS_CONSUMED"),
+        patch("services.bar_writer_agent._CONSUMER_LAG"),
+    ):
+        await agent._run()
+
+    assert len(recorded_calls) == 1, (
+        "_record_message_consumed() must be called once per consumed bar message "
+        "(required for stall detection liveness tracking)"
+    )
