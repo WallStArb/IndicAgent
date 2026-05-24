@@ -31,9 +31,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts as _parse_ts
 from src.core.stream_keys import (
-    topic_intelligence_i8,
     topic_llm_calls,
-    topic_llm_outcomes,
     topic_llm_writer_dlq,
 )
 from src.observability.metrics import (
@@ -471,12 +469,8 @@ class LLMWriterAgent(BaseWriterAgent):
     @property
     def topics_consumed(self) -> list[str]:
         """Kafka topics consumed — used by BaseAgent._send_to_dlq for source_topic."""
-        from src.core.stream_keys import topic_intelligence_i8, topic_llm_outcomes
-
         return [
             topic_llm_calls(self.env_name),
-            topic_llm_outcomes(self.env_name),
-            topic_intelligence_i8(self.env_name),
         ]
 
     @property
@@ -550,28 +544,28 @@ class LLMWriterAgent(BaseWriterAgent):
             self.db_manager = None
 
     async def _setup_kafka_clients(self) -> None:
-        """Create Kafka consumer subscribed to llm.calls, llm.outcomes, and intelligence.i8.
+        """Create Kafka consumer subscribed to llm.calls.
 
         Assigns self._consumer (BaseWriterAgent attribute) for offset commits.
         Also starts a DLQ producer for routing unparseable messages.
         """
         calls_topic = topic_llm_calls(self.env_name)
-        outcomes_topic = topic_llm_outcomes(self.env_name)
-        i8_topic = topic_intelligence_i8(self.env_name)
 
+        # TODO(HF-10): intelligence.i8 and llm.outcomes had no active publishers as of 2026-05-23
+        # audit. Subscriptions removed to avoid void-consuming. Re-wire when narrative_compute
+        # publishes i8 updates (v2.8 scope).
         kafka_consumer = KafkaConsumerClient(
             calls_topic,
-            outcomes_topic,
-            i8_topic,
             bootstrap_servers=self._kafka_bootstrap,
             group_id=CONSUMER_GROUP,
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
         )
         await kafka_consumer.start()
         self._consumer = kafka_consumer  # BaseWriterAgent uses self._consumer for offset commits
         self.logger.info(
             "Kafka consumer started",
-            topics=[calls_topic, outcomes_topic, i8_topic],
+            topics=[calls_topic],
             group=CONSUMER_GROUP,
         )
 
@@ -692,8 +686,7 @@ class LLMWriterAgent(BaseWriterAgent):
                 call_id = payload.get("call_id")
                 parse_success = payload.get("parse_success", False)
                 if call_id:
-                    async with self._pool.acquire() as conn:
-                        await conn.execute(_UPDATE_PARSE_SQL, call_id, parse_success)
+                    await self.db_manager.execute_command(_UPDATE_PARSE_SQL, call_id, parse_success)
                 return True
 
             parsed = _parse_llm_call_fields(payload)
@@ -819,7 +812,7 @@ class LLMWriterAgent(BaseWriterAgent):
         batch = self._i8_buffer[:]
         try:
             await self.db_manager.execute_batch(_UPSERT_I8_SQL, batch)
-            self.i8_writes_total.inc(len(batch))
+            self.i8_writes_total.add(len(batch))
             self._i8_buffer.clear()
         except Exception as e:
             self.logger.error("i8_flush_failed", error=str(e), buffer_size=len(batch))
@@ -943,9 +936,9 @@ class LLMWriterAgent(BaseWriterAgent):
         check_interval = 60
         while not self._stop_event.is_set():
             await asyncio.sleep(check_interval)
-            if self._last_msg_ts is None:
+            if self._last_message_ts is None:
                 continue  # startup grace — no messages received yet
-            idle_secs = time.monotonic() - self._last_msg_ts
+            idle_secs = time.monotonic() - self._last_message_ts
             if idle_secs >= self.max_idle_seconds:
                 self.logger.warning(
                     "LLMWriterAgent stall detected — no messages consumed",
@@ -954,25 +947,20 @@ class LLMWriterAgent(BaseWriterAgent):
                 )
 
     async def _process_loop(self) -> None:
-        """Kafka consumer loop for llm.calls + llm.outcomes + intelligence.i8 — routes by topic."""
+        """Kafka consumer loop for llm.calls — routes by topic."""
         if not self._consumer:
             return
 
         calls_topic = topic_llm_calls(self.env_name)
-        outcomes_topic = topic_llm_outcomes(self.env_name)
-        i8_topic = topic_intelligence_i8(self.env_name)
 
         async for kafka_topic, _key, payload in self._consumer.messages():
             if self._stop_event.is_set():
                 break
+            self._record_message_consumed()
             try:
                 if kafka_topic == calls_topic:
                     await self._process_calls_message(payload, calls_topic)
                     await self.maybe_flush()
-                elif kafka_topic == outcomes_topic:
-                    await self._process_outcome_message(payload, outcomes_topic)
-                elif kafka_topic == i8_topic:
-                    await self._process_i8_message(payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
