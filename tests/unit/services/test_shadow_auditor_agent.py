@@ -153,6 +153,149 @@ def _make_signal_row(outcome: str = "target_1", pnl_r: float = 0.5):
     return row
 
 
+# ---------------------------------------------------------------------------
+# Phase-105 regression: is_shadow filter direction in _check_promotion / _check_demotion
+# ---------------------------------------------------------------------------
+
+
+def test_promotion_query_filters_is_shadow_true():
+    """_check_promotion SQL must filter is_shadow = TRUE.
+
+    Promotion counts shadow observations (is_shadow=TRUE). Filtering for FALSE would
+    count live observations instead, making the gate meaningless.
+
+    Regression guard for Phase-105 Task 3 fix: shadow auditor filter direction.
+    """
+    import inspect
+
+    import services.shadow_auditor_agent as mod
+
+    source = inspect.getsource(mod._check_promotion)
+    # Must contain is_shadow = TRUE (the shadow row filter for shadow signal observations)
+    assert (
+        "is_shadow = TRUE" in source
+    ), "_check_promotion must filter 'is_shadow = TRUE' to count shadow observations"
+    # Must NOT filter is_shadow = FALSE in the main promotion query
+    assert (
+        "is_shadow = FALSE" not in source
+    ), "_check_promotion must NOT filter 'is_shadow = FALSE' (that is for demotion)"
+
+
+def test_demotion_query_filters_is_shadow_false():
+    """_check_demotion SQL must filter is_shadow = FALSE.
+
+    Demotion counts live observations (is_shadow=FALSE). Filtering for TRUE would
+    count shadow observations instead, making the EV[R] calculation wrong.
+
+    Regression guard for Phase-105 Task 3 fix: shadow auditor filter direction.
+    """
+    import inspect
+
+    import services.shadow_auditor_agent as mod
+
+    source = inspect.getsource(mod._check_demotion)
+    # Must contain is_shadow = FALSE (live-only observations for demotion gate)
+    assert (
+        "is_shadow = FALSE" in source
+    ), "_check_demotion must filter 'is_shadow = FALSE' to count live observations"
+    # Must NOT filter is_shadow = TRUE in the demotion query
+    assert (
+        "is_shadow = TRUE" not in source
+    ), "_check_demotion must NOT filter 'is_shadow = TRUE' (that is for promotion)"
+
+
+def test_run_audit_skips_swarm_agent_rows():
+    """_run_audit() must skip registry rows with component_type == 'swarm_agent'.
+
+    Swarm agents have no signal_ledger rows; evaluating them yields n=0 and would
+    reset demotion_consecutive_count to 0 every cycle, neutralizing demotion.
+
+    Regression guard for Phase-105: swarm agents are correctly skipped.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from services.shadow_auditor_agent import _run_audit
+
+    # Build a mock registry with one swarm_agent and one i7_plugin
+    swarm_row = {
+        "component_name": "correlation_agent",
+        "component_type": "swarm_agent",
+        "is_shadow": True,
+        "min_n": 100,
+        "min_ev_r": 0.0,
+        "ci_alpha": 0.05,
+        "demotion_lookback_days": 30,
+        "demotion_threshold_ev_r": -0.05,
+        "demotion_min_evaluations": 3,
+        "demotion_consecutive_count": 0,
+    }
+    plugin_row = {
+        "component_name": "trad_TrendFollowing",
+        "component_type": "i7_plugin",
+        "is_shadow": True,
+        "min_n": 100,
+        "min_ev_r": 0.0,
+        "ci_alpha": 0.05,
+        "demotion_lookback_days": 30,
+        "demotion_threshold_ev_r": -0.05,
+        "demotion_min_evaluations": 3,
+        "demotion_consecutive_count": 0,
+    }
+
+    # Make the rows support dict-style access (asyncpg Record API)
+    def _make_mock_row(data: dict):
+        row = MagicMock()
+        row.__getitem__ = lambda self, k: data[k]
+        row.get = lambda k, default=None: data.get(k, default)
+        # Support iteration for dict(row) — asyncpg Records are iterable over (key, val) pairs
+        row.items = MagicMock(return_value=data.items())
+        row.keys = MagicMock(return_value=data.keys())
+        row.values = MagicMock(return_value=data.values())
+        # dict(row) works via mapping protocol — mock the __iter__ for key access
+        row.__iter__ = lambda self: iter(data.keys())
+        return row
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch = AsyncMock(
+        return_value=[_make_mock_row(swarm_row), _make_mock_row(plugin_row)]
+    )
+
+    acquire_cm = AsyncMock()
+    acquire_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    acquire_cm.__aexit__ = AsyncMock(return_value=False)
+    pool_mock = MagicMock()
+    pool_mock.acquire = MagicMock(return_value=acquire_cm)
+
+    check_promotion_calls = []
+    check_demotion_calls = []
+
+    async def fake_check_promotion(pool, env, row):
+        check_promotion_calls.append(row["component_name"])
+
+    async def fake_check_demotion(pool, env, row):
+        check_demotion_calls.append(row["component_name"])
+
+    with (
+        patch("services.shadow_auditor_agent._check_promotion", side_effect=fake_check_promotion),
+        patch("services.shadow_auditor_agent._check_demotion", side_effect=fake_check_demotion),
+    ):
+        asyncio.run(_run_audit(pool_mock, "test"))
+
+    # The swarm agent must NOT have triggered any promotion/demotion check
+    assert (
+        "correlation_agent" not in check_promotion_calls
+    ), "swarm_agent rows must be skipped — _check_promotion must not be called for them"
+    assert (
+        "correlation_agent" not in check_demotion_calls
+    ), "swarm_agent rows must be skipped — _check_demotion must not be called for them"
+
+    # The i7_plugin IS shadow (is_shadow=True) → _check_promotion should be called
+    assert (
+        "trad_TrendFollowing" in check_promotion_calls
+    ), "is_shadow=True i7_plugin must trigger _check_promotion"
+
+
 def test_check_promotion_fails_open_when_tail_gate_db_query_raises():
     """DB error inside tail gate fetchrow must not propagate; gate is skipped (fail-open)."""
 
