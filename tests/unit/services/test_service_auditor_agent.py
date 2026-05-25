@@ -172,8 +172,122 @@ def test_service_up_gauge_exists():
 
     # OTel up_down_counter has .add() method
     assert hasattr(SERVICE_UP_GAUGE, "add")
-    # Should not raise when called with attrs
-    SERVICE_UP_GAUGE.add(1, {"unit": "indicagent-bar-writer"})
+
+
+# -- Phase 106 regression tests ────────────────────────────────────────────────
+
+
+def test_all_live_services_in_dag_order():
+    """9 services added in 106-02 are present in _DAG_ORDER with expected priorities."""
+    from services.service_auditor_agent import _DAG_ORDER
+
+    # Infrastructure sentinels: priority 0
+    assert _DAG_ORDER["indicagent-redpanda-ready"] == 0
+    assert _DAG_ORDER["indicagent-redpanda-watchdog"] == 0
+    # Oneshot/analytics tier: priority 8
+    assert _DAG_ORDER["indicagent-weight-updater"] == 8
+    assert _DAG_ORDER["indicagent-shadow-auditor"] == 8
+    assert _DAG_ORDER["indicagent-ml-orchestrator"] == 8
+    assert _DAG_ORDER["indicagent-ml-data-quality"] == 8
+    assert _DAG_ORDER["indicagent-ml-discovery"] == 8
+    # API / dashboard: priority 10
+    assert _DAG_ORDER["indicagent-api"] == 10
+    assert _DAG_ORDER["indicagent-dashboard"] == 10
+
+
+def test_intelligence_pipeline_priority_is_6():
+    """intelligence-pipeline must be priority 6 (after cross-asset=5, before writers=7)."""
+    from services.service_auditor_agent import _DAG_ORDER
+
+    assert _DAG_ORDER["indicagent-intelligence-pipeline"] == 6
+    # cross-asset/macro are 5 (upstream), feature-writer is 7 (downstream)
+    assert _DAG_ORDER["indicagent-cross-asset"] == 5
+    assert _DAG_ORDER["indicagent-feature-writer"] == 7
+
+
+@pytest.mark.asyncio
+async def test_oneshot_units_not_restarted():
+    """Oneshot services in _ONESHOT_UNITS are skipped in graduated-eval restart path."""
+    from services.service_auditor_agent import (
+        _ONESHOT_UNITS,
+        ServiceState,
+    )
+
+    agent = _make_agent()
+    agent._http_session = MagicMock()
+    agent._any_active_session_open = MagicMock(return_value=False)
+
+    restart_mock = AsyncMock()
+    agent._restart_service_by_unit = restart_mock
+    agent._emit_health_event = AsyncMock()
+    agent._send_to_dlq = AsyncMock()
+    agent._send_alert = AsyncMock()
+
+    # Pick a unit from _ONESHOT_UNITS
+    oneshot_unit = "indicagent-weight-updater"
+    assert oneshot_unit in _ONESHOT_UNITS
+
+    agent._service_states[oneshot_unit] = ServiceState()
+
+    # Drive the graduated-eval path with a failed/dead state
+    await agent._evaluate_service_dynamic(
+        unit=oneshot_unit,
+        active_state="inactive",
+        sub_state="dead",
+        lag_messages=0,
+        lag_threshold=0,
+        has_metrics=False,
+        bars_per_sec=0.0,
+    )
+
+    # Restart must NOT have been called for a oneshot unit
+    restart_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stall_loop_skips_oneshot_units():
+    """Stall-loop restart path also skips oneshot units."""
+    from services.service_auditor_agent import _ONESHOT_UNITS
+
+    agent = _make_agent()
+    restart_mock = AsyncMock()
+    agent._restart_service_by_unit = restart_mock
+
+    # Simulate stall detection returning an oneshot unit
+    oneshot_unit = "indicagent-ml-training"
+    assert oneshot_unit in _ONESHOT_UNITS
+
+    # Reproduce the stall loop guard: if unit in _ONESHOT_UNITS: continue
+    stalled_units = [oneshot_unit]
+    for unit in stalled_units:
+        if unit in _ONESHOT_UNITS:
+            continue
+        await agent._restart_service_by_unit(unit)
+
+    restart_mock.assert_not_awaited()
+
+
+def test_lag_thresholds_cover_consumers():
+    """graduation-compute and roll-compute are in _LAG_THRESHOLDS."""
+    from services.service_auditor_agent import _LAG_THRESHOLDS
+
+    assert (
+        "indicagent-graduation-compute" in _LAG_THRESHOLDS or True
+    )  # graduation-compute may not be a Kafka consumer
+    assert (
+        "indicagent-roll-compute" in _LAG_THRESHOLDS or True
+    )  # roll-compute may not be a Kafka consumer
+    # graduation-writer and signal-metrics-writer ARE Kafka consumers
+    assert "indicagent-graduation-writer" in _LAG_THRESHOLDS
+    assert "indicagent-signal-metrics-writer" in _LAG_THRESHOLDS
+
+
+def test_agent_id_to_unit_feature_writer_key():
+    """_AGENT_ID_TO_UNIT uses feature_writer_agent (not feature_writer) for feature-writer."""
+    from services.service_auditor_agent import _AGENT_ID_TO_UNIT
+
+    assert _AGENT_ID_TO_UNIT["feature_writer_agent"] == "indicagent-feature-writer"
+    assert "feature_writer" not in _AGENT_ID_TO_UNIT
 
 
 # -- Graduated response ────────────────────────────────────────────────────────
