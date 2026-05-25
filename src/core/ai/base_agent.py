@@ -27,6 +27,7 @@ from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
 
 if TYPE_CHECKING:
     from src.core.ai.lineage import LineageRecorder
+    from src.core.llm.chain import LLMProviderChain
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +85,7 @@ class BaseAIAgent(BaseAgent, ABC):
         super().__init__(*args, name=name, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
         self._lineage: LineageRecorder | None = None
+        self._llm: LLMProviderChain | None = None
         self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
 
     async def compute(self, context: AIContext) -> AgentOutput:
