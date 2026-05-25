@@ -56,6 +56,7 @@ _DAG_ORDER: dict[str, int] = {
     # Priority 0 — infrastructure sentinels: must exist before any consumer starts
     "indicagent-redpanda-ready": 0,  # infra tier: Redpanda readiness sentinel
     "indicagent-redpanda-watchdog": 0,  # infra tier: Redpanda liveness watchdog
+    "indicagent-ibkr-restart": 0,  # oneshot wrapper: restarts ibkr-provider after TWS nightly restart (timer-triggered, not monitored)
     # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,  # priority 1: root data source; nothing upstream
     "indicagent-bar-replay": 1,  # priority 1: alternate data source; parallel with ibkr-provider
@@ -174,6 +175,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 _ONESHOT_UNITS: frozenset[str] = frozenset(
     {
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
+        "indicagent-ibkr-restart",  # Type=oneshot timer; triggered by ibkr-restart.timer after TWS nightly restart
         "indicagent-weight-updater",
         "indicagent-shadow-auditor",
         "indicagent-ml-orchestrator",
