@@ -680,7 +680,7 @@ class ServiceAuditorAgent(BaseAgent):
         this detector fires at 360s only for cases where the in-process watchdog
         has been disabled or has itself stalled.
 
-        Label key is "agent" -- matches BaseAgent._last_msg_ts_attrs = {"agent": name}.
+        Label key is "agent_id" -- matches BaseAgent._last_msg_ts_attrs = {"agent_id": name}.
         """
         try:
             results = await self._query_prometheus("agent_last_message_timestamp_seconds")
@@ -692,7 +692,7 @@ class ServiceAuditorAgent(BaseAgent):
         stalled: list[str] = []
         seen: set[str] = set()
         for r in results:
-            agent_name = r["metric"].get("agent", "")
+            agent_name = r["metric"].get("agent_id", "")
             if not agent_name:
                 continue
             unit = _AGENT_ID_TO_UNIT.get(agent_name)
