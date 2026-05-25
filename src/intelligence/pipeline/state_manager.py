@@ -69,6 +69,10 @@ class PluginStateManager:
         self._checkpoint_path = checkpoint_path
         # (plugin_name, symbol, tf) -> dict
         self._plugin_states: dict[tuple, dict] = {}
+        # Secondary index: (symbol, tf) -> {plugin_name: state} for O(1) lookups.
+        # Kept consistent with _plugin_states across all write/delete/reset paths.
+        # Never serialized — rebuilt from _plugin_states after checkpoint restore.
+        self._states_by_key: dict[tuple[str, str], dict[str, dict]] = {}
         # (symbol, tf) -> threading.Lock  — NOT per-plugin; one lock per bar-slot
         self._locks: dict[tuple, threading.Lock] = {}
         self._logger = structlog.get_logger(__name__)
@@ -92,14 +96,9 @@ class PluginStateManager:
         """Return mapping of plugin_name -> state for all plugins matching (symbol, tf).
 
         This is the per-bar read API consumed by the plugin executor (HIGH finding 1).
-        Preserves full (plugin_name, symbol, tf) keying internally while exposing a
-        plugin-name-keyed view to the caller.
+        O(1) lookup via _states_by_key secondary index rather than full dict scan.
         """
-        return {
-            plugin_name: state
-            for (plugin_name, s, t), state in self._plugin_states.items()
-            if s == symbol and t == tf
-        }
+        return dict(self._states_by_key.get((symbol, tf), {}))
 
     def get_lock(self, key: tuple) -> threading.Lock:
         """Lazy-init and return the threading.Lock for a (symbol, tf) bar-slot.
@@ -125,14 +124,19 @@ class PluginStateManager:
     def update(self, key: tuple, state: dict) -> None:
         """Set state for a single (plugin_name, symbol, tf) key."""
         self._plugin_states[key] = state
+        plugin_name, symbol, tf = key
+        self._states_by_key.setdefault((symbol, tf), {})[plugin_name] = state
 
     def update_batch(self, state_updates: dict) -> None:
         """Merge a batch of state updates keyed by (plugin_name, symbol, tf).
 
         Required for Plan 04 (PluginExecutor returns a full batch after tier execution).
         The updates dict uses the same keying as _collect_plugin_results output.
+        Mirrors each write to _states_by_key to keep the secondary index consistent.
         """
         self._plugin_states.update(state_updates)
+        for (plugin_name, symbol, tf), state in state_updates.items():
+            self._states_by_key.setdefault((symbol, tf), {})[plugin_name] = state
 
     # ------------------------------------------------------------------
     # Checkpoint write
@@ -200,6 +204,11 @@ class PluginStateManager:
             for k, v in _untag_value(raw.get("plugin_states", {})).items():
                 restored_states[_restore_tuple_key(k)] = v
             self._plugin_states = restored_states
+            # Rebuild secondary index from the restored primary dict.
+            # _states_by_key is never serialized — always derived from _plugin_states.
+            self._states_by_key = {}
+            for (plugin_name, symbol, tf), state in self._plugin_states.items():
+                self._states_by_key.setdefault((symbol, tf), {})[plugin_name] = state
 
             extra_fields: dict[str, Any] = {}
             for field in _CHECKPOINT_FIELDS:

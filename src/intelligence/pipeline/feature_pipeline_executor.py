@@ -18,11 +18,13 @@ Design contract:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from opentelemetry import metrics as otel_metrics
 from pydantic import ValidationError
 
 from src.core.bar_history import BarHistory
@@ -45,6 +47,17 @@ from src.intelligence.schemas import (
 
 if TYPE_CHECKING:
     from src.core.schemas.bar_message import BarMessage
+
+# ---------------------------------------------------------------------------
+# Per-tier latency histogram (106-04)
+# ---------------------------------------------------------------------------
+
+_meter = otel_metrics.get_meter("indicagent")
+INTELLIGENCE_PIPELINE_TIER_LATENCY_MS = _meter.create_histogram(
+    "intelligence_pipeline_tier_latency_ms",
+    description="Per-tier execution latency in milliseconds",
+    unit="ms",
+)
 
 # Standard timeframes for cross-tf frame construction (mirrored from orchestrator)
 _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
@@ -201,6 +214,7 @@ class FeaturePipelineExecutor:
         lock = self._state_mgr.get_lock((symbol, tf))
 
         # I1 execution (orchestrator lines 684-696)
+        _i1_t0 = time.perf_counter()
         i1_result, i1_state_updates = await self._executor.run_i1(
             plugin_states,
             lock,
@@ -209,6 +223,9 @@ class FeaturePipelineExecutor:
             tf,
             shadow_cache=cache_snapshot.shadow_cache,
         )
+        INTELLIGENCE_PIPELINE_TIER_LATENCY_MS.record(
+            (time.perf_counter() - _i1_t0) * 1000, {"tier": "i1"}
+        )
         if i1_state_updates:
             self._state_mgr.update_batch(i1_state_updates)
         frames["features"] = dict(i1_result)
@@ -216,6 +233,7 @@ class FeaturePipelineExecutor:
         self._last_events[key + "_i1"] = i1_result
 
         # Tier execution I2-I6 (orchestrator lines 698-710)
+        _tiers_t0 = time.perf_counter()
         tiered, tier_state_updates = await self._executor.run_tiers(
             plugin_states,
             lock,
@@ -224,6 +242,9 @@ class FeaturePipelineExecutor:
             tf,
             frames,
             shadow_cache=cache_snapshot.shadow_cache,
+        )
+        INTELLIGENCE_PIPELINE_TIER_LATENCY_MS.record(
+            (time.perf_counter() - _tiers_t0) * 1000, {"tier": "i2_i6"}
         )
         if tier_state_updates:
             self._state_mgr.update_batch(tier_state_updates)
