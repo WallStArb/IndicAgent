@@ -117,7 +117,7 @@ class BaseAgent(abc.ABC):
         self._last_message_ts: float | None = None
         self._last_processed_at: datetime | None = None
         # Cache OTel attribute dicts to avoid rebuilding on every message.
-        self._last_msg_ts_attrs = {"agent": name}
+        self._last_msg_ts_attrs = {"agent_id": name}
         self._consumer_lag_attrs = {"agent_id": name}
         # NOTE: attribute is self.logger (not self.log) to match the 20+ call sites
         # in existing agents that use self.logger.
