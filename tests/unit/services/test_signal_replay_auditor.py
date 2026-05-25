@@ -30,6 +30,7 @@ T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 def _make_agent() -> SignalReplayAuditorAgent:
     agent = SignalReplayAuditorAgent.__new__(SignalReplayAuditorAgent)
     agent._log = MagicMock()
+    agent.logger = MagicMock()
     agent._settings = MagicMock()
     agent._settings.env_name = "test"
     agent._producer = AsyncMock()

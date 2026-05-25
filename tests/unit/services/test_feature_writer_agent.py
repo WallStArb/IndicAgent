@@ -662,6 +662,7 @@ async def test_connect_database_raises_on_db_failure() -> None:
         "database": {"dsn": "postgresql://localhost:5432/test"},
     }
     agent.db_manager = None
+    agent._db_connected = MagicMock()
 
     # Patch DatabaseManager to raise on initialize()
     with patch("services.feature_writer_agent.DatabaseManager") as mock_db_cls:
