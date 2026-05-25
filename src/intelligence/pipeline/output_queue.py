@@ -82,16 +82,31 @@ class OutputQueue:
         except asyncio.QueueFull:
             self._drops.add(1)
 
-    async def enqueue_blocking(self, topic: str, key: str, value: Any) -> None:
+    async def enqueue_blocking(
+        self, topic: str, key: str, value: Any, *, timeout_sec: float | None = None
+    ) -> None:
         """Blocking enqueue to output buffer.
 
         Backs up rather than dropping when the queue is full (Phase 086 contract).
         Logs a warning when the queue is already full so operators can tune maxsize.
+
+        Args:
+            topic:       Kafka topic name.
+            key:         Kafka message key.
+            value:       Message payload.
+            timeout_sec: Maximum seconds to wait when the queue is full. If the
+                         timeout elapses, raises ``asyncio.TimeoutError`` so callers
+                         (e.g. pipeline teardown) are not blocked indefinitely.
+                         None (default) means wait without a deadline — use only in
+                         contexts that are guaranteed to be cancelled before shutdown.
         """
         if self._queue.full():
             self._drops.add(1)
             self._logger.warning("output_queue.full_blocking")
-        await self._queue.put((topic, key, value))
+        if timeout_sec is not None:
+            await asyncio.wait_for(self._queue.put((topic, key, value)), timeout=timeout_sec)
+        else:
+            await self._queue.put((topic, key, value))
 
     async def join(self) -> None:
         """Await until all enqueued items have been processed.

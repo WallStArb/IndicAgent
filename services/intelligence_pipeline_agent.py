@@ -510,7 +510,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         intel_topic = (
             topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
         )
-        self._out_queue.enqueue(intel_topic, msg_key, {"event": fp_result.event.model_dump_json()})
+        await self._out_queue.enqueue_blocking(
+            intel_topic, msg_key, {"event": fp_result.event.model_dump_json()}, timeout_sec=5.0
+        )
         # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
         i7_start = time.perf_counter()
         plugin_states = self._state_mgr.get_all_states_for(bar.symbol, bar.tf)
@@ -546,7 +548,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
+        await self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
         self._bars_processed.add(1)
 
     def _assemble_checkpoint_extra(self) -> dict:
@@ -561,7 +563,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "last_bar_offset": self._last_bar_offset,
         }
 
-    def _enqueue_intel_journal(
+    async def _enqueue_intel_journal(
         self,
         bar: BarMessage,
         event: IntelligenceEvent,
@@ -604,10 +606,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             i7_computed_at=i7_computed_at,
             pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
-        self._out_queue.enqueue(
+        await self._out_queue.enqueue_blocking(
             topic_intelligence_journal(self.settings.env_name),
             msg_key,
             record.model_dump(mode="json"),
+            timeout_sec=5.0,
         )
 
     async def _health_monitor_loop(self) -> None:
