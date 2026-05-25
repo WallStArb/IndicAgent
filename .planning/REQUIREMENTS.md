@@ -36,10 +36,10 @@ Close structural debt that would create drag or failures during AI platform phas
 
 **NOTE:** HYGIENE requirements redefined in Phase 107 CONTEXT.md Renaissance design from 4 to 9 criteria. See `.planning/phases/107-infrastructure-hygiene/REQUIREMENTS.md` for full specification.
 
-- [ ] **HYGIENE-01**: Writer flush path observability — All `*_writer_agent.py:_flush()` methods wrapped in `observed_span("writer.flush")` with batch_size and flush_ms attributes; DB operations emit child spans; flush errors set ERROR span status
-- [ ] **HYGIENE-02**: Metric type correctness — Shadow metrics (SHADOW_WIN_RATE, SHADOW_N_RESOLVED, SHADOW_EV_R, SHADOW_EV_CI_LOWER, SHADOW_DAYS_TO_GATE) changed from up_down_counter to gauge; latency metrics use histogram not counter; all metrics follow naming convention
-- [ ] **HYGIENE-03**: Silent data loss elimination — AttributeError bugs fixed (.inc() → .add(), self._pool → db_manager); ghost-run prevented (feature_writer raises on DB failure); super()._teardown() called; offset correctness with manual commit
-- [ ] **HYGIENE-04**: DAG topology correctness — All deployed services in _DAG_ORDER (current: 31, target: 42+); After= dependencies only valid units; priority levels match data flow; agent ID mapping consistent
+- [x] **HYGIENE-01**: Writer flush path observability — All `*_writer_agent.py:_flush()` methods wrapped in `observed_span("writer.flush")` with batch_size and flush_ms attributes; DB operations emit child spans; flush errors set ERROR span status
+- [x] **HYGIENE-02**: Metric type correctness — Shadow metrics (SHADOW_WIN_RATE, SHADOW_N_RESOLVED, SHADOW_EV_R, SHADOW_EV_CI_LOWER, SHADOW_DAYS_TO_GATE) changed from up_down_counter to gauge; latency metrics use histogram not counter; all metrics follow naming convention
+- [x] **HYGIENE-03**: Silent data loss elimination — AttributeError bugs fixed (.inc() → .add(), self._pool → db_manager); ghost-run prevented (feature_writer raises on DB failure); super()._teardown() called; offset correctness with manual commit
+- [x] **HYGIENE-04**: DAG topology correctness — All deployed services in _DAG_ORDER (current: 31, target: 42+); After= dependencies only valid units; priority levels match data flow; agent ID mapping consistent
 - [ ] **HYGIENE-05**: Dead code elimination — ShadowRecorder, GuardrailsValidator, 8 dead Settings fields deleted; TEMPLATE agent fixed (self._llm.generate() → self._llm_generate()); pre-commit hook enforcement
 - [ ] **HYGIENE-06**: Shadow registry integrity — Promotion/demotion queries filter shadows via `AND is_shadow = FALSE`; swarm agents skip signal_ledger queries (use signal_ai_enrichment); bootstrap CI validated
 - [ ] **HYGIENE-07**: Service lifecycle consistency — All services inherit from BaseAgent (migrate signal_replay_auditor, bar_replay_provider); SIGTERM handling, stall detection, DLQ routing standardized
@@ -187,10 +187,10 @@ All offspring start at `shadow_only=True`. No offspring are promoted without exp
 | FOUND-04 | 106 — Foundation Hardening | Pending |
 | FOUND-05 | 106 — Foundation Hardening | Pending |
 | FOUND-06 | 106 — Foundation Hardening | Pending |
-| HYGIENE-01 | 107 — Infrastructure Hygiene | Pending |
-| HYGIENE-02 | 107 — Infrastructure Hygiene | Pending |
-| HYGIENE-03 | 107 — Infrastructure Hygiene | Pending |
-| HYGIENE-04 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-01 | 107 — Infrastructure Hygiene | Complete |
+| HYGIENE-02 | 107 — Infrastructure Hygiene | Complete |
+| HYGIENE-03 | 107 — Infrastructure Hygiene | Complete |
+| HYGIENE-04 | 107 — Infrastructure Hygiene | Complete |
 | HYGIENE-05 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-06 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-07 | 107 — Infrastructure Hygiene | Pending |

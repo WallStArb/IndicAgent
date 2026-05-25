@@ -857,7 +857,7 @@ Plans:
 **Plans**: 3 plans (3 waves)
 
 **Wave 1** — Service Consistency (30%):
-- [ ] 107-01-PLAN.md — BaseAgent migration (2 services) + DatabaseManager standardization (3 services) + agent_id label consistency
+- [x] 107-01-PLAN.md — BaseAgent migration (2 services) + DatabaseManager standardization (3 services) + agent_id label consistency
 
 **Wave 2** — Silent Failure Elimination (35%):
 - [x] 107-02-PLAN.md — Writer flush spans + AttributeError fixes + metric type corrections (shadow gauges, latency histograms)
@@ -1181,7 +1181,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
 | 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.8 | 6/6 | Complete   | 2026-05-25 |
-| 107. Infrastructure Hygiene | v2.8 | 7/8 | In Progress|  |
+| 107. Infrastructure Hygiene | v2.8 | 8/8 | Complete    | 2026-05-25 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
