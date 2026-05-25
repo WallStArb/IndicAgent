@@ -10,13 +10,35 @@ Call-site API:
   UpDownCounter (gauge): METRIC.add(delta, {"label_key": value})
   PointGauge:            METRIC.set(value, {"label_key": value})
   Histogram: METRIC.record(value, {"label_key": value})
+
+Tier Labels: Metrics use both tier code (I1, I7) and functional name (technical_indicators, trading_signals)
+             for external readability. Use format_tier_label() to generate dual labels.
 """
 
 from __future__ import annotations
 
 from opentelemetry import metrics as otel_metrics
 
+from src.intelligence.tier_aliases import tier_to_functional
+
 _meter = otel_metrics.get_meter("indicagent")
+
+
+def format_tier_label(tier_code: str) -> str:
+    """
+    Format tier label with both code and functional name for metrics.
+
+    Args:
+        tier_code: Internal tier code (I1, I7, etc.)
+
+    Returns:
+        Formatted label: "I1:technical_indicators" or "I7:trading_signals"
+
+    Example:
+        PLUGIN_DURATION_MS.record(42.5, {"plugin": "rsi", "tier": format_tier_label("I1")})
+    """
+    functional_name = tier_to_functional(tier_code)
+    return f"{tier_code}:{functional_name}"
 
 
 def counter(name: str, documentation: str):
