@@ -698,12 +698,13 @@ Plans:
 </details>
 
 <details>
-<summary>Phase 100.5: Plugin Infrastructure Hardening — ACTIVE</summary>
+<summary>✅ Phase 100.5: Plugin Infrastructure Hardening — COMPLETE 2026-05-22</summary>
 
-### Phase 100.5: Plugin Infrastructure Hardening
+### Phase 100.5: Plugin Infrastructure Hardening ✅
 
 **Goal**: Eliminate silent failure in the plugin system by enforcing structural contracts, wiring production-grade observability, and migrating 24 incremental plugins from ad-hoc state management to IncrementalMixin.
 **Depends on**: Phase 100 (IncrementalMixin + ATR reference), Phase 093 (mathematical correctness)
+**Status**: ✅ Complete (2026-05-22) — 16 tasks, ~55 files, 24 plugins migrated to IncrementalMixin
 
 **Architecture:** PluginObserver (single recording surface) + IncrementalMixin (state lifecycle) + emit_signal() (validate at construction).
 
@@ -711,32 +712,32 @@ Plans:
 
 - [x] 100.5-PLAN.md Task 1 — Add 5 new OTel instruments + rename plugin_fallbacks_total
 - [x] 100.5-PLAN.md Task 2 — Move plugin_validator inline metrics to metrics.py
-- [ ] 100.5-PLAN.md Task 3 — Add PluginCallResult dataclass to executor.py
-- [ ] 100.5-PLAN.md Task 4 — Create PluginObserver + NoOpPluginObserver
+- [x] 100.5-PLAN.md Task 3 — Add PluginCallResult dataclass to executor.py
+- [x] 100.5-PLAN.md Task 4 — Create PluginObserver + NoOpPluginObserver
 
 **Wave 2** — Executor integration (requires Wave 1)
 
-- [ ] 100.5-PLAN.md Task 5 — Wire PluginObserver into PluginExecutor + frame pre-validation
+- [x] 100.5-PLAN.md Task 5 — Wire PluginObserver into PluginExecutor + frame pre-validation
 
 **Wave 3** — Signal contract + CI gates (independent)
 
-- [ ] 100.5-PLAN.md Task 6 — Add emit_signal() to plugin_utils.py
-- [ ] 100.5-PLAN.md Task 7 — CI hard-block: test_incremental_mixin_adoption.py
-- [ ] 100.5-PLAN.md Task 8 — Equivalence test infrastructure + fixture directory
+- [x] 100.5-PLAN.md Task 6 — Add emit_signal() to plugin_utils.py
+- [x] 100.5-PLAN.md Task 7 — CI hard-block: test_incremental_mixin_adoption.py
+- [x] 100.5-PLAN.md Task 8 — Equivalence test infrastructure + fixture directory
 
 **Wave 4** — Plugin migrations (requires Task 8)
 
-- [ ] 100.5-PLAN.md Task 9  — Migrate Group 1A: RSI, MACD (reference implementations)
-- [ ] 100.5-PLAN.md Task 10 — Migrate Group 1B: CCI, Aroon, Chandelier, CMF
-- [ ] 100.5-PLAN.md Task 11 — Migrate Group 1C: HV, ROC/PPO, PSAR, StochRSI, AC Oscillator
-- [ ] 100.5-PLAN.md Task 12 — Migrate remaining simple plugins (Bollinger, Donchian, MAs, OBV, SuperTrend, VWAP, SessionLevels, MarketProfile, BollingerSqueeze)
-- [ ] 100.5-PLAN.md Task 13 — (consolidated into Task 12)
-- [ ] 100.5-PLAN.md Task 14 — Migrate Group 3: BOCPD, HMM, GARCH, Kalman (src/intelligence/context/)
+- [x] 100.5-PLAN.md Task 9  — Migrate Group 1A: RSI, MACD (reference implementations)
+- [x] 100.5-PLAN.md Task 10 — Migrate Group 1B: CCI, Aroon, Chandelier, CMF
+- [x] 100.5-PLAN.md Task 11 — Migrate Group 1C: HV, ROC/PPO, PSAR, StochRSI, AC Oscillator
+- [x] 100.5-PLAN.md Task 12 — Migrate remaining simple plugins (Bollinger, Donchian, MAs, OBV, SuperTrend, VWAP, SessionLevels, MarketProfile, BollingerSqueeze)
+- [x] 100.5-PLAN.md Task 13 — (consolidated into Task 12)
+- [x] 100.5-PLAN.md Task 14 — Migrate Group 3: BOCPD, HMM, GARCH, Kalman (src/intelligence/context/)
 
 **Wave 5** — Output consistency + cleanup (requires Wave 4)
 
-- [ ] 100.5-PLAN.md Task 15 — Output key consistency CI test
-- [ ] 100.5-PLAN.md Task 16 — Final verification + legacy fixture cleanup + service restart
+- [x] 100.5-PLAN.md Task 15 — Output key consistency CI test
+- [x] 100.5-PLAN.md Task 16 — Final verification + legacy fixture cleanup + service restart
 
 </details>
 
@@ -838,16 +839,38 @@ Plans:
 
 ### Phase 107: Infrastructure Hygiene
 
-**Goal**: Audit and close accumulated DB and observability debt before AI platform work begins. Dead DB tables dropped. Shadow graduation blockers documented and at least one unblocked. Metrics naming correct.
-**Depends on**: Phase 106
-**Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04
-**Success Criteria** (what must be TRUE):
-  1. An audit query identifies all tables with zero live writers/readers for >= 30 days; confirmed-unused tables are dropped via a numbered migration with rollback script; the migration number is higher than any existing migration
-  2. Every agent stuck at shadow_only=True has a documented root cause and at least one agent has a concrete, evidence-backed graduation path unblocked; zombie agents (no graduation path) are demoted in shadow_registry
-  3. A manual spot-check confirms shadow_registry bootstrap CI reads from `signal_ledger.pnl_r` and the computed CI lower bound matches a hand-calculated reference value within tolerance
-  4. `ruff check .` passes on all metric call sites; no Counter measuring a level, no UpDownCounter misused where Gauge is correct; all shadow-related metric names follow `indicagent_<service>_<metric>_<unit>`
+**Goal**: Audit and close accumulated DB and observability debt before AI platform work begins. Fix silent data loss, standardize service patterns, eliminate dead code, and ensure metrics correctness across 9 measurable criteria organized into 3 waves.
 
-**Plans**: TBD
+**Depends on**: Phase 106
+**Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04 (expanded to 9 criteria via Renaissance design)
+**Success Criteria** (what must be TRUE):
+  1. Binary SQL verification query returns TRUE for all 9 criteria (see 107-CONTEXT.md for query)
+  2. All 42+ services use BaseAgent lifecycle with SIGTERM handling and stall detection
+  3. All services use DatabaseManager.create_pool() with JSONB codecs
+  4. Metric label consistency: agent_id used across all services
+  5. All writer services have flush span coverage (no silent data loss)
+  6. Zero AttributeError bugs in persistence writers
+  7. Shadow metrics use correct OTel instrument types (Gauge, not UpDownCounter)
+  8. _DAG_ORDER contains all deployed services with justified priorities
+  9. Shadow promotion queries exclude shadow signals (is_shadow=FALSE filter)
+
+**Plans**: 3 plans (3 waves)
+
+**Wave 1** — Service Consistency (30%):
+- [ ] 107-01-PLAN.md — BaseAgent migration (2 services) + DatabaseManager standardization (3 services) + agent_id label consistency
+
+**Wave 2** — Silent Failure Elimination (35%):
+- [x] 107-02-PLAN.md — Writer flush spans + AttributeError fixes + metric type corrections (shadow gauges, latency histograms)
+
+**Wave 3** — Complexity Reduction (35%):
+- [x] 107-03-PLAN.md — DAG completeness (11 missing services) + shadow promotion query fixes + assessment update
+
+**Renaissance Design Notes:**
+- Expanded from 4 criteria (HYGIENE-01–04) to 9 criteria (HYGIENE-01–09) based on architectural weakness assessment
+- 3-wave structure: Service Consistency → Silent Failure Elimination → Complexity Reduction
+- Measurement-driven: every criterion has quantified before/after metrics and binary verification
+- Serial wave execution with stabilization gates (Wave 1 → verify → stabilize → Wave 2 → verify → stabilize → Wave 3)
+- Root-cause focused: fixes include CI gates, pre-commit hooks, and process changes
 
 ### Phase 094: LiteLLM + Instructor Structured Output
 
@@ -1158,7 +1181,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
 | 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.8 | 6/6 | Complete   | 2026-05-25 |
-| 107. Infrastructure Hygiene | v2.8 | 0/TBD | Not started | - |
+| 107. Infrastructure Hygiene | v2.8 | 7/8 | In Progress|  |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
