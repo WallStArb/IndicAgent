@@ -22,6 +22,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.service_utils import parse_iso_ts, setup_service_logging
 from src.core.stream_keys import topic_ctx_snapshot
 from src.observability.metrics import counter
+from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -335,26 +336,34 @@ class CtxWriterAgent(BaseWriterAgent):
         """
         assert self._db is not None
 
-        async with self._db.pool.acquire() as conn:
-            async with conn.transaction():
-                # Write ctx_events
-                if event_batch:
-                    await conn.executemany(_INSERT_CTX_EVENT_SQL, event_batch)
-                    self._events_written.add(len(event_batch))
+        async with observed_span("writer.flush", tracer=self.tracer) as span:
+            flush_start = time.monotonic()
 
-                # Upsert ctx_snapshots — batch close then batch insert (2 roundtrips, not N×2)
-                if snapshot_batch:
-                    close_params = [(s, e, vf) for s, e, vf, _ in snapshot_batch]
-                    upsert_params = list(snapshot_batch)
-                    await conn.executemany(_CLOSE_PRIOR_SNAPSHOT_SQL, close_params)
-                    await conn.executemany(_UPSERT_CTX_SNAPSHOT_SQL, upsert_params)
-                    self._snapshots_written.add(len(snapshot_batch))
+            async with self._db.pool.acquire() as conn:
+                async with conn.transaction():
+                    # Write ctx_events
+                    if event_batch:
+                        await conn.executemany(_INSERT_CTX_EVENT_SQL, event_batch)
+                        self._events_written.add(len(event_batch))
+                        span.set_attribute(ATTR_BATCH_SIZE, len(event_batch))
 
-        self.logger.info(
-            "ctx_writer.flushed",
-            events=len(event_batch),
-            snapshots=len(snapshot_batch),
-        )
+                    # Upsert ctx_snapshots — batch close then batch insert (2 roundtrips, not N×2)
+                    if snapshot_batch:
+                        close_params = [(s, e, vf) for s, e, vf, _ in snapshot_batch]
+                        upsert_params = list(snapshot_batch)
+                        await conn.executemany(_CLOSE_PRIOR_SNAPSHOT_SQL, close_params)
+                        await conn.executemany(_UPSERT_CTX_SNAPSHOT_SQL, upsert_params)
+                        self._snapshots_written.add(len(snapshot_batch))
+                        span.set_attribute("snapshot_batch_size", len(snapshot_batch))
+
+            flush_ms = (time.monotonic() - flush_start) * 1000
+            span.set_attribute(ATTR_FLUSH_MS, flush_ms)
+
+            self.logger.info(
+                "ctx_writer.flushed",
+                events=len(event_batch),
+                snapshots=len(snapshot_batch),
+            )
 
     # BaseWriterAgent requires _flush_batch — delegate to _flush with current buffers.
     async def _flush_batch(self, batch: list) -> None:
