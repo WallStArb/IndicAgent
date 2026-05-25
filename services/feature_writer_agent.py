@@ -48,6 +48,11 @@ from src.observability.metrics import (
     counter,
     point_gauge,
 )
+from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
+
+# OTel meter for feature writer-specific gauges
+_otel_metrics = __import__("opentelemetry").metrics
+_fw_meter = _otel_metrics.get_meter("indicagent")
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -267,6 +272,10 @@ class FeatureWriterAgent(BaseWriterAgent):
             "feature_writer_parse_errors_total",
             "Total BarIntelligenceRecord parse failures",
         )
+        self._db_connected = _fw_meter.create_gauge(
+            "feature_writer_db_connected",
+            description="DB connection state (1=connected, 0=disconnected)"
+        )
         self._batch_latency_attrs = {"agent_id": "feature_writer_agent"}
 
         self._total_events = 0
@@ -328,18 +337,23 @@ class FeatureWriterAgent(BaseWriterAgent):
             )
             raise RuntimeError("No database connection")
 
-        _fw_t0 = __import__("time").perf_counter()
-        await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
-        PERSISTENCE_BATCH_LATENCY.record(
-            __import__("time").perf_counter() - _fw_t0, self._batch_latency_attrs
-        )
+        async with observed_span("writer.flush", tracer=self.tracer) as span:
+            _fw_t0 = __import__("time").perf_counter()
+            await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, batch)
+            PERSISTENCE_BATCH_LATENCY.record(
+                __import__("time").perf_counter() - _fw_t0, self._batch_latency_attrs
+            )
 
-        self.batch_writes_total.add(1)
-        self._total_batches += 1
-        self.events_buffered_gauge.set(0)
-        # Single authoritative lag update after flush (not duplicated before + after)
-        PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer_agent"})
-        self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
+            self.batch_writes_total.add(1)
+            self._total_batches += 1
+            self.events_buffered_gauge.set(0)
+            # Single authoritative lag update after flush (not duplicated before + after)
+            PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer_agent"})
+            self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
+
+            span.set_attribute(ATTR_BATCH_SIZE, len(batch))
+            flush_ms = (__import__("time").perf_counter() - _fw_t0) * 1000
+            span.set_attribute(ATTR_FLUSH_MS, flush_ms)
 
     async def _setup(self) -> None:
         """Connect DB and start Kafka consumer."""
@@ -405,8 +419,10 @@ class FeatureWriterAgent(BaseWriterAgent):
             mgr = DatabaseManager(dsn)
             await mgr.initialize()
             self.db_manager = mgr
+            self._db_connected.set(1)
             self.logger.info("Connected to database")
         except Exception as e:
+            self._db_connected.set(0)
             self.logger.error("feature_writer.db_connect_failed", error=str(e))
             raise
 
