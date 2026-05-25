@@ -23,6 +23,7 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_swarm_alpha
@@ -86,8 +87,9 @@ class SwarmLedgerWriterAgent(BaseAgent):
         self._consumer: KafkaConsumerClient | None = None
 
     async def _setup(self) -> None:
-        self._pool = await asyncpg.create_pool(
+        self._pool = await create_db_pool(
             self.settings.database_url,
+            pool_name="swarm_ledger_writer",
             min_size=2,
             max_size=8,
         )
