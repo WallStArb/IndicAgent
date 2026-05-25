@@ -1,7 +1,8 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-25
+**Documentation Style:** Dual tier/functional naming (see [Tier Naming System](tier-naming-system.md))
 
 ## Overview
 
@@ -9,23 +10,29 @@ The Intelligence Engine implements progressive intelligence extraction through e
 
 **Architecture Philosophy:** Progressive intelligence refinement from mathematical features to AI-powered market insights.
 
+**Naming Convention:** This documentation uses both tier codes and functional names for clarity:
+- **I1: Technical Indicators** (`technical_indicators`) - Mathematical features
+- **I7: Trading Signals** (`trading_signals`) - Setup generation
+
+See [Tier Naming System](tier-naming-system.md) for complete mapping and usage guidelines.
+
 ---
 
 ## **Intelligence Tier Framework**
 
 ### **Mathematical Intelligence Foundation (I1-I4)**
 
-#### **I1: Technical Indicators (Raw Features)**
+#### **I1: Technical Indicators (`technical_indicators`)**
 **Purpose:** Extract mathematical features from raw market data
 **Intelligence Focus:** Foundation mathematical analysis of price, volume, momentum, volatility
 
 - **Input:** OHLCV bars
-- **Output:** `features.v1` (raw mathematical values: `sma_20`, `ema_21`, `rsi_14`, `atr_14`)
+- **Output:** `technical_indicators` JSONB field (raw mathematical values: `sma_20`, `ema_21`, `rsi_14`, `atr_14`)
 - **Code Location:** `src/intelligence/indicators/`
 - **Stream:** `{env}:indicators:SYMBOL:TF`
 - **Examples:** RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV
 
-#### **I2: Composite Events**
+#### **I2: Composite Events (`composite_events`)**
 **Purpose:** Detect discrete market events from I1 features — runs before I3, results feed I3–I7
 **Intelligence Focus:** Crossover events, threshold crosses, band touches, regime signals
 
