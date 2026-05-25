@@ -76,6 +76,7 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.metrics import THREAD_POOL_WORKERS, counter
 from src.observability.plugin_observer import PluginObserver
+from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -488,6 +489,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._bar_history.append(bar)
         if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
             return
+        async with observed_span(
+            "pipeline.process_bar_inner",
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
+        ):
+            await self._process_bar_compute(bar, t0=t0, gap=gap)
+
+    async def _process_bar_compute(self, bar: BarMessage, *, t0: float, gap: bool = False) -> None:
+        """Core I1-I7 compute and output routing — called from inside observed_span."""
         cache_snapshot = self._cache_mgr.snapshot()
         i1_start = time.perf_counter()
         try:
@@ -510,7 +519,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         intel_topic = (
             topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
         )
-        self._out_queue.enqueue(intel_topic, msg_key, {"event": fp_result.event.model_dump_json()})
+        await self._out_queue.enqueue_blocking(
+            intel_topic, msg_key, {"event": fp_result.event.model_dump_json()}, timeout_sec=5.0
+        )
         # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
         i7_start = time.perf_counter()
         plugin_states = self._state_mgr.get_all_states_for(bar.symbol, bar.tf)
@@ -546,7 +557,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
+        await self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
         self._bars_processed.add(1)
 
     def _assemble_checkpoint_extra(self) -> dict:
@@ -561,7 +572,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "last_bar_offset": self._last_bar_offset,
         }
 
-    def _enqueue_intel_journal(
+    async def _enqueue_intel_journal(
         self,
         bar: BarMessage,
         event: IntelligenceEvent,
@@ -604,10 +615,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             i7_computed_at=i7_computed_at,
             pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
-        self._out_queue.enqueue(
+        await self._out_queue.enqueue_blocking(
             topic_intelligence_journal(self.settings.env_name),
             msg_key,
             record.model_dump(mode="json"),
+            timeout_sec=5.0,
         )
 
     async def _health_monitor_loop(self) -> None:
