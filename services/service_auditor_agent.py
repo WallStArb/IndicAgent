@@ -53,46 +53,58 @@ _STALL_THRESHOLD_SECONDS = 360  # 300s in-process watchdog + 60s grace
 # DAG topology: unit name -> restart priority (lower = restart first)
 # Changes rarely -- much smaller than the old ServiceSpec registry.
 _DAG_ORDER: dict[str, int] = {
+    # Priority 0 — infrastructure sentinels: must exist before any consumer starts
+    "indicagent-redpanda-ready": 0,  # infra tier: Redpanda readiness sentinel
+    "indicagent-redpanda-watchdog": 0,  # infra tier: Redpanda liveness watchdog
     # Layer 1 — data ingestion
-    "indicagent-ibkr-provider": 1,
-    "indicagent-bar-replay": 1,
-    "indicagent-provider-merger": 2,
+    "indicagent-ibkr-provider": 1,  # priority 1: root data source; nothing upstream
+    "indicagent-bar-replay": 1,  # priority 1: alternate data source; parallel with ibkr-provider
+    "indicagent-provider-merger": 2,  # priority 2: downstream of ibkr-provider (1)
     # Layer 2 — bar processing
-    "indicagent-bar-aggregator": 3,
-    "indicagent-bar-auditor": 3,
-    "indicagent-bar-writer": 4,
+    "indicagent-bar-aggregator": 3,  # priority 3: downstream of provider-merger (2)
+    "indicagent-bar-auditor": 3,  # priority 3: parallel with bar-aggregator (3)
+    "indicagent-bar-writer": 4,  # priority 4: downstream of bar-aggregator (3)
     # Layer 3 — intelligence pipeline (I1-I7)
-    "indicagent-intelligence-pipeline": 5,
-    "indicagent-cross-asset": 5,
-    "indicagent-macro-compute": 5,
+    "indicagent-cross-asset": 5,  # priority 5: cross-asset context; intelligence-pipeline depends on its topic output
+    "indicagent-macro-compute": 5,  # priority 5: parallel with cross-asset (5)
+    "indicagent-intelligence-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
     # Layer 4 — persistence writers (parallel, all consume pipeline output)
-    "indicagent-feature-writer": 6,
-    "indicagent-signal-tracker-compute": 6,
-    "indicagent-signal-writer": 6,
-    "indicagent-lifecycle-writer": 6,
-    "indicagent-lineage-writer": 6,
-    "indicagent-contract-metadata-writer": 6,
-    "indicagent-ctx-writer": 6,
+    "indicagent-feature-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-signal-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-lifecycle-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-lineage-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-contract-metadata-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
+    "indicagent-ctx-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
-    "indicagent-alpha-swarm": 7,
-    "indicagent-narrative-compute": 7,
-    "indicagent-llm-writer": 7,
-    "indicagent-swarm-ledger-writer": 7,
+    "indicagent-alpha-swarm": 8,  # priority 8: downstream of signal-writer (7)
+    "indicagent-narrative-compute": 8,  # priority 8: downstream of intelligence-pipeline (6)
+    "indicagent-llm-writer": 8,  # priority 8: downstream of alpha-swarm / narrative-compute (8)
+    "indicagent-swarm-ledger-writer": 8,  # priority 8: downstream of alpha-swarm (8)
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
-    "indicagent-roll-compute": 8,
-    "indicagent-signal-metrics-compute": 8,
-    "indicagent-signal-metrics-writer": 8,
-    "indicagent-graduation-compute": 8,
-    "indicagent-graduation-writer": 8,
+    "indicagent-roll-compute": 8,  # oneshot: timer-triggered, not a daemon — priority stays at 8 (audit D-10 priority-3 suggestion assumes daemon restart model that does not apply to oneshots)
+    "indicagent-signal-metrics-compute": 8,  # priority 8: downstream of signal-writer (7)
+    "indicagent-signal-metrics-writer": 8,  # priority 8: downstream of signal-metrics-compute (8)
+    "indicagent-graduation-compute": 8,  # priority 8: downstream of signal-ledger writes (7)
+    "indicagent-graduation-writer": 8,  # priority 8: downstream of graduation-compute (8)
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     "indicagent-ml-signal-training-materialize": 8,  # oneshot timer service; no lag threshold needed
+    # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
+    "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
-    "indicagent-signal-auditor": 9,
-    "indicagent-signal-replay": 9,
-    "indicagent-alerting-agent": 9,
-    "indicagent-dlq-drain": 9,
-    # Layer 8 — meta: monitors and restarts all of the above
-    "indicagent-service-auditor": 10,
+    "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
+    "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
+    "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
+    "indicagent-dlq-drain": 9,  # priority 9: drains DLQ topics from all above layers
+    # Layer 8 — top-level services (API, dashboard — always-on, no DAG dependency)
+    "indicagent-api": 10,  # priority 10: always-on top-level; no upstream ordering constraint
+    "indicagent-dashboard": 10,  # priority 10: always-on top-level; no upstream ordering constraint
+    # Layer 9 — meta: monitors and restarts all of the above
+    "indicagent-service-auditor": 10,  # priority 10: meta-monitor; last to restart
 }
 
 # Lag thresholds per service (0 = not a Kafka consumer)
@@ -115,7 +127,9 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-llm-writer": 500,
     "indicagent-swarm-ledger-writer": 500,
     "indicagent-signal-metrics-writer": 500,
+    "indicagent-graduation-compute": 500,
     "indicagent-graduation-writer": 500,
+    "indicagent-roll-compute": 500,
     "indicagent-ctx-writer": 500,
     "indicagent-dlq-drain": 500,
 }
@@ -127,7 +141,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_writer_agent": "indicagent-bar-writer",
     "bar_aggregator_agent": "indicagent-bar-aggregator",
     "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
-    "feature_writer": "indicagent-feature-writer",
+    "feature_writer_agent": "indicagent-feature-writer",
     "SignalTrackerComputeAgent": "indicagent-signal-tracker-compute",
     "signal_writer_agent": "indicagent-signal-writer",
     "llm_writer_agent": "indicagent-llm-writer",
@@ -152,6 +166,23 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_replay_auditor": "indicagent-signal-replay",
     "dlq_drain_agent": "indicagent-dlq-drain",
 }
+
+# Timer-triggered oneshot services — ML batch services inactive (dead) between runs is correct
+# behavior per CLAUDE.md; do not restart them on the auditor's schedule. Systemd timers control
+# their execution. Including roll-compute because it is timer-triggered (inactive between runs is
+# correct — the audit D-10 priority-3 suggestion assumes a daemon restart model that does not apply).
+_ONESHOT_UNITS: frozenset[str] = frozenset(
+    {
+        "indicagent-weight-updater",
+        "indicagent-shadow-auditor",
+        "indicagent-ml-orchestrator",
+        "indicagent-ml-data-quality",
+        "indicagent-ml-discovery",
+        "indicagent-ml-training",
+        "indicagent-ml-signal-training-materialize",
+        "indicagent-roll-compute",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +404,8 @@ class ServiceAuditorAgent(BaseAgent):
                 # may be disabled or itself stuck).
                 stalled_units = await self._fetch_stalled_agents()
                 for unit in stalled_units:
+                    if unit in _ONESHOT_UNITS:
+                        continue  # timer-triggered; systemd timer handles restart
                     self.logger.warning(
                         "service_auditor.stall_detected",
                         unit=unit,
@@ -430,6 +463,11 @@ class ServiceAuditorAgent(BaseAgent):
         has_metrics: bool,
         bars_per_sec: float = 0.0,
     ) -> None:
+        # ML batch services inactive (dead) between runs is correct — do not restart.
+        # Timer-triggered oneshots must only be started by systemd timers, not the auditor.
+        if unit in _ONESHOT_UNITS:
+            return
+
         state = self._service_states[unit]
         if state.escalated:
             return
