@@ -74,6 +74,7 @@ from src.intelligence.schemas import (
     signal_dict_to_ranked,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
+from src.observability.circuit_breaker import CircuitBreaker
 from src.observability.metrics import THREAD_POOL_WORKERS, counter
 from src.observability.plugin_observer import PluginObserver
 
@@ -208,6 +209,29 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
 
+    def _build_plugin_circuit_breakers(self) -> dict[str, CircuitBreaker]:
+        """Build a shadow-mode CircuitBreaker for every plugin in the registry.
+
+        Each breaker is constructed with enabled=False (shadow mode) so
+        allow_request() always returns True and live routing is unaffected.
+        record_success() / record_failure() run unconditionally, accumulating
+        real failure data before any decision to flip PLUGIN_CB_ENABLED=true.
+
+        The failure_threshold and timeout_sec match the lazy-init defaults in
+        PluginExecutor._get_plugin_cb() so pre-populated and lazily-created
+        breakers are equivalent in behaviour.
+        """
+        all_plugins = TIER_I1 + TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7
+        return {
+            name: CircuitBreaker(
+                failure_threshold=3,
+                timeout_sec=300,
+                name=name,
+                enabled=False,
+            )
+            for name in all_plugins
+        }
+
     async def _setup(self) -> None:
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
@@ -286,7 +310,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             thread_pool=self._thread_pool,
             plugin_cache=self._plugin_cache,
             instrument_map=self._instrument_map,
-            circuit_breakers={},
+            circuit_breakers=self._build_plugin_circuit_breakers(),
             observer=PluginObserver(),
         )
 
