@@ -38,6 +38,7 @@ from src.observability.metrics import (
     counter,
     point_gauge,
 )
+from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -497,9 +498,17 @@ class LLMWriterAgent(BaseWriterAgent):
         """
         if not self.db_manager:
             raise RuntimeError("No database connection — cannot flush llm_calls batch")
-        await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, batch)
-        self.batch_writes_total.add(1)
-        self._total_batches += 1
+
+        async with observed_span("writer.flush", tracer=self.tracer) as span:
+            flush_start = time.monotonic()
+
+            await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, batch)
+            self.batch_writes_total.add(1)
+            self._total_batches += 1
+
+            span.set_attribute(ATTR_BATCH_SIZE, len(batch))
+            flush_ms = (time.monotonic() - flush_start) * 1000
+            span.set_attribute(ATTR_FLUSH_MS, flush_ms)
 
     def _dlq_topic(self) -> str | None:
         """DLQ topic for unparseable messages."""
