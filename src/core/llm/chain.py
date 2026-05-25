@@ -1,6 +1,6 @@
 """LLMProviderChain — high-level facade over LLMChain.
 
-Composes: SemanticCache → RateLimiter → LLMChain → GuardrailsValidator → Audit.
+Composes: SemanticCache → RateLimiter → LLMChain → Audit.
 Callers: `chain = LLMProviderChain(call_type="narrative"); text = await chain.generate(...)`.
 """
 
@@ -14,14 +14,12 @@ from opentelemetry.metrics import CallbackOptions
 from opentelemetry.metrics import Observation as _Observation
 from opentelemetry.trace import StatusCode
 
-from src.core.llm.guardrails import GuardrailsValidator
 from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
 from src.observability.metrics import (
     LLM_CACHE_HITS,
-    LLM_GUARDRAILS_REJECTIONS,
     LLM_RESPONSE_CHARS,
     _meter,
     record_llm_call,
@@ -34,7 +32,6 @@ _tracer = get_tracer("llm.chain")
 # Module-level singletons (shared across all LLMProviderChain instances)
 _cache = SemanticCache(max_size=500)
 _budget = TokenBudget(daily_token_limit=1_000_000, cost_per_1k=0.001)
-_guardrails = GuardrailsValidator()
 
 
 _EMPTY_ATTRS: dict[str, str] = {}
@@ -190,17 +187,6 @@ class LLMProviderChain:
             record_llm_call(provider_id, self._call_type, latency_s, status="failure")
             span.set_attribute("llm.status", "failure")
             return None
-
-        if _guardrails.has_schema(self._call_type):
-            validated = _guardrails.validate(self._call_type, response)
-            if validated is None:
-                LLM_GUARDRAILS_REJECTIONS.add(1, {"call_type": self._call_type})
-                record_llm_call(
-                    provider_id, self._call_type, latency_s, status="guardrails_rejected"
-                )
-                span.set_attribute("llm.status", "guardrails_rejected")
-                logger.warning("llm_chain.guardrails_rejected", call_type=self._call_type)
-                return None
 
         LLM_RESPONSE_CHARS.record(
             len(response), {"provider": provider_id, "call_type": self._call_type}
