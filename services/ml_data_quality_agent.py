@@ -101,8 +101,10 @@ class MLDataQualityAuditorAgent(BaseAgent):
         async with self._pool.acquire() as conn:
             null_rate = await conn.fetchval("""
                 SELECT COALESCE(
-                    COUNT(*) FILTER (WHERE i7 IS NULL OR i7->>'cis' IS NULL)::float
-                    / NULLIF(COUNT(*), 0),
+                    COUNT(*) FILTER (
+                        WHERE trading_signals = '[]'::jsonb
+                            OR trading_signals NOT LIKE '%"cis":%'
+                    )::float / NULLIF(COUNT(*), 0),
                     1.0
                 )
                 FROM intelligence_features
@@ -163,8 +165,8 @@ class MLDataQualityAuditorAgent(BaseAgent):
                 FROM intelligence_features
                 WHERE ts >= NOW() - INTERVAL '30 days'
                   AND (
-                    ABS((i1->>'rsi_14')::float - 50) > 45
-                    OR (i1->>'atr_14')::float < 0
+                    ABS((technical_indicators->>'rsi_14')::float - 50) > 45
+                    OR (technical_indicators->>'atr_14')::float < 0
                   )
                 """) or 0
         outlier_count = int(outlier_count)

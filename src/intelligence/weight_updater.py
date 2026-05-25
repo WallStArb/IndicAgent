@@ -130,14 +130,12 @@ async def _calibrate_pattern_reliability(
             ) AS pattern_name,
             timeframe,
             COUNT(*) AS sample_size,
-            AVG(
-                CASE WHEN outcome IN ({win_outcomes_sql})
-                THEN 1.0 ELSE 0.0 END
-            ) AS win_rate
-        FROM signal_ledger
+            AVG(CASE WHEN outcome IN ({win_outcomes_sql}) THEN 1.0 ELSE 0.0 END) AS win_rate
+        FROM signal_ledger sl
+        LEFT JOIN signal_outcomes so USING (signal_id)
         WHERE setup_plugin = 'trad_CandlestickPatternSetup'
-          AND outcome IS NOT NULL
-          AND is_shadow = FALSE
+            AND so.outcome IS NOT NULL
+            AND is_shadow = FALSE
         GROUP BY pattern_name, timeframe
         HAVING COUNT(*) >= 30
     """)
@@ -382,12 +380,13 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
         DatabaseManager instance with execute_query / execute_command methods.
     """
     rows = await db_manager.execute_query("""
-        SELECT bucket_scores, outcome, symbol, timeframe
-        FROM signal_ledger
-        WHERE outcome IS NOT NULL
-          AND bucket_scores IS NOT NULL
-          AND is_shadow = FALSE
-        ORDER BY timestamp DESC
+        SELECT sl.bucket_scores, so.outcome, sl.symbol, sl.timeframe
+        FROM signal_ledger sl
+        LEFT JOIN signal_outcomes so USING (signal_id)
+        WHERE so.outcome IS NOT NULL
+            AND sl.bucket_scores IS NOT NULL
+            AND sl.is_shadow = FALSE
+        ORDER BY sl.timestamp DESC
         LIMIT 10000
         """)
     if not rows:
