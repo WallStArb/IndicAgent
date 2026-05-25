@@ -446,3 +446,63 @@ class TestPydanticPayloadGate:
         received = agent.parsed_args[0]
         assert isinstance(received, BaseModel)
         assert received.id == 42  # type: ignore[attr-defined]
+
+
+class TestTeardownAutoCloseGuards:
+    """Test 13: _teardown auto-closes _consumer, _pool, _db via hasattr/getattr guards."""
+
+    @pytest.mark.asyncio
+    async def test_teardown_stops_consumer(self):
+        """_teardown must call _consumer.stop() when _consumer is not None."""
+        agent = StubWriterAgent()
+        mock_consumer = AsyncMock()
+        agent._consumer = mock_consumer
+
+        await agent._teardown()
+
+        mock_consumer.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_closes_pool(self):
+        """_teardown must call _pool.close() when _pool is present on the subclass."""
+        agent = StubWriterAgent()
+        agent._consumer = AsyncMock()
+        mock_pool = AsyncMock()
+        agent._pool = mock_pool  # type: ignore[attr-defined]
+
+        await agent._teardown()
+
+        mock_pool.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_closes_db_manager(self):
+        """_teardown must call _db.close() when _db is present on the subclass."""
+        agent = StubWriterAgent()
+        agent._consumer = AsyncMock()
+        mock_db = AsyncMock()
+        agent._db = mock_db  # type: ignore[attr-defined]
+
+        await agent._teardown()
+
+        mock_db.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_teardown_consumer_close_exception_does_not_raise(self):
+        """_teardown must log and suppress exceptions from consumer.stop()."""
+        agent = StubWriterAgent()
+        mock_consumer = AsyncMock()
+        mock_consumer.stop.side_effect = RuntimeError("already closed")
+        agent._consumer = mock_consumer
+
+        # Must not raise
+        await agent._teardown()
+
+    @pytest.mark.asyncio
+    async def test_teardown_skips_none_consumer(self):
+        """_teardown must not call stop() when _consumer is None."""
+        agent = StubWriterAgent()
+        # _consumer is None by default in __init__
+        assert agent._consumer is None
+
+        # Must not raise
+        await agent._teardown()
