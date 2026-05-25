@@ -15,7 +15,6 @@ from src.observability.metrics import (
     PLUGIN_DURATION_MS,
     PLUGIN_ERRORS_TOTAL,
     PLUGIN_FALLBACK_TOTAL,
-    PLUGIN_FALLBACK_TOTAL_NEW,
     PLUGIN_OUTPUT_NULL_TOTAL,
     PLUGIN_SIGNAL_EMIT_TOTAL,
     PLUGIN_STATE_VALIDATION_ERRORS_TOTAL,
@@ -34,7 +33,6 @@ class PluginObserver:
         self._duration_hist = PLUGIN_DURATION_MS
         self._errors_counter = PLUGIN_ERRORS_TOTAL
         self._fallback_counter = PLUGIN_FALLBACK_TOTAL
-        self._fallback_counter_new = PLUGIN_FALLBACK_TOTAL_NEW
         self._warmup_skip_counter = PLUGIN_WARMUP_SKIP_TOTAL
         self._null_output_counter = PLUGIN_OUTPUT_NULL_TOTAL
         self._state_error_counter = PLUGIN_STATE_VALIDATION_ERRORS_TOTAL
@@ -62,12 +60,8 @@ class PluginObserver:
         """
         attrs = {"plugin_name": plugin_name, "tier": tier}
         self._duration_hist.record(duration_ms, attrs)
-        if used_incremental:
-            # Dual-emit: deprecated name + new canonical name
-            self._fallback_counter.add(0, attrs)  # no fallback — incremental path taken
-        else:
+        if not used_incremental:
             self._fallback_counter.add(1, attrs)
-            self._fallback_counter_new.add(1, attrs)
         if null_count > 0:
             self._null_output_counter.add(null_count, attrs)
 

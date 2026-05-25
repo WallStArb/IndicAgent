@@ -406,9 +406,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(plugin_fallbacks_total[5m])",
+          "expr": "rate(intelligence_pipeline_plugin_fallback_total[5m])",
           "refId": "A",
-          "legendFormat": "{{ plugin_name }} {{ reason }}"
+          "legendFormat": "{{ plugin_name }}"
         }
       ],
       "title": "Plugin Fallback Rate",

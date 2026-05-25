@@ -7,19 +7,11 @@ are the correct OTel instrument types with the expected names.
 from __future__ import annotations
 
 
-def test_plugin_fallback_total_renamed():
-    """intelligence_pipeline_plugin_fallback_total exists (renamed from plugin_fallbacks_total)."""
+def test_plugin_fallback_total_exists():
+    """intelligence_pipeline_plugin_fallback_total counter exists."""
     from src.observability.metrics import PLUGIN_FALLBACK_TOTAL
 
-    # The metric should still exist — now as dual-emit
     assert PLUGIN_FALLBACK_TOTAL is not None
-
-
-def test_plugin_fallback_total_new_name():
-    """intelligence_pipeline_plugin_fallback_total counter is exported."""
-    from src.observability.metrics import PLUGIN_FALLBACK_TOTAL_NEW
-
-    assert PLUGIN_FALLBACK_TOTAL_NEW is not None
 
 
 def test_plugin_warmup_skip_total():
