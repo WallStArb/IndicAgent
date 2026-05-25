@@ -60,13 +60,7 @@ def point_gauge(name: str, documentation: str):
 # Plugin pipeline metrics
 # ---------------------------------------------------------------------------
 
-# Dual-emit: old name retained for Grafana dashboards (plugin_fallbacks_total appears
-# in production/grafana/dashboards/pipeline-health.json). Remove old name in follow-on phase.
 PLUGIN_FALLBACK_TOTAL = _meter.create_counter(
-    "plugin_fallbacks_total",
-    description="[DEPRECATED] Plugin fallbacks to direct calculation. Use intelligence_pipeline_plugin_fallback_total.",
-)
-PLUGIN_FALLBACK_TOTAL_NEW = _meter.create_counter(
     "intelligence_pipeline_plugin_fallback_total",
     description="Plugin fallbacks to direct calculation",
 )
