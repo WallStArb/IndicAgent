@@ -176,12 +176,6 @@ class Settings(BaseSettings):
         validation_alias="SWARM_MAX_CONCURRENT_CALLS",
         description="Max concurrent LLM calls (asyncio.Semaphore capacity)",
     )
-    SWARM_QUEUE_TIMEOUT_MS: int = Field(
-        default=250,
-        validation_alias="SWARM_QUEUE_TIMEOUT_MS",
-        description="Deprecated — semaphore timeout removed (D-07). Kafka lag-skip is the backpressure valve. Setting retained for env-var compatibility.",
-    )
-
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
     # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
     # maximize labeled training data for Phase 49 ML. Phase 49 learns optimal thresholds
@@ -218,13 +212,6 @@ class Settings(BaseSettings):
     # ML/AI Foundation constants (Phase 56)
     # ---------------------------------------------------------------------------
     LLM_SEMANTIC_CACHE_SIZE: int = Field(default=500, description="SemanticCache LRU max entries")
-    LLM_RATE_LIMIT_RPM: int = Field(default=60, description="Default LLM requests per minute")
-    LLM_RATE_LIMIT_TPM: int = Field(default=100_000, description="Default LLM tokens per minute")
-
-    SHADOW_CORRELATION_THRESHOLD: float = Field(
-        default=0.4, description="Min Pearson rho for promotion"
-    )
-    SHADOW_MIN_SAMPLES: int = Field(default=100, description="Min N for promotion consideration")
 
     DATA_QUALITY_MIN_SCORE: float = Field(
         default=0.85, description="Min quality score to gate discovery"
@@ -235,11 +222,6 @@ class Settings(BaseSettings):
     ML_DISCOVERY_IC_THRESHOLD: float = Field(
         default=0.05, description="Min IC to include in report"
     )
-
-    MLFLOW_TRACKING_URI: str = Field(
-        default="http://localhost:5000", description="MLflow server URI"
-    )
-    LANGFUSE_HOST: str = Field(default="http://localhost:3010", description="LangFuse server URI")
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 

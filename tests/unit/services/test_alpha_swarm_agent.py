@@ -567,7 +567,6 @@ def _make_agent_with_mocks():  # type: ignore[return]
         SWARM_WEIGHT_MIN_SAMPLES=30,
         SWARM_WEIGHT_FLOOR=0.05,
         SWARM_MAX_CONCURRENT_CALLS=8,
-        SWARM_QUEUE_TIMEOUT_MS=250,
         env_name="test",
     )
     agent.logger = MagicMock()
