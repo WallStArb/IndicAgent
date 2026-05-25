@@ -76,6 +76,7 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.metrics import THREAD_POOL_WORKERS, counter
 from src.observability.plugin_observer import PluginObserver
+from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -488,6 +489,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._bar_history.append(bar)
         if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
             return
+        async with observed_span(
+            "pipeline.process_bar_inner",
+            **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
+        ):
+            await self._process_bar_compute(bar, t0=t0, gap=gap)
+
+    async def _process_bar_compute(self, bar: BarMessage, *, t0: float, gap: bool = False) -> None:
+        """Core I1-I7 compute and output routing — called from inside observed_span."""
         cache_snapshot = self._cache_mgr.snapshot()
         i1_start = time.perf_counter()
         try:
