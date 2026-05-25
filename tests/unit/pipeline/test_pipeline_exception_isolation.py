@@ -164,16 +164,16 @@ class TestExceptionIsolation:
 
         frames = {"main": MagicMock()}
 
-        with patch("src.intelligence.pipeline.executor.PLUGIN_ERRORS_TOTAL") as mock_errors:
-            await _run_i1_via_executor(agent, frames)
+        mock_observer = MagicMock()
+        agent._executor._observer = mock_observer
 
-        # OTel counter: .add(1, {"plugin_name": ..., "tier": "I1"}) must have been called
-        mock_errors.add.assert_called()
-        call_args = mock_errors.add.call_args_list
-        assert any(
-            len(a) >= 2 and a[0] == 1 and a[1].get("plugin_name") == failing_name
-            for a, _ in call_args
-        ), f"Expected add(1, {{plugin_name={failing_name!r}, ...}}) in {call_args}"
+        await _run_i1_via_executor(agent, frames)
+
+        mock_observer.record_error.assert_called()
+        call = mock_observer.record_error.call_args_list[0]
+        assert (
+            call.args[0] == failing_name
+        ), f"Expected plugin_name={failing_name!r}, got {call.args[0]!r}"
 
     @pytest.mark.asyncio
     async def test_plugin_duration_recorded_on_success(self):
@@ -185,18 +185,18 @@ class TestExceptionIsolation:
 
         frames = {"main": MagicMock()}
 
-        with patch("src.intelligence.pipeline.executor.PLUGIN_DURATION_MS") as mock_duration:
-            await _run_i1_via_executor(agent, frames)
+        mock_observer = MagicMock()
+        agent._executor._observer = mock_observer
 
-        # OTel histogram: .record(value, attrs) must have been called
-        mock_duration.record.assert_called()
-        call_args = mock_duration.record.call_args_list
-        assert len(call_args) >= 1, "record() was never called"
-        duration_value = call_args[0][0][0]
+        await _run_i1_via_executor(agent, frames)
+
+        mock_observer.record_result.assert_called()
+        call = mock_observer.record_result.call_args_list[0]
+        duration_ms = call.args[2]
         assert isinstance(
-            duration_value, (int, float)
-        ), f"Expected numeric duration, got {type(duration_value)}"
-        assert duration_value >= 0, f"Duration must be non-negative, got {duration_value}"
+            duration_ms, (int, float)
+        ), f"Expected numeric duration, got {type(duration_ms)}"
+        assert duration_ms >= 0, f"Duration must be non-negative, got {duration_ms}"
 
     @pytest.mark.asyncio
     async def test_partial_output_propagates_to_downstream(self):

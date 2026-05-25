@@ -155,8 +155,7 @@ class TestFlushGroupsByType:
                 _make_transition("exit", "sig-002"),
             ]
         )
-        with pytest.raises(Exception, match="db down"):
-            await agent._do_flush()
+        await agent._do_flush()
         # Buffer should NOT be cleared on error
         assert len(agent._buffer) == 2
 

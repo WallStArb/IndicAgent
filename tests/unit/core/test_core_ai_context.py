@@ -213,10 +213,9 @@ class TestAIContextCache:
             "tf": "5m",
             "ts": datetime.now(),
             "bar": {"close": 4500.0, "volume": 1000},
-            "i1": {"atr_14": 10.0, "adx_14": 25.0},
-            "i4": {"trend_regime": 0.8},
-            "i6": {"ctf_score": 0.7},
-            "i7": None,
+            "technical_indicators": {"atr_14": 10.0, "adx_14": 25.0},
+            "regime_features": {"trend_regime": 0.8},
+            "cross_timeframe_context": {"ctf_score": 0.7},
         }
 
         cache.seed_from_db_row(row)

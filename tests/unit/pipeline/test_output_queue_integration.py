@@ -108,9 +108,10 @@ async def test_drain_loop_calls_task_done_on_publish_exception() -> None:
     def running_fn() -> bool:
         return not q._queue.empty()
 
-    await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
+    with pytest.raises(RuntimeError, match="kafka down"):
+        await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
 
-    # Queue should be fully drained (task_done called)
+    # Queue should be fully drained (task_done called before exception surfaced)
     # If task_done was NOT called, join() would hang forever
     await asyncio.wait_for(q._queue.join(), timeout=1.0)
 

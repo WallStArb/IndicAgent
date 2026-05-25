@@ -68,12 +68,12 @@ def _signal_row(overrides=None):
         "timestamp": datetime.now(UTC),
         "feature_tf": "15m",
         "bar": {"o": 5400.0, "h": 5410.0, "l": 5395.0, "c": 5405.0, "v": 12345},
-        "i1": {},
-        "i3": None,
-        "i4": {},
-        "i5": None,
+        "technical_indicators": {},
+        "pattern_detections": None,
+        "regime_features": {},
+        "confluence_scores": None,
         "smc": None,
-        "i6": None,
+        "cross_timeframe_context": None,
     }
     base.update(overrides or {})
     return base
@@ -290,9 +290,9 @@ class TestBuildContext:
 
         row = _signal_row(
             {
-                "i1": {"rsi_14": 55.2},
-                "i3": None,
-                "i4": None,
+                "technical_indicators": {"rsi_14": 55.2},
+                "pattern_detections": None,
+                "regime_features": None,
             }
         )
 

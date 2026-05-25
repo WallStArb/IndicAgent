@@ -199,8 +199,7 @@ class TestOffsetCommit:
         agent._flush_batch = failing_flush  # type: ignore[assignment]
         agent._buffer.extend([{"id": 1}])
 
-        with pytest.raises(RuntimeError, match="DB down"):
-            await agent._do_flush()
+        await agent._do_flush()
 
         # Buffer should NOT be cleared (left intact for retry)
         assert len(agent._buffer) == 1
@@ -321,8 +320,7 @@ class TestFlushLatencyMetrics:
         mock_errors = MagicMock()
         agent._flush_errors_total = mock_errors
 
-        with pytest.raises(RuntimeError):
-            await agent._do_flush()
+        await agent._do_flush()
 
         # Buffer should NOT be cleared (left intact for retry)
         assert len(agent._buffer) == 1
