@@ -1,7 +1,9 @@
 # Ideas
 Rough captures — no structure required, no commitment needed to add here.
-When ready to flesh out: create `docs/ideas/<topic>.md` with frontmatter (Status/Priority/Milestone) and link from here.
-When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`.
+When ready to flesh out: create `docs/ideas/<topic>.md` and link from here.
+When actionable (clear problem + solution): create `.planning/todos/pending/<n>-<topic>.md`.
+When ready to build: assign to a milestone in `ROADMAP.md` → `/gsd-plan-phase`.
+Full planning system: `.planning/PLANNING-SYSTEM.md`.
 
 ---
 - **TradeAgent — Autonomous trading app** — see `docs/ideas/tradeagent-vision.md`. Separate app consuming IndicAgent; multi-tenant; LLM lead + guardrails; broker-agnostic (MCP); trade linkage (groups, options+equities); learning/self-improvement; observability, HITL, security; agent dashboards. Vision/ideas only; not on IndicAgent roadmap.
@@ -28,6 +30,7 @@ When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`
 - **Qualitative Intelligence Layer** — non-price data integration (earnings, macro events, news sentiment). See `docs/ideas/qualitative-intelligence-layer.md` and implementation plan `docs/plans/2026-05-02-unified-intelligence-design.md`. Tracked as todos 012-016.
 - **Unified Intelligence Fabric** — transition from linear quant-only TA engine to multi-domain intelligence fabric. See `docs/plans/2026-05-02-unified-intelligence-design.md`. Tracked as todo 017.
 - **DerivAgent — Derivatives Intelligence** — volatility surface, GEX, VANNA/CHARM, VRP. Full options intelligence vision. See `docs/ideas/derivagent-vision.md`.
+- **Macro & Cross-Asset Intelligence** — wire existing ftq_score/yield_curve_slope/corr_z into I4Context and intelligence_features; add thin I4 plugins; regime-segment setup_performance; extend with stock-bond correlation + VX term structure services. See `docs/ideas/macro-cross-asset-intelligence-improvements.md`. Tracked as todo 018.
 - **Renaissance I7/I8 Refinement** — 105 ideas across 48 sections: alpha decay, hidden alpha, regime intelligence, adaptive learning, information theory, neural intelligence. See `docs/ideas/renaissance-i7-i8-refinement.md`.
 - **Future Indicators Backlog** — Tracks B/C: I3 structure enhancements (SR zones, swing magnitude, trend structure), momentum composite (EMA stack score, golden/death cross, ADX qualification). See `docs/ideas/future-indicators-backlog.md`.
 - **Timeframe Cascade Strategy** — multi-TF trade management: micro entry (1m) → momentum hold (5m) → trend capture (15m/30m) → swing hold (1h/4h) → position hold (1d). See `docs/ideas/timeframe-cascade-strategy.md`.
