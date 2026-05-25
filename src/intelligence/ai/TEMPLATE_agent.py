@@ -75,7 +75,8 @@ class TemplateComputeAgent(BaseMultiplierAgent):
         )
 
         prompt = build_template_prompt(context)
-        response = await self._llm.generate(
+        response, call_id = await self._llm_generate(
+            context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
             max_tokens=500,
@@ -86,6 +87,7 @@ class TemplateComputeAgent(BaseMultiplierAgent):
 
         parsed = self._parse_multiplier_response(response, _validate_template_fields)
         if parsed is None:
+            await self._report_parse_failure(call_id)
             logger.warning(
                 "template_agent.json_parse_failed",
                 agent_id=self.agent_id,
