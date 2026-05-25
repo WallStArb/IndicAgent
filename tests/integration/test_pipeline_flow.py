@@ -30,7 +30,7 @@ async def get_connection():
     return await asyncpg.connect(DB_URL)
 
 
-async def test_timescaledb_connectable():
+async def _test_timescaledb_connectable():
     """TimescaleDB is reachable and responsive."""
     conn = await get_connection()
     try:
@@ -40,7 +40,7 @@ async def test_timescaledb_connectable():
         await conn.close()
 
 
-async def test_intelligence_features_has_recent_data():
+async def _test_intelligence_features_has_recent_data():
     """intelligence_features hypertable has data from last hour."""
     conn = await get_connection()
     try:
@@ -54,7 +54,7 @@ async def test_intelligence_features_has_recent_data():
         await conn.close()
 
 
-async def test_signal_ledger_has_recent_data():
+async def _test_signal_ledger_has_recent_data():
     """signal_ledger has data from last hour."""
     conn = await get_connection()
     try:
@@ -68,7 +68,7 @@ async def test_signal_ledger_has_recent_data():
         await conn.close()
 
 
-async def test_market_data_ohlcv_has_recent_data():
+async def _test_market_data_ohlcv_has_recent_data():
     """market_data_ohlcv has data from last hour (live bars flowing)."""
     conn = await get_connection()
     try:
@@ -82,7 +82,7 @@ async def test_market_data_ohlcv_has_recent_data():
         await conn.close()
 
 
-async def test_jsonb_not_double_serialized():
+async def _test_jsonb_not_double_serialized():
     """JSONB columns contain structured data, not escaped strings."""
     conn = await get_connection()
     try:
@@ -114,7 +114,7 @@ async def test_jsonb_not_double_serialized():
         await conn.close()
 
 
-async def test_signal_ledger_schema_columns_exist():
+async def _test_signal_ledger_schema_columns_exist():
     """signal_ledger has all expected schema columns."""
     conn = await get_connection()
     try:
@@ -134,7 +134,7 @@ async def test_signal_ledger_schema_columns_exist():
         await conn.close()
 
 
-async def test_intelligence_features_schema_columns_exist():
+async def _test_intelligence_features_schema_columns_exist():
     """intelligence_features has all expected schema columns."""
     conn = await get_connection()
     try:
@@ -156,34 +156,34 @@ async def test_intelligence_features_schema_columns_exist():
 
 def test_timescaledb_connectable_sync():
     """Sync wrapper for TimescaleDB connectivity test."""
-    return asyncio.run(test_timescaledb_connectable())
+    return asyncio.run(_test_timescaledb_connectable())
 
 
 def test_intelligence_features_has_recent_data_sync():
     """Sync wrapper for intelligence_features freshness test."""
-    return asyncio.run(test_intelligence_features_has_recent_data())
+    return asyncio.run(_test_intelligence_features_has_recent_data())
 
 
 def test_signal_ledger_has_recent_data_sync():
     """Sync wrapper for signal_ledger freshness test."""
-    return asyncio.run(test_signal_ledger_has_recent_data())
+    return asyncio.run(_test_signal_ledger_has_recent_data())
 
 
 def test_market_data_ohlcv_has_recent_data_sync():
     """Sync wrapper for market_data_ohlcv freshness test."""
-    return asyncio.run(test_market_data_ohlcv_has_recent_data())
+    return asyncio.run(_test_market_data_ohlcv_has_recent_data())
 
 
 def test_jsonb_not_double_serialized_sync():
     """Sync wrapper for JSONB integrity test."""
-    return asyncio.run(test_jsonb_not_double_serialized())
+    return asyncio.run(_test_jsonb_not_double_serialized())
 
 
 def test_signal_ledger_schema_columns_exist_sync():
     """Sync wrapper for signal_ledger schema test."""
-    return asyncio.run(test_signal_ledger_schema_columns_exist())
+    return asyncio.run(_test_signal_ledger_schema_columns_exist())
 
 
 def test_intelligence_features_schema_columns_exist_sync():
     """Sync wrapper for intelligence_features schema test."""
-    return asyncio.run(test_intelligence_features_schema_columns_exist())
+    return asyncio.run(_test_intelligence_features_schema_columns_exist())
