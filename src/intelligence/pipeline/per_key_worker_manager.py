@@ -80,6 +80,13 @@ class PerKeyWorkerManager:
                 continue
             try:
                 await self._processor(bar)
+            except TimeoutError:
+                # enqueue_blocking timed out — _drops counter already incremented in output_queue
+                self._logger.warning(
+                    "per_key_worker.enqueue_timeout",
+                    symbol=key[0],
+                    tf=key[1],
+                )
             except Exception as exc:
                 self._logger.error(
                     "per_key_worker_error",

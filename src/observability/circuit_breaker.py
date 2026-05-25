@@ -26,6 +26,8 @@ try:
         description="Plugin circuit breaker state (0=closed, 1=open, 2=half_open)",
     )
 except Exception:
+    # OTel not available (e.g. unit tests without a real provider) — state transitions
+    # are still logged via structlog; only the gauge metric is silently absent.
     _cb_state_gauge = None  # type: ignore[assignment]
 
 _STATE_VALUE = {

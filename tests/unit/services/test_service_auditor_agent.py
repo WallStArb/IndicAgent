@@ -244,39 +244,30 @@ async def test_oneshot_units_not_restarted():
     restart_mock.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_stall_loop_skips_oneshot_units():
-    """Stall-loop restart path also skips oneshot units."""
+def test_stall_loop_skips_oneshot_units():
+    """Stall-loop restart path skips oneshot units — verified in production code."""
+    import inspect
+
+    import services.service_auditor_agent as svc_mod
     from services.service_auditor_agent import _ONESHOT_UNITS
 
-    agent = _make_agent()
-    restart_mock = AsyncMock()
-    agent._restart_service_by_unit = restart_mock
+    source = inspect.getsource(svc_mod.ServiceAuditorAgent._prometheus_check_loop)
+    assert (
+        "if unit in _ONESHOT_UNITS" in source
+    ), "_prometheus_check_loop must guard the stall restart path"
+    assert (
+        "continue" in source
+    ), "_prometheus_check_loop must skip (continue) oneshot units in stall loop"
 
-    # Simulate stall detection returning an oneshot unit
-    oneshot_unit = "indicagent-ml-training"
-    assert oneshot_unit in _ONESHOT_UNITS
-
-    # Reproduce the stall loop guard: if unit in _ONESHOT_UNITS: continue
-    stalled_units = [oneshot_unit]
-    for unit in stalled_units:
-        if unit in _ONESHOT_UNITS:
-            continue
-        await agent._restart_service_by_unit(unit)
-
-    restart_mock.assert_not_awaited()
+    assert "indicagent-ml-training" in _ONESHOT_UNITS
 
 
 def test_lag_thresholds_cover_consumers():
     """graduation-compute and roll-compute are in _LAG_THRESHOLDS."""
     from services.service_auditor_agent import _LAG_THRESHOLDS
 
-    assert (
-        "indicagent-graduation-compute" in _LAG_THRESHOLDS or True
-    )  # graduation-compute may not be a Kafka consumer
-    assert (
-        "indicagent-roll-compute" in _LAG_THRESHOLDS or True
-    )  # roll-compute may not be a Kafka consumer
+    assert "indicagent-graduation-compute" in _LAG_THRESHOLDS
+    assert "indicagent-roll-compute" in _LAG_THRESHOLDS
     # graduation-writer and signal-metrics-writer ARE Kafka consumers
     assert "indicagent-graduation-writer" in _LAG_THRESHOLDS
     assert "indicagent-signal-metrics-writer" in _LAG_THRESHOLDS

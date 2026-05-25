@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 # Per-tier latency histogram (106-04)
 # ---------------------------------------------------------------------------
 
+# Local meter ref to avoid circular import with src.observability.metrics; OTel deduplicates by name.
 _meter = otel_metrics.get_meter("indicagent")
 INTELLIGENCE_PIPELINE_TIER_LATENCY_MS = _meter.create_histogram(
     "intelligence_pipeline_tier_latency_ms",
