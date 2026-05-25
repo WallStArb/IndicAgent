@@ -831,7 +831,7 @@ Plans:
 - [x] 106-04-PLAN.md — Queue backpressure (enqueue_blocking for intel/journal), PluginStateManager O(1) index, process_bar_inner span
 
 **Wave 2** *(blocked on 106-04 + 105-03/105-04 for shared intelligence_pipeline_agent.py)*
-- [ ] 106-05-PLAN.md — PluginCircuitBreaker wiring: populate circuit_breakers dict, shadow-mode enabled flag, OTel state gauge
+- [x] 106-05-PLAN.md — PluginCircuitBreaker wiring: populate circuit_breakers dict, shadow-mode enabled flag, OTel state gauge
 
 **Wave 3** *(blocked on all code changes)*
 - [ ] 106-06-PLAN.md — Regression tests: oneshot guard, state index parity, breaker wiring, backpressure; full suite green
@@ -1157,7 +1157,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 100.5. Plugin Infrastructure Hardening | v2.7 | 1/1 | Complete | 2026-05-22 |
 | 104. Storage Architecture Redesign | v2.7 | 4/4 | Complete | 2026-05-22 |
 | 105. Architecture Hotfix Sprint | Pre-v2.8 | 5/5 | Complete | 2026-05-24 |
-| 106. Foundation Hardening | v2.8 | 4/6 | In Progress|  |
+| 106. Foundation Hardening | v2.8 | 5/6 | In Progress|  |
 | 107. Infrastructure Hygiene | v2.8 | 0/TBD | Not started | - |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
