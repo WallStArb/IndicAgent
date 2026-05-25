@@ -80,7 +80,7 @@ class OutputQueue:
         try:
             self._queue.put_nowait((topic, key, value))
         except asyncio.QueueFull:
-            self._drops.add(1)
+            self._drops.add(1, {"reason": "queue_full"})
 
     async def enqueue_blocking(
         self, topic: str, key: str, value: Any, *, timeout_sec: float | None = None
@@ -106,7 +106,7 @@ class OutputQueue:
             try:
                 await asyncio.wait_for(self._queue.put((topic, key, value)), timeout=timeout_sec)
             except TimeoutError:
-                self._drops.add(1)
+                self._drops.add(1, {"reason": "enqueue_timeout"})
                 raise
         else:
             await self._queue.put((topic, key, value))

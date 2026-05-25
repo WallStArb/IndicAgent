@@ -364,6 +364,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.warning("bar_history.seed_failed", error=str(exc))
 
     async def _run(self) -> None:
+        # drain_task is always gathered below; no need to also track in _background_tasks
         drain_task = asyncio.create_task(self._out_queue.drain_loop(lambda: self.running))
         tasks = [
             asyncio.create_task(self._process_loop()),
