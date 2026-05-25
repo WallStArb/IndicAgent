@@ -26,6 +26,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
+from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import TF_SECONDS, topic_lifecycle_transitions
@@ -66,7 +67,12 @@ class SignalReplayAuditorAgent:
         self._last_unresolved_count: int = 0
 
     async def _setup(self) -> None:
-        self._pool = await asyncpg.create_pool(self._settings.database_url, min_size=1, max_size=3)
+        self._pool = await create_db_pool(
+            self._settings.database_url,
+            pool_name="signal_replay_auditor",
+            min_size=1,
+            max_size=3,
+        )
         self._producer = KafkaProducerClient(
             bootstrap_servers=self._settings.kafka_bootstrap_servers
         )
