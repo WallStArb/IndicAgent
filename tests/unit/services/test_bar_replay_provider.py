@@ -21,11 +21,11 @@ from src.core.stream_keys import topic_market_bars, topic_market_bars_htf
 def _make_agent() -> BarReplayProviderAgent:
     agent = BarReplayProviderAgent.__new__(BarReplayProviderAgent)
     agent._log = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = "test"
+    agent.settings = MagicMock()
+    agent.settings.env_name = "test"
     agent._producer = AsyncMock()
     agent._pool = AsyncMock()
-    agent._stop = asyncio.Event()
+    agent._stop_event = asyncio.Event()
     agent._last_replayed_ts = None
     agent._rate_bps = 10.0
     return agent
@@ -48,7 +48,7 @@ def _row(timeframe: str) -> dict:
 async def test_bar_replay_topic_routing() -> None:
     """1m bars → topic_market_bars; HTF bars → topic_market_bars_htf."""
     agent = _make_agent()
-    env = agent._settings.env_name  # "test"
+    env = agent.settings.env_name  # "test"
 
     await agent._publish_bar(_row("1m"))
     first_call_topic = agent._producer.publish.call_args_list[-1][0][0]

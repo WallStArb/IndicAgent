@@ -270,7 +270,9 @@ class ServiceAuditorAgent(BaseAgent):
         return self._topics_produced
 
     async def _setup(self) -> None:
-        self._db_pool = await create_db_pool(self.settings.database_url, min_size=1, max_size=3)
+        self._db_pool = await create_db_pool(
+            self.settings.database_url, pool_name="service_auditor", min_size=1, max_size=3
+        )
         self._http_session = aiohttp.ClientSession()
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
