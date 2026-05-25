@@ -437,7 +437,7 @@ class SignalReplayAuditorAgent:
     async def _cycle(self) -> None:
         rows = await self._fetch_unresolved()
         total = len(rows)
-        SIGNAL_REPLAY_ATTEMPTED_TOTAL.inc(total)
+        SIGNAL_REPLAY_ATTEMPTED_TOTAL.add(total)
         self._log.info("replay_cycle_start", total_candidates=total)
 
         for row in rows:
