@@ -101,10 +101,13 @@ class OutputQueue:
                          contexts that are guaranteed to be cancelled before shutdown.
         """
         if self._queue.full():
-            self._drops.add(1)
             self._logger.warning("output_queue.full_blocking")
         if timeout_sec is not None:
-            await asyncio.wait_for(self._queue.put((topic, key, value)), timeout=timeout_sec)
+            try:
+                await asyncio.wait_for(self._queue.put((topic, key, value)), timeout=timeout_sec)
+            except TimeoutError:
+                self._drops.add(1)
+                raise
         else:
             await self._queue.put((topic, key, value))
 

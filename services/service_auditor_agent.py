@@ -104,7 +104,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-api": 10,  # priority 10: always-on top-level; no upstream ordering constraint
     "indicagent-dashboard": 10,  # priority 10: always-on top-level; no upstream ordering constraint
     # Layer 9 — meta: monitors and restarts all of the above
-    "indicagent-service-auditor": 10,  # priority 10: meta-monitor; last to restart
+    "indicagent-service-auditor": 11,  # priority 11: meta-monitor; must be uniquely highest so it never shares a restart wave with the services it monitors
 }
 
 # Lag thresholds per service (0 = not a Kafka consumer)
@@ -173,6 +173,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 # correct — the audit D-10 priority-3 suggestion assumes a daemon restart model that does not apply).
 _ONESHOT_UNITS: frozenset[str] = frozenset(
     {
+        "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
         "indicagent-weight-updater",
         "indicagent-shadow-auditor",
         "indicagent-ml-orchestrator",

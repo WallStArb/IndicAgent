@@ -499,7 +499,7 @@ class BaseAgent(abc.ABC):
             except Exception as exc:
                 if attempt == self.SETUP_RETRY_ATTEMPTS - 1:
                     raise
-                backoff = self.SETUP_RETRY_BACKOFF_S**attempt
+                backoff = self.SETUP_RETRY_BACKOFF_S * (2**attempt)
                 AGENT_SETUP_RETRIES_TOTAL.add(1, self._cb_attrs)
                 self.logger.warning(
                     "agent.setup_retry",

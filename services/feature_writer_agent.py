@@ -267,7 +267,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             "feature_writer_parse_errors_total",
             "Total BarIntelligenceRecord parse failures",
         )
-        self._batch_latency_attrs = {"agent_id": "feature_writer"}
+        self._batch_latency_attrs = {"agent_id": "feature_writer_agent"}
 
         self._total_events = 0
         self._total_batches = 0
@@ -338,7 +338,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         self._total_batches += 1
         self.events_buffered_gauge.set(0)
         # Single authoritative lag update after flush (not duplicated before + after)
-        PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer"})
+        PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer_agent"})
         self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
 
     async def _setup(self) -> None:
@@ -529,7 +529,9 @@ class FeatureWriterAgent(BaseWriterAgent):
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
-                PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), {"agent_id": "feature_writer"})
+                PERSISTENCE_CONSUMER_LAG.set(
+                    len(self._buffer), {"agent_id": "feature_writer_agent"}
+                )
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",
