@@ -18,13 +18,15 @@ _ALLOWED_TABLES: frozenset[str] = frozenset({"intelligence_features", "feature_s
 _INSERT_SQL_TEMPLATE = """
 INSERT INTO {table} (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i2, i3, i4, i5, smc, i6, i7,
+    bar, technical_indicators, market_context, pattern_detections, regime_features,
+    confluence_scores, smc, cross_timeframe_context, trading_signals,
     bar_close_ts, i1_computed_at, computed_at,
     winner_plugin, winner_confidence, winner_direction,
     signals_evaluated, signals_after_quality, signals_after_regime,
     signals_after_tod, signals_after_calibration,
     ledger_written, pipeline_latency_ms,
-    i7_computed_at, session_type, days_to_expiry
+    i7_computed_at, session_type, days_to_expiry,
+    ctx
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
@@ -35,7 +37,11 @@ VALUES (
     $22, $23, $24,
     $25, $26,
     $27, $28,
-    $29, $30, $31
+    $29, $30, $31,
+    (SELECT jsonb_object_agg(event_type, ctx ORDER BY event_type)
+     FROM ctx_snapshots
+     WHERE (symbol = $2 OR symbol IS NULL)
+       AND tf = $3)
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """

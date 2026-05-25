@@ -37,38 +37,32 @@ class CrossTierValidator:
         """
         query = """
             SELECT
-                i1->>'atr_14' as i1_atr,
-                i4->>'volatility' as i4_volatility
+                (technical_indicators->>'atr_14')::float AS atr_value,
+                (regime_features->>'volatility')::float AS volatility_value
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
-              AND ts > NOW() - INTERVAL '24 hours'
+                AND ts > NOW() - INTERVAL '24 hours'
+                AND technical_indicators ? 'atr_14'
+                AND regime_features ? 'volatility'
         """
 
         rows = await self.db.fetch(query, symbol, tf)
 
-        # Extract arrays (skip nulls)
-        i1_atr = np.array([float(r["i1_atr"]) for r in rows if r["i1_atr"] is not None])
-        i4_vol = np.array(
-            [float(r["i4_volatility"]) for r in rows if r["i4_volatility"] is not None]
-        )
+        atr_values = np.array([r["atr_value"] for r in rows])
+        vol_values = np.array([r["volatility_value"] for r in rows])
 
         # Compute correlation
-        if len(i1_atr) > 0 and len(i4_vol) > 0:
-            min_len = min(len(i1_atr), len(i4_vol))
-            if min_len > 1:
-                corr_matrix = np.corrcoef(i1_atr[:min_len], i4_vol[:min_len])
-                corr = corr_matrix[0, 1]
-            else:
-                corr = np.nan
+        n_samples = len(atr_values)
+        if n_samples > 1:
+            corr = np.corrcoef(atr_values, vol_values)[0, 1]
         else:
             corr = np.nan
-            min_len = 0
 
         result = {
             "i1_atr_i4_volatility_correlation": float(corr) if not np.isnan(corr) else 0.0,
             "expected_min": 0.5,
             "passed": bool(corr >= 0.5) if not np.isnan(corr) else False,
-            "samples": min_len,
+            "samples": n_samples,
         }
 
         # Persist
@@ -98,7 +92,7 @@ class CrossTierValidator:
             Dict with completeness rate and pass/fail status
         """
         query = """
-            SELECT i6, i7
+            SELECT cross_timeframe_context, trading_signals
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ts > NOW() - INTERVAL '24 hours'
@@ -119,7 +113,7 @@ class CrossTierValidator:
         ]
 
         for row in rows:
-            i6 = row.get("i6", {})
+            i6 = row.get("cross_timeframe_context", {})
             if not isinstance(i6, dict):
                 continue
 
@@ -173,13 +167,13 @@ class CrossTierValidator:
         """
         query = """
             SELECT
-                i4->>'regime' as i4_regime,
-                i7
+                regime_features->>'regime' AS i4_regime,
+                trading_signals
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
-              AND i4->>'regime' IS NOT NULL
-              AND i7 IS NOT NULL
-              AND ts > NOW() - INTERVAL '24 hours'
+                AND regime_features->>'regime' IS NOT NULL
+                AND jsonb_array_length(trading_signals) > 0
+                AND ts > NOW() - INTERVAL '24 hours'
         """
 
         rows = await self.db.fetch(query, symbol, tf)
@@ -189,7 +183,7 @@ class CrossTierValidator:
 
         for row in rows:
             i4_regime = row["i4_regime"]
-            i7_signals = row.get("i7", [])
+            i7_signals = row["trading_signals"]
 
             if not isinstance(i7_signals, list):
                 continue
