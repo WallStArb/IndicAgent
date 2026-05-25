@@ -10,18 +10,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import signal
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import asyncpg
 import structlog
 
 from src.config.settings import Settings
+from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import (
     TF_SECONDS,  # noqa: F401 — confirms Plan 02 dependency satisfied
     topic_market_bars,
@@ -38,7 +36,7 @@ BATCH_SIZE = 1000
 DEFAULT_RATE_BPS = float(os.environ.get("BAR_REPLAY_BARS_PER_SEC", "10"))
 
 
-class BarReplayProviderAgent:
+class BarReplayProviderAgent(BaseAgent):
     """One-shot L1 provider that replays market_data_ohlcv into the pipeline.
 
     Publishes 1m bars to topic_market_bars and HTF bars to topic_market_bars_htf,
@@ -49,25 +47,23 @@ class BarReplayProviderAgent:
     agent_id = "bar_replay_provider"
 
     def __init__(self) -> None:
-        self._log = structlog.get_logger(self.agent_id)
-        self._settings = Settings()
+        super().__init__(name="bar_replay_provider", max_idle_seconds=300)
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
-        self._stop = asyncio.Event()
         self._last_replayed_ts: datetime | None = None
         self._rate_bps = DEFAULT_RATE_BPS
 
     async def _setup(self) -> None:
         self._pool = await create_db_pool(
-            self._settings.database_url,
+            self.settings.database_url,
             pool_name="bar_replay_provider",
         )
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._producer.start()
         self._last_replayed_ts = self._load_checkpoint()
-        self._log.info(
+        self.logger.info(
             "bar_replay_provider.setup_complete",
             resume_from=self._last_replayed_ts.isoformat() if self._last_replayed_ts else None,
             rate_bps=self._rate_bps,
@@ -86,7 +82,7 @@ class BarReplayProviderAgent:
             data = json.loads(CHECKPOINT_PATH.read_text())
             return datetime.fromisoformat(data["last_replayed_ts"])
         except Exception as exc:
-            self._log.warning("checkpoint_load_failed", error=str(exc))
+            self.logger.warning("checkpoint_load_failed", error=str(exc))
             return None
 
     def _save_checkpoint(self, ts: datetime) -> None:
@@ -129,13 +125,13 @@ class BarReplayProviderAgent:
 
     async def _run(self) -> None:
         sleep_per_bar = 1.0 / max(self._rate_bps, 0.001)
-        while not self._stop.is_set():
+        while self.running:
             rows = await self._fetch_batch(self._last_replayed_ts)
             if not rows:
-                self._log.info("bar_replay_drained_zero_rows")
+                self.logger.info("bar_replay_drained_zero_rows")
                 return
             for row in rows:
-                if self._stop.is_set():
+                if self._stop_event.is_set():
                     return
                 await self._publish_bar(row)
                 self._last_replayed_ts = row["timestamp"]
@@ -147,29 +143,24 @@ class BarReplayProviderAgent:
 
             # Self-termination: caught up to within 5 minutes of now
             if datetime.now(UTC) - self._last_replayed_ts <= CATCH_UP_THRESHOLD:
-                self._log.info(
+                self.logger.info(
                     "bar_replay_caught_up",
                     last_replayed_ts=self._last_replayed_ts.isoformat(),
                 )
                 BAR_REPLAY_PROVIDER_LAG_SECONDS.add(0.0)
                 return
 
-    def _install_signals(self) -> None:
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._stop.set)
+    async def _teardown(self) -> None:
+        # Save checkpoint on shutdown for one-shot batch service
+        if self._last_replayed_ts:
+            self._save_checkpoint(self._last_replayed_ts)
+        # Then call parent teardown for producer/pool cleanup
+        await super()._teardown()
 
     async def main(self) -> int:
-        setup_service_logging("logs/bar_replay_provider_agent.log")
-        self._install_signals()
-        await self._setup()
-        try:
-            await self._run()
-        finally:
-            if self._last_replayed_ts:
-                self._save_checkpoint(self._last_replayed_ts)
-            await self._teardown()
-        return 0
+        await self.start()
+        # Self-terminate with exit code 0 on completion (one-shot batch service)
+        sys.exit(0)
 
 
 if __name__ == "__main__":

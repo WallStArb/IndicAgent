@@ -16,19 +16,17 @@ North-star metric: signal_replay_unresolved_gauge == 0.
 from __future__ import annotations
 
 import asyncio
-import signal
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-import asyncpg
 import structlog
 
 from src.config.settings import Settings
+from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import TF_SECONDS, topic_lifecycle_transitions
 
 # Reuse the live tracker's evaluators — never duplicate evaluation logic.
@@ -53,31 +51,29 @@ from src.persistence.repository.signal_ledger_repository import SignalStatus
 REPLAY_INTERVAL_SECONDS = 300  # 5-minute audit cycle
 
 
-class SignalReplayAuditorAgent:
+class SignalReplayAuditorAgent(BaseAgent):
     """L9 periodic: recovers outcome labels for v1 signals the live tracker missed."""
 
     agent_id = "signal_replay_auditor"
 
     def __init__(self) -> None:
-        self._log = structlog.get_logger(self.agent_id)
-        self._settings = Settings()
+        super().__init__(name="signal_replay_auditor", max_idle_seconds=600)
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
-        self._stop = asyncio.Event()
         self._last_unresolved_count: int = 0
 
     async def _setup(self) -> None:
         self._pool = await create_db_pool(
-            self._settings.database_url,
+            self.settings.database_url,
             pool_name="signal_replay_auditor",
             min_size=1,
             max_size=3,
         )
         self._producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
         )
         await self._producer.start()
-        self._log.info("signal_replay_auditor.started")
+        self.logger.info("signal_replay_auditor.started")
 
     async def _teardown(self) -> None:
         if self._producer:
@@ -172,7 +168,7 @@ class SignalReplayAuditorAgent:
         bars = await self._fetch_window_bars(row["symbol"], tf, start_ts, end_ts)
         if not bars:
             SIGNAL_REPLAY_OHLCV_GAP_TOTAL.add(1, {"symbol": row["symbol"], "timeframe": tf})
-            self._log.warning(
+            self.logger.warning(
                 "replay_ohlcv_gap",
                 signal_id=str(row["signal_id"]),
                 symbol=row["symbol"],
@@ -192,7 +188,7 @@ class SignalReplayAuditorAgent:
             outcome_str = zone_transition.data.get("outcome") or "unknown"
             SIGNAL_REPLAY_RESOLVED_TOTAL.add(1, {"outcome": outcome_str})
             resolved = True
-            self._log.info(
+            self.logger.info(
                 "replay_zone_resolved",
                 signal_id=str(row["signal_id"]),
                 outcome=outcome_str,
@@ -438,7 +434,7 @@ class SignalReplayAuditorAgent:
         rows = await self._fetch_unresolved()
         total = len(rows)
         SIGNAL_REPLAY_ATTEMPTED_TOTAL.add(total)
-        self._log.info("replay_cycle_start", total_candidates=total)
+        self.logger.info("replay_cycle_start", total_candidates=total)
 
         for row in rows:
             if self._stop.is_set():
@@ -452,7 +448,7 @@ class SignalReplayAuditorAgent:
             try:
                 await self._replay_signal(row)
             except Exception as exc:
-                self._log.exception(
+                self.logger.exception(
                     "replay_signal_failed",
                     signal_id=str(row["signal_id"]),
                     error=str(exc),
@@ -463,32 +459,21 @@ class SignalReplayAuditorAgent:
         delta = cnt - self._last_unresolved_count
         SIGNAL_REPLAY_UNRESOLVED_GAUGE.add(float(delta))
         self._last_unresolved_count = cnt
-        self._log.info("replay_cycle_complete", unresolved_gauge=cnt)
+        self.logger.info("replay_cycle_complete", unresolved_gauge=cnt)
 
     async def _run(self) -> None:
-        while not self._stop.is_set():
+        while self.running:
             try:
                 await self._cycle()
             except Exception as exc:
-                self._log.exception("replay_cycle_failed", error=str(exc))
+                self.logger.exception("replay_cycle_failed", error=str(exc))
             try:
-                await asyncio.wait_for(self._stop.wait(), timeout=REPLAY_INTERVAL_SECONDS)
+                await asyncio.wait_for(self._stop_event.wait(), timeout=REPLAY_INTERVAL_SECONDS)
             except TimeoutError:
                 pass  # Normal — wake up for next cycle
 
-    def _install_signals(self) -> None:
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._stop.set)
-
     async def main(self) -> int:
-        setup_service_logging("logs/signal_replay_auditor_agent.log")
-        self._install_signals()
-        await self._setup()
-        try:
-            await self._run()
-        finally:
-            await self._teardown()
+        await self.start()
         return 0
 
 
