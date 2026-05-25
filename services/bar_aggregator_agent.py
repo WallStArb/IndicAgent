@@ -162,6 +162,10 @@ class BarAggregatorComputeAgent(BaseAgent):
     Cold-start: auto.offset.reset=latest (D-14).
     """
 
+    # Preserve the original retry behavior: 4 attempts at 2s base backoff
+    SETUP_RETRY_ATTEMPTS: int = 4
+    SETUP_RETRY_BACKOFF_S: float = 2.0
+
     def __init__(self) -> None:
         super().__init__(name="bar_aggregator_agent", max_idle_seconds=300)
         self._bar_accumulator = BarAccumulator()
@@ -201,70 +205,34 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
 
     async def _setup(self) -> None:
-        """Connect Kafka producer and consumer with exponential-backoff retry."""
+        """Connect Kafka producer and consumer (single attempt — retries handled by BaseAgent._setup_with_retry)."""
         import aiokafka
-        from aiokafka.errors import KafkaConnectionError as _KCE
 
-        _MAX_ATTEMPTS = 4  # 1 initial + 3 retries
-        _BASE_DELAY = 2.0  # seconds (doubles each attempt: 2, 4, 8)
+        self._kafka_producer = KafkaProducerClient(
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
+        )
+        await self._kafka_producer.start()
 
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
-            try:
-                self._kafka_producer = KafkaProducerClient(
-                    bootstrap_servers=self.settings.kafka_bootstrap_servers
-                )
-                await self._kafka_producer.start()
+        self._kafka_consumer = self._make_consumer()
+        await self._kafka_consumer.start()
 
-                self._kafka_consumer = self._make_consumer()
-                await self._kafka_consumer.start()
+        # AGG-AUDIT-LOW-6: cache the lag check consumer instead of creating per-call
+        self._lag_consumer = aiokafka.AIOKafkaConsumer(
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            group_id="bar_aggregator_consumer",
+        )
+        await self._lag_consumer.start()
 
-                # AGG-AUDIT-LOW-6: cache the lag check consumer instead of creating per-call
-                self._lag_consumer = aiokafka.AIOKafkaConsumer(
-                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                    group_id="bar_aggregator_consumer",
-                )
-                await self._lag_consumer.start()
+        # Restore state from checkpoint topic
+        restored = await self._restore_state_checkpoint()
+        if not restored:
+            self.logger.info("bar_aggregator.state.checkpoint_miss — starting fresh")
 
-                # Restore state from checkpoint topic
-                restored = await self._restore_state_checkpoint()
-                if not restored:
-                    self.logger.info("bar_aggregator.state.checkpoint_miss — starting fresh")
-
-                self.logger.info(
-                    "bar_aggregator_agent.setup_complete",
-                    topics_consumed=self.topics_consumed,
-                    topics_produced=self.topics_produced,
-                )
-                return
-            except _KCE as exc:
-                # Clean up partially-started producers before retry/raise
-                if self._kafka_producer is not None:
-                    try:
-                        await self._kafka_producer.stop()
-                    except Exception:
-                        pass
-                self._kafka_producer = None
-                if self._lag_consumer is not None:
-                    try:
-                        await self._lag_consumer.stop()
-                    except Exception:
-                        pass
-                    self._lag_consumer = None
-                if attempt == _MAX_ATTEMPTS:
-                    self.logger.error(
-                        "bar_aggregator_agent.setup_failed",
-                        attempt=attempt,
-                        error=str(exc),
-                    )
-                    raise
-                delay = _BASE_DELAY * (2 ** (attempt - 1))
-                self.logger.warning(
-                    "bar_aggregator_agent.setup_retry",
-                    attempt=attempt,
-                    delay_s=delay,
-                    error=str(exc),
-                )
-                await asyncio.sleep(delay)
+        self.logger.info(
+            "bar_aggregator_agent.setup_complete",
+            topics_consumed=self.topics_consumed,
+            topics_produced=self.topics_produced,
+        )
 
     def _track_checkpoint_failure(self) -> bool:
         """Track checkpoint failures in sliding window. Return True if degraded.
