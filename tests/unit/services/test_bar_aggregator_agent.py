@@ -234,19 +234,23 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 # ---------------------------------------------------------------------------
 # Task 1 (63.1-01): Kafka bootstrap retry tests
+# Retry behavior moved to BaseAgent._setup_with_retry — _setup() is single-attempt.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_setup_retries_on_kafka_connection_error():
-    """_setup() must retry up to 3 times before propagating a KafkaConnectionError.
-
-    _setup() now creates 2 producers per attempt (main + DLQ). The mock's side_effect
-    covers: attempt1=KCE (main fails), attempt2=KCE (main fails), attempt3 main=None,
-    attempt3 DLQ=None — 4 calls total on successful 3rd attempt.
+def test_setup_retry_class_attributes():
+    """BarAggregatorComputeAgent must declare 4-attempt / 2s-base retry attrs
+    to preserve original resilience via the BaseAgent._setup_with_retry() path.
     """
-    from aiokafka.errors import KafkaConnectionError
+    from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
+    assert BarAggregatorComputeAgent.SETUP_RETRY_ATTEMPTS == 4
+    assert BarAggregatorComputeAgent.SETUP_RETRY_BACKOFF_S == 2.0
+
+
+@pytest.mark.asyncio
+async def test_setup_single_attempt_success():
+    """_setup() runs one attempt body; retries are delegated to BaseAgent._setup_with_retry."""
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
@@ -259,34 +263,28 @@ async def test_setup_retries_on_kafka_connection_error():
     agent.name = "bar_aggregator_agent"
 
     mock_producer = AsyncMock()
-    # attempt1: main KCE; attempt2: main KCE; attempt3: main OK
-    mock_producer.start = AsyncMock(
-        side_effect=[KafkaConnectionError(), KafkaConnectionError(), None]
-    )
-    mock_producer.stop = AsyncMock()
+    mock_producer.start = AsyncMock(return_value=None)
     mock_consumer = AsyncMock()
     mock_consumer.start = AsyncMock(return_value=None)
     mock_lag_consumer = AsyncMock()
     mock_lag_consumer.start = AsyncMock(return_value=None)
 
-    # Mock _restore_state_checkpoint to avoid creating another KafkaConsumerClient
     agent._restore_state_checkpoint = AsyncMock(return_value=True)
 
     with (
         patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
         patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer),
         patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer),
-        patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         await agent._setup()
 
-    # 2 failed starts (attempts 1+2 main) + 1 success (attempt3 main) — DLQ producer removed
-    assert mock_producer.start.call_count == 3
+    # Exactly one start call - single-attempt body
+    assert mock_producer.start.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_setup_raises_after_max_retries():
-    """_setup() must re-raise after exhausting all retry attempts."""
+async def test_setup_propagates_exception():
+    """_setup() must propagate exceptions so BaseAgent._setup_with_retry can retry."""
     from aiokafka.errors import KafkaConnectionError
 
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
@@ -305,9 +303,9 @@ async def test_setup_raises_after_max_retries():
 
     with (
         patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
-        patch("asyncio.sleep", new_callable=AsyncMock),
         pytest.raises(KafkaConnectionError),
     ):
         await agent._setup()
 
-    assert mock_producer.start.call_count == 4  # 1 initial + 3 retries
+    # Single attempt - exception propagated immediately (retry loop is in BaseAgent)
+    assert mock_producer.start.call_count == 1

@@ -356,6 +356,11 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         logged as an error but does not prevent the agent from shutting down.
         Unflushed records remain in Kafka (not committed) and will be retried
         on next startup.
+
+        Auto-close guards: closes _consumer, _pool, and _db if present on the
+        subclass, even when the subclass overrides _teardown() without calling
+        super(). Guards use hasattr + not-None checks so subclasses that already
+        closed the resource before calling super() do not raise on double-close.
         """
         if self._buffer:
             try:
@@ -366,6 +371,28 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                     buffer_size=len(self._buffer),
                     note="unflushed records remain in Kafka; will retry on restart",
                 )
+
+        # --- auto-close guards ---
+        # consumer (_consumer is declared on BaseWriterAgent.__init__)
+        if getattr(self, "_consumer", None) is not None:
+            try:
+                await self._consumer.stop()
+            except Exception:
+                self.logger.exception("teardown_consumer_close_failed")
+
+        # pool (_pool is declared by DB-writing subclasses)
+        if getattr(self, "_pool", None) is not None:
+            try:
+                await self._pool.close()
+            except Exception:
+                self.logger.exception("teardown_pool_close_failed")
+
+        # db manager (_db is declared by some subclasses using DatabaseManager)
+        if getattr(self, "_db", None) is not None:
+            try:
+                await self._db.close()
+            except Exception:
+                self.logger.exception("teardown_db_close_failed")
 
     # -----------------------------------------------------------------------
     # Consumer lag reporting (override of BaseAgent default)
