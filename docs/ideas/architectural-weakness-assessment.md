@@ -610,3 +610,54 @@ These won't block v2.8 but should eventually be addressed:
 6. **25 raw `.isoformat()` calls (#32)** — consumer-facing risk is low since `parse_iso_ts()` handles both forms.
 7. **Dead topic cleanup (D-12 `signals.aggregated`, D-13 `market.data.quality`, D-14 `intelligence.signal.audit`)** — document intent, no immediate harm.
 8. **Settings checkpoint path hardcoding (#36)** — only matters for multi-shard deployments.
+
+---
+
+## Phase 107 Resolutions (2026-05-25)
+
+**Wave 3: Complexity Reduction — HYGIENE-04, HYGIENE-05, HYGIENE-06**
+
+### HYGIENE-04: DAG Completeness
+**Status:** COMPLETE (Phase 107-03, 2026-05-25)
+**Resolution:** All 41 deployed services now covered in _DAG_ORDER (42 entries total)
+- Added `indicagent-ibkr-restart` to _DAG_ORDER priority 0 (infrastructure sentinel, oneshot wrapper)
+- Added `indicagent-bar-aggregator.service` to production/systemd/ (was installed but missing from repo)
+- Fixed bar-aggregator After= dependency to include `indicant-provider-merger.service` (priority 2)
+- **Verification:** 42/41 services covered (102.5%); all systemd unit dependencies align with _DAG_ORDER priorities
+- **Impact:** Service auditor now monitors all deployed services; correct restart order prevents race conditions
+
+### HYGIENE-05: Dead Code Deletion
+**Status:** COMPLETE (verified 2026-05-25)
+**Resolution:** All dead code removed in prior phases; verified via git grep (0 results)
+- `ShadowRecorder` class: Not found in codebase (deleted in prior phase)
+- `GuardrailsValidator` class: Not found in codebase (deleted in prior phase)
+- 8 dead Settings fields: Not found in settings.py (deleted in prior phase)
+  - SWARM_QUEUE_TIMEOUT_MS, LLM_RATE_LIMIT_RPM, LLM_RATE_LIMIT_TPM
+  - SHADOW_CORRELATION_THRESHOLD, SHADOW_MIN_SAMPLES
+  - LANGFUSE_HOST, MLFLOW_TRACKING_URI, RUSTFUSE_PREFIX
+- TEMPLATE agent bug: TEMPLATE_agent.py uses `self._llm_generate()` correctly (line 78)
+- **Verification:** `git grep "ShadowRecorder|GuardrailsValidator|SWARM_QUEUE_TIMEOUT_MS|..."` returns 0 results
+- **Impact:** Cognitive load reduced; no false trails for developers
+
+### HYGIENE-06: Shadow Governance
+**Status:** COMPLETE (verified 2026-05-25)
+**Resolution:** Shadow promotion/demotion queries already correct (fixed in prior phase)
+- Promotion query (line 126): `WHERE ... is_shadow = TRUE` — shadow plugin performance based on shadow signals only
+- Demotion query (line 267): `WHERE ... is_shadow = FALSE` — live plugin performance based on live signals only
+- Swarm agents skipped (lines 100-102): `if ctype == "swarm_agent": continue` — no query execution for swarm agents
+- **Verification:** Shadow signals cannot contaminate live track promotion stats
+- **Impact:** Graduation decisions based on clean data; optimizing for correct objective
+
+### Summary
+- **HYGIENE-04:** COMPLETE — DAG completeness at 102.5% (42 entries for 41 deployed services)
+- **HYGIENE-05:** COMPLETE — Dead code fully removed (0 git grep results for all patterns)
+- **HYGIENE-06:** COMPLETE — Shadow governance queries filter correctly (is_shadow + swarm skip)
+
+**Phase 107 Wave 3: COMPLETE**
+
+All 9 HYGIENE criteria (HYGIENE-01 through HYGIENE-09) are now complete across Waves 1-3.
+Phase 107 infrastructure hygiene work is complete and ready for verification deployment.
+
+---
+
+*Last Updated: 2026-05-25 — Phase 107 Wave 3 complete*
