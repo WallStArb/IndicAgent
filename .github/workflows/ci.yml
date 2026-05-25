@@ -50,14 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Guard 1: all classes in src/intelligence/ must end with an approved suffix.
-      # Excludes swarm/ (IAlphaContributor conventions) and ai/ (Agent suffix).
+      # Guard 1: plugin classes must end with an approved suffix.
+      # Scope: plugin dirs only (plugins/, features/, trading/).
+      # Infrastructure dirs (pipeline/, metrics/, services/, ai/, swarm/) excluded by scope.
       - name: Plugin class naming
         run: |
-          violations=$(grep -rn '^class [A-Z]' src/intelligence/ \
+          violations=$(grep -rn '^class [A-Z]' \
+            src/intelligence/plugins/ \
+            src/intelligence/features/ \
+            src/intelligence/trading/ \
             --include="*.py" \
-            --exclude-dir=swarm \
-            --exclude-dir=ai \
             --exclude=schemas.py \
             --exclude=alpha_multiplier.py \
             --exclude=dag.py \
