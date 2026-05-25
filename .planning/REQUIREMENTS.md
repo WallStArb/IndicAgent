@@ -34,12 +34,17 @@ Close structural debt that would create drag or failures during AI platform phas
 
 ### HYGIENE — Infrastructure Hygiene (Phase 107)
 
-Audit and close accumulated DB and observability debt before AI platform work begins.
+**NOTE:** HYGIENE requirements redefined in Phase 107 CONTEXT.md Renaissance design from 4 to 9 criteria. See `.planning/phases/107-infrastructure-hygiene/REQUIREMENTS.md` for full specification.
 
-- [ ] **HYGIENE-01**: Audit query identifies all DB tables with zero live writers or readers for >= 30 days (cross-check against service DAG); confirmed-unused tables dropped via numbered migration with rollback script
-- [ ] **HYGIENE-02**: All agents stuck at `shadow_only=True` indefinitely audited — root cause documented per agent (insufficient data, criteria threshold, code bug); at least one concrete, evidence-backed path to graduation unblocked per agent; zombie agents (no path to graduation) demoted via shadow_registry
-- [ ] **HYGIENE-03**: `shadow_registry` bootstrap CI computation verified end-to-end: correct column read (`pnl_r` from `signal_ledger`), correct stats function, result matches manual calculation; any code bug fixed; graduation criteria reviewed against available data volume
-- [ ] **HYGIENE-04**: Metrics naming audit: all shadow-related metrics use correct OTel instrument types; no `Counter` measuring a level quantity, no `UpDownCounter` misused where a `Gauge` is correct; metric names follow `indicagent_<service>_<metric>_<unit>` convention; ruff check passes on all metric call sites
+- [ ] **HYGIENE-01**: Writer flush path observability — All `*_writer_agent.py:_flush()` methods wrapped in `observed_span("writer.flush")` with batch_size and flush_ms attributes; DB operations emit child spans; flush errors set ERROR span status
+- [ ] **HYGIENE-02**: Metric type correctness — Shadow metrics (SHADOW_WIN_RATE, SHADOW_N_RESOLVED, SHADOW_EV_R, SHADOW_EV_CI_LOWER, SHADOW_DAYS_TO_GATE) changed from up_down_counter to gauge; latency metrics use histogram not counter; all metrics follow naming convention
+- [ ] **HYGIENE-03**: Silent data loss elimination — AttributeError bugs fixed (.inc() → .add(), self._pool → db_manager); ghost-run prevented (feature_writer raises on DB failure); super()._teardown() called; offset correctness with manual commit
+- [ ] **HYGIENE-04**: DAG topology correctness — All deployed services in _DAG_ORDER (current: 31, target: 42+); After= dependencies only valid units; priority levels match data flow; agent ID mapping consistent
+- [ ] **HYGIENE-05**: Dead code elimination — ShadowRecorder, GuardrailsValidator, 8 dead Settings fields deleted; TEMPLATE agent fixed (self._llm.generate() → self._llm_generate()); pre-commit hook enforcement
+- [ ] **HYGIENE-06**: Shadow registry integrity — Promotion/demotion queries filter shadows via `AND is_shadow = FALSE`; swarm agents skip signal_ledger queries (use signal_ai_enrichment); bootstrap CI validated
+- [ ] **HYGIENE-07**: Service lifecycle consistency — All services inherit from BaseAgent (migrate signal_replay_auditor, bar_replay_provider); SIGTERM handling, stall detection, DLQ routing standardized
+- [ ] **HYGIENE-08**: DatabaseManager pool standardization — All services use DatabaseManager.create_pool() (fix swarm_ledger_writer, bar_replay_provider, signal_replay_auditor bypass); JSONB codecs registered; pool gauges emitted
+- [ ] **HYGIENE-09**: Agent ID label standardization — All metrics use `agent_id` label (not `agent`); BaseAgent and BaseWriterAgent label consistency fixed; fleet-wide Grafana dashboards work
 
 ### LLM-INFRA — LiteLLM Provider Abstraction (Phase 094)
 
@@ -186,6 +191,11 @@ All offspring start at `shadow_only=True`. No offspring are promoted without exp
 | HYGIENE-02 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-03 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-04 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-05 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-06 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-07 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-08 | 107 — Infrastructure Hygiene | Pending |
+| HYGIENE-09 | 107 — Infrastructure Hygiene | Pending |
 | LLM-INFRA-01 | 094 — LiteLLM + Instructor | Pending |
 | LLM-INFRA-02 | 094 — LiteLLM + Instructor | Pending |
 | LLM-INFRA-03 | 094 — LiteLLM + Instructor | Pending |
