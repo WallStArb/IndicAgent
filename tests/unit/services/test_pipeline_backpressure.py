@@ -138,3 +138,43 @@ async def test_non_blocking_enqueue_drops_on_full_queue():
 
     # Queue size unchanged (dropped)
     assert queue._queue.qsize() == maxsize
+
+
+@pytest.mark.asyncio
+async def test_enqueue_blocking_drop_counter_only_on_actual_drop():
+    """Drop counter must NOT fire when enqueue_blocking succeeds despite queue being full.
+
+    The counter must fire only when asyncio.TimeoutError is raised (true data loss).
+    False-positive drops were caused by incrementing the counter before the blocking
+    put() completed — making the metric unreliable for alerting on actual data loss.
+    """
+    from src.intelligence.pipeline.output_queue import OutputQueue
+
+    producer = AsyncMock()
+    maxsize = 1
+    queue = OutputQueue(producer=producer, maxsize=maxsize, drain_batch_size=5)
+
+    # Fill the queue to capacity
+    await queue._queue.put(("topic", "existing", {}))
+    assert queue._queue.full()
+
+    drop_calls: list = []
+    original_add = queue._drops.add
+
+    def track_add(n, attrs=None):
+        drop_calls.append(n)
+        return original_add(n, attrs) if attrs else original_add(n)
+
+    queue._drops.add = track_add
+
+    # Drain one slot so the blocking put can succeed
+    async def drain_one():
+        await asyncio.sleep(0.01)
+        queue._queue.get_nowait()
+        queue._queue.task_done()
+
+    asyncio.create_task(drain_one())
+    await queue.enqueue_blocking("topic", "new_key", {}, timeout_sec=1.0)
+
+    # Message was enqueued successfully — no drop should have been counted
+    assert drop_calls == [], f"Drop counter fired {len(drop_calls)} time(s) on a successful put"

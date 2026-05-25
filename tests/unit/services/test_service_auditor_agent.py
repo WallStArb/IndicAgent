@@ -290,6 +290,32 @@ def test_agent_id_to_unit_feature_writer_key():
     assert "feature_writer" not in _AGENT_ID_TO_UNIT
 
 
+def test_service_auditor_has_unique_highest_priority():
+    """service-auditor must have a strictly higher priority than all monitored services.
+
+    Sharing a priority wave with monitored services means the auditor could be
+    restarted mid-cascade alongside the services it is supposed to restart.
+    """
+    from services.service_auditor_agent import _DAG_ORDER
+
+    auditor_priority = _DAG_ORDER["indicagent-service-auditor"]
+    other_priorities = {k: v for k, v in _DAG_ORDER.items() if k != "indicagent-service-auditor"}
+    assert all(
+        auditor_priority > p for p in other_priorities.values()
+    ), f"service-auditor priority {auditor_priority} must exceed all other service priorities"
+
+
+def test_redpanda_watchdog_in_oneshot_units():
+    """indicagent-redpanda-watchdog is Type=oneshot and must be in _ONESHOT_UNITS.
+
+    Without this, the auditor restarts it after every 2-min timer run when it
+    transitions to inactive — competing with the systemd timer schedule.
+    """
+    from services.service_auditor_agent import _ONESHOT_UNITS
+
+    assert "indicagent-redpanda-watchdog" in _ONESHOT_UNITS
+
+
 # -- Graduated response ────────────────────────────────────────────────────────
 
 
