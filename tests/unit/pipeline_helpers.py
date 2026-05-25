@@ -47,6 +47,7 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._plugin_skipped_total = MagicMock()
     agent._i1_latency_ms = MagicMock()
     agent._i7_latency_ms = MagicMock()
+    agent._pipeline_latency = MagicMock()
     agent._pipeline_errors = MagicMock()
     agent.settings = MagicMock(env_name="dev")
     agent.settings.intelligence_thread_pool_workers = 0

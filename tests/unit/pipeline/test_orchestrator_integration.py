@@ -100,7 +100,7 @@ def _wire_agent(agent, sig_proc_result, *, i7_state_updates=None):
     agent._executor._last_i7_state_updates = i7_state_updates or {}
 
     agent._sig_proc.process = AsyncMock(return_value=sig_proc_result)
-    agent._enqueue_intel_journal = MagicMock()
+    agent._enqueue_intel_journal = AsyncMock()
 
     # Replace out_queue methods with fresh mocks
     enqueue_mock = MagicMock()
