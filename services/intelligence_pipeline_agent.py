@@ -569,15 +569,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # 4-way routing
         if result.success and result.signals_payload:
             await self._out_queue.enqueue_blocking(
-                topic_intelligence_i7_signals(env), msg_key, result.signals_payload
+                topic_intelligence_i7_signals(env), msg_key, result.signals_payload, timeout_sec=5.0
             )
         elif result.dlq_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signal_dlq(env), msg_key, result.dlq_payload
+                topic_signal_dlq(env), msg_key, result.dlq_payload, timeout_sec=5.0
             )
         if result.winner_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signals_aggregated(env), msg_key, result.winner_payload
+                topic_signals_aggregated(env), msg_key, result.winner_payload, timeout_sec=5.0
             )
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
