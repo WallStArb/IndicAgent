@@ -72,7 +72,7 @@ def test_hmm_regime_entropy_math() -> None:
     plugin.min_lookback = 1  # override for test isolation
 
     # Inject a uniform alpha directly to verify entropy formula
-    plugin._reset_state()
+    plugin._state = plugin._make_initial_state(3)
     plugin._state["alpha"] = np.array([1 / 3, 1 / 3, 1 / 3])
     plugin._state["bars_processed"] = 5  # past min_lookback
 
@@ -87,7 +87,7 @@ def test_hmm_regime_entropy_math() -> None:
     # Peaked distribution — entropy should be near 0
     plugin2 = HMMRegimePlugin(timeframe="5m", lookback=10)
     plugin2.min_lookback = 1
-    plugin2._reset_state()
+    plugin2._state = plugin2._make_initial_state(3)
     plugin2._state["alpha"] = np.array([1.0 - 1e-10, 5e-11, 5e-11])
     plugin2._state["bars_processed"] = 5
 
