@@ -21,9 +21,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
-import structlog
+import asyncpg
 
-from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -177,7 +176,7 @@ class SignalReplayAuditorAgent(BaseAgent):
             return False
 
         signal_dict = self._build_signal_dict(row)
-        topic = topic_lifecycle_transitions(self._settings.env_name)
+        topic = topic_lifecycle_transitions(self.settings.env_name)
         resolved = False
 
         # Zone-entry track
@@ -437,7 +436,7 @@ class SignalReplayAuditorAgent(BaseAgent):
         self.logger.info("replay_cycle_start", total_candidates=total)
 
         for row in rows:
-            if self._stop.is_set():
+            if self._stop_event.is_set():
                 return
             tf_secs = TF_SECONDS.get(row["timeframe"], 60)
             ttl = int(row["ttl_bars"] or 10)

@@ -14,9 +14,8 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import structlog
+import asyncpg
 
-from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -69,12 +68,6 @@ class BarReplayProviderAgent(BaseAgent):
             rate_bps=self._rate_bps,
         )
 
-    async def _teardown(self) -> None:
-        if self._producer:
-            await self._producer.stop()
-        if self._pool:
-            await self._pool.close()
-
     def _load_checkpoint(self) -> datetime | None:
         if not CHECKPOINT_PATH.exists():
             return None
@@ -118,7 +111,7 @@ class BarReplayProviderAgent(BaseAgent):
             "volume": float(row["volume"]),
             "source": "bar_replay",
         }
-        env = self._settings.env_name
+        env = self.settings.env_name
         topic = topic_market_bars(env) if tf == "1m" else topic_market_bars_htf(env)
         await self._producer.publish(topic, msg=payload)
         BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL.add(1, {"symbol": row["symbol"], "timeframe": tf})
@@ -154,8 +147,10 @@ class BarReplayProviderAgent(BaseAgent):
         # Save checkpoint on shutdown for one-shot batch service
         if self._last_replayed_ts:
             self._save_checkpoint(self._last_replayed_ts)
-        # Then call parent teardown for producer/pool cleanup
-        await super()._teardown()
+        if self._producer:
+            await self._producer.stop()
+        if self._pool:
+            await self._pool.close()
 
     async def main(self) -> int:
         await self.start()
