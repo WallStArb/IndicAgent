@@ -30,13 +30,12 @@ import asyncpg
 from src.config.settings import get_active_contracts, get_settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool as create_db_pool
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.kafka_utils import KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
 from src.core.stream_keys import (
     topic_alert_requests,
     topic_health_events,
     topic_health_events_dlq,
-    topic_roll_events,
 )
 from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, SERVICE_UP_GAUGE
 
@@ -45,7 +44,6 @@ _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
 _PROMETHEUS_URL = "http://localhost:9090/api/v1/query"
 _SVC_DATA_PROVIDER = "indicagent-ibkr-provider"
-_SVC_ROLL_COMPUTE = "indicagent-roll-compute"
 _STALL_THRESHOLD_SECONDS = 360  # 300s in-process watchdog + 60s grace
 
 
@@ -75,7 +73,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
     "indicagent-lifecycle-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
     "indicagent-lineage-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
-    "indicagent-contract-metadata-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
     "indicagent-ctx-writer": 7,  # priority 7: downstream of intelligence-pipeline (6)
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 8,  # priority 8: downstream of signal-writer (7)
@@ -83,7 +80,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-llm-writer": 8,  # priority 8: downstream of alpha-swarm / narrative-compute (8)
     "indicagent-swarm-ledger-writer": 8,  # priority 8: downstream of alpha-swarm (8)
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
-    "indicagent-roll-compute": 8,  # oneshot: timer-triggered, not a daemon — priority stays at 8 (audit D-10 priority-3 suggestion assumes daemon restart model that does not apply to oneshots)
     "indicagent-signal-metrics-compute": 8,  # priority 8: downstream of signal-writer (7)
     "indicagent-signal-metrics-writer": 8,  # priority 8: downstream of signal-metrics-compute (8)
     "indicagent-graduation-compute": 8,  # priority 8: downstream of signal-ledger writes (7)
@@ -122,7 +118,6 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-signal-writer": 500,
     "indicagent-lifecycle-writer": 500,
     "indicagent-lineage-writer": 500,
-    "indicagent-contract-metadata-writer": 500,
     "indicagent-alpha-swarm": 200,
     "indicagent-narrative-compute": 200,
     "indicagent-llm-writer": 500,
@@ -130,7 +125,6 @@ _LAG_THRESHOLDS: dict[str, int] = {
     "indicagent-signal-metrics-writer": 500,
     "indicagent-graduation-compute": 500,
     "indicagent-graduation-writer": 500,
-    "indicagent-roll-compute": 500,
     "indicagent-ctx-writer": 500,
     "indicagent-dlq-drain": 500,
 }
@@ -156,10 +150,8 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
     "NarrativeGroupComputeAgent": "indicagent-narrative-compute",
     "swarm_ledger_writer": "indicagent-swarm-ledger-writer",
-    "roll_compute_agent": "indicagent-roll-compute",
     "MacroComputeAgent": "indicagent-macro-compute",
     "signal_auditor_agent": "indicagent-signal-auditor",
-    "contract_metadata_writer_agent": "indicagent-contract-metadata-writer",
     "GraduationComputeAgent": "indicagent-graduation-compute",
     "graduation_writer_agent": "indicagent-graduation-writer",
     "ctx_writer_agent": "indicagent-ctx-writer",
@@ -183,7 +175,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ml-discovery",
         "indicagent-ml-training",
         "indicagent-ml-signal-training-materialize",
-        "indicagent-roll-compute",
     }
 )
 
@@ -253,10 +244,8 @@ class ServiceAuditorAgent(BaseAgent):
         self._db_pool: asyncpg.Pool | None = None
         self._http_session: aiohttp.ClientSession | None = None
         self._kafka_producer: KafkaProducerClient | None = None
-        self._roll_consumer: KafkaConsumerClient | None = None
         # Populated dynamically via _discover_services() at runtime
         self._service_states: dict[str, ServiceState] = {}
-        self._handled_rolls: set[tuple[str, str]] = set()
         self._topics_produced = [
             topic_health_events(self.env_name),
             topic_health_events_dlq(self.env_name),
@@ -280,13 +269,6 @@ class ServiceAuditorAgent(BaseAgent):
         await self._kafka_producer.start()
         # Wire _producer for BaseAgent._send_alert() to use
         self._producer = self._kafka_producer
-        self._roll_consumer = KafkaConsumerClient(
-            topic_roll_events(self.env_name),
-            bootstrap_servers=self.settings.kafka_bootstrap_servers,
-            group_id="service_auditor_roll_consumer",
-            auto_offset_reset="latest",
-        )
-        await self._roll_consumer.start()
         self.logger.info(
             "service_auditor_agent.setup_complete",
             env=self.env_name,
@@ -295,8 +277,6 @@ class ServiceAuditorAgent(BaseAgent):
     async def _teardown(self) -> None:
         if self._kafka_producer:
             await self._kafka_producer.stop()
-        if self._roll_consumer:
-            await self._roll_consumer.stop()
         if self._http_session:
             await self._http_session.close()
         if self._db_pool:
@@ -307,11 +287,10 @@ class ServiceAuditorAgent(BaseAgent):
         prom_task = asyncio.create_task(self._prometheus_check_loop())
         sysd_task = asyncio.create_task(self._systemd_check_loop())
         hb_task = asyncio.create_task(self._heartbeat_loop())
-        roll_task = asyncio.create_task(self._roll_consumer_loop())
         await self._stop_event.wait()
-        for t in (prom_task, sysd_task, hb_task, roll_task):
+        for t in (prom_task, sysd_task, hb_task):
             t.cancel()
-        for t in (prom_task, sysd_task, hb_task, roll_task):
+        for t in (prom_task, sysd_task, hb_task):
             try:
                 await t
             except asyncio.CancelledError:
@@ -819,95 +798,6 @@ class ServiceAuditorAgent(BaseAgent):
             payload,
             payload.get("service", "unknown"),
         )
-
-    # -- Roll automation -------------------------------------------------------
-
-    async def _roll_consumer_loop(self) -> None:
-        """Consume topic_roll_events and trigger ibkr-provider restart on roll_complete."""
-        if self._roll_consumer is None:
-            return
-        async for _topic, _key, payload in self._roll_consumer.messages():
-            if self._stop_event.is_set():
-                break
-            try:
-                await self._handle_roll_event(payload)
-            except Exception as exc:
-                self.logger.error("roll_consumer.error", error=str(exc))
-
-    async def _handle_roll_event(self, payload: dict) -> None:
-        """Process a RollEvent. Deduped by (symbol, new_contract) -- handles both
-        volume and calendar detection methods without double-restarting ibkr-provider."""
-        symbol = payload.get("symbol", "")
-        new_contract = payload.get("new_contract", "")
-        old_contract = payload.get("old_contract", "")
-
-        if not symbol or not new_contract:
-            return
-
-        dedup_key = (symbol, new_contract)
-
-        # Size-based dedup to prevent unbounded growth
-        if len(self._handled_rolls) > 1000:
-            self._handled_rolls.clear()
-
-        if dedup_key in self._handled_rolls:
-            self.logger.debug("roll_consumer.dedup_skip", symbol=symbol, new_contract=new_contract)
-            return
-
-        self._handled_rolls.add(dedup_key)
-        detection_method = payload.get("detection_method", "volume")
-        self.logger.info(
-            "roll_automation.triggered",
-            symbol=symbol,
-            old_contract=old_contract,
-            new_contract=new_contract,
-            detection_method=detection_method,
-        )
-
-        await self._send_alert(
-            "HIGH",
-            f"Futures roll: {symbol} {old_contract} -> {new_contract}",
-            {"action": f"Restarting {_SVC_DATA_PROVIDER} and {_SVC_ROLL_COMPUTE}"},
-        )
-        await asyncio.gather(
-            self._restart_roll_service(_SVC_DATA_PROVIDER),
-            self._restart_roll_service(_SVC_ROLL_COMPUTE),
-        )
-
-    async def _restart_roll_service(self, service_name: str) -> None:
-        """Restart a systemd service as part of roll automation via sudo systemctl restart.
-
-        Distinct from _restart_service_by_unit() which uses reset-failed + start for
-        health recovery. Roll restarts use a single restart command -- the service is
-        healthy, just needs to re-read the updated contract_metadata after a
-        front-month promotion.
-        """
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo",
-                "systemctl",
-                "restart",
-                service_name,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            if proc.returncode != 0:
-                self.logger.error(
-                    "roll_automation.restart_failed",
-                    service=service_name,
-                    returncode=proc.returncode,
-                    stderr=stderr.decode() if stderr else "",
-                )
-                return
-            SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL.add(1, {"service_name": service_name})
-            self.logger.info("roll_automation.restart_complete", service=service_name)
-        except Exception as exc:
-            self.logger.error(
-                "roll_automation.restart_failed",
-                service=service_name,
-                error=str(exc),
-            )
 
 
 # ---------------------------------------------------------------------------

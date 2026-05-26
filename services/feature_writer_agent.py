@@ -31,15 +31,12 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import (
     normalize_session_type,
-    parse_iso_ts,
-    parse_roll_event,
     setup_service_logging,
 )
 from src.core.stream_keys import (
     topic_cross_asset,
     topic_feature_writer_dlq,
     topic_intelligence_journal,
-    topic_roll_events,
 )
 from src.intelligence.schemas import BarIntelligenceRecord
 from src.observability.metrics import (
@@ -48,7 +45,7 @@ from src.observability.metrics import (
     counter,
     point_gauge,
 )
-from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
+from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_span
 
 # OTel meter for feature writer-specific gauges
 _otel_metrics = __import__("opentelemetry").metrics
@@ -105,9 +102,6 @@ UPDATE intelligence_features
 SET market_context = COALESCE(market_context, '{}'::jsonb) || $4::jsonb
 WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
-
-# Roll detection runs against 1m bars; boundary markers are written to the 1m row.
-_ROLL_BOUNDARY_TF = "1m"
 
 logger = structlog.get_logger(__name__)
 
@@ -274,7 +268,7 @@ class FeatureWriterAgent(BaseWriterAgent):
         )
         self._db_connected = _fw_meter.create_gauge(
             "feature_writer_db_connected",
-            description="DB connection state (1=connected, 0=disconnected)"
+            description="DB connection state (1=connected, 0=disconnected)",
         )
         self._batch_latency_attrs = {"agent_id": "feature_writer_agent"}
 
@@ -447,11 +441,10 @@ class FeatureWriterAgent(BaseWriterAgent):
         # Build topics list
         topics = [
             topic_intelligence_journal(self.env_name),
-            topic_roll_events(self.env_name),
             topic_cross_asset(self.env_name),
         ]
 
-        # Single consumer subscribed to intelligence.record, roll_events, and cross_asset
+        # Single consumer subscribed to intelligence.journal and cross_asset
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
             bootstrap_servers=self._kafka_bootstrap,
@@ -474,7 +467,6 @@ class FeatureWriterAgent(BaseWriterAgent):
             return
 
         intelligence_journal_topic = topic_intelligence_journal(self.env_name)
-        roll_events_topic = topic_roll_events(self.env_name)
         cross_asset_topic = topic_cross_asset(self.env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
@@ -482,11 +474,6 @@ class FeatureWriterAgent(BaseWriterAgent):
                 break
             self._record_message_consumed()
             try:
-                # Route roll_events to roll handler (no symbol/tf key required)
-                if kafka_topic == roll_events_topic:
-                    await self._handle_roll_event(payload)
-                    continue
-
                 # Route cross_asset topic — group-level, no symbol/tf key
                 if kafka_topic == cross_asset_topic:
                     await self._process_cross_asset_message(payload)
@@ -563,76 +550,6 @@ class FeatureWriterAgent(BaseWriterAgent):
             except Exception as e:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
-
-    async def _handle_roll_event(self, event: dict) -> None:
-        """Write roll boundary marker to intelligence_features on futures roll.
-
-        Writes {"roll_boundary": "ESM6->ESU6"} into the i7 JSONB column at the
-        roll detection timestamp. Uses ON CONFLICT ... DO UPDATE to merge into any
-        existing i7 data for that (ts, symbol, tf) row.
-
-        INTEL-04: Also writes roll_premium_pct to the intelligence_features column
-        when the event payload includes it. roll_premium_pct is 0.0 at detection time
-        (price comparison unavailable) — Phase 49 ML training treats this as
-        "roll detected, gap unknown" vs NULL for "no roll context".
-        """
-        result = parse_roll_event(event, self.logger)
-        if result is None:
-            return
-        old_symbol, new_symbol = result
-        detected_at_raw: str = event.get("detection_ts") or datetime.now(tz=UTC).isoformat()
-        detected_at = parse_iso_ts(detected_at_raw)
-
-        # INTEL-04: Extract roll_premium_pct from event payload (default None for backward compat)
-        roll_premium_pct_raw = event.get("roll_premium_pct")
-        roll_premium_pct: float | None = None
-        if roll_premium_pct_raw is not None:
-            try:
-                roll_premium_pct = float(roll_premium_pct_raw)
-            except (TypeError, ValueError):
-                pass
-
-        if not self.db_manager:
-            self.logger.warning(
-                "roll_boundary_skipped_no_db",
-                old=old_symbol,
-                new=new_symbol,
-            )
-            return
-
-        marker = {"roll_boundary": f"{old_symbol}->{new_symbol}"}
-        try:
-            await self.db_manager.execute_batch(
-                _UPDATE_MARKET_CTX_SQL,
-                [(detected_at, new_symbol, _ROLL_BOUNDARY_TF, marker)],
-            )
-
-            # INTEL-04: Persist roll_premium_pct to intelligence_features column
-            if roll_premium_pct is not None:
-                await self.db_manager.execute_query(
-                    """
-                    UPDATE intelligence_features
-                       SET roll_premium_pct = $1
-                     WHERE symbol = $2
-                       AND ts = $3
-                       AND tf = $4
-                    """,
-                    roll_premium_pct,
-                    new_symbol,
-                    detected_at,
-                    _ROLL_BOUNDARY_TF,
-                )
-
-            self.logger.info(
-                "roll_boundary_written",
-                old=old_symbol,
-                new=new_symbol,
-                detected_at=detected_at,
-                roll_premium_pct=roll_premium_pct,
-            )
-        except Exception as e:
-            self.logger.error("roll_boundary_write_failed", error=str(e))
-            self.error_count_total.add(1)
 
     async def _process_cross_asset_message(self, payload: dict) -> None:
         try:

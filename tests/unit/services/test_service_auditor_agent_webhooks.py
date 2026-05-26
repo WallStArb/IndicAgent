@@ -112,28 +112,6 @@ class TestSendAlertViaBusinessLogic:
         assert call_args[0][2]["restart_count"] == 3
 
     @pytest.mark.asyncio
-    async def test_roll_event_calls_send_alert_HIGH(self, agent):
-        """Roll event with new contract -> _send_alert HIGH."""
-        agent._send_alert = AsyncMock()
-
-        await agent._handle_roll_event(
-            {
-                "symbol": "ES",
-                "old_contract": "ESM6",
-                "new_contract": "ESN6",
-                "detection_method": "volume",
-            }
-        )
-
-        assert agent._send_alert.call_count == 1
-        call_args = agent._send_alert.call_args
-        assert call_args[0][0] == "HIGH"
-        assert "Futures roll" in call_args[0][1]
-        assert "ESM6" in call_args[0][1]
-        assert "ESN6" in call_args[0][1]
-        assert "Restarting" in call_args[0][2]["action"]
-
-    @pytest.mark.asyncio
     async def test_send_alert_noop_when_producer_is_None(self, agent):
         """_send_alert silently no-ops when self._producer is None."""
         agent._producer = None

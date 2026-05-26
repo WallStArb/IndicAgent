@@ -263,11 +263,10 @@ def test_stall_loop_skips_oneshot_units():
 
 
 def test_lag_thresholds_cover_consumers():
-    """graduation-compute and roll-compute are in _LAG_THRESHOLDS."""
+    """graduation-compute is in _LAG_THRESHOLDS."""
     from services.service_auditor_agent import _LAG_THRESHOLDS
 
     assert "indicagent-graduation-compute" in _LAG_THRESHOLDS
-    assert "indicagent-roll-compute" in _LAG_THRESHOLDS
     # graduation-writer and signal-metrics-writer ARE Kafka consumers
     assert "indicagent-graduation-writer" in _LAG_THRESHOLDS
     assert "indicagent-signal-metrics-writer" in _LAG_THRESHOLDS

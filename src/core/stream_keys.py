@@ -73,11 +73,6 @@ def topic_bar_aggregator_state(env_name: str) -> str:
     return f"{env_prefix(env_name)}bar.aggregator.state"
 
 
-def topic_roll_events(env_name: str) -> str:
-    """Kafka topic for typed RollEvent messages from RollComputeAgent."""
-    return f"{env_prefix(env_name)}market.events.roll"
-
-
 def topic_gap_requests(env_name: str) -> str:
     """Kafka topic for BarGapRequest gap-fill events from BarAuditorAgent."""
     return f"{env_prefix(env_name)}market.events.gap_requests"
@@ -92,15 +87,6 @@ def topic_contract_updates(env_name: str) -> str:
     NOT required for correctness; services converge within TTL cache cycle (60s).
     """
     return f"{env_prefix(env_name)}market.events.contract_update"
-
-
-def topic_roll_dlq(env_name: str) -> str:
-    """Kafka DLQ topic for malformed RollEvent payloads.
-
-    ContractMetadataWriterAgent routes unprocessable roll events here instead of
-    crashing. Enables investigation without data loss. Pattern: DLQ per domain.
-    """
-    return f"{env_prefix(env_name)}market.events.roll.dlq"
 
 
 def topic_intelligence(env_name: str) -> str:
