@@ -162,8 +162,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 
 # Timer-triggered oneshot services — ML batch services inactive (dead) between runs is correct
 # behavior per CLAUDE.md; do not restart them on the auditor's schedule. Systemd timers control
-# their execution. Including roll-compute because it is timer-triggered (inactive between runs is
-# correct — the audit D-10 priority-3 suggestion assumes a daemon restart model that does not apply).
+# their execution.
 _ONESHOT_UNITS: frozenset[str] = frozenset(
     {
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
@@ -175,6 +174,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ml-discovery",
         "indicagent-ml-training",
         "indicagent-ml-signal-training-materialize",
+        "indicagent-roll-batch",
     }
 )
 
