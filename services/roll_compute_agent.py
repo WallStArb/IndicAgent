@@ -373,6 +373,9 @@ class RollComputeAgent(BaseAgent):
         # Cache labeled metric objects — avoids per-bar registry lookup on hot path
         self._agent_attrs = {"agent": self.name}
 
+        # Diagnostic counter for debugging (tracks bars processed for periodic logging)
+        self._bars_processed = 0
+
     @property
     def topics_consumed(self) -> list[str]:
         return [topic_market_bars(self.env_name)]
@@ -487,19 +490,32 @@ class RollComputeAgent(BaseAgent):
         async for _topic, _key, payload in self._kafka_consumer.messages():
             if not self.running:
                 break
+
             symbol = ""
             try:
                 symbol = payload.get("symbol", "")
                 base_symbol = self._symbol_to_base.get(symbol, symbol)
                 volume = float(payload.get("volume", 0))
-                bar_ts_str = payload.get("timestamp", "")
+                # Check both 'ts' and 'timestamp' keys for timestamp field compatibility
+                bar_timestamp_str = payload.get("ts") or payload.get("timestamp", "")
 
                 _EVENTS_CONSUMED.add(1, self._agent_attrs)
+
+                # Diagnostic logging every 50 bars to verify agent is processing
+                self._bars_processed += 1
+                if self._bars_processed % 50 == 0:
+                    self.logger.info(
+                        "roll_compute_processing",
+                        bars_processed=self._bars_processed,
+                        symbol=symbol,
+                        base_symbol=base_symbol,
+                    )
+
                 self._roll_monitor.update_volume(base_symbol, volume)
 
                 bar_utc: datetime
-                if bar_ts_str:
-                    bar_utc = datetime.fromisoformat(bar_ts_str)
+                if bar_timestamp_str:
+                    bar_utc = datetime.fromisoformat(bar_timestamp_str)
                     if bar_utc.tzinfo is None:
                         bar_utc = bar_utc.replace(tzinfo=UTC)
                 else:

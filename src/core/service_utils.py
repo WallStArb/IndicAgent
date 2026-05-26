@@ -13,9 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from pydantic import ValidationError
-
-from src.core.schemas.market_events import RollEvent
 
 # Fraction of successful plugin executions to record as Prometheus metrics.
 # 1-in-10 reduces write pressure on the hot path; errors are always recorded.
@@ -227,21 +224,6 @@ def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:
 def format_iso_ts(dt: datetime) -> str:
     """Format datetime to ISO-8601 with Z suffix for Kafka/JSON serialization."""
     return dt.isoformat().replace("+00:00", "Z")
-
-
-def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
-    """Parse a typed RollEvent payload into (old_contract, new_contract).
-
-    Accepts the RollEvent schema published by RollComputeAgent to topic_roll_events.
-    Returns None if the payload does not validate.
-    Shared across all services that subscribe to market.events.roll.
-    """
-    try:
-        roll = RollEvent.model_validate(event)
-        return roll.old_contract, roll.new_contract
-    except ValidationError as exc:
-        logger.warning("roll_event_parse_failed", error=str(exc))
-        return None
 
 
 _configured_log_file: str | None = None

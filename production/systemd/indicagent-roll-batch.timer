@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Futures Roll Promotion Timer -- 23:00 UTC (6pm ET)
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 UTC
+Persistent=true
+Unit=indicagent-roll-batch.service
+
+[Install]
+WantedBy=timers.target

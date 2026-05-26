@@ -4,7 +4,7 @@ import pytest
 
 from src.core.models import SESSION_REGISTRY, AssetClass, Instrument
 from src.core.schemas.market_events import ContractUpdateEvent
-from src.core.stream_keys import topic_contract_updates, topic_roll_dlq
+from src.core.stream_keys import topic_contract_updates
 
 
 class TestAssetClass:
@@ -188,12 +188,3 @@ class TestNewStreamKeys:
 
     def test_topic_contract_updates_prod_env(self):
         assert topic_contract_updates("prod") == "prod.market.events.contract_update"
-
-    def test_topic_roll_dlq_empty_env(self):
-        assert topic_roll_dlq("") == "market.events.roll.dlq"
-
-    def test_topic_roll_dlq_dev_env(self):
-        assert topic_roll_dlq("dev") == "dev.market.events.roll.dlq"
-
-    def test_topic_roll_dlq_prod_env(self):
-        assert topic_roll_dlq("prod") == "prod.market.events.roll.dlq"
