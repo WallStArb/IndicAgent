@@ -4,7 +4,7 @@ How ideas, todos, roadmap, and phases relate and flow into each other.
 
 ---
 
-## The Four Layers
+## The Five Layers
 
 ```
 Observation / Inspiration
@@ -16,7 +16,11 @@ Observation / Inspiration
         ▼
   docs/ideas/<topic>.md       ← strategy, vision, research — NOT a todo
         │
-        │  (when actionable: clear problem + solution exists)
+        │  (when ready to execute: clear problem + solution)
+        ▼
+  docs/plans/<topic>-plan.md  ← implementation specs, dated, task breakdown
+        │
+        │  (when actionable and prioritized)
         ▼
   .planning/todos/pending/    ← scoped, actionable, will become a phase
         │
@@ -69,7 +73,33 @@ reference or vision that may never ship.
 
 ---
 
-## Layer 3 — todos/pending/ (Actionable Backlog)
+## Layer 3 — docs/plans/ (Implementation Specs)
+
+**Directory:** `docs/plans/`
+
+Implementation specs with task breakdowns, migration strategies, and execution plans.
+When `docs/ideas/` research has a clear implementation path, write it here as a dated plan.
+
+**When to create docs/plans/:**
+- When `docs/ideas/` research has a clear implementation path
+- Before creating a phase — write the plan first
+- When you need to sequence tasks and estimate effort
+
+**Contents:** Task breakdown, migration strategy, testing approach, rollback plan.
+Dated format: `2026-MM-DD-<topic>-plan.md` (e.g., `2026-05-04-structural-zone-engine-plan.md`)
+
+**Relationship:**
+```
+docs/ideas/<topic>.md (research) → docs/plans/2026-MM-DD-<topic>-plan.md (spec) → .planning/todos/NNN-<topic>.md (actionable)
+```
+
+**Key distinction from `docs/ideas/`:**
+- `docs/ideas/` = Research, vision, exploration (may never ship)
+- `docs/plans/` = Implementation specs, task breakdowns, ready to execute
+
+---
+
+## Layer 4 — .planning/todos/pending/ (Actionable Backlog)
 
 **Directory:** `.planning/todos/pending/`
 
@@ -103,7 +133,7 @@ may just be exploration or vision without a clear "do this" action.
 
 ---
 
-## Layer 4 — ROADMAP.md + phases/ (Committed Execution)
+## Layer 5 — ROADMAP.md + phases/ (Committed Execution)
 
 **Files:** `.planning/ROADMAP.md`, `.planning/phases/phase-NNN/`
 
@@ -129,6 +159,7 @@ it is planned for a specific milestone and will be executed.
 | Interesting pattern or technique worth remembering | Create `docs/ideas/` doc |
 | Architectural vision not on roadmap yet | Create `docs/ideas/` doc, add bullet to `IDEAS.md` |
 | Clear problem + solution, will build eventually | Create `todos/pending/` entry, reference idea doc |
+| Research ready to execute as implementation plan | Create dated plan in `docs/plans/` |
 | Todo is ready to schedule this milestone | Add to `ROADMAP.md`, assign phase number |
 | Phase is planned and ready to execute | Run `/gsd-plan-phase` |
 
