@@ -1,8 +1,8 @@
 [Unit]
-Description=Nightly Futures Roll Promotion Timer -- 23:00 UTC (6pm ET)
+Description=Nightly Futures Roll Promotion Timer -- 5:30 PM ET (CME maintenance break)
 
 [Timer]
-OnCalendar=*-*-* 23:00:00 UTC
+OnCalendar=*-*-* 17:30:00 America/New_York
 Persistent=true
 Unit=indicagent-roll-batch.service
 
