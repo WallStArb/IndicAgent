@@ -75,9 +75,9 @@ L3  bar-aggregator, bar-auditor          — bar processing
 L4  bar-writer                           — OHLCV persistence
 L5  intelligence-pipeline, cross-asset, macro-compute — I1-I7 compute + context
 L6  feature-writer, signal-writer, signal-tracker-compute, lifecycle-writer,
-    lineage-writer, contract-metadata-writer, ctx-writer — persistence writers (parallel)
+    lineage-writer, ctx-writer — persistence writers (parallel)
 L7  alpha-swarm, narrative-compute, llm-writer, swarm-ledger-writer — AI/LLM layer
-L8  roll-compute, signal-metrics-compute, signal-metrics-writer, graduation-compute,
+L8  signal-metrics-compute, signal-metrics-writer, graduation-compute,
     graduation-writer, feature-snapshot-writer, ml-training — analytics
 L9  signal-auditor, signal-replay, parity-auditor, alerting-agent — audit, parity, alerting
 L10 service-auditor                      — meta: monitors + restarts all above
@@ -85,6 +85,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 
 **ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct — do not treat as failures.
 - `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon). Design: `docs/ideas/ai-02-ml-agent-architecture.md`
+- `roll-batch` (nightly 8pm) — calendar-based futures roll detection + contract promotion. Replaces 24/7 `roll-compute` + `contract-metadata-writer` daemons.
 
 ## Core Runtime Files
 
@@ -138,7 +139,7 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 ## Key Rules
 
 **Core Patterns**
-- **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `RollMonitor._states`, `SignalTrackerComputeAgent._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
+- **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `SignalTrackerComputeAgent._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **`BaseGroupService` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
@@ -188,8 +189,8 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **IBKR**: VIX=`"VX"`, client IDs 35+. TWS host `127.0.0.1`, port `7497`. All ib_insync in `src/providers/ibkr.py` only.
 - **Redpanda**: Kafka-compatible. Topic naming: dots not colons. Via `stream_keys.py` always. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Daemon reads contracts at startup; restart on futures expiry.
-- **Roll flow:** `RollComputeAgent` (real-time volume z-score detection) → `RollEvent` → `ContractMetadataWriterAgent` → `is_front_month` update in `contract_metadata` table. Provider reads updated contracts via `get_active_contracts()`; manual restart rarely needed. See `docs/ideas/futures-roll-simplification.md` for architecture analysis and simplification research.
-- **Roll monitoring:** `systemctl status indicagent-roll-compute` — verify 0 consumer lag. Service was stabilized 2026-05-26 (systemd watchdog removed). If stuck/silent, check logs for "roll_compute_processing" diagnostic events.
+- **Roll flow:** Nightly `roll-batch` timer (`production/scripts/roll_batch.py`) runs at 8pm, detects calendar-based rolls, promotes front-month contracts in `contract_metadata` table, and broadcasts updates via Kafka. Provider picks up changes on next `get_active_contracts()` call. See `docs/ideas/futures-roll-simplification.md` for architecture analysis.
+- **Roll monitoring:** `systemctl list-timers --all | grep roll-batch` to verify timer is active. `journalctl -u indicagent-roll-batch` for run logs.
 - **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
 - **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Check VRAM: `cat /sys/class/drm/card1/device/mem_info_vram_total`. Benchmark: `curl -s http://localhost:11434/api/generate -d '{"model":"...","prompt":"...","stream":false}'`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.

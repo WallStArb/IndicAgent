@@ -48,8 +48,6 @@ def test_dag_order_covers_required_services():
         "indicagent-llm-writer",
         "indicagent-cross-asset",
         "indicagent-lifecycle-writer",
-        "indicagent-contract-metadata-writer",
-        "indicagent-roll-compute",
         "indicagent-macro-compute",
         "indicagent-alpha-swarm",
         "indicagent-signal-metrics-compute",

@@ -35,16 +35,15 @@ class TestBarAuditorAgentInit:
         assert agent.name == "bar_auditor_agent"
 
     def test_topics_consumed_returns_empty_list(self):
-        """topics_consumed returns contract_update + roll_events topics."""
+        """topics_consumed returns contract_update topic."""
         from services.bar_auditor_agent import BarAuditorAgent
 
         agent = BarAuditorAgent.__new__(BarAuditorAgent)
         agent.settings = MagicMock(env_name="development")
         # Inject the property via the class
         topics = BarAuditorAgent.topics_consumed.fget(agent)
-        assert len(topics) == 2
+        assert len(topics) == 1
         assert any("contract_update" in t for t in topics)
-        assert any("roll" in t for t in topics)
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
