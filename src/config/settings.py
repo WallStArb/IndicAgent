@@ -38,9 +38,9 @@ class Settings(BaseSettings):
         description="Symbol filter for intelligence pipeline sharding. Empty = all active contracts.",
     )
     intelligence_output_drain_batch_size: int = Field(
-        default=10,
+        default=20,
         alias="INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE",
-        description="Max items drained per OutputQueue iteration (PERF-06, Plan 03).",
+        description="Max items drained per OutputQueue iteration (PERF-06, Plan 03). Increased from 10→20 (Phase 107) to reduce output_queue.full_blocking warnings during high throughput.",
     )
     intelligence_pipeline_queue_maxsize: int = Field(
         default=100,

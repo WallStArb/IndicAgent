@@ -1,6 +1,7 @@
 """Tests for StateSerializer — msgpack encode/decode with type tagging."""
 
 from collections import deque
+from datetime import date, datetime
 
 import numpy as np
 import pytest
@@ -28,6 +29,20 @@ register_pydantic_model(_TestModel)
 # ---------------------------------------------------------------------------
 # Round-trip tests — encode then decode should produce identical result
 # ---------------------------------------------------------------------------
+
+
+class TestDatetimeObjects:
+    def test_datetime_round_trip(self):
+        dt = datetime(2026, 5, 26, 10, 8, 40)
+        state = {"timestamp": dt}
+        result = StateSerializer.decode(StateSerializer.encode(state))
+        assert result["timestamp"] == "2026-05-26T10:08:40"
+
+    def test_date_round_trip(self):
+        d = date(2026, 5, 26)
+        state = {"session_date": d}
+        result = StateSerializer.decode(StateSerializer.encode(state))
+        assert result["session_date"] == "2026-05-26"
 
 
 class TestPrimitives:

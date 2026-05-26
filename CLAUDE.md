@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.43.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104 shipped 2026-05-23). v2.8: 094-099 (AI platform, deferred from v2.7), 101-103 (evolvable agents).
+Version: 5.43.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents).
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
@@ -188,7 +188,8 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **IBKR**: VIX=`"VX"`, client IDs 35+. TWS host `127.0.0.1`, port `7497`. All ib_insync in `src/providers/ibkr.py` only.
 - **Redpanda**: Kafka-compatible. Topic naming: dots not colons. Via `stream_keys.py` always. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Daemon reads contracts at startup; restart on futures expiry.
-- **Roll flow:** `RollComputeAgent` → `RollEvent` → `ContractMetadataWriterAgent` → `is_front_month` → restart `indicagent-ibkr-provider`.
+- **Roll flow:** `RollComputeAgent` (real-time volume z-score detection) → `RollEvent` → `ContractMetadataWriterAgent` → `is_front_month` update in `contract_metadata` table. Provider reads updated contracts via `get_active_contracts()`; manual restart rarely needed. See `docs/ideas/futures-roll-simplification.md` for architecture analysis and simplification research.
+- **Roll monitoring:** `systemctl status indicagent-roll-compute` — verify 0 consumer lag. Service was stabilized 2026-05-26 (systemd watchdog removed). If stuck/silent, check logs for "roll_compute_processing" diagnostic events.
 - **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
 - **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Check VRAM: `cat /sys/class/drm/card1/device/mem_info_vram_total`. Benchmark: `curl -s http://localhost:11434/api/generate -d '{"model":"...","prompt":"...","stream":false}'`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.

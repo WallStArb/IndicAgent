@@ -114,7 +114,7 @@ class BollingerPlugin(IncrementalMixin):
             # Compute Bollinger Bands
             mean = s["sum"] / period
             variance = (s["sum_sq"] / period) - (mean**2)
-            std = variance**0.5
+            std = max(variance, 0) ** 0.5
             mid = mean
             upper = mid + std_dev * std
             lower = mid - std_dev * std

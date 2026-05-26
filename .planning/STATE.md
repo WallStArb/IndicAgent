@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.8
-milestone_name: milestone
-status: milestone_complete
-stopped_at: Milestone complete (Phase 107 was final phase)
-last_updated: 2026-05-25T22:18:35.102Z
-last_activity: 2026-05-25
+milestone_name: AI Platform & Evolvable Agents
+status: in_progress
+stopped_at: pipeline fixes (2026-05-26)
+last_updated: "2026-05-26T10:30:00.000Z"
+last_activity: 2026-05-26
 progress:
-  total_phases: 16
-  completed_phases: 6
-  total_plans: 49
-  completed_plans: 37
-  percent: 38
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** v2.8 AI Platform
 
 ## Current Position
 
-Phase: 107
+Phase: 094 (next to plan)
 Plan: Not started
-Status: Milestone complete
-Last activity: 2026-05-25
+Status: Milestone in_progress
+Last activity: 2026-05-26
 
-## v2.7 Shipped Phases (complete)
+## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
 | Phase | Name | Status |
 |-------|------|--------|
@@ -38,29 +38,14 @@ Last activity: 2026-05-25
 | 100 | Plugin Shared Infrastructure | Complete (6/6 plans, 2026-05-22) |
 | 100.5 | Plugin Infrastructure Hardening | Complete (1/1 plan, 2026-05-22) |
 | 104 | Storage Architecture Redesign | Complete (4/4 plans, 2026-05-22) |
-
-## v2.8 In-Progress Shipped Phases (complete)
-
-| Phase | Name | Status |
-|-------|------|--------|
 | 105 | Architecture Hotfix Sprint | Complete (5/5 plans, 2026-05-24) |
 | 106 | Foundation Hardening | Complete (6/6 plans, 2026-05-25) |
+| 107 | Infrastructure Hygiene | Complete (9/9 criteria, 2026-05-25) |
 
-## Phase 106 Deliverables (Foundation Hardening)
-
-- ✅ Dead code deletion: ShadowRecorder, GuardrailsValidator, 6+1 dead Settings fields
-- ✅ DAG correctness: 9 missing services added to `_DAG_ORDER`, oneshot guard, lag thresholds
-- ✅ Code reuse: bar_aggregator retry → BaseAgent._setup_with_retry, 3 JSONB create_pool bypasses
-- ✅ Queue backpressure: enqueue_blocking for intel/journal, PluginStateManager O(1) index, process_bar_inner span
-- ✅ PluginCircuitBreaker wiring: shadow-mode flag, OTel state gauge
-- ✅ Regression tests: oneshot guard, state index parity, breaker wiring, backpressure (full suite green)
-
-## v2.8 Planned Phases
+## v2.8 AI Platform Phases (0/9 complete)
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 106 | Foundation Hardening | FOUND-01–06 | ✅ Complete (6/6 plans, 2026-05-25) |
-| 107 | Infrastructure Hygiene | HYGIENE-01–09 (9 criteria) | Requirements complete, ready to plan |
 | 094 | LiteLLM + Instructor Structured Output | LLM-INFRA-01–05, STRUCT-OUT-01–04 | 0/TBD plans (2 written from v2.7) |
 | 095 | Pydantic AI Agent Execution Layer | AGENT-EXEC-01–05 | 0/5 plans (8 written from v2.7) |
 | 096 | Agent Registry | AGENT-REG-01–04 | 0/TBD plans |
@@ -114,7 +99,6 @@ Last activity: 2026-05-25
 - `docs/ideas/persistence-layer-fragility-assessment.md` — full 13-writer audit table
 - `docs/ideas/service-resilience-patterns.md` — Pattern 1 (circuit breaker) elevated to Phase 084 scope
 - `docs/ideas/latency-and-persistence-audit-design.md` — Phase 084 relevant items flagged; DragonflyDB refs noted as stale
-- `.planning/phases/107-infrastructure-hygiene/CONTEXT.md` — **CRITICAL for next session**: Handoff file surviving context clearing with complete Phase 107 scope, Renaissance principles, verification queries, current state snapshot
 
 ### Blockers / Concerns
 
@@ -124,11 +108,11 @@ Last activity: 2026-05-25
 
 ## Session Continuity
 
-Last session: 2026-05-25T17:57:25.767Z
-Stopped at: Completed Phase 107 Plan 00 (Wave 0)
-Resume: `/clear` → `/gsd:discuss-phase 107` → `/gsd:plan-phase 107`
+Last session: 2026-05-26T10:30:00.000Z
+Stopped at: pipeline fixes + GSD cleanup
+Resume: `/gsd:discuss-phase 094` → `/gsd:plan-phase 094`
 
-**Context preservation:** `.planning/phases/107-infrastructure-hygiene/CONTEXT.md` contains complete handoff for next agent after context clearing. Includes all 9 criteria, Renaissance principles, verification queries, and current state snapshots.
+**Phase 107 archive:** `.planning/archive/phases/107-infrastructure-hygiene/`
 
 ## Performance Metrics
 
