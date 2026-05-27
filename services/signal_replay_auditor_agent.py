@@ -1,6 +1,6 @@
 """SignalReplayAuditorAgent — L9 periodic outcome recovery.
 
-Phase 81 Plan 05. Every 5 minutes, finds v1 signals with exit_at IS NULL
+Phase 81 Plan 05. On a fast cycle, finds v1 signals with exit_at IS NULL
 past their TTL window and replays them bar-by-bar against market_data_ohlcv
 to compute outcomes that the live tracker missed (restart, edge cases, gaps).
 
@@ -47,7 +47,7 @@ from src.observability.metrics import (
 )
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
-REPLAY_INTERVAL_SECONDS = 300  # 5-minute audit cycle
+REPLAY_INTERVAL_SECONDS = 30  # fast cycle to drain backlog
 
 
 class SignalReplayAuditorAgent(BaseAgent):
@@ -84,7 +84,7 @@ class SignalReplayAuditorAgent(BaseAgent):
     # DB helpers
     # ------------------------------------------------------------------
 
-    _BATCH_SIZE = 500
+    _BATCH_SIZE = 2000
 
     async def _fetch_unresolved(self) -> list[asyncpg.Record]:
         """Fetch a bounded batch of unresolved signals past a 2-minute hold."""
@@ -92,12 +92,11 @@ class SignalReplayAuditorAgent(BaseAgent):
             SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.direction,
                    sl.market_entry_price, sl.ttl_bars, sl.status, sl.activated_at,
                    sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
-                   COALESCE((tf_sig.value->>'entry_price')::float,
-                             sl.activation_price)                AS entry_price,
-                   (tf_sig.value->>'stop_loss')::float           AS stop_loss,
-                   tf_sig.value->'targets'                       AS targets,
-                   (tf_sig.value->>'zone_low')::float            AS entry_zone_low,
-                   (tf_sig.value->>'zone_high')::float           AS entry_zone_high
+                   COALESCE(sl.entry_price::float, sl.activation_price) AS entry_price,
+                   sl.stop_loss::float                                   AS stop_loss,
+                   sl.targets                                            AS targets,
+                   (tf_sig.value->>'zone_low')::float                   AS entry_zone_low,
+                   (tf_sig.value->>'zone_high')::float                  AS entry_zone_high
             FROM signal_ledger_full sl
             LEFT JOIN intelligence_features f
                 ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
@@ -177,21 +176,26 @@ class SignalReplayAuditorAgent(BaseAgent):
 
         signal_dict = self._build_signal_dict(row)
         topic = topic_lifecycle_transitions(self.settings.env_name)
-        resolved = False
+        assert self._producer is not None
 
-        # Zone-entry track
+        # Zone-entry track: synthesize a never_activated exit only for PENDING signals
+        # that exhausted their TTL window without entering the zone. ACTIVE signals
+        # that return None had bar gaps preventing TTL exit — skip them so a later
+        # cycle can retry with better data.
         zone_transition = self._evaluate_zone_track(signal_dict, bars, start_ts)
-        if zone_transition is not None:
-            assert self._producer is not None
-            await self._producer.publish(topic, msg=to_dict(zone_transition))
-            outcome_str = zone_transition.data.get("outcome") or "unknown"
-            SIGNAL_REPLAY_RESOLVED_TOTAL.add(1, {"outcome": outcome_str})
-            resolved = True
-            self.logger.info(
-                "replay_zone_resolved",
-                signal_id=str(row["signal_id"]),
-                outcome=outcome_str,
-            )
+        if zone_transition is None:
+            if row["status"] != SignalStatus.PENDING:
+                return False
+            zone_transition = self._build_never_activated_transition(signal_dict, end_ts)
+
+        await self._producer.publish(topic, msg=to_dict(zone_transition))
+        outcome_str = zone_transition.data.get("outcome") or "unknown"
+        SIGNAL_REPLAY_RESOLVED_TOTAL.add(1, {"outcome": outcome_str})
+        self.logger.info(
+            "replay_zone_resolved",
+            signal_id=str(row["signal_id"]),
+            outcome=outcome_str,
+        )
 
         # Market-entry parallel track (if market_entry_price was recorded)
         market_entry_price = row["market_entry_price"]
@@ -200,11 +204,10 @@ class SignalReplayAuditorAgent(BaseAgent):
                 signal_dict, bars, market_entry_price, start_ts
             )
             if market_transition is not None:
-                assert self._producer is not None
-                await self._producer.publish(topic, msg=to_dict(market_transition))
                 # Market resolution is informational; only zone counts for north-star.
+                await self._producer.publish(topic, msg=to_dict(market_transition))
 
-        return resolved
+        return True
 
     def _build_signal_dict(self, row: asyncpg.Record) -> dict[str, Any]:
         """Build a signal dict from DB record matching evaluate_signal's expected shape."""
@@ -214,25 +217,24 @@ class SignalReplayAuditorAgent(BaseAgent):
         else:
             targets = []
 
+        entry_price = float(row["entry_price"])
         return {
             "signal_id": str(row["signal_id"]),
+            "symbol": row["symbol"],
+            "timeframe": row["timeframe"],
             "status": row["status"] or SignalStatus.PENDING,
             "direction": int(row["direction"]),
-            "entry_price": float(row["entry_price"]),
+            "entry_price": entry_price,
             "stop_loss": float(row["stop_loss"]),
             "targets": targets,
             "ttl_bars": int(row["ttl_bars"] or 10),
             "bars_elapsed": 0,  # reset for bar-by-bar replay
             "point_value": 1.0,  # replay assumes single-contract base; multi-contract not tracked here
             "entry_zone_low": (
-                float(row["entry_zone_low"])
-                if row["entry_zone_low"] is not None
-                else float(row["entry_price"])
+                float(row["entry_zone_low"]) if row["entry_zone_low"] is not None else entry_price
             ),
             "entry_zone_high": (
-                float(row["entry_zone_high"])
-                if row["entry_zone_high"] is not None
-                else float(row["entry_price"])
+                float(row["entry_zone_high"]) if row["entry_zone_high"] is not None else entry_price
             ),
             "activated_at": row["activated_at"],
             "hmm_regime_at_fire": row["hmm_regime_at_fire"],
@@ -306,6 +308,33 @@ class SignalReplayAuditorAgent(BaseAgent):
             bars_elapsed += 1
 
         return None
+
+    def _build_never_activated_transition(
+        self,
+        signal_dict: dict[str, Any],
+        end_ts: datetime,
+    ) -> LifecycleTransition:
+        """Build a never_activated TTL exit for a signal that never entered its zone."""
+        return LifecycleTransition(
+            transition_type=TransitionType.EXIT,
+            signal_id=signal_dict["signal_id"],
+            symbol=signal_dict.get("symbol", ""),
+            timeframe=signal_dict.get("timeframe", ""),
+            bar_ts=end_ts,
+            data={
+                "status": SignalStatus.EXPIRED,
+                "exit_at": end_ts.isoformat(),
+                "exit_price": None,
+                "exit_reason": "ttl_expired",
+                "pnl_r": 0.0,
+                "pnl_dollars": None,
+                "signal_quality": None,
+                "mae": 0.0,
+                "mfe": 0.0,
+                "bars_in_trade": 0,
+                "outcome": "never_activated",
+            },
+        )
 
     def _evaluate_market_track(
         self,
