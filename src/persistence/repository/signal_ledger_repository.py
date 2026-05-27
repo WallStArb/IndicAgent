@@ -86,6 +86,7 @@ class LedgerEntry:
     bucket_scores: dict | None = None
     weights_version: int | None = None
     pipeline_lag_ms: float | None = None
+    expires_at: datetime | None = None
     # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
     status: SignalStatus = SignalStatus.PENDING
 
@@ -118,6 +119,7 @@ class LedgerEntry:
             self.bucket_scores,  # $25 dict → asyncpg JSONB
             self.weights_version,  # $26
             self.pipeline_lag_ms,  # $27
+            self.expires_at,  # $28
         )
 
 
@@ -137,7 +139,7 @@ INSERT INTO signal_ledger (
     entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
     market_entry_price,
     cis_score, bucket_scores, weights_version,
-    pipeline_lag_ms
+    pipeline_lag_ms, expires_at
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
@@ -149,7 +151,7 @@ INSERT INTO signal_ledger (
     $18, $19, $20::jsonb, $21, $22,
     $23,
     $24, $25::jsonb, $26,
-    $27
+    $27, $28
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """
@@ -304,7 +306,7 @@ _SELECT_ACTIVE_COLS = """
        is_shadow, hmm_regime_at_fire, garch_sigma_at_fire,
        trailing_stop_price, staleness_score, staleness_trigger_reason,
        shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
-       effective_ts, pipeline_lag_ms, signal_schema_version, is_backfill, ttl_bars,
+       effective_ts, pipeline_lag_ms, signal_schema_version, is_backfill, ttl_bars, expires_at,
        entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
 """
 
@@ -587,7 +589,7 @@ ORDER BY timestamp DESC
         """Return all pending signals across all symbols/timeframes."""
         sql = """
 SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
-       was_selected, status, feature_ts, feature_tf, activation_price,
+       was_selected, status, feature_ts, feature_tf, expires_at, activation_price,
        entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
 FROM signal_ledger_full
 WHERE status = 'pending' AND exit_at IS NULL
