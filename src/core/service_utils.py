@@ -58,6 +58,18 @@ def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
 # Used for cooldown / elapsed-bar calculations across services.
 TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
+
+def tf_to_seconds(tf: str) -> int:
+    """Return wall-clock seconds per bar for the given timeframe.
+
+    Uses TF_SECONDS as the source of truth. Unknown timeframes default to
+    60 seconds (1m equivalent) — callers must guard against unexpected TF values.
+
+    Used for expires_at computation: expires_at = timestamp + ttl_bars * tf_to_seconds(tf).
+    """
+    return TF_SECONDS.get(tf, 60)
+
+
 # Seconds from period start to period close per timeframe.
 # 1m is omitted: for 1m bars ts IS the close time, no offset needed.
 # For all higher TFs ts is the period start; close = ts + duration.
