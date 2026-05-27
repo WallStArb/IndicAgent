@@ -50,6 +50,11 @@ _LABELING_VIOLATIONS = _counter(
     "Count of signals with activated_at set but status=PENDING at TTL time",
 )
 
+_NULL_EXPIRES_AT_COUNTER = _counter(
+    "signal_lifecycle_null_expires_at_total",
+    "Count of bars where expires_at was NULL — data-integrity alert (D-17)",
+)
+
 
 def _record_outcome(signal: dict, outcome: SignalOutcome | str) -> None:
     """Record signal outcome to Prometheus for quality tracking (Phase 79)."""
@@ -326,7 +331,20 @@ def evaluate_signal(
             )
 
     # 4. TTL expiry (LAST — only after all price-based checks)
-    if bars >= ttl:
+    # Use bar_time >= expires_at for deterministic replay. Never datetime.now(UTC).
+    expires_at = signal.get("expires_at")
+    if expires_at is None:
+        # D-17: NULL expires_at post-backfill is a data-integrity bug. Fail loud, do NOT
+        # fall back to bar-count. Increment counter, warn, and skip TTL check this bar.
+        _NULL_EXPIRES_AT_COUNTER.add(
+            1,
+            {
+                "symbol": signal.get("symbol", "unknown"),
+                "timeframe": signal.get("timeframe", "unknown"),
+            },
+        )
+        # No TTL transition is produced; signal stays in current state (price exits still applied above).
+    elif bar_time is not None and bar_time >= expires_at:
         exit_price = close
         pnl_ticks = (exit_price - entry) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0

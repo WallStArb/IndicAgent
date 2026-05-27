@@ -90,7 +90,7 @@ class SignalReplayAuditorAgent(BaseAgent):
         """Fetch a bounded batch of unresolved signals past a 2-minute hold."""
         query = """
             SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.direction,
-                   sl.market_entry_price, sl.ttl_bars, sl.status, sl.activated_at,
+                   sl.market_entry_price, sl.ttl_bars, sl.expires_at, sl.status, sl.activated_at,
                    sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
                    COALESCE(sl.entry_price::float, sl.activation_price) AS entry_price,
                    sl.stop_loss::float                                   AS stop_loss,
@@ -239,6 +239,7 @@ class SignalReplayAuditorAgent(BaseAgent):
             "activated_at": row["activated_at"],
             "hmm_regime_at_fire": row["hmm_regime_at_fire"],
             "garch_sigma_at_fire": row["garch_sigma_at_fire"],
+            "expires_at": row.get("expires_at"),
             "setup_plugin": "replay",  # placeholder for metrics labels
         }
 
