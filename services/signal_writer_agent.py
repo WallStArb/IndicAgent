@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import timedelta
 from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -20,7 +21,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import parse_iso_ts
+from src.core.service_utils import parse_iso_ts, tf_to_seconds
 from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_signal_writer_dlq,
@@ -181,6 +182,10 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
             if sig.get("status") == "regime_suppressed"
             else SignalStatus.PENDING
         )
+        ttl = sig.get("ttl_bars")
+        expires_at_val = None
+        if ttl is not None and tf:
+            expires_at_val = bar_ts + timedelta(seconds=ttl * tf_to_seconds(tf))
         entries.append(
             LedgerEntry(
                 signal_id=str(sig.get("signal_id") or uuid4()),
@@ -200,7 +205,7 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 is_shadow=bool(sig.get("is_shadow", False)),
                 signal_schema_version=sig.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
                 is_backfill=bool(sig.get("is_backfill", False)),
-                ttl_bars=sig.get("ttl_bars"),
+                ttl_bars=ttl,
                 entry_price=sig.get("entry_price"),
                 stop_loss=sig.get("stop_loss"),
                 targets=sig.get("targets") or None,
@@ -211,6 +216,7 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 cis_score=sig.get("filtered_cis_score"),
                 bucket_scores=sig.get("bucket_scores"),
                 weights_version=sig.get("weights_version"),
+                expires_at=expires_at_val,
             )
         )
     return entries
