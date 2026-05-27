@@ -204,8 +204,8 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 entry_price=sig.get("entry_price"),
                 stop_loss=sig.get("stop_loss"),
                 targets=sig.get("targets") or None,
-                entry_zone_low=sig.get("entry_zone_low"),
-                entry_zone_high=sig.get("entry_zone_high"),
+                entry_zone_low=sig.get("zone_low"),
+                entry_zone_high=sig.get("zone_high"),
                 # cis_score column stores the filtered (regime-adjusted) score that drives ranking,
                 # not raw_cis_score. Both are stamped by signal_processor.
                 cis_score=sig.get("filtered_cis_score"),
