@@ -1,10 +1,15 @@
 """Tests for signal lifecycle tracker."""
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from src.intelligence.trading.lifecycle_tracker import (
     evaluate_signal,
 )
+
+# Reference time anchor for TTL tests
+_T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 
 
 def _pending_signal(direction=1, entry=5100.0, stop=5085.0, targets=None) -> dict:
@@ -128,10 +133,13 @@ class TestTTLExpiry:
 
     @pytest.mark.unit
     def test_active_expires_after_ttl(self):
-        """Active signal past ttl_bars -> expired."""
+        """Active signal with bar_time >= expires_at -> expired."""
         sig = _active_signal()
         sig["bars_elapsed"] = 11
-        t = evaluate_signal(sig, high=5098.0, low=5095.0, close=5097.0)
+        # expires_at = T0 + 10 bars * 60s (1m TF); bar_time = T0 + 11min → past expires_at
+        sig["expires_at"] = _T0 + timedelta(minutes=10)
+        bar_time = _T0 + timedelta(minutes=11)
+        t = evaluate_signal(sig, high=5098.0, low=5095.0, close=5097.0, bar_time=bar_time)
         assert t.new_status == "expired"
         assert t.exit_reason == "ttl_expired"
 
@@ -281,7 +289,10 @@ class TestPnLCalculation:
         """Expired signal uses close as exit price."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0)
         sig["bars_elapsed"] = 11
-        t = evaluate_signal(sig, high=5108.0, low=5095.0, close=5105.0)
+        # expires_at = T0 + 10 bars * 60s (1m TF); bar_time = T0 + 11min → past expires_at
+        sig["expires_at"] = _T0 + timedelta(minutes=10)
+        bar_time = _T0 + timedelta(minutes=11)
+        t = evaluate_signal(sig, high=5108.0, low=5095.0, close=5105.0, bar_time=bar_time)
         assert t.exit_price == 5105.0
         assert t.pnl_ticks == pytest.approx(5.0)
 

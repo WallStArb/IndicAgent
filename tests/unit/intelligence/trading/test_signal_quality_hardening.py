@@ -1,8 +1,11 @@
 """Tests for signal quality hardening: W1-W7."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+
+_T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
@@ -279,7 +282,10 @@ class TestTTLReorder:
 
     def test_ttl_expired_when_no_hit(self):
         sig = self._base_signal(bars_elapsed=20, ttl=20)
-        result = evaluate_signal(sig, high=101.0, low=99.5, close=100.5)
+        # expires_at = T0 + 20 bars * 60s; bar_time = T0 + 21min → past expires_at
+        sig["expires_at"] = _T0 + timedelta(minutes=20)
+        bar_time = _T0 + timedelta(minutes=21)
+        result = evaluate_signal(sig, high=101.0, low=99.5, close=100.5, bar_time=bar_time)
         assert result is not None
         assert result.exit_reason == "ttl_expired"
 
