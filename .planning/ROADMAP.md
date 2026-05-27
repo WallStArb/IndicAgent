@@ -872,6 +872,27 @@ Plans:
 - Serial wave execution with stabilization gates (Wave 1 → verify → stabilize → Wave 2 → verify → stabilize → Wave 3)
 - Root-cause focused: fixes include CI gates, pre-commit hooks, and process changes
 
+### Phase 107.5: Signal Lifecycle Architecture Fix
+
+**Goal**: Fix four structural defects in signal lifecycle that caused 96% of signals to be permanently pending and mask real performance data. After this phase: signal records are self-contained, TTL evaluation is deterministic and unified, the live tracker handles restarts correctly, and the replay auditor is a true canary processing near-zero signals in steady state.
+**Depends on**: Phase 107
+**Requirements**: LIFECYCLE-FIX-01, LIFECYCLE-FIX-02, LIFECYCLE-FIX-03, LIFECYCLE-FIX-04
+**Success Criteria** (what must be TRUE):
+  1. After the next restart, stale pending signals fire TTL-expired transitions immediately (no backlog accumulation) - measured by zero pending signals surviving first `_ingest_signal` cycle post-restart
+  2. `signal_ledger.entry_zone_low` and `entry_zone_high` are non-NULL for all new signals; backfill reconciliation report shows zero unmatched signal_ids
+  3. `signal_ledger.expires_at` is non-NULL for all signals; `lifecycle_tracker.py` and `signal_tracker_compute_agent.py` use `expires_at` exclusively; zero dual-model divergence
+  4. `signal_replay_auditor` processes near-zero signals in steady state (< 5 signals/cycle after 10 minutes); LATERAL JOIN removed; `REPLAY_BATCH_SIZE`/`REPLAY_INTERVAL_SECONDS` in Settings
+
+**Plans**: 6 plans in 6 serial waves
+
+Plans:
+- [ ] 107.5-01-PLAN.md — Fix 1: Remove is_backfill guard from _ingest_signal (Wave 1)
+- [ ] 107.5-02-PLAN.md — Fix 2a: zone field name fix in signal_writer + migration 096 DDL (Wave 2)
+- [ ] 107.5-03-PLAN.md — Fix 2b: Zone field backfill script + reconciliation report (Wave 3)
+- [ ] 107.5-04-PLAN.md — Fix 3a: tf_to_seconds utility + migration 097 + expires_at backfill (Wave 4)
+- [ ] 107.5-05-PLAN.md — Fix 3b: Atomic evaluator deploy — both TTL evaluators switch to expires_at (Wave 5)
+- [ ] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
+
 ### Phase 094: LiteLLM + Instructor Structured Output
 
 **Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
