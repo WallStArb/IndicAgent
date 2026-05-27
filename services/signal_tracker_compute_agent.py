@@ -405,8 +405,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         now_utc = datetime.now(UTC)
         bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
 
-        if canonical["is_backfill"] and bars_elapsed >= canonical["ttl_bars"]:
-            # Backfill fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
+        if bars_elapsed >= canonical["ttl_bars"]:
+            # Fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
             self._publish_ttl_expired_transition_sync(canonical, bars_elapsed)
             SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.add(
                 1, {"symbol": canonical["symbol"], "timeframe": tf}
@@ -414,7 +414,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             self._signal_ids.add(sid)
             return
 
-        # Normal path (live OR backfill with TTL remaining): enter active index
+        # Normal path (TTL window still open): enter active index
         self._add_to_active_index(canonical)
         self._signal_ids.add(sid)
 
