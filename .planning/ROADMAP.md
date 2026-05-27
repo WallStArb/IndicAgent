@@ -889,7 +889,7 @@ Plans:
 - [x] 107.5-01-PLAN.md — Fix 1: Remove is_backfill guard from _ingest_signal (Wave 1)
 - [x] 107.5-02-PLAN.md — Fix 2a: zone field name fix in signal_writer + migration 096 DDL (Wave 2)
 - [x] 107.5-03-PLAN.md — Fix 2b: Zone field backfill script + reconciliation report (Wave 3)
-- [ ] 107.5-04-PLAN.md — Fix 3a: tf_to_seconds utility + migration 097 + expires_at backfill (Wave 4)
+- [x] 107.5-04-PLAN.md — Fix 3a: tf_to_seconds utility + migration 097 + expires_at backfill (Wave 4)
 - [ ] 107.5-05-PLAN.md — Fix 3b: Atomic evaluator deploy — both TTL evaluators switch to expires_at (Wave 5)
 - [ ] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
 
