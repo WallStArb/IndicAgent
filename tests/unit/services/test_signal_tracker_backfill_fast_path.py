@@ -30,8 +30,17 @@ def _make_agent() -> SignalTrackerComputeAgent:
     return agent
 
 
-def _make_backfill_canonical(signal_id: str, timestamp: datetime, ttl_bars: int = 10) -> dict:
-    """Build a canonical backfill signal dict."""
+def _make_backfill_canonical(
+    signal_id: str, timestamp: datetime, ttl_bars: int = 10, *, expires_at=None
+) -> dict:
+    """Build a canonical backfill signal dict.
+
+    expires_at should be provided for correct D-17 TTL evaluation.
+    If not provided, the signal will be skipped by the NULL-guard (no fast-path taken).
+    """
+    # Default: compute expires_at from timestamp + ttl_bars * 60s (1m timeframe)
+    if expires_at is None:
+        expires_at = timestamp + timedelta(seconds=ttl_bars * 60)
     return {
         "signal_id": signal_id,
         "symbol": "ES",
@@ -41,6 +50,7 @@ def _make_backfill_canonical(signal_id: str, timestamp: datetime, ttl_bars: int 
         "stop_loss": 4990.0,
         "is_backfill": True,
         "ttl_bars": ttl_bars,
+        "expires_at": expires_at,
         "signal_schema_version": "v1",
         "status": "pending",
         "direction": 1,

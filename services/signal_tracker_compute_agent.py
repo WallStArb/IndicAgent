@@ -28,7 +28,7 @@ from src.config.settings import get_point_value
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.service_utils import TF_SECONDS
+from src.core.service_utils import TF_SECONDS, tf_to_seconds
 from src.core.stream_keys import (
     message_key,
     topic_intelligence_i7_signals,
@@ -61,6 +61,11 @@ from src.observability.metrics import (
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 logger = structlog.get_logger(__name__)
+
+_NULL_EXPIRES_AT_COUNTER = counter(
+    "signal_tracker_null_expires_at_total",
+    "Count of signals skipped at startup due to NULL expires_at — data-integrity alert (D-17)",
+)
 
 
 @dataclass
@@ -401,12 +406,28 @@ class SignalTrackerComputeAgent(BaseAgent):
             return  # dedup
 
         tf = canonical["timeframe"]
-        tf_secs = TF_SECONDS.get(tf, 60)
         now_utc = datetime.now(UTC)
-        bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
 
-        if bars_elapsed >= canonical["ttl_bars"]:
+        expires_at = canonical.get("expires_at")
+        if expires_at is None:
+            # D-17: NULL expires_at post-backfill is a data-integrity bug. Fail loud, do NOT
+            # fall back to bar-count. Increment counter, warn, and skip fast-path.
+            _NULL_EXPIRES_AT_COUNTER.add(
+                1,
+                {
+                    "symbol": canonical.get("symbol", "unknown"),
+                    "timeframe": tf,
+                },
+            )
+            self.logger.warning(
+                "ingest_null_expires_at_skip",
+                signal_id=str(canonical.get("signal_id")),
+            )
+            # Skip fast-path: do not fire TTL from bar count. Add to active index normally below.
+        elif now_utc >= expires_at:
             # Fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
+            tf_secs = TF_SECONDS.get(tf, 60)
+            bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
             self._publish_ttl_expired_transition_sync(canonical, bars_elapsed)
             SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.add(
                 1, {"symbol": canonical["symbol"], "timeframe": tf}
@@ -461,9 +482,8 @@ class SignalTrackerComputeAgent(BaseAgent):
         from datetime import timedelta
 
         tf = canonical["timeframe"]
-        tf_secs = TF_SECONDS.get(tf, 60)
         fire_ts = canonical["timestamp"]
-        exit_at = fire_ts + timedelta(seconds=tf_secs * canonical["ttl_bars"])
+        exit_at = fire_ts + timedelta(seconds=tf_to_seconds(tf) * canonical["ttl_bars"])
 
         lt = LifecycleTransition(
             transition_type=TransitionType.EXIT,

@@ -52,7 +52,11 @@ def _bar(ts: datetime, high: float, low: float, close: float) -> dict:
 
 
 def _make_signal(direction: int) -> dict:
-    """Standard signal dict for _evaluate_zone_track testing."""
+    """Standard signal dict for _evaluate_zone_track testing.
+
+    expires_at is set to T0 + ttl_bars * 60s (1m timeframe) so that bar-time TTL
+    evaluation fires at bar index ttl_bars (bar_time >= expires_at).
+    """
     if direction == 1:
         return {
             "signal_id": str(uuid.uuid4()),
@@ -70,6 +74,8 @@ def _make_signal(direction: int) -> dict:
             "hmm_regime_at_fire": None,
             "garch_sigma_at_fire": None,
             "setup_plugin": "test",
+            # expires_at: T0 + 6 * 60s → bar at T0+6min triggers TTL
+            "expires_at": T0 + timedelta(minutes=6),
         }
     else:
         return {
@@ -88,6 +94,8 @@ def _make_signal(direction: int) -> dict:
             "hmm_regime_at_fire": None,
             "garch_sigma_at_fire": None,
             "setup_plugin": "test",
+            # expires_at: T0 + 6 * 60s → bar at T0+6min triggers TTL
+            "expires_at": T0 + timedelta(minutes=6),
         }
 
 
