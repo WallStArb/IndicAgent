@@ -223,8 +223,8 @@ class TestPayloadToLedgerEntries:
                     "entry_price": 5100.0,
                     "stop_loss": 5080.0,
                     "targets": [5120.0, 5150.0],
-                    "entry_zone_low": 5095.0,
-                    "entry_zone_high": 5105.0,
+                    "zone_low": 5095.0,
+                    "zone_high": 5105.0,
                 }
             ],
         }
