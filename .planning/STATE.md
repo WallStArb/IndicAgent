@@ -4,8 +4,8 @@ milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
 stopped_at: pipeline fixes + GSD cleanup
-last_updated: "2026-05-27T16:51:47.682Z"
-last_activity: 2026-05-27 -- Phase 107.5 planning complete
+last_updated: "2026-05-27T17:01:36.715Z"
+last_activity: 2026-05-27 -- Phase 107.5 execution started
 progress:
   total_phases: 16
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v2.8 AI Platform
+**Current focus:** Phase 107.5 — signal-lifecycle-architecture-fix
 
 ## Current Position
 
-Phase: 094 (next to plan)
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-27 -- Phase 107.5 planning complete
+Phase: 107.5 (signal-lifecycle-architecture-fix) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 107.5
+Last activity: 2026-05-27 -- Phase 107.5 execution started
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
