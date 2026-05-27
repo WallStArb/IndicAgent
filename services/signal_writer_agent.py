@@ -184,8 +184,17 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
         )
         ttl = sig.get("ttl_bars")
         expires_at_val = None
-        if ttl is not None and tf:
-            expires_at_val = bar_ts + timedelta(seconds=ttl * tf_to_seconds(tf))
+        if (
+            isinstance(ttl, int)
+            and not isinstance(ttl, bool)
+            and ttl > 0
+            and tf
+            and bar_ts is not None
+        ):
+            try:
+                expires_at_val = bar_ts + timedelta(seconds=ttl * tf_to_seconds(tf))
+            except (OverflowError, TypeError):
+                expires_at_val = None
         entries.append(
             LedgerEntry(
                 signal_id=str(sig.get("signal_id") or uuid4()),
