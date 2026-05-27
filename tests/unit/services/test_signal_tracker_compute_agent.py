@@ -147,11 +147,13 @@ class TestIngestSignal:
 
     def test_ingest_new_signal(self):
         agent = _make_agent()
+        # Use a recent timestamp so bars_elapsed < ttl_bars (default 10 bars for 1m = 10 min)
+        recent_ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
         raw = {
             "signal_id": "abc-123",
             "symbol": "ESM6",
             "timeframe": "1m",
-            "timestamp": "2026-01-01T10:00:00+00:00",
+            "timestamp": recent_ts,
             "status": "pending",
             "direction": 1,
             "entry_price": 5000.0,
@@ -172,12 +174,14 @@ class TestIngestSignal:
 
     def test_ingest_multiple_signals_same_symbol(self):
         agent = _make_agent()
+        # Use a recent timestamp so bars_elapsed < ttl_bars (default 10 bars for 1m = 10 min)
+        recent_ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
         for i in range(3):
             raw = {
                 "signal_id": f"s-{i}",
                 "symbol": "ESM6",
                 "timeframe": "1m",
-                "timestamp": "2026-01-01T10:00:00+00:00",
+                "timestamp": recent_ts,
                 "status": "pending",
                 "direction": 1,
                 "entry_price": 5000.0,
