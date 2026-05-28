@@ -584,6 +584,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -628,6 +629,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -651,6 +653,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -674,6 +677,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -696,6 +700,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -796,13 +801,16 @@ Plans:
 **Plans**: 4 plans in 3 waves (completed 2026-05-22)
 
 **Wave 1** *(parallel, no schema changes)*
+
 - [x] 104-01-PLAN.md — Storage audit doc + retention policies on 9 hypertables + Kafka byte caps on 6 topics
 - [x] 104-02-PLAN.md — Drop feature_snapshots_shadow (13 GB) + retire parity_auditor + feature_snapshot_writer; replace with SQL freshness function + consumer lag verification before group deletion
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 104-03-PLAN.md — Atomic maintenance window: rename intelligence_features tier columns (i1..i8 -> concept names) + slim signal_ledger (drop ~47 fire-time duplicate columns); update all read/write callsites and dashboard API LATERAL JOIN; explicit systemctl stop/start sequence with verification; rollback procedure (pg_dump backup + reverse DDL); dashboard LATERAL JOIN performance note
 
 **Wave 3** *(blocked on Wave 2 completion)*
+
 - [x] 104-04-PLAN.md — Create ml_signal_training hypertable + MLSignalTrainingMaterializeAgent + nightly systemd timer (02:00 UTC) + service_auditor registration; outcome backfill via ON CONFLICT DO UPDATE UPSERT (idempotent, handles late-resolving pnl_r/mae/mfe)
 
 **Success Criteria** (what must be TRUE):
@@ -821,6 +829,7 @@ Plans:
   12. ml_signal_training outcome backfill uses UPSERT pattern for idempotent updates
 
 **Revision notes (2026-05-22):**
+
 - Plan 02: Added consumer lag verification before deleting feature_snapshot_writer_group to prevent orphan offsets
 - Plan 03: Added explicit systemctl stop sequence with verification; added pg_dump backup and rollback DDL procedure; added LATERAL JOIN performance note for dashboard API
 - Plan 04: Clarified outcome backfill strategy using ON CONFLICT DO UPDATE UPSERT pattern; handles late-resolving pnl_r/mae/mfe idempotently
@@ -850,6 +859,7 @@ Plans:
 **Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-107) completed in v2.7.
 
 **Design principles (Renaissance standard):**
+
 - Every AI platform phase states the metric it must move — no phase ships without naming the measurement
 - Evidence gates between phases: 099 (Guardrails) only if post-Instructor parse failure rate > 1%; 102-103 (genetics) only if FIT-06 discriminative power gate passes
 - DAG discipline: no new Kafka topics without named producer-consumer pair; no new daemons without justification; compute is in-process
@@ -861,6 +871,7 @@ Plans:
 **Depends on**: Phase 105
 **Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06
 **Success Criteria** (what must be TRUE):
+
   1. `git grep -r "ShadowRecorder\|GuardrailsValidator"` returns zero results; dead Settings fields absent from Settings class
   2. `_DAG_ORDER` lists all deployed services; starting the service auditor with an ML batch service active does not trigger a restart attempt
   3. `bar_aggregator_agent` startup uses `BaseAgent._setup_with_retry`; all DB pool creation goes through the shared pool wrapper — no bare `asyncpg.create_pool` calls outside the wrapper
@@ -871,15 +882,18 @@ Plans:
 **Plans**: 6 plans
 
 **Wave 1** *(parallel, non-overlapping files; 106-04 depends on 105-03 for shared file)*
+
 - [x] 106-01-PLAN.md — Dead code deletion: ShadowRecorder, GuardrailsValidator (+ chain.py branch), 6+1 dead Settings fields
 - [x] 106-02-PLAN.md — DAG correctness: 9 missing services, _ONESHOT_UNITS guard, lag thresholds, agent-id key, systemd unit fixes
 - [x] 106-03-PLAN.md — Code reuse: bar_aggregator retry → BaseAgent._setup_with_retry, 3 JSONB create_pool bypasses
 - [x] 106-04-PLAN.md — Queue backpressure (enqueue_blocking for intel/journal), PluginStateManager O(1) index, process_bar_inner span
 
 **Wave 2** *(blocked on 106-04 + 105-03/105-04 for shared intelligence_pipeline_agent.py)*
+
 - [x] 106-05-PLAN.md — PluginCircuitBreaker wiring: populate circuit_breakers dict, shadow-mode enabled flag, OTel state gauge
 
 **Wave 3** *(blocked on all code changes)*
+
 - [x] 106-06-PLAN.md — Regression tests: oneshot guard, state index parity, breaker wiring, backpressure; full suite green
 
 ### Phase 107: Infrastructure Hygiene
@@ -889,6 +903,7 @@ Plans:
 **Depends on**: Phase 106
 **Requirements**: HYGIENE-01, HYGIENE-02, HYGIENE-03, HYGIENE-04 (expanded to 9 criteria via Renaissance design)
 **Success Criteria** (what must be TRUE):
+
   1. Binary SQL verification query returns TRUE for all 9 criteria (see 107-CONTEXT.md for query)
   2. All 42+ services use BaseAgent lifecycle with SIGTERM handling and stall detection
   3. All services use DatabaseManager.create_pool() with JSONB codecs
@@ -902,15 +917,19 @@ Plans:
 **Plans**: 3 plans (3 waves)
 
 **Wave 1** — Service Consistency (30%):
+
 - [x] 107-01-PLAN.md — BaseAgent migration (2 services) + DatabaseManager standardization (3 services) + agent_id label consistency
 
 **Wave 2** — Silent Failure Elimination (35%):
+
 - [x] 107-02-PLAN.md — Writer flush spans + AttributeError fixes + metric type corrections (shadow gauges, latency histograms)
 
 **Wave 3** — Complexity Reduction (35%):
+
 - [x] 107-03-PLAN.md — DAG completeness (11 missing services) + shadow promotion query fixes + assessment update
 
 **Renaissance Design Notes:**
+
 - Expanded from 4 criteria (HYGIENE-01–04) to 9 criteria (HYGIENE-01–09) based on architectural weakness assessment
 - 3-wave structure: Service Consistency → Silent Failure Elimination → Complexity Reduction
 - Measurement-driven: every criterion has quantified before/after metrics and binary verification
@@ -923,6 +942,7 @@ Plans:
 **Depends on**: Phase 107
 **Requirements**: LIFECYCLE-FIX-01, LIFECYCLE-FIX-02, LIFECYCLE-FIX-03, LIFECYCLE-FIX-04
 **Success Criteria** (what must be TRUE):
+
   1. After the next restart, stale pending signals fire TTL-expired transitions immediately (no backlog accumulation) - measured by zero pending signals surviving first `_ingest_signal` cycle post-restart
   2. `signal_ledger.entry_zone_low` and `entry_zone_high` are non-NULL for all new signals; backfill reconciliation report shows zero unmatched signal_ids
   3. `signal_ledger.expires_at` is non-NULL for all signals; `lifecycle_tracker.py` and `signal_tracker_compute_agent.py` use `expires_at` exclusively; zero dual-model divergence
@@ -931,6 +951,7 @@ Plans:
 **Plans**: 6 plans in 6 serial waves
 
 Plans:
+
 - [x] 107.5-01-PLAN.md — Fix 1: Remove is_backfill guard from _ingest_signal (Wave 1)
 - [x] 107.5-02-PLAN.md — Fix 2a: zone field name fix in signal_writer + migration 096 DDL (Wave 2)
 - [x] 107.5-03-PLAN.md — Fix 2b: Zone field backfill script + reconciliation report (Wave 3)
@@ -944,6 +965,7 @@ Plans:
 **Depends on**: Phase 107
 **Requirements**: HEAL-01, HEAL-02, HEAL-03, HEAL-04
 **Success Criteria** (what must be TRUE):
+
   1. All 39 daemon services have `WatchdogSec=60` in their unit files; `BaseAgent` heartbeat loop calls `sd_notify(WATCHDOG=1)` every 30s; `systemd-analyze verify` passes on all units
   2. `indicagent-db-backup.service` + `.timer` present and active; nightly `pg_dump` runs; `/var/backups/indicagent/` contains a `.sql.gz` no older than 25h; retention script deletes files older than 7 days
   3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
@@ -952,12 +974,20 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
 - [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
 - [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
 - [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 094: LiteLLM + Instructor Structured Output
@@ -966,6 +996,7 @@ Plans:
 **Depends on**: Phase 107
 **Requirements**: LLM-INFRA-01, LLM-INFRA-02, LLM-INFRA-03, LLM-INFRA-04, LLM-INFRA-05, STRUCT-OUT-01, STRUCT-OUT-02, STRUCT-OUT-03, STRUCT-OUT-04
 **Success Criteria** (what must be TRUE):
+
   1. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references; net LOC reduction >= 300 lines
   2. `LLMProviderChain.generate()` signature is unchanged; `BaseGroupService` and all 4 swarm agents compile and pass existing tests without modification
   3. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap, verified by existing tests
@@ -981,6 +1012,7 @@ Plans:
 **Depends on**: Phase 094
 **Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
 **Success Criteria** (what must be TRUE):
+
   1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
   2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]`
   3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents remain on `BaseAIAgent` unchanged
@@ -995,6 +1027,7 @@ Plans:
 **Depends on**: Phase 095
 **Requirements**: AGENT-REG-01, AGENT-REG-02, AGENT-REG-03, AGENT-REG-04
 **Success Criteria** (what must be TRUE):
+
   1. Adding a new entry to `agents.yaml` with valid fields and restarting the service instantiates the agent without any Python file changes
   2. `AgentRegistry` is the sole construction path — no agent is instantiated anywhere else at startup
   3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
@@ -1003,6 +1036,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -1018,6 +1052,7 @@ Plans:
 **Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
 **Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
 **Success Criteria** (what must be TRUE):
+
   1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)`; agents receive it via `AgentDeps.memory_client`
   2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
   3. `ZEP_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
@@ -1026,6 +1061,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -1041,6 +1077,7 @@ Plans:
 **Requirements**: OPT-01, OPT-02, OPT-03, OPT-04
 **Data gate**: At least 500 resolved, labeled rows per agent in `llm_calls` (outcome IS NOT NULL) before running optimizer. If data gate not met, phase is deferred.
 **Success Criteria** (what must be TRUE):
+
   1. `DSPyOptimizer` reads labeled (prompt, result, outcome) tuples from `llm_calls` where outcome is non-null; data gate (>= 500 rows per agent) verified before first run
   2. Optimized prompts are stored in `prompt_versions` table; `prompt_version` field in `llm_calls` enables controlled A/B comparison
   3. `DSPyOptimizer` runs as a timer-triggered batch job; it does not touch the live inference path; no new systemd daemon required
@@ -1049,6 +1086,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -1064,6 +1102,7 @@ Plans:
 **Requirements**: GUARD-01, GUARD-02, GUARD-03
 **Evidence gate (CONDITIONAL)**: This phase executes ONLY IF post-Instructor parse failure rate (STRUCT-OUT-03) remains above 1%. If Instructor brings parse failures below 1%, Phase 099 is deferred — adding another validation layer without evidence is waste.
 **Success Criteria** (what must be TRUE):
+
   1. `GuardrailsAIValidator` implements the same interface as existing validators; zero call-site changes required
   2. Custom `_validate_*_fields` methods are replaced by Guardrails AI validation; total custom validation LOC is lower than post-Instructor baseline
   3. Guardrails AI latency overhead is measured; must not exceed 10ms p95 vs existing validator
@@ -1071,6 +1110,7 @@ Plans:
 **Plans:** 7 plans in 3 waves
 
 Plans:
+
 - [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
@@ -1085,6 +1125,7 @@ Plans:
 **Depends on**: Phase 099 (or Phase 094 if 099 is deferred)
 **Requirements**: FIT-01, FIT-02, FIT-03, FIT-04, FIT-05, FIT-06
 **Success Criteria** (what must be TRUE):
+
   1. Bootstrap CI, Sharpe ratio, and win rate with statistical significance are computed per agent and stored in `agent_fitness` table; all three readable before Phase 102 begins
   2. Novelty score (decorrelation from live agent population) is computed and stored per agent; prevents redundant agents from surviving selection
   3. Calibration metric (confidence vs realized outcome alignment) is computed per agent via reliability diagram; stored in `agent_fitness`
@@ -1108,6 +1149,7 @@ Plans:
 **Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
 **Evidence gate**: Phase 102 does not begin until FIT-06 composite score shows cross-agent variance >= 0.2.
 **Success Criteria** (what must be TRUE):
+
   1. `agent_genomes` TimescaleDB table exists with full genome serialization (prompt, config, tool set, `agent_id`); schema is versioned
   2. Gene bank catalogs best-performing chromosome segments from demoted agents; queryable by segment type and historical fitness score
   3. Decomposition algorithm extracts highest-fitness chromosomes from failed agents with documented extraction criteria; results are reproducible
@@ -1127,6 +1169,7 @@ Plans:
 **Requirements**: REPRO-01, REPRO-02, REPRO-03, REPRO-04
 **Evidence gate**: Phase 103 does not begin until FIT-06 gate passed and GENE-01–04 operational.
 **Success Criteria** (what must be TRUE):
+
   1. Mutation operator applies perturbations to prompts, configs, and parameters; offspring are registered in `shadow_registry` as `shadow_only=True` — never auto-promoted
   2. Recombination operator crosses two parent agents and creates offspring inheriting best chromosomes; offspring are evaluated via FIT composite score before any promotion
   3. LLM-directed operator analyzes parent performance data from `llm_calls` and proposes targeted improvements; output is a candidate genome, not an auto-deployed agent
