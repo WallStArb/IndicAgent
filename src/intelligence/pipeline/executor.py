@@ -185,6 +185,15 @@ class PluginExecutor:
         )
 
     # ------------------------------------------------------------------
+    # Public accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def circuit_breakers(self) -> dict[str, CircuitBreaker]:
+        """Read-only view of per-plugin circuit breakers (Phase 108)."""
+        return self._plugin_circuit_breakers
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
