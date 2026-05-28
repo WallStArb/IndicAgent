@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # AI Intelligence Resources & Implementation Guide
 
-**Version:** 3.1.0
-**Last Updated:** 2026-04-21
-**Status:** Operational — I1-I8 pipeline complete (123 plugins + 2 aggregation). LLM chain: OpenRouter (primary) → Ollama (offline fallback).
+**Version:** 3.2.0
+**Last Updated:** 2026-05-27
+**Status:** Operational — I1-I8 pipeline complete (132 plugins + 2 aggregation). LLM stack: Ollama local (default gemma4:e4b, configurable via OLLAMA_MODEL env var).
 
 ## Purpose
 
@@ -12,48 +13,44 @@ Reference guide for AI/LLM integration in IndicAgent. Covers LLM provider chain 
 
 ## LLM Provider Chain
 
-The `ai_narrative_service` (I8) uses `LLMChain` from `src/intelligence/llm_providers.py` — providers are tried in order and the first successful response is returned immediately.
+The `NarrativeComputeAgent` (I8) uses `LLMProviderChain` from `src/core/llm/chain.py`. The narrative service (`indicagent-narrative-compute`) runs a single Ollama provider. OpenRouter, DeepSeek, and OllamaCloud providers were removed from the narrative path.
 
 ### Usage Example
 
 ```python
-from src.intelligence.llm_providers import LLMChain, OpenRouterProvider, OllamaProvider
+from src.core.ai.base_agent import BaseAIAgent
 from src.config.settings import get_settings
 
 settings = get_settings()
 
-chain = LLMChain([
-    OpenRouterProvider(
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        api_key=settings.openrouter_api_key
-    ),
-    OllamaProvider(
-        model="gemma4:e4b",
-        base_url=settings.ollama_base_url
-    ),
-])
+# AI agents use self._llm_generate() — never self._llm.generate() directly.
+# _llm_generate() auto-injects audit_context (call_id, symbol, signal_id,
+# regime, agent_id, prompt_version) into the llm.calls Kafka stream.
 
-text = await chain.generate(
-    prompt="Analyze this market pattern...",
-    system="You are a market intelligence analyst.",
-    max_tokens=500,
-    timeout=30.0
-)
+class MyAgent(BaseAIAgent):
+    agent_id = "my_agent_v1"
+    group = "alpha"
+    tiers_needed = frozenset()
+    latency_budget_ms = 120_000
+    shadow_only = True
+    prompt_version = "my_agent_v1"
+
+    async def _compute(self, context):
+        result = await self._llm_generate(context, prompt="...", system="...")
+        ...
 ```
 
 ### Provider Configuration
 
-**OpenRouter (Tier 1 - Primary):**
-- Endpoint: https://openrouter.ai/api/v1
-- Env vars: `OPENROUTER_API_KEY`, `OPENROUTER_TIMEOUT_SEC`
-- Default model: `meta-llama/llama-3.3-70b-instruct:free`
-- Free tier available, access to 100+ models
+**Ollama (primary — local):**
+- Endpoint: `http://localhost:11434` (env: `OLLAMA_BASE_URL`)
+- Default model: `gemma4:e4b` (env: `OLLAMA_MODEL` overrides)
+- Context window: 16384 tokens (env: `OLLAMA_NUM_CTX`)
+- Runs in Docker (`ollama/ollama:rocm` container)
+- Timeout: 60s (env: `LLM_TIMEOUT_SEC`)
+- Runs entirely on-device — always available
 
-**Ollama (Tier 2 - Offline):**
-- Endpoint: http://localhost:11434
-- Env vars: `OLLAMA_BASE_URL`, `OLLAMA_TIMEOUT_SEC`
-- Default model: `gemma4:e4b`
-- Runs entirely on-device, always available
+**Important:** For swarm agents (alpha_swarm, narrative_compute), Ollama is the sole provider. Hold persistent connections to it — kill those services before swapping models or benchmarking.
 
 ---
 
@@ -93,7 +90,7 @@ intelligence.journal (Kafka) — Full I1-I7 feature vector
   ↓
 FeatureWriterAgent → intelligence_features (TimescaleDB)
   ↓
-ai_narrative_service (I8) → narratives:*:* (Kafka)
+NarrativeComputeAgent (I8) → narratives:*:* (Kafka)
   ↓
 LLMWriterAgent → llm_calls (TimescaleDB)
 ```
@@ -103,7 +100,7 @@ LLMWriterAgent → llm_calls (TimescaleDB)
 | Service | Unit | Port | Purpose |
 |---------|------|------|---------|
 | Intelligence Pipeline | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified pipeline |
-| AI Narrative | `indicagent-ai-narrative` | :9113 | I8 LLM narrative generation |
+| Narrative Compute | `indicagent-narrative-compute` | :9113 | I8 LLM narrative generation |
 | LLM Writer | `indicagent-llm-writer` | :9117 | LLM audit log persistence |
 
 ---
@@ -114,16 +111,10 @@ LLMWriterAgent → llm_calls (TimescaleDB)
 
 - **Input:** `IntelligenceEvent` from `intelligence.journal` (full I1-I7 feature vector)
 - **Processing:** LLM generates human-readable market commentary per symbol/timeframe
-- **Output:** `NarrativeEvent` published to `narratives:SYMBOL:TF` topics
+- **Output:** narrative published to `narratives:SYMBOL:TF` topics
 - **Persistence:** Full LLM audit log to `llm_calls` hypertable (includes prompt, response, latency, model)
-
-### LLM Chain Behavior
-
-Providers tried in sequence:
-1. **OpenRouter** — Cloud inference, 100+ models available
-2. **Ollama** — Local fallback, always available
-
-First successful response returned immediately. If OpenRouter fails (timeout, API error, rate limit), automatically falls back to Ollama without service interruption.
+- **Timeframes:** `["1m", "5m", "15m", "1h"]`
+- **Consumer group:** `"ai_narrative"`, starts at `"$"` (skips backlog)
 
 ### Topics
 
@@ -151,36 +142,42 @@ class IntelligenceEvent(BaseModel):
     tf: str
     bar: OHLCVBar
     i1: I1Indicators      # Technical indicators (RSI, MACD, ATR, etc.)
-    i2: I2Events          # Volume events (OFI, CVD, etc.)
-    i3: I3Structure      # Market structure (FVG, OB, SMC, etc.)
-    i4: I4Context        # Context scoring (regime, volatility, etc.)
-    i5: I5Patterns       # Pattern confluence
-    smc: SMCContext      # Smart money concepts
-    i6: I6Confluence     # CIS scoring, calibration
+    i2: I2Events          # Composite events (crossovers, exhaustion, etc.)
+    i3: I3Structure       # Market structure (swing, S/R, trend, session)
+    i4: I4Context         # Context scoring (regime, volatility, etc.)
+    i5: I5Patterns        # Pattern confluence
+    smc: SMCContext       # Smart money concepts
+    i6: I6Confluence      # CIS scoring, calibration
     bar_close_ts: Optional[datetime]
     i1_computed_at: Optional[datetime]
     computed_at: datetime
 ```
 
-**Persistence:** `intelligence_features` hypertable with tiered JSONB columns (`i1`, `i2`, `i3`, `i4`, `i5`, `smc`, `i6`).
+**Persistence:** `intelligence_features` hypertable with tiered JSONB columns (`i1`, `i2`, `i3`, `i4`, `i5`, `smc`, `i6`). Column name is `ts` (not `feature_ts`).
 
-### NarrativeEvent (I8)
+### Signal Schema
 
-```python
-class NarrativeEvent(BaseModel):
-    ts: datetime
-    symbol: str
-    tf: str
-    narrative: str              # LLM-generated text
-    llm_provider: str           # "openrouter" or "ollama"
-    llm_model: str              # Model used
-    prompt_tokens: int
-    completion_tokens: int
-    latency_ms: int
-    source: str = "ai_narrative_service"
-```
+Signal schema version is `SIGNAL_SCHEMA_VERSION = "v1"` — single canonical constant in `src/intelligence/trading/signal_schema.py`. All producers and consumers import from there. Never hardcode version strings.
 
-**Persistence:** `llm_calls` hypertable (full audit log for analysis and cost tracking).
+**Key signal fields:**
+- `entry_zone_low` / `entry_zone_high` — entry zone bounds
+- `expires_at` — TTL deadline (bar-time wall-clock timestamp, Phase 107.5)
+- `signal_type` — values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`
+
+---
+
+## LLM Audit Trail
+
+Every LLM call flows through the audit pipeline:
+
+| Table | Purpose |
+|-------|---------|
+| `llm_calls` | Full audit per call: prompt, response, provider, latency, tokens, agent_id, prompt_version. Composite PK: `(call_id, called_at)` |
+| `llm_model_scores` | Per-model win rate, calibration, significance; refreshed every 15 min |
+| `signal_lineage` | Agent ancestry per signal (swarm predictions) |
+| `shadow_registry` | Shadow state for all I7 plugins + swarm agents; statistical promotion/demotion gates |
+
+**Adaptive routing:** When a model reaches `is_significant=True` (p<0.05, n>=30), it moves to position 0 in the provider chain for that `agent_id + regime` combination.
 
 ---
 
@@ -198,7 +195,7 @@ Per the Renaissance validation framework, LLMs are **research-only** in producti
 - Real-time signal enrichment uses only deterministic feature extractors
 - I8 AI Narrative is the exception (generates explanations, never affects position sizing directly)
 
-**Rationale:** LLM outputs are probabilistic and non-deterministic. All alpha must pass statistical validation gates (p < 0.05, ρ > 0.4) before affecting capital.
+**Rationale:** LLM outputs are probabilistic and non-deterministic. All alpha must pass statistical validation gates (n >= 100, bootstrap CI lower > 0) before affecting capital.
 
 ---
 
@@ -211,9 +208,8 @@ Per the Renaissance validation framework, LLMs are **research-only** in producti
   - I2-I6 (sequential): 160ms (73% of total - bottleneck)
   - I7 (parallel): 20ms
 
-- **I8 Narrative:** ~2-5 seconds per narrative (LLM inference)
-  - OpenRouter: 1-3s (network latency + inference)
-  - Ollama: 3-5s (local inference on CPU)
+- **I8 Narrative:** varies by Ollama model and hardware
+  - Local Ollama gemma4:e4b on AMD ROCm: p50 latency approximately 47-52s for swarm agents
 
 ### Throughput
 
@@ -234,9 +230,7 @@ Python's Global Interpreter Lock prevents threading from achieving true parallel
 ## External References
 
 ### LLM Infrastructure
-- **OpenRouter:** https://openrouter.ai/docs — Multi-model LLM API aggregation
-- **Ollama:** https://ollama.com/docs — Local LLM inference engine
-- **LangChain:** https://python.langchain.com — LLM orchestration framework (reference for patterns)
+- **Ollama:** https://ollama.com/docs — Local LLM inference engine (primary)
 
 ### Research Concepts
 - **Mixture of Agents:** https://arxiv.org/abs/2406.04692 — Multi-agent synthesis patterns

@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Market Intelligence Strategy & Agent Framework
 
-**Version:** 3.0.0
-**Last Updated:** 2026-04-21
-**Status:** Operational — I1-I8 pipeline complete. For implementation details see `docs/intelligence/ai-intelligence-architecture.md`. For active services see `docs/architecture/current-state.md`.
+**Version:** 3.1.0
+**Last Updated:** 2026-05-27
+**Status:** Operational — I1-I8 pipeline complete (132 plugins + 2 aggregation). For implementation details see `docs/intelligence/ai-intelligence-architecture.md`. For active services see `docs/architecture/current-state.md`.
 
 ---
 
@@ -17,16 +18,18 @@ IndicAgent is an **AI-powered market intelligence platform** built from speciali
 ## Intelligence Processing Hierarchy (I1-I8)
 
 ```
-I1  Foundation indicators        — RSI, MACD, ATR, VWAP, OFI, CVD (27 plugins)
+I1  Foundation indicators        — RSI, MACD, ATR, VWAP, OFI, CVD, volume_zscore (28 plugins)
 I2  Composite events             — Crossovers, exhaustion, acceleration (10 plugins)
 I3  Market structure             — Swing, S/R, session levels, market profile (8 plugins)
 I4  Regime classification        — GARCH, Kalman, HMM, BOCPD, VIX, cross-asset (12 plugins)
 I5  Pattern detection            — Divergence, squeeze, chart patterns (16 plugins)
-SMC Smart Money Concepts         — BOS/CHoCH, FVG, order blocks, liquidity (13 plugins)
-I6  Cross-timeframe confluence   — CTF sub-scores → CIS scoring (1 plugin)
+SMC Smart Money Concepts         — BOS/CHoCH, FVG, OB, HMM (4 TFs), liquidity, AMD cycle (16 plugins)
+I6  Cross-timeframe confluence   — CTF sub-scores → CIS scoring (6 plugins)
 I7  Trading signal generation    — Setup plugins + CISScorer + SignalAggregator (36 plugins)
-I8  AI narrative                 — LLM analysis per signal (OpenRouter → Ollama)
+I8  AI narrative                 — LLM analysis per signal (Ollama local, default gemma4:e4b)
 ```
+
+**Total: 132 plugins** + 2 aggregation (CISScorer, SignalAggregator).
 
 Each tier is DB-ignorant — it reads from the tier above it and publishes to Kafka. Only WriterAgents touch the database.
 
@@ -39,7 +42,7 @@ Each tier is DB-ignorant — it reads from the tier above it and publishes to Ka
 **Responsibility:** Discrete pattern recognition on the mathematical foundation from I1-I4.
 
 **What it detects:**
-- **Divergence patterns** — RSI/MACD/volume divergence from price; leading reversal signals
+- **Divergence patterns** — RSI/MACD/CMF/volume divergence from price; leading reversal signals
 - **Volatility squeeze** — Bollinger Bands inside Keltner Channels; compression preceding expansion
 - **Chart patterns** — H&S, double top/bottom, triangles, flags, cup & handle, measured move
 - **Trend confluence** — multi-indicator agreement for continuation confirmation
@@ -58,7 +61,10 @@ Each tier is DB-ignorant — it reads from the tier above it and publishes to Ka
 - **Order blocks** — Institutional accumulation/distribution zones
 - **Liquidity pools** — Clusters of stops that large participants target before reversing
 - **BOCPD** — Bayesian Online Changepoint Detection; detects the moment statistical properties of the price series shift, before a new regime is confirmed
-- **HMM** — Hidden Markov Model; classifies into known market states with full probability distributions
+- **HMM** — Hidden Markov Model; classifies into known market states with full probability distributions. Four TF-specific instances: 1m, 5m, 15m, 1h (all in TIER_SMC)
+- **AMD cycle** — Accumulation/Manipulation/Distribution cycle detection
+- **Breaker blocks / mitigation blocks** — Failed order block identification
+- **Premium/discount zones** — Price position relative to range midpoint
 
 **Why it matters:** SMC plugins provide the institutional context that separates a technically valid setup from one with actual order flow behind it. The `ctf_ob_alignment` and `ctf_fvg_alignment` sub-scores produced here are required inputs for every I7 plugin.
 
@@ -74,8 +80,8 @@ Each tier is DB-ignorant — it reads from the tier above it and publishes to Ka
 |-------|----------|--------|
 | **GARCH** | Is volatility expanding or contracting? | Volatility regime + sigma estimate |
 | **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope, adapts to current SNR |
-| **HMM** | Which hidden market state is most probable? | Probability distribution over 3 states |
-| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar |
+| **VIX Regime** | What is the macro volatility environment? | VIX-based regime classification |
+| **Cross-Asset Context** | Are correlated assets confirming or diverging? | Cross-asset context score |
 | **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class |
 | **Shannon Entropy** | How predictable is the current price series? | Entropy score → CIS quality multiplier |
 
@@ -85,13 +91,17 @@ Each tier is DB-ignorant — it reads from the tier above it and publishes to Ka
 
 ### Cross-Timeframe Confluence (I6)
 
-**Responsibility:** Synthesize I1-I5/SMC outputs across all active timeframes into a single set of directional sub-scores consumed by every I7 plugin.
+**Responsibility:** Synthesize I1-I5/SMC outputs across all active timeframes into a single set of directional sub-scores consumed by every I7 plugin. I6 now has 6 plugins (not 1).
 
 **What it produces:**
 - `ctf_trend_alignment` — trend agreement across timeframes
 - `ctf_regime_agreement` — regime consensus across timeframes
 - `ctf_fvg_alignment` — FVG directional bias across timeframes
 - `ctf_ob_alignment` — order block directional bias across timeframes
+- `ctf_momentum_divergence` — momentum divergence across timeframes
+- `ctf_sr_confluence` — S/R level confluence across timeframes
+- `ctf_squeeze_expansion_divergence` — squeeze/expansion state divergence
+- `ctf_orderflow_alignment` — order flow alignment across timeframes
 
 **Why it matters:** Single-timeframe signals are noisy. A BOS/CHoCH on the 1m that contradicts the 15m and 1h structure is a false signal. I6 enforces cross-timeframe confirmation before any I7 plugin can score highly. Every I7 plugin is required to consume the relevant `ctf_*` sub-scores — this is a hard architectural rule, not a guideline.
 
@@ -110,6 +120,8 @@ Each tier is DB-ignorant — it reads from the tier above it and publishes to Ka
 
 **CIS gate:** `|score| > 0.35` AND at least 3 of 6 evidence buckets agree on direction. A single dominant bucket cannot override.
 
+**Signal schema:** version `"v1"` from `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`. Key fields include `entry_zone_low`/`entry_zone_high` (zone bounds from TradeFrame) and `expires_at` (TTL deadline, bar-time wall-clock, Phase 107.5).
+
 **Why this matters:** Most systems fire on a single indicator. CIS requires cross-tier agreement — trend, momentum, structure, pattern, institutional, and regime evidence must align. This is what produces institutional-grade signal quality rather than noise amplification.
 
 ---
@@ -120,15 +132,15 @@ The intelligence pipeline is a **dependency-aware DAG** — not a hardcoded sequ
 
 ```
 Raw OHLCV
-  └─► I1 (27 plugins — no dependencies, run in parallel)
+  └─► I1 (28 plugins — no dependencies, run in parallel)
         └─► I2 (depends on I1 outputs)
   └─► I3 (reads OHLCV directly)
         └─► I4 (reads I3 + I1 outputs)
   └─► I5 (reads I1 features)
   └─► SMC (reads I1-I4 + OHLCV)
-        └─► I6 CTF (reads I1-I5 + SMC, cross-timeframe)
-              └─► I7 Setups (reads I2-I6, regime-gated)
-                    └─► I8 AI Narrative (reads I7 signals)
+        └─► I6 CTF (reads I1-I5 + SMC, cross-timeframe; 6 plugins)
+              └─► I7 Setups (reads I2-I6, regime-gated; 36 plugins)
+                    └─► I8 AI Narrative (reads I7 signals, Ollama local)
 ```
 
 **Why this matters:**
@@ -138,7 +150,7 @@ Raw OHLCV
 - **Parallelization is safe.** I1 and I7 execute concurrently via `asyncio.gather` because the DAG proves they have no inter-dependencies within the tier. I2-I6 remain sequential because each tier reads the previous tier's outputs.
 - **No plugin knows about other plugins directly.** Cross-plugin communication flows exclusively through tier output schemas. A plugin that needs RSI reads it from the feature context — it never calls the RSI plugin.
 
-**Sub-wave dependency resolution:** Within tiers, some plugins depend on others in the same tier. The wave system handles this: `I2_WAVE_A` runs first (independent plugins), `I2_WAVE_B` runs after (plugins that consume Wave A outputs). Same pattern in I4 (GARCH → Kalman) and SMC (order blocks → supply/demand zones).
+**Sub-wave dependency resolution:** Within tiers, some plugins depend on others in the same tier. The wave system handles this: `I2_WAVE_A` runs first (independent plugins), `I2_WAVE_B` runs after (plugins that consume Wave A outputs). Same pattern in I4 (GARCH → Kalman) and SMC (order blocks + FVG + pools → supply_demand_zones, breaker_blocks, mitigation_blocks).
 
 ---
 
@@ -149,8 +161,8 @@ Every agent in the pipeline has exactly one responsibility. The hardest boundary
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  HOT PATH (in-memory, zero I/O)                         │
-│  IntelligencePipelineComputeAgent: I1→I7 <10ms          │
-│  • 123 plugins execute in-process                       │
+│  IntelligencePipelineComputeAgent: I1→I7 <250ms         │
+│  • 132 plugins execute in-process                       │
 │  • Zero database touches                                │
 │  • Zero blocking I/O                                    │
 └──────────────────────────┬──────────────────────────────┘
@@ -176,11 +188,11 @@ Every agent in the pipeline has exactly one responsibility. The hardest boundary
 
 | Role | DB Access | Kafka | Compute |
 |------|-----------|-------|---------|
-| `ProviderAgent` | ❌ | Produce only | ❌ |
-| `ComputeAgent` | ❌ | Produce + Consume | ✅ |
-| `WriterAgent` | ✅ Write | Consume only | ❌ |
-| `AuditorAgent` | ✅ Read | Produce + Consume | ✅ |
-| `TrackerAgent` | ✅ R/W | Produce + Consume | ✅ |
+| `ProviderAgent` | No | Produce only | No |
+| `ComputeAgent` | No | Produce + Consume | Yes |
+| `WriterAgent` | Yes (write) | Consume only | No |
+| `AuditorAgent` | Yes (read) | Produce + Consume | Yes |
+| `TrackerAgent` | Yes (R/W) | Produce + Consume | Yes |
 
 An agent that violates its boundary — a compute agent writing to DB, a writer agent doing computation — is an architectural defect, not a shortcut.
 
@@ -193,7 +205,7 @@ Each tier operates independently — no tier knows what another concluded until 
 ```
 I1-I5 + SMC   →  independent analysis, no shared state
                          ↓
-I6 CTF        →  synthesizes directional sub-scores across all tiers and timeframes
+I6 CTF        →  synthesizes directional sub-scores across all tiers and timeframes (6 plugins)
                          ↓
 CISScorer     →  aggregates into a single Confluence Intelligence Score
                          ↓
@@ -215,10 +227,10 @@ SignalAggregator  →  ranks survivors; winner + all counterfactuals written to 
 | Gate | Condition | Failure Mode |
 |------|-----------|-------------|
 | **CIS threshold** | `\|score\| > 0.35` | Signal dropped |
-| **Bucket agreement** | ≥ 3 of 6 buckets agree | Signal dropped |
-| **Regime gate** | HMM confidence ≥ 0.55, stable ≥ 3 bars | Signal suppressed |
+| **Bucket agreement** | >= 3 of 6 buckets agree | Signal dropped |
+| **Regime gate** | HMM confidence >= 0.55, stable >= 3 bars | Signal suppressed |
 | **RR gate** | Viable risk:reward based on zone quality | Signal dropped |
-| **Shadow gate** | `p < 0.05` AND `N ≥ 100` resolved | Feature blocked from production |
+| **Shadow gate** | `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0` | Feature blocked from production |
 
 ### Self-Correction Mechanisms
 
@@ -229,7 +241,11 @@ The pipeline monitors its own signal quality and self-adjusts at six layers. See
 3. **perf_multiplier** — `setup_performance` table drives rank ordering; N<30 gate prevents premature adjustment
 4. **KS drift** — distribution shift → CIS bucket weight penalty (early warning layer)
 5. **CUSUM** — win-rate degradation → `perf_multiplier` feedback loop (outcome layer)
-6. **Shadow gate** — `p < 0.05` + `N ≥ 100` required before production eligibility
+6. **Shadow gate** — `n >= 100` + `bootstrap_ci_lower(pnl_r) > 0.0` required before production eligibility
+
+### Shadow Governance
+
+All I7 plugins and swarm agents are auto-enrolled at startup via `shadow_registry_ensure()` / `enroll_all_plugins()`. Custom gate parameters tuned directly in the DB are never overwritten by restarts (ON CONFLICT DO NOTHING).
 
 ### Intelligence Quality Metrics
 
@@ -251,3 +267,4 @@ The pipeline monitors its own signal quality and self-adjusts at six layers. See
 - `docs/architecture/agent-standard.md` — Agent role taxonomy and naming conventions
 - `docs/architecture/current-state.md` — Active services, data flow, performance
 - `src/intelligence/CLAUDE.md` — Plugin protocol, tier lists, I7 utilities
+- `src/intelligence/register_plugins.py` — TIER_I1..TIER_I7 canonical plugin lists (single source of truth)
