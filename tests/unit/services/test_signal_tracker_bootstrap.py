@@ -178,7 +178,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
     agent._producer.publish.assert_called_once()
     call_args = agent._producer.publish.call_args
     assert call_args[0][0] == "dev.system.health.events"
-    payload = call_args[1]["value"]
+    payload = call_args[1]["msg"]
     assert payload["event_type"] == "bootstrap_failed"
     assert "signal_tracker_compute" in payload.get("service", "")
 
