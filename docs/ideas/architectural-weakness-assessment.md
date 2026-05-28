@@ -281,7 +281,7 @@ Eleven services with active systemd units are absent from `_DAG_ORDER`: `shadow-
 
 ---
 
-### #21. `alerting-agent` and `dlq-drain` declare dependency on non-existent `redpanda.service` (HIGH — P3 Feedback Loop Gap)
+### #21. `alerting-agent` and `dlq-drain` declare dependency on non-existent `redpanda.service` (HIGH — P3 Feedback Loop Gap) - RESOLVED
 
 **Severity:** HIGH
 **Renaissance:** P3
@@ -290,6 +290,8 @@ Eleven services with active systemd units are absent from `_DAG_ORDER`: `shadow-
 `After=redpanda.service` — Redpanda runs in Docker, not systemd. The dependency is silently ignored. On cold start, alerting-agent and dlq-drain may start before Redpanda accepts connections, causing their Kafka consumers to fail initial connection and backoff. During that window, DLQ events accumulate unread and alerts are not dispatched.
 
 **Fix:** Replace `redpanda.service` with `indicagent-redpanda-ready.service` and add `Requires=indicagent-redpanda-ready.service`.
+
+**Resolution (quick task 260528-806, 2026-05-28):** Introduced `indicagent-timescaledb-ready.service` and `indicagent-infrastructure.target`. All 40 app services (including alerting-agent and dlq-drain) now `Requires=indicagent-infrastructure.target`, which gates on both `indicagent-timescaledb-ready` and `indicagent-redpanda-ready` exiting cleanly. The broken `redpanda.service` dependency is superseded by the unified target.
 
 ---
 
@@ -551,7 +553,7 @@ These are well-designed and working.
 | #18 | `_DAG_ORDER` missing 11 deployed services | HIGH |
 | #19 | `feature_writer` agent ID mismatch breaks Kafka lag monitoring | HIGH |
 | #20 | Cyclic L5 dependency — restart order undefined after dual failure | HIGH |
-| #21 | `alerting-agent` and `dlq-drain` declare broken `redpanda.service` dependency | HIGH |
+| #21 | `alerting-agent` and `dlq-drain` declare broken `redpanda.service` dependency | HIGH - RESOLVED (260528-806) |
 | #23 | Swarm agent shadow governance structurally dead — auditor always sees n=0 | HIGH |
 | #24 | `"agent"` vs `"agent_id"` metric label split — cross-agent dashboards broken | HIGH |
 | #16 | `signal_replay_auditor` and `bar_replay_provider` reinvent BaseAgent lifecycle | HIGH |
