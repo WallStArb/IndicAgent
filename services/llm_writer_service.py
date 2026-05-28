@@ -38,7 +38,7 @@ from src.observability.metrics import (
     counter,
     point_gauge,
 )
-from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
+from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_span
 
 # ── Module-level constants ────────────────────────────────────────────────────
 

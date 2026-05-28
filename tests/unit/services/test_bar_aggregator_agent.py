@@ -239,12 +239,10 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 
 def test_setup_retry_class_attributes():
-    """BarAggregatorComputeAgent must declare 4-attempt / 2s-base retry attrs
-    to preserve original resilience via the BaseAgent._setup_with_retry() path.
-    """
+    """BarAggregatorComputeAgent uses base class retry defaults (no override)."""
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
-    assert BarAggregatorComputeAgent.SETUP_RETRY_ATTEMPTS == 4
+    assert BarAggregatorComputeAgent.SETUP_RETRY_ATTEMPTS == 3
     assert BarAggregatorComputeAgent.SETUP_RETRY_BACKOFF_S == 2.0
 
 
