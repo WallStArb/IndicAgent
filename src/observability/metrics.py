@@ -21,6 +21,29 @@ from opentelemetry import metrics as otel_metrics
 
 from src.intelligence.tier_aliases import tier_to_functional
 
+
+def flush_and_shutdown_metrics(timeout_millis: int = 5000) -> None:
+    """Flush and shut down the OTel MeterProvider before oneshot process exit.
+
+    Oneshot scripts (ml-training, shadow-auditor, roll-batch) MUST call this
+    once at the end of main() so the OTLP exporter drains before the process
+    exits.  Without this, JOB_COMPLETED_TOTAL increments never reach the
+    collector.
+
+    Safe to call on a NoOp provider (guard: hasattr force_flush).
+    Wrapped in broad try/except so a flush failure cannot mask the real exit
+    code.  Do NOT call from long-running daemon exit paths — only oneshots.
+    """
+    try:
+        provider = otel_metrics.get_meter_provider()
+        if hasattr(provider, "force_flush"):
+            provider.force_flush(timeout_millis=timeout_millis)
+        if hasattr(provider, "shutdown"):
+            provider.shutdown()
+    except Exception:
+        pass
+
+
 _meter = otel_metrics.get_meter("indicagent")
 
 
