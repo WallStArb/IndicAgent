@@ -351,6 +351,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             "activated_at": raw.get("activated_at"),
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
             "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
+            "expires_at": raw.get("expires_at"),
         }
         return canonical
 
@@ -997,7 +998,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             await self._producer.publish(
                 topic_health_events(self.env_name),
                 key=message_key("signal_tracker_compute"),
-                value=payload,
+                msg=payload,
             )
         except Exception as exc:
             self.logger.error("bootstrap_failed_event_publish_error", error=str(exc))
