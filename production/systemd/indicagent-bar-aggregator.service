@@ -5,7 +5,7 @@ Description=IndicAgent Bar Aggregator Agent — 1m->HTF bar aggregation
 After=network-online.target indicagent-ibkr-provider.service indicagent-provider-merger.service indicagent-redpanda-ready.service
 Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -13,7 +13,7 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_aggregator_agent.py
 Restart=always
 WatchdogSec=60
