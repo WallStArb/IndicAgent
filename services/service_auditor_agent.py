@@ -54,7 +54,7 @@ _DAG_ORDER: dict[str, int] = {
     # Priority 0 — infrastructure sentinels: must exist before any consumer starts
     "indicagent-redpanda-ready": 0,  # infra tier: Redpanda readiness sentinel
     "indicagent-redpanda-watchdog": 0,  # infra tier: Redpanda liveness watchdog
-    "indicagent-ibkr-restart": 0,  # oneshot wrapper: restarts ibkr-provider after TWS nightly restart (timer-triggered, not monitored)
+    "indicagent-timescaledb-ready": 0,  # infra tier: TimescaleDB readiness sentinel
     # Layer 1 — data ingestion
     "indicagent-ibkr-provider": 1,  # priority 1: root data source; nothing upstream
     "indicagent-bar-replay": 1,  # priority 1: alternate data source; parallel with ibkr-provider
@@ -92,6 +92,8 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
+    "indicagent-feature-validation": 8,  # oneshot: timer-triggered daily, not a daemon
+    "indicagent-hmm-training": 8,  # oneshot: timer-triggered monthly, not a daemon
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
@@ -165,8 +167,9 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 # their execution.
 _ONESHOT_UNITS: frozenset[str] = frozenset(
     {
+        "indicagent-redpanda-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
-        "indicagent-ibkr-restart",  # Type=oneshot timer; triggered by ibkr-restart.timer after TWS nightly restart
+        "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-weight-updater",
         "indicagent-shadow-auditor",
         "indicagent-ml-orchestrator",
@@ -175,6 +178,8 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ml-training",
         "indicagent-ml-signal-training-materialize",
         "indicagent-roll-batch",
+        "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
+        "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
     }
 )
 
