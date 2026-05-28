@@ -891,7 +891,7 @@ Plans:
 - [x] 107.5-03-PLAN.md — Fix 2b: Zone field backfill script + reconciliation report (Wave 3)
 - [x] 107.5-04-PLAN.md — Fix 3a: tf_to_seconds utility + migration 097 + expires_at backfill (Wave 4)
 - [x] 107.5-05-PLAN.md — Fix 3b: Atomic evaluator deploy — both TTL evaluators switch to expires_at (Wave 5)
-- [ ] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
+- [x] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
 
 ### Phase 094: LiteLLM + Instructor Structured Output
 
