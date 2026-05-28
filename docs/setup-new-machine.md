@@ -239,8 +239,7 @@ sudo systemctl restart indicagent-ibkr-provider
 **Service crash-loops on startup:** Check journalctl — `journalctl -u indicagent-<name> -n 30`
 or read the log file directly: `tail -50 logs/<service_name>.log`
 
-**TimescaleDB not ready:** Services wait on `indicagent-redpanda-ready.service` but DB
-readiness is assumed after Docker Compose. If migrations fail, wait 10s and retry.
+**TimescaleDB not ready:** Both TimescaleDB and Redpanda readiness are now gated by `indicagent-infrastructure.target`. All app services `Requires=indicagent-infrastructure.target`, which is satisfied only when both `indicagent-timescaledb-ready.service` and `indicagent-redpanda-ready.service` exit cleanly. Services will not start until both backends accept connections. If startup hangs, check `systemctl status indicagent-timescaledb-ready indicagent-redpanda-ready indicagent-infrastructure.target`.
 
 **Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
 
