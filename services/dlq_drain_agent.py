@@ -53,6 +53,17 @@ logger = structlog.get_logger(__name__)
 
 CONSUMER_GROUP: str = "dlq_drain_consumer"
 
+# Legacy pre-107.5 DLQ messages used a flat format without the DLQPayload envelope.
+# Identify them by the absence of the required envelope fields.
+_LEGACY_FIELDS = frozenset(
+    {"agent", "source_topic", "error_type", "error_message", "payload", "timestamp"}
+)
+
+
+def _is_legacy_format(raw: dict) -> bool:
+    return not _LEGACY_FIELDS.intersection(raw.keys())
+
+
 _INSERT_SQL: str = """
 INSERT INTO dlq_events
     (routed_at, agent, source_topic, dlq_topic, error_type, error_message, payload, retry_count)
@@ -127,12 +138,22 @@ class DLQDrainAgent(BaseAgent):
         try:
             msg = DLQPayload.model_validate(raw)
         except Exception as exc:
-            self.logger.warning(
-                "dlq_drain_parse_failed",
-                dlq_topic=dlq_topic,
-                error=str(exc),
-                raw_preview=str(raw)[:200],
-            )
+            if _is_legacy_format(raw):
+                # Pre-107.5 messages lack the DLQPayload envelope. Already failed,
+                # no retry value — discard with a single structured audit log.
+                self.logger.info(
+                    "dlq_legacy_discarded",
+                    dlq_topic=dlq_topic,
+                    symbol=raw.get("symbol"),
+                    error=raw.get("error"),
+                )
+            else:
+                self.logger.warning(
+                    "dlq_drain_parse_failed",
+                    dlq_topic=dlq_topic,
+                    error=str(exc),
+                    raw_preview=str(raw)[:200],
+                )
             return
 
         routed_at = msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC)
