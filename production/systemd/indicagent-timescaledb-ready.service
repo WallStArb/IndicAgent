@@ -1,0 +1,21 @@
+[Unit]
+Description=TimescaleDB readiness gate — blocks dependents until Postgres accepts connections
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  for i in $(seq 1 60); do \
+    PGPASSWORD=postgres pg_isready -h localhost -p 5432 -U postgres -d indicagent >/dev/null 2>&1 && \
+    echo "TimescaleDB ready" && exit 0; \
+    echo "TimescaleDB not ready yet, retrying in 5s..."; \
+    sleep 5; \
+  done; \
+  echo "TimescaleDB did not become ready within 300s"; \
+  exit 1'
+TimeoutStartSec=310
+
+[Install]
+WantedBy=multi-user.target

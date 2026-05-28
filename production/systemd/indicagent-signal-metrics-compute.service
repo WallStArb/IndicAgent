@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Signal Metrics Compute Agent — timer-triggered signal performance metrics
-After=network-online.target indicagent-intelligence-pipeline.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

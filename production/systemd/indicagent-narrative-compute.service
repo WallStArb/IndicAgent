@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Narrative Compute (L7 per-signal market narrative generation)
-After=network-online.target docker.service indicagent-alpha-swarm.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=network-online.target
 
 [Service]

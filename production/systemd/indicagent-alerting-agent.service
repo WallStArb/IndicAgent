@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Alerting Dispatcher — centralized Kafka-to-Telegram/Discord webhook dispatcher
-After=network-online.target indicagent-redpanda-ready.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
