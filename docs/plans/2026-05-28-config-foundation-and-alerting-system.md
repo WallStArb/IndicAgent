@@ -225,6 +225,50 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 ---
 
+## Observability Requirements
+
+Renaissance principle: if you build a signal processor, measure its output. Config changes and alerts are signals — observe them.
+
+### Config Observability (ConfigService + BaseAgent)
+
+**Metrics:**
+- `config_reload_total{agent, success}` — every hot-reload event
+- `config_validation_failed_total{key, reason}` — rejected changes
+- `config_set_total{key, changed_by}` — config change requests (API)
+
+**Tracing:**
+- Span on every ConfigService.set() call (key, old_value, new_value, changed_by)
+- Span on BaseAgent config reload (agent, keys_reloaded)
+
+**Logging:**
+- ConfigService.set() → structlog with key, value, changed_by, validation_result
+- BaseAgent reload → log which keys changed, version bump
+
+### Alert Observability (AlertSignalProcessor + AlertingAgent)
+
+**Metrics:**
+- `alert_emitted_total{severity, alert_type, target}` — firing rate per severity/type
+- `alert_suppressed_total{reason}` — dedupe, aggregation, correlation working
+- `alert_processing_latency_seconds{alert_type}` — event → alert latency histogram
+- `rule_engine_evaluation_duration_seconds{rule_type}` — per-rule timing
+
+**Tracing:**
+- Span on AlertSignalProcessor._run() (event_type, rule_applied, should_fire)
+- Span on AlertingAgent dispatch (severity, target, success)
+
+**Logging:**
+- AlertSignalProcessor → event processed, rule result, fire/suppress with reason
+- AlertingAgent → dispatch result, target response
+
+### BaseAgent Updates
+
+Update BaseAgent._reload_config_loop():
+- Emit `config_reload_total` metric on every message
+- Log config change event
+- Update `agent_last_message_timestamp_seconds` (already exists)
+
+---
+
 ## Migration: What Moves Where
 
 | From | To | Examples | Count |
@@ -265,11 +309,10 @@ All alerts OFF by default. Runtime params seeded from current settings.py values
 
 ## Implementation Phases
 
-1. Config foundation (DB tables, ConfigService, Kafka propagation)
+1. Config foundation (DB tables, ConfigService, Kafka propagation, observability)
 2. Migration of runtime params from settings.py
-3. AlertSignalProcessor (rule engine, dedupe, aggregate)
+3. AlertSignalProcessor (rule engine, dedupe, aggregate, observability)
 4. Config API (FastAPI endpoints)
-5. Dashboard integration (optional)
 
 ---
 
