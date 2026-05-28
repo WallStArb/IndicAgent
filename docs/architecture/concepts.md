@@ -173,7 +173,7 @@ The system separates two fundamentally different types of intelligence:
 
 ```
 Path A (deterministic):  I1 → I2 → I3 → I4 → I5/SMC → I6 → I7
-                         128 plugins, O(1) per bar, topological DAG
+                         132 plugins, O(1) per bar, topological DAG
                          Fires signals in real-time (<10ms/bar)
 
 Path B (probabilistic):  AlphaSwarmComputeAgent → specialist agents
@@ -200,7 +200,7 @@ Each agent receives the full signal context via `AIContext` (typed tier data), p
 
 **Multi-provider LLM chain:** Agents are not bound to a single LLM. The chain runs: OpenRouter → DeepSeek → Ollama Cloud → Ollama Local, with independent per-provider circuit breakers (3 failures → open 5 minutes for remote, 5 failures → open 1 minute for local). No single model or vendor is a dependency.
 
-**Shadow governance:** All swarm agents auto-enroll in shadow mode at startup. Promotion requires `signal_schema_version = 'v1'` and statistically significant weight learning. → [Swarm Intelligence](swarm-intelligence.md)
+**Shadow governance:** All swarm agents auto-enroll in shadow mode at startup. Promotion requires `signal_schema_version = 'v1'` and statistically significant weight learning. → [Swarm Intelligence](../concepts/swarm-intelligence.md)
 
 **Current state (v2.8):** All 4 alpha agents implemented and running in shadow. Weight learning active. Graduation loop operational.
 

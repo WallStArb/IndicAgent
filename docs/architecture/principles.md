@@ -26,7 +26,7 @@ Dependency-aware DAG execution replaces hardcoded sequencing. Plugin dependencie
 
 ## 5. Incremental-First
 
-Every plugin implements `compute_next()` for O(1) updates per bar. This is the foundation of throughput: 128 plugins process a new bar by updating only what changed since the last bar, not recomputing from scratch. Warmup is the only exception (~50 bars for GARCH/Kalman/HMM to converge).
+Every plugin implements `compute_next()` for O(1) updates per bar. This is the foundation of throughput: 132 plugins process a new bar by updating only what changed since the last bar, not recomputing from scratch. Warmup is the only exception (~50 bars for GARCH/Kalman/HMM to converge).
 
 ## 6. Data Contracts Over APIs
 

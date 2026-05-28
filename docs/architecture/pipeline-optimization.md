@@ -178,7 +178,6 @@ JIT-compile numpy operations for native speed.
 
 - **Analysis:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md`
 - **Current State:** `docs/architecture/current-state.md`
-- **Evolution:** `docs/architecture/renaissance-pipeline-evolution.md`
 
 ---
 

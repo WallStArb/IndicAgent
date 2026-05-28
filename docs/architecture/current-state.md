@@ -82,7 +82,7 @@ Consolidated I1-I7 into a single in-process agent:
 | Feature Snapshot Writer | `feature_snapshot_writer_agent.py` | `indicagent-feature-snapshot-writer` | :9132 | Shadow dual-write → `feature_snapshots_shadow` |
 | Parity Auditor | `parity_auditor_agent.py` | `indicagent-parity-auditor` | :9133 | 5-min parity comparison; certifies after 60 clean cycles |
 | LLM Writer | `llm_writer_service.py` | `indicagent-llm-writer` | :9117 | Writes `llm_calls` + outcome back-fill |
-| AI Narrative | `ai_narrative_service.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
+| AI Narrative | `narrative_group_compute_agent.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
 | Cross Asset | `cross_asset_service.py` | `indicagent-cross-asset` | :9118 | Cross-asset spread dynamics |
 | Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
 | Alpha Swarm | `alpha_swarm_agent.py` | `indicagent-alpha-swarm` | — | Runs alpha agents on I7 signals; emits signal lineage |

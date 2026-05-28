@@ -7,7 +7,7 @@
 
 ## Overview
 
-`BaseAgent` is the abstract base class for all IndicAgent pipeline agents. It provides the Renaissance Agentic DAG standard lifecycle: SIGTERM handling, structured logging, OTel tracing, and Prometheus metrics scaffolding.
+`BaseAgent` is the abstract base class for all IndicAgent pipeline agents. It provides the Renaissance Agentic DAG standard lifecycle: SIGTERM handling, structured logging, OTel tracing, and OTel metrics scaffolding.
 
 ## Location
 

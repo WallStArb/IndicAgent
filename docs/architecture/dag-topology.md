@@ -70,7 +70,7 @@ graph TD
         CROSS["CrossAssetService\n:9118"]
         SNAP["FeatureSnapshotWriterAgent\n:9132"]
         PARITY["ParityAuditorAgent\n:9133"]
-        NARR["AINarrativeAgent\n:9113\nI8 (Ollama-primary)"]
+        NARR["NarrativeGroupComputeAgent\n:9113\nI8 (Ollama-primary)"]
         SAUDIT["SignalAuditorAgent\n:9128"]
         SREPLAY["SignalReplayAuditorAgent"]
         SVCAUDIT["ServiceAuditorAgent\n:9131"]
@@ -256,7 +256,7 @@ Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
 |---------|-------|---------|
 | `CrossAssetService` | `market.data.quality` + cross-asset streams | Spread dynamics |
 | `ParityAuditorAgent` | `intelligence.journal` | Data integrity validation |
-| `AINarrativeAgent` | `intelligence.i7.signals` | I8 LLM narratives (Ollama-primary) |
+| `NarrativeGroupComputeAgent` | `intelligence.i7.signals` | I8 LLM narratives (Ollama-primary) |
 | `SignalReplayAuditorAgent` | DB poll | expires_at TTL expiry evaluation |
 
 ---
@@ -274,8 +274,8 @@ Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
 | `market.events.roll` | `roll-batch` timer | Pipeline | Futures roll events |
 | `intelligence.journal` | `IntelligencePipelineComputeAgent` | FeatureWriter, Narrative, Parity | Full I1-I7 tiered JSONB |
 | `intelligence.i7.signals` | `IntelligencePipelineComputeAgent` | SignalWriter, Tracker | Winner I7 signal |
-| `narratives` | `AINarrativeAgent` | `LLMWriterService` | I8 LLM analysis |
-| `llm.calls` | `AINarrativeAgent` | `LLMWriterService` | LLM call records |
+| `narratives` | `NarrativeGroupComputeAgent` | `LLMWriterService` | I8 LLM analysis |
+| `llm.calls` | `NarrativeGroupComputeAgent` | `LLMWriterService` | LLM call records |
 
 All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
@@ -306,7 +306,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/lifecycle_writer_agent.py` | `LifecycleWriterAgent` | `indicagent-lifecycle-writer` | — |
 | `services/signal_metrics_compute_agent.py` | `SignalMetricsComputeAgent` | `indicagent-signal-metrics-compute` | :9126 |
 | `services/signal_metrics_writer_agent.py` | `SignalMetricsWriterAgent` | `indicagent-signal-metrics-writer` | :9127 |
-| `services/ai_narrative_agent.py` | `AINarrativeAgent` | `indicagent-ai-narrative` | :9113 |
+| `services/narrative_group_compute_agent.py` | `NarrativeGroupComputeAgent` | `indicagent-ai-narrative` | :9113 |
 | `services/llm_writer_service.py` | `LLMWriterService` | `indicagent-llm-writer` | :9117 |
 | `services/cross_asset_service.py` | `CrossAssetService` | `indicagent-cross-asset` | :9118 |
 
