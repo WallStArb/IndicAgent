@@ -239,6 +239,24 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 ---
 
+## Technical Debt Cleanup
+
+After new system is in place, remove old patterns:
+
+**Config & Feature Flags:**
+- `src/config/settings.py` — Delete ~15 runtime params (REGIME_PROB_MIN, SWARM_MIN_CONFIDENCE, regime gates, swarm params, etc.)
+- `services/service_auditor_agent.py` — Delete `_LAG_THRESHOLDS` dict (~25 entries)
+- `src/intelligence/ai/*_agent.py` — Delete hardcoded `shadow_only = True` class attrs (~8 agents)
+
+**Alerting:**
+- `production/alertmanager-rules.yml` — Delete or simplify to metrics-only
+- Any Prometheus Alertmanager integration — Simplify to metrics scrape only
+
+**Observability:**
+- Review hardcoded thresholds in services (grep for `THRESHOLD`, `LIMIT`, `MAX_`) — migrate to config_state if runtime-tunable
+
+---
+
 ## Default State
 
 All alerts OFF by default. Runtime params seeded from current settings.py values.
