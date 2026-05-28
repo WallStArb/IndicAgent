@@ -16,6 +16,8 @@ Unified config system + alerting infrastructure. All state is time-series data, 
 
 ## Architecture
 
+**Note on layers:** IndicAgent has 7-tier plugin pipeline (I1–I8) for intelligence computation. AlertSignalProcessor (Layer 8) and AlertingAgent (Layer 9) are service layers, not plugin tiers. Different taxonomy.
+
 ```
 ALL EVENTS → KAFKA (unified bus)
           ↓
@@ -42,8 +44,8 @@ ALL EVENTS → KAFKA (unified bus)
 │  │  Consume events → apply rules → emit alerts                                  │   │
 │  └─────────────────────────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐   │
-│  │  AlertingAgent (Layer 9, EXISTS)                                             │   │
-│  │  CRITICAL → Telegram, HIGH/MEDIUM → Discord                                   │   │
+│  │  AlertingAgent (Layer 9, EXISTS — services/alerting_agent.py)                │   │
+│  │  Dispatcher: CRITICAL → Telegram, HIGH/MEDIUM → Discord                      │   │
 │  └─────────────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -66,9 +68,34 @@ These layers are orthogonal. Never mix them.
 
 ### config_schema (Registry)
 ```
-config_key (PK) | value_type | default_value | min_value | max_value | allowed_values | depends_on | category | version
+config_key (PK) | value_type | default_value | min_value | max_value | allowed_values |
+depends_on | category | json_schema | unit | is_secret | risk_level | owner | version
 ```
-What keys exist, types, constraints, dependencies. Example: `regime.prob_min` (float, 0.0-1.0, category='regime').
+
+**Enhanced fields:**
+- `json_schema` — Structured validation for complex types
+- `unit` — Unit for numeric values (percent, seconds, gb, etc.)
+- `is_secret` — Never log/trace actual value
+- `risk_level` — (low/medium/critical) controls approval requirements
+- `owner` — Team responsible for this config
+
+### config_state (Current)
+```
+config_key (PK) | config_value | version | updated_at
+```
+Fast lookup for runtime queries. Optimistic concurrency via `version`.
+
+### config_history (Time-Series)
+```
+timestamp (PK) | config_key (PK) | version (PK) | config_value | changed_by | reason
+```
+Audit trail, rollback, time-travel queries. Hypertable on `timestamp`.
+
+### config_outbox (Outbox Pattern)
+```
+id (PK) | config_key | config_value | version | changed_at | status | created_at
+```
+Transactional outbox for safe Kafka propagation. Status: pending/published/failed.
 
 ### config_state (Current)
 ```
@@ -88,11 +115,24 @@ Audit trail, rollback, time-travel queries. Hypertable on `timestamp`.
 
 ```python
 class ConfigService:
-    async def set(key, value, changed_by="system") -> dict:
-        # Validate → write DB → emit Kafka
+    async def set(
+        key, value, changed_by="system", expected_version=None, reason=None
+    ) -> ConfigChange:
+        """Set config with validation, version check, transactional outbox.
+
+        1. Validate against config_schema (type, range, constraints)
+        2. Optimistic concurrency check (expected_version if provided)
+        3. Write transaction: config_history + config_state + config_outbox
+        4. Kafka dispatcher publishes outbox rows (separate process)
+        5. Return ConfigChange with new version
+
+        On validation error: raise ConfigValidationError
+        On version conflict: raise ConfigVersionConflict
+        On DB error: rollback, no Kafka emit
+        """
 
     async def get(key, default=None) -> Any:
-        # In-memory cache, else DB
+        # In-memory cache (hot), else DB (cold)
 
     async def get_at(key, t: datetime) -> Any:
         # Time-travel query
@@ -100,12 +140,136 @@ class ConfigService:
     async def list(category: str | None = None) -> dict[str, Any]:
         # All current config
 
-    async def revert_key(key, version) -> dict:
-        # Rollback single key
+    async def revert_key(key, version, changed_by="system", reason=None) -> dict:
+        # Rollback single key with validation
 
-    async def revert_to_timestamp(t: datetime) -> dict:
-        # Rollback entire system
+    async def preview_revert_to_timestamp(t: datetime) -> dict:
+        # Show what would change without applying
+
+    async def revert_keys(keys, t: datetime, changed_by="system", reason=None) -> dict:
+        # Rollback specific keys with dependency validation
 ```
+
+---
+
+## Transactional Outbox Pattern
+
+Config updates use outbox pattern for safe DB→Kafka propagation:
+
+```
+ConfigService.set() transaction:
+  1. INSERT config_history
+  2. UPSERT config_state
+  3. INSERT config_outbox (id, config_key, config_value, version, changed_at, status=pending)
+  COMMIT
+
+OutboxDispatcher (separate process):
+  SELECT config_outbox WHERE status=pending
+  Publish to topic_config_updates
+  UPDATE config_outbox SET status=published ON SUCCESS
+  UPDATE config_outbox SET status=failed ON FAILURE
+```
+
+Guarantees:
+- DB commit before Kafka publish (no lost updates)
+- Kafka publish failure visible in outbox table
+- Can retry failed publishes
+- Ordering per config_key maintained
+
+---
+
+## Optimistic Concurrency
+
+Prevent silent overwrites from concurrent writes:
+
+```python
+# Client A and B both read regime.prob_min = 0.30 (version 5)
+# Client A: set("regime.prob_min", 0.35, expected_version=5) → SUCCESS (version 6)
+# Client B: set("regime.prob_min", 0.40, expected_version=5) → CONFLICT (now version 6)
+
+# Client B must re-read and try again with expected_version=6
+```
+
+`set()` without `expected_version` still works (last write wins), but API requires explicit opt-in.
+
+---
+
+## Security Model
+
+Config changes can alter thresholds, feature flags, alert routing. Minimum controls:
+
+**Authentication:**
+- FastAPI endpoints require auth (Bearer token or mTLS)
+- CLI/API calls identify caller (changed_by)
+
+**Authorization:**
+- Read-only vs write permission
+- Per-category write permission (regime, swarm, alert, roll)
+- High-risk keys require approval (risk_level=critical)
+
+**Audit:**
+- All changes logged with changed_by, timestamp, reason, old_value, new_value
+- Sensitive values redacted (is_secret=true keys)
+
+**Secret Redaction:**
+```python
+REDACTED = "**REDACTED**"  # Placeholder in logs/traces
+
+# config_schema is_secret=true keys never logged/metric'd with actual value
+# Examples: telegram_bot_token, discord_webhook_url, API keys
+```
+
+---
+
+## Alert Rule Configuration
+
+**Split between code and config:**
+
+| Component | Location | Examples |
+|-----------|----------|----------|
+| Rule code | Versioned Python modules | Deduplicator, Aggregator, Correlator classes |
+| Rule parameters | config_state DB | thresholds, windows, severities, targets |
+| Rule metadata | config_schema DB | rule_type, risk_level, owner |
+
+Rule code changes require deployment. Rule parameter changes are hot-reload.
+
+**Example:**
+```python
+# Rule code (versioned): services/alert_rules/disk_space_rules.py
+class DiskSpaceRule:
+    severity = "CRITICAL"
+    check_fn = lambda df_free_gb: df_free_gb < threshold
+
+# Rule config (hot-reload): config_state
+alert.disk_space.threshold_gb = 10.0
+alert.disk_space.enabled = true
+```
+
+---
+
+## Safer Revert Operations
+
+**Dangerous:** `revert_to_timestamp(t)` — rolls back entire system, can violate dependencies.
+
+**Safer operations:**
+```python
+# Preview first (no write)
+config_service.preview_revert_to_timestamp(t)
+# → Returns: {keys: [...], affected_services: [...], risks: [...]}
+
+# Scoped revert with validation
+config_service.revert_keys(["regime.prob_min", "swarm.min_confidence"], t)
+# → Validates dependencies, only rolls back specified keys
+
+# Category-scoped revert
+config_service.revert_category("regime", t)
+# → Rolls back all config with category='regime'
+```
+
+Revert requires:
+- Dependency validation (config_schema.depends_on)
+- Approval for high-risk keys (risk_level=critical)
+- Dry-run by default (preview_required=true)
 
 ---
 
@@ -172,7 +336,12 @@ New Build:    ~15% (AlertSignalProcessor, rule engine, DB tables)
 
 **KEEP:** AlertingAgent, topic_alert_requests, BaseAgent._send_alert(), telegram/discord config, Prometheus, OTel Collector.
 
-**REMOVE:** alertmanager-rules.yml (migrate to code or simplify Prometheus config).
+**REMOVE:** application-level alertmanager-rules.yml (migrate to AlertSignalProcessor).
+**KEEP:** infra-level alertmanager-rules.yml (disk, service down, memory — stay in Prometheus/Alertmanager).
+
+**Scope split:**
+- Prometheus/Alertmanager → Infrastructure alerts (service health, resources)
+- AlertSignalProcessor → Intelligence/Application alerts (regime, signals, pipeline)
 
 ### Evolution Path: B → C
 
@@ -191,7 +360,195 @@ class StatisticalRuleEngine(RuleEngine):
 
 ---
 
+## Kafka Message Schemas
+
+### topic_config_updates (Compacted)
+
+```json
+{
+  "config_key": "regime.prob_min",
+  "config_value": "0.35",
+  "version": 6,
+  "changed_by": "brandon",
+  "changed_at": "2026-05-28T20:00:00Z",
+  "reason": "reduce false positives",
+  "redacted": false,
+  "correlation_id": "uuid-xxx"
+}
+```
+
+**Partition key:** `config_key` (ensures ordering per key)
+**Retention:** compacted (only latest value per key needed)
+**Schema version:** header `X-Schema-Version: 1`
+
+### topic_alert_requests
+
+```json
+{
+  "alert_id": "disk-space-critical-001",
+  "alert_type": "disk_space_critical",
+  "severity": "CRITICAL",
+  "timestamp": "2026-05-28T20:00:00Z",
+  "payload": {
+    "disk_free_gb": 2.5,
+    "threshold_gb": 10.0
+  },
+  "correlated_events": ["db_slow_001"],
+  "rule_applied": "disk_space_threshold",
+  "targets": ["telegram"]
+}
+```
+
+---
+
+## Failure Modes
+
+**ConfigService unavailable:**
+- Services use last-known-good cached config
+- Emit `config_service_unreachable_total` metric
+- Retry with exponential backoff
+- After N failures, enter degraded mode (log warnings)
+
+**Kafka unavailable:**
+- ConfigService writes succeed, outbox status=pending
+- OutboxDispatcher retries with backoff
+- Services won't receive updates until Kafka recovers
+- Emit `kafka_publish_failed_total{key}` metric
+
+**Stale config detection:**
+- Services track `config_last_reload_timestamp_seconds`
+- ConfigConsumer emits `config_consumer_lag_seconds` (offset lag)
+- If lag > threshold OR reload > 10min, emit warning
+- Manual intervention: restart service to force DB snapshot reload
+
+**Fail-closed vs fail-open:**
+- Critical safety keys (regime gates, position limits): fail-closed (disable feature if config stale)
+- Tunable parameters (thresholds): fail-open (use last-known-good)
+
+---
+
+## Config Consumer Resilience
+
+BaseAgent config reload pattern:
+
+```python
+class BaseAgent:
+    async def _setup(self):
+        # 1. Load DB snapshot on startup (authoritative seed)
+        self._config_cache = await config_service.list()
+        self._config_version = {}  # Track per-key version
+
+        # 2. Subscribe to compacted topic
+        self._config_consumer = KafkaConsumerClient(
+            "topic_config_updates",
+            group_id=f"{agent_name}-config",
+            enable_auto_commit=False,  # Manual commit after processing
+        )
+
+        asyncio.create_task(self._reload_config_loop())
+
+    async def _reload_config_loop(self):
+        async for _topic, _key, payload in self._config_consumer.messages():
+            key = payload["config_key"]
+            new_version = payload["version"]
+            current_version = self._config_version.get(key, 0)
+
+            # Ignore stale messages (compacting can send older)
+            if new_version <= current_version:
+                continue
+
+            # Update cache
+            self._config_cache[key] = payload["config_value"]
+            self._config_version[key] = new_version
+
+            # Emit metric
+            config_reload_total.labels(agent=self.name, success="true").inc()
+
+            # Commit after processing
+            await self._config_consumer.commit()
+
+        # Periodic reconciliation (catch missed messages)
+        asyncio.create_task(self._reconcile_config_loop())
+
+    async def _reconcile_config_loop(self):
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            current = await config_service.list()
+            stale_keys = [
+                k for k, v in current.items()
+                if self._config_cache.get(k) != v
+            ]
+            if stale_keys:
+                logger.warning("config_stale", keys=stale_keys)
+                # Reload from DB if drift detected
+```
+
+---
+
 ## Service Integration Pattern
+
+**Note:** `_setup()` composition: services that already override `_setup()` must call `await super()._setup()` OR use the config mixin pattern:
+
+```python
+# Option 1: Call super()
+class MyAgent(BaseAgent):
+    async def _setup(self):
+        await super()._setup()  # Gets config integration
+        # Custom setup here...
+
+# Option 2: Mixin (if _setup override is complex)
+class ConfigMixin:
+    async def _setup_config(self):
+        self._config_cache = await config_service.list()
+        # ... config setup
+
+class MyAgent(ConfigMixin, BaseAgent):
+    async def _setup(self):
+        await self._setup_config()  # Explicit call
+        # Custom setup...
+```
+
+---
+
+## AlertSignalProcessor Scaling
+
+**Bottleneck risk:** Single processor consuming all events.
+
+**Mitigations:**
+
+1. **Topic partitioning:** Partition `topic_observable_events` by event_type or source
+2. **Multiple instances:** Run N instances of AlertSignalProcessor, each consumes partition subset
+3. **State externalization:** Dedupe window, aggregate state in Redis or TimescaleDB (not in-memory)
+4. **Filtering:** Don't route all metrics through processor — only alert-relevant events
+5. **Backpressure:** If processing lag > threshold, emit metric, scale up or drop low-priority
+
+**Target:** < 100ms end-to-end latency (event receipt → alert emit)
+
+---
+
+## Alerting Scope Split
+
+**Infrastructure alerts** (keep Prometheus/Alertmanager):
+- Service down, disk full, memory high, Kafka unavailable
+- Scrape failures, DB connection issues
+- Simple thresholds on infra metrics
+
+**Intelligence/Application alerts** (AlertSignalProcessor):
+- Regime shifts, signal quality drops, pipeline stalls
+- Correlated incidents (disk full + DB slow)
+- Domain-aware events (trading signals, ML model drift)
+
+**Coexistence:** Both systems run. Prometheus handles infra, AlertSignalProcessor handles app.
+
+---
+
+## Implementation Phases
+
+1. Config foundation (DB tables including outbox, ConfigService with outbox dispatcher, Kafka propagation, observability)
+2. Migration CLI (minimal admin interface for seed + validate before full API)
+3. Migration of runtime params from settings.py
+4. AlertSignalProcessor (rule engine, dedupe, aggregate, observability)
+5. Config API (FastAPI endpoints with auth)
 
 All services subscribe to config updates:
 
@@ -243,6 +600,13 @@ Renaissance principle: if you build a signal processor, measure its output. Conf
 **Logging:**
 - ConfigService.set() → structlog with key, value, changed_by, validation_result
 - BaseAgent reload → log which keys changed, version bump
+- **Redaction:** is_secret keys log "**REDACTED**" instead of actual value
+
+**Redaction Policy:**
+- Never emit secret values in logs, traces, or metrics
+- config_schema.is_secret=true keys redacted everywhere
+- Traces: old_value/new_value replaced with "**REDACTED**" for secrets
+- Metrics: don't tag with secret values (no cardinality blowout)
 
 ### Alert Observability (AlertSignalProcessor + AlertingAgent)
 
