@@ -193,3 +193,50 @@ groups:
         annotations:
           summary: "DLQ activity detected — {{ $labels.agent }} routing to {{ $labels.topic }}"
           description: "{{ $value }} messages routed to DLQ in last 5m. Every DLQ message is a contract violation."
+
+  - name: phase108_self_healing
+    rules:
+      - alert: DLQQuarantineSpike
+        expr: rate(dlq_quarantine_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ quarantine system active — poison pill detection"
+          description: "Quarantine rate {{ $value | humanize }} — investigate (agent, source_topic, error_type) triple with 4+ occurrences in 24h window."
+
+      - alert: ServiceStallDetected
+        expr: increase(consumer_stall_detected_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service stall detected — systemd auto-restart triggered"
+          description: "Unit {{ $labels.unit }} exceeded 120s without processing. watchdog_notify_total indicates heartbeat rate."
+
+      - alert: OneshotJobFailed
+        expr: increase(job_completed_total{status="failure"}[1h]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Oneshot job {{ $labels.job }} failed — manual investigation required"
+          description: "Timer-triggered script exited with error. Check logs for {{ $labels.job }} service."
+
+      - alert: APIHealthDown
+        expr: api_health{service="indicagent-api"} < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FastAPI cannot reach TimescaleDB — health check failing"
+          description: "API health probe failed for >1 minute. Check database connectivity and src/api/routes/health.py."
+
+      - alert: WatchdogSuppressionSpike
+        expr: rate(watchdog_notify_suppressed_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Systemd watchdog notifications failing — sd_notify() error"
+          description: "Suppression rate {{ $value | humanize }} — unit file missing NotifyAccess=main. Check {{ $labels.agent }} systemd config."
