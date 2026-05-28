@@ -34,6 +34,8 @@ Canonical order from `_DAG_ORDER` in `services/service_auditor_agent.py`.
 | Unit | Purpose |
 |------|---------|
 | `indicagent-redpanda-ready` | Readiness sentinel — blocks all consumers until Redpanda accepts connections |
+| `indicagent-timescaledb-ready` | Readiness sentinel - blocks all app services until TimescaleDB accepts connections |
+| `indicagent-infrastructure.target` | Unified gate - all app services Require this; satisfied when both DB and Kafka are ready |
 | `indicagent-redpanda-watchdog` | Liveness check + auto-restart for the Redpanda container |
 | `indicagent-ibkr-restart` | Oneshot timer: restarts ibkr-provider after TWS nightly restart |
 
