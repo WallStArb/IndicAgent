@@ -198,6 +198,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             description="Per-bar pipeline latency in milliseconds",
             unit="ms",
         )
+        self._bar_e2e_latency = self._meter.create_histogram(
+            "bar_e2e_latency_ms",
+            description="End-to-end bar latency from arrival to signal enqueue",
+            unit="ms",
+        )
 
         self._vix_symbol: str | None = (
             "VX" if any(c.symbol == "VX" for c in self._contracts) else None
@@ -335,6 +340,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         if extra is not None:
             self._sig_proc.restore_kalman_state(extra.get("kalman_state", {}))
             self._sig_proc.restore_setup_last_fire(extra.get("setup_last_fire", {}))
+
+        # CB open transition tracking (Phase 108 HEAL-03)
+        self._cb_open_reported: set[str] = set()
 
         # Per-key concurrency — PERF-07 (D-01, D-03, D-16, D-28)
         self._worker_manager = PerKeyWorkerManager(
@@ -582,8 +590,24 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             )
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
-        await self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
+        self._bar_e2e_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
         self._bars_processed.add(1)
+        try:
+            for plugin_name, cb in self._executor.circuit_breakers.items():
+                state = getattr(getattr(cb, "state", None), "value", None)
+                if state == "open" and plugin_name not in self._cb_open_reported:
+                    self._cb_open_reported.add(plugin_name)
+                    self.logger.warning(
+                        "intelligence_pipeline.cb_open",
+                        plugin_id=plugin_name,
+                        failure_count=getattr(cb, "failures", -1),
+                    )
+                elif state != "open" and plugin_name in self._cb_open_reported:
+                    self._cb_open_reported.discard(plugin_name)
+                    self.logger.info("intelligence_pipeline.cb_closed", plugin_id=plugin_name)
+        except Exception as e:
+            self.logger.warning("intelligence_pipeline.cb_scan_failed", error=str(e))
+        await self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
 
     def _assemble_checkpoint_extra(self) -> dict:
         """Build the cross-owned extra_state dict (HIGH finding 5: no plugin_states key).
