@@ -206,7 +206,7 @@ class SignalReplayAuditorAgent(BaseAgent):
 
         return True
 
-    def _build_signal_dict(self, row: asyncpg.Record) -> dict[str, Any]:
+    def _build_signal_dict(self, row: asyncpg.Record) -> dict[str, Any] | None:
         """Build a signal dict from DB record matching evaluate_signal's expected shape."""
         targets_raw = row["targets"]
         if isinstance(targets_raw, list):
