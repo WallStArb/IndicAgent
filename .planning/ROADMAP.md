@@ -581,7 +581,16 @@ Plans:
   4. Kafka audit callbacks, `SemanticCache`, and `TokenBudget` produce identical behavior before and after swap (verified by existing tests)
   5. `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` classes are deleted; `git grep` finds zero references
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 095: Pydantic AI Agent Adapter *(deferred to v2.8)*
 
@@ -616,7 +625,16 @@ Plans:
   3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
   4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 097: Zep Episodic Memory
 
@@ -630,7 +648,16 @@ Plans:
   3. Memory is gated behind `ZEP_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
   4. Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 098: DSPy Offline Prompt Optimizer
 
@@ -644,7 +671,16 @@ Plans:
   3. DSPy optimizer runs as a timer-triggered batch job (not a daemon); optimizer does not touch the live inference path
   4. A/B comparison report (win rate delta, parse failure delta, calibrated_confidence delta) shows measurable improvement before any optimized prompt is promoted to default
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 099: Guardrails AI Validation
 
@@ -657,7 +693,16 @@ Plans:
   2. Guardrails AI replaces custom field-level validation in `_validate_*_fields` methods; total custom validation LOC reduced
   3. Latency overhead of Guardrails AI validation is measured and documented; must not exceed 10ms p95 vs existing validator
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 100: Plugin Shared Infrastructure
 
@@ -904,7 +949,16 @@ Plans:
   3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
   4. DLQ messages re-delivered more than `DLQ_MAX_RETRIES` times (default 3) are quarantined to a dead-letter-final topic with metadata; ServiceAuditor emits a `consumer_stall` alert when a consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 094: LiteLLM + Instructor Structured Output
 
@@ -946,7 +1000,16 @@ Plans:
   3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
   4. `shadow_registry` DB table remains the promotion/demotion authority; `agents.yaml` cannot force production promotion — that requires the statistical gate
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 097: Zep Episodic Memory
 
@@ -960,7 +1023,16 @@ Plans:
   3. `ZEP_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
   4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 098: DSPy Offline Prompt Optimizer
 
@@ -974,7 +1046,16 @@ Plans:
   3. `DSPyOptimizer` runs as a timer-triggered batch job; it does not touch the live inference path; no new systemd daemon required
   4. A/B comparison report shows measurable improvement (win rate delta, parse failure delta, calibrated_confidence delta) before any optimized prompt is promoted to default
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 099: Guardrails AI Validation
 
@@ -987,7 +1068,16 @@ Plans:
   2. Custom `_validate_*_fields` methods are replaced by Guardrails AI validation; total custom validation LOC is lower than post-Instructor baseline
   3. Guardrails AI latency overhead is measured; must not exceed 10ms p95 vs existing validator
 
-**Plans**: TBD
+**Plans:** 7 plans in 3 waves
+
+Plans:
+- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 101: Composite Fitness Function
 
