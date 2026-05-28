@@ -337,6 +337,11 @@ def topic_lifecycle_writer_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.writer.dlq"
 
 
+def topic_roll_dlq(env_name: str) -> str:
+    """Dead letter queue for roll-batch failures."""
+    return f"{env_prefix(env_name)}roll.batch.dlq"
+
+
 def topic_intelligence_pipeline_dlq(env_name: str) -> str:
     """Dead letter queue for IntelligencePipelineComputeAgent unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
