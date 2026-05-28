@@ -7,6 +7,12 @@ services:
     container_name: timescaledb
     restart: unless-stopped
     shm_size: '512m'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d indicagent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     command: [
       "postgres",
       "-c", "max_locks_per_transaction=16384",
@@ -29,6 +35,12 @@ services:
     container_name: redpanda
     restart: unless-stopped
     mem_limit: 6g
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     ulimits:
       nofile:
         soft: 65536
