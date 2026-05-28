@@ -132,7 +132,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | `LifecycleWriterAgent` | `services/lifecycle_writer_agent.py` | `indicagent-lifecycle-writer` | `WriterAgent` | `signal_ledger` (DB) |
 | `SignalMetricsComputeAgent` | `services/signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | `ComputeAgent` | `intelligence.signal_metrics` |
 | `SignalMetricsWriterAgent` | `services/signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | `WriterAgent` | `signal_metrics` tables (DB) |
-| `AINarrativeService` | `services/ai_narrative_agent.py` | `indicagent-ai-narrative` | `ComputeAgent` | `narratives:*:*`, `llm.calls` |
+| `NarrativeGroupComputeAgent` | `services/narrative_group_compute_agent.py` | `indicagent-ai-narrative` | `ComputeAgent` | `narratives:*:*`, `llm.calls` |
 | `LLMWriterService` | `services/llm_writer_service.py` | `indicagent-llm-writer` | `WriterAgent` | `llm_calls` (DB) |
 | `CrossAssetService` | `services/cross_asset_service.py` | `indicagent-cross-asset` | `ComputeAgent` | cross-asset spreads |
 

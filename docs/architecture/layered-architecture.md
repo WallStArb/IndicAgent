@@ -117,12 +117,12 @@ All plugins use `compute_next()` for incremental, stateful, O(1) computation.
 **Purpose:** LLM-powered market narrative synthesis and model performance tracking.
 
 **Components:**
-- `services/ai_narrative_agent.py` (`AINarrativeAgent`) — primary: Ollama gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`); optional fallback: OpenRouter. Publishes to `narratives` + `narratives.group`. Consumer group: `ai_narrative`
+- `services/narrative_group_compute_agent.py` (`NarrativeGroupComputeAgent`) — primary: Ollama gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`); optional fallback: OpenRouter. Publishes to `narratives` + `narratives.group`. Consumer group: `ai_narrative`
 - `services/llm_writer_service.py` (`LLMWriterAgent`) — consumes `llm.calls` → `llm_calls` hypertable; back-fills outcomes from `llm.outcomes`; refreshes `llm_model_scores` every 15 min. Adaptive routing: model with `is_significant=True` (p<0.05, n≥30) moves to chain position 0
 
 **DB writes:** `llm_calls` (full LLM audit log, keep forever), `llm_model_scores` (per-model win rate + p-value)
 
-**Metrics:** AINarrativeAgent `:9113`, LLMWriterAgent `:9117`
+**Metrics:** NarrativeGroupComputeAgent `:9113`, LLMWriterAgent `:9117`
 
 ---
 
@@ -161,7 +161,7 @@ IBKR TWS
                            │    └─ SignalTrackerComputeAgent (lifecycle, DB-ignorant)
                            │         └─ lifecycle.transitions
                            │              └─ LifecycleWriterAgent → signal_outcomes (updates)
-                           └─ AINarrativeAgent (I8)
+                           └─ NarrativeGroupComputeAgent (I8)
                                 ├─ narratives / narratives.group
                                 └─ llm.calls
                                      └─ LLMWriterAgent → llm_calls

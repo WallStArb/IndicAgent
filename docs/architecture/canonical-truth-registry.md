@@ -15,7 +15,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Raw provider bars | `{env}.market.bars.raw.{provider}` | None | Provider-specific `ProviderAgent` | Provider payloads are immutable protocol translations. |
 | Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriterAgent` | `ProviderMergerAgent` selects the authoritative stream event; writer persists. |
 | Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriterAgent` | HTF bars are computed from canonical 1m bars. |
-| Roll events | `{env}.market.events.roll` | `contract_metadata` | `ContractMetadataWriterAgent` | Roll compute is DB-ignorant; writer owns promotion persistence. |
+| Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`production/scripts/roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
 | Full I1-I7 feature record | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriterAgent` | Canonical per-bar feature persistence unit. |
 | Ranked I7 signals | `{env}.intelligence.i7.signals` | `signal_ledger` | `SignalWriterAgent` | Signal writer owns initial ledger rows. |
 | Signal lifecycle transitions | lifecycle transition topic from `stream_keys.py` | `signal_ledger` | `LifecycleWriterAgent` | Tracker computes transitions; writer persists status/outcome updates. |

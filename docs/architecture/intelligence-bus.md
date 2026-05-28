@@ -44,7 +44,7 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 ├─ SignalAuditorAgent → intelligence.signal.audit
                 ├─ SignalMetricsComputeAgent → intelligence.signal_metrics
                 │       └─ SignalMetricsWriterAgent → signal_metrics tables (DB)
-                ├─ AINarrativeAgent (I8) → narratives → LLMWriterAgent → llm_calls (DB)
+                ├─ NarrativeGroupComputeAgent (I8) → narratives → LLMWriterAgent → llm_calls (DB)
                 ├─ ServiceAuditorAgent → system.health.events (health monitor + self-healer)
                 ├─ AlphaSwarmComputeAgent → topic_signal_lineage()
                 │       └─ LineageWriterAgent → signal_lineage (DB)
@@ -161,7 +161,7 @@ ext:{app_name}:{purpose}               # external
 
 feature_writer_group      → feature_writer_agent
 signal_writer:i7          → signal_writer_agent
-narrative_agent:i8        → ai_narrative_agent
+narrative_agent:i8        → narrative_group_compute_agent
 ext:vercel_dashboard:realtime
 ext:ml_trainer:batch
 ```
@@ -252,7 +252,7 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 {env}.llm.writer.dlq
 
 # Narratives
-{env}.narratives                       # I8 AI narratives (AINarrativeAgent)
+{env}.narratives                       # I8 AI narratives (NarrativeGroupComputeAgent)
 {env}.narratives.group                 # group synthesis narratives
 
 # Writer DLQs
@@ -312,7 +312,7 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 | `services/signal_auditor_agent.py` | SignalAuditorAgent — coverage validation + lag monitoring → intelligence.signal.audit |
 | `services/signal_metrics_compute_agent.py` | SignalMetricsComputeAgent — timer-triggered performance metrics |
 | `services/signal_metrics_writer_agent.py` | SignalMetricsWriterAgent — intelligence.signal_metrics → signal_metrics tables |
-| `services/ai_narrative_agent.py` | AINarrativeAgent — I8 LLM analysis → narratives |
+| `services/narrative_group_compute_agent.py` | NarrativeGroupComputeAgent — I8 LLM analysis → narratives |
 | `services/llm_writer_service.py` | LLMWriterAgent — llm.calls → llm_calls; outcome back-fill; model score refresh |
 | `services/cross_asset_service.py` | CrossAssetService — cross-asset spread dynamics → cross_asset |
 | `services/service_auditor_agent.py` | ServiceAuditorAgent — pipeline health monitor and self-healer |

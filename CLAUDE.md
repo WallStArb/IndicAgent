@@ -100,6 +100,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
+- **Narrative service:** `services/narrative_group_compute_agent.py` (`NarrativeGroupComputeAgent`) maps to `indicagent-ai-narrative`. Docs referencing `ai_narrative_agent.py` or `AINarrativeAgent` are wrong.
 
 ## Data Flow
 
