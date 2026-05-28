@@ -54,6 +54,16 @@ AGENT_CRASH_TOTAL = _base_meter.create_counter(
     description="Agent crashes (uncaught exceptions) from BaseAgent._run()",
 )
 
+WATCHDOG_NOTIFY_TOTAL = _base_meter.create_counter(
+    "watchdog_notify_total",
+    description="Successful sd_notify WATCHDOG=1 pings per agent",
+)
+
+WATCHDOG_NOTIFY_SUPPRESSED_TOTAL = _base_meter.create_counter(
+    "watchdog_notify_suppressed_total",
+    description="Suppressed watchdog pings (agent alive but idle/stalled) per agent",
+)
+
 AGENT_SETUP_SUCCESS_TOTAL = _base_meter.create_counter(
     "agent_setup_success_total",
     description="Successful BaseAgent._setup() completions",
@@ -369,6 +379,9 @@ class BaseAgent(abc.ABC):
                 should_notify = (time.monotonic() - self._last_message_ts) < interval_s * 2
             if should_notify:
                 notifier.notify("WATCHDOG=1")
+                WATCHDOG_NOTIFY_TOTAL.add(1, self._last_msg_ts_attrs)
+            else:
+                WATCHDOG_NOTIFY_SUPPRESSED_TOTAL.add(1, self._last_msg_ts_attrs)
             await asyncio.sleep(interval_s)
 
     async def _send_to_dlq(self, payload: dict, error: Exception) -> None:
