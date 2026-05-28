@@ -69,15 +69,10 @@ These layers are orthogonal. Never mix them.
 ### config_schema (Registry)
 ```
 config_key (PK) | value_type | default_value | min_value | max_value | allowed_values |
-depends_on | category | json_schema | unit | is_secret | risk_level | owner | version
+depends_on | category | is_secret | version
 ```
 
-**Enhanced fields:**
-- `json_schema` — Structured validation for complex types
-- `unit` — Unit for numeric values (percent, seconds, gb, etc.)
-- `is_secret` — Never log/trace actual value
-- `risk_level` — (low/medium/critical) controls approval requirements
-- `owner` — Team responsible for this config
+What keys exist, types, constraints, dependencies. `is_secret` = never log actual value.
 
 ### config_state (Current)
 ```
@@ -196,28 +191,25 @@ Prevent silent overwrites from concurrent writes:
 
 ## Security Model
 
-Config changes can alter thresholds, feature flags, alert routing. Minimum controls:
+**Minimum viable controls:**
 
 **Authentication:**
-- FastAPI endpoints require auth (Bearer token or mTLS)
+- FastAPI endpoints require Bearer token
 - CLI/API calls identify caller (changed_by)
 
-**Authorization:**
-- Read-only vs write permission
-- Per-category write permission (regime, swarm, alert, roll)
-- High-risk keys require approval (risk_level=critical)
-
 **Audit:**
-- All changes logged with changed_by, timestamp, reason, old_value, new_value
+- All changes logged with changed_by, timestamp, reason
 - Sensitive values redacted (is_secret=true keys)
 
 **Secret Redaction:**
 ```python
-REDACTED = "**REDACTED**"  # Placeholder in logs/traces
+REDACTED = "**REDACTED**"
 
-# config_schema is_secret=true keys never logged/metric'd with actual value
-# Examples: telegram_bot_token, discord_webhook_url, API keys
+# is_secret keys never logged with actual value
+# Examples: telegram_bot_token, discord_webhook_url
 ```
+
+**Future:** Per-category permissions, approval flows for high-risk keys.
 
 ---
 
@@ -249,27 +241,18 @@ alert.disk_space.enabled = true
 
 ## Safer Revert Operations
 
-**Dangerous:** `revert_to_timestamp(t)` — rolls back entire system, can violate dependencies.
+**Problem:** `revert_to_timestamp(t)` rolls back entire system — can break dependencies.
 
-**Safer operations:**
+**Safer approach:**
 ```python
-# Preview first (no write)
+# Preview before applying
 config_service.preview_revert_to_timestamp(t)
-# → Returns: {keys: [...], affected_services: [...], risks: [...]}
 
-# Scoped revert with validation
-config_service.revert_keys(["regime.prob_min", "swarm.min_confidence"], t)
-# → Validates dependencies, only rolls back specified keys
-
-# Category-scoped revert
-config_service.revert_category("regime", t)
-# → Rolls back all config with category='regime'
+# Scoped revert (specific keys only)
+config_service.revert_keys(["regime.prob_min"], t)
 ```
 
-Revert requires:
-- Dependency validation (config_schema.depends_on)
-- Approval for high-risk keys (risk_level=critical)
-- Dry-run by default (preview_required=true)
+**Future:** Dependency validation, approval flows for high-risk keys.
 
 ---
 
@@ -403,126 +386,74 @@ class StatisticalRuleEngine(RuleEngine):
 
 ## Failure Modes
 
-**ConfigService unavailable:**
-- Services use last-known-good cached config
-- Emit `config_service_unreachable_total` metric
-- Retry with exponential backoff
-- After N failures, enter degraded mode (log warnings)
+**ConfigService down:** Services use last-known-good cached config.
 
-**Kafka unavailable:**
-- ConfigService writes succeed, outbox status=pending
-- OutboxDispatcher retries with backoff
-- Services won't receive updates until Kafka recovers
-- Emit `kafka_publish_failed_total{key}` metric
+**Kafka down:** Config writes succeed, outbox status=pending. OutboxDispatcher retries when Kafka recovers.
 
-**Stale config detection:**
-- Services track `config_last_reload_timestamp_seconds`
-- ConfigConsumer emits `config_consumer_lag_seconds` (offset lag)
-- If lag > threshold OR reload > 10min, emit warning
-- Manual intervention: restart service to force DB snapshot reload
+**Stale detection:** Services emit `config_last_reload_timestamp_seconds`. If > 10min, emit warning.
 
 **Fail-closed vs fail-open:**
-- Critical safety keys (regime gates, position limits): fail-closed (disable feature if config stale)
+- Safety keys (regime gates): fail-closed (disable if config stale)
 - Tunable parameters (thresholds): fail-open (use last-known-good)
 
 ---
 
-## Config Consumer Resilience
-
-BaseAgent config reload pattern:
+## Config Consumer Pattern
 
 ```python
 class BaseAgent:
     async def _setup(self):
-        # 1. Load DB snapshot on startup (authoritative seed)
+        # Load DB snapshot on startup
         self._config_cache = await config_service.list()
-        self._config_version = {}  # Track per-key version
 
-        # 2. Subscribe to compacted topic
-        self._config_consumer = KafkaConsumerClient(
-            "topic_config_updates",
-            group_id=f"{agent_name}-config",
-            enable_auto_commit=False,  # Manual commit after processing
-        )
-
+        # Subscribe to config updates
+        self._config_consumer = KafkaConsumerClient("topic_config_updates")
         asyncio.create_task(self._reload_config_loop())
 
     async def _reload_config_loop(self):
         async for _topic, _key, payload in self._config_consumer.messages():
-            key = payload["config_key"]
-            new_version = payload["version"]
-            current_version = self._config_version.get(key, 0)
+            self._config_cache[payload["config_key"]] = payload["config_value"]
+            config_reload_total.labels(agent=self.name).inc()
 
-            # Ignore stale messages (compacting can send older)
-            if new_version <= current_version:
-                continue
-
-            # Update cache
-            self._config_cache[key] = payload["config_value"]
-            self._config_version[key] = new_version
-
-            # Emit metric
-            config_reload_total.labels(agent=self.name, success="true").inc()
-
-            # Commit after processing
-            await self._config_consumer.commit()
-
-        # Periodic reconciliation (catch missed messages)
-        asyncio.create_task(self._reconcile_config_loop())
-
-    async def _reconcile_config_loop(self):
-        while True:
-            await asyncio.sleep(300)  # Every 5 minutes
-            current = await config_service.list()
-            stale_keys = [
-                k for k, v in current.items()
-                if self._config_cache.get(k) != v
-            ]
-            if stale_keys:
-                logger.warning("config_stale", keys=stale_keys)
-                # Reload from DB if drift detected
+    def get_config(self, key, default=None):
+        return self._config_cache.get(key, default)
 ```
+
+**Future:** Periodic reconciliation, lag metrics, stale detection.
 
 ---
 
 ## Service Integration Pattern
 
-**Note:** `_setup()` composition: services that already override `_setup()` must call `await super()._setup()` OR use the config mixin pattern:
+Services subscribe to config updates:
 
 ```python
-# Option 1: Call super()
-class MyAgent(BaseAgent):
+class BaseAgent:
     async def _setup(self):
-        await super()._setup()  # Gets config integration
-        # Custom setup here...
-
-# Option 2: Mixin (if _setup override is complex)
-class ConfigMixin:
-    async def _setup_config(self):
         self._config_cache = await config_service.list()
-        # ... config setup
+        self._config_consumer = KafkaConsumerClient("topic_config_updates")
+        asyncio.create_task(self._reload_config_loop())
 
-class MyAgent(ConfigMixin, BaseAgent):
-    async def _setup(self):
-        await self._setup_config()  # Explicit call
-        # Custom setup...
+    async def _reload_config_loop(self):
+        async for _topic, _key, payload in self._config_consumer.messages():
+            self._config_cache[payload["config_key"]] = payload["config_value"]
+
+    def get_config(self, key, default=None):
+        return self._config_cache.get(key, default)
 ```
+
+**Note:** Services overriding `_setup()` must call `await super()._setup()` or seed config manually.
 
 ---
 
 ## AlertSignalProcessor Scaling
 
-**Bottleneck risk:** Single processor consuming all events.
+**v1 approach:** Single instance, in-memory state for dedupe/aggregation.
 
-**Mitigations:**
-
-1. **Topic partitioning:** Partition `topic_observable_events` by event_type or source
-2. **Multiple instances:** Run N instances of AlertSignalProcessor, each consumes partition subset
-3. **State externalization:** Dedupe window, aggregate state in Redis or TimescaleDB (not in-memory)
-4. **Filtering:** Don't route all metrics through processor — only alert-relevant events
-5. **Backpressure:** If processing lag > threshold, emit metric, scale up or drop low-priority
-
-**Target:** < 100ms end-to-end latency (event receipt → alert emit)
+**If bottleneck emerges:**
+- Partition `topic_observable_events` by event_type
+- Run multiple instances (each processes partition subset)
+- Externalize state (Redis or TimescaleDB) for windows/dedupe
 
 ---
 
@@ -544,13 +475,36 @@ class MyAgent(ConfigMixin, BaseAgent):
 
 ## Implementation Phases
 
-1. Config foundation (DB tables including outbox, ConfigService with outbox dispatcher, Kafka propagation, observability)
-2. Migration CLI (minimal admin interface for seed + validate before full API)
-3. Migration of runtime params from settings.py
-4. AlertSignalProcessor (rule engine, dedupe, aggregate, observability)
-5. Config API (FastAPI endpoints with auth)
+1. Config foundation (DB tables, ConfigService, outbox dispatcher, Kafka propagation, observability)
+2. Migration of runtime params from settings.py
+3. AlertSignalProcessor (rule engine, dedupe, aggregate, observability)
+4. Config API (FastAPI endpoints)
 
-All services subscribe to config updates:
+---
+
+## Future Enhancements
+
+**Config schema:**
+- JSON schema for complex types
+- Units, risk_level, owner fields
+- Per-environment defaults
+
+**Security:**
+- Per-category write permissions
+- Approval flows for high-risk keys
+
+**Operations:**
+- Admin CLI for config management
+- Dependency validation in revert
+- Periodic cache reconciliation
+- Consumer lag metrics/alerts
+
+**Scaling:**
+- AlertSignalProcessor partitioning
+- State externalization (Redis)
+- Backpressure handling
+
+---
 
 ```python
 class BaseAgent:
@@ -668,15 +622,6 @@ After new system is in place, remove old patterns:
 ## Default State
 
 All alerts OFF by default. Runtime params seeded from current settings.py values.
-
----
-
-## Implementation Phases
-
-1. Config foundation (DB tables, ConfigService, Kafka propagation, observability)
-2. Migration of runtime params from settings.py
-3. AlertSignalProcessor (rule engine, dedupe, aggregate, observability)
-4. Config API (FastAPI endpoints)
 
 ---
 
