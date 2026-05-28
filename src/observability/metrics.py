@@ -592,6 +592,11 @@ SIGNAL_REPLAY_OHLCV_GAP_TOTAL = _meter.create_counter(
     description="Replay attempts where market_data_ohlcv had zero bars in the signal window",
 )
 
+SIGNAL_REPLAY_NULL_ZONE_TOTAL = _meter.create_counter(
+    "signal_replay_null_zone_total",
+    description="Replay signals skipped due to NULL entry_zone_low or entry_zone_high (data integrity error)",
+)
+
 LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL = _meter.create_counter(
     "lifecycle_writer_idempotent_skip_total",
     description="EXIT writes blocked by idempotency guard (WHERE exit_at IS NULL); validates two-path safety",
