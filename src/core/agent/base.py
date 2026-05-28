@@ -177,6 +177,10 @@ class BaseAgent(abc.ABC):
             return m.create_up_down_counter(name.lstrip("_"))
         if name == "_plugin_circuit_breakers":
             return {}
+        if name == "_bar_e2e_latency":
+            from src.observability.otel import get_meter
+
+            return get_meter("test-noop").create_histogram("bar_e2e_latency_ms")
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     @property
