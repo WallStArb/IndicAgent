@@ -327,6 +327,45 @@ DLQ_MESSAGES_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
+# DLQ quarantine metrics (Phase 108)
+# ---------------------------------------------------------------------------
+
+DLQ_QUARANTINE_TOTAL = _meter.create_counter(
+    "dlq_quarantine_total",
+    description="DLQ messages quarantined after DLQ_MAX_RETRIES identical errors in 24h",
+)
+
+# ---------------------------------------------------------------------------
+# Consumer stall detection (Phase 108)
+# ---------------------------------------------------------------------------
+
+CONSUMER_STALL_DETECTED_TOTAL = _meter.create_counter(
+    "consumer_stall_detected_total",
+    description="Consumer stall events detected by ServiceAuditor before restart",
+)
+
+# ---------------------------------------------------------------------------
+# Oneshot job completion counters (Phase 108)
+# ---------------------------------------------------------------------------
+
+# CONTRACT: Oneshot scripts that emit this counter MUST call provider.force_flush() /
+# provider.shutdown() before process exit, otherwise the OTLP exporter will not drain
+# and the counter will never reach the collector. See Plan 06 for the canonical call site.
+JOB_COMPLETED_TOTAL = _meter.create_counter(
+    "job_completed_total",
+    description="Oneshot job completions by name and status",
+)
+
+# ---------------------------------------------------------------------------
+# API health gauge (Phase 108)
+# ---------------------------------------------------------------------------
+
+API_HEALTH = _meter.create_gauge(
+    "api_health",
+    description="API DB connectivity: 1=reachable, 0=unreachable",
+)
+
+# ---------------------------------------------------------------------------
 # Signal processor gate observability metrics (Phase 089 D-22)
 # ---------------------------------------------------------------------------
 
