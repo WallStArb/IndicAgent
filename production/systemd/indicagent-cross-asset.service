@@ -15,6 +15,8 @@ Environment=CROSS_ASSET_ENABLED=true
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/cross_asset_service.py
 Restart=always
 TimeoutStopSec=30
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

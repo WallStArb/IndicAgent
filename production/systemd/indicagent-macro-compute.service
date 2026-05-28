@@ -16,6 +16,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=LOG_FILE=logs/macro_compute_agent.log
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/macro_compute_agent.py
 Restart=always
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=10
 StandardOutput=null
 StandardError=journal

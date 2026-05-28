@@ -14,6 +14,8 @@ Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 EnvironmentFile=-/home/bg/dev/indicagent/.env
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/swarm_ledger_writer_agent.py
 Restart=on-failure
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
