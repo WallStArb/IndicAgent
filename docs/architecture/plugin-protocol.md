@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Plugin Protocol
 
-**Version:** 2.2
-**Last Updated:** 2026-04-21
-**Status:** I1-I8 Complete — 123 Plugins Operational
+**Version:** 2.8
+**Last Updated:** 2026-05-27
+**Status:** I1-I8 Complete — 132 Plugins Operational
 
 > **Developer-facing.** For system-level DAG methodology, see `dag-topology.md`. For implementation examples, see `src/intelligence/CLAUDE.md`.
 
@@ -17,11 +18,11 @@ Every plugin satisfies the `IndicatorPlugin` or `PatternPlugin` protocol:
 ```python
 class IndicatorPlugin(Protocol):
     name: ClassVar[str]                    # Unique identifier
-    outputs: ClassVar[set[str]]            # Feature keys produced
+    outputs: ClassVar[frozenset[str]]      # Feature keys produced
     min_lookback: ClassVar[int]            # Minimum bars needed
     supports_incremental: ClassVar[bool]   # Can process single new bars
-    capability_tags: ClassVar[set[str]]    # Categorization
-    inputs: ClassVar[list[InputSpec]]      # Dependency declarations
+    capability_tags: ClassVar[frozenset[str]]  # Categorization
+    inputs: ClassVar[tuple[InputSpec, ...]]    # Dependency declarations
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]: ...
@@ -31,17 +32,18 @@ class IndicatorPlugin(Protocol):
 - **Protocol, not ABC:** Structural subtyping — any `@dataclass` with the right shape works
 - **Two methods only:** `compute_full()` for batch, `compute_next()` for incremental
 - **`frames["main"]`:** Convention — primary OHLCV DataFrame at key `"main"`
+- **`frozenset` and `tuple`:** Use `frozenset[str]` for `outputs`/`capability_tags`, `tuple[InputSpec, ...]` for `inputs` — not `set`/`list`
 
 ## Plugin Attributes
 
 | Attribute | Type | Purpose | Example |
 |-----------|------|---------|---------|
 | `name` | `str` | Unique identifier | `"RSI"`, `"MACD"`, `"BOS_CHoCH"` |
-| `outputs` | `set[str]` | Feature keys produced | `{"rsi_14", "macd_12_26_9"}` |
+| `outputs` | `frozenset[str]` | Feature keys produced | `frozenset({"rsi_14", "macd_12_26_9"})` |
 | `min_lookback` | `int` | Minimum bars for computation | `20` for RSI-14 |
 | `supports_incremental` | `bool` | Can do O(1) updates | `True` for I1, `False` for I3/I5 |
-| `capability_tags` | `set[str]` | Categorization | `{"trend"}`, `{"momentum"}`, `{"smc"}` |
-| `inputs` | `list[InputSpec]` | Dependency declarations | `[InputSpec(symbol=".*", timeframe="1m", lookback=100)]` |
+| `capability_tags` | `frozenset[str]` | Categorization | `frozenset({"trend"})` |
+| `inputs` | `tuple[InputSpec, ...]` | Dependency declarations | `(InputSpec(symbol=".*", timeframe="1m", lookback=100),)` |
 
 ## InputSpec Format
 
@@ -114,7 +116,7 @@ Plugins with `supports_incremental=True` implement O(1) updates via `compute_nex
 | Cumulative | OBV, VWAP | Running sum, add new bar |
 | Online Variance | Bollinger | Welford's algorithm |
 
-**Result:** ~141x speedup vs. full recomputation. 27 I1 indicators complete in <1ms per bar.
+**Result:** ~141x speedup vs. full recomputation. 28 I1 indicators complete in <1ms per bar.
 
 ## Plugin Lifecycle
 
@@ -162,7 +164,7 @@ Plugin state is in-memory within `IntelligencePipelineComputeAgent`:
 
 - **`_plugin_cache`**: Plugin singletons, reused per-bar
 - **`_plugin_states`**: `dict[(plugin_name, symbol, timeframe), dict]` — rolling state
-- **`_plugin_call_counts`**: Prometheus metrics every 10 calls
+- **`_plugin_call_counts`**: OTel metrics every 10 calls (`PLUGIN_METRICS_SAMPLE_RATE=10`)
 
 State is NOT persisted across service restarts. Warmup re-seeds from historical data on startup.
 
@@ -175,20 +177,20 @@ State is NOT persisted across service restarts. Warmup re-seeds from historical 
 | Compute exception | Logged, metric emitted, continues to next bar |
 | Circuit breaker open | Plugin skipped, fallback value if available |
 
-## Plugin Inventory (v2.1)
+## Plugin Inventory
 
 | Tier | Count | Incremental | Examples |
 |------|-------|-------------|----------|
-| I1 | 27 | ✅ Yes | RSI, MACD, ATR, ADX, BB, VWAP, Stoch, HMA, OFI, CVD |
-| I2 | 10 | ✅ Yes | MACDEvents, RSIEvents, ADXEvents, VolumeEvents, AccelerationRegime, ExhaustionScore |
-| I3 | 8 | ❌ No | Swing, S/R, MarketProfile, SessionLevels, FibZones, SwingMomentum |
-| I4 | 12 | ❌ No | GARCH, Kalman, VIXRegime, CrossAssetContext, AnchoredVWAP, VolumeProfile |
-| I5 | 16 | ❌ No | RSIDivergence, BollingerSqueeze, chart patterns |
-| SMC | 13 | ❌ No | BOS/CHoCH, FVG, Order Blocks, HMMRegime, BOCPD |
-| I6 | 1 | ❌ No | CrossTimeframeConfluence |
-| I7 | 36 | ❌ No | TrendFollowing, MeanReversion, LiquiditySweep, CHoCH |
+| I1 | 28 | Yes | RSI, MACD, ATR, ADX, BB, VWAP, Stoch, HMA, OFI, CVD, VolumeZscore |
+| I2 | 10 | Yes | MACDEvents, RSIEvents, ADXEvents, VolumeEvents, AccelerationRegime, ExhaustionScore |
+| I3 | 8 | No | Swing, S/R, MarketProfile, SessionLevels, FibZones, SwingMomentum |
+| I4 | 12 | No | GARCH, Kalman, VIXRegime, CrossAssetContext, AnchoredVWAP, VolumeProfile |
+| I5 | 16 | No | RSIDivergence, BollingerSqueeze, chart patterns |
+| SMC | 16 | No | BOS/CHoCH, FVG, Order Blocks, HMMRegime x4 (1m/5m/15m/1h), BOCPD |
+| I6 | 6 | No | CrossTimeframeConfluence, CTFMomentumDivergence, CTFSRConfluence, CTFRegimeAgreement, CTFSqueezeExpansion, CTFOrderflowAlignment |
+| I7 | 36 | No | TrendFollowing, MeanReversion, LiquiditySweep, CHoCH, OFI/CVD setups, etc. |
 
-**Total:** 123 plugins + 2 aggregation (CISScorer, SignalAggregator)
+**Total:** 132 plugins + 2 aggregation (CISScorer, SignalAggregator). Source of truth: `TIER_I*` in `src/intelligence/register_plugins.py`.
 
 ## See Also
 

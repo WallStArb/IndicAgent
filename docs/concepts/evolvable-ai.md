@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Evolvable AI (eAI) — Agents That Evolve
 
 **Version:** 2.8
-**Last Updated:** 2026-05-10
-**Status:** Designed, not yet implemented
+**Last Updated:** 2026-05-27
+**Status:** In progress — Phases 101-103 (v2.8 milestone, gated behind AI platform Phases 094-099)
 **Full Design:** `docs/ideas/ai-03-evolvable-ai-agents.md`
 
 ## Overview
@@ -84,22 +85,30 @@ All newborn agents enter **shadow mode**: observing live data, producing analysi
 
 The system already has the substrate eAI needs:
 
-- **Shadow mode with statistical promotion gates** — operational since Phase 75
+- **Shadow mode with statistical promotion gates** — operational since Phase 75; `shadow_registry` table auto-enrolls all I7 plugins and AI agents at startup
 - **Signal ledger outcome tracking** — fitness evaluation data accumulating since day one
-- **Lineage recording** — full ancestry tracking per agent call
-- **Skeptic agent pattern** — adversarial coevolution already in the swarm
+- **Lineage recording** — full ancestry tracking per agent call via `LineageRecorder`
+- **Skeptic agent pattern** — adversarial coevolution already in the swarm (5 agents active)
 - **`BaseAIAgent` framework** — genome mutations can be implemented as agent parameter variations
+- **`llm_calls` audit trail** — every LLM call persisted with prompt version, outcome back-fill
 
 ---
 
-## Implementation Phases
+## Implementation Phases (v2.8)
 
-| Phase | Scope |
-|-------|-------|
-| **Phase 1** | LLM-directed prompt mutation — lowest risk, leverages existing agent framework |
-| **Phase 2** | Composite fitness function — building and stress-testing the evaluation substrate |
-| **Phase 3** | Config parameter mutation + gene bank — persistent population management |
-| **Phase 4** | Code/logic evolution — highest risk, LLM-generated analysis variants |
+Evolvable agent phases are gated behind the AI platform stack (Phases 094-099). Phase 101 does not begin until the FIT-06 evidence gate is passed.
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **Phase 094** | LiteLLM + Instructor structured output — replace bespoke provider logic | Not started |
+| **Phase 095** | Pydantic AI agent execution layer — `PydanticAIAdapter` bridge | Not started |
+| **Phase 096** | Agent Registry — centralized agent catalog | Not started |
+| **Phase 097** | Zep Episodic Memory | Not started |
+| **Phase 098** | DSPy Offline Prompt Optimizer — timer-triggered batch, reads `llm_calls` | Not started |
+| **Phase 099** | Guardrails AI Validation (conditional: only if parse failure rate > 1%) | Not started |
+| **Phase 101** | Composite Fitness Function — `agent_fitness` table, Bootstrap CI + Sharpe + win rate | Not started |
+| **Phase 102** | Genetic Infrastructure — `agent_genomes` table, frozen archive, genome decomposition | Gated on FIT-06 cross-agent variance >= 0.2 |
+| **Phase 103** | Reproductive Operators — mutation, recombination, LLM-directed operator | Gated on Phase 101+102 complete |
 
 ---
 
@@ -107,5 +116,4 @@ The system already has the substrate eAI needs:
 
 - [Swarm Intelligence](swarm-intelligence.md) — the current specialist agent architecture
 - [Signal Lifecycle](signal-lifecycle.md) — outcome tracking that feeds fitness evaluation
-- [Architecture Concepts](../architecture/concepts.md) — shadow governance and statistical gates
 - [Full eAI Design](../ideas/ai-03-evolvable-ai-agents.md) — complete design document
