@@ -115,18 +115,17 @@ Total: 210ms for 3 bars (amortized)
 
 **Profiling:**
 ```bash
-# Flamegraph
+# Flamegraph (attach to running process)
 docker exec indicagent-intelligence-pipeline python -m py-spy record --output flamegraph.svg --pid <pid>
-
-# Latency breakdown
-curl -s http://localhost:9125/metrics | grep pipeline_latency_seconds
 ```
 
-**Throughput:**
-```bash
-# Bars processed per second
-curl -s http://localhost:9125/metrics | grep pipeline_bars_processed_total
-# Rate = (value_now - value_60s_ago) / 60
+**Throughput/Latency:** Query via Prometheus (`:9090`) or Grafana (`:3001`) — services push metrics via OTLP to the OTel Collector, no per-service `/metrics` endpoint:
+```promql
+# End-to-end latency p95
+histogram_quantile(0.95, rate(indic_bar_to_signal_latency_seconds_bucket[5m]))
+
+# Pipeline latency gauge (direct from intelligence pipeline)
+intelligence_pipeline_pipeline_latency_ms
 ```
 
 ---

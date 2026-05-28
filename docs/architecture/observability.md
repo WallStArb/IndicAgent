@@ -70,18 +70,18 @@ Three layers, in order of reliability:
 
 ## Metric Registry
 
-## Metric Registry
-
 ```python
-from src.observability.metrics import counter, gauge, start_metrics_server
+from src.observability.metrics import counter, gauge
 
-# Avoid duplicate registration
+# Create instruments (module-level, avoid duplicate registration)
 my_counter = counter("my_metric", "Documentation")
-my_counter.inc()
+my_counter.add(1, {"label_key": "value"})
 
-# Start metrics server (idempotent)
-start_metrics_server(port=9100)
+my_gauge = gauge("my_gauge", "Documentation")
+my_gauge.add(delta, {"label_key": "value"})
 ```
+
+Services do not start a `/metrics` HTTP server. All metrics are pushed via OTLP gRPC to the OTel Collector (`:4317`).
 
 ## Golden Signals
 
