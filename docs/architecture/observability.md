@@ -1,9 +1,9 @@
 # Observability Patterns — Metrics, Traces & Logs
 
 **Status:** current
-**Version:** 1.2
-**Last Updated:** 2026-05-06
-**Sources:** `src/observability/metrics.py`, `src/observability/otel.py`, `src/observability/log_bridge.py`
+**Version:** 1.3
+**Last Updated:** 2026-05-28
+**Sources:** `src/observability/metrics.py`, `src/observability/otel.py`, `src/observability/log_bridge.py`, `src/core/agent/base.py`
 
 ## Overview
 
@@ -324,18 +324,17 @@ groups:
 |--------|------|--------|---------|
 | `agent_last_message_timestamp_seconds` | Gauge | agent | Unix timestamp of last successfully processed Kafka message — stall detection |
 
+**Stall detection threshold:** ServiceAuditor monitors `agent_last_message_timestamp_seconds` and fires `CONSUMER_STALL_DETECTED_TOTAL` when a service exceeds 120 seconds without processing a message (lowered from 360s in Phase 108). This triggers systemd watchdog auto-restart for daemon services.
+
 ## Agent Self-Observability (Phase 67)
 
 Metrics emitted by `BaseAgent` itself — not requiring concrete overrides. All agents inherit these automatically.
 
 | Metric | Type | Labels | Purpose |
 |--------|------|--------|---------|
-| `agent_crash_total` | Counter | agent | Uncaught exceptions in `BaseAgent._run()` |
-| `agent_setup_success_total` | Counter | agent | Successful `_setup()` completions |
-| `agent_setup_failure_total` | Counter | agent, error_type | Failed `_setup()` calls, classified by exception type |
 | `agent_setup_latency_seconds` | Histogram | agent | `_setup()` execution time — buckets: 0.1s to 10s |
 
-These are defined directly in `src/core/agent/base.py` (not in `src/observability/metrics.py`) to avoid circular imports.
+**Note:** `agent_crash_total`, `agent_setup_success_total`, and `agent_setup_failure_total` are covered in the OTel Health Contract section above. These are defined directly in `src/core/agent/base.py` (not in `src/observability/metrics.py`) to avoid circular imports.
 
 ## LLM Infrastructure Metrics (Phase 56)
 
@@ -383,15 +382,105 @@ These are defined directly in `src/core/agent/base.py` (not in `src/observabilit
 |--------|------|--------|---------|
 | `regime_gate_suppressions_total` | Counter | reason, plugin, tf | Signals suppressed by regime eligibility gate |
 
+## Self-Healing Metrics (Phase 108)
+
+Phase 108 introduced comprehensive self-healing instrumentation for systemd watchdog integration, stall detection, DLQ quarantine, and oneshot completion tracking.
+
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `dlq_quarantine_total` | Counter | agent, source_topic, error_type | Messages quarantined after 4 occurrences within 24h |
+| `consumer_stall_detected_total` | Counter | unit | Services stalled >120s (ServiceAuditor threshold) |
+| `job_completed_total` | Counter | job, status | Oneshot timer-triggered script completion |
+| `api_health` | Gauge | service | FastAPI DB connectivity (1=connected, 0=unreachable) |
+| `watchdog_notify_total` | Counter | agent | Successful sd_notify() calls (watchdog heartbeat) |
+| `watchdog_notify_suppressed_total` | Counter | agent | Failed sd_notify() calls (missing NotifyAccess=main) |
+| `bar_e2e_latency_ms` | Histogram | symbol, tf | End-to-end latency from bar arrival to signal enqueue |
+
+### Grafana SLO Alert Thresholds (Phase 108)
+
+| Alert | Metric | Condition | Severity | Purpose |
+|-------|--------|-----------|----------|---------|
+| DLQ Quarantine Spike | `dlq_quarantine_total` | `rate(dlq_quarantine_total[5m]) > 0.1` | warning | Quarantine system active — investigate poison pill |
+| Service Stall | `consumer_stall_detected_total` | `increase(consumer_stall_detected_total[10m]) > 0` | critical | Service not processing — systemd auto-restart triggered |
+| Oneshot Failure | `job_completed_total{status="failure"}` | `increase(job_completed_total{status="failure"}[1h]) > 0` | warning | Timer job failed — manual investigation required |
+| API Health Down | `api_health{service="indicagent-api"}` | `api_health < 1` | critical | FastAPI cannot reach TimescaleDB |
+| Watchdog Suppression | `rate(watchdog_notify_suppressed_total[5m]) > 0.01` | warning | sd_notify() failing — unit file missing NotifyAccess=main |
+
+### Systemd Watchdog Integration
+
+All 25 daemon services run with `WatchdogSec=60` and `NotifyAccess=main` in their systemd unit files. When a service stalls (no message processed for 60s), systemd auto-restarts it. The `watchdog_notify_total` counter tracks successful sd_notify() heartbeats; `watchdog_notify_suppressed_total` indicates missing `NotifyAccess=main` configuration.
+
+### Oneshot Completion Counter Contract (D-06)
+
+Timer-triggered scripts (ml-training, shadow-auditor, roll-batch) MUST emit `job_completed_total{job, status}` at script exit:
+- `job` label MUST match systemd unit `%n` suffix exactly (kebab-case)
+- `status` label is either `"success"` or `"failure"`
+- OTel flush (`flush_and_shutdown_metrics()`) MUST be called in finally block before exit
+
+Example from `ml_training_agent.py`:
+```python
+try:
+    await run_training()
+    JOB_COMPLETED_TOTAL.add(1, {"job": "ml-training", "status": "success"})
+except Exception:
+    JOB_COMPLETED_TOTAL.add(1, {"job": "ml-training", "status": "failure"})
+    raise
+finally:
+    flush_and_shutdown_metrics(timeout_millis=5000)
+```
+
+### DLQ Quarantine Semantics
+
+The `dlq_quarantine_total` counter fires on the 4th occurrence of any `(agent, source_topic, error_type)` triple within a rolling 24-hour window. Quarantined messages have `quarantined=TRUE` in the `dlq_events` table and are excluded from retry processing. The rolling counter is seeded from the database at `DLQDrainAgent` startup, so restarts do not reset poison-pill detection.
+
+### Instrument Lifecycle
+
+| Instrument | Survives Restart | Backed by DB | Notes |
+|------------|------------------|--------------|-------|
+| `dlq_quarantine_total` | No | Yes (dlq_events.quarantined) | 24h rolling counter seeded at startup |
+| `consumer_stall_detected_total` | No | No | Counter resets on service restart |
+| `job_completed_total` | No | No | Ephemeral — emits only at script exit |
+| `api_health` | Yes | No | Gauge persists across service restarts |
+| `watchdog_notify_total` | No | No | Counter resets on service restart |
+| `watchdog_notify_suppressed_total` | No | No | Counter resets on service restart |
+| `bar_e2e_latency_ms` | Yes | No | Histogram data persists in OTel Collector |
+
 ## OTel Configuration
 
 **Environment variables:**
 - `OTEL_EXPORTER_OTLP_ENDPOINT` — OTLP gRPC endpoint (default: `http://localhost:4317`)
 - `APP_VERSION` — Sets `service.version` resource attribute
 - `INDICAGENT_ENV` — Sets `deployment.environment` (also injected by the Collector's resource processor)
+- `NOTIFYACCESS=main` — Required in systemd unit files for watchdog integration (absent = `watchdog_notify_suppressed_total` increments)
+
+**Systemd watchdog requirements (Phase 108):**
+All daemon unit files MUST include:
+```ini
+[Service]
+WatchdogSec=60
+NotifyAccess=main
+```
+
+Without `NotifyAccess=main`, sd_notify() calls fail silently and `WATCHDOG_NOTIFY_SUPPRESSED_TOTAL` increments. This is monitored via Grafana alert `watchdog-suppression-spike`.
+
+## OTel Health Contract (Phase 108 SOP)
+
+All agents MUST emit the following signals at startup/shutdown/crash boundaries. See CLAUDE.md "OTel Health Contract (Phase 108 SOP)" for full contract.
+
+| Signal | Type | Labels | When |
+|--------|------|--------|------|
+| `agent_setup_success_total` | Counter | agent | `_setup()` completes successfully |
+| `agent_setup_failure_total` | Counter | agent, error_type | `_setup()` throws exception |
+| `agent_crash_total` | Counter | agent | Uncaught exception in `_run()` |
+| `agent_last_message_timestamp_seconds` | Gauge | agent | Message processed (stall detection) |
+| `dlq_depth` | Gauge | agent, topic | DLQ size (per-destination) |
+
+**Oneshot contract (D-06):** Timer-triggered scripts MUST emit `job_completed_total{job, status}` at script exit with OTel flush. See Oneshot Completion Counter Contract above.
 
 ## See Also
 
+- **CLAUDE.md** — "OTel Health Contract (Phase 108 SOP)" section: 5 mandatory BaseAgent signals + oneshot contract
+- `.planning/phases/108-self-healing-hardening/` — Phase 108 plans and summaries: OTel foundation, watchdog rollout, DLQ quarantine, stall detection
 - `base-agent-patterns.md` — Agent lifecycle and metric scaffolding
 - `agent-standard.md` — Role taxonomy and naming conventions
 - `current-state.md` — Active agents and their metrics ports
