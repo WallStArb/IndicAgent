@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.43.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents).
+Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents). Phase 108 SOP added.
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
@@ -182,6 +182,30 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
 - **intelligence_pipeline_agent subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests CI-clean.
+
+## OTel Health Contract (Phase 108 SOP)
+
+Every new daemon that inherits BaseAgent MUST emit these five OTel signals; non-compliance is a code review rejection (D-26). All five are inherited automatically from BaseAgent - no per-service code is needed.
+
+**Mandatory signals (D-04):**
+- `agent_last_message_timestamp_seconds` (gauge, label `agent_id`) - liveness; updated on every processed message
+- `agent_crash_total` (counter, label `agent_id`) - uncaught exceptions in `_run()`
+- `agent_dlq_total` (counter, label `agent_id`) - DLQ routing events
+- `watchdog_notify_total` (counter, label `agent_id`) - successful sd_notify WATCHDOG=1 pings (Phase 108)
+- `watchdog_notify_suppressed_total` (counter, label `agent_id`) - suppressed pings: agent alive but idle/stalled (Phase 108)
+
+**Oneshot contract (D-06):** Oneshot timer-triggered scripts MUST emit `job_completed_total{job, status}` at script exit. Label `job` MUST match the systemd unit `%n` suffix exactly (kebab-case).
+
+**Grafana SLO alerts (D-27):**
+- `agent_last_message_timestamp_seconds` stale > 120s -> page
+- `watchdog_notify_suppressed_total` rate > 0 -> warning
+- `dlq_quarantine_total` increment > 0 -> warning
+- `api_health` = 0 -> page
+- `rate(bars_processed_total[5m])` drops > 50% from baseline -> warning
+- `consumer_stall_detected_total` rate > 0 -> warning
+- Any oneshot `job_completed_total{status="failure"}` increment -> warning; `time_since_last_success{job=X} > 25h` -> page
+
+**Phase 108 closed HEAL-01, HEAL-03, HEAL-04. HEAL-02 (DB backup) is deferred - see `.planning/phases/108-self-healing-hardening/108-HEAL-02-DEFERRAL.md`.**
 
 ## Infrastructure
 
