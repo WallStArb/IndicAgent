@@ -100,7 +100,7 @@ class SignalReplayAuditorAgent(BaseAgent):
               AND sl.expires_at IS NOT NULL
               AND sl.expires_at < NOW()
               AND sl.signal_schema_version = $1
-            ORDER BY sl.expires_at ASC
+            ORDER BY sl.expires_at DESC
             LIMIT $2
         """
         assert self._pool is not None

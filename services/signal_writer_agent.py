@@ -20,7 +20,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.core.agent.base_writer import BaseWriterAgent
 from src.core.database_manager import DatabaseManager
-from src.core.kafka_utils import KafkaConsumerClient
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import parse_iso_ts, tf_to_seconds
 from src.core.stream_keys import (
     topic_intelligence_i7_signals,
@@ -59,6 +59,7 @@ class SignalWriterAgent(BaseWriterAgent):
 
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
+        self._kafka_producer: KafkaProducerClient | None = None
         self._repo: SignalLedgerRepository | None = None
         self._invalid_signals: list[dict] = []
 
@@ -144,6 +145,11 @@ class SignalWriterAgent(BaseWriterAgent):
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
+        self._kafka_producer = KafkaProducerClient(
+            bootstrap_servers=self.settings.kafka_bootstrap_servers
+        )
+        await self._kafka_producer.start()
+
         self._create_consumer()
         await self._consumer.start()
         self._last_flush = time.monotonic()
@@ -153,6 +159,8 @@ class SignalWriterAgent(BaseWriterAgent):
         await super()._teardown()
         if self._consumer:
             await self._consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
         if self._db:
             await self._db.close()
 
