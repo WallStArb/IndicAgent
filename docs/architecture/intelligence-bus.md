@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Architecture Reference — IndicAgent Unified Intelligence Bus
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-05-05
+**Last Updated:** 2026-05-27
 
 > Source of truth for architectural decisions. The *why* behind the build sequence.
 > Full design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`
@@ -22,9 +23,9 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 │
                 ├─ BarAggregatorComputeAgent → market.bars.htf (5m-1d)
                 ├─ BarWriterAgent → market_data_ohlcv (TimescaleDB)
-                ├─ BarAuditorAgent → market.events.gap_requests
-                └─ RollComputeAgent → market.events.roll
-                        └─ ContractMetadataWriterAgent → contract_metadata (DB)
+                └─ BarAuditorAgent → market.events.gap_requests
+                │
+                roll-batch timer (nightly 8pm) → contract_metadata (DB)
                 │
                 ↓ IntelligencePipelineComputeAgent
                 │   (I1-I7 unified, subscribes market.bars + market.bars.htf)
@@ -36,8 +37,10 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 ├─ FeatureSnapshotWriterAgent → feature_snapshots_shadow (shadow dual-write)
                 ├─ ParityAuditorAgent (5-min parity comparison; certifies after 60 clean cycles)
                 ├─ SignalWriterAgent → signal_ledger (TimescaleDB)
+                │   (stores expires_at, entry_zone_low, entry_zone_high at fire time)
                 ├─ SignalTrackerComputeAgent (lifecycle compute, DB-ignorant)
-                │       └─ lifecycle.transitions → LifecycleWriterAgent → signal_ledger
+                │       └─ lifecycle.transitions → LifecycleWriterAgent → signal_outcomes
+                ├─ SignalReplayAuditorAgent (expires_at-driven TTL; reads entry_zone from signal_ledger)
                 ├─ SignalAuditorAgent → intelligence.signal.audit
                 ├─ SignalMetricsComputeAgent → intelligence.signal_metrics
                 │       └─ SignalMetricsWriterAgent → signal_metrics tables (DB)
@@ -57,7 +60,7 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
 ### 1. Multi-agent bar processing tier before feature computation
 `IBKRProviderAgent` publishes raw 1m bars to `market.bars.raw.ibkr`. `ProviderMergerAgent` routes and normalises to `market.bars` (canonical) with an auto-failover on primary silence. `BarAggregatorComputeAgent` aggregates 1m → 5m/15m/1h/4h/1d and publishes to `market.bars.htf`. `IntelligencePipelineComputeAgent` subscribes to both `market.bars` and `market.bars.htf` — each bar triggers an independent I1-I7 in-process pipeline run.
 
-**Why:** Provider-agnostic design — ProviderMergerAgent abstracts the broker. Bar aggregation, persistence, and auditing are separate concerns from intelligence computation. Roll detection and contract promotion run independently without coupling to the hot compute path.
+**Why:** Provider-agnostic design — ProviderMergerAgent abstracts the broker. Bar aggregation, persistence, and auditing are separate concerns from intelligence computation. Roll detection runs on a nightly timer (8pm) without coupling to the hot compute path.
 
 ### 2. IntelligenceEvent — versioned, tiered JSONB schema
 ```python
@@ -72,12 +75,12 @@ class IntelligenceEvent(BaseModel):
     pipeline_latency_ms: float = 0.0
     bar: OHLCVBar
     i1: I1Indicators          # 28 technical indicator outputs
-    i2: I2Events              # 11 composite event outputs (MACD/RSI/ADX/Volume events)
-    i3: I3Structure           # 9 market structure plugins (swing, S/R, profile, fib)
-    i4: I4Context             # 13 context/regime outputs (GARCH, Kalman, VIX, VP, CrossAsset)
+    i2: I2Events              # 10 composite event outputs
+    i3: I3Structure           # 8 market structure plugins
+    i4: I4Context             # 12 context/regime outputs (GARCH, Kalman, VIX, VP, CrossAsset)
     i5: I5Patterns            # 16 pattern recognition outputs
-    smc: SMCContext           # 13 smart money outputs (BOS/CHoCH, FVG, OB, HMM, BOCPD)
-    i6: I6Confluence          # CrossTimeframeConfluence scores
+    smc: SMCContext           # 16 smart money outputs (BOS/CHoCH, FVG, OB, HMM x4, BOCPD)
+    i6: I6Confluence          # 6 CrossTimeframeConfluence scores
 ```
 
 **Why tiered sub-dicts vs flat:** Surgical queries (`SELECT i4->>'garch_sigma'`), smaller GIN indexes per tier, cleaner schema evolution per tier, better TimescaleDB compression.
@@ -118,20 +121,28 @@ class BarIntelligenceRecord(BaseModel):
 
 **Why separate service:** Async decoupling — can lag, batch writes, retry on DB failure without touching the hot path latency. 50 events per batch or 5s flush window. DLQ: `feature.writer.dlq`.
 
-### 6. signal_ledger — feature reference columns + JOIN pattern
+### 6. signal_ledger — fire-time fields eliminate LATERAL JOIN
 ```sql
--- Columns: feature_ts TIMESTAMPTZ, feature_tf TEXT
--- ML training JOIN:
+-- Fire-time columns (post-Phase 107.5):
+--   expires_at TIMESTAMPTZ  -- computed: timestamp + ttl_bars * tf_to_seconds(timeframe)
+--   entry_zone_low DOUBLE PRECISION
+--   entry_zone_high DOUBLE PRECISION
+-- Signal replay reads directly from signal_ledger — no JOIN to intelligence_features needed.
+-- ML training JOIN still available:
 SELECT sl.*, f.i4, f.smc, f.i6
 FROM signal_ledger sl
 JOIN intelligence_features f ON f.symbol = sl.symbol
   AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
 ```
 
-### 7. Signal lifecycle — compute/writer split (Phase 56+)
-`SignalTrackerComputeAgent` handles lifecycle compute (activation, MAE/MFE, 8-class outcome) without touching the database — publishes typed `lifecycle.transitions` events. `LifecycleWriterAgent` consumes those events and persists to `signal_ledger`. DLQs: `signal.tracker.dlq`, `lifecycle.writer.dlq`.
+### 7. Signal lifecycle — compute/writer split
+`SignalTrackerComputeAgent` handles lifecycle compute (activation, MAE/MFE, 8-class outcome) without touching the database — publishes typed `lifecycle.transitions` events. `LifecycleWriterAgent` consumes those events and persists to `signal_outcomes`. DLQs: `signal.tracker.dlq`, `lifecycle.writer.dlq`.
+
+**TTL evaluation (post-Phase 107.5):** `SignalReplayAuditorAgent` evaluates expiry via `expires_at < NOW()` directly from `signal_ledger`. No LATERAL JOIN to `intelligence_features`. `expires_at` is computed at INSERT time using `tf_to_seconds()` from `src/core/service_utils.py`.
 
 **8-class outcome taxonomy:** `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind`
+
+**Signal status strings:** `"pending"`, `"active"`, `"regime_suppressed"` — raw string literals (also available as `SignalStatus` enum in `signal_ledger_repository.py`). `SIGNAL_SCHEMA_VERSION = "v1"` in `src/intelligence/trading/signal_schema.py`.
 
 **Why split:** Signal tracker previously violated the compute→Kafka→writer DAG by reading and writing signal_ledger in the same process. The split enforces the core principle: compute agents are DB-ignorant.
 
@@ -139,7 +150,7 @@ JOIN intelligence_features f ON f.symbol = sl.symbol
 Stateful plugins are managed via in-memory dicts:
 - `_plugin_cache` — plugin singletons built at service init, reused per bar
 - `_plugin_states` — `dict[tuple[str,str,str], dict]` keyed by `(plugin_name, symbol, timeframe)`; state is swapped onto `p._state` before `compute_full()` and written back after
-- `_plugin_call_counts` — Prometheus metrics sampling (every `PLUGIN_METRICS_SAMPLE_RATE=10` calls)
+- `_plugin_call_counts` — OTel metrics sampling (every `PLUGIN_METRICS_SAMPLE_RATE=10` calls)
 
 The `PluginStateManager` in `src/core/plugin_state_manager.py` exists but is not used in the hot path. Plugin state resets on service restart (warm-up: ~50 1m bars for I1 incremental state).
 
@@ -185,8 +196,8 @@ Both compute on every bar, output to `IntelligenceEvent.i4`. Use cases:
 - **trad_VWAPDeviation**: `garch_sigma` as dynamic spread threshold
 - **trad_SqueezeExpansion**: `garch_vol_regime` check (avoid explosive vol)
 
-### 15. LLM provider chain — adaptive routing
-Primary: `OpenRouterProvider` (free models via OpenRouter). Offline fallback: `OllamaProvider` (gemma4:e4b per-signal, phi4-mini:3.8b group synthesis — local Docker on AMD ROCm iGPU). `LLMChain` tries in order, returns first non-None. When a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the chain for that `call_type + regime` combination. Key: `openrouter_api_key` (empty → skip to Ollama).
+### 15. LLM provider chain — Ollama-primary
+Primary: `OllamaProvider` → gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`). Optional secondary: `OpenRouterProvider` (when `openrouter_api_key` is set). DeepSeek and OllamaCloud providers removed. `LLMChain` tries in order, returns first non-None. When a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the chain for that `call_type + regime` combination.
 
 ### 16. LLM audit trail — llm_calls hypertable + LLMWriterAgent
 Every LLM call is published to `llm.calls` (Kafka) with full request/response context. `LLMWriterAgent` consumes and writes to `llm_calls` hypertable (keep forever). Signal lifecycle exits are published to `llm.outcomes`; `LLMWriterAgent` back-fills realized outcome (pnl_r, mae, mfe) onto historical `llm_calls` records. `llm_model_scores` table tracks per-model performance, refreshed every 15 min.
@@ -198,6 +209,9 @@ Stage 2 replay writes `source='backfill'`. First ~50 bars have degraded quality 
 
 ### 18. ServiceAuditorAgent — pipeline health and self-healing
 `ServiceAuditorAgent` monitors all active services, publishes typed health state transitions to `system.health.events`, and can trigger restarts on breach of lag/error thresholds. Unhealthy services that exhaust the escalation restart threshold are routed to `intelligence.service_auditor.journal.dlq` for human review.
+
+### 19. Roll batch — nightly timer replaces 24/7 daemons
+`production/scripts/roll_batch.py` runs as a nightly systemd timer at 8pm. Detects calendar-based rolls, promotes front-month contracts in `contract_metadata`, and broadcasts updates via Kafka. Replaces the previous 24/7 `roll-compute` + `contract-metadata-writer` daemon pair. `inactive (dead)` between runs is correct.
 
 ---
 
@@ -214,8 +228,8 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 
 # Market events
 {env}.market.events.gap_requests        # gap fill requests (BarAuditorAgent)
-{env}.market.events.roll                # roll detection events (RollComputeAgent)
-{env}.market.events.contract_update    # front-month promotions (ContractMetadataWriterAgent)
+{env}.market.events.roll                # roll detection events (roll_batch timer)
+{env}.market.events.contract_update    # front-month promotions
 {env}.market.events.roll.dlq           # malformed roll event DLQ
 
 # Intelligence pipeline
@@ -286,15 +300,15 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 | `services/bar_aggregator_agent.py` | BarAggregatorComputeAgent — 1m → HTF via BarAccumulator → market.bars.htf |
 | `services/bar_writer_agent.py` | BarWriterAgent — market.bars + market.bars.htf → market_data_ohlcv |
 | `services/bar_auditor_agent.py` | BarAuditorAgent — gap detection → market.events.gap_requests |
-| `services/roll_compute_agent.py` | RollComputeAgent — calendar + volume z-score roll detection → market.events.roll |
-| `services/contract_metadata_writer_agent.py` | ContractMetadataWriterAgent — roll events → front-month promotion in contract_metadata |
+| `production/scripts/roll_batch.py` | Nightly 8pm timer — calendar-based roll + front-month promotion |
 | `services/intelligence_pipeline_agent.py` | Unified I1-I7; subscribes market.bars + market.bars.htf |
 | `services/feature_writer_agent.py` | FeatureWriterAgent — intelligence.journal → intelligence_features (batch, async) |
 | `services/feature_snapshot_writer_agent.py` | FeatureSnapshotWriterAgent — shadow dual-write → feature_snapshots_shadow |
 | `services/parity_auditor_agent.py` | ParityAuditorAgent — 5-min parity comparison; certifies after 60 clean cycles |
 | `services/signal_writer_agent.py` | SignalWriterAgent — intelligence.i7.signals → signal_ledger (new rows) |
 | `services/signal_tracker_compute_agent.py` | SignalTrackerComputeAgent — lifecycle compute (DB-ignorant); publishes lifecycle.transitions |
-| `services/lifecycle_writer_agent.py` | LifecycleWriterAgent — lifecycle.transitions → signal_ledger lifecycle updates |
+| `services/lifecycle_writer_agent.py` | LifecycleWriterAgent — lifecycle.transitions → signal_outcomes lifecycle updates |
+| `services/signal_replay_auditor_agent.py` | SignalReplayAuditorAgent — expires_at-driven TTL; reads entry_zone from signal_ledger |
 | `services/signal_auditor_agent.py` | SignalAuditorAgent — coverage validation + lag monitoring → intelligence.signal.audit |
 | `services/signal_metrics_compute_agent.py` | SignalMetricsComputeAgent — timer-triggered performance metrics |
 | `services/signal_metrics_writer_agent.py` | SignalMetricsWriterAgent — intelligence.signal_metrics → signal_metrics tables |
@@ -306,5 +320,8 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 | `services/lineage_writer_agent.py` | LineageWriterAgent — persists signal lineage to DB |
 | `src/core/database_manager.py` | PostgreSQL/TimescaleDB connection pooling (WriterAgents + API only) |
 | `src/api/routes/sse.py` | SSE endpoint → dashboard |
+| `src/core/service_utils.py` | `tf_to_seconds()`, `min_bars_for_tf()`, `setup_service_logging()`, `format_iso_ts()` |
+| `src/intelligence/trading/signal_schema.py` | `SIGNAL_SCHEMA_VERSION = "v1"` — canonical signal version constant |
+| `src/persistence/repository/signal_ledger_repository.py` | `LedgerEntry` dataclass; INSERT/SELECT SQL; `SignalStatus` enum |
 | `production/scripts/historical_backfill.py` | Historical IBKR fetch + I1-I7 replay |
 | `production/migrations/` | All DB migrations |
