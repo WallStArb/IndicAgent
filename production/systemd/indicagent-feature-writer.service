@@ -14,6 +14,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_writer_service.py
 Restart=always
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

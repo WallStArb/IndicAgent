@@ -14,6 +14,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_metrics_compute_agent.py
 Restart=always
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=30
 StandardOutput=journal
 StandardError=journal
