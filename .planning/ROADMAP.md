@@ -893,6 +893,19 @@ Plans:
 - [x] 107.5-05-PLAN.md — Fix 3b: Atomic evaluator deploy — both TTL evaluators switch to expires_at (Wave 5)
 - [x] 107.5-06-PLAN.md — Fix 4: Replay auditor LATERAL JOIN removal + canary params via Settings (Wave 6)
 
+### Phase 108: Self-Healing Hardening
+
+**Goal**: Eliminate the remaining availability gaps left after Phase 107. systemd WatchdogSec rollout gives the init system automatic service recovery without manual intervention. A nightly pg_dump backup ensures DB recovery is possible. Three self-healing gaps in the runtime layer are closed: circuit breaker opens emit to the health event bus, DLQ poison-pill quarantine prevents infinite retry loops, and ServiceAuditor detects stuck consumers that are alive but not processing.
+**Depends on**: Phase 107
+**Requirements**: HEAL-01, HEAL-02, HEAL-03, HEAL-04
+**Success Criteria** (what must be TRUE):
+  1. All 39 daemon services have `WatchdogSec=60` in their unit files; `BaseAgent` heartbeat loop calls `sd_notify(WATCHDOG=1)` every 30s; `systemd-analyze verify` passes on all units
+  2. `indicagent-db-backup.service` + `.timer` present and active; nightly `pg_dump` runs; `/var/backups/indicagent/` contains a `.sql.gz` no older than 25h; retention script deletes files older than 7 days
+  3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
+  4. DLQ messages re-delivered more than `DLQ_MAX_RETRIES` times (default 3) are quarantined to a dead-letter-final topic with metadata; ServiceAuditor emits a `consumer_stall` alert when a consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
+
+**Plans**: TBD
+
 ### Phase 094: LiteLLM + Instructor Structured Output
 
 **Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
@@ -1203,6 +1216,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 105. Architecture Hotfix Sprint | v2.7 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
+| 108. Self-Healing Hardening | v2.8 | 0/TBD | Not started | - |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
