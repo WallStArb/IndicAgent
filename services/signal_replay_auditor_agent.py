@@ -383,14 +383,8 @@ class SignalReplayAuditorAgent(BaseAgent):
                 bars_in_trade += 1
                 continue
 
-            # Terminal outcome
-            from src.intelligence.trading.lifecycle_tracker import _classify_stop_outcome
-
-            outcome = mt.outcome
-            if outcome is None:
-                outcome = _classify_stop_outcome(current_mfe, bars_in_trade).value
-            else:
-                outcome = outcome.value if hasattr(outcome, "value") else str(outcome)
+            # Terminal outcome (mt.outcome is non-None here — None case continues above)
+            outcome = mt.outcome.value if hasattr(mt.outcome, "value") else str(mt.outcome)
 
             lt = LifecycleTransition(
                 transition_type=TransitionType.MARKET_RESOLUTION,

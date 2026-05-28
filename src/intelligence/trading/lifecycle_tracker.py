@@ -280,11 +280,9 @@ def evaluate_signal(
     if status == SignalStatus.ACTIVE and chandelier_state is not None:
         trailing_stop = chandelier_state.get("trailing_stop")
         if trailing_stop is not None:
-            chandelier_hit = False
-            if direction == 1 and low <= trailing_stop:
-                chandelier_hit = True
-            elif direction == -1 and high >= trailing_stop:
-                chandelier_hit = True
+            chandelier_hit = (direction == 1 and low <= trailing_stop) or (
+                direction == -1 and high >= trailing_stop
+            )
             if chandelier_hit:
                 pnl_ticks = (trailing_stop - entry) * direction
                 pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
@@ -459,20 +457,8 @@ def _check_active_exit(
 ) -> Transition | None:
     """Check if an active signal should exit; returns None if still in trade."""
     # Stop loss check first (conservative: stop before target on same bar)
-    if direction == 1 and low <= stop:
-        return _make_exit(
-            sid,
-            SignalStatus.EXPIRED,
-            "stop_loss",
-            stop,
-            entry,
-            direction,
-            risk,
-            point_value,
-            current_mae,
-            current_mfe,
-        )
-    if direction == -1 and high >= stop:
+    stop_hit = (direction == 1 and low <= stop) or (direction == -1 and high >= stop)
+    if stop_hit:
         return _make_exit(
             sid,
             SignalStatus.EXPIRED,
