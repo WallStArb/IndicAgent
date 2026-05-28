@@ -23,6 +23,7 @@ from src.core.database_manager import create_pool as create_db_pool
 from src.core.service_utils import setup_service_logging
 from src.core.stats_utils import bootstrap_ci_lower
 from src.observability.metrics import (
+    JOB_COMPLETED_TOTAL,
     SHADOW_DAYS_TO_GATE,
     SHADOW_EV_CI_LOWER,
     SHADOW_EV_R,
@@ -31,6 +32,7 @@ from src.observability.metrics import (
     SHADOW_TAIL_GATE_DB_ERROR,
     SHADOW_TAIL_RISK_BLOCKED,
     SHADOW_WIN_RATE,
+    flush_and_shutdown_metrics,
 )
 
 logger = structlog.get_logger(__name__)
@@ -342,5 +344,17 @@ async def _amain() -> None:
         await pool.close()
 
 
+def main() -> None:
+    """Run the shadow auditor once and emit a completion counter before exit."""
+    try:
+        asyncio.run(_amain())
+        JOB_COMPLETED_TOTAL.add(1, {"job": "shadow-auditor", "status": "success"})
+    except Exception as exc:
+        JOB_COMPLETED_TOTAL.add(1, {"job": "shadow-auditor", "status": "failure"})
+        raise exc
+    finally:
+        flush_and_shutdown_metrics()
+
+
 if __name__ == "__main__":
-    asyncio.run(_amain())
+    main()
