@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Service Auditor — pipeline health monitor and self-healer
-After=network-online.target
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 

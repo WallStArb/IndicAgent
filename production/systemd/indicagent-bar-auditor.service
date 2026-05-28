@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Bar Auditor Agent — gap detection + self-healing via BarGapRequest
-After=network-online.target indicagent-bar-writer.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=indicagent-bar-writer.service
 StartLimitIntervalSec=300
 StartLimitBurst=5

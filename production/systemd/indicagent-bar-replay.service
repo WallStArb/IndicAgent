@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Bar Replay Provider (one-shot historical OHLCV -> Kafka)
-After=network-online.target docker.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=network-online.target
 
 [Service]

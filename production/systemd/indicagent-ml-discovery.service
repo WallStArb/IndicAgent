@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent ML Feature Discovery Agent
-After=network.target
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 
 [Service]
 Type=oneshot

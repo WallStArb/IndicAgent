@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Bar Writer Agent — OHLCV persistence from market.bars + market.bars.htf
-After=network-online.target
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

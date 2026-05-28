@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent CTX Writer — batch persist qualitative context events and snapshots
-After=network-online.target
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

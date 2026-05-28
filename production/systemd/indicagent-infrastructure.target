@@ -1,0 +1,7 @@
+[Unit]
+Description=IndicAgent infrastructure ready — TimescaleDB + Redpanda accepting connections
+Requires=indicagent-timescaledb-ready.service indicagent-redpanda-ready.service
+After=indicagent-timescaledb-ready.service indicagent-redpanda-ready.service
+
+[Install]
+WantedBy=multi-user.target
