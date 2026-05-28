@@ -37,14 +37,18 @@ from src.core.stream_keys import (
     topic_health_events,
     topic_health_events_dlq,
 )
-from src.observability.metrics import SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL, SERVICE_UP_GAUGE
+from src.observability.metrics import (
+    CONSUMER_STALL_DETECTED_TOTAL,
+    SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL,
+    SERVICE_UP_GAUGE,
+)
 
 # Constants
 _ESCALATION_WINDOW = timedelta(minutes=10)
 _ESCALATION_THRESHOLD = 3
 _PROMETHEUS_URL = "http://localhost:9090/api/v1/query"
 _SVC_DATA_PROVIDER = "indicagent-ibkr-provider"
-_STALL_THRESHOLD_SECONDS = 360  # 300s in-process watchdog + 60s grace
+_STALL_THRESHOLD_SECONDS = 120  # lowered from 360 per Phase 108 D-23 (verified against observed message cadence pre-deploy)
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +404,7 @@ class ServiceAuditorAgent(BaseAgent):
                         unit=unit,
                         threshold_seconds=_STALL_THRESHOLD_SECONDS,
                     )
+                    CONSUMER_STALL_DETECTED_TOTAL.add(1, {"unit": unit})
                     await self._restart_service_by_unit(unit)
 
                 # Feature pipeline freshness (replaces parity_auditor)
