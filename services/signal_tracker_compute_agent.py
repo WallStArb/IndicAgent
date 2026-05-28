@@ -68,6 +68,16 @@ _NULL_EXPIRES_AT_COUNTER = counter(
 )
 
 
+def _as_int(value: Any) -> int | None:
+    """Return value if it is an int, else None — for staleness regime inputs."""
+    return value if isinstance(value, int) else None
+
+
+def _as_float(value: Any) -> float | None:
+    """Return value if it is numeric, else None — for staleness sigma inputs."""
+    return value if isinstance(value, (int, float)) else None
+
+
 @dataclass
 class SignalState:
     """Per-signal in-memory tracking state for lifecycle evaluation."""
@@ -640,14 +650,10 @@ class SignalTrackerComputeAgent(BaseAgent):
                     }
 
                 # Staleness computation
-                _hmm_v = sig.get("hmm_regime")
-                hmm_now = _hmm_v if isinstance(_hmm_v, int) else None
-                _g_v = sig.get("garch_sigma")
-                garch_now = _g_v if isinstance(_g_v, (int, float)) else None
-                _hmm_f = sig.get("hmm_regime_at_fire")
-                hmm_fire = _hmm_f if isinstance(_hmm_f, int) else None
-                _g_f = sig.get("garch_sigma_at_fire")
-                garch_fire = _g_f if isinstance(_g_f, (int, float)) else None
+                hmm_now = _as_int(sig.get("hmm_regime"))
+                hmm_fire = _as_int(sig.get("hmm_regime_at_fire"))
+                garch_now = _as_float(sig.get("garch_sigma"))
+                garch_fire = _as_float(sig.get("garch_sigma_at_fire"))
                 staleness_score_val, _ = compute_staleness_score(
                     hmm_now, hmm_fire, garch_now, garch_fire
                 )
