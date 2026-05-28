@@ -40,6 +40,7 @@ from src.core.kafka_utils import KafkaProducerClient
 from src.core.models import AssetClass
 from src.core.schemas.market_events import ContractUpdateEvent
 from src.core.stream_keys import topic_contract_updates
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
 _logger = structlog.get_logger("roll_batch")
 
@@ -328,9 +329,11 @@ async def run(dry_run: bool = False) -> None:
                 promoted = await execute_promotion(conn, decision, dry_run=dry_run)
                 if promoted and not dry_run:
                     await broadcast_update(decision, settings)
+        JOB_COMPLETED_TOTAL.add(1, {"job": "roll-batch", "status": "success"})
     except Exception as exc:
         _ERRORS.add(1, _ATTRS)
         _logger.error("roll_batch.error", error=str(exc))
+        JOB_COMPLETED_TOTAL.add(1, {"job": "roll-batch", "status": "failure"})
         raise
     finally:
         await pool.close()
@@ -344,7 +347,10 @@ def main() -> None:
         "--dry-run", action="store_true", help="Log decisions, skip DB writes and Kafka"
     )
     args = parser.parse_args()
-    asyncio.run(run(dry_run=args.dry_run))
+    try:
+        asyncio.run(run(dry_run=args.dry_run))
+    finally:
+        flush_and_shutdown_metrics()
 
 
 if __name__ == "__main__":
