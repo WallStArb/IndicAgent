@@ -990,6 +990,48 @@ Plans:
 
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
+
+### Phase 109: Config Foundation & Self-Healing Engine
+
+**Goal**: Unified config system with time-series audit trail and control-theory-based self-healing engine. Config changes propagate via Kafka with hot-reload. Automated remediation for common infrastructure issues.
+**Depends on**: Phase 108
+**Success Criteria** (what must be TRUE):
+
+  1. Database migration 109_config_foundation.sql applied (4 config tables + remediation_ledger)
+  2. ConfigService HTTP API serves on port 9001 with set/get/list/revert endpoints
+  3. OutboxDispatcherAgent publishes to topic_config_updates (compacted)
+  4. BaseAgent loads config snapshot on startup and subscribes to Kafka for OPS layer hot-reload
+  5. SelfHealingAgent receives Alertmanager webhooks on port 9002
+  6. SelfHealingEngine executes remediation strategies (disk cleanup, consumer restart, pool flush)
+  7. Remediation outcomes recorded to remediation_ledger with success rate tracking
+  8. 15 runtime params migrated from settings.py to config DB (regime.*, swarm.*, roll.*, etc.)
+  9. _LAG_THRESHOLDS dict removed from service_auditor_agent.py, loaded from config instead
+  10. Hardcoded shadow_only flags removed from AI agents, loaded from config instead
+
+**Plans**: 5 plans in 5 waves
+
+Plans:
+
+**Wave 1**
+
+- [ ] 109-01-PLAN.md — Config foundation: DB tables, ConfigService, validation schemas
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 109-02-PLAN.md — OutboxDispatcher + ConfigService HTTP API + config metrics + stream keys
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 109-03-PLAN.md — BaseAgent config reload pattern integration + systemd units
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 109-04-PLAN.md — SelfHealingEngine + remediation strategies + ledger
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 109-05-PLAN.md — SelfHealingAgent service + runtime params migration + cleanup (_LAG_THRESHOLDS, shadow_only)
+
 ### Phase 094: LiteLLM + Instructor Structured Output
 
 **Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
@@ -1359,3 +1401,13 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
+
+### Phase 109: Config Foundation & Self-Healing Engine
+
+**Goal:** Implement unified config system with DB-backed time-series state, Kafka propagation, and control-theory-based self-healing engine with Alertmanager integration
+**Requirements**: TBD
+**Depends on:** Phase 108
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 109 to break down)
