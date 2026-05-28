@@ -585,8 +585,8 @@ Plans:
 
 Plans:
 
-- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
 - [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
 - [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
@@ -630,8 +630,8 @@ Plans:
 
 Plans:
 
-- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
 - [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
 - [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
@@ -971,7 +971,7 @@ Plans:
   3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
   4. DLQ messages re-delivered more than `DLQ_MAX_RETRIES` times (default 3) are quarantined to a dead-letter-final topic with metadata; ServiceAuditor emits a `consumer_stall` alert when a consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
 
-**Plans:** 7 plans in 3 waves
+**Plans:** 2/7 plans executed
 
 Plans:
 **Wave 1**
@@ -1349,7 +1349,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 105. Architecture Hotfix Sprint | v2.7 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
-| 108. Self-Healing Hardening | v2.8 | 0/TBD | Not started | - |
+| 108. Self-Healing Hardening | v2.8 | 2/7 | In Progress|  |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
