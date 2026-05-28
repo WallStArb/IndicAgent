@@ -1,5 +1,6 @@
 # ML/AI Technology Palette — Research, Rationale, and Decisions
 
+**Version:** 1.0
 **Status:** living document
 **Purpose:** Research-backed analysis of ML/AI technology choices. A "color palette" for our tech stack — each tool has strengths, weaknesses, and intended applications.
 **Last Updated:** 2026-04-08

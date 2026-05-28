@@ -1,5 +1,7 @@
 # Alpha Promotion Protocol: From Swarm (Path B) to Kernel (Path A)
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-02
 
 ## 1. Objective

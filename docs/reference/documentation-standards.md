@@ -1,7 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Documentation Standards
 
-**Last Updated:** 2026-04-21
+**Version:** 1.0
 **Status:** current
+**Last Updated:** 2026-05-27
 
 Personal reference for consistent doc and code naming across the project.
 
@@ -27,12 +29,15 @@ All docs should open with:
 ```markdown
 # Title
 
+**Version:** X.Y
 **Status:** draft | design | current | archived
 **Priority:** high | medium | low | future   (ideas docs only)
 **Last Updated:** YYYY-MM-DD
 ```
 
-Status values: `draft` → `design` → `current` → `archived`
+Version: document revision number (start at 1.0, increment on meaningful changes). For docs tracking project state, use the project milestone version (e.g. 2.8).
+
+Status values: `draft` -> `design` -> `current` -> `archived`
 
 ---
 
@@ -78,7 +83,7 @@ Use relative paths — never absolute:
 
 ## Code Naming Conventions
 
-See also: `CLAUDE.md → Development Standards → Naming Conventions`
+See also: `CLAUDE.md` Naming section and `docs/naming-conventions.md`.
 
 ### Python
 
@@ -128,7 +133,9 @@ Always built via `src/core/stream_keys.py` — never construct topic strings man
 indicagent-<name>.service
 ```
 
-Examples: `indicagent-indicator.service`, `indicagent-signal-lifecycle.service`
+Examples: `indicagent-intelligence-pipeline.service`, `indicagent-signal-writer.service`
+
+Check authoritative live state: `systemctl list-units --all | grep indicagent`
 
 ### Tests
 
@@ -148,3 +155,24 @@ Test functions: `test_<what>_<condition>` — `test_compute_next_returns_macd_wh
 | Hooks | `use-kebab-case.ts` | `use-market-stream.ts` |
 | Utilities | `kebab-case.ts` | `format.ts`, `symbol-config.ts` |
 | CSS variables | `--kebab-case` | `--amber`, `--signal-green` |
+
+---
+
+## Observability Conventions
+
+Metrics use the OTel SDK directly (`src/observability/metrics.py`) — `prometheus_client` is fully removed.
+
+| Metric type | Call pattern | Example |
+|-------------|-------------|---------|
+| Counter | `.add(1, {"label": val})` | `PLUGIN_EXEC_COUNTER.add(1, {"tier": "I1"})` |
+| Histogram | `.record(value, {"label": val})` | `PLUGIN_DURATION_MS.record(42.5, {"plugin": "rsi"})` |
+| UpDownCounter (gauge) | `.add(delta, {"label": val})` | `QUEUE_DEPTH.add(1, {"queue": "output"})` |
+| PointGauge | `.set(value, {"label": val})` | `PIPELINE_LATENCY.set(8.5, {"symbol": "ES"})` |
+
+Never import `prometheus_client` — it is fully removed.
+
+---
+
+## Accuracy Warning
+
+Docs in `docs/` may contain forward-looking specs that were never implemented. Always verify claims against source code before acting on them. When in doubt, read the code.

@@ -1,5 +1,7 @@
 # TimescaleDB Advanced Gotchas
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-02
 
 Rare or advanced TimescaleDB patterns that are good to know but not needed for day-to-day development. For common gotchas, see `CLAUDE.md`.

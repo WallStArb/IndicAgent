@@ -1,5 +1,7 @@
 # Structural Zone Engine — Design Spec
 
+**Version:** 1.0
+**Last Updated:** 2026-05-04
 **Date:** 2026-05-04
 **Status:** Draft
 **Scope:** Rewrite entry zone construction + wire dual-tracking lifecycle + audit stop/target hierarchy

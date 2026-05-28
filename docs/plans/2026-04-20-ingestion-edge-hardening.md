@@ -7,6 +7,9 @@ context: Commits A, 1, 2, 3 landed + deployed (10 commits pushed to origin/main 
 
 # Ingestion-Edge Hardening Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-27
 Resume work on hardening the TWS → `base_provider_agent` → `market.bars` pipeline. Audit findings are in the 2026-04-20 session log (scope 1: ingestion edge). Scopes 2 and 3 are separate audits (see todos 030, 031).
 
 ## Current state

@@ -1,8 +1,11 @@
+<!-- generated-by: gsd-doc-writer -->
 # Plugin Reference Overview
 
-**Last Updated:** 2026-05-02
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-27
 
-All 62 registered plugins.
+Plugin system reference. Authoritative plugin counts and tier lists are in `TIER_I1`…`TIER_I7` constants in `src/intelligence/register_plugins.py`.
 
 ---
 
@@ -18,20 +21,21 @@ Plugins implement the `PatternPlugin` protocol from `src/intelligence/plugins.py
 
 ## Plugin Directories
 
-- [I1: Technical Indicators](i1-indicators.md) — 23 plugins
-- [I3: Market Structure](i3-structure.md) — 3 plugins
-- [I4: Context Classification](i4-context.md) — 5 plugins
-- [I5: Pattern Detection](i5-patterns.md) — 8 plugins
-- [I6: Smart Money Concepts](i6-smart-money.md) — 6 plugins
-- [I6: Cross-TF Confluence](i6-confluence.md) — 1 plugin
-- [I7: Trading Setups](i7-trading.md) — 14 plugins (9 original + 5 CIS contributors)
-- [I7: Signal Aggregation](i7-aggregation.md) — 4 components (aggregator, ledger, lifecycle, sizer)
+Counts below are from `register_plugins.py` as of 2026-05-27:
 
-**Total:** 62 plugins + 4 aggregation components (CIS-based aggregator, ledger, lifecycle, sizer)
+| Tier | File | Count |
+|------|------|-------|
+| I1: Technical Indicators | [i1-indicators.md](i1-indicators.md) | 29 |
+| I2: Composite | — | 11 |
+| I3: Market Structure | [i3-structure.md](i3-structure.md) | 9 |
+| I4: Context Classification | [i4-context.md](i4-context.md) | 13 |
+| I5: Pattern Detection | [i5-patterns.md](i5-patterns.md) | 16 |
+| I6: Smart Money Concepts | [i6-smart-money.md](i6-smart-money.md) | 7 |
+| I7: Trading Setups | [i7-trading.md](i7-trading.md) | 37 |
+
+**Total: 122 registered plugins** across I1-I7 (CLAUDE.md cites 132 including 2 aggregation components and additional registered plugins — use `register_plugins.py` as the authoritative count).
 
 The signal aggregator (`aggregator.py`) uses CISScorer (6-bucket weighted scorer) replacing winner-pick logic. See `src/intelligence/trading/cis_scorer.py`.
-
-See [STATUS.md](../../STATUS.md) for current counts.
 
 ---
 

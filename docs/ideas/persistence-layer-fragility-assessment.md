@@ -7,6 +7,9 @@ audit_date: 2026-05-16
 
 # Persistence Layer Fragility Assessment
 
+**Version:** 1.0
+**Status:** design
+**Last Updated:** 2026-05-16
 The persistence layer has accumulated fragility across multiple dimensions. Because signals,
 features, lifecycle events, and lineage all flow through it, instability here propagates to
 the whole system.

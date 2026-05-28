@@ -1,5 +1,8 @@
 # Evolvable AI Agents — eAI for Alpha Generation
 
+**Version:** 1.0
+**Status:** design
+**Last Updated:** 2026-05-18
 *Status: Concept / Long-horizon idea. Not scheduled for implementation.*
 *Inspired by: "Abstract Evolvable AI" (PNAS 2025) and Renaissance Technologies principles.*
 

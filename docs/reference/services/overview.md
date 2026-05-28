@@ -1,5 +1,7 @@
 # Service Reference Overview
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-04-21
 **Authoritative source:** `systemctl list-units --all | grep indicagent`
 

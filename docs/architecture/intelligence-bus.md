@@ -1,11 +1,11 @@
 # Architecture Reference — IndicAgent Unified Intelligence Bus
 
-Last Updated: 2026-04-21
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-05
 
 > Source of truth for architectural decisions. The *why* behind the build sequence.
 > Full design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`
-
-Status: I1-I8 complete — 128 plugins + 2 aggregation components
 
 ---
 

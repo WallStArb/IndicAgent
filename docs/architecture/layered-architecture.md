@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # IndicAgent Layered Architecture
 
-**Version:** 2.4
-**Last Updated:** 2026-04-21
-**Status:** v2.4 Observability Hardening — 128 plugins + 2 aggregation components
+**Version:** 2.8
+**Last Updated:** 2026-05-27
+**Status:** v2.8 in progress — 132 plugins + 2 aggregation components
 
 ## Overview
 
@@ -38,13 +39,12 @@ The central architectural principle: **the real-time compute pipeline never touc
 - `services/bar_aggregator_agent.py` (`BarAggregatorComputeAgent`) — consumes `market.bars` (1m), produces multi-timeframe bars via `BarAccumulator` (5m → 15m → 1h → 4h → 1d), publishes to `market.bars.htf`
 - `services/bar_writer_agent.py` (`BarWriterAgent`) — consumes `market.bars` + `market.bars.htf`, persists to `market_data_ohlcv` hypertable in batch. DLQ: `bar.writer.dlq`
 - `services/bar_auditor_agent.py` (`BarAuditorAgent`) — validates bar completeness against expected cadence, publishes gap requests to `market.events.gap_requests`. DLQ: `bar.audit.dlq`, `gap_fill.dlq`
-- `services/roll_compute_agent.py` (`RollComputeAgent`) — calendar + volume z-score roll detection, publishes typed `RollEvent` to `market.events.roll`
-- `services/contract_metadata_writer_agent.py` (`ContractMetadataWriterAgent`) — consumes roll events, promotes front-month in `contract_metadata` table, publishes `ContractUpdateEvent` to `market.events.contract_update` for downstream cache invalidation. DLQ: `market.events.roll.dlq`
+- `production/scripts/roll_batch.py` (nightly timer at 8pm) — calendar-based roll detection, promotes front-month in `contract_metadata` table, broadcasts updates via Kafka. Replaces the previous 24/7 `roll-compute` + `contract-metadata-writer` daemon pair.
 
 **Output streams:** `market.bars.htf`, `market.events.gap_requests`, `market.events.roll`, `market.events.contract_update`
 **DB writes:** `market_data_ohlcv` (ground truth, keep forever), `contract_metadata`
 
-**Metrics:** BarAggregatorComputeAgent `:9120`, BarWriterAgent `:9121`, BarAuditorAgent `:9123`, RollComputeAgent `:9122`
+**Metrics:** BarAggregatorComputeAgent `:9120`, BarWriterAgent `:9121`, BarAuditorAgent `:9123`
 
 ---
 
@@ -59,13 +59,13 @@ The central architectural principle: **the real-time compute pipeline never touc
 - `intelligence.signal.dlq` — null-CIS signals caught before publish
 
 **I1 (28 plugins — Indicators):** RSI, MA, MACD, ATR, Bollinger, Stochastic, ADX, Volume Profile, OFI, CVD, and more
-**I2 (11 plugins — Composite Events):** MACDEvents, RSIEvents, ADXEvents, VolumeEvents, etc.
-**I3 (9 plugins — Market Structure):** Swing, S/R, MarketProfile, SessionLevels, FibZones, SwingMomentum, etc.
-**I4 (13 plugins — Context / Regime):** GARCH, Kalman, HurstExp, VIXRegime, CrossAsset, VWAP, VolumeProfile
+**I2 (10 plugins — Composite Events):** MACDEvents, RSIEvents, ADXEvents, VolumeEvents, ExhaustionScore, AccelerationRegime, etc.
+**I3 (8 plugins — Market Structure):** Swing, S/R, MarketProfile, SessionLevels, FibZones, SwingMomentum, MACDEvents
+**I4 (12 plugins — Context / Regime):** GARCH, Kalman, HurstExp, VIXRegime, CrossAsset, VWAP, VolumeProfile, and more
 **I5 (16 plugins — Pattern Recognition):** Divergence, exhaustion, squeeze, chart patterns
-**SMC (13 plugins — Smart Money Concepts):** BOS/CHoCH, FVG, OrderBlocks, HMMRegime, BOCPD, etc.
-**I6 (1 plugin — Cross-Timeframe Confluence):** `cross_timeframe.py` — scores trend alignment, FVG/OB alignment, and regime agreement across all active TFs
-**I7 (37 plugins — Signal Generation):** Setup plugins + CISScorer aggregator. Every fired signal written to `intelligence.i7.signals`
+**SMC (16 plugins — Smart Money Concepts):** BOS/CHoCH, FVG, OrderBlocks, HMMRegime x4 (1m/5m/15m/1h), BOCPD, LiquidityPools, ICT Killzones, AMD Cycle, etc.
+**I6 (6 plugins — Cross-Timeframe Confluence):** Cross-timeframe momentum divergence, SR confluence, regime agreement, squeeze/expansion divergence, orderflow alignment
+**I7 (36 plugins — Signal Generation):** Setup plugins + CISScorer aggregator. Every fired signal written to `intelligence.i7.signals`
 
 **Parallelization:** I1 and I7 tiers are parallelized via `asyncio.gather` + ThreadPoolExecutor. I2–I6 remain sequential (GIL prevents true thread parallelism for CPU-bound Python; batch processing is the planned fix). See `docs/architecture/pipeline-optimization.md`.
 
@@ -81,10 +81,13 @@ All plugins use `compute_next()` for incremental, stateful, O(1) computation.
 
 **Components:**
 - `services/signal_tracker_compute_agent.py` (`SignalTrackerComputeAgent`) — zone-aware lifecycle tracking: entry activation, MAE/MFE accumulation, 8-class outcome classification. DB-ignorant — publishes transitions to `lifecycle.transitions`. DLQ: `signal.tracker.dlq`
+- `services/signal_replay_auditor_agent.py` (`SignalReplayAuditorAgent`) — reads signals where `expires_at < NOW()` directly from `signal_ledger` (no LATERAL JOIN to `intelligence_features`); uses `entry_zone_low`/`entry_zone_high` stored at fire time
 - `services/signal_auditor_agent.py` (`SignalAuditorAgent`) — validates signal coverage per (symbol, tf) per session; publishes `SignalCoverageGapEvent` to `intelligence.signal.audit` when coverage drops. DLQ: `signal.audit.dlq`
 - `services/signal_metrics_compute_agent.py` (`SignalMetricsComputeAgent`) — timer-triggered performance metrics (win rate, avg pnl_r, IC) per plugin + regime; publishes to `intelligence.signal_metrics`
 
 **8-class signal outcomes:** `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind`
+
+**Signal schema version:** `SIGNAL_SCHEMA_VERSION = "v1"` in `src/intelligence/trading/signal_schema.py` — canonical constant imported by all producers/consumers.
 
 **Metrics:** SignalTrackerComputeAgent `:9115`, SignalAuditorAgent `:9128`, SignalMetricsComputeAgent `:9126`
 
@@ -98,13 +101,12 @@ All plugins use `compute_next()` for incremental, stateful, O(1) computation.
 - `services/feature_writer_agent.py` (`FeatureWriterAgent`) — batch-consumes `intelligence.journal` (`BarIntelligenceRecord`), writes to `intelligence_features` hypertable; single atomic INSERT per bar (Phase 44.3). Consumer group: `feature_writer_group`. DLQ: `feature.writer.dlq`
 - `services/feature_snapshot_writer_agent.py` (`FeatureSnapshotWriterAgent`) — shadow dual-write of feature records to `feature_snapshots_shadow` for parity validation. `:9132`
 - `services/parity_auditor_agent.py` (`ParityAuditorAgent`) — 5-min parity comparison between canonical and shadow tables; certifies after 60 consecutive clean cycles (`match_rate ≥ 0.95`); alerts via `alert.requests` on breach. `:9133`
-- `services/signal_writer_agent.py` (`SignalWriterAgent`) — batch-consumes `intelligence.i7.signals`, writes new rows to `signal_ledger`. DLQ: `signal.writer.dlq`
-- `services/lifecycle_writer_agent.py` (`LifecycleWriterAgent`) — consumes `lifecycle.transitions`, persists lifecycle updates to `signal_ledger`. DLQ: `lifecycle.writer.dlq`
+- `services/signal_writer_agent.py` (`SignalWriterAgent`) — batch-consumes `intelligence.i7.signals`, writes new rows to `signal_ledger` (including `expires_at`, `entry_zone_low`, `entry_zone_high`). DLQ: `signal.writer.dlq`
+- `services/lifecycle_writer_agent.py` (`LifecycleWriterAgent`) — consumes `lifecycle.transitions`, persists lifecycle updates to `signal_outcomes`. DLQ: `lifecycle.writer.dlq`
 - `services/signal_metrics_writer_agent.py` (`SignalMetricsWriterAgent`) — consumes `intelligence.signal_metrics`, upserts `signal_metrics`, `signal_metrics_ic`, `signal_metrics_dq_failures` tables. `:9127`
 - `services/bar_writer_agent.py` (`BarWriterAgent`) — also writes `market_data_ohlcv` (see Layer 1)
-- `services/contract_metadata_writer_agent.py` (`ContractMetadataWriterAgent`) — also writes `contract_metadata` (see Layer 1)
 
-**DB writes:** `intelligence_features`, `feature_snapshots_shadow`, `signal_ledger` (new rows + lifecycle updates), `market_data_ohlcv`, `signal_metrics*` tables
+**DB writes:** `intelligence_features`, `feature_snapshots_shadow`, `signal_ledger` (new rows + lifecycle updates via `signal_outcomes`), `market_data_ohlcv`, `signal_metrics*` tables
 
 **Metrics:** FeatureWriterAgent `:9116`, FeatureSnapshotWriterAgent `:9132`, ParityAuditorAgent `:9133`, SignalWriterAgent `:9119`
 
@@ -115,7 +117,7 @@ All plugins use `compute_next()` for incremental, stateful, O(1) computation.
 **Purpose:** LLM-powered market narrative synthesis and model performance tracking.
 
 **Components:**
-- `services/ai_narrative_agent.py` (`AINarrativeAgent`) — primary: OpenRouter free models; offline fallback: Ollama gemma4:e4b (per-signal) + phi4-mini:3.8b (group synthesis) on AMD ROCm iGPU. Publishes to `narratives` + `narratives.group`. Consumer group: `ai_narrative`
+- `services/ai_narrative_agent.py` (`AINarrativeAgent`) — primary: Ollama gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`); optional fallback: OpenRouter. Publishes to `narratives` + `narratives.group`. Consumer group: `ai_narrative`
 - `services/llm_writer_service.py` (`LLMWriterAgent`) — consumes `llm.calls` → `llm_calls` hypertable; back-fills outcomes from `llm.outcomes`; refreshes `llm_model_scores` every 15 min. Adaptive routing: model with `is_significant=True` (p<0.05, n≥30) moves to chain position 0
 
 **DB writes:** `llm_calls` (full LLM audit log, keep forever), `llm_model_scores` (per-model win rate + p-value)
@@ -148,8 +150,6 @@ IBKR TWS
                       │    └─ market.bars.htf  (5m-1d)
                       │         └─ BarWriterAgent → market_data_ohlcv
                       ├─ BarAuditorAgent → market.events.gap_requests
-                      ├─ RollComputeAgent → market.events.roll
-                      │    └─ ContractMetadataWriterAgent → contract_metadata
                       └─ IntelligencePipelineComputeAgent
                            (also subscribes to market.bars.htf)
                            ├─ intelligence.journal (BarIntelligenceRecord)
@@ -160,7 +160,7 @@ IBKR TWS
                            │    ├─ SignalWriterAgent → signal_ledger (new rows)
                            │    └─ SignalTrackerComputeAgent (lifecycle, DB-ignorant)
                            │         └─ lifecycle.transitions
-                           │              └─ LifecycleWriterAgent → signal_ledger (updates)
+                           │              └─ LifecycleWriterAgent → signal_outcomes (updates)
                            └─ AINarrativeAgent (I8)
                                 ├─ narratives / narratives.group
                                 └─ llm.calls
@@ -168,6 +168,9 @@ IBKR TWS
                            └─ AlphaSwarmComputeAgent
                                 └─ topic_signal_lineage()
                                      └─ LineageWriterAgent → signal_lineage
+
+roll-batch (nightly 8pm timer)
+  └─ contract_metadata (DB) → Kafka contract update events → downstream caches
 ```
 
 ---
@@ -179,11 +182,10 @@ All persistence is handled by dedicated WriterAgents. No compute agent writes to
 | WriterAgent | Source Stream | DB Table |
 |---|---|---|
 | `BarWriterAgent` | `market.bars`, `market.bars.htf` | `market_data_ohlcv` |
-| `ContractMetadataWriterAgent` | `market.events.roll` | `contract_metadata` |
 | `FeatureWriterAgent` | `intelligence.journal` | `intelligence_features` |
 | `FeatureSnapshotWriterAgent` | `intelligence.journal` | `feature_snapshots_shadow` |
 | `SignalWriterAgent` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
-| `LifecycleWriterAgent` | `lifecycle.transitions` | `signal_ledger` (lifecycle updates) |
+| `LifecycleWriterAgent` | `lifecycle.transitions` | `signal_outcomes` (lifecycle updates) |
 | `SignalMetricsWriterAgent` | `intelligence.signal_metrics` | `signal_metrics*` tables |
 | `LLMWriterAgent` | `llm.calls`, `llm.outcomes` | `llm_calls`, `llm_model_scores` |
 | `LineageWriterAgent` | `topic_signal_lineage()` | `signal_lineage` |
@@ -210,22 +212,22 @@ Per `docs/architecture/agent-standard.md`:
 | Tier | Plugins | Output |
 |------|---------|--------|
 | I1 | 28 | Technical indicators (RSI, MA, MACD, ATR, BB, Stoch, ADX, OFI, CVD, etc.) |
-| I2 | 11 | Composite events (MACD, RSI, ADX, volume, momentum events) |
-| I3 | 9 | Market structure (swing, S/R, profile, session levels, fib) |
-| I4 | 13 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
+| I2 | 10 | Composite events (MACD, RSI, ADX, volume, momentum events) |
+| I3 | 8 | Market structure (swing, S/R, profile, session levels, fib) |
+| I4 | 12 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
 | I5 | 16 | Pattern detection (divergence, squeeze, chart patterns) |
-| SMC | 13 | Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) |
-| I6 | 1 | CrossTimeframeConfluence |
-| I7 | 37 | Trading signals + CISScorer aggregator |
+| SMC | 16 | Smart Money (BOS/CHoCH, FVG, OB, HMM x4, BOCPD, etc.) |
+| I6 | 6 | CrossTimeframeConfluence (6 sub-score plugins) |
+| I7 | 36 | Trading signals |
 | I8 | — | LLM narratives (separate service; not a plugin) |
 
-**Total:** 128 plugins + 2 aggregation components (CISScorer, weight updater)
+**Total:** 132 plugins + 2 aggregation components (CISScorer, SignalAggregator). Source of truth: `TIER_I*` in `src/intelligence/register_plugins.py`.
 
 ---
 
 ## Plugin System
 
-128 plugins + 2 aggregation components across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+132 plugins + 2 aggregation components across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing plugin name
@@ -235,11 +237,22 @@ Per `docs/architecture/agent-standard.md`:
 
 ---
 
+## Observability
+
+All metrics pushed via OTel SDK (`src/observability/metrics.py`) — `prometheus_client` fully removed (Phase 83). Call patterns:
+- Counters: `.add(1, {"label": val})`
+- Histograms: `.record(val, {"label": val})`
+- Up-down gauges: `.add(delta, {"label": val})`
+
+Never import `prometheus_client`.
+
+---
+
 ## Renaissance Principles Applied
 
 - **Real-time pipeline never touches the database.** WriterAgents are the only DB-aware components.
 - **Degrade gracefully.** ProviderMergerAgent auto-fails over on primary silence; BarAuditorAgent publishes gap requests for self-healing recovery; every payload-parsing agent has a DLQ.
 - **Never drop data that could contain signal.** Every bar, feature vector, signal, and LLM call is persisted as a labeled training sample.
 - **Segment relentlessly.** I6 cross-timeframe confluence scores are computed per regime type, not globally. Signal metrics are tracked per plugin + regime cell.
-- **Instrument everything.** All agents expose Prometheus Golden Signals. Each WriterAgent tracks `persistence_batch_latency` and `persistence_consumer_lag`.
+- **Instrument everything.** All agents expose OTel Golden Signals. Each WriterAgent tracks `persistence_batch_latency` and `persistence_consumer_lag`.
 - **Earn the right through proof.** Shadow mode (FeatureSnapshotWriterAgent + ParityAuditorAgent) gates feature promotion behind 60 clean parity cycles (p < 0.05).

@@ -1,5 +1,8 @@
 # Structural Zone Engine — Implementation Plan (Revised)
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-05
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a structural confluence zone engine that refines entry zone bounds using S/R, MAs, and volume levels for setups with no explicit geometry — while preserving all setup-specific zone logic (FVG, OB, demand/supply, sweep). Wire dual market-entry tracking through the existing Kafka lifecycle event pipeline.

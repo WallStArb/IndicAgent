@@ -1,5 +1,8 @@
 # Project Cleanup and Restructure Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-27
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Clean up dead code, reorganize test directories to eliminate confusion, split oversized test files, and trim CLAUDE.md to reduce navigation friction.

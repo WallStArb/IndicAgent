@@ -1,7 +1,8 @@
+<!-- generated-by: gsd-doc-writer -->
 # Intelligence Stream Schemas & Data Contracts
 
-**Version:** 3.0.0
-**Last Updated:** 2026-04-07
+**Version:** 3.1.0
+**Last Updated:** 2026-05-27
 **Status:** IntelligenceEvent (unified I1-I7 tiered JSONB) and intelligence.i7.signals operational. I8 narratives via narratives:*:* topics. Transport: Redpanda (Kafka-compatible) with dot-separated topic names.
 
 ## Executive Summary
@@ -19,7 +20,7 @@ This document defines the complete data contracts for IndicAgent's intelligence 
 ### **Design Standards**
 - **Versioned Schemas:** All schemas include explicit versioning for backward compatibility
 - **Intelligence Tier Mapping:** Each schema aligns with specific I1-I8 intelligence processing tiers
-- **Stream Optimization:** Compact msgpack encoding for high-performance Redis Streams distribution
+- **Stream Optimization:** JSON encoding for Redpanda (Kafka-compatible) topic distribution
 - **Database Integration:** JSONB storage format for flexible PostgreSQL/TimescaleDB persistence
 - **Field Conventions:** snake_case keys, UTC timestamps, numeric precision standards
 

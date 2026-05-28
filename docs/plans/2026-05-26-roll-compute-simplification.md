@@ -1,5 +1,7 @@
 # Roll Compute Simplification Plan
 
+**Version:** 1.0
+**Last Updated:** 2026-05-26
 **Date:** 2026-05-26
 **Status:** Plan
 **Goal:** Replace 24/7 real-time RollComputeAgent + ContractMetadataWriterAgent with a calendar-driven nightly batch that updates `is_front_month` in `contract_metadata`.

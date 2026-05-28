@@ -1,5 +1,8 @@
 # Naming Conventions
 
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-10
 **Principle:** A service's *concept name* (`snake_case`, no suffix) determines all its derived names across every layer. Given `feature_pipeline`, every layer's name is mechanically derivable — no lookup needed.
 
 ## Cross-Layer Transformation Rules

@@ -1,6 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # External Links & Resources
 
-**Last Updated:** 2026-05-02
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-27
 
 Curated reference links for libraries, APIs, trading theory, and research relevant to IndicAgent.
 Add new links here as you discover useful resources — keeps everything in one place.
@@ -13,11 +16,10 @@ Add new links here as you discover useful resources — keeps everything in one 
 |----------|-----|-------|
 | TimescaleDB Docs | https://docs.timescale.com/ | Hypertables, continuous aggregates, compression |
 | TimescaleDB Hyperfunctions | https://docs.timescale.com/use-timescale/latest/hyperfunctions/ | time_bucket, candlestick_agg, etc. |
-| DragonflyDB Docs | https://www.dragonflydb.io/docs/ | Redis-compatible, streams, memory model |
-| DragonflyDB vs Redis | https://www.dragonflydb.io/faq | What's supported, what's not (no TS.* modules) |
 | PostgreSQL Docs | https://www.postgresql.org/docs/ | JSONB, GIN indexes, partitioning |
 | asyncpg Docs | https://magicstack.github.io/asyncpg/current/ | JSONB codec registration, connection pools |
-| Redis Streams (concepts) | https://redis.io/docs/latest/develop/data-types/streams/ | XREAD, XREADGROUP, consumer groups |
+| Redpanda Docs | https://docs.redpanda.com/ | Kafka-compatible stream broker (used in production) |
+| Redis Streams (concepts) | https://redis.io/docs/latest/develop/data-types/streams/ | XREAD, XREADGROUP, consumer groups (conceptual reference) |
 
 ---
 
@@ -34,6 +36,7 @@ Add new links here as you discover useful resources — keeps everything in one 
 | pytest-asyncio | https://pytest-asyncio.readthedocs.io/en/latest/ | Async test patterns |
 | httpx Docs | https://www.python-httpx.org/ | Async HTTP client (used in tests) |
 | Ruff Docs | https://docs.astral.sh/ruff/ | Linter/formatter rules reference |
+| OpenTelemetry Python | https://opentelemetry-python.readthedocs.io/ | OTel SDK — replaces prometheus_client (Phase 83+) |
 
 ---
 
@@ -42,12 +45,10 @@ Add new links here as you discover useful resources — keeps everything in one 
 | Resource | URL | Notes |
 |----------|-----|-------|
 | Ollama API Docs | https://github.com/ollama/ollama/blob/main/docs/api.md | REST API, generate, chat endpoints |
-| OpenRouter Docs | https://openrouter.ai/docs | Multi-model API, free-tier models, pricing |
+| Ollama Docker Image | https://hub.docker.com/r/ollama/ollama | `ollama/ollama:rocm` used in production |
+| OpenRouter Docs | https://openrouter.ai/docs | Fallback multi-model API (when Ollama disabled) |
 | OpenRouter Models | https://openrouter.ai/models | Browse available models + context limits |
-| Z.ai API | https://api.z.ai/api/paas/v4 | OpenAI-compatible, GLM-5 model |
-| LangGraph Docs | https://langchain-ai.github.io/langgraph/ | Multi-agent workflow orchestration |
-| LangGraph GitHub | https://github.com/langchain-ai/langgraph | Source + examples |
-| LiteLLM | https://github.com/BerriAI/litellm | Unified LLM interface (reference) |
+| LiteLLM | https://github.com/BerriAI/litellm | Unified LLM interface (reference; Phase 094 target) |
 | Mixture of Agents (paper) | https://arxiv.org/abs/2406.04692 | Multi-agent synthesis patterns |
 | Qwen3 Model Card | https://huggingface.co/Qwen/Qwen3-8B | Thinking mode, /no_think, num_predict behavior |
 
@@ -63,6 +64,7 @@ Add new links here as you discover useful resources — keeps everything in one 
 | ib_insync GitHub | https://github.com/erdewit/ib_insync | Source + examples |
 | IBKR Contract Search | https://interactivebrokers.github.io/tws-api/basic_contracts.html | Futures, FX, Crypto contract specs |
 | IBKR Generic Tick Types | https://interactivebrokers.github.io/tws-api/tick_types.html | Tick 233 = RTVolume (futures only) |
+| IBKR Gateway Docker | https://github.com/gnzsnz/ib-gateway | `ghcr.io/gnzsnz/ib-gateway:stable` — used in production |
 | CME Group Specs | https://www.cmegroup.com/markets/equities/s-p/e-mini-s-p500.contractSpecs.html | ES contract specs |
 | CME Group Product Finder | https://www.cmegroup.com/trading/products/ | All futures products, specs, hours |
 
@@ -185,9 +187,9 @@ Add new links here as you discover useful resources — keeps everything in one 
 
 | Resource | URL | Notes |
 |----------|-----|-------|
-| Prometheus Python Client | https://github.com/prometheus/client_python | Counter, Gauge, Histogram, Summary |
-| Prometheus Docs | https://prometheus.io/docs/introduction/overview/ | Metrics model, querying |
-| Grafana Docs | https://grafana.com/docs/grafana/latest/ | Dashboard, alerting |
+| OpenTelemetry Python | https://opentelemetry-python.readthedocs.io/ | OTel SDK — metrics, traces, spans (prometheus_client fully removed Phase 83) |
+| Prometheus Docs | https://prometheus.io/docs/introduction/overview/ | Metrics model, querying (Prometheus still scrapes OTel endpoint) |
+| Grafana Docs | https://grafana.com/docs/grafana/latest/ | Dashboard at :3001, alerting |
 | structlog Docs | https://www.structlog.org/en/stable/ | Structured logging for Python |
 
 ---

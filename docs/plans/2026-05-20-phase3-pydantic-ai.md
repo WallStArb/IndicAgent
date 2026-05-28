@@ -1,5 +1,8 @@
 # Phase 3: Pydantic AI Agents Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-20
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the `BaseAIAgent` / `BaseMultiplierAgent` class hierarchy for the 4 LLM alpha agents with `pydantic_ai.Agent[AgentDeps, ResultType]` instances wrapped in a thin `PydanticAIAgent` adapter. Gains: typed deps injection, `@agent.system_prompt` hooks for Phase 5 memory enrichment, tool use capability, and a flat instance-based model instead of inheritance.

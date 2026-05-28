@@ -1,5 +1,7 @@
 # Intelligence Swarm Manifest: "The Renaissance Loop"
 
+**Version:** 1.0
+**Last Updated:** 2026-03-07
 **Status:** Active Reference — Core swarm architecture principles
 **Created:** 2026-03-07  
 **Updated:** 2026-05-02

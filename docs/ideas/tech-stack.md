@@ -1,5 +1,6 @@
 # Platform Tech Stack — Decisions, Reasoning, and Migration Path
 
+**Version:** 1.0
 **Created:** 2026-03-04  
 **Last Updated:** 2026-03-10  
 **Status:** Vision — active decisions + future planning  

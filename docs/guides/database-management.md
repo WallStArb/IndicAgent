@@ -1,5 +1,7 @@
 # Database Management
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-03-15
 
 IndicAgent uses TimescaleDB (PostgreSQL + time-series extension) for cold storage and Redpanda (Kafka-compatible) for the hot/warm event streaming backbone. The real-time pipeline never touches the database directly — only `feature_writer_service` and `llm_writer_service` write to TimescaleDB.

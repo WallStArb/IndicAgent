@@ -1,5 +1,8 @@
 # Phase 6: DSPy Offline Prompt Optimizer Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-20
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an offline DSPy optimization pipeline that compiles improved prompts from historical `llm_calls` + `signal_ledger` outcome data and loads those compiled programs at startup, replacing hand-written system prompts with data-driven ones.

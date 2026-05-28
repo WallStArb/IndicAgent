@@ -1,5 +1,6 @@
 # Canonical Truth Registry
 
+**Version:** 2.8
 **Last Updated:** 2026-05-05
 **Status:** Architecture standard
 

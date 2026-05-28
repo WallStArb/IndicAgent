@@ -1,7 +1,10 @@
+<!-- generated-by: gsd-doc-writer -->
 # Intelligence Engine Tiers (I1–I8)
 
-**Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-05-25
+**Version:** 2.8
+**Status:** current
+**Current State:** 132 plugins + 2 aggregation components — source of truth: `src/intelligence/register_plugins.py` TIER_* lists
+**Last Updated:** 2026-05-27
 **Documentation Style:** Dual tier/functional naming (see [Tier Naming System](tier-naming-system.md))
 
 ## Overview
@@ -28,9 +31,8 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 
 - **Input:** OHLCV bars
 - **Output:** `technical_indicators` JSONB field (raw mathematical values: `sma_20`, `ema_21`, `rsi_14`, `atr_14`)
-- **Code Location:** `src/intelligence/indicators/`
-- **Stream:** `{env}:indicators:SYMBOL:TF`
-- **Examples:** RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV
+- **Code Location:** `src/intelligence/features/i1_indicators/`
+- **Examples:** RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV, OFI, CVD, VolumeZscore
 
 #### **I2: Composite Events (`composite_events`)**
 **Purpose:** Detect discrete market events from I1 features — runs before I3, results feed I3–I7
@@ -58,7 +60,7 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 
 - **Input:** OHLCV bars + I1 features
 - **Output:** Structure data published into IntelligenceEvent `i3` JSONB field
-- **Code Location:** `src/intelligence/structure/`
+- **Code Location:** `src/intelligence/features/i3_structure/`
 - **Plugins (8):**
   - `MACDEvents` — MACD line crossovers, histogram sign flips, zero-line crosses (placed here because MACD requires I1 + structural context)
   - `SwingDetector` — HH/HL/LH/LL swing points, trend structure classification
@@ -100,7 +102,7 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 
 - **Input:** I1–I4 intelligence foundation
 - **Output:** Pattern data published into IntelligenceEvent `i5` JSONB field
-- **Code Location:** `src/intelligence/patterns/`
+- **Code Location:** `src/intelligence/features/i5_patterns/`
 - **Plugins (16):**
   - `MTFVolatility` — multi-timeframe volatility spread and compression detection
   - `RSIDivergence` — bullish/bearish RSI divergence vs price
@@ -125,14 +127,17 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 
 - **Input:** I1–I5 intelligence + OHLCV
 - **Output:** SMC data published into IntelligenceEvent `smc` JSONB field
-- **Code Location:** `src/intelligence/smart_money/`
-- **Plugins (13):**
+- **Code Location:** `src/intelligence/features/smc_context/`
+- **Plugins (16):** Four HMM instances (1m/5m/15m/1h) count as separate plugins
   - `BOS_CHoCH` — break of structure and change of character detection
   - `FairValueGap` — bullish/bearish FVG detection with fill tracking
   - `OrderBlocks` — bullish/bearish order block identification
   - `LiquiditySweeps` — sweep of buyside/sellside liquidity with reclaim confirmation
   - `BOCPDChangepoint` — Bayesian online changepoint detection for regime shifts
-  - `HMMRegime` — Hidden Markov Model: ranging(0) / trending(1/2) with probability
+  - `HMMRegime (1m)` — Hidden Markov Model per timeframe: ranging(0) / trending(1/2) with probability
+  - `HMMRegime (5m)` — HMM instance for 5m timeframe
+  - `HMMRegime (15m)` — HMM instance for 15m timeframe
+  - `HMMRegime (1h)` — HMM instance for 1h timeframe
   - `LiquidityPools` — equal highs/lows liquidity pool mapping
   - `SupplyDemandZones` — supply and demand zone identification and strength scoring
   - `ICTKillzones` — ICT killzone time windows (London open, NY open, Asian session)
@@ -168,13 +173,12 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
   - *CIS contributors (+5):* `CHoCHReversal`, `FVGFill`, `PatternCompletion`, `DivergenceStack`, `RegimeTransition`
   - *Session/structure (+3):* `GapAnalysis`, `CandlestickPatternSetup`, `SessionExtremes`
   - *Breakout/continuation (+5):* `FailedBreakout`, `ORB15`, `ORB30`, `PrevDayLevelTest`, `SecondLegContinuation`
-  - *Volume profile (+5):* `VCP`, `AnchoredVWAPReversion`, `VWAPReclaim`, `POCRejection`, `HVNRejection`, `LVNBreakout` (6)
+  - *Volume profile (+6):* `VCP`, `AnchoredVWAPReversion`, `VWAPReclaim`, `POCRejection`, `HVNRejection`, `LVNBreakout`
   - *Microstructure (+7):* `OFIContinuation`, `OFIDivergence`, `OFISpike`, `CVDDivergence`, `CVDSpike`, `DeltaExhaustion`, `DualDivergence`
   - *Cross-asset (+1):* `CrossAssetDivergence`
   - **Quality gates:** GARCH/Kalman checks on `MeanReversion`, `VWAPDeviation`, `SqueezeExpansion`
   - **`regime_type` required** on all I7 plugins: `"trend"` | `"mean_reversion"` | `"any"` — used by the regime gate
 - **Signal Aggregation (CISScorer):**
-  - Replaces the old winner-pick aggregator
   - 6-bucket weighted scorer: trend / momentum / structure / pattern / institutional / regime
   - **Regime eligibility filter:** trend plugins → trending regime only (HMM 1/2); mean-reversion plugins → ranging regime only (HMM 0); gate bypassed when `hmm_regime_prob < REGIME_PROB_MIN` (settings-configurable, default 0.30) or `hmm_regime_duration < REGIME_DUR_MIN` (default 1 bar)
   - **Setup performance multiplier:** Sharpe-ranked weights loaded from `signal_metrics` table at startup and every hour; governs which setup plugin wins when multiple eligible signals fire (see [CIS Scoring](cis-scoring.md))
@@ -184,7 +188,7 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 ### **AI Intelligence Synthesis (I8)**
 
 #### **I8: AI Narrative Synthesis**
-**Purpose:** Convert I7 signals into human-readable market narratives via 3-tier LLM chain
+**Purpose:** Convert I7 signals into human-readable market narratives via LLM
 **Intelligence Focus:** Natural language market analysis, per-signal + asset-group synthesis
 
 - **Input:** High-confidence I7 signals from `intelligence.journal` topic
@@ -193,16 +197,21 @@ See [Tier Naming System](tier-naming-system.md) for complete mapping and usage g
 - **Topics:**
   - `narratives` (keyed `SYMBOL:TF`) — per-signal narrative
   - `narratives.group` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
-- **LLM Chain:** OpenRouter (primary) → Ollama Cloud → Ollama Local (gemma4:e4b, offline). Independent per-provider circuit breakers: 3 failures → open 5 min (remote), 5 failures → open 1 min (local).
+- **LLM Provider:** Single provider — Ollama Local (gemma4:e4b default; `.env` may override via `OLLAMA_MODEL`). OpenRouter, DeepSeek, OllamaCloud providers removed. Timeout: 60s.
 - **Audit:** Every LLM call published to `llm.calls` → `indicagent-llm-writer` persists to `llm_calls` hypertable
 - **Lineage:** `LineageRecorder` tracks prompt version, model, inputs, outputs, and timing per call
 
-### **AI Swarm Overlay (Phase 80)**
+### **AI Swarm Overlay**
 
 Beyond I8 narratives, the AI layer includes a swarm of specialist agents that evaluate signal quality:
 
-- **Service:** `AlphaSwarmComputeAgent` dispatches 4 specialist agents per signal
-- **Agents:** Skeptic (counterfactual challenge), Correlation (independence check), RegimeCoherence (regime consistency), Counterfactual (historical pattern)
+- **Service:** `AlphaSwarmComputeAgent` dispatches 5 specialist agents per signal
+- **Agents (5 total):**
+  - `skeptic_v1` — counterfactual challenge (120s LLM budget)
+  - `correlation_v1` — independence check (120s LLM budget)
+  - `regime_coherence_v1` — regime consistency (120s LLM budget)
+  - `counterfactual_v1` — historical pattern (120s LLM budget)
+  - `ml_scorer_v1` — local LightGBM scorer (50ms, no LLM call)
 - **Output:** `swarm_multiplier` (range-clamped `[0.0, 2.0]`) applied to `adjusted_confidence`
 - **Weight learning:** Per-agent Spearman correlation with signal outcomes, 30-day rolling window
 - **Shadow governance:** All agents start in shadow mode; promotion gated by statistical significance
@@ -227,35 +236,17 @@ llm.outcomes            # Signal exit events for back-filling LLM call outcomes
 
 All topics are env-prefixed with a dot separator (e.g., `development.intelligence`) — always build via `src/core/stream_keys.py`.
 
-**Canonical event model:** `IntelligenceEvent` in `src/intelligence/schemas.py` — tiered JSONB (`i1`, `i3`, `i4`, `i5`, `smc`, `i6`), versioned, replaces the old flat string key-value stream messages.
-
-**Reference:** [Stream Schemas](../reference/schemas/stream-schemas.md) — complete field-level specifications
+**Canonical event model:** `IntelligenceEvent` in `src/intelligence/schemas.py` — tiered JSONB (`i1`, `i3`, `i4`, `i5`, `smc`, `i6`), versioned.
 
 ---
 
 ## **Processing Architecture**
 
-### **Execution Patterns**
+### **Execution Model**
 
-**Fast-Path Processing (I1-I2):**
-- **Trigger:** Every completed bar for all timeframes
-- **Latency:** <10ms per symbol per timeframe
-- **Distribution:** Real-time stream publishing
+All I1–I7 tiers execute within `IntelligencePipelineComputeAgent` as a unified in-process pipeline (`services/intelligence_pipeline_agent.py`, systemd: `indicagent-intelligence-pipeline`). Kafka and TimescaleDB are output sinks only — no inter-tier messaging.
 
-**Stateful/Event-Driven Processing (I3, I5):**
-- **Trigger:** Pattern confirmations and structural changes
-- **Processing:** State-based analysis with historical context
-- **Distribution:** Event-driven publishing on pattern detection
-
-**Cross-Stream Intelligence (I4, I6-I8):**
-- **Processing:** Join nodes with nearest-left matching + tolerance
-- **Input:** Multi-timeframe and cross-asset data synthesis
-- **Intelligence:** Confluence analysis and comprehensive market intelligence
-
-**AI Intelligence Processing (I8):**
-- **Rate Limits:** Cost-controlled LLM usage with micro-batching
-- **Optimization:** Caching and intelligent model selection
-- **Output:** Human-readable intelligence insights
+**Pipeline capacity:** Sequential bar processing (`await _process_bar`). Per-bar latency measured by `intelligence_pipeline_pipeline_latency_ms` gauge. 132 plugins across 6 stages, 12 thread-pool workers.
 
 ---
 
@@ -263,29 +254,18 @@ All topics are env-prefixed with a dot separator (e.g., `development.intelligenc
 
 ```
 src/intelligence/
-├── indicators/     # I1 technical indicator plugins
-├── composites/     # I2 composite event plugins
-├── structure/      # I3 market structure plugins
-├── context/        # I4 regime and context plugins
-├── patterns/       # I5 pattern recognition plugins
-├── smart_money/    # I6 SMC plugins
-├── confluence/     # I6 cross-timeframe confluence plugin
-└── trading/        # I7 setup plugins, CISScorer, aggregator, shared utilities
+├── features/
+│   ├── i1_indicators/    # I1 technical indicator plugins
+│   ├── i3_structure/     # I3 market structure plugins
+│   ├── i5_patterns/      # I5 pattern recognition plugins
+│   └── smc_context/      # I6 SMC plugins
+├── composites/           # I2 composite event plugins
+├── context/              # I4 regime and context plugins
+├── confluence/           # I6 cross-timeframe confluence plugins
+└── trading/              # I7 setup plugins, CISScorer, aggregator, shared utilities
 ```
 
-Plugin names use short descriptive `PascalCase` matching the class name (e.g., `RSI`, `KalmanTrend`, `BOS_CHoCH`). I4 context plugins are prefixed `ctx_` in the registry (e.g., `ctx_AnchoredVWAP`), I7 setup plugins use `trad_` (e.g., `trad_TrendFollowing`). See `src/intelligence/register_plugins.py` for canonical names.
-
----
-
-## **Intelligence Platform Integration**
-
-### **Service Architecture Integration**
-The I1-I8 framework integrates seamlessly with IndicAgent's service-based architecture:
-
-- **Unified Intelligence Pipeline:** `indicagent-intelligence-pipeline` (`intelligence_pipeline_agent.py`) runs I1–I7 fully in-process per bar; outputs `intelligence` (IntelligenceEvent) and `intelligence.i7.signals`
-- **AI Narrative:** `indicagent-ai-narrative` (`ai_narrative_agent.py`) runs I8 via Ollama; publishes to `narratives` topic
-- **Distribution:** Redpanda (Kafka-compatible) distributes intelligence across all tiers
-- **Persistence:** Dedicated WriterAgents (`indicagent-feature-writer`, `indicagent-signal-writer`, `indicagent-llm-writer`) consume from topics and write to TimescaleDB
+Plugin names use short descriptive `PascalCase` matching the class name. I4 context plugins are prefixed `ctx_` in the registry (e.g., `ctx_AnchoredVWAP`), I7 setup plugins use `trad_` (e.g., `trad_TrendFollowing`). See `src/intelligence/register_plugins.py` for canonical names.
 
 ---
 
@@ -300,36 +280,18 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 | I3 Market Structure | 8 | MACDEvents, SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, FibonacciZones, SwingMomentum |
 | I4 Context / Regime | 12 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, AnchoredVWAP, VolumeProfile, VIXRegime, CrossAssetContext |
 | I5 Patterns | 16 | MTFVolatility, RSIDivergence, BollingerSqueeze, VolumeDivergence, MACDDivergence, CMFDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, KeyLevelReaction |
-| SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
-| I6 Confluence | 6 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment |
+| SMC | 16 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime×4 (1m/5m/15m/1h), LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
+| I6 Confluence | 6 | CrossTimeframeConfluence, CrossTimeframeMomentumDivergence, CrossTimeframeSRConfluence, CrossTimeframeRegimeAgreement, SqueezeExpansionDivergence, CrossTimeframeOrderflowAlignment |
 | I7 Trading Setups | 36 + 2 agg | 36 setup plugins + CISScorer aggregator + SignalAggregator |
-| I8 AI Narrative | 1 service | `ai_narrative_agent` — OpenRouter primary → Ollama gemma4:e4b fallback; reads `intelligence.journal` |
+| I8 AI Narrative | 1 service | `ai_narrative_agent` — Ollama Local (gemma4:e4b default); reads `intelligence.journal` |
 
 ### **Totals**
-- **129 registered plugins + 2 aggregation components:** 28 I1 + 10 I2 + 8 I3 + 12 I4 + 16 I5 + 13 SMC + 6 I6 + 36 I7
-
----
-
-## **Intelligence Framework Benefits**
-
-### **Progressive Intelligence**
-- **Clear Progression:** Mathematical foundation → Pattern recognition → AI synthesis
-- **Modular Design:** Each tier can be developed and enhanced independently
-- **Quality Assurance:** Built-in confidence scoring and validation at each tier
-
-### **Technical Excellence**
-- **Real-Time Processing:** Sub-second intelligence generation across all tiers
-- **Scalable Architecture:** Plugin-based system supports unlimited intelligence capabilities
-- **Data Lineage:** Complete intelligence provenance and reproducibility
-
-### **Business Intelligence**
-- **Actionable Insights:** From raw math to human-readable intelligence insights
-- **Multi-Timeframe Intelligence:** Comprehensive analysis across all trading timeframes
-- **External Integration:** Clean APIs for intelligence consumers and external systems
+- **132 registered plugins + 2 aggregation components:** 28 I1 + 10 I2 + 8 I3 + 12 I4 + 16 I5 + 16 SMC + 6 I6 + 36 I7
 
 ---
 
 **Related Documentation:**
-- [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Intelligence processing framework
-- [Stream Schemas](stream-schemas.md) - Complete data format specifications
-- [AI Intelligence Architecture](../intelligence/ai-intelligence-architecture.md) - AI synthesis implementation
+- [Plugin Architecture](plugin-architecture.md) — plugin protocol, registry, incremental compute
+- [DAG Execution](dag-execution.md) — how plugin dependencies are ordered
+- [CIS Scoring](cis-scoring.md) — I7 signal aggregation and regime gating
+- [Signal Lifecycle](signal-lifecycle.md) — what happens after I7 fires a signal

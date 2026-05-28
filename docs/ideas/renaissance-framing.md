@@ -1,5 +1,6 @@
 # The Renaissance Framing — How Simons Would Build This
 
+**Version:** 1.0
 **Created:** 2026-03-04  
 **Last Updated:** 2026-03-04  
 **Status:** Vision — foundational philosophy document  

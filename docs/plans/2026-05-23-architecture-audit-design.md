@@ -1,5 +1,7 @@
 # Architecture Audit Design
 
+**Version:** 1.0
+**Last Updated:** 2026-05-23
 **Date:** 2026-05-23
 **Status:** Approved - ready to execute next session
 **Output:** Updated `docs/ideas/architectural-weakness-assessment.md`

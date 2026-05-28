@@ -1,5 +1,6 @@
 # MCP Intelligence Server & Agent Tool Use
 
+**Version:** 1.0
 **Status:** Implementation-ready design
 **Last Updated:** 2026-05-10
 **Branch:** feat/phase80-swarm-observability-ux

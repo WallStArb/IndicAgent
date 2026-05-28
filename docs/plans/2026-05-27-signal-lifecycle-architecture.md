@@ -1,5 +1,7 @@
 # Signal Lifecycle Architecture Fix
 
+**Version:** 1.0
+**Last Updated:** 2026-05-27
 **Date:** 2026-05-27
 **Status:** Research complete, implementation pending
 **Context:** Emerged from AI swarm performance analysis — 96% of signals were permanently pending, masking real performance data.

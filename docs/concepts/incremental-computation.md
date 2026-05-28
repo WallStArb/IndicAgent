@@ -1,5 +1,7 @@
 # Incremental Computation
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-04-22
 
 ## The Problem with Full Recomputation

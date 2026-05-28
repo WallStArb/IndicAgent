@@ -1,5 +1,6 @@
 # Intelligence Tier Naming System
 
+**Version:** 2.8
 **Last Updated:** 2026-05-25
 **Status:** Hybrid system - Internal tier codes + External functional names
 

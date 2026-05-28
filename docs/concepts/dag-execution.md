@@ -1,5 +1,7 @@
 # DAG Execution
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-10
 
 ## What Is a DAG?

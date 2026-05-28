@@ -1,5 +1,6 @@
 # I8 Intelligence Extensions — Near-Term POCs
 
+**Version:** 1.0
 **Status:** draft
 **Priority:** medium
 **Milestone:** v1.9+

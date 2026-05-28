@@ -1,5 +1,6 @@
 # Qualitative Intelligence Layer — Architecture Design
 
+**Version:** 1.0
 **Status:** Design / Pre-implementation
 **Last Updated:** 2026-05-02
 **Author:** Architecture review, 2026-04-30

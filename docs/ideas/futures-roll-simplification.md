@@ -7,6 +7,9 @@ created: 2026-05-26
 
 # Futures Roll Detection Architectural Simplification
 
+**Version:** 1.0
+**Status:** design
+**Last Updated:** 2026-05-26
 ## Problem Statement
 
 **Current architecture is over-engineered:**

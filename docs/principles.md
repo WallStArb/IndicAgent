@@ -1,5 +1,8 @@
 # Renaissance Principles
 
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-10
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
 - **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
 - **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.

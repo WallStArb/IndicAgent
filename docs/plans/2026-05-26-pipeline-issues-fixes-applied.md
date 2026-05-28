@@ -1,4 +1,6 @@
 # Pipeline Issues - Fixes Applied
+**Version:** 1.0
+**Last Updated:** 2026-05-26
 **Date:** 2026-05-26
 **Reference:** [Root Cause Analysis](./2026-05-26-pipeline-issues-root-cause-analysis.md)
 

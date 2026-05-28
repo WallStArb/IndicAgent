@@ -1,5 +1,6 @@
 # BaseAgent Patterns — Lifecycle Contract
 
+**Status:** current
 **Version:** 1.1
 **Last Updated:** 2026-04-21
 **Source:** `src/core/agent/base.py`

@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Database Maintenance Runbook
 
-**Last Updated:** 2026-05-02
-
-Last updated: 2026-03-07
+**Version:** 2.8
+**Last Updated:** 2026-05-27
+**Status:** current
 
 TimescaleDB handles most routine maintenance automatically (compression, retention, continuous aggregate refresh). This doc covers what is automated, what requires manual intervention, and the scheduled cadence for health checks.
 
@@ -24,7 +25,7 @@ No tables have automated retention policies — all intelligence data is kept fo
 | `llm_calls` | after 7d | **none — keep forever** | Model performance history |
 
 Continuous aggregate refresh:
-- `ohlcv_15m`, `ohlcv_1h`: every 1–5 min
+- `ohlcv_15m`, `ohlcv_1h`: every 1-5 min
 - `ohlcv_4h`: every 15 min
 - `ohlcv_1d`: every 1 hr
 - `market_data_5m`, `market_data_15m`: every 1 min
@@ -80,13 +81,13 @@ ORDER BY n_dead_tup DESC;
 ```
 
 **Action thresholds:**
-- `dead_pct > 10%` on any live table → run `VACUUM ANALYZE <table>;` manually
-- `last_autoanalyze` null or older than 1 week on an active table → run `ANALYZE <table>;`
-- `last_autovacuum` null on a table with writes → check autovacuum is running: `SELECT * FROM pg_stat_progress_vacuum;`
+- `dead_pct > 10%` on any live table - run `VACUUM ANALYZE <table>;` manually
+- `last_autoanalyze` null or older than 1 week on an active table - run `ANALYZE <table>;`
+- `last_autovacuum` null on a table with writes - check autovacuum is running: `SELECT * FROM pg_stat_progress_vacuum;`
 
 Note: `VACUUM` cannot run inside a transaction block. Run as standalone:
 ```bash
-docker exec timescaledb psql -U postgres -d indicagent -c "VACUUM ANALYZE intelligence_features;"
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "VACUUM ANALYZE intelligence_features;"
 ```
 
 ---
@@ -103,8 +104,8 @@ ORDER BY idx_scan ASC, pg_relation_size(indexrelid) DESC;
 ```
 
 **Action thresholds:**
-- Index with `idx_scan = 0` after 2+ weeks of live traffic → candidate for removal (confirm query patterns first)
-- Index size > 500MB → check for bloat with `pgstattuple` extension
+- Index with `idx_scan = 0` after 2+ weeks of live traffic - candidate for removal (confirm query patterns first)
+- Index size > 500MB - check for bloat with `pgstattuple` extension
 
 ---
 
@@ -157,8 +158,8 @@ If `idx_intel_features_i7_gin` / `idx_intel_features_i8_gin` show 0 scans after 
 After running `historical_backfill.py` for multiple days/symbols, run:
 
 ```bash
-docker exec timescaledb psql -U postgres -d indicagent -c "ANALYZE market_data_ohlcv;"
-docker exec timescaledb psql -U postgres -d indicagent -c "ANALYZE intelligence_features;"
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "ANALYZE market_data_ohlcv;"
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "ANALYZE intelligence_features;"
 ```
 
 Then trigger manual compression on newly-created old chunks (if older than 7d):
@@ -203,8 +204,14 @@ This ensures stats stay fresh as these tables grow rapidly during live market ho
 ## Quick Reference: DB Shell
 
 ```bash
+# Direct psql (always include password and host)
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent
+
+# Via Docker
 docker exec timescaledb psql -U postgres -d indicagent
 ```
+
+> **Gotcha:** Plain `psql -U postgres` fails — password and host are required.
 
 ## Key Tables
 
@@ -212,8 +219,23 @@ docker exec timescaledb psql -U postgres -d indicagent
 |-------|---------|-----------|--------|
 | `intelligence_features` | Full feature vectors, ML dataset | Yes (7d chunk) | Every bar (~1m) |
 | `signal_ledger` | I7 signals + lifecycle outcomes | Yes (7d chunk) | Per signal |
-| `llm_calls` | LLM audit log, outcome backfill | Yes (7d chunk) | Per narrative |
+| `signal_outcomes` | Lifecycle outcomes (split from signal_ledger in migration 095) | Yes | Per lifecycle event |
+| `llm_calls` | LLM audit log, outcome backfill | Yes (7d chunk) | Per LLM call |
 | `market_data_ohlcv` | Raw OHLCV cold storage | Yes (1d chunk) | Backfill only |
 | `setup_performance` | Adaptive aggregator weights | No | Nightly (job) |
 | `cis_weights` | CIS bucket weights | No | Infrequent |
 | `llm_model_scores` | Per-model performance scores | No | Every 15 min |
+
+### signal_ledger Schema (Phase 107.5)
+
+Key columns added by recent migrations:
+
+| Column | Type | Migration | Notes |
+|--------|------|-----------|-------|
+| `expires_at` | `TIMESTAMPTZ` | 097 | Wall-clock TTL: `timestamp + ttl_bars * tf_seconds(tf)`. Index: `idx_signal_ledger_expires_at` |
+| `entry_zone_low` | `NUMERIC` | 095 / 096 | Entry zone lower bound |
+| `entry_zone_high` | `NUMERIC` | 095 / 096 | Entry zone upper bound |
+
+The view `signal_ledger_full` (recreated in migration 097) exposes all `signal_ledger` columns joined with `signal_outcomes`. Use `signal_ledger_full` for queries that need lifecycle data — do not JOIN manually.
+
+**Note:** The `signal_ledger` table primary time column is `timestamp`. JOIN to `intelligence_features` via `(symbol, feature_ts, feature_tf)`.

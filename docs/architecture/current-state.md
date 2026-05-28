@@ -1,14 +1,15 @@
-# IndicAgent v2.4 — Current Architecture State
+<!-- generated-by: gsd-doc-writer -->
+# IndicAgent v2.8 — Current Architecture State
 
-**Version:** 2.4
-**Last Updated:** 2026-04-21
-**Status:** v2.4 Observability Hardening — Phase 71 complete; v2.3 ML Foundation deferred pending 30+ days clean signal data
+**Version:** 2.8
+**Last Updated:** 2026-05-27
+**Status:** v2.8 in progress — AI Platform (094-099) + Evolvable Agents (101-103). v2.7 shipped 2026-05-26 (Phases 093, 100, 100.5, 104, 105, 106, 107).
 
 > This is the single source of truth for the current production architecture. For design history and evolution, see `archive/`.
 
 ## Executive Summary
 
-IndicAgent v2.2 is a real-time market intelligence platform with a unified I1-I7 pipeline, separate persistence layer, and swarm foundation for multi-agent AI. The core philosophy is **agentic decomposition** — each node in the DAG is an autonomous, event-driven agent with clear boundaries.
+IndicAgent v2.8 is a real-time market intelligence platform with a unified I1-I7 pipeline, separate persistence layer, and swarm foundation for multi-agent AI. The core philosophy is **agentic decomposition** — each node in the DAG is an autonomous, event-driven agent with clear boundaries.
 
 ## Architecture Evolution
 
@@ -21,7 +22,7 @@ Established core data-layer patterns:
 
 ### v2.1 — Agentic DAG Refactor
 Introduced strict agent role separation:
-- `BaseAgent` unification — lifecycle, Prometheus Golden Signals, graceful SIGTERM drain for every service
+- `BaseAgent` unification — lifecycle, OTel Golden Signals, graceful SIGTERM drain for every service
 - Dedicated WriterAgents — DB-ignorant compute principle enforced across the board
 - `BaseProviderAgent` + adapter pattern — adding a data source = one subclass, nothing downstream changes
 - `ProviderMergerAgent` — multi-provider failover and routing abstraction
@@ -38,19 +39,26 @@ Consolidated I1-I7 into a single in-process agent:
 - `AlphaSwarmComputeAgent` + `LineageWriterAgent` — lineage-first swarm foundation; per-agent predictions persist to `signal_lineage`
 - LLM layer extracted into standalone `llm_providers.py` module
 - `BarIntelligenceRecord` — atomic per-bar record on `intelligence.journal` (Phase 44.3 / PIPE-06); single INSERT per bar replaces two-phase UPSERT
-- `RollComputeAgent` + `ContractMetadataWriterAgent` — automated futures roll detection and front-month promotion
+- Nightly `roll-batch` timer — automated futures roll detection and front-month promotion (replaces 24/7 roll-compute daemon)
 - `SignalTrackerComputeAgent` + `LifecycleWriterAgent` — signal lifecycle compute/writer split; tracker is now DB-ignorant
 - ML timer agents: `MLDataQualityAgent`, `MLDiscoveryAgent`, `MLOrchestratorAgent`
 
-### v2.4 — Observability Hardening (current)
+### v2.4 — Observability Hardening
 - `ServiceAuditorAgent` — pipeline health monitor and self-healer; publishes to `system.health.events`
 - `FeatureSnapshotWriterAgent` + `ParityAuditorAgent` — shadow dual-write with 60-cycle parity certification
 - `SignalAuditorAgent` + `SignalMetricsComputeAgent` + `SignalMetricsWriterAgent` — signal coverage + performance metric pipeline
-- `ContractMetadataWriterAgent` — `ContractUpdateEvent` cache invalidation for downstream agents
 - DLQ topics standardized across all payload-parsing agents (Plan 067-07)
 - `bar_id` UUID traceability end-to-end from bar ingestion through signal generation (Phase 68-03)
 
-**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). LLM call observability via Langfuse; ML experiment tracking via MLflow. Full pipeline: `docs/architecture/observability.md`.
+### v2.5–v2.7 — Mathematical Correctness + Storage Hardening
+- Signal schema v1 (`SIGNAL_SCHEMA_VERSION = "v1"` in `src/intelligence/trading/signal_schema.py`) — canonical version constant
+- `expires_at` TTL column in `signal_ledger` — bar-time wall-clock evaluation (`bars_elapsed = (current_ts - signal_ts) / tf_seconds`), computed at INSERT time
+- `entry_zone_low` / `entry_zone_high` columns in `signal_ledger` — no more LATERAL JOIN to `intelligence_features` for replay
+- `tf_to_seconds()` utility in `src/core/service_utils.py`
+- OTel SDK fully replaces `prometheus_client` (Phase 83) — all metrics via `src/observability/metrics.py`
+- Plugin count: 132 total across I1–I7
+
+**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). Full pipeline: `docs/architecture/observability.md`.
 
 ## Active Services
 
@@ -61,8 +69,7 @@ Consolidated I1-I7 into a single in-process agent:
 | Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
 | Bar Writer | `bar_writer_agent.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
 | Bar Auditor | `bar_auditor_agent.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
-| Roll Compute | `roll_compute_agent.py` | `indicagent-roll-compute` | :9122 | Calendar + volume z-score roll detection |
-| Contract Metadata Writer | `contract_metadata_writer_agent.py` | `indicagent-contract-metadata-writer` | :9124 | Consumes roll events → promotes front-month in `contract_metadata` |
+| Roll Batch | `production/scripts/roll_batch.py` | `indicagent-roll-batch` (timer, 8pm) | — | Calendar-based futures roll detection + front-month promotion |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
 | Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
 | Signal Tracker | `signal_tracker_compute_agent.py` | `indicagent-signal-tracker-compute` | :9115 | Signal lifecycle compute (DB-ignorant); publishes transitions to LifecycleWriterAgent |
@@ -70,6 +77,7 @@ Consolidated I1-I7 into a single in-process agent:
 | Signal Metrics Compute | `signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | :9126 | Timer-triggered signal performance metrics |
 | Signal Metrics Writer | `signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | :9127 | Persists signal metrics to DB |
 | Signal Auditor | `signal_auditor_agent.py` | `indicagent-signal-auditor` | :9128 | Coverage validation + lag monitoring |
+| Signal Replay Auditor | `signal_replay_auditor_agent.py` | `indicagent-signal-replay` | — | TTL/expires_at driven signal expiry; reads entry_zone_low/high from signal_ledger directly |
 | Feature Writer | `feature_writer_agent.py` | `indicagent-feature-writer` | :9116 | Writes `intelligence_features` (batch) |
 | Feature Snapshot Writer | `feature_snapshot_writer_agent.py` | `indicagent-feature-snapshot-writer` | :9132 | Shadow dual-write → `feature_snapshots_shadow` |
 | Parity Auditor | `parity_auditor_agent.py` | `indicagent-parity-auditor` | :9133 | 5-min parity comparison; certifies after 60 clean cycles |
@@ -84,7 +92,10 @@ Consolidated I1-I7 into a single in-process agent:
 | ML Orchestrator | `ml_orchestrator_agent.py` | `indicagent-ml-orchestrator` (timer) | — | Orchestrates ML training pipeline |
 | API | `src/api/main.py` | `indicagent-api` | :8000 | FastAPI + SSE |
 | Dashboard | `dashboard/` | `indicagent-dashboard` | :3000 | Next.js dev server |
-| Weight Updater | `src/intelligence/weight_updater.py` | `indicagent-weight-updater` | — (oneshot) | Daily CIS weight refresh |
+
+**ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct.
+- `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon)
+- `roll-batch` (nightly 8pm) — calendar-based futures roll detection + contract promotion
 
 ## Data Flow
 
@@ -128,8 +139,8 @@ Consolidated I1-I7 into a single in-process agent:
 │  │ I5: Pattern Recognition (16 plugins)                               │   │
 │  │   → RSIDivergence, BollingerSqueeze, chart patterns, etc.          │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
-│  │ SMC: Smart Money Concepts (13 plugins)                             │   │
-│  │   → BOS/CHoCH, FVG, OrderBlocks, HMMRegime, BOCPD, etc.            │   │
+│  │ SMC: Smart Money Concepts (16 plugins)                             │   │
+│  │   → BOS/CHoCH, FVG, OrderBlocks, HMMRegime x4, BOCPD, etc.         │   │
 │  ├────────────────────────────────────────────────────────────────────┤   │
 │  │ I6: CrossTimeframeConfluence (6 plugins)                           │   │
 │  │   → Multi-TF trend/structure/regime/SMC alignment scores           │   │
@@ -149,7 +160,7 @@ Consolidated I1-I7 into a single in-process agent:
 │                                                                             │
 │  FeatureWriterAgent → intelligence_features (DB)                           │
 │  SignalWriterAgent → signal_ledger (DB)                                    │
-│  SignalTrackerAgent → lifecycle updates (DB)                               │
+│  SignalTrackerAgent → lifecycle updates (DB via LifecycleWriterAgent)      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
@@ -157,7 +168,7 @@ Consolidated I1-I7 into a single in-process agent:
 │                           LAYER 5: CONSUMERS                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  AI Narrative Service (I8) → LLM analysis → narratives:*:* topics          │
+│  AI Narrative Service (I8) → LLM analysis → narratives topics               │
 │  Dashboard → SSE → Real-time UI                                             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -172,9 +183,9 @@ Consolidated I1-I7 into a single in-process agent:
 | `market.bars.htf` | HTF bars (5m-1d) | `BarEvent` |
 | `intelligence.journal` | Full I1-I7 feature vector | `IntelligenceEvent` |
 | `intelligence.i7.signals` | Winner I7 signal | `SignalEvent` |
-| `narratives:*:*` | I8 LLM analysis per symbol/TF | `NarrativeEvent` |
+| `narratives` | I8 LLM analysis | `NarrativeEvent` |
 | `market.events.gap_requests` | Gap fill requests | `GapRequestEvent` |
-| `development.cross_asset` | Cross-asset spreads | `CrossAssetEvent` |
+| `cross_asset` | Cross-asset spreads | `CrossAssetEvent` |
 
 ## Database Tables
 
@@ -182,7 +193,8 @@ Consolidated I1-I7 into a single in-process agent:
 |-------|---------|-----------|
 | `market_data_ohlcv` | Raw OHLCV ground truth | Forever |
 | `intelligence_features` | Full I1-I7 feature vectors (ML training) | Forever |
-| `signal_ledger` | ALL I7 signals + lifecycle outcomes | Forever |
+| `signal_ledger` | ALL I7 signals + fire-time fields (entry_zone_low/high, expires_at) | Forever |
+| `signal_outcomes` | Signal lifecycle state (status, activated_at, exit_at, pnl_r, mae, mfe) | Forever |
 | `signal_lineage` | Signal-affecting transforms and agent predictions | Forever |
 | `llm_calls` | LLM audit log + outcomes | Forever |
 | `llm_model_scores` | Per-model win rates | 15min refresh |
@@ -196,13 +208,12 @@ Consolidated I1-I7 into a single in-process agent:
 | Merger | `ProviderMergerAgent` | `BaseAgent` | `services/provider_merger_agent.py` |
 | Compute | `IntelligencePipelineComputeAgent` | `BaseAgent` | `services/intelligence_pipeline_agent.py` |
 | Compute | `BarAggregatorComputeAgent` | `BaseAgent` | `services/bar_aggregator_agent.py` |
-| Compute | `RollComputeAgent` | `BaseAgent` | `services/roll_compute_agent.py` |
 | Auditor | `BarAuditorAgent` | `BaseAgent` | `services/bar_auditor_agent.py` |
 | Auditor | `ParityAuditorAgent` | `BaseAgent` | `services/parity_auditor_agent.py` |
 | Writer | `BarWriterAgent` | `BaseAgent` | `services/bar_writer_agent.py` |
 | Writer | `FeatureWriterAgent` | `BaseAgent` | `services/feature_writer_agent.py` |
 | Writer | `SignalWriterAgent` | `BaseAgent` | `services/signal_writer_agent.py` |
-| Tracker | `SignalTrackerAgent` | `BaseAgent` | `services/signal_tracker_agent.py` |
+| Tracker | `SignalTrackerComputeAgent` | `BaseAgent` | `services/signal_tracker_compute_agent.py` |
 
 ## Intelligence Tiers
 
@@ -213,17 +224,31 @@ Consolidated I1-I7 into a single in-process agent:
 | I3 | 8 | Market structure (swing, S/R, profile, session, fib) |
 | I4 | 12 | Context/regime (GARCH, Kalman, VIX, CrossAsset, VWAP, VP) |
 | I5 | 16 | Pattern detection (divergence, squeeze, chart patterns) |
-| SMC | 13 | Smart Money (BOS/CHoCH, FVG, OB, HMM, BOCPD, etc.) |
+| SMC | 16 | Smart Money (BOS/CHoCH, FVG, OB, HMM x4, BOCPD, etc.) |
 | I6 | 6 | CrossTimeframeConfluence + 5 confluence plugins |
 | I7 | 36 + 2 agg | Trading signals + CISScorer + SignalAggregator |
 | I8 | — | LLM narratives (separate service) |
+
+**Total:** 132 plugins + 2 aggregation components. Source of truth: `TIER_I*` in `src/intelligence/register_plugins.py`.
+
+## Signal Ledger Schema (post-Phase 107.5)
+
+The `signal_ledger` table now stores all fire-time fields directly — no LATERAL JOIN to `intelligence_features` needed for replay:
+
+| Column | Purpose |
+|--------|---------|
+| `expires_at` | Bar-time wall-clock TTL. Computed at INSERT: `timestamp + ttl_bars * tf_to_seconds(timeframe)`. Evaluated by `signal_replay_auditor_agent` using `expires_at < NOW()`. |
+| `entry_zone_low` | Lower bound of the entry zone. Written at fire time from `TradeFrame.zone_low`. |
+| `entry_zone_high` | Upper bound of the entry zone. Written at fire time from `TradeFrame.zone_high`. |
+
+Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw string literals (also available as `SignalStatus` enum in `signal_ledger_repository.py`).
 
 ## Key Principles
 
 1. **Database Ignorance** — Compute agents never touch DB. Persistence is decoupled via WriterAgents.
 2. **Typed Event Bus** — All intelligence flows through `IntelligenceEvent` with tiered JSONB.
 3. **Graceful Degradation** — DLQ topics, circuit breakers, and shadow modes for new features.
-4. **Instrument Everything** — Prometheus + Grafana for all Golden Signals.
+4. **Instrument Everything** — OTel SDK + Grafana for all Golden Signals (`prometheus_client` removed).
 5. **Segregated Timeframes** — Separate HTF topics prevent I1 warmup on every 1m bar.
 
 ---
@@ -236,7 +261,7 @@ Consolidated I1-I7 into a single in-process agent:
 |--------|-------|---------|
 | **Throughput** | ~4.5 bars/sec | Single symbol, all timeframes |
 | **Latency** | ~220ms/bar | End-to-end I1→I7 |
-| **Plugin Count** | 129 + 2 agg | 28 I1, 10 I2, 8 I3, 12 I4, 16 I5, 13 SMC, 6 I6, 36 I7 (+2 aggregation) |
+| **Plugin Count** | 132 + 2 agg | 28 I1, 10 I2, 8 I3, 12 I4, 16 I5, 16 SMC, 6 I6, 36 I7 (+2 aggregation) |
 
 ### Parallelization Architecture
 
@@ -248,8 +273,8 @@ Consolidated I1-I7 into a single in-process agent:
 **Latency Breakdown (Per Bar):**
 - I1 (parallel): ~30ms
 - I2 (sequential): ~40ms
-- I3 (sequential, 15 plugins): ~50ms
-- I4 (sequential, 11 plugins): ~40ms
+- I3 (sequential, 8 plugins): ~50ms
+- I4 (sequential, 12 plugins): ~40ms
 - I5-I6 (sequential): ~30ms
 - I7 (parallel): ~20ms
 

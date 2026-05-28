@@ -1,5 +1,7 @@
 # Dashboard Development
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-02
 
 [TODO: Frontend setup, component dev, SSE integration]

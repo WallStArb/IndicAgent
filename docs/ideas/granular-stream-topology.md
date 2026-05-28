@@ -1,5 +1,6 @@
 # Granular Redpanda Stream Topology
 
+**Version:** 1.0
 **Status:** draft
 **Priority:** low
 **Milestone:** future (trigger-driven — build when a real consumer needs it)

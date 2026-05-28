@@ -1,5 +1,8 @@
 # Gotchas & Rare Pitfalls
 
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-22
 Moved from CLAUDE.md to reduce per-turn token cost. These are real issues that burned once — reference when touching the relevant area.
 
 ## Database

@@ -1,6 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Concepts — Architectural Deep Dives
 
-**Last Updated:** 2026-05-02
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-27
 
 Understand the architectural decisions and design patterns.
 
@@ -31,10 +34,16 @@ State-based calculations — 141x performance boost, Wilder's smoothing, Welford
 Composite Intelligence Score — 6-bucket weighted signal selection, regime gating, adaptive weight learning
 
 **[Signal Lifecycle](signal-lifecycle.md)**
-I7 signal creation → zone activation → MAE/MFE tracking → 8-class outcome classification
+I7 signal creation → zone activation → MAE/MFE tracking → 8-class outcome classification; expires_at TTL (Phase 107.5)
 
 **[Regime Classification](regime-classification.md)**
 Context-aware intelligence: HMM hidden states, GARCH volatility forecast, Kalman trend filter, BOCPD changepoint detection
+
+**[Swarm Intelligence](swarm-intelligence.md)**
+5-agent Mixture of Agents (MoA) overlay — skeptic, correlation, regime coherence, counterfactual, ML scorer
+
+**[Evolvable AI](evolvable-ai.md)**
+Evolutionary agent framework — genome mutation, fitness function, reproductive operators (v2.8 active)
 
 ---
 

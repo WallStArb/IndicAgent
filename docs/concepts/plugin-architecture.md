@@ -1,5 +1,7 @@
 # Plugin Architecture
 
+**Version:** 2.8
+**Status:** current
 **Current Plugin Count:** 129 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py`
 **Last Updated:** 2026-04-22
 

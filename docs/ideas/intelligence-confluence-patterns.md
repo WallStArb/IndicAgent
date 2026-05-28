@@ -1,5 +1,6 @@
 # I6 Confluence Pattern Exploration
 
+**Version:** 1.0
 **Last Updated:** 2026-05-02
 
 **Created:** 2026-03-11

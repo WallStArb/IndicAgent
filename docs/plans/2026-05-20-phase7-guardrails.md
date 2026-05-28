@@ -1,5 +1,8 @@
 # Phase 7: Guardrails AI Content Validation Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-20
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the custom `GuardrailsValidator` (Pydantic schema-only) with Guardrails AI for content-level validation — checking that float fields are in plausible ranges, reasoning doesn't contain hallucinated tickers, and prompt injection attempts are blocked.

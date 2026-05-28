@@ -1,5 +1,6 @@
 # Architectural Weakness Assessment
 
+**Version:** 1.0
 **Status:** Active — living document
 **Priority:** High — foundational tech debt affecting all future phases
 **Date:** 2026-05-10

@@ -1,5 +1,7 @@
 # IB Gateway on Linux — Design Spec
 
+**Version:** 1.0
+**Last Updated:** 2026-05-03
 **Date:** 2026-05-03
 **Status:** Approved
 **Driver:** Eliminate single point of failure (Windows TWS desktop) from data pipeline

@@ -1,5 +1,6 @@
 # Agent Contract Checklist
 
+**Version:** 2.8
 **Last Updated:** 2026-05-02
 **Status:** Architecture standard
 

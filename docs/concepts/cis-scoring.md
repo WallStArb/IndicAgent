@@ -1,5 +1,7 @@
 # Composite Intelligence Score (CIS)
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-10
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
