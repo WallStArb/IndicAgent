@@ -168,9 +168,41 @@ Reuse:        ~80% (AlertingAgent, Kafka, configs, Prometheus)
 New Build:    ~15% (AlertSignalProcessor, rule engine, DB tables)
 ```
 
-KEEP: AlertingAgent, topic_alert_requests, telegram/discord config, Prometheus, OTel.
-ADD: AlertSignalProcessor, topic_observable_events, RuleEngine interface, alert_config entries.
-CHANGE: YAML rules → code, Prometheus→Alertmanager path.
+### Components: KEEP / ADD / CHANGE
+
+**KEEP (~80%):**
+| Component | Why |
+|-----------|-----|
+| AlertingAgent | Dispatcher (Layer 9) — Telegram/Discord logic done |
+| topic_alert_requests | Final alert bus |
+| BaseAgent._send_alert() | API for agents to publish alerts |
+| telegram_bot_token, discord_webhook_url | Config already works |
+| Prometheus | Metrics storage, Grafana queries need it |
+| OTel Collector | Telemetry collection |
+
+**ADD (~15%):**
+| Component | Purpose |
+|-----------|---------|
+| AlertSignalProcessor (agent) | Consumes events, applies rules, dedupes, aggregates |
+| topic_observable_events (Kafka) | Raw metrics/logs/traces feed |
+| RuleEngine interface | Plug point for B→C evolution |
+| config_state alert entries | Feature flags (which alerts ON/OFF, targets) |
+
+**CHANGE (~5%):**
+| Current | Change Path |
+|---------|-------------|
+| alertmanager-rules.yml | Migrate to Python OR keep both for flexibility |
+| Prometheus → Alertmanager | Simplify — Prometheus metrics-only, alerting is our pipeline |
+
+### Refactoring & Cleanup
+
+| File | Change | Why |
+|------|--------|-----|
+| src/config/settings.py | Remove ~15 runtime params (move to DB) | Don't mix config layers |
+| services/service_auditor_agent.py | Remove hardcoded _LAG_THRESHOLDS (~25) | Query config_state instead |
+| src/intelligence/ai/*_agent.py | Remove hardcoded shadow_only class attrs | Query shadow_registry instead |
+| production/alertmanager-rules.yml | Delete or simplify | Alerting moves to AlertSignalProcessor |
+| services/alerting_agent.py | **No change** | Layer 9 dispatcher is correct |
 
 ### Evolution Path: B → C
 
