@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Composite Intelligence Score (CIS)
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-27
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
@@ -203,14 +204,14 @@ Before signals reach the aggregator, raw I7 confidence passes through a multi-la
 
 5. **CUSUM Monitor** — cumulative sum control charts track win rate per setup. Degradation automatically reduces the performance weight. Recovery restores it.
 
-6. **Shadow Mode Gate** — every new plugin runs in shadow before production. Promotion requires p < 0.05 AND N ≥ 100 resolved signals.
+6. **Shadow Mode Gate** — every new plugin auto-enrolls in shadow mode at startup via `shadow_registry`. Promotion requires `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles.
 
 ```
 Raw confidence → Isotonic calibration → TOD multiplier → Performance weighting
                → KS drift penalty → CUSUM degradation → Shadow gate
 ```
 
-The swarm overlay (Phase 80) applies after calibration: `adjusted_confidence = calibrated_confidence × swarm_multiplier`, where `swarm_multiplier` is the MoA composite from the alpha swarm agents.
+The swarm overlay applies after calibration: `adjusted_confidence = calibrated_confidence × swarm_multiplier`, where `swarm_multiplier` is the MoA composite from the 5 alpha swarm agents.
 
 ---
 

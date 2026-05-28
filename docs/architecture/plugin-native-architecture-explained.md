@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Plugin-Native Architecture
 
-**Version:** 2.2
-**Last Updated:** 2026-04-21
-**Status:** I1-I8 Complete — 123 Plugins Operational
+**Version:** 2.8
+**Last Updated:** 2026-05-27
+**Status:** I1-I8 Complete — 132 Plugins Operational
 
 > **What makes this architecture different:** Most trading systems are monolithic scripts or tightly-coupled microservices. IndicAgent is an empty container that becomes intelligent through plugins. The system has no hardcoded RSI, no hardcoded MACD, no hardcoded signals. Remove a plugin and that capability disappears. Add a plugin and it's immediately available across all timeframes, all symbols, with automatic dependency resolution.
 
@@ -66,12 +67,12 @@
 **Agent Roles (non-negotiable):**
 | Role | Responsibility | Database | Example |
 |------|---------------|----------|---------|
-| `ProviderAgent` | External source → Kafka | ❌ None | IBKR, Bloomberg, alternative data |
-| `MergerAgent` | Multi-source routing | ❌ None | Failover, quality selection |
-| `ComputeAgent` | Math/stats transform | ❌ None | I1-I7 pipeline |
-| `WriterAgent` | Persistence only | ✅ Write | FeatureWriter, SignalWriter |
-| `TrackerAgent` | Lifecycle management | ✅ R/W | Signal activation, MAE/MFE |
-| `AuditorAgent` | Data integrity | ✅ Read | Gap detection, parity validation |
+| `ProviderAgent` | External source → Kafka | None | IBKR, Bloomberg, alternative data |
+| `MergerAgent` | Multi-source routing | None | Failover, quality selection |
+| `ComputeAgent` | Math/stats transform | None | I1-I7 pipeline |
+| `WriterAgent` | Persistence only | Write | FeatureWriter, SignalWriter |
+| `TrackerAgent` | Lifecycle management | None (publishes to Kafka) | Signal activation, MAE/MFE |
+| `AuditorAgent` | Data integrity | Read | Gap detection, parity validation |
 
 **What this prevents:**
 - No "God service" that does everything
@@ -87,7 +88,7 @@
 │ HOT TIER (In-Memory)                                                    │
 │ ─────────────────────────────────────────────────────────────────────  │
 │ IntelligencePipelineComputeAgent: I1→I7 <10ms                          │
-│   • 121 plugins execute in-process                                     │
+│   • 132 plugins execute in-process                                     │
 │   • Zero database touches                                              │
 │   • Zero blocking I/O                                                   │
 │   • Async output buffering (Queue maxsize=500)                         │
@@ -253,7 +254,7 @@ Cumulative Sum control charts track signal win-rate over time per setup. When a 
 Every new feature or plugin runs in shadow mode before it can affect production signals. Shadow signals are generated, tracked through their full lifecycle, and scored — but never published to the live stream.
 
 - Promotion requires: `p < 0.05` (statistical significance) **AND** `N ≥ 100` resolved signals
-- `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met
+- `shadow_promotion_ready` OTel gauge signals when gate conditions are met
 - Permanent record: shadow vs production performance tracked indefinitely in `signal_ledger`
 
 **What this stack provides:**
@@ -272,7 +273,7 @@ IBKR TWS → `IBKRProviderAgent` → Redpanda → `ProviderMergerAgent` → `mar
 ### Layer 2: Mathematical Intelligence (I1-I4)
 | Tier | Count | Purpose |
 |------|-------|---------|
-| I1 | 27 plugins | Raw indicators (RSI, MACD, ATR, ADX, BB, VWAP, OFI, CVD, etc.) |
+| I1 | 28 plugins | Raw indicators (RSI, MACD, ATR, ADX, BB, VWAP, OFI, CVD, etc.) |
 | I2 | 10 plugins | Composite events (MACDEvents, RSIEvents, ExhaustionScore, AccelerationRegime) |
 | I3 | 8 plugins | Market structure (Swing, S/R, MarketProfile, SessionLevels, FibZones) |
 | I4 | 12 plugins | Context/regime (GARCH, Kalman, VIXRegime, CrossAssetContext, VolumeProfile) |
@@ -281,18 +282,18 @@ IBKR TWS → `IBKRProviderAgent` → Redpanda → `ProviderMergerAgent` → `mar
 | Tier | Count | Purpose |
 |------|-------|---------|
 | I5 | 16 plugins | Chart patterns, divergences, squeeze setups |
-| SMC | 13 plugins | Smart Money Concepts (BOS/CHoCH, FVG, Order Blocks, HMM, BOCPD) |
-| I6 | 1 plugin | CrossTimeframeConfluence (CIS scoring, isotonic calibration) |
+| SMC | 16 plugins | Smart Money Concepts (BOS/CHoCH, FVG, Order Blocks, HMM x4, BOCPD) |
+| I6 | 6 plugins | CrossTimeframeConfluence (6 CTF sub-score plugins) |
 | I7 | 36 plugins | Trading setups (TrendFollowing, MeanReversion, LiquiditySweep, etc.) |
 
 ### Layer 4: AI Intelligence (I8)
-LLM analysis per signal (Ollama gemma4:e4b / OpenRouter) → narratives:*:* topics
+LLM analysis per signal (Ollama gemma4:e4b primary; OpenRouter optional) → narratives topics
 
 ---
 
 ## Incremental Processing: The 141x Speedup
 
-**Problem:** Recomputing 27 indicators across 600 bars of history = ~50-100ms per bar.
+**Problem:** Recomputing 28 indicators across 600 bars of history = ~50-100ms per bar.
 
 **Solution:** After initial `compute_full()` seeds state, subsequent bars use `compute_next()` for O(1) updates.
 
@@ -304,7 +305,7 @@ LLM analysis per signal (Ollama gemma4:e4b / OpenRouter) → narratives:*:* topi
 | Cumulative | OBV, VWAP | Running sum, add new bar |
 | Online Variance | Bollinger | Welford's algorithm for running std dev |
 
-**Result:** <1ms per plugin per bar. 27 I1 indicators complete in <1ms total.
+**Result:** <1ms per plugin per bar. 28 I1 indicators complete in <1ms total.
 
 ---
 
@@ -314,21 +315,21 @@ LLM analysis per signal (Ollama gemma4:e4b / OpenRouter) → narratives:*:* topi
 1. IBKR TWS tick → IBKRProviderAgent → market.bars.raw.ibkr
 2. ProviderMergerAgent → market.bars (canonical 1m)
 3. BarAggregatorComputeAgent → market.bars.htf (5m-1d)
-4. IntelligencePipelineComputeAgent (I1→I7 unified in-process)
-   • I1: 27 indicators → tiered outputs
+4. IntelligencePipelineComputeAgent (I1→I7 unified in-process, 132 plugins)
+   • I1: 28 indicators → tiered outputs
    • I2: 10 composite events → tiered outputs
    • I3: 8 structure plugins → tiered outputs
    • I4: 12 context plugins → tiered outputs
    • I5: 16 pattern plugins → tiered outputs
-   • SMC: 13 plugins → tiered outputs
-   • I6: 1 plugin (CIS scoring, isotonic calibration)
+   • SMC: 16 plugins → tiered outputs
+   • I6: 6 plugins (CTF confluence scoring)
    • I7: 36 setup plugins → ranked signals
 5. StreamMerger (Convergence Gate) → intelligence.journal (single atomic entry)
 6. Winner selection → intelligence.i7.signals
 7. FeatureWriterAgent → intelligence_features (DB)
-8. SignalWriterAgent → signal_ledger (DB)
-9. SignalTrackerAgent → lifecycle tracking (activation, MAE/MFE, outcome)
-10. AINarrativeService → narratives:*:* (I8 LLM analysis)
+8. SignalWriterAgent → signal_ledger (DB, including expires_at + entry_zone_low/high)
+9. SignalTrackerComputeAgent → lifecycle tracking → LifecycleWriterAgent → signal_outcomes (DB)
+10. AINarrativeAgent → narratives topics (I8 LLM analysis, Ollama-primary)
 
 End-to-end latency: <10ms from bar close to I7 signal published.
 ```
@@ -378,7 +379,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 - Reduced Kafka load by ~80%
 - Simpler debugging — single `intelligence.journal` entry per bar contains all tiers
 
-**Trade-off:** Can't scale individual tiers horizontally without restructuring. Accepted because the 121-plugin pipeline fits comfortably in a single process, and horizontal scaling would require partitioning by symbol/timeframe anyway.
+**Trade-off:** Can't scale individual tiers horizontally without restructuring. Accepted because the 132-plugin pipeline fits comfortably in a single process, and horizontal scaling would require partitioning by symbol/timeframe anyway.
 
 ### Decision 3: Convergence Gate Pattern
 
@@ -456,7 +457,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 - **Performance:** Sub-millisecond latency meets requirements
 - **Compatibility:** Kafka protocol enables ecosystem tooling
 
-**Trade-off:** Smaller ecosystem vs Kafka. Accepted because we don't need Kafka-specific features (KIP-XXX, etc.) and the operational simplicity is substantial.
+**Trade-off:** Smaller ecosystem vs Kafka. Accepted because we don't need Kafka-specific features and the operational simplicity is substantial.
 
 ### Decision 9: Systemd vs Kubernetes
 
@@ -466,7 +467,7 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 **Rationale:**
 - **Simplicity:** No YAML hell, no control plane complexity
-- **Observability:** Prometheus metrics + consumer lag monitoring sufficient for scaling decisions
+- **Observability:** OTel metrics + consumer lag monitoring sufficient for scaling decisions
 - **Local development:** Same environment locally and in production
 
 **Trade-off:** Manual horizontal scaling (start additional processes). Accepted because the per-process resource footprint is predictable and scaling decisions are based on measurable lag, not CPU percentages.
@@ -490,8 +491,8 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 | Metric | Value |
 |--------|-------|
-| **Active plugins** | 123 + 2 aggregation (CISScorer, SignalAggregator) |
-| **Tests** | 2835 passing (unit) |
+| **Active plugins** | 132 + 2 aggregation (CISScorer, SignalAggregator) |
+| **Milestone** | v2.8 in progress (AI Platform + Evolvable Agents) |
 | **Incremental speedup** | 141x measured |
 | **Tick ingestion** | 100-500+ ticks/sec during RTH |
 | **Per-plugin latency** | <1ms incremental calculation |
@@ -504,5 +505,5 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 
 - `dag-topology.md` — Agent topology and data flow methodology
 - `plugin-protocol.md` — Plugin interface (developer-facing)
-- `current-state.md` — Single source of truth for v2.2 architecture
+- `current-state.md` — Single source of truth for current architecture
 - `agent-standard.md` — Role taxonomy and naming conventions
