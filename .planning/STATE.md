@@ -28,7 +28,7 @@ See: .planning/PROJECT.md
 Phase: 107.5
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-05-28 - Completed quick task 260528-806: Add systemd TimescaleDB readiness service, infrastructure target, and update all app services to wait for both DB and Kafka before starting
+Last activity: 2026-05-28 - Completed quick task 260528-87t: Remove redundant ExecStartPre pg_isready poll from weight-updater, update docs for infrastructure.target startup model
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
@@ -105,6 +105,7 @@ Last activity: 2026-05-28 - Completed quick task 260528-806: Add systemd Timesca
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260528-806 | Add systemd TimescaleDB readiness service, infrastructure target, and update all app services to wait for both DB and Kafka before starting | 2026-05-28 | e269f304 | [260528-806-add-systemd-timescaledb-readiness-servic](./quick/260528-806-add-systemd-timescaledb-readiness-servic/) |
+| 260528-87t | Remove redundant ExecStartPre pg_isready poll from weight-updater; update docs for infrastructure.target startup model | 2026-05-28 | 23056ed5 | [260528-87t-remove-redundant-execstartpre-pg-isready](./quick/260528-87t-remove-redundant-execstartpre-pg-isready/) |
 
 ### Blockers / Concerns
 
