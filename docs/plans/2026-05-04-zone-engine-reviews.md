@@ -7,6 +7,9 @@ plans_reviewed: [2026-05-04-structural-zone-engine-plan.md]
 
 # Cross-AI Plan Review — Structural Zone Engine
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-05
 ## Claude Code Review
 
 ### Summary

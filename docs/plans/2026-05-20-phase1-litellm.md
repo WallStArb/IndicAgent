@@ -1,5 +1,8 @@
 # Phase 1: LiteLLM Backend Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-20
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace custom `OllamaProvider`, `OpenRouterProvider`, and `LLMChain` internals with LiteLLM while preserving the `LLMProviderChain.generate()` public interface unchanged.

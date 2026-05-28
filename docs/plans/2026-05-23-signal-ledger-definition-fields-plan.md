@@ -1,5 +1,8 @@
 # Signal Ledger Definition Fields Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-23
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Restore the five signal-definition columns (`entry_price`, `stop_loss`, `targets`, `entry_zone_low`, `entry_zone_high`) to `signal_ledger`, populate them at write time, and eliminate the `intelligence_features` JOIN from the bootstrap query.

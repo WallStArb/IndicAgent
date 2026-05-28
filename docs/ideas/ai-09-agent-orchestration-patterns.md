@@ -1,5 +1,6 @@
 # Agent Orchestration Patterns & Specialist Intelligence
 
+**Version:** 1.0
 **Status:** draft
 **Priority:** low
 **Milestone:** future (v2.0+ / post-MLAgent)

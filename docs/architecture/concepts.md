@@ -1,5 +1,6 @@
 # High-Level Architecture Concepts
 
+**Version:** 2.8
 **Status:** current
 **Last Updated:** 2026-05-23
 

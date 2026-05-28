@@ -1,5 +1,7 @@
 # Pipeline Optimization Strategy
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-04-21
 **Related:** `docs/ideas/pipeline-throughput-bottleneck-analysis.md` · `docs/architecture/current-state.md`
 

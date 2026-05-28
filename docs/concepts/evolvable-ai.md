@@ -1,5 +1,6 @@
 # Evolvable AI (eAI) — Agents That Evolve
 
+**Version:** 2.8
 **Last Updated:** 2026-05-10
 **Status:** Designed, not yet implemented
 **Full Design:** `docs/ideas/ai-03-evolvable-ai-agents.md`

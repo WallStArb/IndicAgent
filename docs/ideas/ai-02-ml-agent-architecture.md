@@ -1,5 +1,6 @@
 # MLAgent — Renaissance-Style Learning Machine
 
+**Version:** 1.0
 **Status:** design — prerequisites met, ready for roadmap planning
 **Priority:** high
 **Milestone:** v1.9+

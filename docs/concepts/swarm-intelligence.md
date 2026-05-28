@@ -1,5 +1,7 @@
 # Swarm Intelligence Architecture
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-10
 **Code:** `src/core/ai/`, `src/intelligence/ai/`, `services/alpha_swarm_agent.py`
 

@@ -1,5 +1,6 @@
 # Architectural Standard: The Renaissance "Agent" Pattern
 
+**Version:** 2.8
 **Related Standards:**
 - `docs/architecture/agent-contract-checklist.md` — required contract for new agents
 - `docs/architecture/canonical-truth-registry.md` — canonical stream/table ownership registry

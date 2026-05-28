@@ -1,5 +1,8 @@
 # LLM Inference Hardening Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-27
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Eliminate zombie Ollama runners, fix silent context truncation, cut alpha agent token waste by 75%, and wire OpenRouter as an automatic fallback — all without changing the `LLMProvider` protocol or anything above the provider layer.

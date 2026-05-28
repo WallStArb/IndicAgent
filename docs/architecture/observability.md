@@ -1,5 +1,6 @@
 # Observability Patterns — Metrics, Traces & Logs
 
+**Status:** current
 **Version:** 1.2
 **Last Updated:** 2026-05-06
 **Sources:** `src/observability/metrics.py`, `src/observability/otel.py`, `src/observability/log_bridge.py`

@@ -2,6 +2,8 @@
 
 **Last Updated:** 2026-05-02
 # Post-Phase 49 Cleanup — Schema Migration Reset
+**Version:** 2.8
+**Status:** current
 #
 # Context: Phase 49.1 and 49.2 completed with schema changes.
 # Current data (6,270 rows) is PRE-migration and invalid.

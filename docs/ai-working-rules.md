@@ -1,5 +1,7 @@
 # The "Ship or Sink" Rules
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-02
 
 Guidelines for working with AI coding tools without losing momentum, burning context, or shipping broken code.

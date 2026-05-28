@@ -1,6 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # Reference — API & Technical Specifications
 
-**Last Updated:** 2026-05-02
+**Version:** 2.8
+**Status:** current
+**Last Updated:** 2026-05-27
 
 Technical reference for APIs, plugins, services, and schemas.
 
@@ -14,9 +17,6 @@ FastAPI routes, request/response formats
 **[SSE Protocol](api/sse-protocol.md)**
 Real-time Server-Sent Events streams
 
-**[WebSocket Protocol](api/websocket-protocol.md)**
-Alternative real-time API (optional)
-
 ---
 
 ## Plugin Reference
@@ -25,40 +25,28 @@ Alternative real-time API (optional)
 Plugin protocol, registration, lifecycle
 
 **Plugin Directories:**
-- [I1: Technical Indicators](plugins/i1-indicators.md) — 16 plugins
-- [I3: Market Structure](plugins/i3-structure.md) — 3 plugins
-- [I4: Context Classification](plugins/i4-context.md) — 3 plugins
-- [I5: Pattern Detection](plugins/i5-patterns.md) — 4 plugins
-- [I6: Smart Money Concepts](plugins/i6-smart-money.md) — 7 plugins
-- [I7: Trading Setups](plugins/i7-trading.md) — 7 plugins
+- [I1: Technical Indicators](plugins/i1-indicators.md)
+- [I3: Market Structure](plugins/i3-structure.md)
+- [I4: Context Classification](plugins/i4-context.md)
+- [I5: Pattern Detection](plugins/i5-patterns.md)
+- [I6: Smart Money Concepts](plugins/i6-smart-money.md)
+- [I7: Trading Setups](plugins/i7-trading.md)
 
-**Total:** 57 plugins
-
-See [STATUS.md](../../STATUS.md) for current counts.
+**Total:** 132 plugins across I1-I7 (authoritative count: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py`)
 
 ---
 
 ## Service Reference
 
 **[Service Overview](services/overview.md)**
-Service architecture, coordination, health checks
-
-**Service Docs:**
-- [HF TWS Daemon](services/hf-tws-daemon.md) — IBKR data collection
-- [Indicator Processor](services/indicator-processor.md) — I1 calculations
-- [Timeframe Builder](services/timeframe-builder.md) — Multi-timeframe aggregation
-- [Intelligence Processor](services/intelligence-processor.md) — I3-I7 processing
-- [Coordination Service](services/coordination.md) — Service orchestration
+Service architecture, coordination, health checks. Authoritative live state: `systemctl list-units --all | grep indicagent`
 
 ---
 
 ## Data Schemas
 
 **[Stream Schemas](schemas/stream-schemas.md)**
-Redis stream data formats
-
-**[Database Schemas](schemas/database-schemas.md)**
-TimescaleDB table definitions
+Redpanda (Kafka-compatible) stream data formats and contracts
 
 ---
 
@@ -66,9 +54,6 @@ TimescaleDB table definitions
 
 **[Configuration Reference](configuration.md)**
 Settings.py, environment variables, contract definitions
-
-**[CLI Commands](cli-commands.md)**
-Common command reference for development
 
 ---
 

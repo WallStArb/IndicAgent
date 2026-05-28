@@ -1,5 +1,6 @@
 # Plan: Architectural Hardening & Intelligence Layer Unification
 
+**Version:** 1.0
 **Date:** 2026-05-02
 **Last Updated:** 2026-05-02
 **Status:** Planning

@@ -1,5 +1,6 @@
 # Platform Architecture — Unified Intelligence & Execution Suite (Vision)
 
+**Version:** 1.0
 **Created:** 2026-03-04
 **Last Updated:** 2026-05-02
 **Status:** Vision — architecture ideation / ideas capture

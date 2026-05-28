@@ -1,5 +1,8 @@
 # Fix B: signal_ledger Split — Immutable Hypertable + signal_outcomes
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-27
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split `signal_ledger` into an INSERT-only hypertable (fire-time data, compresses cleanly) and a regular table `signal_outcomes` (lifecycle state, UUID-keyed, purpose-built for updates). Eliminates the structural conflict between TimescaleDB compression and lifecycle UPDATEs that causes recompression to fail on every run.

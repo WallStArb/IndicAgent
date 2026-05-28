@@ -1,5 +1,7 @@
 # Agent Platform Redesign — Pydantic AI + DSPy + Zep + LiteLLM
 
+**Version:** 1.0
+**Last Updated:** 2026-05-20
 **Date:** 2026-05-20  
 **Status:** Approved — pending implementation plan  
 **Scope:** Replace BaseAIAgent architecture with institutional-grade open-source stack

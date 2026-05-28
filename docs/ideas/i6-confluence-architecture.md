@@ -1,5 +1,6 @@
 # Architecture Decision: I6 Confluence Expansion
 
+**Version:** 1.0
 **Date:** 2026-04-08
 **Last Updated:** 2026-05-16
 **Status:** Approved

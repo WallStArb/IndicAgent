@@ -1,5 +1,7 @@
 # Signal Control Loop Separation
 
+**Version:** 1.0
+**Last Updated:** 2026-05-18
 **Status:** Idea - not scheduled
 **Created:** 2026-05-18
 **Updated:** 2026-05-18

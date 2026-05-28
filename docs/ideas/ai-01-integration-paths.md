@@ -1,8 +1,8 @@
 # AI Integration Paths
 
-Date: 2026-04-24
-Last Updated: 2026-05-02
-Status: Idea — not scheduled
+**Version:** 1.0
+**Status:** design
+**Last Updated:** 2026-05-18
 
 ## Key Insight
 

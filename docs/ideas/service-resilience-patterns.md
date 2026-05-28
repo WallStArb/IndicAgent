@@ -1,5 +1,6 @@
 # Service Resilience Patterns
 
+**Version:** 1.0
 **Status:** draft
 **Priority:** low — Pattern 1 (circuit breaker) elevated to Phase 084 scope
 **Milestone:** Pattern 1 → Phase 084; Pattern 2-3 → future

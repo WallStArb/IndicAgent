@@ -1,5 +1,7 @@
 # Plan: Renaissance Swarm Intelligence Layer
 
+**Version:** 1.0
+**Last Updated:** 2026-05-05
 **Date:** 2026-05-05
 **Status:** Approved — pending implementation plan
 **Supersedes:** `docs/ideas/ai-09-agent-orchestration-patterns.md` (March 2026 draft — framed as post-MLAgent; this design is the current canonical target)

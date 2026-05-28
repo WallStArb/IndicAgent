@@ -1,5 +1,8 @@
 # Fix A: intelligence_features TOAST Bloat — Cache-and-Fold
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-27
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Eliminate the follow-up JSONB UPDATE path on `intelligence_features` that causes 17 GB of TOAST bloat on the current week's chunk.

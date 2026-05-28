@@ -1,5 +1,7 @@
 # Storage Root Cause Fix
 
+**Version:** 1.0
+**Last Updated:** 2026-05-24
 **Date:** 2026-05-24  
 **Status:** Spec — pending plan  
 **Addresses:** TOAST bloat on intelligence_features, signal_ledger recompression failure

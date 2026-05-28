@@ -1,5 +1,8 @@
 # Zone Engine Plan — Cross-Review for Codex
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-05
 ## Context
 
 This is a plan for a Python trading system (IndicAgent). The plan replaces primitive entry zone construction with a structural confluence engine and adds dual-tracking lifecycle (zone-gated vs. immediate entry).

@@ -1,6 +1,8 @@
 # Signal Ledger Definition Fields — Design Spec
 
-Date: 2026-05-23
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-23
 
 ## Problem
 

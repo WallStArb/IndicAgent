@@ -1,5 +1,7 @@
 # Regime Classification
 
+**Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-04-22
 
 ## Overview

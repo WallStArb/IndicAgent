@@ -1,5 +1,8 @@
 # Phase 5: Zep Episodic Memory Implementation Plan
 
+**Version:** 1.0
+**Status:** archived
+**Last Updated:** 2026-05-20
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add episodic trading memory backed by a self-hosted Zep instance — past signal outcomes are recalled at agent prompt time, closing the feedback loop between signal outcomes and future LLM reasoning.

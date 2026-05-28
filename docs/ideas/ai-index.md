@@ -1,5 +1,8 @@
 # AI Ideas Index
 
+**Version:** 1.0
+**Status:** design
+**Last Updated:** 2026-05-18
 **Purpose:** quick navigation for the AI / ML / agentic idea cluster
 **Convention:** `ai-XX-<slug>.md` so the files sort together in `docs/ideas/`
 
