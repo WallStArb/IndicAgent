@@ -162,10 +162,6 @@ class BarAggregatorComputeAgent(BaseAgent):
     Cold-start: auto.offset.reset=latest (D-14).
     """
 
-    # Preserve the original retry behavior: 4 attempts at 2s base backoff
-    SETUP_RETRY_ATTEMPTS: int = 4
-    SETUP_RETRY_BACKOFF_S: float = 2.0
-
     def __init__(self) -> None:
         super().__init__(name="bar_aggregator_agent", max_idle_seconds=300)
         self._bar_accumulator = BarAccumulator()

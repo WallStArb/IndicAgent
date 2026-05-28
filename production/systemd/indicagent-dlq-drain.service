@@ -3,7 +3,8 @@ Description=IndicAgent DLQ Drain - consumes all DLQ topics, writes to dlq_events
 After=network-online.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
-StartLimitIntervalSec=0
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
