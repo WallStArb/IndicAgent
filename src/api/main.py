@@ -12,6 +12,9 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+from src.observability.metrics import API_HEALTH
 
 from ..core import DatabaseManager
 from . import dependencies
@@ -36,6 +39,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan management."""
     _broadcaster_task = None
     _sse_consumer = None
+    _api_health_task = None
     try:
         # Initialize core infrastructure
         logger.info("Starting IndicAgent API...")
@@ -46,6 +50,21 @@ async def lifespan(app: FastAPI):
         settings = Settings()
         dependencies.db_manager = DatabaseManager(settings.database_url)
         await dependencies.db_manager.initialize()
+
+        # Background task: refresh api_health gauge every 30s independent of HTTP traffic
+        async def _refresh_api_health() -> None:
+            """Update api_health gauge every 30s for Prometheus scrape freshness."""
+            while True:
+                try:
+                    async with dependencies.db_manager.get_connection() as conn:
+                        await conn.fetchval("SELECT 1")
+                    API_HEALTH.set(1, {"service": "indicagent-api"})
+                except Exception as e:
+                    API_HEALTH.set(0, {"service": "indicagent-api"})
+                    logger.warning("api.health_refresh.db_unreachable", error=str(e))
+                await asyncio.sleep(30)
+
+        _api_health_task = asyncio.create_task(_refresh_api_health())
 
         # Initialize Kafka SSE broadcaster
         from src.core.kafka_utils import KafkaConsumerClient
@@ -126,6 +145,12 @@ async def lifespan(app: FastAPI):
         raise
     finally:
         # Cleanup
+        if _api_health_task is not None:
+            _api_health_task.cancel()
+            try:
+                await _api_health_task
+            except (asyncio.CancelledError, Exception):
+                pass
         if _broadcaster_task is not None:
             _broadcaster_task.cancel()
             try:
@@ -149,6 +174,9 @@ app = FastAPI(
     version="2.0.0-clean",
     lifespan=lifespan,
 )
+
+# Wire OTel HTTP instrumentation: auto-emits rate/error/latency for every route
+FastAPIInstrumentor().instrument_app(app)
 
 # Configure CORS
 app.add_middleware(
