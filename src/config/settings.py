@@ -47,6 +47,16 @@ class Settings(BaseSettings):
         alias="INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE",
         description="Per-key worker queue depth; controls back-pressure on the bar ingestion path (PERF-07, Plan 06).",
     )
+    replay_batch_size: int = Field(
+        default=100,
+        validation_alias="REPLAY_BATCH_SIZE",
+        description="Max signals per replay auditor cycle. Canary default 100; set higher only during incident triage.",
+    )
+    replay_interval_seconds: int = Field(
+        default=300,
+        validation_alias="REPLAY_INTERVAL_SECONDS",
+        description="Seconds between replay auditor cycles. Canary default 300 (5 min); 30 was triage-only.",
+    )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
         validation_alias="DATABASE_URL",
