@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent CIS Weight Updater
-After=network-online.target docker.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Documentation=https://github.com/bg/indicagent
 
 [Service]
