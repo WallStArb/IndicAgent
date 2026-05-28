@@ -2,43 +2,28 @@
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-05-02
+**Last Updated:** 2026-05-27
 
-Step-by-step guides for common development tasks.
+Step-by-step guides for common development and operational tasks.
 
 ---
 
-## Development
-
-**[Adding Plugins](adding-plugins.md)**
-How to create new indicator, pattern, or setup plugins
+## Guides
 
 **[Running Services](running-services.md)**
-systemd, docker, health checks, logs
-
-**[Testing](testing.md)**
-Writing tests, running test suite, coverage
-
-**[Dashboard Development](dashboard-development.md)**
-Frontend setup, component development, SSE integration
-
----
-
-## Operations
-
-**[Monitoring & Debugging](monitoring-debugging.md)**
-Logs, metrics, troubleshooting common issues
+Full service DAG (L1–L10), systemd management, observability, direct invocation
 
 **[Database Management](database-management.md)**
-TimescaleDB migrations, backups, compression policies
+TimescaleDB migrations, backfill, gap-fill, compression, vacuum, backups
 
 ---
 
-## Next Steps
+## Related
 
-- **Understand concepts:** [Concepts](../concepts/) for deep dives
-- **Look up APIs:** [Reference](../reference/) for technical specs
-- **Current status:** [STATUS.md](../STATUS.md)
+- **Adding plugins:** See `src/intelligence/ai/AUTHORING.md` (canonical) and `docs/concepts/plugin-architecture.md`
+- **Testing:** `pytest tests/unit/ -v` · `pytest tests/integration/ -v` · see `pytest.ini` for config
+- **Monitoring/debugging:** [Cheatsheet](../cheatsheet.md) · [Operations Reference](../operations/infrastructure-reference.md) · [Gotchas](../gotchas.md)
+- **Dashboard development:** `cd dashboard && npm run dev` · components in `dashboard/src/components/`
 
 ---
 

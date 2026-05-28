@@ -1,9 +1,10 @@
+<!-- generated-by: gsd-doc-writer -->
 # Plugin Architecture
 
 **Version:** 2.8
 **Status:** current
-**Current Plugin Count:** 129 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py`
-**Last Updated:** 2026-04-22
+**Current Plugin Count:** 132 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py` TIER_* lists
+**Last Updated:** 2026-05-27
 
 ## Executive Summary
 
@@ -19,7 +20,7 @@ IndicAgent's Intelligence Plugin Registry and DAG Execution Framework provides t
 - **Extensible Intelligence:** Protocol-based plugin architecture for unlimited intelligence capabilities
 - **Real-Time Processing:** Sub-second intelligence generation via incremental `compute_next()`
 - **Progressive Intelligence:** Support for I1-I8 intelligence tier progression
-- **Observability:** Prometheus metrics and circuit breaker monitoring
+- **Observability:** OTel SDK metrics and span tracing (prometheus_client fully removed)
 
 ### Non-Goals
 - Trading strategy implementation (intelligence analysis only)
@@ -39,7 +40,6 @@ The framework processes intelligence through data contracts aligned with the I1-
 - **`composite.v1`** - I2 Composite Intelligence (crossovers, distances)
 - **`pattern.v1`** - I3-I5 Pattern/Structure/Context Intelligence
 - **`regime.v1`** - I4 Market Context (trend/volatility regimes)
-- **`insight.v1`** - I8 AI Intelligence (planned — not yet implemented)
 
 ### Data Format Standards
 - **Stream Format:** Kafka (Redpanda-compatible) with JSONB payloads
@@ -58,8 +58,6 @@ pattern_output = {
     "rsi_divergence_rsi_delta": 8.3,
 }
 ```
-
-**Reference:** [Stream Schemas](stream-schemas.md) - Complete data format specifications
 
 ---
 
@@ -83,11 +81,11 @@ class InputSpec:
 
 class IndicatorPlugin(Protocol):
     name: ClassVar[str]
-    outputs: ClassVar[set[str]]
+    outputs: ClassVar[frozenset[str]]   # must be frozenset, not set
     min_lookback: ClassVar[int]
     supports_incremental: ClassVar[bool]
-    capability_tags: ClassVar[set[str]]
-    inputs: ClassVar[list[InputSpec]]
+    capability_tags: ClassVar[frozenset[str]]  # must be frozenset, not set
+    inputs: ClassVar[tuple[InputSpec, ...]]    # must be tuple, not list
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]: ...
@@ -101,10 +99,11 @@ class PatternPlugin(Protocol):
 - **Protocol, not ABC:** Structural subtyping — any `@dataclass` with the right shape satisfies the protocol. No inheritance required.
 - **Two methods only:** `compute_full()` for batch and `compute_next()` for incremental. No `validate_inputs()` or other ceremony.
 - **`frames["main"]`:** Convention — the primary OHLCV DataFrame is always at key `"main"`.
+- **`frozenset` for outputs/capability_tags, `tuple` for inputs** — not `set`/`list`.
 
 ### Plugin Implementation Pattern
 
-Every plugin follows this exact structure (see any file in `src/intelligence/indicators/`):
+Every plugin follows this exact structure (see any file in `src/intelligence/features/i1_indicators/`):
 
 ```python
 from __future__ import annotations
@@ -116,11 +115,11 @@ from ..plugins import InputSpec
 @dataclass
 class RSIPlugin:
     name: str = "RSI"
-    outputs: set[str] = frozenset({"rsi_14"})
+    outputs: frozenset[str] = frozenset({"rsi_14"})
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    capability_tags: frozenset[str] = frozenset({"momentum"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
@@ -168,8 +167,6 @@ class PluginRegistry:
 
     def get_indicator(self, name: str) -> IndicatorPlugin: ...
     def get_pattern(self, name: str) -> PatternPlugin: ...
-    def list_indicators(self) -> list[str]: ...
-    def list_patterns(self) -> list[str]: ...
 
 registry = PluginRegistry()  # Global singleton
 ```
@@ -177,23 +174,19 @@ registry = PluginRegistry()  # Global singleton
 **Registration:** All plugins are registered explicitly in `src/intelligence/register_plugins.py`:
 
 ```python
-from .indicators.rsi import plugin as rsi_plugin
-from .indicators.adx import plugin as adx_plugin
-# ... all imports ...
-
 def register_all_plugins() -> None:
     registry.register_indicator(rsi_plugin)
     registry.register_indicator(adx_plugin)
     # ... 28 I1 indicators total ...
     registry.register_pattern(rsi_div_plugin)
-    # ... 72 patterns/structure/context/SMC/I7 total ...
+    # ... 104 patterns/structure/context/SMC/confluence/I7 total ...
 ```
 
-No auto-discovery or hot-reload — registration is explicit Python code.
+No auto-discovery or hot-reload — registration is explicit Python code. `validate_schema_coverage()` runs at the end of `register_all_plugins()` and hard-crashes at startup if any plugin outputs a field not declared in its tier schema (I3/I4/I5/SMC/I6 — `extra='forbid'`).
 
 ---
 
-## Registered Plugins (129 Total + 2 Aggregation)
+## Registered Plugins (132 Total + 2 Aggregation)
 
 See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
 
@@ -296,7 +289,7 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Measured Move | Projection | AB=CD measured move projection |
 | Key Level Reaction | Price Action | Reaction strength at S/R levels from I3 |
 
-### I6 SMC / Smart Money Plugins (13) — `supports_incremental = False`
+### I6 SMC / Smart Money Plugins (16) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
@@ -305,7 +298,10 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Order Blocks | OB zones, strength, touch count |
 | Liquidity Sweeps | Sweep events, reclaim signals |
 | BOCPD | Changepoint probability, hazard function |
-| HMM Regime | 3-state HMM (ranging/trend↑/trend↓), forward probabilities |
+| HMM Regime (1m) | 3-state HMM (ranging/trend-up/trend-down), forward probabilities |
+| HMM Regime (5m) | 3-state HMM for 5m timeframe |
+| HMM Regime (15m) | 3-state HMM for 15m timeframe |
+| HMM Regime (1h) | 3-state HMM for 1h timeframe |
 | Liquidity Pools | BSL/SSL pool levels and proximity |
 | Supply/Demand Zones | S/D zones with strength scoring |
 | ICT Killzones | London/NY/Asia killzone timing and bias |
@@ -316,7 +312,7 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 
 ### I6 Cross-Timeframe Confluence (6)
 
-CrossTimeframeConfluence + 5 Phase 64 confluence plugins: momentum_divergence, sr_confluence, regime_agreement, squeeze_exp_divergence, orderflow_alignment. Score trend/structure/regime/pattern/SMC alignment across 1m/5m/15m/1h.
+CrossTimeframeConfluence + 5 Phase 64 confluence plugins: CrossTimeframeMomentumDivergence, CrossTimeframeSRConfluence, CrossTimeframeRegimeAgreement, SqueezeExpansionDivergence, CrossTimeframeOrderflowAlignment. Score trend/structure/regime/pattern/SMC alignment across 1m/5m/15m/1h.
 
 ---
 
@@ -365,11 +361,13 @@ The DAG determines plugin execution order through topological sorting. Tiers exe
 OHLCV Data ──► I1 (28) ──► I2 (10, 2 waves) ──► I3 (8) ──► I4 (12, 2 waves)
                                                                     │
                                                                     ▼
-                                              I5 (16) ──► I6 SMC (13, 2 waves)
+                                              I5 (16) ──► I6 SMC (16, 2 waves)
                                                                     │
                                                                     ▼
                                                          I6 Conf (6) ──► I7 (36 + 2 agg)
 ```
+
+**All tiers execute in-process within `IntelligencePipelineComputeAgent`** — no inter-service Kafka hops for I1-I7. WriterAgents handle DB persistence separately.
 
 ### Incremental Processing
 
@@ -401,18 +399,15 @@ for new_bar in live_stream:
 ## Reliability & Error Handling (Implemented)
 
 ### Plugin Error Handling
-Each plugin call is wrapped with error isolation. If a plugin raises an exception, the service logs it, records a Prometheus error metric, and continues processing with the remaining plugins. A single plugin failure never blocks the bar from being processed.
+Each plugin call is wrapped with error isolation. If a plugin raises an exception, the service logs it, records a metric, and continues processing with the remaining plugins. A single plugin failure never blocks the bar from being processed.
 
-- **Prometheus metrics:** Per-plugin success/error counters sampled every `PLUGIN_METRICS_SAMPLE_RATE=10` calls
+- **Metrics:** Per-plugin timing via `intelligence_pipeline_plugin_duration_ms{plugin_name=, tier=}` histogram (OTel SDK — prometheus_client fully removed)
 - **Error isolation:** Exceptions are caught per-plugin; stack trace logged with `plugin_name`, `symbol`, `timeframe`
 - **No circuit breakers** in the hot path — failed plugins simply return `{}` (empty result)
 
 ### Plugin Validation
-- Incremental vs full computation parity: `tests/unit/intelligence/test_plugin_incremental.py` (27 tests)
-- Pattern detection correctness: `tests/unit/intelligence/test_pattern_plugins.py` (16 tests)
-- Structure plugins: `tests/unit/intelligence/test_structure_plugins.py` (12 tests)
-- Context plugins: `tests/unit/intelligence/test_context_plugins.py` (13 tests)
-- **Total: 1754 unit tests passing**
+- Schema coverage validation: `validate_schema_coverage()` in `register_plugins.py` — hard crashes at startup if any plugin outputs a field not declared in its tier schema
+- Tier list validation: `validate_tier()` hard-crashes on missing plugin names
 
 ---
 
@@ -447,31 +442,17 @@ development.llm.calls              # LLM call audit
 - **Tick Ingestion:** 100-500+ ticks/sec during RTH
 - **Hot Path Latency:** Sub-millisecond Redpanda stream writes
 - **Indicator Calculation:** <1ms per plugin via incremental compute_next()
-- **Full Recomputation:** ~50-100ms for all 27 indicators (batch mode)
+- **Full Recomputation:** ~50-100ms for all 28 indicators (batch mode)
 - **Incremental vs Batch:** 141x speedup measured
-
-### SLO Targets
-| Metric | Target | Status |
-|--------|--------|--------|
-| Plugin execution latency | <50ms p99 | Achieved (<1ms incremental) |
-| End-to-end bar-to-indicator | <200ms | Achieved |
-| Stream backlog | <30s | Achieved |
-| Test suite pass rate | 100% | 1754/1754 passing |
-
----
 
 ---
 
 ## Related Documentation
 
-- [High-Level Concepts](../architecture/concepts.md) — Core architectural patterns including DAG, microservices, and ML/AI layers
 - [Intelligence Tiers](intelligence-tiers.md) — complete tier-by-tier plugin reference
 - [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
 - [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type
 - [Data Pipeline](data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
-- **ML/AI Architecture:** `../ideas/ai-02-ml-agent-architecture.md` — Multi-agent orchestrator and swarm intelligence
-- **Intelligence Swarm:** `../ideas/ai-05-intelligence-swarm-manifest.md` — Task/job-based agents for market friction analysis
-- **Architecture:** `docs/architecture/plugin-native-architecture-explained.md`
 - **Code:** `src/intelligence/plugins.py`, `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 
 ---

@@ -1,8 +1,9 @@
+<!-- generated-by: gsd-doc-writer -->
 # DAG Execution
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-27
 
 ## What Is a DAG?
 
@@ -31,12 +32,12 @@ A DAG gives you a clean way to:
 
 ## IndicAgent's Plugin DAG
 
-The intelligence pipeline is a DAG of 123 plugins + 2 aggregation components across tiers I1–I7:
+The intelligence pipeline is a DAG of 132 plugins + 2 aggregation components across tiers I1–I7:
 
 ```
 Raw OHLCV Data
       │
-      ├──► I1 Technical Indicators (27 plugins, no dependencies)
+      ├──► I1 Technical Indicators (28 plugins, no dependencies)
       │         │
       │         └──► I2 Composite Events (10 plugins, 2 waves — depend on I1)
       │                   │
@@ -46,9 +47,9 @@ Raw OHLCV Data
       │                                           │
       │                                           └──► I5 Patterns (16 plugins, read I1–I4)
       │
-      └──► I6 SMC (13 plugins, 2 waves, read I1–I5 + OHLCV)
+      └──► I6 SMC (16 plugins, 2 waves, read I1–I5 + OHLCV)
                 │
-                └──► I6 Confluence (1 plugin, cross-TF synthesis across all tiers)
+                └──► I6 Confluence (6 plugins, cross-TF synthesis across all tiers)
                           │
                           └──► I7 Trading Setups (36 plugins + 2 aggregation, read I2–I6)
                                     │
@@ -87,13 +88,13 @@ Because the DAG enforces ordering, services run each tier's plugins in sequence:
 
 | Stage | Plugins | Runs When |
 |-------|---------|-----------|
-| I1 | RSI, MACD, ATR, OFI, CVD, etc. (27 plugins) | Every completed bar |
+| I1 | RSI, MACD, ATR, OFI, CVD, etc. (28 plugins) | Every completed bar |
 | I2 | RSIEvents, MomentumAccel (Wave A), AccelerationRegime/ExhaustionScore (Wave B) — 10 total | After I1 completes |
 | I3 | MACDEvents, SwingDetector, SupportResistance, etc. (8 plugins) | After I1/I2 complete |
 | I4 | GARCH/VIXRegime/CrossAsset (Wave A), KalmanTrend (Wave B) — 12 total | After I3 completes |
 | I5 | MTFVolatility, RSIDivergence, BollingerSqueeze, chart patterns, etc. (16 plugins) | After I1–I4 complete |
-| I6 SMC | BOS/CHoCH/FVG/OB/HMM (Wave A), SupplyDemandZones/BreakerBlocks/MitigationBlocks (Wave B) — 13 total | After I1–I5 complete |
-| I6 Conf | CrossTimeframeConfluence (1 plugin) | After I6 SMC, reads multiple timeframes |
+| I6 SMC | BOS/CHoCH/FVG/OB/HMM×4 (Wave A), SupplyDemandZones/BreakerBlocks/MitigationBlocks (Wave B) — 16 total | After I1–I5 complete |
+| I6 Conf | 6 cross-TF confluence plugins | After I6 SMC, reads multiple timeframes |
 | I7 | TrendFollowing, MeanReversion, ORB15/30, OFI/CVD setups, etc. (36 plugins + 2 agg) | In IntelligencePipelineComputeAgent, after I6 |
 
 Plugins within a stage that share no dependencies can execute concurrently. The DAG makes those safe-to-parallelize groups explicit.
@@ -111,7 +112,9 @@ registry.validate_tier()  # hard-crashes on any missing plugin name
 dag.topological_order()   # raises ValueError on cycle detection
 ```
 
-This means misconfigured pipelines fail loudly at startup rather than producing incorrect results at runtime. The cost of a bug is a failed restart, not a silently wrong signal.
+Additionally, `validate_schema_coverage()` is called at the end of `register_all_plugins()` — it hard-crashes if any plugin outputs a field not declared in its tier schema (I3/I4/I5/SMC/I6 use `extra='forbid'`).
+
+This means misconfigured pipelines fail loudly at startup rather than producing incorrect results at runtime.
 
 ---
 
@@ -133,23 +136,26 @@ No manual ordering required. The graph infers the right position from declared d
 Beyond the plugin DAG, the system as a whole is a DAG of 25+ microservices connected via Kafka topics. The canonical service registry is `_DAG_ORDER` in `services/service_auditor_agent.py`:
 
 ```
-L1   data-provider                                    — data ingestion
-L2   provider-merger                                  — stream merge + failover
-L3   bar-aggregator, bar-auditor                      — bar processing + gap detection
+L1   ibkr-provider, bar-replay                        — data ingestion + bar replay
+L2   provider-merger                                  — stream merge
+L3   bar-aggregator, bar-auditor                      — bar processing
 L4   bar-writer                                       — OHLCV persistence
-L5   intelligence-pipeline, cross-asset, macro-compute — I1–I7 compute + context
+L5   intelligence-pipeline, cross-asset, macro-compute — I1-I7 compute + context
 L6   feature-writer, signal-writer, signal-tracker,
-     lifecycle-writer, lineage-writer                  — persistence writers (parallel)
-L7   alpha-swarm, llm-writer                          — AI/LLM layer
-L8   roll-compute, signal-metrics, graduation-writer   — analytics + rolling metrics
+     lifecycle-writer, lineage-writer, ctx-writer      — persistence writers (parallel)
+L7   alpha-swarm, narrative-compute, llm-writer,
+     swarm-ledger-writer                               — AI/LLM layer
+L8   signal-metrics-compute, signal-metrics-writer,
+     graduation-compute, graduation-writer,
+     feature-snapshot-writer, ml-training              — analytics
 L9   signal-auditor, signal-replay, parity-auditor,
-     alerting-agent                                    — audit, replay, parity, alerting
+     alerting-agent                                    — audit, parity, alerting
 L10  service-auditor                                   — meta: monitors + restarts all above
 ```
 
 The service auditor at L10 auto-discovers units, monitors Prometheus lag, restarts in DAG order, and escalates after 3 failures in 10 min. No manual intervention required for transient failures.
 
-**Self-healing at L1 and L9:** `BarReplayProviderAgent` (L1) replays historical bars for bootstrap/recovery. `SignalReplayAuditorAgent` (L9) resolves orphaned signal lifecycles every 5 minutes. Both use the same evaluation logic as their live counterparts.
+**Self-healing at L1 and L9:** `BarReplayProviderAgent` (L1) replays historical bars for bootstrap/recovery. `SignalReplayAuditorAgent` (L9) resolves orphaned signal lifecycles every 5 minutes using `sl.expires_at < NOW()` — no LATERAL JOIN required. Both use the same evaluation logic as their live counterparts.
 
 ---
 
