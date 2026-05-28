@@ -15,7 +15,7 @@ A Renaissance Agent is an **autonomous, event-driven compute node** within our p
 ## 2. Key Agentic Characteristics
 - **Autonomy:** Agents bake in self-management—they monitor their own health, lag, and resource saturation.
 - **Scale-in/Out Capability:** **[CURRENT STANDARD]** Agents run as systemd services on a single server; scaling is achieved by adjusting systemd instance counts manually based on Prometheus lag alerts. **[TARGET ARCHITECTURE]** Horizontal scaling via Kafka consumer group partitioning (multiple instances).
-- **Health Instrumentation:** Every Agent is instrumented with both Prometheus metrics (`src/observability/metrics.py`) and OpenTelemetry distributed tracing (`src/observability/otel.py`). OTel is installed (`opentelemetry-sdk` v1.41.0) and active in `BaseAgent` — every agent receives a `self.tracer` at init time. Traces are a no-op when no OTLP endpoint is configured, so they add zero overhead in development.
+- **Health Instrumentation:** Every Agent is instrumented with OTel metrics and traces (`src/observability/metrics.py`, `src/observability/otel.py`). `prometheus_client` was removed in Phase 83 — all metrics pushed via OTLP to the OTel Collector. Every agent receives a `self.tracer` and `self._meter` at init time. Both are no-ops when no OTLP endpoint is configured, so they add zero overhead in development.
 
 ## 3. Scaling On-Demand (Lag-Based) **[CURRENT STANDARD]**
 
@@ -107,7 +107,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | **Training** | Model learning | `TrainingAgent` | `*_agent.py` | `FeatureTrainingAgent` | (future) |
 | **Swarm** | Multi-agent reasoning | `SwarmAgent` | `*_agent.py` | `SwarmIntelligenceAgent` | (future) |
 
-### Active Agent Inventory (Phase 71)
+### Active Agent Inventory (v2.7+)
 
 **Data layer:**
 
@@ -116,10 +116,9 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | `IBKRProviderAgent` | `services/ibkr_provider_agent.py` | `indicagent-ibkr-provider` | `ProviderAgent` | `market.bars.raw.ibkr` |
 | `ProviderMergerAgent` | `services/provider_merger_agent.py` | `indicagent-provider-merger` | `MergerAgent` | `market.bars` |
 | `BarAggregatorComputeAgent` | `services/bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | `ComputeAgent` | `market.bars.htf` |
-| `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | `market.events.roll` |
 | `BarAuditorAgent` | `services/bar_auditor_agent.py` | `indicagent-bar-auditor` | `AuditorAgent` | `market.events.gap_requests` |
 | `BarWriterAgent` | `services/bar_writer_agent.py` | `indicagent-bar-writer` | `WriterAgent` | `market_data_ohlcv` (DB) |
-| `ContractMetadataWriterAgent` | `services/contract_metadata_writer_agent.py` | `indicagent-contract-metadata-writer` | `WriterAgent` | `contract_metadata` (DB) |
+| roll-batch timer | `production/scripts/roll_batch.py` | `indicagent-roll-batch` (nightly timer, 8pm) | timer | `contract_metadata` (DB) |
 
 **Intelligence layer:**
 

@@ -22,12 +22,13 @@ from src.core.agent import BaseAgent
 │                           BaseAgent Lifecycle                            │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  1. __init__(name, metrics_port)                                        │
-│     └─→ Sets up logger, tracer, stop_event                              │
+│  1. __init__(name, max_idle_seconds, settings)                          │
+│     └─→ Sets up logger, OTel tracer + meter, stop_event                 │
 │                                                                         │
 │  2. start()                                                             │
 │     ├─→ Register signal handlers (SIGTERM/SIGINT)                       │
-│     ├─→ Start Prometheus metrics server (if metrics_port set)          │
+│     ├─→ Call init_otel_providers(service_name=name)                    │
+│     ├─→ Setup OTLP logging bridge                                       │
 │     ├─→ Log "agent.starting"                                            │
 │     ├─→ await _setup()                                                  │
 │     │    └─→ Override: connect Kafka, seed history, etc.               │
@@ -128,17 +129,9 @@ with self.tracer.start_as_current_span("operation_name"):
 
 **Note:** The tracer is a no-op when `init_tracing()` has not been called. Safe to use before initialization.
 
-## Prometheus Metrics
+## OTel Metrics
 
-```python
-def __init__(self, name: str, metrics_port: int | None = None):
-    self._metrics_port = metrics_port
-    # ...
-```
-
-**If `metrics_port` is set:**
-- Metrics server starts on `start()`
-- Default port range: `:9100-:9199`
+Metrics are pushed via OTLP gRPC to the OTel Collector (`:4317`) — no per-service HTTP `/metrics` endpoint. `init_otel_providers()` is called automatically in `start()`.
 
 **Inherited agent lifecycle metrics (Phase 67 — automatic, no override needed):**
 
@@ -221,10 +214,11 @@ await agent.start()
 ```python
 from src.core.agent import BaseAgent
 from src.observability.metrics import PERSISTENCE_BATCH_LATENCY, PERSISTENCE_CONSUMER_LAG
+import time
 
 class MyWriterAgent(BaseAgent):
-    def __init__(self, name: str, metrics_port: int = 9111):
-        super().__init__(name, metrics_port)
+    def __init__(self, name: str):
+        super().__init__(name)
         self._kafka_consumer = None
         self._db_pool = None
 
@@ -248,9 +242,12 @@ class MyWriterAgent(BaseAgent):
 
     async def _write_batch(self, batch: list) -> None:
         """Persist batch with metrics."""
-        with PERSISTENCE_BATCH_LATENCY.labels(agent_id=self.name).time():
-            async with self._db_pool.acquire() as conn:
-                await conn.executemany(...)
+        t0 = time.monotonic()
+        async with self._db_pool.acquire() as conn:
+            await conn.executemany(...)
+        PERSISTENCE_BATCH_LATENCY.record(
+            (time.monotonic() - t0) * 1000, {"agent_id": self.name}
+        )
 
     async def _teardown(self) -> None:
         """Flush and close."""
@@ -266,7 +263,7 @@ class MyWriterAgent(BaseAgent):
         """Report consumer lag metric."""
         while self.running:
             lag = self._kafka_consumer.consumer_lag()
-            PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(lag)
+            PERSISTENCE_CONSUMER_LAG.set(lag, {"agent_id": self.name})
             await asyncio.sleep(15)
 
     @property

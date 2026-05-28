@@ -40,7 +40,7 @@ No service skips a tier or calls a sibling service directly. Each tier produces 
 
 ## Incremental-First Computation
 
-Every plugin implements `compute_next()` for O(1) updates per bar. Processing 128 plugins per bar means updating only what changed since the previous bar — not recomputing from scratch on a rolling window.
+Every plugin implements `compute_next()` for O(1) updates per bar. Processing 132 plugins per bar means updating only what changed since the previous bar — not recomputing from scratch on a rolling window.
 
 This is the throughput model: cost scales with the number of active instruments and timeframes, not with indicator window sizes (e.g., a 200-period EMA and a 14-period EMA cost the same per bar).
 
@@ -100,7 +100,7 @@ Each agent has exactly one role, encoded in its class name suffix. The suffix de
 
 **Why naming encodes SoC:** Anyone reading `IntelligencePipelineComputeAgent` immediately knows it has no DB access. Anyone reading `FeatureWriterAgent` knows it does. No documentation lookup needed. When someone tries to add a DB query to a `ComputeAgent`, the name itself signals the violation.
 
-**The SoC consequence that matters:** `IntelligencePipelineComputeAgent` processes 128 plugins per bar without any coupling to TimescaleDB availability. A database failure, migration, or backpressure has zero effect on the hot path.
+**The SoC consequence that matters:** `IntelligencePipelineComputeAgent` processes 132 plugins per bar without any coupling to TimescaleDB availability. A database failure, migration, or backpressure has zero effect on the hot path.
 
 ---
 
@@ -176,7 +176,7 @@ Path A (deterministic):  I1 → I2 → I3 → I4 → I5/SMC → I6 → I7
                          128 plugins, O(1) per bar, topological DAG
                          Fires signals in real-time (<10ms/bar)
 
-Path B (probabilistic):  SwarmOrchestratorAgent → specialist agents
+Path B (probabilistic):  AlphaSwarmComputeAgent → specialist agents
                          AlphaMultiplier vectors, asynchronous, shadow-validated
                          Overlays on Path A signals after statistical validation
 ```
