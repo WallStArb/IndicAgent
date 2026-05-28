@@ -3,6 +3,9 @@ Description=IndicAgent Service Auditor — pipeline health monitor and self-heal
 After=network-online.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
+# Meta-watchdog exception: service-auditor must restart unconditionally — it is
+# the supervisor of last resort for every other indicagent unit. Do NOT set
+# StartLimitBurst here.
 StartLimitIntervalSec=0
 
 [Service]
