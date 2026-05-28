@@ -11,6 +11,8 @@ import aiohttp
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.observability.metrics import API_HEALTH
+
 from ..dependencies import get_db_manager
 
 logger = structlog.get_logger(__name__)
@@ -33,16 +35,16 @@ async def database_health(db_manager=Depends(get_db_manager)):
     """Database health check."""
     try:
         # Test database connection
-        conn = await db_manager.connection_manager.get_connection()
-        _ = await conn.fetchval("SELECT 1")
-        await conn.close()
-
+        async with db_manager.get_connection() as conn:
+            _ = await conn.fetchval("SELECT 1")
+        API_HEALTH.set(1, {"service": "indicagent-api"})
         return {
             "status": "healthy",
             "database": "connected",
             "timestamp": datetime.now(UTC).isoformat(),
         }
     except Exception as e:
+        API_HEALTH.set(0, {"service": "indicagent-api"})
         logger.error("Database health check failed", error=str(e))
         raise HTTPException(status_code=503, detail=f"Database unhealthy: {str(e)}") from e
 
@@ -58,9 +60,8 @@ async def full_health_check(db_manager=Depends(get_db_manager)):
     }
 
     try:
-        conn = await db_manager.connection_manager.get_connection()
-        await conn.fetchval("SELECT 1")
-        await conn.close()
+        async with db_manager.get_connection() as conn:
+            await conn.fetchval("SELECT 1")
         health_status["components"]["database"] = "healthy"
     except Exception as e:
         health_status["components"]["database"] = f"unhealthy: {str(e)}"
