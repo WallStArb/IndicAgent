@@ -46,6 +46,15 @@ Close structural debt that would create drag or failures during AI platform phas
 - [ ] **HYGIENE-08**: DatabaseManager pool standardization — All services use DatabaseManager.create_pool() (fix swarm_ledger_writer, bar_replay_provider, signal_replay_auditor bypass); JSONB codecs registered; pool gauges emitted
 - [ ] **HYGIENE-09**: Agent ID label standardization — All metrics use `agent_id` label (not `agent`); BaseAgent and BaseWriterAgent label consistency fixed; fleet-wide Grafana dashboards work
 
+### HEAL — Self-Healing Hardening (Phase 108)
+
+**Hypothesis:** Three failure classes — undetected daemon death, unrecoverable DB loss, and infinite retry loops — remain unaddressed after Phase 107. Adding systemd WatchdogSec, nightly pg_dump, and runtime self-healing mechanisms closes all three. Metric: mean time to recovery for each failure class.
+
+- [ ] **HEAL-01**: WatchdogSec rollout — All 39 daemon `.service` unit files gain `WatchdogSec=60`; `BaseAgent` heartbeat loop calls `sd_notify(WATCHDOG=1)` every 30s; `systemd-analyze verify` passes on all modified units
+- [ ] **HEAL-02**: DB backup — `indicagent-db-backup.service` + `.timer` perform nightly `pg_dump` to `/var/backups/indicagent/`; `.sql.gz` exists and is < 25h old; retention script prunes files older than 7 days automatically
+- [ ] **HEAL-03**: Circuit breaker health events — When `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; ServiceAuditor logs CB open events
+- [ ] **HEAL-04**: DLQ quarantine + stuck consumer detection — Messages re-delivered > `DLQ_MAX_RETRIES` (default 3) are quarantined to `<topic>.dead-final` with metadata; ServiceAuditor emits a `consumer_stall` alert when consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
+
 ### LLM-INFRA — LiteLLM Provider Abstraction (Phase 094)
 
 **Hypothesis:** Hand-rolled `OllamaProvider`/`OpenRouterProvider`/`LLMChain` internals total ~450 LOC of bespoke provider logic. LiteLLM reduces this to configuration. Metric: provider LOC before vs after; parse failure rate unchanged.
@@ -196,6 +205,10 @@ All offspring start at `shadow_only=True`. No offspring are promoted without exp
 | HYGIENE-07 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-08 | 107 — Infrastructure Hygiene | Pending |
 | HYGIENE-09 | 107 — Infrastructure Hygiene | Pending |
+| HEAL-01 | 108 — Self-Healing Hardening | Pending |
+| HEAL-02 | 108 — Self-Healing Hardening | Pending |
+| HEAL-03 | 108 — Self-Healing Hardening | Pending |
+| HEAL-04 | 108 — Self-Healing Hardening | Pending |
 | LLM-INFRA-01 | 094 — LiteLLM + Instructor | Pending |
 | LLM-INFRA-02 | 094 — LiteLLM + Instructor | Pending |
 | LLM-INFRA-03 | 094 — LiteLLM + Instructor | Pending |
