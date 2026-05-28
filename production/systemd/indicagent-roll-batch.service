@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Nightly Futures Roll Promotion Batch
-After=network.target
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 
 [Service]
 Type=oneshot

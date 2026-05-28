@@ -2,7 +2,8 @@
 [Unit]
 Requires=indicagent-redpanda-ready.service
 Description=IndicAgent Bar Aggregator Agent — 1m->HTF bar aggregation
-After=network-online.target indicagent-ibkr-provider.service indicagent-provider-merger.service indicagent-redpanda-ready.service
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
 StartLimitBurst=0

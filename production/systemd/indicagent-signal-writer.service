@@ -1,6 +1,7 @@
 [Unit]
 Description=IndicAgent Signal Writer Agent — I7 signals → signal_ledger
-After=network.target docker.service
+After=network.target docker.service indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
 Wants=docker.service
 
 [Service]
