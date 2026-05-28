@@ -41,13 +41,12 @@ from src.intelligence.trading.lifecycle_transitions import (
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SIGNAL_REPLAY_ATTEMPTED_TOTAL,
+    SIGNAL_REPLAY_NULL_ZONE_TOTAL,
     SIGNAL_REPLAY_OHLCV_GAP_TOTAL,
     SIGNAL_REPLAY_RESOLVED_TOTAL,
     SIGNAL_REPLAY_UNRESOLVED_GAUGE,
 )
 from src.persistence.repository.signal_ledger_repository import SignalStatus
-
-REPLAY_INTERVAL_SECONDS = 30  # fast cycle to drain backlog
 
 
 class SignalReplayAuditorAgent(BaseAgent):
@@ -84,10 +83,8 @@ class SignalReplayAuditorAgent(BaseAgent):
     # DB helpers
     # ------------------------------------------------------------------
 
-    _BATCH_SIZE = 2000
-
     async def _fetch_unresolved(self) -> list[asyncpg.Record]:
-        """Fetch a bounded batch of unresolved signals past a 2-minute hold."""
+        """Fetch a bounded batch of signals whose TTL has genuinely elapsed."""
         query = """
             SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.direction,
                    sl.market_entry_price, sl.ttl_bars, sl.expires_at, sl.status, sl.activated_at,
@@ -95,23 +92,20 @@ class SignalReplayAuditorAgent(BaseAgent):
                    COALESCE(sl.entry_price::float, sl.activation_price) AS entry_price,
                    sl.stop_loss::float                                   AS stop_loss,
                    sl.targets                                            AS targets,
-                   (tf_sig.value->>'zone_low')::float                   AS entry_zone_low,
-                   (tf_sig.value->>'zone_high')::float                  AS entry_zone_high
+                   sl.entry_zone_low::float                             AS entry_zone_low,
+                   sl.entry_zone_high::float                            AS entry_zone_high
             FROM signal_ledger_full sl
-            LEFT JOIN intelligence_features f
-                ON f.symbol = sl.symbol AND f.ts = sl.feature_ts AND f.tf = sl.feature_tf
-            LEFT JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
-                ON tf_sig.value->>'signal_id' = sl.signal_id::text
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')
-              AND sl.timestamp < NOW() - INTERVAL '2 minutes'
+              AND sl.expires_at IS NOT NULL
+              AND sl.expires_at < NOW()
               AND sl.signal_schema_version = $1
-            ORDER BY sl.timestamp ASC
+            ORDER BY sl.expires_at ASC
             LIMIT $2
         """
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION, self._BATCH_SIZE)
+            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION, self.settings.replay_batch_size)
 
     async def _fetch_window_bars(
         self, symbol: str, tf: str, start_ts: datetime, end_ts: datetime
@@ -139,7 +133,8 @@ class SignalReplayAuditorAgent(BaseAgent):
                 """
                 SELECT COUNT(*) FROM signal_ledger_full
                 WHERE exit_at IS NULL
-                  AND timestamp < NOW() - INTERVAL '2 minutes'
+                  AND expires_at IS NOT NULL
+                  AND expires_at < NOW()
                   AND signal_schema_version = $1
                 """,
                 SIGNAL_SCHEMA_VERSION,
@@ -175,6 +170,8 @@ class SignalReplayAuditorAgent(BaseAgent):
             return False
 
         signal_dict = self._build_signal_dict(row)
+        if signal_dict is None:
+            return False
         topic = topic_lifecycle_transitions(self.settings.env_name)
         assert self._producer is not None
 
@@ -217,6 +214,17 @@ class SignalReplayAuditorAgent(BaseAgent):
         else:
             targets = []
 
+        zone_low = row["entry_zone_low"]
+        zone_high = row["entry_zone_high"]
+        if zone_low is None or zone_high is None:
+            SIGNAL_REPLAY_NULL_ZONE_TOTAL.add(1, {"symbol": row["symbol"]})
+            self.logger.warning(
+                "replay_null_zone_skip",
+                signal_id=str(row["signal_id"]),
+                symbol=row["symbol"],
+            )
+            return None
+
         entry_price = float(row["entry_price"])
         return {
             "signal_id": str(row["signal_id"]),
@@ -230,16 +238,12 @@ class SignalReplayAuditorAgent(BaseAgent):
             "ttl_bars": int(row["ttl_bars"] or 10),
             "bars_elapsed": 0,  # reset for bar-by-bar replay
             "point_value": 1.0,  # replay assumes single-contract base; multi-contract not tracked here
-            "entry_zone_low": (
-                float(row["entry_zone_low"]) if row["entry_zone_low"] is not None else entry_price
-            ),
-            "entry_zone_high": (
-                float(row["entry_zone_high"]) if row["entry_zone_high"] is not None else entry_price
-            ),
+            "entry_zone_low": float(zone_low),
+            "entry_zone_high": float(zone_high),
             "activated_at": row["activated_at"],
             "hmm_regime_at_fire": row["hmm_regime_at_fire"],
             "garch_sigma_at_fire": row["garch_sigma_at_fire"],
-            "expires_at": row.get("expires_at"),
+            "expires_at": row["expires_at"],
             "setup_plugin": "replay",  # placeholder for metrics labels
         }
 
@@ -497,7 +501,9 @@ class SignalReplayAuditorAgent(BaseAgent):
             except Exception as exc:
                 self.logger.exception("replay_cycle_failed", error=str(exc))
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=REPLAY_INTERVAL_SECONDS)
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self.settings.replay_interval_seconds
+                )
             except TimeoutError:
                 pass  # Normal — wake up for next cycle
 
