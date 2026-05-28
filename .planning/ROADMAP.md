@@ -591,7 +591,7 @@ Plans:
 - [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
 - [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
 - [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
+- [x] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 095: Pydantic AI Agent Adapter *(deferred to v2.8)*
 
@@ -703,10 +703,10 @@ Plans:
 
 - [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
 - [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
+- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
+- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
+- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
+- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 ### Phase 100: Plugin Shared Infrastructure
@@ -971,7 +971,7 @@ Plans:
   3. When a `PluginCircuitBreaker` opens, an event is published to `system.health.events` with `type=circuit_breaker_open`, `plugin_id`, `failure_count`, `opened_at`; CB events visible in service auditor log
   4. DLQ messages re-delivered more than `DLQ_MAX_RETRIES` times (default 3) are quarantined to a dead-letter-final topic with metadata; ServiceAuditor emits a `consumer_stall` alert when a consumer lag stops decreasing for > `STALL_TIMEOUT_SEC` (default 120s)
 
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -1037,8 +1037,8 @@ Plans:
 
 Plans:
 
-- [ ] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [ ] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
+- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
+- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
 - [ ] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
 - [ ] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
 - [ ] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
@@ -1349,7 +1349,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 105. Architecture Hotfix Sprint | v2.7 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
-| 108. Self-Healing Hardening | v2.8 | 6/7 | In Progress|  |
+| 108. Self-Healing Hardening | v2.8 | 7/7 | Complete   | 2026-05-28 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
