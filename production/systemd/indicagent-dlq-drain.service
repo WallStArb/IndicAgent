@@ -2,7 +2,8 @@
 Description=IndicAgent DLQ Drain - consumes all DLQ topics, writes to dlq_events
 After=network-online.target indicagent-redpanda-ready.service
 Wants=network-online.target
-StartLimitIntervalSec=0
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
