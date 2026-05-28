@@ -20,7 +20,8 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC
+from collections import defaultdict
+from datetime import UTC, datetime, timedelta
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
@@ -48,6 +49,7 @@ from src.core.stream_keys import (
     topic_signal_writer_dlq,
     topic_transform_graduation_dlq,
 )
+from src.observability.metrics import DLQ_QUARANTINE_TOTAL
 
 logger = structlog.get_logger(__name__)
 
@@ -66,16 +68,16 @@ def _is_legacy_format(raw: dict) -> bool:
 
 _INSERT_SQL: str = """
 INSERT INTO dlq_events
-    (routed_at, agent, source_topic, dlq_topic, error_type, error_message, payload, retry_count)
+    (routed_at, agent, source_topic, dlq_topic, error_type, error_message, payload, retry_count, quarantined)
 VALUES
-    ($1, $2, $3, $4, $5, $6, $7, $8)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 """
 
 
 class DLQDrainAgent(BaseAgent):
     """Continuous Kafka consumer draining all 15 DLQ topics into dlq_events.
 
-    Follows BaseAgent lifecycle contract (setup/_run/stop). No timer loop —
+    Follows BaseAgent lifecycle contract (setup/_run/stop). No timer loop -
     processes messages as they arrive. Consumer group: dlq_drain_consumer.
     """
 
@@ -84,6 +86,13 @@ class DLQDrainAgent(BaseAgent):
 
         self._pool: asyncpg.Pool | None = None
         self._consumer: KafkaConsumerClient | None = None
+        # In-memory rolling 24h occurrence counter keyed by (agent, source_topic, error_type).
+        # Value: (count, window_start). Window resets when window_start age exceeds 24h.
+        self._quarantine_counts: dict[tuple, tuple[int, datetime]] = defaultdict(
+            lambda: (0, datetime.now(UTC))
+        )
+        # Quarantine fires when count > _DLQ_MAX_RETRIES (i.e. the 4th occurrence within the 24h window).
+        self._DLQ_MAX_RETRIES: int = 3
 
     def _build_topics(self) -> list[str]:
         """Return all 15 active DLQ topic names for this environment."""
@@ -106,10 +115,45 @@ class DLQDrainAgent(BaseAgent):
             topic_health_events_dlq(env),
         ]
 
+    async def _seed_quarantine_counts_from_db(self) -> None:
+        """Populate _quarantine_counts from the last 24h of dlq_events rows.
+
+        Called once at startup after self._pool is initialized. Ensures a restart
+        cannot reset a poison-pill counter back to zero.
+        """
+        assert self._pool is not None
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT agent, source_topic, error_type,
+                           COUNT(*) AS cnt,
+                           MIN(routed_at) AS window_start
+                    FROM dlq_events
+                    WHERE routed_at > now() - interval '24 hours'
+                    GROUP BY agent, source_topic, error_type
+                    """)
+            for row in rows:
+                window_start = row["window_start"]
+                # asyncpg returns timestamptz as tz-aware datetime; guard against naive just in case
+                if window_start.tzinfo is None:
+                    window_start = window_start.replace(tzinfo=UTC)
+                self._quarantine_counts[(row["agent"], row["source_topic"], row["error_type"])] = (
+                    int(row["cnt"]),
+                    window_start,
+                )
+            self.logger.info(
+                "dlq_drain.quarantine_seed",
+                seeded_keys=len(self._quarantine_counts),
+            )
+        except Exception as e:
+            # Missing seed is degraded mode, not fatal; counters rebuild from live traffic.
+            self.logger.warning("dlq_drain.quarantine_seed_failed", error=str(e))
+
     async def _setup(self) -> None:
-        """Create DB pool and subscribe consumer to all 15 DLQ topics."""
+        """Create DB pool, seed quarantine counts, subscribe consumer to all 15 DLQ topics."""
         await super()._setup()
         self._pool = await create_db_pool(self.settings.database_url)
+        await self._seed_quarantine_counts_from_db()
         topics = self._build_topics()
         self._consumer = KafkaConsumerClient(
             *topics,
@@ -121,7 +165,7 @@ class DLQDrainAgent(BaseAgent):
         self.logger.info("dlq_drain_started", topic_count=len(topics))
 
     async def _run(self) -> None:
-        """Main consume loop — process DLQ messages until stop event."""
+        """Main consume loop - process DLQ messages until stop event."""
         assert self._consumer is not None
         assert self._pool is not None
 
@@ -140,7 +184,7 @@ class DLQDrainAgent(BaseAgent):
         except Exception as exc:
             if _is_legacy_format(raw):
                 # Pre-107.5 messages lack the DLQPayload envelope. Already failed,
-                # no retry value — discard with a single structured audit log.
+                # no retry value - discard with a single structured audit log.
                 self.logger.info(
                     "dlq_legacy_discarded",
                     dlq_topic=dlq_topic,
@@ -158,6 +202,18 @@ class DLQDrainAgent(BaseAgent):
 
         routed_at = msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC)
 
+        # Rolling 24h quarantine count keyed by (agent, source_topic, error_type).
+        key = (msg.agent, msg.source_topic, msg.error_type)
+        count, window_start = self._quarantine_counts[key]
+        now = datetime.now(UTC)
+        if now - window_start > timedelta(hours=24):
+            count, window_start = 0, now
+        count += 1
+        self._quarantine_counts[key] = (count, window_start)
+        quarantined = count > self._DLQ_MAX_RETRIES
+        if quarantined:
+            DLQ_QUARANTINE_TOTAL.add(1, {"agent": msg.agent, "error_type": msg.error_type})
+
         try:
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -170,6 +226,7 @@ class DLQDrainAgent(BaseAgent):
                     msg.error_message,
                     msg.payload,
                     msg.retry_count,
+                    quarantined,
                 )
         except Exception as exc:
             self.logger.error(
@@ -200,7 +257,7 @@ class DLQDrainAgent(BaseAgent):
         await super().stop()
 
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# -- Entrypoint ----------------------------------------------------------------
 
 
 async def main() -> None:
