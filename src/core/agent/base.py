@@ -193,6 +193,13 @@ class BaseAgent(abc.ABC, ConfigConsumerMixin):
             return m.create_up_down_counter(name.lstrip("_"))
         if name == "_plugin_circuit_breakers":
             return {}
+        # Phase 109: config consumer attrs — tests that bypass __init__ via __new__ need these.
+        if name == "_config_cache":
+            return {}
+        if name in ("_config_consumer", "_config_reload_task"):
+            return None
+        if name == "_config_loaded":
+            return False
         if name == "_bar_e2e_latency":
             from src.observability.otel import get_meter
 
