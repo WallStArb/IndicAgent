@@ -214,3 +214,60 @@ ON CONFLICT (config_key) DO NOTHING;
 INSERT INTO config_state (config_key, config_value, version)
 VALUES ('macro.window_bars', '10', 1)
 ON CONFLICT (config_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- remediation_ledger: hypertable recording all self-healing remediation attempts
+-- Provides durable idempotency (alert_id dedup) and durable rate limiting (action counts)
+-- Primary key: (timestamp, remediation_id) — hypertable PK must include partition key
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS remediation_ledger (
+    timestamp       TIMESTAMPTZ NOT NULL,
+    remediation_id  TEXT NOT NULL,
+    alert_id        TEXT NOT NULL,
+    state_variable  TEXT NOT NULL,
+    pre_value       FLOAT,
+    post_value      FLOAT,
+    target_value    FLOAT,
+    action          TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    duration_ms     INT,
+    error_message   TEXT,
+    changed_by      TEXT NOT NULL,
+    reason          TEXT,
+    PRIMARY KEY (timestamp, remediation_id)
+);
+
+SELECT create_hypertable('remediation_ledger', 'timestamp', if_not_exists => TRUE);
+
+-- Index for durable idempotency lookup: check if alert_id was already processed recently
+CREATE INDEX IF NOT EXISTS idx_remediation_alert_time
+    ON remediation_ledger (alert_id, timestamp DESC);
+
+-- Index for durable rate limit queries: count action occurrences in last N hours
+CREATE INDEX IF NOT EXISTS idx_remediation_action_time
+    ON remediation_ledger (action, timestamp DESC);
+
+SELECT add_retention_policy('remediation_ledger', INTERVAL '90 days', if_not_exists => TRUE);
+ALTER TABLE remediation_ledger SET (timescaledb.compress = true, timescaledb.compress_segmentby = 'action');
+SELECT add_compression_policy('remediation_ledger', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- ---------------------------------------------------------------------------
+-- remediation_success_rates: 30-day rolling MV per action
+-- Refresh: REFRESH MATERIALIZED VIEW CONCURRENTLY remediation_success_rates;
+-- Called by SelfHealingEngine background task every 5 minutes.
+-- NULLIF guards against divide-by-zero when attempt_count = 0.
+-- CONCURRENTLY requires the unique index below (no table lock on refresh).
+-- ---------------------------------------------------------------------------
+CREATE MATERIALIZED VIEW IF NOT EXISTS remediation_success_rates AS
+SELECT
+    action,
+    COUNT(*) AS attempt_count,
+    SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+    SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)::FLOAT / NULLIF(COUNT(*), 0) AS success_rate
+FROM remediation_ledger
+WHERE timestamp > NOW() - INTERVAL '30 days'
+GROUP BY action
+WITH DATA;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_remediation_success_rates_action
+    ON remediation_success_rates (action);
