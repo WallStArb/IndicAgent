@@ -1,142 +1,64 @@
-<!-- generated-by: gsd-doc-writer -->
-# Swarm Intelligence Architecture
+# Swarm Intelligence
+> No single AI agent makes a decision — specialist agents each assess one dimension, and their outputs are composed into a calibrated multiplier.
 
-> **Domain:** Intelligence — deep-dive companion to [`intelligence-ai.md`](../intelligence/intelligence-ai.md)
+## The Problem It Solves
 
-**Version:** 2.8
-**Status:** current
-**Last Updated:** 2026-05-27
-**Code:** `src/core/ai/`, `src/intelligence/ai/`, `services/alpha_swarm_agent.py`
+A single LLM call cannot reliably synthesize multi-dimensional market intelligence. It lacks specialization — the same call that assesses momentum must also assess regime coherence, order flow, and historical analogs. Without adversarial checking, the model has no mechanism to catch its own overconfident conclusions. And confidence scores from a single model are uncalibrated: "87% confidence" has no empirical meaning without outcome data mapping scores to actual win rates.
 
-## Overview
+## The Principle
 
-The swarm intelligence layer is a Mixture of Agents (MoA) system where specialist AI agents evaluate trading signals from independent analytical dimensions. A composite agent — `AlphaSwarmComputeAgent` — orchestrates them the way a trading desk synthesizes input from specialists.
+Mixture of Agents (MoA): specialized agents each assess one analytical dimension independently. Their outputs are composed into a calibrated multiplier. No single agent makes a decision — the composite does. This mirrors how trading desks actually work: a fundamental analyst, a technician, a risk manager, and a devil's advocate each contribute a view, and the PM synthesizes them.
 
-The swarm runs as an overlay on I7 signals. It never blocks signal execution. It produces a `swarm_multiplier` that adjusts signal confidence after the calibration chain.
+Independence is the key requirement. Agents that analyze the same dimension provide no benefit over a single agent. The adversarial agent (skeptic) is mandatory — without explicit challenge, a swarm of agreeing specialists produces groupthink, not confirmation.
 
----
+## How IndicAgent Applies It
 
-## Agent Framework
+Five specialist agents form the Alpha Swarm:
 
-### BaseAIAgent
+| Agent | Dimension | Approach |
+|-------|-----------|----------|
+| `correlation` | Cross-asset correlation context | Compares signal to related instruments (VX, SPY, sector ETFs) |
+| `regime_coherence` | Signal-regime alignment | Checks whether signal direction matches I4 regime consensus |
+| `counterfactual` | Why this trade might fail | Generates the bear case for a bull signal (and vice versa) |
+| `skeptic` | Adversarial review | Challenges all other agents' conclusions; mandatory for coevolution |
+| `ml_scorer_v1` | Historical analog scoring | Local model (no LLM call), 50ms latency budget |
 
-Universal base class (`src/core/ai/base_agent.py`) for all AI agents:
-
-| Attribute | Purpose |
-|-----------|---------|
-| `agent_id` | Unique identifier (e.g., `skeptic_v1`) |
-| `group` | Agent group membership (`alpha`, `narrative`, `risk`) |
-| `tiers_needed` | Which intelligence tiers to load into context |
-| `latency_budget_ms` | Wall-clock timeout (default: 5000ms) |
-| `shadow_only` | Start in shadow mode — no production impact |
-| `prompt_version` | Auto-injected into `llm_calls` for prompt A/B testing |
-
-Every agent gets: structured logging (structlog), OTel tracing, metrics, graceful SIGTERM/SIGINT shutdown, and automatic DLQ routing — all from the base class. Agents **must** use `self._llm_generate(context, ...)` — never `self._llm.generate()` directly. This auto-injects audit context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
-
-### BaseGroupService
-
-Shared dispatcher (`src/core/ai/base_group_service.py`) that manages a group of agents:
-- Provides Kafka consumer/producer, DB pool, `AIContextCache`, and `LLMProviderChain`
-- Handles bar data updates and agent dispatch
-- Agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`
-- Runs graduation loop for auto-flipping `shadow_only` agents when statistical gates are met
-
-### LineageRecorder
-
-Unified signal lineage (`src/core/ai/lineage.py`):
-- Records to `signal_lineage` Kafka topic (Kafka-first, not DB-first)
-- Batch buffer with configurable size and flush interval
-- Tracks: prompt version, model, inputs, outputs, timing, agent_id
-
----
-
-## The Alpha Swarm: 5 Specialist Agents
-
-| Agent | ID | Latency Budget | Analytical Dimension |
-|-------|----|----|---------------------|
-| **SkepticAgent** | `skeptic_v1` | 120s (LLM) | Counterfactual challenge — argues against every signal |
-| **CorrelationAgent** | `correlation_v1` | 120s (LLM) | Cross-asset dependency — checks signal independence |
-| **RegimeCoherenceAgent** | `regime_coherence_v1` | 120s (LLM) | Regime consistency — does the signal thesis match current regime? |
-| **CounterfactualAgent** | `counterfactual_v1` | 120s (LLM) | Historical pattern — would similar setups have paid off? |
-| **MLScorerAgent** | `ml_scorer_v1` | 50ms (local) | LightGBM score — local model, no LLM call |
-
-Each LLM-based agent receives the full signal context via `AIContext` (typed tier data, only requested tiers populated), calls the LLM chain with a specialist prompt, and returns an `AgentOutput` with a multiplier and reasoning. `ml_scorer_v1` uses a local LightGBM model (no LLM call, 50ms budget).
-
----
-
-## Mixture of Agents Composition
-
-The `AlphaSwarmComputeAgent` combines specialist outputs using **per-agent learned weights**:
+Each agent returns a score that feeds into a composite `swarm_multiplier`. The multiplier is applied to `calibrated_confidence` after all other calibration layers:
 
 ```
-swarm_multiplier = Σ (agent_output × agent_weight)
-```
-
-Weights are learned from a 30-day rolling Spearman correlation between each agent's multiplier and actual signal outcomes. The system adapts automatically:
-
-- Agents producing useful analysis → higher weight → more influence
-- Agents producing noisy or uncorrelated analysis → lower weight → less influence
-- Agent timeout or error → contribution defaults to `1.0` (neutral) — graceful degradation
-
-The final multiplier is range-clamped to `[0.0, 2.0]` and applied as:
-```
+swarm_multiplier = f(correlation, regime_coherence, counterfactual, skeptic, ml_score)
 adjusted_confidence = calibrated_confidence × swarm_multiplier
 ```
 
-Note: `calibrated_confidence` is null in Kafka signal payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")` when building swarm context.
+**Shadow governance:** Every swarm agent starts in shadow mode. It produces analysis but the output does not affect signal scoring until the statistical gate is passed (`n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0`). Current policy: discount-only — agents may reduce confidence but cannot boost above 1.0 until sufficient outcome data proves positive edge.
 
----
+**Latency:** All LLM agents have `latency_budget_ms = 120,000` (120s). `ml_scorer_v1` is 50ms (local model). With gemma4 at the current quantization level, p50 LLM latency is ~47-52s — well within budget. Agents run non-blocking: swarm analysis is a confidence overlay, not a signal gate.
 
-## LLM Provider
+**Mandatory attribute:** Every `BaseAIAgent` subclass declares `prompt_version` from its `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing across the swarm.
 
-The swarm uses a single provider: **Ollama Local** (gemma4:e4b default; `.env` may override via `OLLAMA_MODEL`). OpenRouter, DeepSeek, and OllamaCloud providers have been removed.
+## Invariants
 
-```python
-# src/core/llm/chain.py — single provider
-OllamaProvider → gemma4:e4b (default; .env OLLAMA_MODEL may override)
-```
+- Swarm agents are discount-only until sufficient outcome data proves positive edge — they cannot boost confidence above the pre-swarm calibrated value.
+- The skeptic agent must always be live. Adversarial coevolution requires a challenger; removing it collapses the swarm to agreeing specialists.
+- `swarm_multiplier` is applied after all other calibration — it is the final adjustment, not an intermediate one.
+- Every swarm agent call is persisted to `llm_calls` with full context. No silent failures.
+- Agents **must** use `self._llm_generate(context, ...)` — never `self._llm.generate()` directly. Auto-injects audit context.
 
-**gemma4:e4b JSON enforcement:** Outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt.
+## Recipe
 
-**p50 latency:** ~47-52s with nemotron-3-nano:4b — well within the 120s budget. Live services `alpha_swarm` and `narrative_compute` hold persistent Ollama connections — kill them before swapping models or benchmarking.
+When designing a swarm intelligence system:
 
----
+1. **Define specialization criteria before agent count.** Each agent should assess exactly one dimension that the others cannot. If two agents are assessing the same thing, merge them.
+2. **Include an adversarial agent.** A swarm without a skeptic is a confirmation machine. The adversarial agent's job is to find the case for the opposite conclusion.
+3. **Shadow mode before production.** New agents must demonstrate positive edge before their output affects decisions. The swarm is self-healing: agents that degrade are automatically demoted.
+4. **Choose composition function carefully.** Averaging multipliers treats all agents equally. Weighting by historical accuracy introduces feedback bias. Start with equal weights and learn from outcome data.
+5. **Design for latency asymmetry.** LLM agents are slow (50-120s). Local model agents are fast (<100ms). Compose them so the slow agents can be non-blocking without delaying the signal.
+6. **Calibrate the multiplier range.** Discount-only until proven otherwise — positive edge must be demonstrated before boosting. Start the multiplier range at [0.5, 1.0] and only widen it after statistical validation.
 
-## Shadow Governance
+## See Also
 
-All swarm agents auto-enroll in the `shadow_registry` DB table at startup (idempotent via `ON CONFLICT DO NOTHING`). Shadow agents:
-- Compute and record their analysis
-- Produce `swarm_multiplier` values
-- **Do not** affect `adjusted_confidence` in production signals
-
-**Promotion gate:** `n >= 100` resolved signals AND `bootstrap_ci_lower(pnl_r) > 0.0`
-**Demotion gate:** `EV[R] < -0.05` for 3 consecutive evaluation cycles
-
-**Schema gate:** Swarm processing only runs on `signal_schema_version = 'v1'` signals — ensuring analysis quality matches signal quality.
-
----
-
-## Database
-
-**`swarm_agent_weights` table:**
-
-| Column | Type | Purpose |
-|--------|------|---------|
-| `agent_id` | TEXT | Agent identifier (e.g., `skeptic_v1`) |
-| `timeframe` | TEXT | Per-timeframe weight |
-| `weight` | FLOAT | Learned weight from Spearman correlation |
-| `sample_size` | INTEGER | Number of resolved signals in window |
-| `spearman_rho` | FLOAT | Correlation coefficient |
-| `calibration_error` | FLOAT | Calibration quality metric |
-| `updated_at` | TIMESTAMPTZ | Last recalculation |
-
-**`signal_ledger` additions:** `swarm_multiplier`, `adjusted_confidence`, `swarm_agent_count` — recorded per signal for full audit trail.
-
----
-
-## Related Documentation
-
-- [CIS Scoring](cis-scoring.md) — calibration chain and confidence adjustment
-- [Signal Lifecycle](signal-lifecycle.md) — what happens after signal fires
-- [Evolvable AI](evolvable-ai.md) — evolutionary framework for agent improvement
-- **Code:** `src/core/ai/base_agent.py`, `src/core/ai/base_group_service.py`, `src/intelligence/ai/alpha/`
+- Implementation: `docs/intelligence/intelligence-ai.md` — BaseAIAgent protocol, shadow governance, LLM audit trail
+- Calibration: `docs/intelligence/intelligence-foundation.md` — calibration chain, swarm overlay position
+- Code: `services/alpha_swarm_agent.py`, `src/intelligence/ai/alpha/`
+- Related concept: `docs/concepts/adaptive-intelligence.md` — how shadow governance gates swarm agents
+- Related concept: `docs/concepts/evidence-graded-signals.md` — how swarm multiplier relates to CIS calibration
