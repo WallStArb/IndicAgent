@@ -1091,7 +1091,7 @@ Plans:
 
 **Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
 **Depends on**: Phase 096
-**Requirements**: MEM-01, MEM-02, MEM-03, MEM-04
+| 109. Config Foundation & Self-Healing Engine | v2.8 | 5 plans planned | Planned | - |
 **Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
 **Success Criteria** (what must be TRUE):
 
@@ -1392,6 +1392,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
 | 108. Self-Healing Hardening | v2.8 | 7/7 | Complete    | 2026-05-28 |
+| 109. Config Foundation & Self-Healing Engine | v2.8 | 5 plans planned | Revised | - |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
@@ -1402,12 +1403,3 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
 
-### Phase 109: Config Foundation & Self-Healing Engine
-
-**Goal:** Implement unified config system with DB-backed time-series state, Kafka propagation, and control-theory-based self-healing engine with Alertmanager integration
-**Requirements**: TBD
-**Depends on:** Phase 108
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (run /gsd-plan-phase 109 to break down)
