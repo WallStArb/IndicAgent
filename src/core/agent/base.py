@@ -29,10 +29,12 @@ import signal
 import sys
 import time
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from opentelemetry import metrics as _otel_metrics
 
+from src.config.config_consumer import ConfigConsumerMixin
 from src.config.settings import Settings, get_settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
@@ -84,7 +86,7 @@ AGENT_SETUP_LATENCY_SECONDS = _base_meter.create_histogram(
 _tracing_initialized: bool = False
 
 
-class BaseAgent(abc.ABC):
+class BaseAgent(abc.ABC, ConfigConsumerMixin):
     """Abstract base for all pipeline agents.
 
     Subclasses must implement ``_run()``. The lifecycle is:
@@ -93,6 +95,13 @@ class BaseAgent(abc.ABC):
     2. ``_run()`` — main loop; runs until ``_stop_event`` is set.
     3. ``_teardown()`` — called in finally block after ``_run()`` exits (or raises).
     4. ``stop()`` — called after ``_teardown()``; override to add flush logic.
+
+    Config integration (Phase 109):
+    - _pre_setup_config_load() loads OPS snapshot BEFORE _setup() (Codex HIGH fix)
+    - _setup_config_consumer() subscribes Kafka AFTER _setup() completes
+    - Both phases are NON-FATAL; service starts with defaults if DB/Kafka unavailable
+    - Subclasses may override _config_layer = "INFRA" to skip Kafka subscription
+    - Subclasses may override _config_prefixes = ("regime.",) to filter reloads
     """
 
     # ---------------------------------------------------------------------------
@@ -150,6 +159,13 @@ class BaseAgent(abc.ABC):
         self._dlq_attrs = {"agent_id": self._agent_label}
         self._cb_attrs = {"agent_id": self._agent_label}
         self._cb_open: bool = False
+        # Phase 109: config consumer state — initialized here so mixin methods work.
+        # Subclasses MAY override _config_layer = "INFRA"/"STRUCT" to skip Kafka subscription.
+        # Subclasses MAY override _config_prefixes = ("regime.", "swarm.") to filter reloads.
+        self._config_cache: dict[str, Any] = {}
+        self._config_consumer = None
+        self._config_reload_task = None
+        self._config_loaded = False
 
     def __getattr__(self, name: str):
         """Fallback for attributes not set in __new__ test pattern (bypasses __init__).
@@ -177,6 +193,13 @@ class BaseAgent(abc.ABC):
             return m.create_up_down_counter(name.lstrip("_"))
         if name == "_plugin_circuit_breakers":
             return {}
+        # Phase 109: config consumer attrs — tests that bypass __init__ via __new__ need these.
+        if name == "_config_cache":
+            return {}
+        if name in ("_config_consumer", "_config_reload_task"):
+            return None
+        if name == "_config_loaded":
+            return False
         if name == "_bar_e2e_latency":
             from src.observability.otel import get_meter
 
@@ -201,14 +224,19 @@ class BaseAgent(abc.ABC):
     async def start(self) -> None:
         """Lifecycle entry point.
 
-        Order (D-06):
+        Order (D-06, updated Phase 109):
         1. Register signal handlers.
         2. Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins).
         3. Log agent.starting.
-        4. Call _setup() — connect Kafka, seed history, etc.
-        5. Launch lag reporter as background task.
-        6. Await _run(). On Exception: log agent.run_failed and re-raise.
-        7. finally: cancel lag task, await _teardown(), call stop().
+        4. [NEW] _pre_setup_config_load() — load OPS config snapshot NON-FATALLY.
+           Config snapshot loads BEFORE _setup() so service-specific setup can read OPS
+           config values (Codex HIGH finding). Kafka subscription comes AFTER _setup()
+           because hot-reload is not required for service initialization.
+        5. Call _setup() — connect Kafka, seed history, etc. CAN now read OPS config.
+        6. [NEW] _setup_config_consumer() — subscribe to Kafka for hot-reload NON-FATALLY.
+        7. Launch lag reporter as background task.
+        8. Await _run(). On Exception: log agent.run_failed and re-raise.
+        9. finally: cancel lag task, await _teardown(), call stop().
         """
         self._register_signal_handlers()
 
@@ -227,6 +255,15 @@ class BaseAgent(abc.ABC):
 
         try:
             setup_start = time.monotonic()
+
+            # Phase 109: config snapshot loads BEFORE _setup() so service-specific setup can
+            # read OPS config (Codex review finding). Kafka subscription comes AFTER _setup()
+            # because hot-reload is not required for service initialization.
+            try:
+                await self._pre_setup_config_load()
+            except Exception:
+                self.logger.warning("agent.config_pre_load_unexpected_error", agent=self.name)
+
             if self.circuit_breaker:
                 try:
                     await self._setup_with_retry()
@@ -236,6 +273,13 @@ class BaseAgent(abc.ABC):
                     raise
             else:
                 await self._setup()
+
+            # Phase 109: subscribe to Kafka config updates AFTER _setup() completes.
+            try:
+                await self._setup_config_consumer()
+            except Exception:
+                self.logger.warning("agent.config_consumer_unexpected_error", agent=self.name)
+
             setup_duration = time.monotonic() - setup_start
             AGENT_SETUP_LATENCY_SECONDS.record(setup_duration, self._setup_latency_attrs)
             AGENT_SETUP_SUCCESS_TOTAL.add(1, self._setup_success_attrs)
@@ -267,6 +311,7 @@ class BaseAgent(abc.ABC):
                 except asyncio.CancelledError:
                     pass
             await self._teardown()
+            await self._teardown_config_consumer()
             await self.stop()
 
     async def stop(self) -> None:
@@ -286,6 +331,15 @@ class BaseAgent(abc.ABC):
         No-op by default — existing agents that don't override keep working.
         Not abstract: subclasses that omit _teardown() are valid and common.
         """
+
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """Return cached OPS config value for key, or default if not present.
+
+        Reads from in-memory _config_cache populated by _pre_setup_config_load()
+        and updated by _reload_config_loop(). Safe to call at any time; returns
+        default when config not loaded (DB down) or key not in OPS config.
+        """
+        return self._config_cache.get(key, default)
 
     @property
     def running(self) -> bool:

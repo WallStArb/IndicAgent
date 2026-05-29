@@ -474,6 +474,14 @@ CONFIG_AUTH_FAILED_TOTAL = _meter.create_counter(
     "config_auth_failed_total",
     description="Config API auth failures by reason",
 )
+CONFIG_LAST_RELOAD_TIMESTAMP_SECONDS = _meter.create_gauge(
+    "config_last_reload_timestamp_seconds",
+    description="Timestamp of last successful config reload per agent",
+)
+CONFIG_STALE_TOTAL = _meter.create_counter(
+    "config_stale_total",
+    description="Config operations failed (DB/Kafka unavailable), using cached/default config",
+)
 
 # ---------------------------------------------------------------------------
 # Self-healing metrics (Phase 109)
