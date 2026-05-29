@@ -19,8 +19,8 @@
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
-- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107 (shipped 2026-05-26)
-- [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (active)
+- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-26; 108 shipped 2026-05-28, 109 in progress)
+- [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (not started)
 
 ## Phases
 
@@ -533,9 +533,9 @@ Plans:
 </details>
 
 <details>
-<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104, 105, 106, 107) — SHIPPED 2026-05-26</summary>
+<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109) — SHIPPED 2026-05-26 (108: 2026-05-28, 109: in progress)</summary>
 
-**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). (4) Infrastructure hardening: architecture hotfixes, foundation hardening, infrastructure hygiene. Phases 094-099 (AI platform) deferred to v2.8.
+**Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). (4) Infrastructure hardening: architecture hotfixes, foundation hardening, infrastructure hygiene, self-healing hardening, config foundation. Phases 094-099 (AI platform) deferred to v2.8.
 
 ### Phase 093: Renaissance Mathematical Correctness Audit
 
@@ -854,9 +854,9 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — ACTIVE</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — NOT STARTED</summary>
 
-**Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-107) completed in v2.7.
+**Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-109) completed in v2.7.
 
 **Design principles (Renaissance standard):**
 
@@ -1014,7 +1014,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 109-01-PLAN.md — Config foundation: DB tables, ConfigService, validation schemas
+- [x] 109-01-PLAN.md — Config foundation: DB tables, ConfigService, validation schemas
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -1091,7 +1091,7 @@ Plans:
 
 **Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
 **Depends on**: Phase 096
-| 109. Config Foundation & Self-Healing Engine | v2.8 | 5 plans planned | Planned | - |
+| 109. Config Foundation & Self-Healing Engine | v2.7 | 1/5 | In Progress|  |
 **Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
 **Success Criteria** (what must be TRUE):
 
@@ -1267,7 +1267,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). Active: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104, 105, 106, 107, 108 shipped; 109 in progress). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1391,7 +1391,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 105. Architecture Hotfix Sprint | v2.7 | 5/5 | Complete | 2026-05-24 |
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
-| 108. Self-Healing Hardening | v2.8 | 7/7 | Complete    | 2026-05-28 |
+| 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
 | 109. Config Foundation & Self-Healing Engine | v2.8 | 5 plans planned | Revised | - |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
