@@ -508,7 +508,71 @@ Applies to: I7 plugins, swarm agents, ML models, LLM-derived heuristics, eAI-evo
 
 ---
 
-## 10. Decision Log
+## Technology Decision Principles
+
+**Principle 1: Self-hosted everything**
+> "Vendor lock-in is architectural debt we can't afford."
+
+We run everything on our own infrastructure. No cloud ML services, no paid observability platforms. Ollama local for inference, TimescaleDB for storage, Prometheus/Grafana for metrics.
+
+**Principle 2: Simplest tool that works**
+> "Don't introduce a framework when 50 lines of code will do."
+
+Our LLM provider chain is ~300 lines of custom code. LangChain would be 10x the complexity for the same functionality. We only add frameworks when they solve a problem we can't hand-roll efficiently.
+
+**Principle 3: Tabular > Deep Learning**
+> "Gradient boosting wins 95% of tabular benchmarks."
+
+Our data is structured time-series features (OHLCV, indicators, regime scores). Tree ensembles (LightGBM) dominate this space. We'll add PyTorch when we have unstructured data (news text, options surface images).
+
+**Principle 4: Shadow-first validation**
+> "No AI output touches production without statistical proof."
+
+Every agent, model, or heuristic starts in shadow mode. n >= 100 resolved outcomes + bootstrap CI lower > 0.0 at 95% confidence before promotion.
+
+**Principle 5: Data is forever**
+> "Never drop data that could contain a signal."
+
+We keep `intelligence_features`, `signal_ledger`, `signal_lineage`, and `llm_calls` forever. Storage is cheapest; data is irreplaceable. Every outcome is training data for the next model iteration.
+
+**Why Ollama local over cloud APIs:**
+- Zero latency from network calls
+- No API key management
+- No per-token billing surprises
+- Works offline
+- Model swap is a local config change
+
+**Why custom agent framework over LangChain:**
+- Our shadow governance pattern is unique
+- Our lineage requirements are unique
+- Our statistical gates are unique
+- Framework would fight us on all three
+
+**Why TimescaleDB over vector DB for features:**
+- Our features are structured (not embeddings)
+- Time-series queries are our primary access pattern
+- Hypertable partitioning optimizes for time-based queries
+- Vector similarity only needed for eAI novelty (pgvector planned)
+
+---
+
+## Renaissance Checklist for AI/ML Technology Choices
+
+Before adding a new AI/ML dependency:
+
+| Question | Renaissance principle |
+|----------|----------------------|
+| Is it self-hosted? No vendor lock-in? | Self-hosted everything |
+| Is it open-source? Can we fork if abandoned? | Control our destiny |
+| Does it solve a problem we can't hand-roll in <100 lines? | Simplest tool that works |
+| Does it support shadow-first validation? | Statistical proof before production |
+| Does it integrate with our data pipeline (Kafka → TimescaleDB)? | Infrastructure as edge |
+| What's the ongoing maintenance cost? | Simplest tool that works |
+| Does it work with our data type (tabular time-series)? | Tabular > Deep Learning |
+
+---
+
+## Decision Log
 
 | Date | Decision | Rationale |
 |------|----------|-----------|

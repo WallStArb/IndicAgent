@@ -19,5 +19,28 @@
       "codex"
     ],
     "ollama_host": "http://127.0.0.1:11499"
-  }
+  },
+  "graduation_targets": [
+    {
+      "id": "arch_patterns",
+      "target": "docs/architecture/patterns.md",
+      "from_category": "patterns",
+      "keywords": ["transactional outbox", "circuit breaker", "shadow mode", "tiered plugin", "plugin-native", "event-driven"],
+      "section": "## Implementation Patterns"
+    },
+    {
+      "id": "arch_infrastructure",
+      "target": "docs/architecture/infrastructure.md",
+      "from_category": "decisions",
+      "keywords": ["kafka", "systemd", "timescaledb", "docker", "deployment", "redpanda"],
+      "section": "## Infrastructure Decisions"
+    },
+    {
+      "id": "arch_data_flow",
+      "target": "docs/architecture/data-flow.md",
+      "from_category": "patterns",
+      "keywords": ["hot warm cold", "typed event bus", "stream merge", "consumer group"],
+      "section": "## Data Flow Patterns"
+    }
+  ]
 }
