@@ -103,6 +103,12 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: drains DLQ topics from all above layers
+    # Phase 109 services (config foundation + self-healing engine).
+    # Lag thresholds for these units, when needed, will be seeded into config_state
+    # under alert.lag.* keys by Plan 05 Task 3.
+    "indicagent-config-service": 9,  # priority 9: OPS config HTTP API (port 9001)
+    "indicagent-outbox-dispatcher": 9,  # priority 9: transactional outbox -> Kafka publisher
+    "indicagent-self-healing-agent": 9,  # priority 9: Alertmanager webhook + remediation engine
     # Layer 8 — top-level services (API, dashboard — always-on, no DAG dependency)
     "indicagent-api": 10,  # priority 10: always-on top-level; no upstream ordering constraint
     "indicagent-dashboard": 10,  # priority 10: always-on top-level; no upstream ordering constraint
@@ -164,6 +170,12 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
     "dlq_drain_agent": "indicagent-dlq-drain",
+    # Phase 109 services (config foundation + self-healing engine).
+    # Lag thresholds for these units, when needed, will be seeded into config_state
+    # under alert.lag.* keys by Plan 05 Task 3.
+    "config-service": "indicagent-config-service",
+    "outbox-dispatcher": "indicagent-outbox-dispatcher",
+    "self-healing-agent": "indicagent-self-healing-agent",
 }
 
 # Timer-triggered oneshot services — ML batch services inactive (dead) between runs is correct
