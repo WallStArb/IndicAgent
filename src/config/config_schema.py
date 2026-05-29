@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ConfigSchemaEntry(BaseModel):
@@ -25,7 +25,7 @@ class ConfigSchemaEntry(BaseModel):
     is_secret: bool = False
     version: int = 1
     description: str | None = None
-    created_at: datetime = datetime.now(UTC)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ConfigChange(BaseModel):
