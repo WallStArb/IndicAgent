@@ -385,7 +385,7 @@ rsync -avz /var/backups/indicagent/ \
 
 ## See Also
 
-- **Database management:** `docs/guides/database-management.md`
-- **Deployment:** `docs/guides/deployment.md`
-- **Infrastructure reference:** `docs/operations/infrastructure-reference.md`
-- **Setup:** `docs/setup-new-machine.md`
+- **Database management:** `docs/operations/database.md`
+- **Deployment:** `docs/operations/infrastructure.md`
+- **Infrastructure reference:** `docs/operations/infrastructure.md`
+- **Setup:** `docs/development/setup.md`

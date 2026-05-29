@@ -398,6 +398,6 @@ Redpanda includes Schema Registry (port 18843). Planned for:
 
 - **Stream schemas:** `docs/reference/schemas/stream-schemas.md`
 - **Data pipeline:** `docs/concepts/data-pipeline.md`
-- **Deployment:** `docs/guides/deployment.md`
-- **Infrastructure reference:** `docs/operations/infrastructure-reference.md`
+- **Deployment:** `docs/operations/infrastructure.md`
+- **Infrastructure reference:** `docs/operations/infrastructure.md`
 - **Redpanda docs:** https://docs.redpanda.com/
