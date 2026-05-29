@@ -49,7 +49,7 @@ Evolutionary agent framework — genome mutation, fitness function, reproductive
 
 ## Next Steps
 
-- **Learn by doing:** [Guides](../guides/) for hands-on tasks
+- **Learn by doing:** [Development](../development/) for hands-on tasks
 - **Look up specifics:** [Reference](../reference/) for API docs
 
 
