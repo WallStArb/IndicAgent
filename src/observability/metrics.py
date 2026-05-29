@@ -436,6 +436,83 @@ FEATURE_VALIDATION_DECISIONS_TOTAL = _meter.create_counter(
     description="Total validation decisions written to validation_results per decision label.",
 )
 
+# ---------------------------------------------------------------------------
+# Config metrics (Phase 109)
+# ---------------------------------------------------------------------------
+
+CONFIG_SET_TOTAL = _meter.create_counter(
+    "config_set_total",
+    description="Config set operations by key and outcome",
+)
+CONFIG_VALIDATION_FAILED_TOTAL = _meter.create_counter(
+    "config_validation_failed_total",
+    description="Config validation failures by key and reason",
+)
+CONFIG_REVERT_TOTAL = _meter.create_counter(
+    "config_revert_total",
+    description="Config revert operations by key",
+)
+CONFIG_OUTBOX_PENDING = _meter.create_up_down_counter(
+    "config_outbox_pending",
+    description="Pending config outbox entries awaiting Kafka publish",
+)
+CONFIG_OUTBOX_PUBLISH_LATENCY_SECONDS = _meter.create_histogram(
+    "config_outbox_publish_latency_seconds",
+    description="Config outbox to Kafka publish latency",
+    unit="s",
+)
+CONFIG_RELOAD_TOTAL = _meter.create_counter(
+    "config_reload_total",
+    description="Config hot-reload events by agent and key",
+)
+CONFIG_RELOAD_LATENCY_SECONDS = _meter.create_histogram(
+    "config_reload_latency_seconds",
+    description="Time from Kafka receive to in-memory cache update (review feedback - Gemini suggestion)",
+    unit="s",
+)
+CONFIG_AUTH_FAILED_TOTAL = _meter.create_counter(
+    "config_auth_failed_total",
+    description="Config API auth failures by reason",
+)
+
+# ---------------------------------------------------------------------------
+# Self-healing metrics (Phase 109)
+# ---------------------------------------------------------------------------
+
+REMEDIATION_ATTEMPT_TOTAL = _meter.create_counter(
+    "remediation_attempt_total",
+    description="Remediation attempts by state_variable and action",
+)
+REMEDIATION_SUCCESS_TOTAL = _meter.create_counter(
+    "remediation_success_total",
+    description="Successful remediation outcomes",
+)
+REMEDIATION_DURATION_SECONDS = _meter.create_histogram(
+    "remediation_duration_seconds",
+    description="Remediation execution latency",
+    unit="s",
+)
+REMEDIATION_SUCCESS_RATE = _meter.create_gauge(
+    "remediation_success_rate",
+    description="30-day rolling success rate per action",
+)
+REMEDIATION_MEASURE_FAILED_TOTAL = _meter.create_counter(
+    "remediation_measure_failed_total",
+    description="Prometheus measurement failures (fail-closed, no remediation triggered)",
+)
+WEBHOOK_RECEIVED_TOTAL = _meter.create_counter(
+    "webhook_received_total",
+    description="Alertmanager webhook requests received",
+)
+WEBHOOK_AUTH_FAILED_TOTAL = _meter.create_counter(
+    "webhook_auth_failed_total",
+    description="Webhook authentication failures by reason",
+)
+WEBHOOK_VALIDATION_FAILED_TOTAL = _meter.create_counter(
+    "webhook_validation_failed_total",
+    description="Webhook payload validation failures",
+)
+
 
 def record_langgraph_workflow(
     workflow_name: str,
