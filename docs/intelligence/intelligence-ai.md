@@ -262,6 +262,27 @@ await shadow_registry_ensure(
 
 ---
 
+## eAI Substrate (v2.8)
+
+The infrastructure for evolvable AI agents is operational. eAI agents (v2.8 roadmap) build on this existing substrate — no new infrastructure needed.
+
+| Component | Status | Purpose |
+|-----------|--------|---------|
+| `shadow_registry` table | Live | Auto-enrolls all I7 plugins and swarm agents at startup |
+| Signal ledger outcome tracking | Live | Fitness evaluation data accumulates per signal |
+| `LineageRecorder` | Live | Full ancestry tracking per agent call |
+| Skeptic agent | Live | Adversarial coevolution — challenges other swarm agents |
+| `BaseAIAgent` framework | Live | Agent parameter variations implement genome mutations |
+| `llm_calls` audit trail | Live | Every LLM call persisted with prompt version; outcome back-filled |
+| `bootstrap_ci_lower()` | Live | Statistical gate in `src/core/stats_utils.py` |
+| `ShadowTransitionEvent` | Live | Promotion/demotion published to `topic_shadow_transitions` |
+
+**Design principle:** eAI agents are `BaseAIAgent` subclasses with an additional `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied to the genome dict between evaluation cycles. The shadow governance lifecycle handles statistical gating before any mutant agent affects production scoring.
+
+See `docs/ideas/ai-03-evolvable-ai-agents.md` for the full research vision and `docs/ideas/eai-phase-recommendations.md` for the v2.8 implementation roadmap.
+
+---
+
 ## Lineage Recording
 
 ### Single Audit Path
