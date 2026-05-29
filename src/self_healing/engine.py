@@ -12,7 +12,6 @@ Design decisions:
 
 import asyncio
 import os
-import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -395,12 +394,20 @@ class SelfHealingEngine:
 
     async def _delete_old_logs(self, mountpoint: str) -> None:
         """Delete log files older than 7 days from the specified mountpoint."""
-        subprocess.run(
-            ["find", mountpoint, "-name", "*.log", "-mtime", "+7", "-delete"],
-            check=True,
-            capture_output=True,
-            timeout=30,
+        proc = await asyncio.create_subprocess_exec(
+            "find",
+            mountpoint,
+            "-name",
+            "*.log",
+            "-mtime",
+            "+7",
+            "-delete",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"find -delete failed: {stderr.decode().strip()}")
 
     async def _restart_service(self, unit: str) -> None:
         """Restart a systemd unit via the service auditor restart endpoint."""
