@@ -157,7 +157,7 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
-- **Metrics**: create via `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed in Phase 83). Call patterns: counters → `.add(1, {"label": val})`, histograms → `.record(val, {"label": val})`, up-down gauges → `.add(delta, {"label": val})`. Never import `prometheus_client`.
+- **Metrics**: create via `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed in Phase 83). Call patterns: counters → `.add(1, {"label": val})`, histograms → `.record(val, {"label": val})`, up-down gauges (`create_up_down_counter`) → `.add(delta, {"label": val})`, point gauges (`create_gauge` / `point_gauge()`) → `.set(value, {"label": val})`. Never import `prometheus_client`.
 - **Spans**: use `observed_span(name, attributes={...})` from `src/observability/spans.py` for new spans — auto-records ERROR status + exception on raise. Use ATTR_* constants from same module instead of raw strings.
 - **Alpha swarm agent timeouts**: all LLM agents (correlation, regime_coherence, counterfactual, skeptic) have 120s `latency_budget_ms`. `ml_scorer_v1` is 50ms (local model, no LLM calls). With nemotron-3-nano:4b, p50 latency is ~47-52s — well within budget.
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
@@ -170,10 +170,10 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 
 **Signal Logic**
 - **Aggregator `active` must come from `all_ranked`**: Derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]` — never from raw `signals`.
-- **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Time column: `timestamp`.
+- **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Time column: `timestamp`. Also: `bucket_scores` (JSONB), `weights_version` (INTEGER). Mutable lifecycle fields live in `signal_outcomes` table (Phase 104 split) — always query via `signal_ledger_full` view (DDL: migration 095).
 - **signal_schema_version**: single canonical constant `SIGNAL_SCHEMA_VERSION` in `src/intelligence/trading/signal_schema.py`. All producers/consumers import from there — no hardcoded version strings.
 - **entry_type values**: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`.
-- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` — raw string literals, no enum.
+- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"` — 4 values, raw string literals, no enum.
 
 **Services**
 - **Logging**: `structlog` → `logs/<service>.log` via `setup_service_logging()`. NOT journald.
