@@ -1,153 +1,55 @@
 # Incremental Computation
+> Plugins maintain bounded internal state and update it O(1) per bar — no history reprocessed after warmup.
 
-> **Domain:** Intelligence — deep-dive companion to [`intelligence-plugins.md`](../intelligence/intelligence-plugins.md)
+## The Problem It Solves
 
-**Version:** 2.8
-**Status:** current
-**Last Updated:** 2026-04-22
+132 plugins × full recomputation per bar = O(N×bars) work per tick. With 27 indicators, 55+ contracts, and 4 timeframes, that is ~5,940 full recomputations per bar. Each one reprocesses data that has not changed. A naive implementation recomputes RSI from the last 14 bars, ATR from the last 14 bars, MACD from the last 26 bars — redundant work that scales with history length and creates a processing backlog under live market conditions.
 
-## The Problem with Full Recomputation
+## The Principle
 
-Most technical indicators are defined as functions over a trailing window of bars. Naively, every new bar triggers a full recompute over the entire history:
+Each plugin maintains bounded internal state (e.g., a fixed-length deque, or a few running floats). On each new bar, the plugin calls `compute_next(bar)` which updates state O(1) — add the new value, drop the oldest, update the running sum. The full history is never reprocessed after warmup.
 
-```
-New bar arrives → recompute RSI over last 14 bars → recompute MACD over last 26 bars → ...
-```
+Examples:
+- **EMA:** state is one float (previous EMA). New EMA = α × new_close + (1 - α) × prev_ema.
+- **RSI:** state is two floats (smoothed gain, smoothed loss). Wilder's smoothing is a single division per bar.
+- **Bollinger:** state is three floats (count, mean, M2). Welford's online variance — no accumulated floating point error.
+- **Stochastic:** state is a fixed-length deque of closes. O(1) append, O(N) max over a small window (N=14-20).
 
-With 27 indicators, 55+ contracts, and 4 timeframes, that's 27 × 55 × 4 = ~5,940 full recomputations per bar. Each one reprocesses data that hasn't changed. At scale, this creates a processing backlog that grows faster than bars arrive.
+The warmup period (~50 bars for GARCH/Kalman/HMM to converge) is the only legitimate O(N) operation. After warmup, every bar is O(1) regardless of history length.
 
----
+## How IndicAgent Applies It
 
-## The Solution: Stateful Incremental Updates
+`supports_incremental` flag per plugin distinguishes two execution paths:
 
-All I1 plugins implement **`compute_next()`** — a single-bar update that uses cached state from the previous bar instead of reprocessing history.
+- **Incremental plugins** (`supports_incremental = True`) — called with only the new bar. State is managed by the pipeline service, not the plugin. A state key `(plugin_name, symbol, timeframe)` isolates state across instruments.
+- **Window plugins** (`supports_incremental = False`) — receive a rolling window of bars on each call. Used for I3 (structure), I4 (regime), I5 (pattern): SwingDetector, GARCHVolatility, HMMRegime, pattern plugins. These require multi-bar windows for correctness. Window size is small enough that full recompute is acceptable, but they do not get the O(1) benefit.
 
-```python
-# First call: full batch over historical data (seeds state)
-plugin.compute_full({"main": historical_df})
+Fallback: if state is empty (first bar after restart or state evicted), `compute_next()` calls `compute_full()` to seed state. After seeding, subsequent bars use the incremental path.
 
-# Every subsequent call: O(1) single-bar update
-result = plugin.compute_next({"main": df_with_new_bar})
-```
+**State checkpointing:** Plugin state is serialized to `cache/plugin_states.json` on a timer. On restart, state is restored so warmup periods do not replay from scratch. If the checkpoint is corrupt or missing, the plugin reinitializes (warmup replays).
 
-The state is a small dictionary — typically a few floats — stored per plugin per symbol per timeframe. No dataframe re-allocation, no rolling window scan.
+**Measured speedup: 141x faster than full recomputation across the I1 tier.**
 
-**Measured speedup: 141× faster than full recomputation.**
+## Invariants
 
----
+- `compute_next()` may only read from internal state and the current bar — never from a full history lookup.
+- Warmup is the only legitimate O(N) operation. All post-warmup computation must be O(1) or O(small-constant).
+- State must be serializable to JSON for checkpointing.
+- The state write-back after `compute_next()` is load-bearing for plugins (like GARCH, HMM) that fully reassign `_state` internally rather than mutating it in place.
 
-## State Patterns by Indicator Type
+## Recipe
 
-Different indicators use different incremental strategies:
+When designing an incremental computation system:
 
-### EMA / MACD
-State: previous EMA value + smoothing factor (α)
-```
-new_ema = α × new_close + (1 - α) × prev_ema
-```
-One multiply, one add. No window.
+1. **Identify which computations are truly incremental vs. window-based.** EMA, RSI, OBV are incremental. Chart patterns, regime detection, and swing points need a window.
+2. **For incremental: define the minimal state representation.** Two floats for RSI, one float for EMA, a fixed deque for Stochastic. Resist storing more than you need.
+3. **Set warmup length to the convergence window of the slowest state variable.** GARCH needs ~50 bars; EMA needs ~3N bars. The warmup is the maximum across all state variables in the plugin.
+4. **Checkpoint state to local disk — not to a database.** Database round-trips on every bar negate the latency savings. Local file checkpoint on a timer is the right pattern.
+5. **Implement fallback.** `compute_next()` should detect empty state and call `compute_full()` automatically. Callers should not need to know which path executes.
+6. **Test incremental parity.** Verify that `compute_next()` over N bars produces the same result as `compute_full()` over those N bars. Divergence is a silent bug.
 
-### RSI / ATR (Wilder's Smoothing)
-State: previous smoothed gain, previous smoothed loss (RSI); previous TR average (ATR)
-```
-smoothed_gain = ((N-1) × prev_gain + new_gain) / N
-```
-Wilder's formula is equivalent to EMA with `α = 1/N`. State is two floats.
+## See Also
 
-### Bollinger Bands (Welford's Algorithm)
-State: running count, running mean, running M2 (sum of squared deviations)
-```
-delta = new_value - mean
-mean += delta / count
-M2 += delta × (new_value - mean)
-variance = M2 / (count - 1)
-```
-Online variance with no accumulated floating point error. State is three floats.
-
-### Stochastic / Williams %R / Donchian Channels
-State: rolling deque of closes (or high/low) with fixed `maxlen`
-```
-deque.append(new_close)      # O(1) — deque auto-evicts oldest
-high_n = max(deque)          # O(N) but N is small (14-20 bars)
-```
-The deque replaces the window scan. Max/min over a fixed small window is fast.
-
-### OBV / VWAP
-State: running cumulative sum
-```
-obv = prev_obv + (volume if close > prev_close else -volume)
-```
-Single addition. The running sum is the state.
-
-### ADX / DMI
-State: three Wilder-smoothed values (+DM, -DM, TR) plus the ADX smoothing
-```
-smoothed_TR = prev_TR - (prev_TR / N) + new_TR
-smoothed_pDM = prev_pDM - (prev_pDM / N) + new_pDM
-ADX = ((N-1) × prev_ADX + new_DX) / N
-```
-Four state values, four Wilder updates per bar.
-
-### CCI / MFI
-State: rolling deque of typical prices (or money flow values)
-```
-typical_price = (high + low + close) / 3
-deque.append(typical_price)
-mean_deviation = mean(|x - mean(deque)| for x in deque)
-CCI = (typical_price - mean(deque)) / (0.015 × mean_deviation)
-```
-Deque replaces rolling window. Mean deviation is O(N) over a fixed small window.
-
----
-
-## State Lifecycle
-
-State is managed by the service, not the plugin. This separation allows:
-- The same plugin class to serve multiple (symbol, timeframe) pairs simultaneously
-- State to be swapped in/out per bar without object re-creation
-
-```python
-# market_analysis_service.py (simplified)
-state_key = (plugin.name, symbol, timeframe)
-
-plugin._state = self._plugin_states[state_key]   # load state
-result = plugin.compute_full(frames)              # or compute_next
-self._plugin_states[state_key] = plugin._state   # write back
-```
-
-The write-back is load-bearing for plugins like GARCH and HMM that fully reassign `_state` internally (rather than mutating it in place).
-
----
-
-## Fallback Behavior
-
-If `_state` is empty (first bar after a restart, or state was evicted), `compute_next()` calls `compute_full()` as a fallback. After `compute_full()` seeds the state, subsequent bars use the incremental path.
-
-```python
-def compute_next(self, windows):
-    if not self._state:
-        return self.compute_full(windows)  # seeds state as a side effect
-    # ... fast incremental path ...
-```
-
----
-
-## Plugins That Don't Use Incremental Computation
-
-I3 (structure), I4 (regime), and I5 (pattern) plugins set `supports_incremental = False`. These plugins require a multi-bar window for correctness. I2 (composite/event) plugins also set `supports_incremental = False` — they detect state transitions across recent bars, which requires the full recent window.
-
-- **SwingDetector** — needs to look back N bars to confirm swing points
-- **GARCHVolatility** — fits a parametric model over a window; can't update with a single bar
-- **HMMRegime** — Baum-Welch/Viterbi over the full observation sequence
-- **Pattern plugins** — chart patterns are multi-bar by definition
-
-These run `compute_full()` every bar. Their window size is small enough that this is acceptable, but they do not get the 141× speedup.
-
----
-
-## Related Documentation
-
-- [Plugin Architecture](plugin-architecture.md) — plugin protocol, `compute_full` / `compute_next` signatures
-- [DAG Execution](dag-execution.md) — how plugin execution is ordered across tiers
-- **Code:** `src/intelligence/indicators/` — every I1 plugin implements `compute_next()`
-- **Tests:** `tests/unit/intelligence/test_plugin_incremental.py` — verifies parity between full and incremental paths
+- Implementation: `docs/intelligence/intelligence-plugins.md` — plugin protocol, `compute_full`/`compute_next` signatures, state management
+- Related concept: `docs/concepts/dag-execution.md` — how incremental plugins are ordered across tiers
+- Related concept: `docs/concepts/hot-path-isolation.md` — why hot-path state must be local, not DB-backed
