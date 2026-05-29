@@ -4,7 +4,7 @@
 **Last Updated:** 2026-05-27
 **Authoritative source:** `systemctl list-units --all | grep indicagent`
 
-All services extend `BaseAgent` (`src/core/agent/base.py`). For role taxonomy see `docs/architecture/agent-standard.md`. For full DAG wiring see `docs/architecture/dag-topology.md`.
+All services extend `BaseAgent` (`src/core/agent/base.py`). For role taxonomy and lifecycle contract see `docs/agents/agents-foundation.md`. For service mesh and DAG topology see `docs/agents/agents-operations.md`. For full DAG wiring see `docs/architecture/dag-topology.md`.
 
 ---
 

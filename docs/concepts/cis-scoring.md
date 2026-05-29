@@ -1,6 +1,8 @@
 <!-- generated-by: gsd-doc-writer -->
 # Composite Intelligence Score (CIS)
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-foundation.md`](../intelligence/intelligence-foundation.md)
+
 **Version:** 2.8
 **Status:** current
 **Last Updated:** 2026-05-27

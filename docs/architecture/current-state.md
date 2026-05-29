@@ -58,7 +58,7 @@ Consolidated I1-I7 into a single in-process agent:
 - OTel SDK fully replaces `prometheus_client` (Phase 83) — all metrics via `src/observability/metrics.py`
 - Plugin count: 132 total across I1–I7
 
-**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). Full pipeline: `docs/architecture/observability.md`.
+**Tooling stack (LGTM + AI):** All telemetry flows through a central OTel Collector (`:4317` gRPC) — services push metrics, traces, and logs via OTLP rather than exposing per-service HTTP scrape endpoints. Collector fans out to Prometheus (metrics → Grafana `:3001`), Tempo (traces), and Loki (logs). Full pipeline: `docs/platform/platform-observability.md`.
 
 ## Active Services
 
@@ -333,6 +333,6 @@ Signal status strings: `"pending"`, `"active"`, `"regime_suppressed"` — raw st
 
 ## See Also
 
-- `agent-standard.md` — Role taxonomy and naming conventions
-- `base-agent-patterns.md` — BaseAgent lifecycle contract
+- `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
+- `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
 - `observability.md` — Metrics and monitoring patterns

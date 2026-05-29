@@ -1,6 +1,8 @@
 <!-- generated-by: gsd-doc-writer -->
 # Intelligence Engine Tiers (I1–I8)
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-foundation.md`](../intelligence/intelligence-foundation.md)
+
 **Version:** 2.8
 **Status:** current
 **Current State:** 132 plugins + 2 aggregation components — source of truth: `src/intelligence/register_plugins.py` TIER_* lists

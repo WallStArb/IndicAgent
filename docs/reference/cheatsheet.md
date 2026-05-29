@@ -125,3 +125,26 @@ KAFKA_BOOTSTRAP_SERVERS="localhost:19092"
 IBKR_HOST="192.168.1.157"
 IBKR_PORT=7497
 ```
+
+## Kafka / Redpanda
+```bash
+# Topics
+docker exec redpanda rpk topic list
+docker exec redpanda rpk topic describe <topic-name>
+docker exec redpanda rpk topic consume <topic-name> --from-beginning
+docker exec redpanda rpk topic create <topic-name> --partitions 1 --replicas 1
+docker exec redpanda rpk topic delete <topic-name>
+docker exec redpanda rpk topic stats <topic-name>
+
+# Retention (ms: 1h=3600000, 1d=86400000, 7d=604800000)
+docker exec redpanda rpk topic create <name> --config retention.ms=86400000
+docker exec redpanda rpk topic alter-config <name> --set retention.ms=86400000
+
+# Consumer groups — check lag, reset offsets
+docker exec redpanda rpk group list
+docker exec redpanda rpk group describe <group-name> --topic <topic>
+docker exec redpanda rpk group reset-offset <group> --topic <topic> --to-earliest
+
+# Feature pipeline lag (from CLAUDE.md)
+docker exec redpanda rpk group describe feature_pipeline -t
+```

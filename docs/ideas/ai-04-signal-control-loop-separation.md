@@ -6,7 +6,7 @@
 **Created:** 2026-05-18
 **Updated:** 2026-05-18
 **Related:**
-- `docs/concepts/signal-lifecycle.md`
+- `docs/signals/signals-lifecycle.md`
 - `docs/concepts/cis-scoring.md`
 - `docs/intelligence/ai-intelligence-architecture.md`
 - `docs/ideas/ai-02-ml-agent-architecture.md`

@@ -316,6 +316,6 @@ When deploying to untrusted environment:
 
 ## See Also
 
-- **API design:** `docs/architecture/api-design.md`
+- **API design:** `docs/platform/platform-api.md`
 - **Infrastructure reference:** `docs/operations/infrastructure.md`
 - **Deployment:** `docs/operations/infrastructure.md`

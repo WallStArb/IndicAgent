@@ -194,7 +194,7 @@ All persistence is handled by dedicated WriterAgents. No compute agent writes to
 
 ## Agent Role Taxonomy
 
-Per `docs/architecture/agent-standard.md`:
+Per `docs/agents/agents-foundation.md` (role taxonomy) and `docs/agents/agents-operations.md` (DAG topology):
 
 | Suffix | Role | DB Access |
 |---|---|---|

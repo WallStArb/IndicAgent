@@ -24,7 +24,7 @@ Each agent has exactly one role, expressed in its class name suffix:
 | `TrackerAgent` | Business object lifecycle. | Read/Write | `SignalTrackerComputeAgent` |
 | `AuditorAgent` | Data integrity validation + self-healing. | Read | `BarAuditorAgent`, `ParityAuditorAgent` |
 
-All agents extend `BaseAgent` (`src/core/agent/base.py`). See `base-agent-patterns.md` for lifecycle contract.
+All agents extend `BaseAgent` (`src/core/agent/base.py`). See `docs/agents/agents-foundation.md` for lifecycle contract.
 
 ---
 
@@ -357,6 +357,6 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 ## See Also
 
 - `plugin-protocol.md` — Plugin interface and developer contract
-- `agent-standard.md` — Role taxonomy and naming conventions
-- `base-agent-patterns.md` — BaseAgent lifecycle contract
+- `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
+- `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
 - `plugin-native-architecture-explained.md` — Architectural principles

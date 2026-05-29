@@ -1,6 +1,8 @@
 <!-- generated-by: gsd-doc-writer -->
 # Plugin Architecture
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-plugins.md`](../intelligence/intelligence-plugins.md)
+
 **Version:** 2.8
 **Status:** current
 **Current Plugin Count:** 132 plugins + 2 aggregation — source of truth: `src/intelligence/register_plugins.py` TIER_* lists

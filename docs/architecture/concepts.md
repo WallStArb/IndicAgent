@@ -115,7 +115,7 @@ Every agent inherits a standard lifecycle contract from `BaseAgent` (`src/core/a
 - **Graceful shutdown** — SIGTERM/SIGINT both set a shared `_stop_event`; `_run()` loops check `self.running`; `_teardown()` drains queues and closes connections before exit
 - **DLQ routing** — `_send_to_dlq()` is called on unprocessable payloads; the default logs and discards, concrete agents override to produce to a named DLQ topic
 
-**Design philosophy:** observability that requires per-service configuration gets skipped under deadline pressure. By building it into `BaseAgent`, every new service is traceable, metricked, and gracefully-shutdownable with zero additional code. Full reference: `base-agent-patterns.md`.
+**Design philosophy:** observability that requires per-service configuration gets skipped under deadline pressure. By building it into `BaseAgent`, every new service is traceable, metricked, and gracefully-shutdownable with zero additional code. Full reference: `docs/agents/agents-foundation.md`.
 
 ---
 

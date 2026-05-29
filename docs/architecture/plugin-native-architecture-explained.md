@@ -506,4 +506,4 @@ End-to-end latency: <10ms from bar close to I7 signal published.
 - `dag-topology.md` — Agent topology and data flow methodology
 - `plugin-protocol.md` — Plugin interface (developer-facing)
 - `current-state.md` — Single source of truth for current architecture
-- `agent-standard.md` — Role taxonomy and naming conventions
+- `docs/agents/agents-foundation.md` — Role taxonomy and naming conventions

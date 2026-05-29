@@ -13,7 +13,7 @@ Personal reference for consistent doc and code naming across the project.
 
 | Context | Convention | Example |
 |---------|-----------|---------|
-| Docs | kebab-case | `layered-architecture.md`, `intelligence-bus.md` |
+| Docs | kebab-case | `layered-architecture.md`, `data-streaming.md` |
 | Standard root files | UPPERCASE | `README.md`, `CHANGELOG.md`, `CLAUDE.md` |
 | Directories | lowercase, hyphens | `docs/architecture/`, `docs/getting-started/` |
 | Plan docs | date-prefixed kebab | `2026-03-15-signal-lifecycle-redesign.md` |
