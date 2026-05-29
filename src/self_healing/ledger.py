@@ -103,12 +103,13 @@ class RemediationLedger:
 
         Uses idx_remediation_action_time index for efficient time-range scan.
         Replaces any in-memory counter that would reset on process restart.
+        Excludes no_action outcomes to count only actual execution attempts.
         """
         cutoff = datetime.now(UTC) - timedelta(hours=1)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT COUNT(*) AS n FROM remediation_ledger "
-                "WHERE action=$1 AND timestamp >= $2",
+                "WHERE action=$1 AND timestamp >= $2 AND outcome != 'no_action'",
                 action,
                 cutoff,
             )
