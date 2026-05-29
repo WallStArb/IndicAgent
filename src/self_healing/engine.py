@@ -128,6 +128,7 @@ class SelfHealingEngine:
 
         # Durable idempotency: check ledger (not in-memory set; survives restarts)
         if await self._ledger.alert_already_processed(alert.alert_id):
+            logger.info("self_healing.idempotent_skip", alert_id=alert.alert_id)
             return RemediationResult(
                 remediation_id="",
                 status="no_action",
