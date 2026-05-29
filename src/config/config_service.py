@@ -58,6 +58,12 @@ class ConfigService:
         if self._db_pool is None:
             self._db_pool = await create_pool(self._database_url, pool_name="config_service")
 
+    async def close(self) -> None:
+        """Close the database pool, releasing all connections."""
+        if self._db_pool is not None:
+            await self._db_pool.close()
+            self._db_pool = None
+
     def _validate_key_domain(self, key: str) -> None:
         """Raise ConfigValidationError if key is not in the OPS domain.
 

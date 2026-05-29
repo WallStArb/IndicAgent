@@ -74,7 +74,8 @@ async def lifespan(app: FastAPI):
         auth_enabled=CONFIG_API_TOKEN is not None,
     )
     yield
-    # Shutdown: pool cleanup handled by garbage collection (asyncpg pool)
+    if config_service is not None:
+        await config_service.close()
     logger.info("config_service_agent.shutdown")
 
 
