@@ -116,30 +116,11 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-service-auditor": 11,  # priority 11: meta-monitor; must be uniquely highest so it never shares a restart wave with the services it monitors
 }
 
-# Lag thresholds per service (0 = not a Kafka consumer)
-_LAG_THRESHOLDS: dict[str, int] = {
-    "indicagent-provider-merger": 500,
-    "indicagent-bar-aggregator": 500,
-    "indicagent-bar-auditor": 200,
-    "indicagent-bar-writer": 1000,
-    "indicagent-intelligence-pipeline": 500,
-    "indicagent-cross-asset": 200,
-    "indicagent-macro-compute": 500,
-    "indicagent-feature-writer": 1000,
-    "indicagent-signal-tracker-compute": 500,
-    "indicagent-signal-writer": 500,
-    "indicagent-lifecycle-writer": 500,
-    "indicagent-lineage-writer": 500,
-    "indicagent-alpha-swarm": 200,
-    "indicagent-narrative-compute": 200,
-    "indicagent-llm-writer": 500,
-    "indicagent-swarm-ledger-writer": 500,
-    "indicagent-signal-metrics-writer": 500,
-    "indicagent-graduation-compute": 500,
-    "indicagent-graduation-writer": 500,
-    "indicagent-ctx-writer": 500,
-    "indicagent-dlq-drain": 500,
-}
+# Lag thresholds are loaded from config_state (alert.lag.* keys) via
+# ServiceAuditorAgent._load_lag_thresholds() at startup and hot-reloaded via
+# _on_config_message_received when alert.lag.* Kafka updates arrive.
+# The original 21 entries were seeded into config_schema and config_state
+# by production/migrations/109_config_foundation.sql (Phase 109 Plan 05 Task 3).
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
 # Keys MUST match the name= argument in each service's super().__init__() call
@@ -274,6 +255,11 @@ class ServiceAuditorAgent(BaseAgent):
         self._prometheus_check_interval = 15
         self._systemd_check_interval = 30
         self._heartbeat_interval = 60
+        # Phase 109 Plan 05 Task 3: lag thresholds loaded from config DB at startup,
+        # hot-reloaded via _on_config_message_received on alert.lag.* Kafka updates.
+        # _config_prefixes restricts mixin reload to alert.lag.* keys only (avoids storm).
+        self._config_prefixes = ("alert.lag.",)
+        self._lag_thresholds: dict[str, int] = {}
 
     @property
     def topics_produced(self) -> list[str]:
@@ -290,10 +276,48 @@ class ServiceAuditorAgent(BaseAgent):
         await self._kafka_producer.start()
         # Wire _producer for BaseAgent._send_alert() to use
         self._producer = self._kafka_producer
+        # Phase 109 Plan 05 Task 3: load lag thresholds from config cache (populated
+        # by _pre_setup_config_load before _setup is called).
+        await self._load_lag_thresholds()
         self.logger.info(
             "service_auditor_agent.setup_complete",
             env=self.env_name,
+            lag_threshold_count=len(self._lag_thresholds),
         )
+
+    async def _load_lag_thresholds(self) -> None:
+        """Load lag thresholds from config_state (alert.lag.* keys). NON-FATAL.
+
+        Called at _setup() time (after _pre_setup_config_load populates _config_cache)
+        and on hot-reload via _on_config_message_received when alert.lag.* Kafka
+        updates arrive.
+
+        Key format in config_state: 'alert.lag.<unit-name-kebab>'
+        (e.g., 'alert.lag.feature-writer' -> 'indicagent-feature-writer': int).
+        """
+        try:
+            result: dict[str, int] = {}
+            for key, value in self._config_cache.items():
+                if not key.startswith("alert.lag."):
+                    continue
+                unit_suffix = key[len("alert.lag.") :]
+                full_unit = f"indicagent-{unit_suffix}"
+                try:
+                    result[full_unit] = int(value)
+                except (TypeError, ValueError):
+                    continue
+            self._lag_thresholds = result
+        except Exception as exc:
+            self.logger.warning("lag_thresholds.load_failed", error=str(exc))
+
+    async def _on_config_message_received(self, key: str, value: object) -> None:
+        """Hot-reload lag thresholds when alert.lag.* config keys change.
+
+        Plan 03 mixin already updated self._config_cache before invoking this hook.
+        ServiceAuditorAgent only needs to refresh its derived view of alert.lag.* keys.
+        """
+        if key.startswith("alert.lag."):
+            await self._load_lag_thresholds()
 
     async def _teardown(self) -> None:
         if self._kafka_producer:
@@ -398,7 +422,7 @@ class ServiceAuditorAgent(BaseAgent):
                     active = "active" if has_metrics else "unknown"
                     sub = "running" if has_metrics else "no_metrics"
                     bars_per_sec = data_flow.get(unit, 0.0)
-                    lag_threshold = _LAG_THRESHOLDS.get(unit, 0)
+                    lag_threshold = self._lag_thresholds.get(unit, 0)
                     await self._evaluate_service_dynamic(
                         unit, active, sub, lag, lag_threshold, has_metrics, bars_per_sec
                     )
@@ -434,7 +458,7 @@ class ServiceAuditorAgent(BaseAgent):
                         self._service_states[unit] = ServiceState()
                     active, sub = await self._check_systemd_state(unit)
                     if active in ("failed", "inactive") or sub == "start-limit-hit":
-                        lag_threshold = _LAG_THRESHOLDS.get(unit, 0)
+                        lag_threshold = self._lag_thresholds.get(unit, 0)
                         await self._evaluate_service_dynamic(
                             unit, active, sub, 0, lag_threshold, False
                         )

@@ -314,3 +314,57 @@ INSERT INTO config_state (config_key, config_value, version) VALUES
   ('cross_asset.window_bars', '20', 1),
   ('macro.window_bars', '10', 1)
 ON CONFLICT (config_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Task 3 (Plan 05): Seed alert.lag.* thresholds from original _LAG_THRESHOLDS dict.
+-- 21 entries exactly matching the pre-migration dict in services/service_auditor_agent.py.
+-- ServiceAuditorAgent loads these at startup via _load_lag_thresholds() and hot-reloads
+-- via _on_config_message_received when alert.lag.* Kafka updates arrive.
+-- ---------------------------------------------------------------------------
+INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
+  ('alert.lag.provider-merger', 'int', '500', 'Consumer lag threshold for indicagent-provider-merger'),
+  ('alert.lag.bar-aggregator', 'int', '500', 'Consumer lag threshold for indicagent-bar-aggregator'),
+  ('alert.lag.bar-auditor', 'int', '200', 'Consumer lag threshold for indicagent-bar-auditor'),
+  ('alert.lag.bar-writer', 'int', '1000', 'Consumer lag threshold for indicagent-bar-writer'),
+  ('alert.lag.intelligence-pipeline', 'int', '500', 'Consumer lag threshold for indicagent-intelligence-pipeline'),
+  ('alert.lag.cross-asset', 'int', '200', 'Consumer lag threshold for indicagent-cross-asset'),
+  ('alert.lag.macro-compute', 'int', '500', 'Consumer lag threshold for indicagent-macro-compute'),
+  ('alert.lag.feature-writer', 'int', '1000', 'Consumer lag threshold for indicagent-feature-writer'),
+  ('alert.lag.signal-tracker-compute', 'int', '500', 'Consumer lag threshold for indicagent-signal-tracker-compute'),
+  ('alert.lag.signal-writer', 'int', '500', 'Consumer lag threshold for indicagent-signal-writer'),
+  ('alert.lag.lifecycle-writer', 'int', '500', 'Consumer lag threshold for indicagent-lifecycle-writer'),
+  ('alert.lag.lineage-writer', 'int', '500', 'Consumer lag threshold for indicagent-lineage-writer'),
+  ('alert.lag.alpha-swarm', 'int', '200', 'Consumer lag threshold for indicagent-alpha-swarm'),
+  ('alert.lag.narrative-compute', 'int', '200', 'Consumer lag threshold for indicagent-narrative-compute'),
+  ('alert.lag.llm-writer', 'int', '500', 'Consumer lag threshold for indicagent-llm-writer'),
+  ('alert.lag.swarm-ledger-writer', 'int', '500', 'Consumer lag threshold for indicagent-swarm-ledger-writer'),
+  ('alert.lag.signal-metrics-writer', 'int', '500', 'Consumer lag threshold for indicagent-signal-metrics-writer'),
+  ('alert.lag.graduation-compute', 'int', '500', 'Consumer lag threshold for indicagent-graduation-compute'),
+  ('alert.lag.graduation-writer', 'int', '500', 'Consumer lag threshold for indicagent-graduation-writer'),
+  ('alert.lag.ctx-writer', 'int', '500', 'Consumer lag threshold for indicagent-ctx-writer'),
+  ('alert.lag.dlq-drain', 'int', '500', 'Consumer lag threshold for indicagent-dlq-drain')
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+  ('alert.lag.provider-merger', '500', 1),
+  ('alert.lag.bar-aggregator', '500', 1),
+  ('alert.lag.bar-auditor', '200', 1),
+  ('alert.lag.bar-writer', '1000', 1),
+  ('alert.lag.intelligence-pipeline', '500', 1),
+  ('alert.lag.cross-asset', '200', 1),
+  ('alert.lag.macro-compute', '500', 1),
+  ('alert.lag.feature-writer', '1000', 1),
+  ('alert.lag.signal-tracker-compute', '500', 1),
+  ('alert.lag.signal-writer', '500', 1),
+  ('alert.lag.lifecycle-writer', '500', 1),
+  ('alert.lag.lineage-writer', '500', 1),
+  ('alert.lag.alpha-swarm', '200', 1),
+  ('alert.lag.narrative-compute', '200', 1),
+  ('alert.lag.llm-writer', '500', 1),
+  ('alert.lag.swarm-ledger-writer', '500', 1),
+  ('alert.lag.signal-metrics-writer', '500', 1),
+  ('alert.lag.graduation-compute', '500', 1),
+  ('alert.lag.graduation-writer', '500', 1),
+  ('alert.lag.ctx-writer', '500', 1),
+  ('alert.lag.dlq-drain', '500', 1)
+ON CONFLICT (config_key) DO NOTHING;
