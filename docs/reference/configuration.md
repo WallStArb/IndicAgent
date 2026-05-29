@@ -143,5 +143,5 @@ Active contracts are resolved at runtime from the database, not from static conf
 
 ## Concepts
 
-- [Data Pipeline](../concepts/data-pipeline.md)
+- [Data Pipeline](../data/data-pipeline.md)
 - [Stream Keys](../../src/core/stream_keys.py) — all topic construction

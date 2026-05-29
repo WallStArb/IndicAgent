@@ -20,7 +20,7 @@ Plugin protocol, registry pattern, incremental compute interface
 **[DAG Execution](dag-execution.md)**
 Directed acyclic graph — dependency ordering, topological sort, cycle prevention
 
-**[Data Pipeline](data-pipeline.md)**
+**[Data Pipeline](../data/data-pipeline.md)**
 Hot/warm/cold data flow, Redpanda topics, consumer groups, TimescaleDB persistence
 
 ---

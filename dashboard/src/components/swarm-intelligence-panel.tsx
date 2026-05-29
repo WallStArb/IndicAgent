@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { BrainCircuit, Zap, Clock, CheckCircle, AlertTriangle, RefreshCw } from "lucide-react";
+import { BrainCircuit, Zap, Clock, CheckCircle, AlertTriangle, AlertCircle, RefreshCw } from "lucide-react";
 import { getApiBase } from "@/lib/api";
 interface AgentStat {
   agent_id: string;
@@ -160,17 +160,26 @@ function NarrativeFeedRow({ entry }: { entry: NarrativeEntry }) {
 export function SwarmIntelligencePanel() {
   const [stats, setStats] = useState<AiStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (retryCount = 0) => {
     try {
+      setError(null);
       const res = await fetch(`${getApiBase()}/api/ai/stats`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setStats(data);
       setLastRefresh(new Date());
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("Failed to fetch AI stats", e);
+      // Retry once after 2 seconds on transient failures
+      if (retryCount === 0 && (msg.includes("Failed to fetch") || msg.includes("ECONNREFUSED"))) {
+        setTimeout(() => fetchStats(1), 2000);
+        return;
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -203,7 +212,7 @@ export function SwarmIntelligencePanel() {
             </span>
           )}
           <button
-            onClick={fetchStats}
+            onClick={() => fetchStats()}
             className="p-1.5 rounded-lg hover:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           >
             <RefreshCw size={14} />
@@ -227,6 +236,23 @@ export function SwarmIntelligencePanel() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && !loading && (
+        <div className="surface rounded-xl p-4 border border-red-500/30 bg-red-500/5 flex items-center gap-3">
+          <AlertCircle size={16} className="text-red-500 shrink-0" />
+          <div className="flex-1">
+            <div className="text-sm font-medium text-red-400">Failed to load AI stats</div>
+            <div className="text-xs text-[var(--text-muted)]">{error}</div>
+          </div>
+          <button
+            onClick={() => fetchStats()}
+            className="px-3 py-1.5 text-xs rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
 

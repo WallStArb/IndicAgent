@@ -53,7 +53,10 @@ async def lifespan(app: FastAPI):
 
         # Background task: refresh api_health gauge every 30s independent of HTTP traffic
         async def _refresh_api_health() -> None:
-            """Update api_health gauge every 30s for Prometheus scrape freshness."""
+            """Update api_health gauge + send systemd WATCHDOG=1 every 30s."""
+            import sdnotify
+
+            notifier = sdnotify.SystemdNotifier()
             while True:
                 try:
                     async with dependencies.db_manager.get_connection() as conn:
@@ -62,6 +65,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     API_HEALTH.set(0, {"service": "indicagent-api"})
                     logger.warning("api.health_refresh.db_unreachable", error=str(e))
+                notifier.notify("WATCHDOG=1")
                 await asyncio.sleep(30)
 
         _api_health_task = asyncio.create_task(_refresh_api_health())
