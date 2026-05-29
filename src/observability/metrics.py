@@ -520,6 +520,14 @@ WEBHOOK_VALIDATION_FAILED_TOTAL = _meter.create_counter(
     "webhook_validation_failed_total",
     description="Webhook payload validation failures",
 )
+REMEDIATION_POOL_FLUSH_TOTAL = _meter.create_counter(
+    "remediation_pool_flush_total",
+    description="DB pool flush remediation attempts by outcome (success|failed)",
+)
+REMEDIATION_CIRCUIT_BREAKER_OPEN_TOTAL = _meter.create_counter(
+    "remediation_circuit_breaker_open_total",
+    description="Circuit breaker open events (5-min failure rate > 50%)",
+)
 
 
 def record_langgraph_workflow(
