@@ -32,35 +32,35 @@ L2  Stream routing
     indicagent-provider-merger
 
 L3  Bar processing
-    indicagent-bar-aggregator, indicant-bar-auditor
+    indicagent-bar-aggregator, indicagent-bar-auditor
 
 L4  Bar persistence
-    indicant-bar-writer
+    indicagent-bar-writer
 
 L5  Intelligence pipeline
-    indicant-cross-asset, indicant-macro-compute, indicant-intelligence-pipeline
+    indicagent-cross-asset, indicagent-macro-compute, indicagent-intelligence-pipeline
 
 L6  Persistence writers (parallel)
-    indicant-feature-writer, indicant-signal-writer, indicant-lifecycle-writer,
-    indicant-lineage-writer, indicant-ctx-writer, indicant-signal-tracker-compute
+    indicagent-feature-writer, indicagent-signal-writer, indicagent-lifecycle-writer,
+    indicagent-lineage-writer, indicagent-ctx-writer, indicagent-signal-tracker-compute
 
 L7  AI/LLM layer
-    indicant-alpha-swarm, indicant-narrative-compute, indicant-llm-writer,
-    indicant-swarm-ledger-writer
+    indicagent-alpha-swarm, indicagent-narrative-compute, indicagent-llm-writer,
+    indicagent-swarm-ledger-writer
 
 L8  Analytics (oneshot timers)
-    indicant-signal-metrics-compute, indicant-graduation-compute,
-    indicant-ml-training, indicant-ml-orchestrator, etc.
+    indicagent-signal-metrics-compute, indicagent-graduation-compute,
+    indicagent-ml-training, indicagent-ml-orchestrator, etc.
 
 L9  Audit, parity, alerting
-    indicant-signal-auditor, indicant-signal-replay, indicant-alerting-agent,
-    indicant-dlq-drain
+    indicagent-signal-auditor, indicagent-signal-replay, indicagent-alerting-agent,
+    indicagent-dlq-drain
 
 L10 Top-level (always-on)
-    indicant-api, indicant-dashboard
+    indicagent-api, indicagent-dashboard
 
 L11 Meta
-    indicant-service-auditor
+    indicagent-service-auditor
 ```
 
 **Priority:** Lower number = restarts first during graduated response.
@@ -77,7 +77,7 @@ L11 Meta
 | alpha-swarm | 200 | Async swarm evaluation |
 | narrative-compute | 200 | LLM narrative generation |
 
-**Health check:** `systemctl status indicant-<service>` or Grafana dashboard `:3001`
+**Health check:** `systemctl status indicagent-<service>` or Grafana dashboard `:3001`
 
 ---
 
@@ -204,6 +204,64 @@ The GIL prevents threading from achieving true parallelism. CPU-bound work canno
 
 **GIL note:** Python GIL limits true parallelism for CPU-bound plugins. The 12 thread-pool workers help I/O-bound operations but CPU-bound indicator math is effectively single-threaded per bar.
 
+### Current Parallelization Architecture
+
+```
+I1: [P1, P2, ... P28] → asyncio.gather (parallel)
+ ↓
+I2: [P1] → [P2] → ... (sequential, 10 plugins)
+ ↓
+I3: [P1] → [P2] → ... → [P8] (sequential)
+ ↓
+I4: [P1] → [P2] → ... → [P12] (sequential)
+ ↓
+I5 (16) → SMC (16) → I6 (6): (sequential)
+ ↓
+I7: [P1, P2, ... P36] → asyncio.gather (parallel)
+```
+
+I1 and I7 are parallelized; I2–I6 are sequential because GIL prevents true CPU parallelism.
+
+### Optimization: Batch Processing
+
+The path to 10–50x throughput improvement is batch processing — accumulating N bars and processing them tier-by-tier in parallel instead of processing each bar through all tiers sequentially.
+
+**Current (per-bar sequential):**
+```
+Bar1: I1 → I2 → I3 → I4 → I5 → I6 → I7  (220ms)
+Bar2: I1 → I2 → I3 → I4 → I5 → I6 → I7  (220ms)
+Bar3: I1 → I2 → I3 → I4 → I5 → I6 → I7  (220ms)
+Total: 660ms for 3 bars
+```
+
+**Batch (per-tier parallel across bars):**
+```
+Accumulate: [Bar1, Bar2, Bar3]
+I1:  Process all 3 bars in parallel (30ms)
+I2:  Process all 3 bars in parallel (40ms)
+I3:  Process all 3 bars in parallel (50ms)
+I4:  Process all 3 bars in parallel (40ms)
+I5–I6: Process all 3 bars in parallel (30ms)
+I7:  Process all 3 bars in parallel (20ms)
+Total: 210ms for 3 bars — 3x reduction, scales to 105x at 100 bars
+```
+
+**Trade-offs:**
+
+| Aspect | Real-time mode | Batch mode |
+|--------|----------------|------------|
+| Latency | ~220ms per bar | 5s max wait + ~200ms processing |
+| Throughput | ~4.5 bars/sec | 45–225 bars/sec (10–50x) |
+| Use case | Low-volume, high-volatility | High-volume, normal regime |
+
+**Adaptive mode selection heuristics:**
+- High volatility → real-time (fast response)
+- Stale data (>5s since last batch) → batch (prevent staleness)
+- Buffer full (≥100 bars) → batch (maximum efficiency)
+- Otherwise → accumulate
+
+**Full analysis:** `docs/architecture/pipeline-optimization.md`
+
 ---
 
 ## Common Issues
@@ -214,7 +272,7 @@ The GIL prevents threading from achieving true parallelism. CPU-bound work canno
 
 **Diagnosis:**
 ```bash
-journalctl -u indicant-intelligence-pipeline --since "5 minutes ago"
+journalctl -u indicagent-intelligence-pipeline --since "5 minutes ago"
 ```
 
 **Common causes:**
@@ -251,7 +309,7 @@ docker exec redpanda rpk group describe intelligence_pipeline -t
 **Diagnosis:**
 ```bash
 docker logs ollama  | tail -50
-journalctl -u indicant-narrative-compute --since "10 minutes ago"
+journalctl -u indicagent-narrative-compute --since "10 minutes ago"
 ```
 
 **Common causes:**
@@ -285,10 +343,10 @@ SELECT * FROM signal_lineage WHERE source = 'my_agent_v1' LIMIT 10;
 systemctl list-units --all | grep indicant
 
 # Specific service
-systemctl status indicant-intelligence-pipeline
+systemctl status indicagent-intelligence-pipeline
 
 # Service logs
-journalctl -u indicant-intelligence-pipeline -f
+journalctl -u indicagent-intelligence-pipeline -f
 tail -f logs/intelligence_pipeline_agent.log
 ```
 

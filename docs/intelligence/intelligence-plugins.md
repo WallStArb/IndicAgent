@@ -37,6 +37,24 @@ class PatternPlugin(ABC):
 - `compute()` must be pure — no side effects, no database calls
 - Return `None` for "no signal" — never raise for normal conditions
 
+### InputSpec Reference
+
+`InputSpec` declares what data a plugin needs. The DAG engine uses these declarations to derive execution order automatically.
+
+```python
+class InputSpec:
+    symbol: str | Pattern[str]      # ".*" for all symbols, "ES" for specific
+    timeframe: str | list[str]      # "1m" or ["1m", "5m", "15m"]
+    lookback: int                   # Bars of history needed
+    required: bool = True           # Fail if missing?
+```
+
+| Plugin | `inputs` | Meaning |
+|--------|----------|---------|
+| RSI | `InputSpec(".*", "1m", 100)` | All symbols, 1m only, 100 bars |
+| CTF (I6) | `InputSpec(".*", ["1m", "5m", "15m", "1h"], 1)` | Multi-TF read |
+| Divergence | `InputSpec(".*", "1m", 50)` | Needs I1 features (50 bars) |
+
 ### Registration
 
 Register in `src/intelligence/register_plugins.py`:
@@ -493,13 +511,15 @@ Each plugin runs inside try/except in the pipeline executor. A plugin that raise
 
 ### Plugin Validation at Startup
 
-`PluginValidator` checks all registered plugins at pipeline startup:
-- Output field names declared in plugin's schema match `IntelligenceEvent` fields
-- No circular dependencies in the DAG
-- Warmup requirements are positive integers
-- `supports_incremental` flag is consistent with `compute_next()` implementation
+`PluginValidator` (`src/core/plugin_validator.py`) checks all registered plugins at pipeline startup. Hard-crash failures prevent bad data from silently propagating.
 
-Startup fails fast if validation fails — prevents silent bad-data propagation.
+| Check | Purpose | Failure Mode |
+|-------|---------|--------------|
+| Tier list registration | All `TIER_*` plugins in registry | Hard crash |
+| Required attributes | `name`, `outputs`, `inputs` present | Hard crash |
+| Schema coverage | Outputs covered by `IntelligenceEvent` | Hard crash |
+| Orphaned plugins | Imported modules with missing `.py` files | Warning |
+| TREND_SETUPS sync | Trend setups match `regime_type="trend"` | Warning |
 
 ### Error State Persistence
 
