@@ -15,11 +15,16 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.models import AssetClass, Instrument
+
+# Sentinel used by Settings.get_config_value() to distinguish "no default provided"
+# from "caller explicitly passed None".
+_UNSET = object()
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
@@ -232,6 +237,40 @@ class Settings(BaseSettings):
     ML_DISCOVERY_IC_THRESHOLD: float = Field(
         default=0.05, description="Min IC to include in report"
     )
+
+    @classmethod
+    def get_config_value(cls, key: str, default: Any = _UNSET) -> Any:
+        """
+        Backward-compatible accessor for OPS config values migrated to the config DB.
+
+        Resolution order:
+          1. Typed default from src.config.runtime_defaults.RUNTIME_DEFAULTS (Phase 109 fallback).
+          2. Caller-provided default if explicitly passed.
+          3. None (only if caller explicitly passed default=None or omitted with no RUNTIME_DEFAULTS entry).
+
+        This addresses the cross-AI review consensus finding that returning None for
+        numeric thresholds (e.g., REGIME_PROB_MIN=0.30) is unsafe. The RUNTIME_DEFAULTS
+        module preserves typed pre-migration values until Phase 110 finishes call-site
+        migration AND removes the corresponding Settings fields.
+
+        NOTE: Existing self.settings.SWARM_*, self.settings.REGIME_*, etc. attributes
+        continue to work as before; this shim is opt-in for callers that want the
+        dotted-key API. The shim is the migration entry point.
+        """
+        import warnings
+
+        warnings.warn(
+            "Settings.get_config_value() is a temporary shim. Migrate to BaseAgent.get_config() at call site.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from src.config.runtime_defaults import RUNTIME_DEFAULTS
+
+        if key in RUNTIME_DEFAULTS:
+            return RUNTIME_DEFAULTS[key]
+        if default is _UNSET:
+            return None
+        return default
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
