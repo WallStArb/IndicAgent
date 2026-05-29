@@ -452,7 +452,7 @@ development.llm.calls              # LLM call audit
 - [Intelligence Tiers](intelligence-tiers.md) — complete tier-by-tier plugin reference
 - [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
 - [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type
-- [Data Pipeline](data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
+- [Data Pipeline](../data/data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
 - **Code:** `src/intelligence/plugins.py`, `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 
 ---

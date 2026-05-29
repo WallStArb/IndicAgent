@@ -33,7 +33,13 @@ import asyncpg
 import structlog
 from opentelemetry import metrics as _otel_metrics
 
-from src.config.contracts import FUTURES_ROLL_CYCLES, derive_roll_chain, get_roll_window
+from src.config.contracts import (
+    FUTURES_ROLL_CYCLES,
+    MONTH_CODE_TO_NUM,
+    derive_roll_chain,
+    get_expiry_date,
+    get_roll_window,
+)
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
@@ -110,6 +116,108 @@ def detect_rolls(today: date) -> list[RollDecision]:
                 old_contract=chain[0]["symbol"],
                 new_contract=chain[1]["symbol"],
                 roll_end=roll_end,
+            )
+        )
+
+    return decisions
+
+
+def _parse_contract_expiry(symbol: str, base_symbol: str) -> date | None:
+    """Decode the expiry date embedded in a futures symbol like 'NGM6' or 'ESM26'.
+
+    Returns None if the suffix can't be parsed.
+    """
+    suffix = symbol[len(base_symbol) :]  # e.g. "M6" or "M26"
+    if len(suffix) < 2:
+        return None
+    month_code = suffix[0]
+    year_str = suffix[1:]
+    month = MONTH_CODE_TO_NUM.get(month_code)
+    if month is None or not year_str.isdigit():
+        return None
+    year_num = int(year_str)
+    # Single digit: interpret as current decade (e.g. "6" → 2026)
+    year = 2020 + year_num if year_num < 100 else year_num
+    try:
+        return get_expiry_date(base_symbol, month, year)
+    except Exception:
+        return None
+
+
+async def detect_expired_front_months(conn: asyncpg.Connection, today: date) -> list[RollDecision]:
+    """Rescue: find front-month contracts that passed expiry and were missed by detect_rolls.
+
+    This handles the case where the system was down during a roll window, or where
+    get_roll_window returns None because we're already past roll_end. Queries the DB
+    for is_front_month=true contracts, computes each contract's expiry date, and
+    promotes the next contract whenever today > expiry_date.
+    """
+    rows = await conn.fetch("""SELECT symbol, base_symbol, roll_to
+           FROM contract_metadata
+           WHERE is_front_month = true AND asset_class = 'futures'""")
+
+    decisions: list[RollDecision] = []
+    for row in rows:
+        symbol = row["symbol"]
+        base_symbol = row["base_symbol"]
+
+        expiry_date = _parse_contract_expiry(symbol, base_symbol)
+        if expiry_date is None:
+            continue
+
+        if today <= expiry_date:
+            continue  # Not yet expired; normal detect_rolls handles it
+
+        # Guard: verify the contract is actually dead before promoting.
+        # get_expiry_date uses different formulas for different futures families and
+        # may be inaccurate for some (e.g. GC/SI/HG expire at end of delivery month,
+        # not 3 days before the 25th of the prior month). A contract with bars in
+        # the last 26 hours is still trading regardless of what the formula says.
+        recent_bar = await conn.fetchval(
+            """SELECT 1 FROM market_data_ohlcv
+               WHERE symbol = $1 AND timestamp > NOW() - INTERVAL '28 hours' LIMIT 1""",
+            symbol,
+        )
+        if recent_bar:
+            continue
+
+        # Expired — find the next contract via roll_to column or chain derivation
+        next_contract: str | None = row["roll_to"] or None
+        if not next_contract:
+            try:
+                chain = derive_roll_chain(base_symbol)
+                symbols = [e["symbol"] for e in chain]
+                if symbol in symbols:
+                    idx = symbols.index(symbol)
+                    next_contract = symbols[idx + 1] if idx + 1 < len(symbols) else None
+                else:
+                    next_contract = symbols[0] if symbols else None
+            except Exception:
+                pass
+
+        if not next_contract:
+            _logger.warning(
+                "roll_batch.rescue_no_next_contract",
+                base=base_symbol,
+                expired=symbol,
+                expiry_date=str(expiry_date),
+            )
+            continue
+
+        _logger.warning(
+            "roll_batch.rescue_expired_front_month",
+            base=base_symbol,
+            expired=symbol,
+            expiry_date=str(expiry_date),
+            next_contract=next_contract,
+            days_overdue=(today - expiry_date).days,
+        )
+        decisions.append(
+            RollDecision(
+                base_symbol=base_symbol,
+                old_contract=symbol,
+                new_contract=next_contract,
+                roll_end=expiry_date,
             )
         )
 
@@ -321,9 +429,25 @@ async def run(dry_run: bool = False) -> None:
     try:
         async with pool.acquire() as conn:
             seeded = await seed_missing_contracts(conn, settings)
-            decisions = detect_rolls(today)
 
-            _logger.info("roll_batch.decisions", count=len(decisions))
+            calendar_decisions = detect_rolls(today)
+            rescue_decisions = await detect_expired_front_months(conn, today)
+
+            # Merge: rescue takes precedence, calendar fills in the rest.
+            # Deduplicate by base_symbol so a symbol isn't promoted twice.
+            seen: set[str] = set()
+            decisions: list[RollDecision] = []
+            for d in rescue_decisions + calendar_decisions:
+                if d.base_symbol not in seen:
+                    seen.add(d.base_symbol)
+                    decisions.append(d)
+
+            _logger.info(
+                "roll_batch.decisions",
+                count=len(decisions),
+                rescue=len(rescue_decisions),
+                calendar=len(calendar_decisions),
+            )
 
             for decision in decisions:
                 promoted = await execute_promotion(conn, decision, dry_run=dry_run)

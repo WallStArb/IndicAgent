@@ -21,7 +21,9 @@
 **→ [Intelligence Tiers](concepts/intelligence-tiers.md)** — I1-I8 framework
 **→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
 **→ [DAG Execution](concepts/dag-execution.md)** — Dependency ordering
-**→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold flow, Redpanda, TimescaleDB
+**→ [Data Foundation](data/data-foundation.md)** — Reference data, contracts, roll architecture
+**→ [Data Provider](data/data-provider.md)** — Provider isolation, failover, IBKR dual streams
+**→ [Data Pipeline](data/data-pipeline.md)** — Hot/warm/cold flow, Redpanda, TimescaleDB
 
 ---
 

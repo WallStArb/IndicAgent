@@ -358,7 +358,7 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | Current architecture state | `docs/architecture/current-state.md` |
 | Plugin architecture | `docs/concepts/plugin-architecture.md` |
 | DAG execution | `docs/concepts/dag-execution.md` |
-| Data pipeline | `docs/concepts/data-pipeline.md` |
+| Data pipeline | `docs/data/data-pipeline.md` |
 | Intelligence tiers | `docs/concepts/intelligence-tiers.md` |
 | Observability | `docs/architecture/observability.md` |
 | Self-healing | `docs/architecture/self-healing.md` |

@@ -307,5 +307,5 @@ Every signal outcome tells you: given these market conditions at the time of ent
 
 - [Intelligence Tiers](intelligence-tiers.md) — I7 setup plugins and CISScorer
 - [Regime Classification](regime-classification.md) — regime gates that filter I7 signals
-- [Data Pipeline](data-pipeline.md) — how signals flow from stream to TimescaleDB
+- [Data Pipeline](../data/data-pipeline.md) — how signals flow from stream to TimescaleDB
 - **Code:** `services/signal_tracker_compute_agent.py`, `services/lifecycle_writer_agent.py`, `services/signal_replay_auditor_agent.py`, `src/intelligence/trading/lifecycle_tracker.py`, `src/persistence/repository/signal_ledger_repository.py`
