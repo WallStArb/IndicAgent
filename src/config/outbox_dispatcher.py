@@ -27,6 +27,7 @@ from src.config.settings import get_settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import create_pool
 from src.core.kafka_utils import KafkaProducerClient
+from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import topic_config_updates
 from src.observability.metrics import (
     CONFIG_OUTBOX_PENDING,
@@ -183,7 +184,7 @@ class OutboxDispatcherAgent(BaseAgent):
             "config_value": config_value,
             "value_type": value_type,
             "version": version,
-            "changed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "changed_at": format_iso_ts(datetime.now(UTC)),
             "changed_by": "system",
             "operation": "set",
             "reason": None,
