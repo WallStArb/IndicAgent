@@ -292,6 +292,42 @@ def topic_alert_requests(env_name: str) -> str:
     return f"{env_prefix(env_name)}alert.requests"
 
 
+def topic_config_updates(env_name: str) -> str:
+    """Kafka topic for OPS config change propagation (compacted).
+
+    Topic configuration (created via rpk/admin tools):
+      - cleanup.policy=compact
+      - min.cleanable.dirty.ratio=0.1
+      - partitions=1 (single-partition for global ordering; key is config_key)
+
+    Partition key: config_key (TEXT) - ensures per-key ordering.
+
+    Event contract (JSON payload):
+      {
+        "schema_version": 1,            # config update event schema version
+        "config_key": "regime.prob_min",
+        "config_value": "0.35",          # string-encoded; consumer parses by value_type
+        "value_type": "float",            # int|float|bool|json|string
+        "version": 7,                     # config_state.version after update
+        "changed_at": "2026-05-29T12:00:00Z",
+        "changed_by": "operator@example.com",
+        "operation": "set" | "revert",
+        "reason": "optional reason text",
+        "redacted": false,
+        "correlation_id": "uuid4"
+      }
+
+    Tombstone behavior: value=null deletes key from compacted log (not used currently;
+    revert publishes a new value, never null). New consumers receive full latest state
+    by reading from beginning of compacted topic.
+
+    NOTE: This topic carries OPS config only (hot-reloadable).
+    INFRA config (DATABASE_URL, secrets) lives in .env files.
+    STRUCT config (plugin tiers, DAG order) lives in code and requires deployment.
+    """
+    return f"{env_prefix(env_name)}config.updates"
+
+
 def topic_gap_fill_dlq(env_name: str) -> str:
     """DLQ for gap-fill requests that exhausted retries in bar_auditor_agent.
 
