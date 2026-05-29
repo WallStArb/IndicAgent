@@ -68,7 +68,28 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
     group = "alpha"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
     latency_budget_ms = 120000.0
-    shadow_only = True
+    # Phase 109: shadow_only defaults to True (FAIL-CLOSED).
+    # Promotion to live requires an explicit ai.agent.<agent_id>.shadow_mode=false
+    # config entry. If config load fails or the key is missing, agent STAYS shadow.
+    shadow_only: bool = True
+
+    def _apply_shadow_mode_config(self) -> None:
+        """Read ai.agent.<self.agent_id>.shadow_mode from config; fail-closed on miss.
+
+        Called by:
+          - AlphaSwarmComputeAgent._setup() after agents are constructed (initial load)
+          - AlphaSwarmComputeAgent._on_config_message_received() on Kafka update
+            (hot-reload -- see alpha_swarm_agent.py Part B)
+        """
+        override = self.get_config(f"ai.agent.{self.agent_id}.shadow_mode", None)
+        if override is None:
+            return  # keep class default True (fail-closed)
+        # override may arrive as bool (from RUNTIME_DEFAULTS) or str (from Kafka); normalize:
+        if isinstance(override, bool):
+            self.shadow_only = override
+        elif isinstance(override, str):
+            self.shadow_only = override.strip().lower() in ("true", "1", "yes")
+        # Unknown type - keep fail-closed (do nothing)
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
         super().__init__(name=self.__class__.__name__, **kwargs)

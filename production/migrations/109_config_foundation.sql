@@ -368,3 +368,22 @@ INSERT INTO config_state (config_key, config_value, version) VALUES
   ('alert.lag.ctx-writer', '500', 1),
   ('alert.lag.dlq-drain', '500', 1)
 ON CONFLICT (config_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Task 4 (Plan 05): Seed ai.agent.*.shadow_mode defaults for AI swarm agents.
+-- Default 'true' preserves current fail-closed state.
+-- Agent IDs verified from class attributes in src/intelligence/ai/alpha/*.py.
+-- ---------------------------------------------------------------------------
+INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
+  ('ai.agent.correlation_v1.shadow_mode', 'bool', 'true', 'Shadow mode for correlation agent (true=shadow, false=live)'),
+  ('ai.agent.counterfactual_v1.shadow_mode', 'bool', 'true', 'Shadow mode for counterfactual agent'),
+  ('ai.agent.regime_coherence_v1.shadow_mode', 'bool', 'true', 'Shadow mode for regime_coherence agent'),
+  ('ai.agent.ml_scorer_v1.shadow_mode', 'bool', 'true', 'Shadow mode for ml_scorer agent')
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+  ('ai.agent.correlation_v1.shadow_mode', 'true', 1),
+  ('ai.agent.counterfactual_v1.shadow_mode', 'true', 1),
+  ('ai.agent.regime_coherence_v1.shadow_mode', 'true', 1),
+  ('ai.agent.ml_scorer_v1.shadow_mode', 'true', 1)
+ON CONFLICT (config_key) DO NOTHING;

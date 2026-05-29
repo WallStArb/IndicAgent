@@ -128,6 +128,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        # Phase 109 Plan 05 Task 4: restrict config reload to ai.agent.* keys only.
+        # (other prefixes like alert.lag.* are irrelevant to AlphaSwarmComputeAgent)
+        self._config_prefixes = ("ai.agent.",)
 
     @property
     def agents(self) -> list:
@@ -172,6 +175,17 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
 
+        # Phase 109 Plan 05 Task 4: apply config-DB shadow_mode overrides BEFORE
+        # shadow_registry sync. D-07 precedence: config DB wins when both sources exist.
+        # Propagate ai.agent.* keys from AlphaSwarm's cache to each agent's cache so
+        # agent._apply_shadow_mode_config() can read them via self.get_config().
+        for agent in self._agents:
+            for k, v in self._config_cache.items():
+                if k.startswith("ai.agent."):
+                    agent._config_cache[k] = v
+            if hasattr(agent, "_apply_shadow_mode_config"):
+                agent._apply_shadow_mode_config()
+
         # D-23: idempotent enrollment — guarantees row exists even if migration missed
         if self._pool is not None:
             await self._shadow_registry_ensure_agents(self._agents)
@@ -188,7 +202,11 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.logger.info("alpha_swarm.started", agents=agent_ids)
 
     async def _refresh_shadow_state_from_registry(self) -> None:
-        """Refresh agent.shadow_only from shadow_registry (registry is source of truth per D-07).
+        """Refresh agent.shadow_only from shadow_registry with D-07 precedence.
+
+        D-07 precedence (Phase 109): config DB takes precedence over shadow_registry
+        when a config entry exists for ai.agent.<agent_id>.shadow_mode. Only fall
+        back to shadow_registry if no config entry exists for this agent.
 
         Called once per graduation cycle to propagate DB state to runtime agent flags.
         """
@@ -200,8 +218,34 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             )
         registry_state = {r["component_name"]: r["is_shadow"] for r in rows}
         for agent in self._agents:
+            # D-07: check config DB FIRST
+            config_override = self.get_config(f"ai.agent.{agent.agent_id}.shadow_mode", None)
+            if config_override is not None:
+                # Config DB wins -- delegate to the agent's normalizer.
+                if hasattr(agent, "_apply_shadow_mode_config"):
+                    agent._apply_shadow_mode_config()
+                continue
+            # No config entry -- fall back to shadow_registry
             if agent.agent_id in registry_state:
                 agent.shadow_only = bool(registry_state[agent.agent_id])
+
+    async def _on_config_message_received(self, key: str, value: object) -> None:
+        """Route ai.agent.*.shadow_mode config updates to the individual AI agents.
+
+        Plan 03 mixin already updated self._config_cache before invoking this hook,
+        so this method propagates the update to each agent's cache and then calls
+        _apply_shadow_mode_config() to flip shadow_only if appropriate.
+
+        Only processes keys starting with 'ai.agent.' (other keys are blocked by
+        _config_prefixes before reaching this hook).
+        """
+        if key.startswith("ai.agent."):
+            for agent in self._agents:
+                # Propagate the updated key to each agent's cache so that
+                # agent._apply_shadow_mode_config() can read it via self.get_config().
+                agent._config_cache[key] = value
+                if hasattr(agent, "_apply_shadow_mode_config"):
+                    agent._apply_shadow_mode_config()
 
     async def _graduation_loop(self) -> None:
         """Override BaseGroupService stub: evaluate all agents every 15 min.
