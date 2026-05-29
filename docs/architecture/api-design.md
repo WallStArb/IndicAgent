@@ -376,7 +376,7 @@ Custom metrics:
 
 ### Grafana Dashboard
 
-See `docs/operations/grafana-dashboards.md` — API panel in Operations dashboard.
+See `docs/operations/observability.md` — API panel in Operations dashboard.
 
 ---
 
