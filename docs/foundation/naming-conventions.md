@@ -54,3 +54,45 @@
 - Tests: `tests/unit/test_<module>.py`; functions `test_<what>_<condition>`
 - TypeScript: components `PascalCase.tsx`, hooks `use-kebab-case.ts`, utils `kebab-case.ts`
 - Docs: `kebab-case.md`; plan docs `YYYY-MM-DD-<topic>.md`; uppercase `README.md`/`CLAUDE.md`/`CHANGELOG.md`
+
+---
+
+## Intelligence Tier Naming System
+
+Tiers have both a code (`I1`–`I8`) and a functional name. Both are valid in documentation and code; use whichever aids clarity.
+
+### Tier Mapping
+
+| Code | Functional Name | `snake_case` | Usage |
+|------|----------------|--------------|-------|
+| I1 | Technical Indicators | `technical_indicators` | Plugin tier key, log tags |
+| I2 | Composite Events | `composite_events` | |
+| I3 | Market Structure | `market_structure` | |
+| I4 | Market Context | `market_context` | Regime detection, volatility, session |
+| I5 | Pattern Intelligence | `pattern_intelligence` | |
+| I6 | Confluence Synthesis | `confluence_synthesis` | Also: `smc` shorthand in event keys |
+| I7 | Trading Signals | `trading_signals` | |
+| I8 | AI Narrative | `ai_narrative` | |
+
+### Usage Guidelines
+
+- **In code:** Use tier codes (`I1`–`I8`) for constants and tier keys; functional names as dict keys and topic suffixes
+- **In docs:** Tier codes for brevity; functional names when clarity matters
+- **In logs:** Tier codes preferred for width constraints
+- **In metrics:** Dual label `I1:technical_indicators` via `format_tier_label()`
+- **In DB columns:** Functional names only (Phase 104 schema)
+- **In APIs:** Functional names for external consumers
+
+### Conversion API
+
+`src/intelligence/tier_aliases.py` provides programmatic conversion:
+
+```python
+from src.intelligence.tier_aliases import (
+    tier_to_functional,   # "I1" → "technical_indicators"
+    functional_to_tier,   # "trading_signals" → "I7"
+    format_tier_label,    # "I1" → "I1:technical_indicators" (for metrics)
+)
+```
+
+See `src/intelligence/register_plugins.py` `TIER_I1`..`TIER_I7` for the canonical tier lists.
