@@ -65,8 +65,8 @@ class ConfigConsumerMixin:
 
         Emits CONFIG_STALE_TOTAL on failure with agent_id and reason labels.
         """
+        svc = ConfigService(self.settings.database_url)  # type: ignore[attr-defined]
         try:
-            svc = ConfigService(self.settings.database_url)  # type: ignore[attr-defined]
             await svc.initialize()
             snapshot = await svc.list()
             # Filter by prefixes if set; otherwise accept all OPS keys
@@ -99,6 +99,8 @@ class ConfigConsumerMixin:
                 error=str(exc),
             )
             # Do NOT re-raise — NON-FATAL
+        finally:
+            await svc.close()
 
     async def _setup_config_consumer(self) -> None:
         """Phase B: subscribe to Kafka AFTER service _setup() completes.
