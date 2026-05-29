@@ -512,7 +512,7 @@ VOLUME_TYPE = int                                  # Volume as integer
 - [Intelligence Tiers (I1-I8)](../../concepts/intelligence-tiers.md) - Intelligence processing framework
 - [Plugin Registry & DAG Execution](../../architecture/plugin-registry-and-dag-execution.md) - Processing architecture
 - [Intelligence Processing Architecture](../../architecture/event-driven-indicator-system.md) - Service integration
-- [Layered Architecture](../../architecture/layered-architecture.md) - Complete system overview
+- [Architecture Overview](../../architecture/overview.md) - Complete system overview
 
 ---
 

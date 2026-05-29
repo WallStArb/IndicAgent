@@ -354,12 +354,12 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 
 | Topic | Document |
 |-------|----------|
-| Layered architecture | `docs/architecture/layered-architecture.md` |
+| Architecture design principles | `docs/architecture/design-principles.md` |
 | Current architecture state | `docs/architecture/current-state.md` |
-| Plugin architecture | `docs/concepts/plugin-architecture.md` |
+| Plugin protocol & tier lists | `docs/intelligence/intelligence-plugins.md` |
 | DAG execution | `docs/concepts/dag-execution.md` |
 | Data pipeline | `docs/data/data-pipeline.md` |
-| Intelligence tiers | `docs/concepts/intelligence-tiers.md` |
+| Intelligence tiers & plugin inventory | `docs/intelligence/intelligence-plugins.md` |
 | Observability | `docs/platform/platform-observability.md` |
 | Self-healing | `docs/architecture/self-healing.md` |
 | API design | `docs/platform/platform-api.md` |

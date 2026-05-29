@@ -138,12 +138,8 @@ System design docs that predate the domain-folder taxonomy. The two files that w
 | `canonical-truth-registry.md` | Single source of truth registry |
 | `overview.md` | Architecture overview at a glance |
 | `self-healing.md` | Watchdog, stall detection, DLQ quarantine |
-| `layered-architecture.md` | Layered architecture diagram |
-| `concepts.md` | High-level architecture concepts |
 | `pipeline-optimization.md` | Pipeline optimization strategy |
-| `plugin-native-architecture-explained.md` | Plugin-native architecture rationale |
-| `plugin-protocol.md` | Plugin protocol specification |
-| `principles.md` | Foundational principles (predates `foundation/principles.md`) |
+| `design-principles.md` | Architectural design principles (10 constraints) |
 
 ### `specs/` — Design contracts
 

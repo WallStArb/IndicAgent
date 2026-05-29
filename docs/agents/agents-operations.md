@@ -190,6 +190,34 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
 
 ---
 
+## Metrics Ports
+
+Each daemon service exposes OTel metrics via its assigned port. All ports are scraped by the OTel Collector at `:4317` and forwarded to Prometheus at `:9090`.
+
+| Service | systemd unit suffix | Metrics port |
+|---------|---------------------|-------------|
+| IBKRProviderAgent | `ibkr-provider` | `:9129` |
+| ProviderMergerAgent | `provider-merger` | `:9130` |
+| BarAggregatorComputeAgent | `bar-aggregator` | `:9120` |
+| BarWriterAgent | `bar-writer` | `:9121` |
+| BarAuditorAgent | `bar-auditor` | `:9123` |
+| CrossAssetService | `cross-asset` | `:9118` |
+| IntelligencePipelineComputeAgent | `intelligence-pipeline` | `:9125` |
+| FeatureWriterAgent | `feature-writer` | `:9116` |
+| FeatureSnapshotWriterAgent | `feature-snapshot-writer` | `:9132` |
+| ParityAuditorAgent | `parity-auditor` | `:9133` |
+| SignalWriterAgent | `signal-writer` | `:9119` |
+| SignalTrackerComputeAgent | `signal-tracker-compute` | `:9115` |
+| SignalAuditorAgent | `signal-auditor` | `:9128` |
+| SignalMetricsComputeAgent | `signal-metrics-compute` | `:9126` |
+| NarrativeGroupComputeAgent | `narrative-compute` | `:9113` |
+| LLMWriterAgent | `llm-writer` | `:9117` |
+| ServiceAuditorAgent | `service-auditor` | `:9131` |
+
+Services absent from this table (API, dashboard, timer-based oneshots) do not expose dedicated metrics ports — their health is determined by systemd unit state only.
+
+---
+
 ## Data Contracts
 
 ### What the Service Auditor Reads

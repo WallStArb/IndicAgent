@@ -356,7 +356,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 ## See Also
 
-- `plugin-protocol.md` — Plugin interface and developer contract
+- `docs/intelligence/intelligence-plugins.md` — Plugin protocol, InputSpec, tier lists
 - `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
-- `plugin-native-architecture-explained.md` — Architectural principles
+- `design-principles.md` — Architectural design principles
