@@ -1022,7 +1022,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 109-03-PLAN.md — BaseAgent config reload pattern integration + systemd units
+- [x] 109-03-PLAN.md — BaseAgent config reload pattern integration + systemd units
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -1091,7 +1091,7 @@ Plans:
 
 **Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
 **Depends on**: Phase 096
-| 109. Config Foundation & Self-Healing Engine | v2.7 | 2/5 | In Progress|  |
+| 109. Config Foundation & Self-Healing Engine | v2.7 | 3/5 | In Progress|  |
 **Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
 **Success Criteria** (what must be TRUE):
 
