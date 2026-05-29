@@ -480,7 +480,8 @@ All agents MUST emit the following signals at startup/shutdown/crash boundaries.
 ## See Also
 
 - **CLAUDE.md** — "OTel Health Contract (Phase 108 SOP)" section: 5 mandatory BaseAgent signals + oneshot contract
-- `.planning/phases/108-self-healing-hardening/` — Phase 108 plans and summaries: OTel foundation, watchdog rollout, DLQ quarantine, stall detection
-- `base-agent-patterns.md` — Agent lifecycle and metric scaffolding
-- `agent-standard.md` — Role taxonomy and naming conventions
-- `current-state.md` — Active agents and their metrics ports
+- **Self-healing architecture** — `docs/architecture/self-healing.md` — Consolidated self-healing patterns, systemd watchdog, DLQ quarantine, stall detection
+- **Phase 108 artifacts** — `.planning/phases/108-self-healing-hardening/` — Detailed implementation plans, summaries, verification
+- **base-agent-patterns.md** — Agent lifecycle and metric scaffolding
+- **agent-standard.md** — Role taxonomy and naming conventions
+- **current-state.md** — Active agents and their metrics ports
