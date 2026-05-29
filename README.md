@@ -429,7 +429,7 @@ Any HTTP client — a Python trading bot, a Jupyter notebook, an alert engine, a
 
 ## Observability
 
-Every service exposes a Prometheus-compatible metrics endpoint. Grafana dashboards cover pipeline throughput per symbol/TF, per-service P50/P95/P99 latency, signal generation and regime gate drop rates, LLM call success and fallback rates, per-plugin error rates.
+All services push metrics via OTel to a central Collector, which exposes a Prometheus endpoint. Grafana dashboards cover pipeline throughput per symbol/TF, per-service P50/P95/P99 latency, signal generation and regime gate drop rates, LLM call success and fallback rates, per-plugin error rates.
 
 Four visualization layers serve different audiences and time horizons:
 
