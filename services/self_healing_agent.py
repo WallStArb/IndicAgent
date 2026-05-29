@@ -17,18 +17,18 @@ asyncpg.Pool. ManagedPool.__init__ signature is
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 import _path_bootstrap  # noqa: F401 -- project root on sys.path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-app = FastAPI(title="IndicAgent Self-Healing Engine", version="1.0.0")
 _self_healing_engine = None
 _WEBHOOK_SECRET = os.getenv("CONFIG_WEBHOOK_SHARED_SECRET")
 
 
-@app.on_event("startup")
-async def startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     from src.config.settings import get_settings
     from src.self_healing.engine import SelfHealingEngine
     from src.self_healing.pool_manager import ManagedPool
@@ -40,12 +40,12 @@ async def startup() -> None:
     global _self_healing_engine
     _self_healing_engine = SelfHealingEngine(managed_pool)
     await _self_healing_engine.initialize()
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
+    yield
     if _self_healing_engine:
         await _self_healing_engine.close()
+
+
+app = FastAPI(title="IndicAgent Self-Healing Engine", version="1.0.0", lifespan=lifespan)
 
 
 @app.post("/webhook/alertmanager")
