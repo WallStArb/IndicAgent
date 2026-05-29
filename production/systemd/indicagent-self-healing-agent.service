@@ -1,0 +1,30 @@
+[Unit]
+Description=IndicAgent Self-Healing Engine (HTTP webhook port 9002, OTel metrics port 9007)
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9007
+# Environment=CONFIG_WEBHOOK_SHARED_SECRET=... (set via override or EnvironmentFile)
+# Environment=PROMETHEUS_URL=http://localhost:9090
+# EnvironmentFile=-/etc/indicagent/self-healing.env
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/self_healing_agent.py
+Restart=always
+WatchdogSec=60
+NotifyAccess=main
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-self-healing-agent
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

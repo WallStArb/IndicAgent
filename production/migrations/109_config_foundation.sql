@@ -271,3 +271,119 @@ WITH DATA;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_remediation_success_rates_action
     ON remediation_success_rates (action);
+
+-- ---------------------------------------------------------------------------
+-- Task 2 (Plan 05): Seed OPS config_schema for migrated settings.py params.
+-- Values mirror src/config/runtime_defaults.py exactly.
+-- NOTE (Phase 109): These rows prepare for Phase 110 call-site migration of
+-- alpha_swarm_agent.py and related modules. The corresponding Settings fields
+-- (SWARM_*, REGIME_*, etc.) remain in src/config/settings.py during Phase 109.
+-- ---------------------------------------------------------------------------
+INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
+  ('regime.prob_min', 'float', '0.30', 'Minimum regime probability for signal eligibility'),
+  ('regime.dur_min', 'int', '1', 'Minimum regime duration (bars)'),
+  ('swarm.min_confidence', 'float', '0.60', 'Minimum swarm agent confidence'),
+  ('swarm.min_tf_minutes', 'int', '5', 'Minimum timeframe (minutes) for swarm processing'),
+  ('swarm.weight_min_samples', 'int', '30', 'Minimum samples before weight learning'),
+  ('swarm.weight_floor', 'float', '0.05', 'Minimum weight value (prevents zero weights)'),
+  ('swarm.max_concurrent_calls', 'int', '8', 'Max concurrent LLM calls'),
+  ('roll.monitor_window_size', 'int', '100', 'Roll monitor sliding window size'),
+  ('roll.threshold_default', 'float', '1.2', 'Roll detection threshold default'),
+  ('roll.postroll_bars', 'int', '10', 'Bars to monitor after roll'),
+  ('roll.cooldown_min', 'int', '30', 'Cooldown minutes after roll'),
+  ('roll.confirmation_bars', 'int', '3', 'Confirmation bars for roll detection'),
+  ('roll.time_of_day_gated', 'bool', 'true', 'Gate roll detection by time-of-day'),
+  ('cross_asset.window_bars', 'int', '20', 'Cross-asset analysis window size'),
+  ('macro.window_bars', 'int', '10', 'Macro context window size')
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+  ('regime.prob_min', '0.30', 1),
+  ('regime.dur_min', '1', 1),
+  ('swarm.min_confidence', '0.60', 1),
+  ('swarm.min_tf_minutes', '5', 1),
+  ('swarm.weight_min_samples', '30', 1),
+  ('swarm.weight_floor', '0.05', 1),
+  ('swarm.max_concurrent_calls', '8', 1),
+  ('roll.monitor_window_size', '100', 1),
+  ('roll.threshold_default', '1.2', 1),
+  ('roll.postroll_bars', '10', 1),
+  ('roll.cooldown_min', '30', 1),
+  ('roll.confirmation_bars', '3', 1),
+  ('roll.time_of_day_gated', 'true', 1),
+  ('cross_asset.window_bars', '20', 1),
+  ('macro.window_bars', '10', 1)
+ON CONFLICT (config_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Task 3 (Plan 05): Seed alert.lag.* thresholds from original _LAG_THRESHOLDS dict.
+-- 21 entries exactly matching the pre-migration dict in services/service_auditor_agent.py.
+-- ServiceAuditorAgent loads these at startup via _load_lag_thresholds() and hot-reloads
+-- via _on_config_message_received when alert.lag.* Kafka updates arrive.
+-- ---------------------------------------------------------------------------
+INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
+  ('alert.lag.provider-merger', 'int', '500', 'Consumer lag threshold for indicagent-provider-merger'),
+  ('alert.lag.bar-aggregator', 'int', '500', 'Consumer lag threshold for indicagent-bar-aggregator'),
+  ('alert.lag.bar-auditor', 'int', '200', 'Consumer lag threshold for indicagent-bar-auditor'),
+  ('alert.lag.bar-writer', 'int', '1000', 'Consumer lag threshold for indicagent-bar-writer'),
+  ('alert.lag.intelligence-pipeline', 'int', '500', 'Consumer lag threshold for indicagent-intelligence-pipeline'),
+  ('alert.lag.cross-asset', 'int', '200', 'Consumer lag threshold for indicagent-cross-asset'),
+  ('alert.lag.macro-compute', 'int', '500', 'Consumer lag threshold for indicagent-macro-compute'),
+  ('alert.lag.feature-writer', 'int', '1000', 'Consumer lag threshold for indicagent-feature-writer'),
+  ('alert.lag.signal-tracker-compute', 'int', '500', 'Consumer lag threshold for indicagent-signal-tracker-compute'),
+  ('alert.lag.signal-writer', 'int', '500', 'Consumer lag threshold for indicagent-signal-writer'),
+  ('alert.lag.lifecycle-writer', 'int', '500', 'Consumer lag threshold for indicagent-lifecycle-writer'),
+  ('alert.lag.lineage-writer', 'int', '500', 'Consumer lag threshold for indicagent-lineage-writer'),
+  ('alert.lag.alpha-swarm', 'int', '200', 'Consumer lag threshold for indicagent-alpha-swarm'),
+  ('alert.lag.narrative-compute', 'int', '200', 'Consumer lag threshold for indicagent-narrative-compute'),
+  ('alert.lag.llm-writer', 'int', '500', 'Consumer lag threshold for indicagent-llm-writer'),
+  ('alert.lag.swarm-ledger-writer', 'int', '500', 'Consumer lag threshold for indicagent-swarm-ledger-writer'),
+  ('alert.lag.signal-metrics-writer', 'int', '500', 'Consumer lag threshold for indicagent-signal-metrics-writer'),
+  ('alert.lag.graduation-compute', 'int', '500', 'Consumer lag threshold for indicagent-graduation-compute'),
+  ('alert.lag.graduation-writer', 'int', '500', 'Consumer lag threshold for indicagent-graduation-writer'),
+  ('alert.lag.ctx-writer', 'int', '500', 'Consumer lag threshold for indicagent-ctx-writer'),
+  ('alert.lag.dlq-drain', 'int', '500', 'Consumer lag threshold for indicagent-dlq-drain')
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+  ('alert.lag.provider-merger', '500', 1),
+  ('alert.lag.bar-aggregator', '500', 1),
+  ('alert.lag.bar-auditor', '200', 1),
+  ('alert.lag.bar-writer', '1000', 1),
+  ('alert.lag.intelligence-pipeline', '500', 1),
+  ('alert.lag.cross-asset', '200', 1),
+  ('alert.lag.macro-compute', '500', 1),
+  ('alert.lag.feature-writer', '1000', 1),
+  ('alert.lag.signal-tracker-compute', '500', 1),
+  ('alert.lag.signal-writer', '500', 1),
+  ('alert.lag.lifecycle-writer', '500', 1),
+  ('alert.lag.lineage-writer', '500', 1),
+  ('alert.lag.alpha-swarm', '200', 1),
+  ('alert.lag.narrative-compute', '200', 1),
+  ('alert.lag.llm-writer', '500', 1),
+  ('alert.lag.swarm-ledger-writer', '500', 1),
+  ('alert.lag.signal-metrics-writer', '500', 1),
+  ('alert.lag.graduation-compute', '500', 1),
+  ('alert.lag.graduation-writer', '500', 1),
+  ('alert.lag.ctx-writer', '500', 1),
+  ('alert.lag.dlq-drain', '500', 1)
+ON CONFLICT (config_key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Task 4 (Plan 05): Seed ai.agent.*.shadow_mode defaults for AI swarm agents.
+-- Default 'true' preserves current fail-closed state.
+-- Agent IDs verified from class attributes in src/intelligence/ai/alpha/*.py.
+-- ---------------------------------------------------------------------------
+INSERT INTO config_schema (config_key, value_type, default_value, description) VALUES
+  ('ai.agent.correlation_v1.shadow_mode', 'bool', 'true', 'Shadow mode for correlation agent (true=shadow, false=live)'),
+  ('ai.agent.counterfactual_v1.shadow_mode', 'bool', 'true', 'Shadow mode for counterfactual agent'),
+  ('ai.agent.regime_coherence_v1.shadow_mode', 'bool', 'true', 'Shadow mode for regime_coherence agent'),
+  ('ai.agent.ml_scorer_v1.shadow_mode', 'bool', 'true', 'Shadow mode for ml_scorer agent')
+ON CONFLICT (config_key) DO NOTHING;
+
+INSERT INTO config_state (config_key, config_value, version) VALUES
+  ('ai.agent.correlation_v1.shadow_mode', 'true', 1),
+  ('ai.agent.counterfactual_v1.shadow_mode', 'true', 1),
+  ('ai.agent.regime_coherence_v1.shadow_mode', 'true', 1),
+  ('ai.agent.ml_scorer_v1.shadow_mode', 'true', 1)
+ON CONFLICT (config_key) DO NOTHING;
