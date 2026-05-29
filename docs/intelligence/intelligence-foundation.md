@@ -288,6 +288,61 @@ Raw confidence (I7 plugin output)
 
 **Key invariant:** `active` signal is always derived from `all_ranked`, never from the raw `signals` list.
 
+### Adaptive Weight Systems
+
+Two independent weight systems govern signal scoring. Do not conflate them.
+
+**1. CIS Bucket Weights** — governs which *direction* to trust
+
+Bootstrap weights (version 0) are manually tuned. The architecture supports learned weights loaded from `cis_weights` DB table. When `version > 0` exists, the scorer loads it at startup. Every `CISResult` carries `weights_version` — all signals in `signal_ledger` are traceable to the exact weight set that produced them.
+
+```
+signal fires (weight version N)
+  → signal_tracker_compute_agent tracks outcome (stop / target / TTL)
+  → outcome written to signal_ledger
+  → weight-learning job reads outcomes, fits logistic regression per bucket
+  → new weights written to cis_weights (version N+1)
+  → scorer loads version N+1 at next restart
+```
+
+**2. Setup Performance Weights** — governs which *setup plugin* to prefer
+
+Independent of CIS scoring. Applied as a Sharpe-normalized performance multiplier on setup ranking.
+
+```
+signal_metrics table (rolling 30-day):
+  setup_plugin, tf, symbol, regime_type, track, window_days, n, sharpe
+
+perf_multiplier = 0.5 + ((n - 1 - rank) / n)   range [0.5, 1.5]
+  rank = ascending Sharpe rank (best Sharpe → rank n-1 → highest multiplier)
+
+Promotion gate: n >= 30 required — below threshold multiplier = 1.0 (neutral)
+Regime conditioning: weights loaded per current HMM regime_type
+  symbol-specific weights take precedence; '*' wildcard is fallback
+```
+
+`IntelligencePipelineComputeAgent` loads weights at startup and refreshes every hour. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
+
+**Composition:** CIS governs which *direction* has cross-tier confirmation. Performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
+
+### Signal Confidence Calibration Chain (Detail)
+
+Full six-layer pipeline with implementation notes:
+
+1. **Isotonic Calibration** — raw confidence values are systematically biased. Isotonic regression maps them to empirically calibrated values. Raw value stored as `pre_calibration_confidence`; output as `calibrated_confidence`.
+
+2. **Time-of-Day (TOD) Multiplier** — 120 cells: `(regime_type, timeframe, hour_et)`. Computed from rolling historical win rates. A trend setup at RTH open behaves differently than the same setup at 2pm.
+
+3. **Performance Multiplier** (`perf_multiplier`) — rolling 30-day Sharpe and win rate per setup per regime. Gate: N < 30 → `perf_multiplier = 1.0`.
+
+4. **KS Drift Monitor** — Kolmogorov-Smirnov test compares current feature distributions against historical baseline. Feature drift → proportional CIS bucket weight penalty.
+
+5. **CUSUM Monitor** — cumulative sum control charts track win rate per setup. Degradation reduces performance weight automatically; recovery restores it.
+
+6. **Shadow Mode Gate** — `shadow_registry` auto-enrollment at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: `EV[R] < -0.05` for 3 consecutive cycles.
+
+Swarm overlay applies after calibration: `adjusted_confidence = calibrated_confidence × swarm_multiplier` (MoA composite from 5 alpha swarm agents).
+
 ---
 
 ## Renaissance Checklist
