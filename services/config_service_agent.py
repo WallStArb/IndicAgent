@@ -114,7 +114,7 @@ async def verify_auth(request: Request) -> None:
 
     parts = auth_header.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        CONFIG_AUTH_FAILED_TOTAL.add(1, {"reason": "missing_header"})
+        CONFIG_AUTH_FAILED_TOTAL.add(1, {"reason": "invalid_format"})
         raise HTTPException(status_code=401, detail="Authorization header must be Bearer <token>")
 
     token = parts[1]
