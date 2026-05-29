@@ -1030,7 +1030,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 109-05-PLAN.md — SelfHealingAgent service + runtime params migration + cleanup (_LAG_THRESHOLDS, shadow_only)
+- [x] 109-05-PLAN.md — SelfHealingAgent service + runtime params migration + cleanup (_LAG_THRESHOLDS, shadow_only)
 
 ### Phase 094: LiteLLM + Instructor Structured Output
 
@@ -1091,7 +1091,7 @@ Plans:
 
 **Goal**: Agents can recall past setups by regime, symbol, and setup type; memory is gated behind feature flag, compute cost documented before enabling, and validated for quality before production use.
 **Depends on**: Phase 096
-| 109. Config Foundation & Self-Healing Engine | v2.7 | 4/5 | In Progress|  |
+| 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete   | 2026-05-29 |
 **Evidence gate**: Zep RAM footprint vs available headroom documented; recall p95 latency <= 50ms (agent latency budget). If p95 > 50ms, feature stays disabled.
 **Success Criteria** (what must be TRUE):
 
