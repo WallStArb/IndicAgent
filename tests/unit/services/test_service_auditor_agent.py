@@ -261,13 +261,20 @@ def test_stall_loop_skips_oneshot_units():
 
 
 def test_lag_thresholds_cover_consumers():
-    """graduation-compute is in _LAG_THRESHOLDS."""
-    from services.service_auditor_agent import _LAG_THRESHOLDS
+    """Lag threshold keys for graduation-compute etc. must be in the migration SQL.
 
-    assert "indicagent-graduation-compute" in _LAG_THRESHOLDS
+    Phase 109 Plan 05 Task 3: _LAG_THRESHOLDS was removed and replaced with
+    config_state rows (alert.lag.*). This test verifies the migration contains
+    the expected keys for the consumers that previously had entries.
+    """
+    migration_path = "production/migrations/109_config_foundation.sql"
+    with open(migration_path) as f:
+        migration_sql = f.read()
+
+    assert "alert.lag.graduation-compute" in migration_sql
     # graduation-writer and signal-metrics-writer ARE Kafka consumers
-    assert "indicagent-graduation-writer" in _LAG_THRESHOLDS
-    assert "indicagent-signal-metrics-writer" in _LAG_THRESHOLDS
+    assert "alert.lag.graduation-writer" in migration_sql
+    assert "alert.lag.signal-metrics-writer" in migration_sql
 
 
 def test_agent_id_to_unit_feature_writer_key():
