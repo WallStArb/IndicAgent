@@ -1,6 +1,8 @@
 <!-- generated-by: gsd-doc-writer -->
 # Evolvable AI (eAI) — Agents That Evolve
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-ai.md`](../intelligence/intelligence-ai.md)
+
 **Version:** 2.8
 **Last Updated:** 2026-05-27
 **Status:** In progress — Phases 101-103 (v2.8 milestone, gated behind AI platform Phases 094-099)

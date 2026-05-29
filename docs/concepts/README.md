@@ -33,7 +33,7 @@ State-based calculations — 141x performance boost, Wilder's smoothing, Welford
 **[CIS Scoring](cis-scoring.md)**
 Composite Intelligence Score — 6-bucket weighted signal selection, regime gating, adaptive weight learning
 
-**[Signal Lifecycle](signal-lifecycle.md)**
+**[Signal Lifecycle](../signals/signals-lifecycle.md)**
 I7 signal creation → zone activation → MAE/MFE tracking → 8-class outcome classification; expires_at TTL (Phase 107.5)
 
 **[Regime Classification](regime-classification.md)**

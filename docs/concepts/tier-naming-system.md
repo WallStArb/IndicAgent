@@ -1,5 +1,7 @@
 # Intelligence Tier Naming System
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-foundation.md`](../intelligence/intelligence-foundation.md)
+
 **Version:** 2.8
 **Last Updated:** 2026-05-25
 **Status:** Hybrid system - Internal tier codes + External functional names

@@ -297,7 +297,7 @@ Full implementation details in `.planning/phases/108-self-healing-hardening/`:
 
 ## See Also
 
-- **OTel patterns:** `docs/architecture/observability.md`
+- **OTel patterns:** `docs/platform/platform-observability.md`
 - **Grafana dashboards:** `docs/operations/observability.md`
 - **Alerting runbook:** `docs/development/alerting.md`
 - **Systemd supervision:** `docs/operations/infrastructure.md`

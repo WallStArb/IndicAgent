@@ -2,7 +2,15 @@
 
 **Version:** 2.8
 **Status:** current
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-05-29
+
+---
+
+## Documentation Taxonomy
+
+The docs use a **domain-first, recipe-card format**: each folder owns a specific domain, and each file answers one of four questions — WHY (design rationale), WHAT (contracts and data shapes), HOW (procedures), or WHERE (quick lookup). Files within a domain folder are named `<domain>-<role>.md` (e.g., `intelligence-foundation.md`, `signals-lifecycle.md`).
+
+The `intelligence/` folder is the gold standard — four files, each a distinct recipe card, covering foundation, plugins, AI, and operations. New domain folders (`agents/`, `signals/`, `platform/`) follow the same pattern. Older folders (`foundation/`, `data/`, `operations/`, `reference/`) are stable but predate the recipe-card convention. `architecture/` and `concepts/` are legacy — content migrates to domain folders over time.
 
 ---
 
@@ -15,95 +23,139 @@
 
 ---
 
-## Understanding the architecture?
+## Folder Index
 
-**→ [Architecture Overview](architecture/overview.md)** — System architecture deep dives
-**→ [Intelligence Tiers](concepts/intelligence-tiers.md)** — I1-I8 framework
-**→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
-**→ [DAG Execution](concepts/dag-execution.md)** — Dependency ordering
-**→ [Data Foundation](data/data-foundation.md)** — Reference data, contracts, roll architecture
-**→ [Data Provider](data/data-provider.md)** — Provider isolation, failover, IBKR dual streams
-**→ [Data Pipeline](data/data-pipeline.md)** — Hot/warm/cold flow, Redpanda, TimescaleDB
+### `foundation/` — stable — Immutable truths
 
----
+WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 
-## Renaissance documentation layers
+| File | Description |
+|------|-------------|
+| `principles.md` | Renaissance principles applied to market intelligence |
+| `naming-conventions.md` | Concept name derives all layer names |
+| `ai-working-rules.md` | AI agent development rules |
 
-### Foundation — WHY+WHAT
+### `intelligence/` — gold standard — I1-I8 domain
 
-Immutable truths: principles, naming rules, AI working rules.
+The reference implementation of the recipe-card format. Four files, four angles.
 
-**→ [Principles](foundation/principles.md)** — Renaissance principles applied to market intelligence
-**→ [Naming Conventions](foundation/naming-conventions.md)** — Concept name derives all layer names
-**→ [AI Working Rules](foundation/ai-working-rules.md)** — AI agent development rules
+| File | Description |
+|------|-------------|
+| `intelligence-foundation.md` | I1-I8 definitions, data flow philosophy, tier contracts |
+| `intelligence-plugins.md` | Plugin protocol, how to add a plugin, 132-plugin inventory |
+| `intelligence-ai.md` | Swarm agents, LLM chain, shadow governance |
+| `intelligence-operations.md` | Services, monitoring, debugging the intelligence pipeline |
 
-### Architecture — Conceptual WHY
+### `agents/` — new (Phase 3) — Agent infrastructure domain
 
-System design and patterns (could change, but currently true).
+| File | Description |
+|------|-------------|
+| `agents-foundation.md` | Agent lifecycle, OTel signals, BaseAgent contract |
+| `agents-operations.md` | Role taxonomy, DAG topology, service mesh |
+| `agents-writers.md` | Writer agent patterns, DLQ, persistence contracts |
 
-**→ [Overview](architecture/overview.md)** — System architecture at a glance
-**→ [Self-Healing](architecture/self-healing.md)** — Watchdog, stall detection, DLQ quarantine
-**→ [Observability](architecture/observability.md)** — OTel patterns, metric contracts
-**→ [API Design](architecture/api-design.md)** — REST + SSE architecture
+### `signals/` — new (Phase 3) — Signal domain
 
-### Intelligence — I1-I8 Specific
+| File | Description |
+|------|-------------|
+| `signals-foundation.md` | Signal schema, entry types, status strings, schema versioning |
+| `signals-lifecycle.md` | I7 signal creation, zone activation, MAE/MFE, outcome classification |
+| `signals-operations.md` | Signal monitoring, shadow governance, graduation pipeline |
 
-Domain-specific documentation for the intelligence pipeline.
+### `platform/` — new (Phase 4) — Infrastructure + API + Observability domain
 
-**→ [Foundation](intelligence/intelligence-foundation.md)** — I1-I8 definitions, data flow philosophy
-**→ [Plugins](intelligence/intelligence-plugins.md)** — Plugin protocol, how to add a plugin
-**→ [AI](intelligence/intelligence-ai.md)** — Swarm agents, LLM chain, shadow governance
-**→ [Operations](intelligence/intelligence-operations.md)** — Services, monitoring, debugging
+| File | Description |
+|------|-------------|
+| `platform-foundation.md` | WHY systemd/Docker split, L1-L10 DAG, container inventory, cascade failures |
+| `platform-observability.md` | OTel SDK design, metric contracts, D-27 SLO alerts, circuit breaker |
+| `platform-api.md` | FastAPI architecture, SSE vs WebSocket rationale, health router prefix gotcha |
 
-### Operations — Sysadmin HOW
+### `data/` — stable — Data foundation domain
+
+| File | Description |
+|------|-------------|
+| `data-foundation.md` | Reference data, instrument contracts, roll architecture |
+| `data-provider.md` | Provider isolation, failover, IBKR dual streams |
+| `data-pipeline.md` | Hot/warm/cold flow, Redpanda topics, consumer groups, TimescaleDB |
+| `data-streaming.md` | Streaming patterns, topic naming, stream_keys.py |
+
+### `operations/` — stable — Sysadmin HOW
 
 Production procedures: deployment, monitoring, troubleshooting.
 
-**→ [Infrastructure](operations/infrastructure.md)** — Systemd, Docker, servers, deployment
-**→ [Database](operations/database.md)** — TimescaleDB operations, migrations, backup
-**→ [Observability](operations/observability.md)** — Metrics, traces, dashboards, Grafana
-**→ [Security](operations/security.md)** — Security procedures, audit
-**→ [Disaster Recovery](operations/disaster-recovery.md)** — DR procedures
+| File | Description |
+|------|-------------|
+| `infrastructure.md` | Systemd, Docker, servers, deployment |
+| `database.md` | TimescaleDB operations, migrations, backup |
+| `observability.md` | Operational runbook: Grafana dashboards, PromQL patterns, troubleshooting |
+| `security.md` | Security procedures, audit |
+| `disaster-recovery.md` | DR procedures |
 
-### Development — Developer HOW
+### `development/` — stable — Developer HOW
 
 Local development procedures: setup, testing, profiling.
 
-**→ [Setup](development/setup.md)** — New machine setup, environment, dependencies
-**→ [Testing](development/testing.md)** — Unit/integration/e2e how-to
-**→ [Profiling](development/profiling.md)** — Performance profiling
-**→ [Alerting](development/alerting.md)** — Incident response runbook
+| File | Description |
+|------|-------------|
+| `setup.md` | New machine setup, environment, dependencies |
+| `testing.md` | Unit/integration/e2e how-to |
+| `profiling.md` | Performance profiling |
+| `alerting.md` | Incident response runbook |
 
-### Reference — Quick Lookup
+### `reference/` — stable — Quick lookup
 
 Cheat sheets and gotchas for fast lookup.
 
-**→ [Cheatsheet](reference/cheatsheet.md)** — Common commands and workflows
-**→ [Gotchas](reference/gotchas.md)** — Known pitfalls and solutions
+| File | Description |
+|------|-------------|
+| `cheatsheet.md` | Common commands and workflows |
+| `gotchas.md` | Known pitfalls and solutions |
 
-### Specs — Design Contracts
+### `concepts/` — legacy — Intelligence deep-dives
+
+Architectural deep-dives on specific intelligence subsystems. Each file has a `> Domain:` header pointing to its canonical domain folder. Content migrates to `intelligence/` or other domain folders over time.
+
+| File | Domain |
+|------|--------|
+| `intelligence-tiers.md` | Intelligence |
+| `plugin-architecture.md` | Intelligence |
+| `dag-execution.md` | Intelligence |
+| `incremental-computation.md` | Intelligence |
+| `cis-scoring.md` | Intelligence |
+| `regime-classification.md` | Intelligence |
+| `swarm-intelligence.md` | Intelligence |
+| `evolvable-ai.md` | Intelligence |
+| `tier-naming-system.md` | Intelligence |
+
+### `architecture/` — legacy — Cross-cutting design docs
+
+System design docs that predate the domain-folder taxonomy. The two files that were cleanly migrated (`observability.md` → `platform/`, `api-design.md` → `platform/`) have been deleted. Remaining files are genuinely cross-cutting and kept in place.
+
+| File | Description |
+|------|-------------|
+| `dag-topology.md` | Canonical DAG topology reference |
+| `current-state.md` | Active services, current architecture state |
+| `canonical-truth-registry.md` | Single source of truth registry |
+| `overview.md` | Architecture overview at a glance |
+| `self-healing.md` | Watchdog, stall detection, DLQ quarantine |
+| `layered-architecture.md` | Layered architecture diagram |
+| `concepts.md` | High-level architecture concepts |
+| `pipeline-optimization.md` | Pipeline optimization strategy |
+| `plugin-native-architecture-explained.md` | Plugin-native architecture rationale |
+| `plugin-protocol.md` | Plugin protocol specification |
+| `principles.md` | Foundational principles (predates `foundation/principles.md`) |
+
+### `specs/` — Design contracts
 
 Phase-specific design documents and implementation plans.
 
-**→ [Specs](specs/)** — Phase specs and design contracts
+### `plans/` — Implementation plans
 
----
+Phase implementation plans (living workspace).
 
-## Directory Structure
+### `ideas/` — Research workspace
 
-```
-docs/
-├── foundation/       ← WHY+WHAT: principles, naming, AI rules
-├── architecture/     ← Conceptual WHY: system design, patterns
-├── concepts/         ← Architectural patterns (I1–I8, plugins, DAG)
-├── intelligence/     ← I1-I8 domain-specific docs
-├── operations/       ← Sysadmin HOW: deploy, monitor, fix
-├── development/      ← Developer HOW: setup, test, profile
-├── reference/        ← Quick lookup: cheat sheets
-├── specs/            ← Design contracts
-├── ideas/            ← Living research workspace
-└── reference/        ← Technical specs and standards
-```
+Research, strategy, and architecture analysis (living workspace).
 
 ---
 

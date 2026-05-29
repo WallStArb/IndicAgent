@@ -227,7 +227,7 @@ The DAG emerges from plugin inputs/outputs:
 - OTel instrumentation on all routes
 - Structured logging via structlog
 
-**See:** `docs/architecture/api-design.md`, `docs/reference/api/rest-endpoints.md`
+**See:** `docs/platform/platform-api.md`, `docs/reference/api/rest-endpoints.md`
 
 ---
 
@@ -262,7 +262,7 @@ Services (all)
 | Errors | `plugin_fallbacks_total` | Counter | Plugin failures |
 | Saturation | `persistence_consumer_lag_records` | Gauge | Consumer backlog |
 
-**See:** `docs/architecture/observability.md`
+**See:** `docs/platform/platform-observability.md`
 
 ---
 
@@ -312,7 +312,7 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 - `signal_writer_group` — SignalWriterAgent
 - `ai_narrative` — NarrativeGroupComputeAgent
 
-**See:** `docs/architecture/kafka-topology.md`
+**See:** `docs/data/data-streaming.md`
 
 ---
 
@@ -360,10 +360,10 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | DAG execution | `docs/concepts/dag-execution.md` |
 | Data pipeline | `docs/data/data-pipeline.md` |
 | Intelligence tiers | `docs/concepts/intelligence-tiers.md` |
-| Observability | `docs/architecture/observability.md` |
+| Observability | `docs/platform/platform-observability.md` |
 | Self-healing | `docs/architecture/self-healing.md` |
-| API design | `docs/architecture/api-design.md` |
-| Kafka topology | `docs/architecture/kafka-topology.md` |
+| API design | `docs/platform/platform-api.md` |
+| Data streaming (Kafka) | `docs/data/data-streaming.md` |
 | Systemd supervision | `docs/operations/infrastructure.md` |
 | Grafana dashboards | `docs/operations/observability.md` |
 | Deployment | `docs/operations/infrastructure.md` |

@@ -1,6 +1,8 @@
 <!-- generated-by: gsd-doc-writer -->
 # Swarm Intelligence Architecture
 
+> **Domain:** Intelligence — deep-dive companion to [`intelligence-ai.md`](../intelligence/intelligence-ai.md)
+
 **Version:** 2.8
 **Status:** current
 **Last Updated:** 2026-05-27

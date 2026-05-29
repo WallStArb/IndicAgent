@@ -409,6 +409,7 @@ grep flush logs/<service>_agent.log
 
 ## See Also
 
+- **[platform-observability.md](../platform/platform-observability.md)** — Design principles, OTel SDK patterns, metric contracts, circuit breaker, D-27 SLO alert table
 - **Infrastructure:** `docs/operations/infrastructure.md` — Docker, systemd
 - **Database:** `docs/operations/database.md` — TimescaleDB operations
 - **Self-healing:** `docs/architecture/self-healing.md` — Watchdog, stall detection
