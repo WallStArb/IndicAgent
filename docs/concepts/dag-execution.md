@@ -1,169 +1,59 @@
-<!-- generated-by: gsd-doc-writer -->
 # DAG Execution
+> Plugin dependencies are declared, not scheduled — a topological sort derives execution order and reveals parallelism automatically.
 
-> **Domain:** Intelligence — deep-dive companion to [`intelligence-foundation.md`](../intelligence/intelligence-foundation.md)
+## The Problem It Solves
 
-**Version:** 2.8
-**Status:** current
-**Last Updated:** 2026-05-27
+Manual plugin sequencing requires the developer to know all transitive dependencies. Adding a new plugin that sits between two existing ones requires editing sequencing code. At 132 plugins across 7 tiers, this is untenable — a single misordering produces wrong results with no error, and adding a plugin that reads from two tiers forces a human to figure out the correct insertion point in a hand-maintained list.
 
-## What Is a DAG?
+## The Principle
 
-A **Directed Acyclic Graph (DAG)** is a set of nodes connected by one-way edges with no cycles. The "acyclic" constraint is the critical property: data always flows forward. There is no path from any node back to itself, which means the system can always make progress and you can always reason about execution order.
+Declare the inputs and outputs for each node. A topological sort (Kahn's algorithm) derives the execution order automatically. Parallelism emerges from the graph: nodes with no unsatisfied dependencies run concurrently without any explicit scheduling code.
 
-In IndicAgent, every plugin is a node. Every data dependency between plugins is a directed edge. The result is a pipeline that is:
-
-- **Deterministic** — given the same inputs and topological order, output is always the same
-- **Traceable** — every value has a clear lineage back to raw OHLCV data
-- **Safe** — cycles are impossible to introduce; the DAG engine rejects them at startup
-
----
-
-## Why DAGs for Market Intelligence?
-
-Market intelligence has a natural forward-only structure. You cannot compute a divergence (I5) before you have RSI (I1). You cannot score confluence (I6) before you have patterns (I5) and structure (I3). Circular dependencies would be meaningless — "RSI depends on divergence depends on RSI" has no stable solution.
-
-A DAG gives you a clean way to:
-
-1. **Model dependencies explicitly** — the graph is the specification
-2. **Detect design errors early** — cycles fail at startup, not at runtime
-3. **Enable parallel execution** — nodes with no shared dependencies can run concurrently
-4. **Scale independently** — add plugins to any tier without touching others
-
----
-
-## IndicAgent's Plugin DAG
-
-The intelligence pipeline is a DAG of 132 plugins + 2 aggregation components across tiers I1–I7:
-
-```
-Raw OHLCV Data
-      │
-      ├──► I1 Technical Indicators (28 plugins, no dependencies)
-      │         │
-      │         └──► I2 Composite Events (10 plugins, 2 waves — depend on I1)
-      │                   │
-      │                   └──► I3 Market Structure (8 plugins, read OHLCV + I1/I2)
-      │                               │
-      │                               └──► I4 Context / Regime (12 plugins, 2 waves — GARCH → Kalman)
-      │                                           │
-      │                                           └──► I5 Patterns (16 plugins, read I1–I4)
-      │
-      └──► I6 SMC (16 plugins, 2 waves, read I1–I5 + OHLCV)
-                │
-                └──► I6 Confluence (6 plugins, cross-TF synthesis across all tiers)
-                          │
-                          └──► I7 Trading Setups (36 plugins + 2 aggregation, read I2–I6)
-                                    │
-                                    └──► I8 AI Narrative (LLM chain, reads I7 via intelligence.journal)
-```
-
-Edges flow only forward. No tier reads from a tier that comes after it.
-
----
-
-## Topological Sort: Kahn's Algorithm
-
-When the service starts, `src/intelligence/dag.py` runs **Kahn's algorithm** to produce a valid execution order:
-
-1. Compute the **in-degree** of every node (number of upstream dependencies)
+Kahn's algorithm:
+1. Compute the in-degree of every node (count of upstream dependencies)
 2. Add all nodes with in-degree 0 (no dependencies) to a ready queue
-3. Process the queue: execute the node, decrement the in-degree of all downstream nodes
+3. Process the queue: execute the node, decrement in-degree of all downstream nodes
 4. If any downstream node's in-degree reaches 0, add it to the queue
-5. If the queue empties before all nodes are processed, a **cycle exists** — raise `ValueError`
+5. If the queue empties before all nodes are processed, a cycle exists — fail immediately
 
-The sorted list is computed once at startup and reused every bar. This makes per-bar execution overhead negligible.
+The "acyclic" constraint is the critical property: data always flows forward. You cannot compute divergence (I5) before RSI (I1). You cannot score confluence (I6) before patterns (I5) and structure (I3). Cycles would be meaningless and are structurally impossible.
 
-```python
-# src/intelligence/dag.py
-def topological_order(self) -> list[str]:
-    """Kahn's algorithm topological sort.
-    Raises ValueError if DAG contains a cycle."""
-    ...
-```
+## How IndicAgent Applies It
 
----
+Two levels of DAG execution operate simultaneously.
 
-## Execution Tiers in Practice
-
-Because the DAG enforces ordering, services run each tier's plugins in sequence:
-
-| Stage | Plugins | Runs When |
-|-------|---------|-----------|
-| I1 | RSI, MACD, ATR, OFI, CVD, etc. (28 plugins) | Every completed bar |
-| I2 | RSIEvents, MomentumAccel (Wave A), AccelerationRegime/ExhaustionScore (Wave B) — 10 total | After I1 completes |
-| I3 | MACDEvents, SwingDetector, SupportResistance, etc. (8 plugins) | After I1/I2 complete |
-| I4 | GARCH/VIXRegime/CrossAsset (Wave A), KalmanTrend (Wave B) — 12 total | After I3 completes |
-| I5 | MTFVolatility, RSIDivergence, BollingerSqueeze, chart patterns, etc. (16 plugins) | After I1–I4 complete |
-| I6 SMC | BOS/CHoCH/FVG/OB/HMM×4 (Wave A), SupplyDemandZones/BreakerBlocks/MitigationBlocks (Wave B) — 16 total | After I1–I5 complete |
-| I6 Conf | 6 cross-TF confluence plugins | After I6 SMC, reads multiple timeframes |
-| I7 | TrendFollowing, MeanReversion, ORB15/30, OFI/CVD setups, etc. (36 plugins + 2 agg) | In IntelligencePipelineComputeAgent, after I6 |
-
-Plugins within a stage that share no dependencies can execute concurrently. The DAG makes those safe-to-parallelize groups explicit.
-
-**Service architecture:** I1–I7 all execute within `IntelligencePipelineComputeAgent` as a unified in-process pipeline. This eliminates inter-service Kafka latency for tight I6→I7 coupling. WriterAgents (FeatureWriterAgent, SignalWriterAgent) handle DB persistence separately.
-
----
-
-## Cycle Prevention at Startup
-
-The registry validates the DAG before any bars are processed:
-
-```python
-registry.validate_tier()  # hard-crashes on any missing plugin name
-dag.topological_order()   # raises ValueError on cycle detection
-```
-
-Additionally, `validate_schema_coverage()` is called at the end of `register_all_plugins()` — it hard-crashes if any plugin outputs a field not declared in its tier schema (I3/I4/I5/SMC/I6 use `extra='forbid'`).
-
-This means misconfigured pipelines fail loudly at startup rather than producing incorrect results at runtime.
-
----
-
-## Adding a Plugin to the DAG
-
-To wire a new plugin into the execution graph:
-
-1. Implement the plugin protocol (`compute_full`, `compute_next`, `outputs`, `inputs`)
-2. Declare its `inputs` — which tier's outputs it reads
-3. Register it in `src/intelligence/register_plugins.py` in the correct `TIER_I*` list
-4. The DAG engine automatically places it in topological order
-
-No manual ordering required. The graph infers the right position from declared dependencies.
-
----
-
-## Service-Level DAG (10 Layers)
-
-Beyond the plugin DAG, the system as a whole is a DAG of 25+ microservices connected via Kafka topics. The canonical service registry is `_DAG_ORDER` in `services/service_auditor_agent.py`:
+**Plugin DAG (within a bar, I1-I7):** The dependency graph is computed once at startup from each plugin's declared `inputs`/`outputs`. Cycle detection runs at startup and fails fast. Parallel waves execute plugins with no inter-dependencies simultaneously. 132 plugins run per bar without any explicit ordering code.
 
 ```
-L1   ibkr-provider, bar-replay                        — data ingestion + bar replay
-L2   provider-merger                                  — stream merge
-L3   bar-aggregator, bar-auditor                      — bar processing
-L4   bar-writer                                       — OHLCV persistence
-L5   intelligence-pipeline, cross-asset, macro-compute — I1-I7 compute + context
-L6   feature-writer, signal-writer, signal-tracker,
-     lifecycle-writer, lineage-writer, ctx-writer      — persistence writers (parallel)
-L7   alpha-swarm, narrative-compute, llm-writer,
-     swarm-ledger-writer                               — AI/LLM layer
-L8   signal-metrics-compute, signal-metrics-writer,
-     graduation-compute, graduation-writer,
-     feature-snapshot-writer, ml-training              — analytics
-L9   signal-auditor, signal-replay, parity-auditor,
-     alerting-agent                                    — audit, parity, alerting
-L10  service-auditor                                   — meta: monitors + restarts all above
+Raw OHLCV → I1 (no deps) → I2 (depends on I1) → I3 → I4 → I5 → I6 SMC → I6 Conf → I7
 ```
 
-The service auditor at L10 auto-discovers units, monitors Prometheus lag, restarts in DAG order, and escalates after 3 failures in 10 min. No manual intervention required for transient failures.
+**Service DAG (across services, L1-L10):** 25+ microservices connected via Kafka topics. `_DAG_ORDER` in `services/service_auditor_agent.py` defines the canonical restart sequence — services earlier in the DAG restart before services that depend on them.
 
-**Self-healing at L1 and L9:** `BarReplayProviderAgent` (L1) replays historical bars for bootstrap/recovery. `SignalReplayAuditorAgent` (L9) resolves orphaned signal lifecycles every 5 minutes using `sl.expires_at < NOW()` — no LATERAL JOIN required. Both use the same evaluation logic as their live counterparts.
+Both DAGs enforce the same invariant: data flows forward only. A plugin or service can never create a cycle.
 
----
+## Invariants
 
-## Related Documentation
+- No plugin may declare a circular dependency. The DAG engine rejects cycles at startup — never at runtime.
+- Execution order must be deterministic given the same dependency graph.
+- The plugin DAG is computed once at startup — not recomputed per bar. Per-bar overhead is negligible.
+- A plugin's `inputs` list is its contract: it may not read from tier outputs not listed there.
+- `_DAG_ORDER` in `service_auditor_agent.py` is the single source of truth for service restart order — no parallel list anywhere.
 
-- [Plugin Architecture](plugin-architecture.md) — plugin protocol, registry, incremental compute
-- [Intelligence Tiers](intelligence-tiers.md) — what each tier computes
-- [Incremental Computation](incremental-computation.md) — how plugins update state in O(1) per bar
-- **Code:** `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
+## Recipe
+
+When designing a DAG-executed system:
+
+1. **Define node interface before implementation** — what does each node consume and produce? These declarations are the dependency graph.
+2. **Choose cycle detection strategy** — startup-fail-fast is preferable to runtime detection. A cycle discovered at 3am during a live session is catastrophically worse than one caught at service startup.
+3. **Decide granularity** — too-fine nodes create scheduling overhead; too-coarse nodes prevent parallelism. Tier boundaries (I1-I7) are natural granularity points.
+4. **Consider optional vs. required inputs** — nodes that can run with partial inputs need explicit fallback behavior. Better to make inputs required and fail loudly.
+5. **Separate the DAG from execution** — compute topological order once; apply it repeatedly. The sort is not free; per-event recomputation is waste.
+6. **Validate at registration** — check that every declared input actually exists in the graph. Typos in dependency declarations create silent data gaps.
+
+## See Also
+
+- Implementation: `docs/intelligence/intelligence-plugins.md` — plugin DAG structure, wave execution, code
+- Service DAG: `docs/agents/agents-foundation.md` — L1-L10 service topology
+- Code: `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
+- Related concept: `docs/concepts/plugin-composability.md` — how plugins declare their interfaces
