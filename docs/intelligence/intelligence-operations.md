@@ -190,6 +190,20 @@ The GIL prevents threading from achieving true parallelism. CPU-bound work canno
 - **Target:** 530 bars/sec (118x gap)
 - **Optimization:** Batch processing expected 10-50x improvement (see `docs/architecture/pipeline-optimization.md`)
 
+### Plugin Performance Characteristics
+
+| Metric | Value |
+|--------|-------|
+| Sequential bar processing | `await _process_bar` — one bar at a time |
+| Per-bar latency (production) | Measured by `intelligence_pipeline_pipeline_latency_ms` gauge at `:8000/metrics` |
+| Plugin count | 132 plugins + 2 aggregation components across I1-I7 |
+| Thread-pool workers | 12 (GIL cap for CPU-bound plugins) |
+| Backfill replay throttle | 10 bars/sec (`BAR_REPLAY_BARS_PER_SEC`) — not representative of pipeline ceiling |
+
+**Bottleneck:** The sequential `_process_bar` await is the primary throughput limit. Each bar must complete all 132 plugins before the next bar begins. I1-I4 run in waves; I5-I7 run after I4 completes.
+
+**GIL note:** Python GIL limits true parallelism for CPU-bound plugins. The 12 thread-pool workers help I/O-bound operations but CPU-bound indicator math is effectively single-threaded per bar.
+
 ---
 
 ## Common Issues
