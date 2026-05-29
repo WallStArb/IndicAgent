@@ -483,6 +483,30 @@ docker exec redpanda rpk topic consume intelligence --from-end
 
 ---
 
+## Reliability & Error Handling
+
+### Plugin Failure Isolation
+
+Each plugin runs inside try/except in the pipeline executor. A plugin that raises an exception is skipped for that bar — the pipeline continues with other plugins. Error is logged with plugin name and bar context.
+
+**Contract:** A plugin must never raise on bad input data. Validate inputs and return `None` outputs if data is insufficient (e.g., warmup not complete, NaN inputs).
+
+### Plugin Validation at Startup
+
+`PluginValidator` checks all registered plugins at pipeline startup:
+- Output field names declared in plugin's schema match `IntelligenceEvent` fields
+- No circular dependencies in the DAG
+- Warmup requirements are positive integers
+- `supports_incremental` flag is consistent with `compute_next()` implementation
+
+Startup fails fast if validation fails — prevents silent bad-data propagation.
+
+### Error State Persistence
+
+Plugin state is checkpointed to disk (`cache/plugin_states.json`) every N bars. On restart, state is restored so warmup periods are not replayed from scratch. If a checkpoint is corrupt or missing, the plugin reinitializes from scratch (warmup period replays).
+
+---
+
 ## See Also
 
 - **Foundation:** `intelligence-foundation.md` — I1-I8 definitions, data flow
