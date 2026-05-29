@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent Config Service (HTTP API port 9001, OTel metrics port 9005)
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+# Port 9005 = OTel metrics scrape (config HTTP API is hardcoded to 9001 in uvicorn.run)
+Environment=METRICS_PORT=9005
+# CONFIG_API_TOKEN must be set in /etc/indicagent/config.env or via systemd override
+# EnvironmentFile=-/etc/indicagent/config.env
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/config_service_agent.py
+Restart=always
+WatchdogSec=60
+NotifyAccess=main
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

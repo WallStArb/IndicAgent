@@ -1,0 +1,20 @@
+[Unit]
+Description=IndicAgent Outbox Dispatcher (publishes config updates to Kafka, OTel metrics port 9006)
+After=network-online.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9006
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/outbox_dispatcher_agent.py
+Restart=always
+WatchdogSec=60
+NotifyAccess=main
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
