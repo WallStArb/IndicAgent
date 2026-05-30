@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.7
+milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
-status: milestone_complete
-stopped_at: Milestone complete (Phase 109 was final phase)
-last_updated: 2026-05-29T22:39:10.544Z
-last_activity: 2026-05-29 -- Phase 109 execution started
+status: planning
+stopped_at: v2.7 milestone archived — ready for v2.8 planning
+last_updated: 2026-05-29T00:00:00.000Z
+last_activity: 2026-05-29 -- v2.7 milestone complete and archived
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 0
-  total_plans: 10
-  completed_plans: 20
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** v2.8 AI Platform & Evolvable Agents — begin with `/gsd-discuss-phase 094`
 
 ## Current Position
 
