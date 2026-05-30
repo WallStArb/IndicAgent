@@ -479,12 +479,34 @@ New domains attach the same way. The fundamental analysis engine subscribes to m
 
 ## Documentation
 
-- [Architecture Concepts](docs/architecture/concepts.md)
-- [Intelligence Tiers](docs/concepts/intelligence-tiers.md)
-- [CIS Scoring](docs/concepts/cis-scoring.md)
-- [Signal Lifecycle](docs/concepts/signal-lifecycle.md)
-- [DAG Execution](docs/concepts/dag-execution.md)
-- [ML Architecture](docs/ideas/ai-02-ml-agent-architecture.md)
-- [eAI Design](docs/ideas/ai-03-evolvable-ai-agents.md)
-- [Roadmap](.planning/ROADMAP.md)
-- [CLAUDE.md](CLAUDE.md) — AI assistant instructions
+Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signals/`, `agents/`, `platform/`) carry a verification contract: a document with `Status: current` has had every factual claim traced to a source file, table, or live system state at the date shown. A wrong claim is treated as corrupted data — downgraded to `draft` immediately. See [Documentation System](docs/foundation/documentation-system.md) for the full quality model.
+
+### Foundation — verified, portable
+
+| Document | Covers |
+|----------|--------|
+| [Principles](docs/foundation/principles.md) | The invariants behind every design decision |
+| [Naming System](docs/foundation/naming-system.md) | Complete vocabulary: rings, taxonomy, surfaces, mechanical derivation rules |
+| [Documentation System](docs/foundation/documentation-system.md) | Taxonomy, recipe-card format, verification lifecycle, decay model |
+
+### Intelligence Domain — verified
+
+| Document | Covers |
+|----------|--------|
+| [Intelligence Foundation](docs/intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, tier contracts |
+| [Intelligence Plugins](docs/intelligence/intelligence-plugins.md) | Plugin protocol, 132-plugin inventory, how to add a plugin |
+| [Intelligence AI](docs/intelligence/intelligence-ai.md) | Swarm agents, LLM chain, shadow governance, graduation criteria |
+| [Intelligence Operations](docs/intelligence/intelligence-operations.md) | Services, monitoring, debugging the intelligence pipeline |
+
+### Research & Planning — not authoritative
+
+| Document | Covers |
+|----------|--------|
+| [ML Architecture](docs/ideas/ai-02-ml-agent-architecture.md) | ML layer design — 5 agents, LangGraph orchestration, promotion gates |
+| [eAI Design](docs/ideas/ai-03-evolvable-ai-agents.md) | Evolvable AI framework — genome model, reproductive operators, fitness function |
+| [DAG Execution](docs/concepts/dag-execution.md) | Service DAG topology and execution model |
+| [Roadmap](.planning/ROADMAP.md) | Phase roadmap and current position |
+
+### AI Assistant
+
+- [CLAUDE.md](CLAUDE.md) — architecture, commands, conventions, gotchas

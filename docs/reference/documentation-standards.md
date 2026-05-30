@@ -5,7 +5,7 @@
 **Status:** current
 **Last Updated:** 2026-05-27
 
-Personal reference for consistent doc and code naming across the project.
+Formatting and naming conventions for docs and code. For the documentation system design — taxonomy, verification lifecycle, the `current` status contract — see `docs/foundation/documentation-system.md`.
 
 ---
 
