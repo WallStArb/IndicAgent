@@ -1,4 +1,4 @@
-"""BaseAgent — abstract base class for all IndicAgent pipeline agents.
+"""BaseDaemon — abstract base class for all IndicAgent pipeline agents.
 
 Provides the Renaissance Agentic DAG standard lifecycle:
 - SIGTERM/SIGINT drain via asyncio event (asyncio.get_running_loop, not deprecated get_event_loop)
@@ -12,7 +12,7 @@ Provides the Renaissance Agentic DAG standard lifecycle:
 - start/stop/run contract enforced via abc.ABC
 
 Logging Setup:
-  BaseAgent auto-configures logging before creating the logger using convention-over-configuration:
+  BaseDaemon auto-configures logging before creating the logger using convention-over-configuration:
   - Default: log path derived from agent name (PascalCase → snake_case conversion: logs/{name}.log)
   - Override: call setup_service_logging(custom_path) BEFORE super().__init__() for custom paths
     (e.g., from environment variable or config file)
@@ -46,14 +46,14 @@ from src.observability.metrics import (
 from src.observability.otel import get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
-# BaseAgent Observability Metrics (Phase 67)
+# BaseDaemon Observability Metrics (Phase 67)
 # ---------------------------------------------------------------------------
 
 _base_meter = _otel_metrics.get_meter("indicagent")
 
 AGENT_CRASH_TOTAL = _base_meter.create_counter(
     "agent_crash_total",
-    description="Agent crashes (uncaught exceptions) from BaseAgent._run()",
+    description="Agent crashes (uncaught exceptions) from BaseDaemon._run()",
 )
 
 WATCHDOG_NOTIFY_TOTAL = _base_meter.create_counter(
@@ -68,17 +68,17 @@ WATCHDOG_NOTIFY_SUPPRESSED_TOTAL = _base_meter.create_counter(
 
 AGENT_SETUP_SUCCESS_TOTAL = _base_meter.create_counter(
     "agent_setup_success_total",
-    description="Successful BaseAgent._setup() completions",
+    description="Successful BaseDaemon._setup() completions",
 )
 
 AGENT_SETUP_FAILURE_TOTAL = _base_meter.create_counter(
     "agent_setup_failure_total",
-    description="Failed BaseAgent._setup() completions",
+    description="Failed BaseDaemon._setup() completions",
 )
 
 AGENT_SETUP_LATENCY_SECONDS = _base_meter.create_histogram(
     "agent_setup_latency_seconds",
-    description="BaseAgent._setup() execution time in seconds",
+    description="BaseDaemon._setup() execution time in seconds",
     unit="s",
 )
 
@@ -86,7 +86,7 @@ AGENT_SETUP_LATENCY_SECONDS = _base_meter.create_histogram(
 _tracing_initialized: bool = False
 
 
-class BaseAgent(abc.ABC, ConfigConsumerMixin):
+class BaseDaemon(abc.ABC, ConfigConsumerMixin):
     """Abstract base for all pipeline agents.
 
     Subclasses must implement ``_run()``. The lifecycle is:
@@ -126,9 +126,9 @@ class BaseAgent(abc.ABC, ConfigConsumerMixin):
         # Guard: only configure if this exact path has not already been set up.
         # Multiple agent instantiations (e.g., in tests) would otherwise redirect
         # all logging to the most recently instantiated agent's log file.
-        if getattr(BaseAgent, "_log_configured_path", None) != log_path:
+        if getattr(BaseDaemon, "_log_configured_path", None) != log_path:
             setup_service_logging(log_path)
-            BaseAgent._log_configured_path = log_path
+            BaseDaemon._log_configured_path = log_path
 
         self.name = name
         self.max_idle_seconds = max_idle_seconds
@@ -143,7 +143,7 @@ class BaseAgent(abc.ABC, ConfigConsumerMixin):
         # Logger is created AFTER setup_service_logging() when log_file is provided.
         self.logger: structlog.BoundLogger = structlog.get_logger().bind(agent=name)
         # Settings singleton — all agents inherit configuration access
-        # Use provided settings if available (e.g., from BaseProviderAgent), otherwise get singleton
+        # Use provided settings if available (e.g., from BaseProvider), otherwise get singleton
         self.settings = settings if settings is not None else get_settings()
         # OTel tracer — no-op when init_otel_providers() has not been called; safe before init.
         self.tracer = get_tracer(name)
@@ -364,7 +364,7 @@ class BaseAgent(abc.ABC, ConfigConsumerMixin):
     async def _report_consumer_lag(self) -> None:
         """No-op for stream processors — they have no buffer lag to report.
 
-        BaseWriterAgent overrides this to report actual buffer depth via
+        BaseWriter overrides this to report actual buffer depth via
         PERSISTENCE_CONSUMER_LAG.set(). Loops with a longer sleep so the
         stop event check still works without burning 4 OTel submissions/min.
         """

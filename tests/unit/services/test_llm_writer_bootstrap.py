@@ -1,6 +1,6 @@
-"""TDD tests for LLMWriterAgent migration to BaseWriterAgent.
+"""TDD tests for LLMWriterAgent migration to BaseWriter.
 
-Tests verify that BaseWriterAgent observability metrics are emitted correctly:
+Tests verify that BaseWriter observability metrics are emitted correctly:
 - buffer_depth_gauge tracks buffer size
 - buffer_overflow_total increments on overflow
 - PERSISTENCE_CONSUMER_LAG metric is emitted
@@ -19,7 +19,7 @@ from services.llm_writer_service import LLMWriterAgent
 
 
 def _mock_base_agent_attributes(agent):
-    """Set up BaseAgent attributes for __new__ bypass pattern."""
+    """Set up BaseDaemon attributes for __new__ bypass pattern."""
     agent.max_idle_seconds = 0
     agent._agent_label = agent.name.lower().replace(" ", "_")
     agent._crash_total = MagicMock()  # kept for legacy; AGENT_CRASH_TOTAL is module-level
@@ -62,7 +62,7 @@ async def test_llm_writer_buffer_depth_gauge():
     agent.name = "llm_writer_agent"
     _mock_base_agent_attributes(agent)
 
-    # Initialize BaseWriterAgent buffer attributes
+    # Initialize BaseWriter buffer attributes
     agent._buffer = []
     agent._buffer_depth_gauge = MagicMock()
     agent._high_watermark_triggered = False

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 
 
 class ProcessManifest:
@@ -19,12 +19,12 @@ class ProcessManifest:
     global state). Safe to instantiate multiple times in tests.
     """
 
-    def __init__(self, agents: list[BaseAgent]) -> None:
+    def __init__(self, agents: list[BaseDaemon]) -> None:
         names = [a.name for a in agents]
         if len(names) != len(set(names)):
             duplicates = [n for n in set(names) if names.count(n) > 1]
             raise ValueError(f"Duplicate agent names in manifest: {duplicates}")
-        self._agents: dict[str, BaseAgent] = {a.name: a for a in agents}
+        self._agents: dict[str, BaseDaemon] = {a.name: a for a in agents}
 
     # ── Topology ─────────────────────────────────────────────────────────
 

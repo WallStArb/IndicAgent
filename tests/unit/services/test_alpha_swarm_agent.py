@@ -113,14 +113,14 @@ def test_transform_recorder_not_in_module():
 
 
 def test_lineage_recorder_in_module():
-    """LineageRecorder consolidated onto BaseGroupService in Phase 084-03.
+    """LineageRecorder consolidated onto BaseSwarmCoordinator in Phase 084-03.
     AlphaSwarmAgent inherits it from the base; no direct import needed here."""
     import inspect
 
-    from src.core.ai.base_group_service import BaseGroupService
+    from src.core.ai.base_group_service import BaseSwarmCoordinator
 
-    src = inspect.getsource(BaseGroupService._setup)
-    assert "LineageRecorder" in src, "LineageRecorder must be wired in BaseGroupService._setup"
+    src = inspect.getsource(BaseSwarmCoordinator._setup)
+    assert "LineageRecorder" in src, "LineageRecorder must be wired in BaseSwarmCoordinator._setup"
 
 
 def test_extract_volume_profile_not_in_module():
@@ -539,7 +539,7 @@ def test_lead_index_map_deleted():
 
 def test_wave1_invariants_preserved():
     """Plan 01 invariants: no ShadowRecorder/TransformRecorder.
-    LineageRecorder consolidated onto BaseGroupService in Phase 084-03,
+    LineageRecorder consolidated onto BaseSwarmCoordinator in Phase 084-03,
     so it is no longer directly imported in alpha_swarm_agent."""
     import services.alpha_swarm_agent as m
 

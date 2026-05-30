@@ -1,4 +1,4 @@
-"""BaseWriterAgent — abstract base for all Kafka-to-DB writer agents.
+"""BaseWriter — abstract base for all Kafka-to-DB writer agents.
 
 Provides the standard buffer/flush/commit/overflow/teardown pattern shared by
 all writer agents, while leaving the Kafka consumption loop to each subclass.
@@ -31,7 +31,7 @@ from opentelemetry import metrics as _otel_metrics
 from opentelemetry.trace import StatusCode
 from pydantic import TypeAdapter, ValidationError
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.observability.metrics import PERSISTENCE_CONSUMER_LAG
 from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS
 
@@ -62,7 +62,7 @@ def _get_or_create_histogram(name: str, doc: str, buckets: list[float] | None = 
     return _histograms[name]
 
 
-class BaseWriterAgent(BaseAgent, abc.ABC):
+class BaseWriter(BaseDaemon, abc.ABC):
     """Abstract base for writer agents that consume Kafka and write to DB.
 
     Provides the shared buffer/flush/commit/overflow/teardown pattern plus a
@@ -182,7 +182,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
         """Route payload to DLQ if _dlq_topic() is configured.
 
         Call from _run() when _parse_payload() returns None.
-        Delegates to BaseAgent._send_to_dlq() which handles DLQ routing and metrics.
+        Delegates to BaseDaemon._send_to_dlq() which handles DLQ routing and metrics.
         """
         await self._send_to_dlq(payload, error)
 
@@ -373,7 +373,7 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 )
 
         # --- auto-close guards ---
-        # consumer (_consumer is declared on BaseWriterAgent.__init__)
+        # consumer (_consumer is declared on BaseWriter.__init__)
         if getattr(self, "_consumer", None) is not None:
             try:
                 await self._consumer.stop()
@@ -395,11 +395,11 @@ class BaseWriterAgent(BaseAgent, abc.ABC):
                 self.logger.exception("teardown_db_close_failed")
 
     # -----------------------------------------------------------------------
-    # Consumer lag reporting (override of BaseAgent default)
+    # Consumer lag reporting (override of BaseDaemon default)
     # -----------------------------------------------------------------------
 
     async def _report_consumer_lag(self) -> None:
-        """Report consumer lag as buffer depth (override of BaseAgent default).
+        """Report consumer lag as buffer depth (override of BaseDaemon default).
 
         Writer agents accumulate unflushed records in self._buffer.
         Lag = buffer size (records waiting to be flushed to DB).

@@ -1,7 +1,7 @@
 """IBKRAdapter — DataProviderAdapter implementation wrapping IBKRProvider.
 
 Encapsulates all IBKR-specific logic (official bar streaming,
-provider_meta['ibkr'] key lookup) so that BaseProviderAgent only
+provider_meta['ibkr'] key lookup) so that BaseProvider only
 sees the provider-agnostic DataProviderAdapter interface.
 
 Swapping IBKR for another broker = one new adapter file. Everything downstream

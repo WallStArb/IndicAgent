@@ -24,7 +24,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import get_settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import format_iso_ts
@@ -42,7 +42,7 @@ _POLL_MAX_MS: int = 2000
 _CLAIM_BATCH_SIZE: int = 100
 
 
-class OutboxDispatcherAgent(BaseAgent):
+class OutboxDispatcherAgent(BaseDaemon):
     """Polls config_outbox and publishes pending rows to topic_config_updates.
 
     Adaptive polling: resets to 100ms on non-empty batch; doubles toward 2000ms on empty.

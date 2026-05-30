@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.base_agent import BaseAIAgent
+from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.context import AIContext
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp, parse_llm_json
@@ -16,7 +16,7 @@ from src.core.ai.prompt_utils import clamp, parse_llm_json
 logger = structlog.get_logger(__name__)
 
 
-class BaseMultiplierAgent(BaseAIAgent, ABC):
+class BaseMultiplierAgent(BaseAIWorker, ABC):
     """Abstract base for all multiplier-output swarm agents.
 
     Provides:
@@ -25,7 +25,7 @@ class BaseMultiplierAgent(BaseAIAgent, ABC):
       — canonical AgentOutput with multiplier clamped to [0.0, 2.0]
     - Abstract output_schema: ClassVar[dict] — documents expected LLM JSON keys
 
-    All concrete swarm agents extend this, NEVER BaseAIAgent directly.
+    All concrete swarm agents extend this, NEVER BaseAIWorker directly.
     Phase 80 policy is discount-only (formulas should produce multiplier <= 1.0
     until calibration data exists). Clamp range [0.0, 2.0] preserved for future boosting.
     """

@@ -1,4 +1,4 @@
-"""Tests for BaseWriterAgent ABC — consume-parse-buffer-flush-commit loop.
+"""Tests for BaseWriter ABC — consume-parse-buffer-flush-commit loop.
 
 Uses a concrete test subclass to verify the abstract base class contract.
 """
@@ -12,15 +12,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 
 # ---------------------------------------------------------------------------
 # Concrete test subclass — implements all abstract methods
 # ---------------------------------------------------------------------------
 
 
-class StubWriterAgent(BaseWriterAgent):
-    """Minimal concrete subclass for testing BaseWriterAgent."""
+class StubWriterAgent(BaseWriter):
+    """Minimal concrete subclass for testing BaseWriter."""
 
     BATCH_SIZE = 10
     FLUSH_INTERVAL_SECS = 0.1
@@ -67,11 +67,11 @@ class StubWriterAgent(BaseWriterAgent):
 
 
 class TestBaseWriterAgentAbstract:
-    """Test 1: BaseWriterAgent is abstract — cannot be instantiated directly."""
+    """Test 1: BaseWriter is abstract — cannot be instantiated directly."""
 
     def test_cannot_instantiate_directly(self):
         with pytest.raises(TypeError):
-            BaseWriterAgent(name="test")  # type: ignore[abstract]
+            BaseWriter(name="test")  # type: ignore[abstract]
 
     def test_concrete_subclass_instantiates(self):
         agent = StubWriterAgent()
@@ -357,7 +357,7 @@ class _IdModel(BaseModel):
     id: int
 
 
-class TypedWriterAgent(BaseWriterAgent):
+class TypedWriterAgent(BaseWriter):
     """Writer subclass that declares a payload_model for testing the Pydantic gate."""
 
     payload_model = _IdModel
@@ -389,8 +389,8 @@ class TestPydanticPayloadGate:
     """Tests for INFRA-01: payload_model Pydantic validation gate."""
 
     def test_payload_model_default_is_none(self):
-        """BaseWriterAgent.payload_model defaults to None."""
-        assert BaseWriterAgent.payload_model is None
+        """BaseWriter.payload_model defaults to None."""
+        assert BaseWriter.payload_model is None
 
     @pytest.mark.asyncio
     async def test_pydantic_validation_error_routes_to_dlq(self):

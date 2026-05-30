@@ -1,22 +1,22 @@
 """Unit tests for IBKRProviderAgent — TDD tests for Plan 54-03.
 
-Tests structural contract (BaseProviderAgent inheritance) and concrete
+Tests structural contract (BaseProvider inheritance) and concrete
 method implementations (agent name, metrics port, provider name, adapter type).
 """
 
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Test 12: IBKRProviderAgent inherits from BaseProviderAgent
+# Test 12: IBKRProviderAgent inherits from BaseProvider
 # ---------------------------------------------------------------------------
 
 
 def test_inherits_base_provider_agent():
-    """IBKRProviderAgent must be a subclass of BaseProviderAgent."""
+    """IBKRProviderAgent must be a subclass of BaseProvider."""
     from services.ibkr_provider_agent import IBKRProviderAgent
-    from src.providers.base_provider_agent import BaseProviderAgent
+    from src.providers.base_provider_agent import BaseProvider
 
-    assert issubclass(IBKRProviderAgent, BaseProviderAgent)
+    assert issubclass(IBKRProviderAgent, BaseProvider)
 
 
 # ---------------------------------------------------------------------------
