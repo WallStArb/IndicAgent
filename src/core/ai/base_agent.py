@@ -303,8 +303,10 @@ class BaseAIAgent(BaseAgent, ABC):
                     if regime is not None:
                         audit_context["regime"] = str(int(regime))
 
-                if extra_audit:
-                    audit_context.update(extra_audit)
+                # Do NOT pre-merge extra_audit here (WR-04): chain.generate_structured
+                # already merges extra_audit into the audit row. Pre-merging here and then
+                # passing extra_audit again would apply the fields twice. Let the chain
+                # handle merging via its extra_audit parameter.
 
                 result = await self._llm.generate_structured(
                     prompt=prompt,
