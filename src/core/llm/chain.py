@@ -92,6 +92,12 @@ class LLMProviderChain:
                 )
         return limiters
 
+    def _get_rate_limiter(self) -> RateLimiter | None:
+        """Return the rate limiter for the last-used provider, falling back to the first."""
+        return self._rate_limiters.get(self._inner.last_provider_id) or next(
+            iter(self._rate_limiters.values()), None
+        )
+
     async def close(self) -> None:
         """No-op: LiteLLM manages its own HTTP connection pool internally."""
         pass
@@ -143,9 +149,7 @@ class LLMProviderChain:
         # the first configured limiter. On subsequent calls with circuit-breaker failover the
         # wrong per-provider limit may be applied. Fixing this properly requires per-provider
         # limiter selection inside LiteLLMBackend and is deferred to a future phase.
-        limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
-            iter(self._rate_limiters.values()), None
-        )
+        limiter = self._get_rate_limiter()
         if limiter is not None:
             await limiter.acquire(tokens=max_tokens)
 
@@ -235,9 +239,7 @@ class LLMProviderChain:
             attributes={"call_type": self._call_type},
         ) as span:
             # Apply rate limiter before calling the backend (mirrors _generate_inner).
-            limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
-                iter(self._rate_limiters.values()), None
-            )
+            limiter = self._get_rate_limiter()
             if limiter is not None:
                 await limiter.acquire(tokens=max_tokens)
 

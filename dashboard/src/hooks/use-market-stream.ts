@@ -99,6 +99,8 @@ function parseIntelligence(p: Record<string, string>): {
   const i6 = event.i6 ?? {};
 
   const nf = (v: unknown) => (v != null ? Number(v) : 0);
+  // Nullable variant: returns undefined instead of 0 when value is absent
+  const nfn = (v: unknown): number | undefined => v != null ? Number(v) : undefined;
   // Boolean coercion for Redis-serialized "1"/"0" fields
   const nb = (v: unknown): boolean | undefined => v != null ? Number(v) > 0 : undefined;
 
@@ -111,6 +113,27 @@ function parseIntelligence(p: Record<string, string>): {
     trend_integrity: i3.structure_integrity ?? undefined,
     swing_score: i3.trend_strength ?? undefined,
     swing_trend: td != null ? (td > 0 ? "uptrend" : td < 0 ? "downtrend" : "ranging") : undefined,
+    // Market Profile
+    poc_level: nfn(i3.poc_level),
+    va_high: nfn(i3.va_high),
+    va_low: nfn(i3.va_low),
+    price_in_va: i3.price_in_va != null ? nf(i3.price_in_va) > 0 : undefined,
+    poc_dist_pct: nfn(i3.poc_dist_pct),
+    // Session Levels
+    prior_session_high: nfn(i3.prior_session_high),
+    prior_session_low: nfn(i3.prior_session_low),
+    opening_gap_pct: nfn(i3.opening_gap_pct),
+    weekly_pivot: nfn(i3.weekly_pivot),
+    overnight_high: nfn(i3.overnight_high),
+    overnight_low: nfn(i3.overnight_low),
+    // Fibonacci
+    nearest_fib_level: nfn(i3.nearest_fib_level),
+    nearest_fib_ratio: nfn(i3.nearest_fib_ratio),
+    nearest_fib_dist_atr: nfn(i3.nearest_fib_dist_atr),
+    fib_cluster_strength: nfn(i3.fib_cluster_strength),
+    // Swing Momentum
+    struct_energy: nfn(i3.struct_energy),
+    swing_velocity_trend: i3.swing_velocity_trend ?? undefined,
   };
 
   // Map numeric vol_regime to label
@@ -143,12 +166,32 @@ function parseIntelligence(p: Record<string, string>): {
     momentum_bias: mb,
     momentum_direction: momDir as ContextData["momentum_direction"],
     garch_vol_regime: i4.garch_vol_regime != null ? Number(i4.garch_vol_regime) : undefined,
-    garch_sigma: i4.garch_sigma != null ? nf(i4.garch_sigma) : undefined,
-    garch_vol_ratio: i4.garch_vol_ratio != null ? nf(i4.garch_vol_ratio) : undefined,
-    garch_shock: i4.garch_shock != null ? nf(i4.garch_shock) : undefined,
-    kalman_slope: i4.kalman_slope != null ? nf(i4.kalman_slope) : undefined,
-    kalman_price_position: i4.kalman_price_position != null ? nf(i4.kalman_price_position) : undefined,
-    kalman_uncertainty: i4.kalman_uncertainty != null ? nf(i4.kalman_uncertainty) : undefined,
+    garch_sigma: nfn(i4.garch_sigma),
+    garch_vol_ratio: nfn(i4.garch_vol_ratio),
+    garch_shock: nfn(i4.garch_shock),
+    kalman_slope: nfn(i4.kalman_slope),
+    kalman_price_position: nfn(i4.kalman_price_position),
+    kalman_uncertainty: nfn(i4.kalman_uncertainty),
+    // Hurst
+    hurst_exponent: nfn(i4.hurst_exponent),
+    hurst_trend_quality: nfn(i4.hurst_trend_quality),
+    hurst_mr_quality: nfn(i4.hurst_mr_quality),
+    // Shannon Entropy
+    shannon_entropy: nfn(i4.shannon_entropy),
+    entropy_quality: nfn(i4.entropy_quality),
+    // VWAP
+    session_vwap_deviation_sigma: nfn(i4.session_vwap_deviation_sigma),
+    vwap_alignment_score: nfn(i4.vwap_alignment_score),
+    above_session_vwap: i4.above_session_vwap != null ? nf(i4.above_session_vwap) > 0 : undefined,
+    // Volume Profile levels
+    nearest_hvn_level: nfn(i4.nearest_hvn_level),
+    nearest_hvn_dist_atr: nfn(i4.nearest_hvn_dist_atr),
+    nearest_lvn_level: nfn(i4.nearest_lvn_level),
+    in_lvn: i4.in_lvn != null ? nf(i4.in_lvn) > 0 : undefined,
+    // VIX / cross-asset
+    vix_level: nfn(i4.vix_level),
+    vix_z: nfn(i4.vix_z),
+    eq_spread_z: nfn(i4.eq_spread_z),
   };
 
   const patterns: PatternData = {
@@ -168,7 +211,49 @@ function parseIntelligence(p: Record<string, string>): {
           ? "bearish"
           : null,
     vol_div_confidence: i5.vol_div_strength ?? undefined,
+    macd_divergence: i5.macd_div_bullish ? "bullish" : i5.macd_div_bearish ? "bearish" : null,
+    macd_div_confidence: nfn(i5.macd_div_strength),
+    cmf_divergence: i5.cmf_div_bullish ? "bullish" : i5.cmf_div_bearish ? "bearish" : null,
+    cmf_div_confidence: nfn(i5.cmf_div_strength),
+    obv_divergence: i5.obv_div_bullish ? "bullish" : i5.obv_div_bearish ? "bearish" : null,
+    obv_div_confidence: nfn(i5.obv_div_strength),
+    trend_confluence_score: nfn(i5.trend_confluence_score),
+    trend_confluence_strength: nfn(i5.trend_confluence_strength),
     confluence_score: i5.confluence_score ?? undefined,
+    // Chart patterns
+    dt_db_pattern: nfn(i5.dt_db_pattern),
+    dt_db_confidence: nfn(i5.dt_db_confidence),
+    dt_db_neckline: nfn(i5.dt_db_neckline),
+    dt_db_target: nfn(i5.dt_db_target),
+    hs_pattern: nfn(i5.hs_pattern),
+    hs_confidence: nfn(i5.hs_confidence),
+    hs_neckline: nfn(i5.hs_neckline),
+    hs_target: nfn(i5.hs_target),
+    tri_pattern: nfn(i5.tri_pattern),
+    tri_confidence: nfn(i5.tri_confidence),
+    tri_breakout_bias: nfn(i5.tri_breakout_bias),
+    flag_pattern: nfn(i5.flag_pattern),
+    pennant_pattern: nfn(i5.pennant_pattern),
+    flag_breakout_target: nfn(i5.flag_breakout_target),
+    cup_handle_pattern: nfn(i5.cup_handle_pattern),
+    cup_handle_target: nfn(i5.cup_handle_target),
+    abcd_pattern_active: i5.abcd_pattern_active != null ? nf(i5.abcd_pattern_active) > 0 : undefined,
+    abcd_direction: nfn(i5.abcd_direction),
+    abcd_d_target: nfn(i5.abcd_d_target),
+    key_level_reaction_type: nfn(i5.key_level_reaction_type),
+    key_level_confluence_count: nfn(i5.key_level_confluence_count),
+    // Candlestick patterns
+    engulfing_bull: i5.engulfing_bull != null ? nf(i5.engulfing_bull) > 0 : undefined,
+    engulfing_bear: i5.engulfing_bear != null ? nf(i5.engulfing_bear) > 0 : undefined,
+    pin_bar_bull: i5.pin_bar_bull != null ? nf(i5.pin_bar_bull) > 0 : undefined,
+    pin_bar_bear: i5.pin_bar_bear != null ? nf(i5.pin_bar_bear) > 0 : undefined,
+    hammer_detected: i5.hammer_detected != null ? nf(i5.hammer_detected) > 0 : undefined,
+    shooting_star_detected: i5.shooting_star_detected != null ? nf(i5.shooting_star_detected) > 0 : undefined,
+    doji_detected: i5.doji_detected != null ? nf(i5.doji_detected) > 0 : undefined,
+    morning_star: i5.morning_star != null ? nf(i5.morning_star) > 0 : undefined,
+    evening_star: i5.evening_star != null ? nf(i5.evening_star) > 0 : undefined,
+    three_white_soldiers: i5.three_white_soldiers != null ? nf(i5.three_white_soldiers) > 0 : undefined,
+    three_black_crows: i5.three_black_crows != null ? nf(i5.three_black_crows) > 0 : undefined,
   };
 
   // NOTE: schema renames trend_direction → smc_trend_direction to avoid
@@ -219,8 +304,8 @@ function parseIntelligence(p: Record<string, string>): {
     ssl_touches: smc.ssl_touches ?? undefined,
     price_in_premium: nb(smc.price_in_premium),
     premium_position: smc.premium_position ?? undefined,
-    premium_discount_pct: smc.premium_discount_pct != null ? nf(smc.premium_discount_pct) : undefined,
-    equilibrium_level: smc.equilibrium_level != null ? nf(smc.equilibrium_level) : undefined,
+    premium_discount_pct: nfn(smc.premium_discount_pct),
+    equilibrium_level: nfn(smc.equilibrium_level),
     pool_count: smc.pool_count ?? undefined,
     // ICT Killzones
     in_asia_killzone: nb(smc.in_asia_killzone),
@@ -228,31 +313,31 @@ function parseIntelligence(p: Record<string, string>): {
     in_ny_am_killzone: nb(smc.in_ny_am_killzone),
     in_ny_pm_killzone: nb(smc.in_ny_pm_killzone),
     killzone_name: smc.killzone_name ?? undefined,
-    minutes_in_killzone: smc.minutes_in_killzone != null ? nf(smc.minutes_in_killzone) : undefined,
-    minutes_until_next_killzone: smc.minutes_until_next_killzone != null ? nf(smc.minutes_until_next_killzone) : undefined,
+    minutes_in_killzone: nfn(smc.minutes_in_killzone),
+    minutes_until_next_killzone: nfn(smc.minutes_until_next_killzone),
     // AMD Cycle
     amd_phase: smc.amd_phase ?? undefined,
     amd_manipulation_detected: nb(smc.amd_manipulation_detected),
-    amd_distribution_direction: smc.amd_distribution_direction != null ? nf(smc.amd_distribution_direction) : undefined,
+    amd_distribution_direction: nfn(smc.amd_distribution_direction),
     // Supply / Demand Zones
-    nearest_demand_high: smc.nearest_demand_high != null ? nf(smc.nearest_demand_high) : undefined,
-    nearest_demand_low: smc.nearest_demand_low != null ? nf(smc.nearest_demand_low) : undefined,
-    demand_freshness: smc.demand_freshness != null ? nf(smc.demand_freshness) : undefined,
-    demand_strength: smc.demand_strength != null ? nf(smc.demand_strength) : undefined,
-    demand_dist_atr: smc.demand_dist_atr != null ? nf(smc.demand_dist_atr) : undefined,
+    nearest_demand_high: nfn(smc.nearest_demand_high),
+    nearest_demand_low: nfn(smc.nearest_demand_low),
+    demand_freshness: nfn(smc.demand_freshness),
+    demand_strength: nfn(smc.demand_strength),
+    demand_dist_atr: nfn(smc.demand_dist_atr),
     in_demand_zone: nb(smc.in_demand_zone),
-    nearest_supply_high: smc.nearest_supply_high != null ? nf(smc.nearest_supply_high) : undefined,
-    nearest_supply_low: smc.nearest_supply_low != null ? nf(smc.nearest_supply_low) : undefined,
-    supply_freshness: smc.supply_freshness != null ? nf(smc.supply_freshness) : undefined,
-    supply_strength: smc.supply_strength != null ? nf(smc.supply_strength) : undefined,
-    supply_dist_atr: smc.supply_dist_atr != null ? nf(smc.supply_dist_atr) : undefined,
+    nearest_supply_high: nfn(smc.nearest_supply_high),
+    nearest_supply_low: nfn(smc.nearest_supply_low),
+    supply_freshness: nfn(smc.supply_freshness),
+    supply_strength: nfn(smc.supply_strength),
+    supply_dist_atr: nfn(smc.supply_dist_atr),
     in_supply_zone: nb(smc.in_supply_zone),
     // Breaker Blocks
     breaker_block_active: nb(smc.breaker_block_active),
-    breaker_block_type: smc.breaker_block_type != null ? nf(smc.breaker_block_type) : undefined,
-    breaker_block_top: smc.breaker_block_top != null ? nf(smc.breaker_block_top) : undefined,
-    breaker_block_bottom: smc.breaker_block_bottom != null ? nf(smc.breaker_block_bottom) : undefined,
-    breaker_dist_atr: smc.breaker_dist_atr != null ? nf(smc.breaker_dist_atr) : undefined,
+    breaker_block_type: nfn(smc.breaker_block_type),
+    breaker_block_top: nfn(smc.breaker_block_top),
+    breaker_block_bottom: nfn(smc.breaker_block_bottom),
+    breaker_dist_atr: nfn(smc.breaker_dist_atr),
   };
 
   const confluence: ConfluenceData = {
@@ -960,38 +1045,39 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
 
     // --- AI narrative data (I8) — per-symbol and group ---
     es.addEventListener("narrative_data", (evt) => {
-      const { stream, payload } = JSON.parse(evt.data);
-      if (!stream) return;
-      const streamStr = stream as string;
+      const { topic, key: msgKey, payload } = JSON.parse(evt.data);
+      if (!payload) return;
+      const topicStr = typeof topic === "string" ? topic : "";
 
-      if (streamStr.includes(":group:")) {
-        // Group synthesis narrative: stream = "narratives:group:equity"
-        const parts = streamStr.split(":");
-        const groupName = parts[parts.length - 1];
-        if (!groupName || !payload.narrative) return;
+      if (topicStr.includes("narratives.group")) {
+        // Group synthesis narrative — key is the asset group name (e.g. "equity")
+        const groupName = (typeof msgKey === "string" ? msgKey.split(":").pop() : null)
+          || (payload.asset_group as string | undefined);
+        const narrativeText = String(payload.narrative || payload.payload?.text || "");
+        if (!groupName || !narrativeText) return;
         setGroupNarratives((prev) => ({
           ...prev,
           [groupName]: {
             group: groupName,
-            narrative: String(payload.narrative),
-            timestamp: String(payload.timestamp || ""),
+            narrative: narrativeText,
+            timestamp: String(payload.timestamp || payload.ts || ""),
             receivedAt: Date.now(),
-            model: String(payload.model || ""),
+            model: String(payload.model || payload.payload?.model || ""),
           },
         }));
       } else {
-        // Per-symbol narrative: stream = "narratives:ESH6:5m"
-        // Short and deep merge into the same key so both are available simultaneously
-        const sym = contractToBase(payload.symbol || "");
-        if (!sym || !payload.narrative) return;
-        const parts = streamStr.split(":");
-        const tf = parts[parts.length - 1] || timeframe;
-        const key = `${sym}:${tf}`;
-        const narrativeType: string = payload.narrative_type ?? "short";
+        // Per-symbol narrative (AgentOutput envelope): payload.symbol, payload.timeframe,
+        // payload.payload.text (text field) and payload.narrative (dashboard-facing alias).
+        const sym = contractToBase(String(payload.symbol || ""));
+        const tf = String(payload.timeframe || "");
+        const narrativeText = String(payload.narrative || payload.payload?.text || "");
+        if (!sym || !narrativeText) return;
+        const narrativeKey = `${sym}:${tf || timeframe}`;
+        const narrativeType = String(payload.narrative_type || payload.payload?.narrative_type || "short");
         setNarratives((prev) => {
-          const existing = prev[key] ?? {
+          const existing = prev[narrativeKey] ?? {
             symbol: sym,
-            timeframe: tf,
+            timeframe: tf || timeframe,
             action_bias: "",
             action_tag: "",
             timestamp: "",
@@ -999,16 +1085,17 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           };
           return {
             ...prev,
-            [key]: {
+            [narrativeKey]: {
               ...existing,
-              action_bias: String(payload.action_bias ?? existing.action_bias),
-              action_tag: String(payload.action_tag ?? existing.action_tag),
-              timestamp: String(payload.timestamp ?? existing.timestamp),
+              action_bias: String(payload.action_bias ?? payload.payload?.action_bias ?? existing.action_bias),
+              action_tag: String(payload.action_tag ?? payload.payload?.action_tag ?? existing.action_tag),
+              timestamp: String(payload.timestamp ?? payload.ts ?? existing.timestamp),
               signal_id: String(payload.signal_id ?? existing.signal_id ?? ""),
+              bar_close_ts: String(payload.bar_close_ts ?? payload.payload?.bar_close_ts ?? existing.bar_close_ts ?? ""),
               receivedAt: Date.now(),
               ...(narrativeType === "short"
-                ? { narrative_short: String(payload.narrative), narrative: String(payload.narrative) }
-                : { narrative_deep: String(payload.narrative) }
+                ? { narrative_short: narrativeText, narrative: narrativeText }
+                : { narrative_deep: narrativeText }
               ),
             },
           };

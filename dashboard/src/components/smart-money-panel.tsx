@@ -120,6 +120,55 @@ export function SmartMoneyPanel({ smartMoney }: SmartMoneyPanelProps) {
         </div>
       )}
 
+      {/* ICT Killzone */}
+      {s?.killzone_name && (
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="zone-label shrink-0 w-10">KZ</span>
+          <span className="inline-flex items-center gap-1.5 px-1.5 py-0 rounded bg-[var(--blue-dim)] text-[var(--blue)] text-[0.55rem] font-semibold uppercase tracking-wider">
+            {s.killzone_name}
+          </span>
+          {s.minutes_until_next_killzone != null && !s.killzone_name && (
+            <span className="font-data text-[0.55rem] text-[var(--text-muted)]">
+              next {s.minutes_until_next_killzone.toFixed(0)}m
+            </span>
+          )}
+          {s.minutes_in_killzone != null && (
+            <span className="font-data text-[0.55rem] text-[var(--text-muted)]">
+              {s.minutes_in_killzone.toFixed(0)}m in
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* AMD Cycle + Breaker Block */}
+      {(s?.amd_phase || s?.breaker_block_active) && (
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="zone-label shrink-0 w-10">AMD</span>
+          {s.amd_phase && (
+            <span className={`inline-flex items-center px-1.5 py-0 rounded text-[0.55rem] font-semibold uppercase tracking-wider ${
+              s.amd_phase === "manipulation"
+                ? "bg-[var(--amber-dim)] text-[var(--amber)]"
+                : s.amd_phase === "distribution"
+                  ? "bg-[var(--red-dim)] text-[var(--red)]"
+                  : "bg-[var(--bg-elevated)] text-[var(--text-muted)]"
+            }`}>
+              {s.amd_phase}
+              {s.amd_manipulation_detected && " ⚡"}
+            </span>
+          )}
+          {s.breaker_block_active && (
+            <span className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[0.55rem] font-semibold uppercase tracking-wider ${
+              (s.breaker_block_type ?? 0) > 0
+                ? "bg-[var(--green-dim)] text-[var(--green)]"
+                : "bg-[var(--red-dim)] text-[var(--red)]"
+            }`}>
+              BB
+              {s.breaker_dist_atr != null && <span className="opacity-70">{s.breaker_dist_atr.toFixed(1)}A</span>}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Liquidity Zones (BSL/SSL) */}
       {(s?.bsl_level || s?.ssl_level) && (
         <div className="flex items-center gap-2 mt-0.5">

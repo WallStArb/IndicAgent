@@ -164,7 +164,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         NARRATIVE_GENERATION_TOTAL.add(1, {"status": "success"})
 
         assert self._producer is not None
-        self._producer.publish(self.output_topic, msg=result.model_dump(mode="json"))
+        await self._producer.publish(self.output_topic, msg=result.model_dump(mode="json"))
 
 
 def main() -> None:

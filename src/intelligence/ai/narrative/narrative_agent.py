@@ -79,6 +79,17 @@ class NarrativeComputeAgent(BaseAIAgent):
         if not response:
             return self._neutral(error="LLM returned empty response", latency_ms=0.0)
 
+        i7 = context.i7
+        direction = (i7.winner_direction if i7 else None) or 0
+        action_bias = "bullish" if direction > 0 else ("bearish" if direction < 0 else "neutral")
+        winner_plugin = (i7.winner_plugin if i7 else None) or ""
+        action_tag = (
+            f"[{action_bias.upper()} {winner_plugin.replace('_', ' ').upper()}]"
+            if winner_plugin
+            else f"[{action_bias.upper()}]"
+        )
+        text = response.strip()
+
         return AgentOutput(
             agent_id=self.agent_id,
             group=self.group,
@@ -88,7 +99,11 @@ class NarrativeComputeAgent(BaseAIAgent):
             ts=context.ts,
             output_type="narrative",
             payload={
-                "text": response.strip(),
+                "text": text,
+                "narrative": text,
+                "narrative_type": "short",
+                "action_bias": action_bias,
+                "action_tag": action_tag,
                 "model": self._llm.last_provider_id or "",
                 "prompt_version": ACTIVE_VERSION,
             },

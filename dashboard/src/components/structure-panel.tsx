@@ -82,6 +82,57 @@ export function StructurePanel({ structure }: StructurePanelProps) {
               </span>
             )}
           </span>
+
+          {/* POC / Value Area */}
+          {s?.poc_level && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <span className="text-[0.55rem] text-[var(--text-muted)]">POC</span>
+              <span className={`font-data text-[0.65rem] font-medium ${s.price_in_va ? "text-[var(--amber)]" : "text-[var(--text-accent)]"}`}>
+                {fmtPrice(s.poc_level)}
+              </span>
+              {s.price_in_va && (
+                <span className="text-[0.5rem] text-[var(--amber)]">VA</span>
+              )}
+            </span>
+          )}
+
+          {/* Nearest Fib */}
+          {s?.nearest_fib_level && s?.nearest_fib_ratio && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <span className="text-[0.55rem] text-[var(--text-muted)]">Fib</span>
+              <span className="font-data text-[0.65rem] text-[var(--blue)]">
+                {s.nearest_fib_ratio.toFixed(3)}
+              </span>
+              <span className="font-data text-[0.6rem] text-[var(--text-muted)]">
+                {fmtPrice(s.nearest_fib_level)}
+              </span>
+            </span>
+          )}
+
+          {/* Opening gap */}
+          {s?.opening_gap_pct != null && Math.abs(s.opening_gap_pct) > 0.05 && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <span className="text-[0.55rem] text-[var(--text-muted)]">Gap</span>
+              <span className={`font-data text-[0.65rem] font-medium ${s.opening_gap_pct > 0 ? "text-up" : "text-down"}`}>
+                {s.opening_gap_pct > 0 ? "+" : ""}{s.opening_gap_pct.toFixed(2)}%
+              </span>
+            </span>
+          )}
+
+          {/* Struct energy */}
+          {s?.struct_energy != null && s.struct_energy > 0.1 && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <span className="text-[0.55rem] text-[var(--text-muted)]">Eng</span>
+              <span className={`font-data text-[0.65rem] ${s.struct_energy > 0.7 ? "text-[var(--amber)]" : "text-[var(--text-secondary)]"}`}>
+                {(s.struct_energy * 100).toFixed(0)}%
+              </span>
+              {s.swing_velocity_trend && s.swing_velocity_trend !== "stable" && (
+                <span className="text-[0.5rem] text-[var(--text-muted)]">
+                  {s.swing_velocity_trend === "accelerating" ? "↑" : "↓"}
+                </span>
+              )}
+            </span>
+          )}
         </div>
       </div>
     </div>

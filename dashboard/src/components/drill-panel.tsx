@@ -137,6 +137,27 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                   value={fmtNum(structure.resistance_strength, 2)}
                   tooltip={levelStrengthTooltip("resistance", structure.resistance_strength)}
                 />
+                {/* Market Profile */}
+                {structure.poc_level != null && <KV label="POC" value={fmtPrice(structure.poc_level)} />}
+                {structure.va_high != null && <KV label="VAH" value={fmtPrice(structure.va_high)} />}
+                {structure.va_low != null && <KV label="VAL" value={fmtPrice(structure.va_low)} />}
+                {structure.price_in_va != null && <KV label="In VA" value={structure.price_in_va ? "yes" : "no"} />}
+                {structure.poc_dist_pct != null && <KV label="POC dist%" value={fmtNum(structure.poc_dist_pct, 2)} />}
+                {/* Session Levels */}
+                {structure.prior_session_high != null && <KV label="PDH" value={fmtPrice(structure.prior_session_high)} />}
+                {structure.prior_session_low != null && <KV label="PDL" value={fmtPrice(structure.prior_session_low)} />}
+                {structure.weekly_pivot != null && <KV label="Wkly Pivot" value={fmtPrice(structure.weekly_pivot)} />}
+                {structure.overnight_high != null && <KV label="ONH" value={fmtPrice(structure.overnight_high)} />}
+                {structure.overnight_low != null && <KV label="ONL" value={fmtPrice(structure.overnight_low)} />}
+                {structure.opening_gap_pct != null && <KV label="Gap%" value={`${structure.opening_gap_pct > 0 ? "+" : ""}${fmtNum(structure.opening_gap_pct, 2)}%`} />}
+                {/* Fibonacci */}
+                {structure.nearest_fib_level != null && <KV label="Fib level" value={fmtPrice(structure.nearest_fib_level)} />}
+                {structure.nearest_fib_ratio != null && <KV label="Fib ratio" value={structure.nearest_fib_ratio.toFixed(3)} />}
+                {structure.nearest_fib_dist_atr != null && <KV label="Fib dist ATR" value={fmtNum(structure.nearest_fib_dist_atr, 2)} />}
+                {structure.fib_cluster_strength != null && <KV label="Fib cluster" value={fmtNum(structure.fib_cluster_strength, 2)} />}
+                {/* Swing Momentum */}
+                {structure.struct_energy != null && <KV label="Struct energy" value={`${(structure.struct_energy * 100).toFixed(0)}%`} />}
+                {structure.swing_velocity_trend && <KV label="Swing vel" value={structure.swing_velocity_trend} />}
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>
@@ -198,6 +219,28 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                 {context.kalman_uncertainty != null && (
                   <KV label="K-uncertainty" value={fmtNum(context.kalman_uncertainty, 4)} />
                 )}
+                {/* Hurst Exponent */}
+                {context.hurst_exponent != null && (
+                  <KV label="Hurst" value={fmtNum(context.hurst_exponent, 3)} valueClassName={context.hurst_exponent > 0.6 ? "text-green-400" : context.hurst_exponent < 0.4 ? "text-blue-400" : undefined} />
+                )}
+                {context.hurst_trend_quality != null && <KV label="Hurst trend Q" value={fmtNum(context.hurst_trend_quality, 2)} />}
+                {context.hurst_mr_quality != null && <KV label="Hurst MR Q" value={fmtNum(context.hurst_mr_quality, 2)} />}
+                {/* Shannon Entropy */}
+                {context.shannon_entropy != null && <KV label="Entropy" value={fmtNum(context.shannon_entropy, 3)} />}
+                {context.entropy_quality != null && <KV label="Entropy Q" value={fmtNum(context.entropy_quality, 2)} />}
+                {/* VWAP */}
+                {context.session_vwap_deviation_sigma != null && <KV label="VWAP dev σ" value={`${context.session_vwap_deviation_sigma > 0 ? "+" : ""}${fmtNum(context.session_vwap_deviation_sigma, 2)}`} />}
+                {context.vwap_alignment_score != null && <KV label="VWAP align" value={fmtNum(context.vwap_alignment_score, 2)} />}
+                {context.above_session_vwap != null && <KV label="Above VWAP" value={context.above_session_vwap ? "yes" : "no"} />}
+                {/* Volume Profile */}
+                {context.nearest_hvn_level != null && <KV label="HVN" value={fmtPrice(context.nearest_hvn_level)} />}
+                {context.nearest_hvn_dist_atr != null && <KV label="HVN dist ATR" value={fmtNum(context.nearest_hvn_dist_atr, 2)} />}
+                {context.nearest_lvn_level != null && <KV label="LVN" value={fmtPrice(context.nearest_lvn_level)} />}
+                {context.in_lvn != null && <KV label="In LVN" value={context.in_lvn ? "yes" : "no"} valueClassName={context.in_lvn ? "text-amber-400" : undefined} />}
+                {/* VIX / Cross-asset */}
+                {context.vix_level != null && <KV label="VIX" value={fmtNum(context.vix_level, 2)} />}
+                {context.vix_z != null && <KV label="VIX z" value={`${context.vix_z > 0 ? "+" : ""}${fmtNum(context.vix_z, 2)}σ`} valueClassName={Math.abs(context.vix_z) > 2 ? "text-amber-400" : undefined} />}
+                {context.eq_spread_z != null && <KV label="EQ spread z" value={`${context.eq_spread_z > 0 ? "+" : ""}${fmtNum(context.eq_spread_z, 2)}σ`} />}
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>
@@ -227,6 +270,49 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                   value={patterns.confluence_score != null ? fmtNum(patterns.confluence_score, 2) : "—"}
                   tooltip={i5ConfluenceTooltip(patterns.confluence_score)}
                 />
+                {/* Additional divergences */}
+                {patterns.macd_divergence && <KV label="MACD div" value={patterns.macd_divergence} valueClassName={patterns.macd_divergence === "bullish" ? "text-green-400" : "text-red-400"} />}
+                {patterns.macd_div_confidence != null && <KV label="MACD div conf" value={fmtNum(patterns.macd_div_confidence, 2)} />}
+                {patterns.cmf_divergence && <KV label="CMF div" value={patterns.cmf_divergence} valueClassName={patterns.cmf_divergence === "bullish" ? "text-green-400" : "text-red-400"} />}
+                {patterns.obv_divergence && <KV label="OBV div" value={patterns.obv_divergence} valueClassName={patterns.obv_divergence === "bullish" ? "text-green-400" : "text-red-400"} />}
+                {/* Trend confluence */}
+                {patterns.trend_confluence_score != null && <KV label="Trend conf" value={fmtNum(patterns.trend_confluence_score, 2)} />}
+                {patterns.trend_confluence_strength != null && <KV label="Trend conf str" value={fmtNum(patterns.trend_confluence_strength, 2)} />}
+                {/* Chart patterns */}
+                {(patterns.dt_db_pattern ?? 0) > 0 && (
+                  <KV label="DT/DB" value={["", "DT forming", "DT confirmed", "DB forming", "DB confirmed"][patterns.dt_db_pattern!] ?? "—"} />
+                )}
+                {patterns.dt_db_neckline != null && (patterns.dt_db_pattern ?? 0) > 0 && <KV label="DT/DB neck" value={fmtPrice(patterns.dt_db_neckline)} />}
+                {patterns.dt_db_target != null && (patterns.dt_db_pattern ?? 0) > 0 && <KV label="DT/DB target" value={fmtPrice(patterns.dt_db_target)} />}
+                {(patterns.hs_pattern ?? 0) > 0 && (
+                  <KV label="H&S" value={["", "H&S forming", "H&S confirmed", "IH&S forming", "IH&S confirmed"][patterns.hs_pattern!] ?? "—"} />
+                )}
+                {patterns.hs_neckline != null && (patterns.hs_pattern ?? 0) > 0 && <KV label="H&S neck" value={fmtPrice(patterns.hs_neckline)} />}
+                {patterns.hs_target != null && (patterns.hs_pattern ?? 0) > 0 && <KV label="H&S target" value={fmtPrice(patterns.hs_target)} />}
+                {(patterns.tri_pattern ?? 0) > 0 && (
+                  <KV label="Triangle" value={["", "Ascending", "Descending", "Symmetrical", "Rising Wedge", "Falling Wedge"][patterns.tri_pattern!] ?? "—"} />
+                )}
+                {(patterns.flag_pattern ?? 0) > 0 && <KV label="Flag" value={patterns.flag_pattern === 1 ? "Bull flag" : "Bear flag"} />}
+                {patterns.flag_breakout_target != null && <KV label="Flag target" value={fmtPrice(patterns.flag_breakout_target)} />}
+                {(patterns.cup_handle_pattern ?? 0) > 0 && <KV label="Cup & Handle" value={patterns.cup_handle_pattern === 2 ? "confirmed" : "forming"} />}
+                {patterns.cup_handle_target != null && <KV label="C&H target" value={fmtPrice(patterns.cup_handle_target)} />}
+                {patterns.abcd_pattern_active && <KV label="ABCD" value={`${(patterns.abcd_direction ?? 0) > 0 ? "bullish" : "bearish"}`} />}
+                {patterns.abcd_d_target != null && patterns.abcd_pattern_active && <KV label="ABCD target" value={fmtPrice(patterns.abcd_d_target)} />}
+                {/* Key Level Reaction */}
+                {(patterns.key_level_reaction_type ?? 0) !== 0 && <KV label="Key level" value={patterns.key_level_reaction_type === 1 ? "bounce" : "break"} />}
+                {patterns.key_level_confluence_count != null && (patterns.key_level_reaction_type ?? 0) !== 0 && <KV label="KL count" value={String(patterns.key_level_confluence_count)} />}
+                {/* Active candlestick patterns */}
+                {patterns.engulfing_bull && <KV label="Candle" value="Bull Engulfing" valueClassName="text-green-400" />}
+                {patterns.engulfing_bear && <KV label="Candle" value="Bear Engulfing" valueClassName="text-red-400" />}
+                {patterns.pin_bar_bull && <KV label="Candle" value="Bull Pin Bar" valueClassName="text-green-400" />}
+                {patterns.pin_bar_bear && <KV label="Candle" value="Bear Pin Bar" valueClassName="text-red-400" />}
+                {patterns.hammer_detected && <KV label="Candle" value="Hammer" valueClassName="text-green-400" />}
+                {patterns.shooting_star_detected && <KV label="Candle" value="Shooting Star" valueClassName="text-red-400" />}
+                {patterns.morning_star && <KV label="Candle" value="Morning Star" valueClassName="text-green-400" />}
+                {patterns.evening_star && <KV label="Candle" value="Evening Star" valueClassName="text-red-400" />}
+                {patterns.three_white_soldiers && <KV label="Candle" value="3 White Soldiers" valueClassName="text-green-400" />}
+                {patterns.three_black_crows && <KV label="Candle" value="3 Black Crows" valueClassName="text-red-400" />}
+                {patterns.doji_detected && <KV label="Candle" value="Doji" />}
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>

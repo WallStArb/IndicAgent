@@ -87,6 +87,27 @@ export interface StructureData {
   // Trend structure
   trend_integrity?: number; // 0 to 1
   price_position?: "above_sr" | "below_sr" | "at_sr";
+  // Market Profile (I3)
+  poc_level?: number;
+  va_high?: number;
+  va_low?: number;
+  price_in_va?: boolean;
+  poc_dist_pct?: number;
+  // Session Levels (I3)
+  prior_session_high?: number;
+  prior_session_low?: number;
+  opening_gap_pct?: number;     // % gap from prior close to today's open
+  weekly_pivot?: number;
+  overnight_high?: number;
+  overnight_low?: number;
+  // Fibonacci Zones (I3)
+  nearest_fib_level?: number;
+  nearest_fib_ratio?: number;   // e.g. 0.618
+  nearest_fib_dist_atr?: number;
+  fib_cluster_strength?: number; // 0-1
+  // Swing Momentum (I3)
+  struct_energy?: number;        // 0-1 combined amplitude+velocity score
+  swing_velocity_trend?: "accelerating" | "decelerating" | "stable";
 }
 
 // ── I4 Context Classification ──
@@ -117,6 +138,26 @@ export interface ContextData {
   kalman_slope?: number;          // trend slope (+= up, -= down)
   kalman_price_position?: number; // price minus Kalman trend (deviation from smoothed level)
   kalman_uncertainty?: number;    // filter uncertainty (lower = more confident)
+  // Hurst Exponent (I4)
+  hurst_exponent?: number;        // 0.5=random, >0.5=trending, <0.5=mean-reverting
+  hurst_trend_quality?: number;   // 0-1 quality as trending instrument
+  hurst_mr_quality?: number;      // 0-1 quality as mean-reverting instrument
+  // Shannon Entropy (I4)
+  shannon_entropy?: number;       // price entropy (lower=more ordered/trending)
+  entropy_quality?: number;       // 0-1 signal quality
+  // VWAP deviation (I4)
+  session_vwap_deviation_sigma?: number;  // sigma distance from session VWAP
+  vwap_alignment_score?: number;          // 0-1 multi-VWAP alignment
+  above_session_vwap?: boolean;
+  // Volume Profile levels (I4)
+  nearest_hvn_level?: number;     // nearest high-volume node
+  nearest_hvn_dist_atr?: number;
+  nearest_lvn_level?: number;     // nearest low-volume node (breakout zone)
+  in_lvn?: boolean;               // price inside low-volume node
+  // VIX / Cross-asset (I4)
+  vix_level?: number;
+  vix_z?: number;                 // VIX z-score vs 20-bar mean
+  eq_spread_z?: number;           // dominant equity pair spread z-score
 }
 
 // ── I5 Pattern Detection ──
@@ -131,9 +172,56 @@ export interface PatternData {
   // Volume Divergence
   volume_divergence?: "bullish" | "bearish" | null;
   vol_div_confidence?: number;
-  // Confluence
+  // MACD Divergence (I5)
+  macd_divergence?: "bullish" | "bearish" | null;
+  macd_div_confidence?: number;
+  // CMF Divergence (I5)
+  cmf_divergence?: "bullish" | "bearish" | null;
+  cmf_div_confidence?: number;
+  // OBV Divergence (I5)
+  obv_divergence?: "bullish" | "bearish" | null;
+  obv_div_confidence?: number;
+  // Trend Confluence (I5)
+  trend_confluence_score?: number;   // 0-1 trend-following confluence
+  trend_confluence_strength?: number;
+  // Mean-Reversion Confluence (I5)
   confluence_score?: number; // -1 to +1
   confluence_label?: string;
+  // Chart Patterns (I5) — only non-zero when pattern is forming/confirmed
+  dt_db_pattern?: number;       // 0=none, 1=DT forming, 2=DT confirmed, 3=DB forming, 4=DB confirmed
+  dt_db_confidence?: number;
+  dt_db_neckline?: number;
+  dt_db_target?: number;
+  hs_pattern?: number;          // 0=none, 1=H&S forming, 2=confirmed, 3=IH&S forming, 4=confirmed
+  hs_confidence?: number;
+  hs_neckline?: number;
+  hs_target?: number;
+  tri_pattern?: number;         // 1=ascending, 2=descending, 3=symmetrical, 4=rising wedge, 5=falling wedge
+  tri_confidence?: number;
+  tri_breakout_bias?: number;   // -1/0/1
+  flag_pattern?: number;        // 1=bull flag, 2=bear flag
+  pennant_pattern?: number;
+  flag_breakout_target?: number;
+  cup_handle_pattern?: number;  // 1=forming, 2=confirmed
+  cup_handle_target?: number;
+  abcd_pattern_active?: boolean;
+  abcd_direction?: number;      // -1/1
+  abcd_d_target?: number;
+  // Key Level Reaction (I5)
+  key_level_reaction_type?: number;    // 1=bounce, -1=break, 0=none
+  key_level_confluence_count?: number; // how many levels clustered
+  // Candlestick patterns (I5) — top priority ones
+  engulfing_bull?: boolean;
+  engulfing_bear?: boolean;
+  pin_bar_bull?: boolean;
+  pin_bar_bear?: boolean;
+  hammer_detected?: boolean;
+  shooting_star_detected?: boolean;
+  doji_detected?: boolean;
+  morning_star?: boolean;
+  evening_star?: boolean;
+  three_white_soldiers?: boolean;
+  three_black_crows?: boolean;
 }
 
 // ── Smart Money Concepts ──

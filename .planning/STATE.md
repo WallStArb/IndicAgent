@@ -25,9 +25,9 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 095
-Plan: Not started
-Status: Ready to plan
+Phase: 095 (pydantic-ai-agents) — READY TO EXECUTE
+Plan: 0 of 5
+Status: Plans complete — naming corrected (AgentRuntime, AuditedModel, result_type on BaseAIAgent)
 Last activity: 2026-05-30
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)

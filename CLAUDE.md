@@ -4,7 +4,7 @@ Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
-**Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. Full table: `docs/naming-conventions.md`.
+**Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. **Layer rule:** `src/core/` = L1 generic infrastructure (no project prefix, no domain vocab — e.g. `LLMAdapter`, `AgentRuntime`); `src/intelligence/` = L2 domain (`BaseAIAgent`, `AIContext`); `services/` = L3 specific. Full table: `docs/naming-conventions.md`.
 **Gotchas:** See `docs/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Agentic DAG:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics, DataWriterAgents manage persistence. Scaling: systemd + Prometheus lag monitoring (no Kubernetes HPA).
 
@@ -91,8 +91,8 @@ L10 service-auditor                      — meta: monitors + restarts all above
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
 - **Pipeline capacity:** sequential bar processing (`await _process_bar`), per-bar latency measured by `intelligence_pipeline_pipeline_latency_ms` gauge at `:8000/metrics`. 132 plugins across 6 stages, 12 thread-pool workers (GIL cap). Backfill replay throttled to 10 bps (`BAR_REPLAY_BARS_PER_SEC`) — not representative of pipeline ceiling.
-- **Historical backfill:** `historical_backfill.py --client-id` defaults to 56, but `_MAX_CLIENT_ID=50` in `ibkr.py`. Must use `--client-id 40` (provider uses 35). ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/backfill_1d.py` which chunks automatically.
-- **Lifecycle replay:** `lifecycle_replay.py` may hit PostgreSQL's 32,767 query argument limit on large (symbol, timeframe) pairs. Re-run picks up where it left off (skips resolved signals).
+- **Historical backfill:** `historical_backfill.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`). Gotchas: `docs/gotchas.md`.
+- **Lifecycle replay:** `lifecycle_replay.py` — re-run picks up where it left off. Gotchas: `docs/gotchas.md`.
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
@@ -150,8 +150,7 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Timestamps: always UTC.** `datetime.now(UTC)` only. Never `datetime.now()` or `datetime.utcnow()`. All DB columns `timestamptz`; stream timestamps UTC ISO-8601 (`Z` suffix).
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py` for Kafka/JSON. Never inline `.isoformat().replace("+00:00", "Z")`.
 - **`get_active_contracts()`** is a module-level function in `settings.py`, not a method on `Settings`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
-- **asyncpg**: Use for all new DB code. JSONB: asyncpg returns `dict` (no `json.loads()`). Pass dicts for jsonb columns — never `json.dumps()`. Timestamps: asyncpg returns `datetime` objects. UUIDs: always `str()` before JSON/Kafka. **`dict.get(key, default)` fails when a LEFT JOIN produces key-present-but-NULL** — use `val if (val := row.get(key)) is not None else default`. **`conn.fetch()` result must be consumed inside the `async with get_connection()` block** — assigning to a variable outside the block risks `NameError` if `fetch()` raises.
-- **`get_connection()` test mocks**: `get_connection()` returns an async context manager, not a coroutine — mock with `MagicMock(side_effect=async_cm_func)` not `AsyncMock`. `AsyncMock` wraps the return in a coroutine and breaks `async with`.
+- **asyncpg**: Use for all new DB code. JSONB → `dict` (no `json.loads()`/`json.dumps()`). Timestamps → `datetime`. UUIDs → `str()` before Kafka. Edge cases: `docs/gotchas.md`.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` as keyword — use `signal=`, `payload=`, `data=` instead.
 - **Service registry**: `_DAG_ORDER` in `services/service_auditor_agent.py`. When adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT`.
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.

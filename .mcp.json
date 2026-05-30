@@ -10,6 +10,9 @@
       "env": {
         "BRAVE_API_KEY": "BSAiqDNl0xM1ws4F-X6La7MJjIdpdS8"
       }
-    }
+    },
+    "claude_ai_Gmail": { "command": "", "disabled": true },
+    "claude_ai_Google_Calendar": { "command": "", "disabled": true },
+    "claude_ai_Google_Drive": { "command": "", "disabled": true }
   }
 }
