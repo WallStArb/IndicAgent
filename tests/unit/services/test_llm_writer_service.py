@@ -286,7 +286,7 @@ def _make_llm_writer():
         kafka_bootstrap_servers="localhost:9092",
         database_url="postgresql://test",
     )
-    # env_name is a property on BaseAgent (derived from settings.env_name)
+    # env_name is a property on BaseDaemon (derived from settings.env_name)
     # so we do not set it directly
     w._buffer = []
     w._i8_buffer = []
@@ -313,7 +313,7 @@ def _make_llm_writer():
     w.service_uptime_seconds = MagicMock()
     w.i8_writes_total = MagicMock()
     w.i8_update_miss_total = MagicMock()
-    # BaseWriterAgent attributes
+    # BaseWriter attributes
     w._batch_latency_attrs = {"agent_id": "llm_writer"}
     from unittest.mock import MagicMock
 

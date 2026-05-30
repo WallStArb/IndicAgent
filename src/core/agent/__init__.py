@@ -1,7 +1,7 @@
-"""src.core.agent — BaseAgent, BaseWriterAgent, and ProcessManifest package."""
+"""src.core.agent — BaseDaemon, BaseWriter, and ProcessManifest package."""
 
-from src.core.agent.base import BaseAgent
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base import BaseDaemon
+from src.core.agent.base_writer import BaseWriter
 from src.core.agent.manifest import ProcessManifest
 
-__all__ = ["BaseAgent", "BaseWriterAgent", "ProcessManifest"]
+__all__ = ["BaseDaemon", "BaseWriter", "ProcessManifest"]

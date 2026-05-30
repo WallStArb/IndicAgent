@@ -1,6 +1,6 @@
 """Unit tests for ProviderMergerComputeAgent — TDD tests for Plan 54-04.
 
-Tests ProviderMergerComputeAgent structural contract (BaseAgent inheritance, consumer group),
+Tests ProviderMergerComputeAgent structural contract (BaseDaemon inheritance, consumer group),
 routing contract (authoritative -> market.bars, non-authoritative dropped),
 quality event contract (ProviderQualityEvent published per bar),
 and failover/recovery contract (primary silence -> promote secondary).
@@ -97,11 +97,11 @@ def _make_agent(
 
 
 def test_inherits_base_agent() -> None:
-    """ProviderMergerComputeAgent must be a BaseAgent subclass."""
+    """ProviderMergerComputeAgent must be a BaseDaemon subclass."""
     from services.provider_merger_agent import ProviderMergerComputeAgent
-    from src.core.agent.base import BaseAgent
+    from src.core.agent.base import BaseDaemon
 
-    assert issubclass(ProviderMergerComputeAgent, BaseAgent)
+    assert issubclass(ProviderMergerComputeAgent, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------

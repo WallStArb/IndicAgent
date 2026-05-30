@@ -1,6 +1,6 @@
 """Unit tests for BarWriterAgent — TDD tests for Plan 053.1-01 + Plan 63-06.
 
-Tests BarWriterAgent structural contract (BaseWriterAgent inheritance, topics, metrics),
+Tests BarWriterAgent structural contract (BaseWriter inheritance, topics, metrics),
 behavioral contract (parse payload, flush batch, source tagging, error handling),
 Golden Signals metrics, and contract cache invalidation.
 
@@ -90,18 +90,18 @@ def _make_bar_payload(tf: str = "1m", symbol: str = "ESM6") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: BarWriterAgent inherits from BaseWriterAgent
+# Test 1: BarWriterAgent inherits from BaseWriter
 # ---------------------------------------------------------------------------
 
 
 def test_init_name():
-    """BarWriterAgent must inherit from BaseWriterAgent (and BaseAgent)."""
+    """BarWriterAgent must inherit from BaseWriter (and BaseDaemon)."""
     from services.bar_writer_agent import BarWriterAgent
-    from src.core.agent.base import BaseAgent
-    from src.core.agent.base_writer import BaseWriterAgent
+    from src.core.agent.base import BaseDaemon
+    from src.core.agent.base_writer import BaseWriter
 
-    assert issubclass(BarWriterAgent, BaseWriterAgent)
-    assert issubclass(BarWriterAgent, BaseAgent)
+    assert issubclass(BarWriterAgent, BaseWriter)
+    assert issubclass(BarWriterAgent, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------

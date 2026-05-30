@@ -1,4 +1,4 @@
-"""ConfigConsumerMixin — two-phase config integration for BaseAgent.
+"""ConfigConsumerMixin — two-phase config integration for BaseDaemon.
 
 Phase A: _pre_setup_config_load()
   Called BEFORE _setup() so service-specific setup can read OPS config values
@@ -36,7 +36,7 @@ from src.observability.metrics import (
 
 
 class ConfigConsumerMixin:
-    """Mixin that adds two-phase config integration to BaseAgent.
+    """Mixin that adds two-phase config integration to BaseDaemon.
 
     Subclasses may override:
       _config_layer = "INFRA"   # skip Kafka subscription (INFRA/STRUCT agents)
@@ -44,7 +44,7 @@ class ConfigConsumerMixin:
     """
 
     # Per-instance state — initialized in __init__ via mixin protocol.
-    # BaseAgent.__init__ sets these explicitly so class attrs are just documentation.
+    # BaseDaemon.__init__ sets these explicitly so class attrs are just documentation.
     _config_cache: dict[str, Any]
     _config_layer: str = "OPS"
     _config_prefixes: tuple[str, ...] = ()
@@ -55,9 +55,9 @@ class ConfigConsumerMixin:
     async def _pre_setup_config_load(self) -> None:
         """Phase A: load OPS snapshot BEFORE service _setup().
 
-        Called from BaseAgent.start() BEFORE await self._setup() so that _setup()
+        Called from BaseDaemon.start() BEFORE await self._setup() so that _setup()
         can read OPS config values (e.g., thresholds, feature flags). This addresses
-        the Codex HIGH finding: "BaseAgent lifecycle ordering may be wrong".
+        the Codex HIGH finding: "BaseDaemon lifecycle ordering may be wrong".
 
         NON-FATAL: on DB failure, _config_cache stays empty (first start) or
         retains last-known-good values (if already populated). Service continues

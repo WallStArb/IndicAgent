@@ -252,7 +252,7 @@ def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int 
     log statement.
 
     Idempotent: the first call wins — subsequent calls are no-ops.
-    This prevents BaseAgent.__init__ from overwriting a pre-configured log path.
+    This prevents BaseDaemon.__init__ from overwriting a pre-configured log path.
     """
     global _configured_log_file
     if _configured_log_file is not None:

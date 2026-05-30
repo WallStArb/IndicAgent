@@ -1,4 +1,4 @@
-"""TDD tests for BaseAgent abstract base class.
+"""TDD tests for BaseDaemon abstract base class.
 
 RED phase: All new tests are expected to fail until src/core/agent/base.py is enhanced.
 Existing tests (Plan 01) must continue to pass.
@@ -12,10 +12,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 
 
-class MinimalAgent(BaseAgent):
+class MinimalAgent(BaseDaemon):
     """Minimal concrete subclass used for testing. Implements _run as no-op."""
 
     async def _run(self) -> None:
@@ -33,13 +33,13 @@ def agent() -> MinimalAgent:
 
 
 def test_base_agent_is_abstract() -> None:
-    """BaseAgent cannot be instantiated directly — it is abstract."""
-    assert inspect.isabstract(BaseAgent)
+    """BaseDaemon cannot be instantiated directly — it is abstract."""
+    assert inspect.isabstract(BaseDaemon)
 
 
 def test_minimal_agent_inherits(agent: MinimalAgent) -> None:
-    """A concrete subclass with _run() can be instantiated and is a BaseAgent."""
-    assert isinstance(agent, BaseAgent)
+    """A concrete subclass with _run() can be instantiated and is a BaseDaemon."""
+    assert isinstance(agent, BaseDaemon)
 
 
 def test_base_agent_has_lifecycle_methods(agent: MinimalAgent) -> None:
@@ -122,14 +122,14 @@ async def test_setup_called_before_run() -> None:
     """_setup() is called before _run() when start() is invoked."""
     call_order: list[str] = []
 
-    class OrderAgent(BaseAgent):
+    class OrderAgent(BaseDaemon):
         async def _setup(self) -> None:
             call_order.append("setup")
 
         async def _run(self) -> None:
             call_order.append("run")
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = OrderAgent(name="order")
         await a.start()
 
@@ -141,14 +141,14 @@ async def test_teardown_called_after_run() -> None:
     """_teardown() is called after _run() completes normally."""
     call_order: list[str] = []
 
-    class TeardownAgent(BaseAgent):
+    class TeardownAgent(BaseDaemon):
         async def _run(self) -> None:
             call_order.append("run")
 
         async def _teardown(self) -> None:
             call_order.append("teardown")
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = TeardownAgent(name="td")
         await a.start()
 
@@ -160,7 +160,7 @@ async def test_teardown_called_on_run_exception() -> None:
     """_teardown() is called even when _run() raises an exception."""
     teardown_called = False
 
-    class ExcAgent(BaseAgent):
+    class ExcAgent(BaseDaemon):
         async def _run(self) -> None:
             raise RuntimeError("boom")
 
@@ -168,7 +168,7 @@ async def test_teardown_called_on_run_exception() -> None:
             nonlocal teardown_called
             teardown_called = True
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = ExcAgent(name="exc")
         with pytest.raises(RuntimeError):
             await a.start()
@@ -180,11 +180,11 @@ async def test_teardown_called_on_run_exception() -> None:
 async def test_exception_capture_logs_and_reraises() -> None:
     """start() logs agent.run_failed via logger.exception and re-raises the exception."""
 
-    class ExcAgent(BaseAgent):
+    class ExcAgent(BaseDaemon):
         async def _run(self) -> None:
             raise RuntimeError("boom")
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = ExcAgent(name="exc")
         mock_logger = MagicMock()
         a.logger = mock_logger
@@ -211,11 +211,11 @@ async def test_send_to_dlq_logs_and_does_not_raise(agent: MinimalAgent) -> None:
 
 @pytest.mark.asyncio
 async def test_otel_providers_initialized_on_start_no_metrics_port() -> None:
-    """BaseAgent initializes OTel providers on start — no HTTP metrics server."""
+    """BaseDaemon initializes OTel providers on start — no HTTP metrics server."""
     import src.core.agent.base as base_module
 
     with patch("src.core.agent.base.init_otel_providers") as mock_init:
-        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
             original = base_module._tracing_initialized
             base_module._tracing_initialized = False
             try:
@@ -229,11 +229,11 @@ async def test_otel_providers_initialized_on_start_no_metrics_port() -> None:
 
 @pytest.mark.asyncio
 async def test_otel_providers_initialized_on_start() -> None:
-    """init_otel_providers is called once when BaseAgent.start() is invoked."""
+    """init_otel_providers is called once when BaseDaemon.start() is invoked."""
     import src.core.agent.base as base_module
 
     with patch("src.core.agent.base.init_otel_providers") as mock_init:
-        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
             # Reset module-level flag to ensure init is called
             original = base_module._tracing_initialized
             base_module._tracing_initialized = False
@@ -251,7 +251,7 @@ async def test_otel_providers_initialized_on_start() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _ConcreteAgent(BaseAgent):
+class _ConcreteAgent(BaseDaemon):
     async def _run(self) -> None:
         self._stop_event.set()
 
@@ -294,7 +294,7 @@ async def test_watchdog_notify_sends_when_socket_set():
 
 # ---------------------------------------------------------------------------
 # Fix: _setup() failure must be logged (agent.setup_failed)
-# RED: fails before the try/except around _setup() is added to BaseAgent.start()
+# RED: fails before the try/except around _setup() is added to BaseDaemon.start()
 # ---------------------------------------------------------------------------
 
 
@@ -302,14 +302,14 @@ async def test_watchdog_notify_sends_when_socket_set():
 async def test_setup_failure_logs_agent_setup_failed() -> None:
     """When _setup() raises, agent.setup_failed is logged with exception info."""
 
-    class BrokenSetupAgent(BaseAgent):
+    class BrokenSetupAgent(BaseDaemon):
         async def _setup(self) -> None:
             raise RuntimeError("kafka connection refused")
 
         async def _run(self) -> None:  # never reached
             pass
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = BrokenSetupAgent(name="broken")
         mock_logger = MagicMock()
         a.logger = mock_logger
@@ -326,14 +326,14 @@ async def test_setup_failure_logs_agent_setup_failed() -> None:
 async def test_setup_failure_does_not_log_run_failed() -> None:
     """When _setup() raises, agent.run_failed is NOT logged (run was never called)."""
 
-    class BrokenSetupAgent(BaseAgent):
+    class BrokenSetupAgent(BaseDaemon):
         async def _setup(self) -> None:
             raise RuntimeError("boom")
 
         async def _run(self) -> None:
             pass
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = BrokenSetupAgent(name="broken2")
         mock_logger = MagicMock()
         a.logger = mock_logger
@@ -347,22 +347,22 @@ async def test_setup_failure_does_not_log_run_failed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plan 067-01 Task 1: BaseAgent Observability + Alert Publishing — RED phase
+# Plan 067-01 Task 1: BaseDaemon Observability + Alert Publishing — RED phase
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_base_agent_has_crash_metrics() -> None:
-    """BaseAgent tracks crashes via agent_crash_total counter (OTel .add call)."""
+    """BaseDaemon tracks crashes via agent_crash_total counter (OTel .add call)."""
     from unittest.mock import MagicMock, patch
 
-    class CrashAgent(BaseAgent):
+    class CrashAgent(BaseDaemon):
         async def _run(self) -> None:
             raise RuntimeError("simulated crash")
 
     mock_counter = MagicMock()
     with (
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.BaseDaemon._register_signal_handlers"),
         patch("src.core.agent.base.AGENT_CRASH_TOTAL", mock_counter),
     ):
         a = CrashAgent(name="crash_test")
@@ -374,10 +374,10 @@ async def test_base_agent_has_crash_metrics() -> None:
 
 @pytest.mark.asyncio
 async def test_base_agent_tracks_setup_success() -> None:
-    """BaseAgent tracks successful _setup() completion (OTel .add call)."""
+    """BaseDaemon tracks successful _setup() completion (OTel .add call)."""
     from unittest.mock import MagicMock, patch
 
-    class SuccessAgent(BaseAgent):
+    class SuccessAgent(BaseDaemon):
         async def _setup(self) -> None:
             pass
 
@@ -386,7 +386,7 @@ async def test_base_agent_tracks_setup_success() -> None:
 
     mock_counter = MagicMock()
     with (
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.BaseDaemon._register_signal_handlers"),
         patch("src.core.agent.base.AGENT_SETUP_SUCCESS_TOTAL", mock_counter),
     ):
         a = SuccessAgent(name="success_test")
@@ -396,10 +396,10 @@ async def test_base_agent_tracks_setup_success() -> None:
 
 @pytest.mark.asyncio
 async def test_base_agent_tracks_setup_failure() -> None:
-    """BaseAgent tracks failed _setup() with error_type attribute (OTel .add call)."""
+    """BaseDaemon tracks failed _setup() with error_type attribute (OTel .add call)."""
     from unittest.mock import MagicMock, patch
 
-    class FailSetupAgent(BaseAgent):
+    class FailSetupAgent(BaseDaemon):
         async def _setup(self) -> None:
             raise ValueError("config error")
 
@@ -408,7 +408,7 @@ async def test_base_agent_tracks_setup_failure() -> None:
 
     mock_counter = MagicMock()
     with (
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.BaseDaemon._register_signal_handlers"),
         patch("src.core.agent.base.AGENT_SETUP_FAILURE_TOTAL", mock_counter),
     ):
         a = FailSetupAgent(name="fail_setup_test")
@@ -422,15 +422,15 @@ async def test_base_agent_tracks_setup_failure() -> None:
 @pytest.mark.asyncio
 @pytest.mark.skip(reason="Task 4: topic_alert_requests not yet added to stream_keys.py")
 async def test_base_agent_send_alert_publishes_to_kafka() -> None:
-    """BaseAgent._send_alert() publishes to alert.requests topic via Kafka producer."""
+    """BaseDaemon._send_alert() publishes to alert.requests topic via Kafka producer."""
 
-    class AlertAgent(BaseAgent):
+    class AlertAgent(BaseDaemon):
         async def _run(self) -> None:
             self._stop_event.set()
 
     # Mock topic_alert_requests at import point in base.py (Task 4 will add it to stream_keys.py)
     with patch("src.core.agent.base.topic_alert_requests", return_value="test.alert.requests"):
-        with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
             a = AlertAgent(name="alert_test")
             # Mock the producer with an async method
             from unittest.mock import AsyncMock
@@ -456,13 +456,13 @@ async def test_base_agent_send_alert_publishes_to_kafka() -> None:
 
 @pytest.mark.asyncio
 async def test_base_agent_send_alert_noop_without_producer() -> None:
-    """BaseAgent._send_alert() is graceful no-op when producer not configured."""
+    """BaseDaemon._send_alert() is graceful no-op when producer not configured."""
 
-    class NoProducerAgent(BaseAgent):
+    class NoProducerAgent(BaseDaemon):
         async def _run(self) -> None:
             self._stop_event.set()
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = NoProducerAgent(name="no_producer_test")
         # No _producer attribute set
         # Should not raise
@@ -476,16 +476,16 @@ async def test_base_agent_send_alert_noop_without_producer() -> None:
 
 
 def test_setup_retry_class_attrs_default() -> None:
-    """BaseAgent exposes SETUP_RETRY_ATTEMPTS=3, SETUP_RETRY_BACKOFF_S=2.0, circuit_breaker=False."""
-    assert BaseAgent.SETUP_RETRY_ATTEMPTS == 3
-    assert BaseAgent.SETUP_RETRY_BACKOFF_S == 2.0
-    assert BaseAgent.circuit_breaker is False
+    """BaseDaemon exposes SETUP_RETRY_ATTEMPTS=3, SETUP_RETRY_BACKOFF_S=2.0, circuit_breaker=False."""
+    assert BaseDaemon.SETUP_RETRY_ATTEMPTS == 3
+    assert BaseDaemon.SETUP_RETRY_BACKOFF_S == 2.0
+    assert BaseDaemon.circuit_breaker is False
 
 
 def test_setup_retry_class_attrs_overridable() -> None:
     """Subclasses can override SETUP_RETRY_ATTEMPTS and SETUP_RETRY_BACKOFF_S."""
 
-    class FastRetryAgent(BaseAgent):
+    class FastRetryAgent(BaseDaemon):
         SETUP_RETRY_ATTEMPTS = 1
         SETUP_RETRY_BACKOFF_S = 0.1
 
@@ -495,14 +495,14 @@ def test_setup_retry_class_attrs_overridable() -> None:
     a = FastRetryAgent(name="fast_retry")
     assert a.SETUP_RETRY_ATTEMPTS == 1
     assert a.SETUP_RETRY_BACKOFF_S == 0.1
-    # Verify BaseAgent defaults are unchanged
-    assert BaseAgent.SETUP_RETRY_ATTEMPTS == 3
-    assert BaseAgent.SETUP_RETRY_BACKOFF_S == 2.0
+    # Verify BaseDaemon defaults are unchanged
+    assert BaseDaemon.SETUP_RETRY_ATTEMPTS == 3
+    assert BaseDaemon.SETUP_RETRY_BACKOFF_S == 2.0
 
 
 def test_circuit_breaker_default_off() -> None:
-    """BaseAgent.circuit_breaker is False by default; agent._cb_open starts False."""
-    assert BaseAgent.circuit_breaker is False
+    """BaseDaemon.circuit_breaker is False by default; agent._cb_open starts False."""
+    assert BaseDaemon.circuit_breaker is False
     a = MinimalAgent(name="cb_default_test")
     assert a._cb_open is False
 
@@ -511,7 +511,7 @@ def test_circuit_breaker_default_off() -> None:
 async def test_circuit_breaker_opens_after_all_retries_fail() -> None:
     """When circuit_breaker=True and all retries fail, _cb_open is set to True."""
 
-    class AlwaysFailSetupAgent(BaseAgent):
+    class AlwaysFailSetupAgent(BaseDaemon):
         circuit_breaker = True
         SETUP_RETRY_ATTEMPTS = 2
         SETUP_RETRY_BACKOFF_S = 0.0
@@ -522,7 +522,7 @@ async def test_circuit_breaker_opens_after_all_retries_fail() -> None:
         async def _run(self) -> None:
             pass
 
-    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+    with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
         a = AlwaysFailSetupAgent(name="cb_open_test")
         with pytest.raises(RuntimeError):
             await a.start()
@@ -535,7 +535,7 @@ async def test_setup_retry_counter_increments_on_retry() -> None:
     """AGENT_SETUP_RETRIES_TOTAL is incremented once per pre-final retry attempt."""
     from unittest.mock import MagicMock
 
-    class RetryAgent(BaseAgent):
+    class RetryAgent(BaseDaemon):
         circuit_breaker = True
         SETUP_RETRY_ATTEMPTS = 3
         SETUP_RETRY_BACKOFF_S = 0.0
@@ -548,7 +548,7 @@ async def test_setup_retry_counter_increments_on_retry() -> None:
 
     mock_counter = MagicMock()
     with (
-        patch("src.core.agent.base.BaseAgent._register_signal_handlers"),
+        patch("src.core.agent.base.BaseDaemon._register_signal_handlers"),
         patch("src.core.agent.base.AGENT_SETUP_RETRIES_TOTAL", mock_counter),
     ):
         a = RetryAgent(name="retry_counter_test")

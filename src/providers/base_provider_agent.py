@@ -1,8 +1,8 @@
-"""BaseProviderAgent — abstract base class for all data provider agents.
+"""BaseProvider — abstract base class for all data provider agents.
 
 Every data provider (IBKR, Alpaca, Polygon, etc.) gets lifecycle management,
 metrics instrumentation, reconnect with exponential backoff, and gap-fill
-handling for free by subclassing BaseProviderAgent.
+handling for free by subclassing BaseProvider.
 
 Adding a new provider = one thin subclass + one systemd unit.
 
@@ -23,7 +23,7 @@ from datetime import datetime
 import asyncpg
 
 from src.config.settings import Settings, get_active_contracts, get_settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import Instrument
@@ -41,7 +41,7 @@ from src.observability.metrics import (
 from src.providers.base import DataProviderAdapter
 
 
-class BaseProviderAgent(BaseAgent):
+class BaseProvider(BaseDaemon):
     """Abstract base for all data provider agents.
 
     Handles lifecycle, metrics, exponential-backoff reconnect, and gap-fill
@@ -63,8 +63,8 @@ class BaseProviderAgent(BaseAgent):
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
-        # Pass settings to BaseAgent to avoid duplicate creation
-        # BaseAgent will use get_settings() singleton if settings is None
+        # Pass settings to BaseDaemon to avoid duplicate creation
+        # BaseDaemon will use get_settings() singleton if settings is None
         _settings = settings or get_settings()
         super().__init__(
             name=self._agent_name(),

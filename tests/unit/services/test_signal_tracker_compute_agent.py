@@ -62,7 +62,7 @@ class TestStructural:
 
     def test_inherits_base_agent(self):
         src = _read_source()
-        assert "BaseAgent" in src
+        assert "BaseDaemon" in src
 
     def test_no_db_writes(self):
         """ComputeAgent must not contain any direct DB write methods."""

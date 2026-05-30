@@ -30,14 +30,14 @@ import structlog
 from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 logger = structlog.get_logger(__name__)
 
 
-class MLSignalTrainingMaterializeAgent(BaseAgent):
+class MLSignalTrainingMaterializeAgent(BaseDaemon):
     """Nightly ML training data materialization agent.
 
     Runs as a systemd Type=oneshot service, materializing flat typed rows from

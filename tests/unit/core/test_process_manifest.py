@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.agent.manifest import ProcessManifest
 
 
-class FakeAgent(BaseAgent):
+class FakeAgent(BaseDaemon):
     """Minimal concrete agent for ProcessManifest testing."""
 
     def __init__(
