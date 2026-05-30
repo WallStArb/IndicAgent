@@ -1074,7 +1074,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 110-03-PLAN.md — Wave 3: rename 33 Ring 2 daemon classes (agent_id labels preserved)
+- [x] 110-03-PLAN.md — Wave 3: rename 33 Ring 2 daemon classes (agent_id labels preserved)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -1430,7 +1430,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
-| 110. Renaissance Rename | v2.8 | 2/4 | In Progress|  |
+| 110. Renaissance Rename | v2.8 | 3/4 | In Progress|  |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
