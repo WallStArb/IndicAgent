@@ -411,24 +411,26 @@ async def test_generate_structured_skips_open_circuit():
             ollama_called = True
         return mock_result, mock_raw
 
-    with patch.object(backend, "_instructor_client") as mock_client:
-        mock_client.chat.completions.create_with_completion = side_effect
-        result = await backend.generate_structured(
-            prompt="test",
-            system="OUTPUT ONLY RAW JSON.",
-            response_model=_MockResult,
-            max_tokens=100,
-            timeout=5.0,
-        )
-
-    # CB should be open, ollama skipped, openrouter used
-    assert not ollama_called, "Ollama should have been skipped due to open circuit breaker"
-
-    # Reset the circuit breaker for other tests by directly resetting internal state
     from src.observability.circuit_breaker import CircuitState
 
-    _OLLAMA_CB._state = CircuitState.CLOSED
-    _OLLAMA_CB._failures = 0
+    try:
+        with patch.object(backend, "_instructor_client") as mock_client:
+            mock_client.chat.completions.create_with_completion = side_effect
+            result = await backend.generate_structured(
+                prompt="test",
+                system="OUTPUT ONLY RAW JSON.",
+                response_model=_MockResult,
+                max_tokens=100,
+                timeout=5.0,
+            )
+
+        # CB should be open, ollama skipped, openrouter used
+        assert not ollama_called, "Ollama should have been skipped due to open circuit breaker"
+    finally:
+        # Always reset the shared module-level circuit breaker so subsequent tests
+        # do not see polluted state if any assertion above fails (WR-03).
+        _OLLAMA_CB._state = CircuitState.CLOSED
+        _OLLAMA_CB._failures = 0
 
 
 # M6: Circuit breaker shared state test
