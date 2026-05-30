@@ -6,7 +6,7 @@ Copy this file when adding a new swarm agent. Required steps:
 3. Implement _compute(): build prompt → LLM call → parse → return multiplier output.
 4. Pair with a <name>_prompts.py exposing PROMPT_REGISTRY and ACTIVE_VERSION; agent-specific
    field validators (e.g. _validate_<agent>_fields) belong in the prompts file too.
-5. Register in services/alpha_swarm_agent.py self._agents list.
+5. Register in services/alpha_swarm.py self._agents list.
 
 Reference implementation: src/intelligence/ai/alpha/skeptic_agent.py
 Authoring protocol: src/intelligence/ai/AUTHORING.md

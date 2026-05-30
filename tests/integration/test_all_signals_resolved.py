@@ -13,7 +13,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from services.signal_replay_auditor_agent import SignalReplayAuditor
+from services.signal_replay_auditor import SignalReplayAuditor
 from src.config.settings import get_settings
 
 pytestmark = pytest.mark.integration

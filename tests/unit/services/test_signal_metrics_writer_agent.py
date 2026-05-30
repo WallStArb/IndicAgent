@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from services.signal_metrics_writer_agent import (
+from services.signal_metrics_writer import (
     _handle_dq_failure,
     _handle_ic_computed,
     _handle_metrics_computed,

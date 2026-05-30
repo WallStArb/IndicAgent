@@ -54,8 +54,8 @@ async def get_drift_state() -> dict[str, Any]:
             if last_updated is None:
                 last_updated = row["updated_at"].isoformat()
 
-    except Exception as exc:
-        logger.warning("drift endpoint: DB query error", error=str(exc))
+    except Exception as error:
+        logger.warning("drift endpoint: DB query error", error=str(error))
 
     return {
         "ks": ks_entries,

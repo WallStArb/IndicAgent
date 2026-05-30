@@ -52,7 +52,7 @@ def _make_agent(
     provider_silence_bars_threshold: int = 5,
 ):
     """Build ProviderMerger using __new__ (service test pattern)."""
-    from services.provider_merger_agent import ProviderMerger
+    from services.provider_merger import ProviderMerger
 
     agent = ProviderMerger.__new__(ProviderMerger)
     agent.name = "provider_merger_agent"
@@ -98,7 +98,7 @@ def _make_agent(
 
 def test_inherits_base_agent() -> None:
     """ProviderMerger must be a BaseDaemon subclass."""
-    from services.provider_merger_agent import ProviderMerger
+    from services.provider_merger import ProviderMerger
     from src.core.agent.base import BaseDaemon
 
     assert issubclass(ProviderMerger, BaseDaemon)

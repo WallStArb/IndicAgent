@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from services.llm_writer_service import LLMWriter
+from services.llm_writer import LLMWriter
 
 
 def _mock_base_agent_attributes(agent):

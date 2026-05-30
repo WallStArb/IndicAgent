@@ -22,7 +22,7 @@ import pytest
 
 def _make_agent():
     """Build BarWriter using __new__ (service test pattern)."""
-    from services.bar_writer_agent import BarWriter
+    from services.bar_writer import BarWriter
 
     agent = BarWriter.__new__(BarWriter)
     agent.name = "bar_writer_agent"
@@ -96,7 +96,7 @@ def _make_bar_payload(tf: str = "1m", symbol: str = "ESM6") -> dict:
 
 def test_init_name():
     """BarWriter must inherit from BaseWriter (and BaseDaemon)."""
-    from services.bar_writer_agent import BarWriter
+    from services.bar_writer import BarWriter
     from src.core.agent.base import BaseDaemon
     from src.core.agent.base_writer import BaseWriter
 
@@ -350,7 +350,7 @@ async def test_flush_batch_increments_tf_counter():
     )
     agent._db_pool = mock_pool
 
-    with patch("services.bar_writer_agent._BARS_WRITTEN") as mock_bars:
+    with patch("services.bar_writer._BARS_WRITTEN") as mock_bars:
         await agent._flush_batch(batch)
 
     # OTel counter: .add(1, {"agent": ..., "tf": "1m"}) must have been called
@@ -400,8 +400,8 @@ async def test_run_calls_record_message_consumed() -> None:
         patch.object(agent, "_buffer_rows"),
         patch.object(agent, "_maybe_route_to_dlq", new_callable=AsyncMock),
         patch.object(agent, "maybe_flush", new_callable=AsyncMock),
-        patch("services.bar_writer_agent._EVENTS_CONSUMED"),
-        patch("services.bar_writer_agent._CONSUMER_LAG"),
+        patch("services.bar_writer._EVENTS_CONSUMED"),
+        patch("services.bar_writer._CONSUMER_LAG"),
     ):
         await agent._run()
 

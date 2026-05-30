@@ -58,14 +58,14 @@ def _make_service(mock_contracts=None):
     # Patch both the module-level name in feature_writer_agent AND the settings module
     # so that both get_active_contracts and get_active_symbols calls are covered.
     with (
-        patch("services.feature_writer_agent.DatabaseManager"),
-        patch("services.feature_writer_agent.get_active_contracts", return_value=mock_contracts),
+        patch("services.feature_writer.DatabaseManager"),
+        patch("services.feature_writer.get_active_contracts", return_value=mock_contracts),
         patch(
-            "services.feature_writer_agent.get_active_symbols",
+            "services.feature_writer.get_active_symbols",
             return_value=[i.symbol for i in mock_contracts],
         ),
     ):
-        from services.feature_writer_agent import FeatureWriter
+        from services.feature_writer import FeatureWriter
 
         service = FeatureWriter.__new__(FeatureWriter)
         service.config = service._load_config(None)

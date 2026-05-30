@@ -13,7 +13,7 @@ import asyncio
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
-from src.intelligence.services.feature_validation_compute_agent import (
+from src.intelligence.services.feature_validation_analyzer import (
     FeatureValidationAnalyzer,
 )
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTracker
+from services.signal_tracker import SignalTracker
 
 
 def _make_signal_row(signal_id, symbol="ES", timeframe="5m", status="pending", **kwargs):
@@ -109,7 +109,7 @@ async def test_bootstrap_succeeds_on_first_attempt():
     ]
     mock_db = _make_db_mock([rows], count=3)
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         mock_db_cls.return_value = mock_db
         await agent._bootstrap_active_signals()
 
@@ -132,7 +132,7 @@ async def test_bootstrap_retries_on_empty_result_when_ledger_has_rows():
     # First two connection fetches return [], third returns rows
     mock_db = _make_db_mock([[], [], rows], count=2)
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         with patch("asyncio.sleep", new_callable=AsyncMock):
             mock_db_cls.return_value = mock_db
             await agent._bootstrap_active_signals()
@@ -149,7 +149,7 @@ async def test_bootstrap_succeeds_immediately_on_empty_ledger():
     agent = _make_agent()
     mock_db = _make_db_mock([[]], count=0)
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         mock_db_cls.return_value = mock_db
         await agent._bootstrap_active_signals()
 
@@ -166,7 +166,7 @@ async def test_bootstrap_exhausted_publishes_health_event():
     # All fetches return empty, but COUNT says 5 rows exist
     mock_db = _make_db_mock([[], [], []], count=5)
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         with patch("asyncio.sleep", new_callable=AsyncMock):
             mock_db_cls.return_value = mock_db
             await agent._bootstrap_active_signals()
@@ -201,7 +201,7 @@ async def test_sd_notify_called_after_bootstrap_not_before():
 
     mock_db.get_connection = MagicMock(side_effect=_tracked_get_connection)
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         mock_db_cls.return_value = mock_db
         await agent._bootstrap_active_signals()
 
@@ -230,7 +230,7 @@ async def test_bootstrap_null_entry_price_falls_back_to_activation_price():
     agent = _make_agent()
     mock_db = _make_db_mock([[row]])
 
-    with patch("services.signal_tracker_compute_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.signal_tracker.DatabaseManager") as mock_db_cls:
         mock_db_cls.return_value = mock_db
         await agent._bootstrap_active_signals()
 

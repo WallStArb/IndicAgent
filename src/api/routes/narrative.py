@@ -93,9 +93,9 @@ def _build_context_from_row(row) -> SignalContext:
         Fully populated SignalContext with all pipeline tiers populated.
     """
     bar_data = _parse_jsonb(row.get("bar"), default={})
-    bar_ctx = None
+    bar_context = None
     if bar_data:
-        bar_ctx = BarContext(
+        bar_context = BarContext(
             open=bar_data.get("o") or bar_data.get("open"),
             high=bar_data.get("h") or bar_data.get("high"),
             low=bar_data.get("l") or bar_data.get("low"),
@@ -104,7 +104,7 @@ def _build_context_from_row(row) -> SignalContext:
         )
 
     targets = row.get("targets") or []
-    i7_ctx = QuantSignalContext(
+    i7_context = QuantSignalContext(
         winner_plugin=row.get("setup_plugin"),
         winner_direction=row.get("direction"),
         winner_confidence=row.get("confidence"),
@@ -119,7 +119,7 @@ def _build_context_from_row(row) -> SignalContext:
         symbol=row["symbol"],
         timeframe=row["feature_tf"],
         ts=row["timestamp"],
-        bar=bar_ctx,
+        bar=bar_context,
         i1=_maybe_validate(
             I1Indicators, _parse_jsonb(row.get("technical_indicators"), default=None)
         ),
@@ -131,7 +131,7 @@ def _build_context_from_row(row) -> SignalContext:
             I6Confluence, _parse_jsonb(row.get("cross_timeframe_context"), default=None)
         ),
         smc=_maybe_validate(SMCContext, _parse_jsonb(row.get("smc"), default=None)),
-        i7=i7_ctx,
+        i7=i7_context,
     )
 
 
@@ -253,6 +253,6 @@ async def get_narrative(
 
     except HTTPException:
         raise
-    except Exception as exc:
-        logger.error("narrative.route.error", signal_id=str(signal_id), exc_info=exc)
-        raise HTTPException(status_code=500, detail="Database error") from exc
+    except Exception as error:
+        logger.error("narrative.route.error", signal_id=str(signal_id), exc_info=error)
+        raise HTTPException(status_code=500, detail="Database error") from error

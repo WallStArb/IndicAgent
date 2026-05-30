@@ -15,7 +15,7 @@ import pytest
 
 def _make_agent():
     """Build a minimal LifecycleWriter bypassing __init__."""
-    from services.lifecycle_writer_agent import LifecycleWriter
+    from services.lifecycle_writer import LifecycleWriter
 
     agent = LifecycleWriter.__new__(LifecycleWriter)
     agent.logger = MagicMock()
@@ -70,21 +70,21 @@ def _make_transition(
 
 class TestLifecycleWriterAgentStructure:
     def test_class_name(self):
-        source = open("services/lifecycle_writer_agent.py").read()
+        source = open("services/lifecycle_writer.py").read()
         assert "LifecycleWriter" in source
 
     def test_inherits_base_writer_agent(self):
-        source = open("services/lifecycle_writer_agent.py").read()
+        source = open("services/lifecycle_writer.py").read()
         assert "BaseWriter" in source
 
     def test_no_compute_logic(self):
         """WriterAgent must contain zero lifecycle evaluation logic."""
-        source = open("services/lifecycle_writer_agent.py").read()
+        source = open("services/lifecycle_writer.py").read()
         assert "evaluate_signal" not in source
         assert "compute_chandelier" not in source
 
     def test_uses_signal_ledger_repository(self):
-        source = open("services/lifecycle_writer_agent.py").read()
+        source = open("services/lifecycle_writer.py").read()
         assert "SignalLedgerRepository" in source
 
 

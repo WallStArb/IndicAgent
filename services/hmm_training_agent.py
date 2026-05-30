@@ -16,7 +16,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
-from src.intelligence.services.hmm_training_compute_agent import HMMTrainer
+from src.intelligence.services.hmm_trainer import HMMTrainer
 
 
 def main() -> None:

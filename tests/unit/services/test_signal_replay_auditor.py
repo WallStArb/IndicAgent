@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_replay_auditor_agent import SignalReplayAuditor
+from services.signal_replay_auditor import SignalReplayAuditor
 from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
@@ -441,7 +441,7 @@ async def test_replay_ohlcv_gap_counter() -> None:
 
     agent._fetch_window_bars = _mock_fetch
 
-    with patch("services.signal_replay_auditor_agent.SIGNAL_REPLAY_OHLCV_GAP_TOTAL") as mock_gap:
+    with patch("services.signal_replay_auditor.SIGNAL_REPLAY_OHLCV_GAP_TOTAL") as mock_gap:
         result = await agent._replay_signal(row)
 
     assert result is False, "_replay_signal must return False when OHLCV gap detected"

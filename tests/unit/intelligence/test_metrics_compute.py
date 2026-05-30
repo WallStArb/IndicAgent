@@ -250,7 +250,7 @@ class TestWriterSymbolInsert:
     async def test_signal_metrics_insert_includes_symbol(self):
         from unittest.mock import AsyncMock
 
-        from services.signal_metrics_writer_agent import _handle_metrics_computed
+        from services.signal_metrics_writer import _handle_metrics_computed
 
         conn = AsyncMock()
         event = {
@@ -285,7 +285,7 @@ class TestWriterSymbolInsert:
     async def test_signal_metrics_ic_insert_includes_symbol(self):
         from unittest.mock import AsyncMock
 
-        from services.signal_metrics_writer_agent import _handle_ic_computed
+        from services.signal_metrics_writer import _handle_ic_computed
 
         conn = AsyncMock()
         event = {

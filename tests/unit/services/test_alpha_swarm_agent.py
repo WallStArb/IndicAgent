@@ -39,7 +39,7 @@ def _make_fake_producer() -> MagicMock:
 
 def _make_agent(hmm_regime: int = 1, tf: str = "5m"):
     """Build AlphaSwarm bypassing __init__ (CLAUDE.md __new__ pattern)."""
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
     from src.core.ai.lineage import LineageRecorder
 
     agent = AlphaSwarm.__new__(AlphaSwarm)
@@ -98,14 +98,14 @@ def _make_raw_signal(symbol: str = "ESM6", tf: str = "5m") -> dict:
 
 def test_shadow_recorder_not_in_module():
     """ShadowRecorder must not be importable from alpha_swarm_agent module."""
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     assert not hasattr(m, "ShadowRecorder"), "ShadowRecorder still imported in alpha_swarm_agent"
 
 
 def test_transform_recorder_not_in_module():
     """TransformRecorder must not be importable from alpha_swarm_agent module."""
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     assert not hasattr(
         m, "TransformRecorder"
@@ -125,7 +125,7 @@ def test_lineage_recorder_in_module():
 
 def test_extract_volume_profile_not_in_module():
     """_extract_volume_profile method must be removed from AlphaSwarm."""
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
 
     assert not hasattr(
         AlphaSwarm, "_extract_volume_profile"
@@ -247,21 +247,21 @@ async def test_record_swarm_result_missing_hmm_regime_uses_sentinel():
 
 def test_lead_map_es_resolves_to_nq():
     """_resolve_lead('ES') must return 'NQ'."""
-    from services.alpha_swarm_agent import _resolve_lead
+    from services.alpha_swarm import _resolve_lead
 
     assert _resolve_lead("ES") == "NQ", "_resolve_lead('ES') should return 'NQ'"
 
 
 def test_lead_map_nq_self_leads():
     """_resolve_lead('NQ') must return 'NQ' (self-lead)."""
-    from services.alpha_swarm_agent import _resolve_lead
+    from services.alpha_swarm import _resolve_lead
 
     assert _resolve_lead("NQ") == "NQ", "_resolve_lead('NQ') should return 'NQ' (self-lead)"
 
 
 def test_lead_map_unknown_symbol_self_leads():
     """_resolve_lead for unmapped symbol returns itself."""
-    from services.alpha_swarm_agent import _resolve_lead
+    from services.alpha_swarm import _resolve_lead
 
     assert _resolve_lead("AAPL") == "AAPL"
     assert _resolve_lead("GC") == "GC"
@@ -269,7 +269,7 @@ def test_lead_map_unknown_symbol_self_leads():
 
 def test_lead_map_constant_exists():
     """_LEAD_MAP module constant must exist with ES->NQ."""
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     assert hasattr(m, "_LEAD_MAP"), "_LEAD_MAP not found in alpha_swarm_agent"
     assert m._LEAD_MAP.get("ES") == "NQ", f"_LEAD_MAP['ES'] != 'NQ': {m._LEAD_MAP}"
@@ -309,7 +309,7 @@ async def test_segment_key_uses_numeric_regime():
 @pytest.mark.asyncio
 async def test_es_lead_is_nq():
     """For symbol ESM6, resolved lead base should be NQ via _LEAD_MAP."""
-    from services.alpha_swarm_agent import _resolve_lead
+    from services.alpha_swarm import _resolve_lead
 
     # ESM6 base is 'ES', maps to NQ
     # _resolve_lead takes the base symbol, not the full contract
@@ -333,7 +333,7 @@ def _structlog_mock():
 
 def _make_graduation_agent():
     """Build AlphaSwarm with mock DB pool for graduation tests."""
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
 
     agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock()
@@ -469,7 +469,7 @@ def test_swarm_agents_are_four_typed_agents():
     Correlation, RegimeCoherence, Counterfactual alongside Skeptic.
     VolumeAgentComputeAgent (Phase 74 dead code) must remain absent.
     """
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     # All four Phase 80 agents must be importable from the module
     assert hasattr(m, "CorrelationAnalyzer"), "CorrelationAnalyzer not in module"
@@ -486,7 +486,7 @@ def test_swarm_agents_are_four_typed_agents():
 
 def test_swarm_agent_to_transform_has_all_agents():
     """_SWARM_AGENT_TO_TRANSFORM must map all five multiplier agents (Phase 80 + Phase 70 ML scorer)."""
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     assert hasattr(
         m, "_SWARM_AGENT_TO_TRANSFORM"
@@ -507,7 +507,7 @@ async def test_enrich_context_is_pass_through():
     """_enrich_context must be async and return the same context object (identity)."""
     from datetime import UTC, datetime
 
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
     from src.core.ai.context import SignalContext
 
     svc = AlphaSwarm.__new__(AlphaSwarm)
@@ -523,8 +523,8 @@ async def test_enrich_context_is_pass_through():
 
 def test_lead_index_map_deleted():
     """_LEAD_INDEX_MAP, _find_lead_context, _extract_volume_profile must be absent."""
-    import services.alpha_swarm_agent as m
-    from services.alpha_swarm_agent import AlphaSwarm
+    import services.alpha_swarm as m
+    from services.alpha_swarm import AlphaSwarm
 
     assert not hasattr(m, "_LEAD_INDEX_MAP"), "_LEAD_INDEX_MAP still present in alpha_swarm_agent"
     assert not hasattr(
@@ -539,7 +539,7 @@ def test_wave1_invariants_preserved():
     """Plan 01 invariants: no ShadowRecorder/TransformRecorder.
     LineageRecorder consolidated onto BaseSwarmCoordinator in Phase 084-03,
     so it is no longer directly imported in alpha_swarm_agent."""
-    import services.alpha_swarm_agent as m
+    import services.alpha_swarm as m
 
     assert not hasattr(
         m, "ShadowRecorder"
@@ -556,7 +556,7 @@ def test_wave1_invariants_preserved():
 
 def _make_agent_with_mocks():  # type: ignore[return]
     """Build AlphaSwarm with mocked dependencies for dispatch tests."""
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
 
     agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock(
@@ -632,10 +632,10 @@ def test_compute_final_multiplier_returns_none_when_all_fail() -> None:
 
 
 def test_no_direct_signal_ledger_writes() -> None:
-    """services/alpha_swarm_agent.py must contain zero UPDATE/INSERT signal_ledger statements."""
+    """services/alpha_swarm.py must contain zero UPDATE/INSERT signal_ledger statements."""
     import pathlib
 
-    path = pathlib.Path("services/alpha_swarm_agent.py")
+    path = pathlib.Path("services/alpha_swarm.py")
     src = path.read_text()
     # Strip comment lines
     non_comment = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))

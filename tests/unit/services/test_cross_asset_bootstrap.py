@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from services.cross_asset_service import CrossAssetAnalyzer
+from services.cross_asset_analyzer import CrossAssetAnalyzer
 
 
 def _mock_base_agent_attributes(agent):

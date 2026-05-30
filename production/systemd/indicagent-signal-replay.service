@@ -12,7 +12,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 EnvironmentFile=-/home/bg/dev/indicagent/.env
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_replay_auditor_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_replay_auditor.py
 Restart=on-failure
 WatchdogSec=60
 NotifyAccess=main

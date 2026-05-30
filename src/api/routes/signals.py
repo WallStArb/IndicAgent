@@ -712,9 +712,9 @@ async def get_signals_attribution(
 
         return {"track": track, "window": window, "group_by": group_by, "groups": groups}
 
-    except Exception as exc:
-        logger.error("Error fetching signal attribution", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as error:
+        logger.error("Error fetching signal attribution", error=str(error))
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 @router.get("/signals/detail/{signal_id}")

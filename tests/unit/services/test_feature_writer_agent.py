@@ -94,7 +94,7 @@ def _make_valid_bar_intelligence_record():
 
 def test_parse_payload_returns_list_for_valid_record():
     """Valid BarIntelligenceRecord payload returns list with insert params."""
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
@@ -115,7 +115,7 @@ def test_parse_payload_returns_list_for_valid_record():
 
 def test_parse_payload_returns_none_for_invalid_json():
     """Malformed payload returns None without crashing."""
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
@@ -132,7 +132,7 @@ def test_parse_payload_returns_none_for_invalid_json():
 
 def test_record_to_insert_params_returns_31_tuple():
     """_record_to_insert_params returns a 31-element tuple matching SQL columns."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
@@ -143,7 +143,7 @@ def test_record_to_insert_params_returns_31_tuple():
 
 def test_record_to_insert_params_serializes_ranked_signals_to_list():
     """ranked_signals is returned as a list of dicts for the i7 JSONB column."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
@@ -156,7 +156,7 @@ def test_record_to_insert_params_serializes_ranked_signals_to_list():
 
 def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
     """ts, i7_computed_at are Python datetime objects (asyncpg requirement)."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
@@ -169,7 +169,7 @@ def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
 
 def test_record_to_insert_params_handles_none_winner_fields():
     """None winner fields are passed through as None (not string 'None')."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     record.winner_plugin = None
@@ -184,7 +184,7 @@ def test_record_to_insert_params_handles_none_winner_fields():
 
 def test_record_to_insert_params_extracts_session_type_as_string():
     """session_type is stored as a plain string value."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     record.session_type = "rth"
@@ -197,7 +197,7 @@ def test_record_to_insert_params_extracts_session_type_as_string():
 
 def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
     """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) are dicts or lists."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
@@ -218,7 +218,7 @@ def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
 @pytest.mark.asyncio
 async def test_do_flush_calls_execute_batch():
     """_do_flush with buffered records calls _flush_batch which calls execute_batch."""
-    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
+    from services.feature_writer import FeatureWriter, _record_to_insert_params
 
     svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
@@ -275,7 +275,7 @@ async def test_do_flush_time_based_calls_execute_batch():
     """_should_flush returns True when FLUSH_INTERVAL_SECS elapsed."""
     import time
 
-    from services.feature_writer_agent import (
+    from services.feature_writer import (
         FLUSH_INTERVAL_SECS,
         FeatureWriter,
         _record_to_insert_params,
@@ -321,7 +321,7 @@ async def test_should_flush_recent_events_no_call():
     """_should_flush returns False with recent events — no flush triggered."""
     import time
 
-    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
+    from services.feature_writer import FeatureWriter, _record_to_insert_params
 
     svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
@@ -344,7 +344,7 @@ async def test_should_flush_recent_events_no_call():
 
 def test_removed_i7_i8_methods_absent():
     """_process_i7_message, _process_i8_message, _flush_i7_i8 must be absent."""
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     assert not hasattr(FeatureWriter, "_process_i7_message"), "_process_i7_message must be removed"
     assert not hasattr(FeatureWriter, "_process_i8_message"), "_process_i8_message must be removed"
@@ -355,7 +355,7 @@ def test_topic_routing_only_handles_intelligence_record():
     """_process_loop source must contain intelligence_journal_topic routing."""
     import inspect
 
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     source = inspect.getsource(FeatureWriter._process_loop)
     assert (
@@ -373,7 +373,7 @@ async def test_graceful_shutdown_flushes_and_closes():
     """_shutdown flushes buffer and closes Kafka/DB connections."""
     import asyncio
 
-    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
+    from services.feature_writer import FeatureWriter, _record_to_insert_params
 
     svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
@@ -420,7 +420,7 @@ async def test_graceful_shutdown_flushes_and_closes():
 
 def test_kafka_consumer_group_is_feature_writer_group():
     """KAFKA-07: FeatureWriter uses CONSUMER_GROUP='feature_writer_group'."""
-    from services.feature_writer_agent import CONSUMER_GROUP, FeatureWriter
+    from services.feature_writer import CONSUMER_GROUP, FeatureWriter
 
     assert CONSUMER_GROUP == "feature_writer_group"
     svc = FeatureWriter.__new__(FeatureWriter)
@@ -460,10 +460,10 @@ class TestBuildExpiryMap:
         from datetime import date
         from unittest.mock import patch
 
-        from services.feature_writer_agent import _build_expiry_map
+        from services.feature_writer import _build_expiry_map
 
         instruments = [self._futures_inst("ESH6", "20260320")]
-        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+        with patch("services.feature_writer.get_active_contracts", return_value=instruments):
             result = _build_expiry_map(None)
 
         assert "ESH6" in result
@@ -474,10 +474,10 @@ class TestBuildExpiryMap:
         from datetime import date
         from unittest.mock import patch
 
-        from services.feature_writer_agent import _build_expiry_map
+        from services.feature_writer import _build_expiry_map
 
         instruments = [self._futures_inst("VXJ6", "202604")]
-        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+        with patch("services.feature_writer.get_active_contracts", return_value=instruments):
             result = _build_expiry_map(None)
 
         assert "VXJ6" in result
@@ -487,10 +487,10 @@ class TestBuildExpiryMap:
         """FX instruments not in expiry map."""
         from unittest.mock import patch
 
-        from services.feature_writer_agent import _build_expiry_map
+        from services.feature_writer import _build_expiry_map
 
         instruments = [self._fx_inst("EURUSD")]
-        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+        with patch("services.feature_writer.get_active_contracts", return_value=instruments):
             result = _build_expiry_map(None)
 
         assert "EURUSD" not in result
@@ -499,10 +499,10 @@ class TestBuildExpiryMap:
         """CRYPTO instruments not in expiry map."""
         from unittest.mock import patch
 
-        from services.feature_writer_agent import _build_expiry_map
+        from services.feature_writer import _build_expiry_map
 
         instruments = [self._crypto_inst("BTCUSD")]
-        with patch("services.feature_writer_agent.get_active_contracts", return_value=instruments):
+        with patch("services.feature_writer.get_active_contracts", return_value=instruments):
             result = _build_expiry_map(None)
 
         assert "BTCUSD" not in result
@@ -521,7 +521,7 @@ class TestComputeDaysToExpiry:
         """Futures with 5 days to expiry returns 5."""
         from datetime import date
 
-        from services.feature_writer_agent import _compute_days_to_expiry
+        from services.feature_writer import _compute_days_to_expiry
 
         expiry_map = {"ESH6": date(2026, 3, 20)}
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 15), expiry_map)
@@ -531,7 +531,7 @@ class TestComputeDaysToExpiry:
         """Bar timestamp after expiry -> 0 (clamped)."""
         from datetime import date
 
-        from services.feature_writer_agent import _compute_days_to_expiry
+        from services.feature_writer import _compute_days_to_expiry
 
         expiry_map = {"ESH6": date(2026, 3, 20)}
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 25), expiry_map)
@@ -541,7 +541,7 @@ class TestComputeDaysToExpiry:
         """Symbol not in expiry_map (FX/crypto) -> 0."""
         from datetime import date
 
-        from services.feature_writer_agent import _compute_days_to_expiry
+        from services.feature_writer import _compute_days_to_expiry
 
         result = _compute_days_to_expiry(
             "EURUSD", self._dt(2026, 3, 4), {"ESH6": date(2026, 3, 21)}
@@ -550,7 +550,7 @@ class TestComputeDaysToExpiry:
 
     def test_empty_expiry_map_returns_none(self):
         """Empty expiry_map (service not initialized) -> None."""
-        from services.feature_writer_agent import _compute_days_to_expiry
+        from services.feature_writer import _compute_days_to_expiry
 
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 4), {})
         assert result is None
@@ -569,7 +569,7 @@ class TestFeatureWriterAgentLifecycle:
     def setup_method(self):
         import asyncio
 
-        from services.feature_writer_agent import FeatureWriter
+        from services.feature_writer import FeatureWriter
 
         self.agent = FeatureWriter.__new__(FeatureWriter)
         self.agent.name = "feature_writer_agent"
@@ -611,7 +611,7 @@ class TestFeatureWriterAgentLifecycle:
 
 def test_feature_writer_agent_inherits_base_writer_agent():
     """FeatureWriter must inherit from BaseWriter (and BaseDaemon)."""
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
     from src.core.agent.base import BaseDaemon
     from src.core.agent.base_writer import BaseWriter
 
@@ -623,7 +623,7 @@ def test_feature_writer_no_signal_signal_calls():
     """No sync signal.signal() calls must remain in the service file."""
     import inspect
 
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     source = inspect.getsource(FeatureWriter)
     assert (
@@ -650,7 +650,7 @@ async def test_connect_database_raises_on_db_failure() -> None:
     """
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     agent = FeatureWriter.__new__(FeatureWriter)
     agent.logger = MagicMock()
@@ -661,7 +661,7 @@ async def test_connect_database_raises_on_db_failure() -> None:
     agent._db_connected = MagicMock()
 
     # Patch DatabaseManager to raise on initialize()
-    with patch("services.feature_writer_agent.DatabaseManager") as mock_db_cls:
+    with patch("services.feature_writer.DatabaseManager") as mock_db_cls:
         mock_db_instance = AsyncMock()
         mock_db_instance.initialize = AsyncMock(side_effect=Exception("Connection refused"))
         mock_db_cls.return_value = mock_db_instance
@@ -688,7 +688,7 @@ async def test_connect_database_no_ghost_run_path() -> None:
     """
     import inspect
 
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     source = inspect.getsource(FeatureWriter._connect_database)
 
@@ -705,7 +705,7 @@ async def test_connect_database_no_ghost_run_path() -> None:
 
 def test_record_to_insert_params_folds_cross_asset_into_market_context():
     """cross_asset_snapshot dict is merged into the market_context param."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     snapshot = {"cross_asset": {"es_nq_spread_z": 1.23, "corr_z": -0.5}}
@@ -719,7 +719,7 @@ def test_record_to_insert_params_folds_cross_asset_into_market_context():
 
 def test_record_to_insert_params_empty_snapshot_leaves_market_context_unchanged():
     """Empty cross_asset_snapshot does not corrupt market_context."""
-    from services.feature_writer_agent import _record_to_insert_params
+    from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params_without = _record_to_insert_params(record, cross_asset_snapshot=None)
@@ -733,7 +733,7 @@ def test_process_cross_asset_message_updates_cache_not_db():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from services.feature_writer_agent import FeatureWriter
+    from services.feature_writer import FeatureWriter
 
     agent = FeatureWriter.__new__(FeatureWriter)
     agent._cross_asset_cache = {}

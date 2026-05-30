@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.bar_auditor_agent import BarAuditor
+from services.bar_auditor import BarAuditor
 
 
 @pytest.mark.asyncio

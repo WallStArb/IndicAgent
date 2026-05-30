@@ -4,7 +4,7 @@ ComputeAgent role: zero DB writes. This test reads the source file and
 asserts that none of the forbidden SQL/DB-write patterns are present.
 
 test_compute_agent_no_db_writes:
-  - Reads services/signal_tracker_compute_agent.py as plain text
+  - Reads services/signal_tracker.py as plain text
   - Asserts each forbidden pattern is absent (case-insensitive)
 """
 
@@ -20,7 +20,7 @@ class TestComputeAgentNoDbWrites:
     @pytest.mark.unit
     def test_compute_agent_no_db_writes(self):
         """SignalTracker source must not contain DB write statements."""
-        source = Path("services/signal_tracker_compute_agent.py").read_text()
+        source = Path("services/signal_tracker.py").read_text()
 
         forbidden_patterns = [
             r"INSERT\s+INTO\s+signal_ledger",
