@@ -93,7 +93,7 @@ class HMMTrainer:
         target_tfs: tuple[str, ...] = _DEFAULT_TARGET_TFS,
         lookback_days: dict[str, int] | None = None,
     ) -> None:
-        setup_service_logging("logs/hmm_training_compute_agent.log")
+        setup_service_logging("logs/hmm_trainer.log")
         self._db = db_manager
         self._settings = settings
         self._target_tfs = target_tfs
