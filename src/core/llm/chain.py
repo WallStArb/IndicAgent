@@ -137,6 +137,12 @@ class LLMProviderChain:
                 logger.debug("llm_chain.cache_hit", call_type=self._call_type)
                 return cached
 
+        # Known limitation (WR-01): last_provider_id is the provider that served the
+        # *previous* call, not the one that will serve this call. On the first call it is
+        # None (backend resets it at the start of each generate()), so the fallback selects
+        # the first configured limiter. On subsequent calls with circuit-breaker failover the
+        # wrong per-provider limit may be applied. Fixing this properly requires per-provider
+        # limiter selection inside LiteLLMBackend and is deferred to a future phase.
         limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
             iter(self._rate_limiters.values()), None
         )
