@@ -424,8 +424,11 @@ async def test_generate_structured_skips_open_circuit():
     # CB should be open, ollama skipped, openrouter used
     assert not ollama_called, "Ollama should have been skipped due to open circuit breaker"
 
-    # Reset the circuit breaker for other tests
-    _OLLAMA_CB.reset()
+    # Reset the circuit breaker for other tests by directly resetting internal state
+    from src.observability.circuit_breaker import CircuitState
+
+    _OLLAMA_CB._state = CircuitState.CLOSED
+    _OLLAMA_CB._failures = 0
 
 
 # M6: Circuit breaker shared state test
