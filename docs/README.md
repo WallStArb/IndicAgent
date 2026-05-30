@@ -33,6 +33,7 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 |------|-------------|
 | `principles.md` | Renaissance principles applied to market intelligence |
 | `naming-system.md` | Complete vocabulary system — rings, taxonomy, surfaces, evolution |
+| `documentation-system.md` | Documentation taxonomy, recipe-card format, verification lifecycle |
 | `ai-working-rules.md` | AI agent development rules |
 
 ### `intelligence/` — gold standard — I1-I8 domain
