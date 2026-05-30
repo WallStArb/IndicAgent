@@ -1,7 +1,7 @@
 """NarrativeComputeAgent -- LLM-driven market narrative generation.
 
 On-demand (not hot-path): instantiated per HTTP request, not managed by
-BaseGroupService. Per D-35: TF gate rejects 1m bars (only 5m+ allowed).
+BaseSwarmCoordinator. Per D-35: TF gate rejects 1m bars (only 5m+ allowed).
 Per D-34: returns AgentOutput with narrative text in payload.
 
 Renaissance design:
@@ -17,7 +17,7 @@ from typing import Any
 
 import structlog
 
-from src.core.ai.base_agent import BaseAIAgent
+from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
@@ -29,7 +29,7 @@ from src.intelligence.ai.narrative.narrative_prompts import (
 logger = structlog.get_logger(__name__)
 
 
-class NarrativeComputeAgent(BaseAIAgent):
+class NarrativeComputeAgent(BaseAIWorker):
     """Generate per-signal market narratives using LLM.
 
     Per D-35: TF gate rejects 1m bars (narrative only meaningful on higher TFs).

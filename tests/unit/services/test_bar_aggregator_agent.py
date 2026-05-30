@@ -1,6 +1,6 @@
 """Unit tests for BarAggregatorComputeAgent — TDD tests for Plan 053.2-02.
 
-Tests BarAggregatorComputeAgent structural contract (BaseAgent inheritance, topics),
+Tests BarAggregatorComputeAgent structural contract (BaseDaemon inheritance, topics),
 behavioral contract (publishes HTF bars at period boundaries, silent on mid-period bars),
 and Golden Signals metrics (Counter/Histogram instances).
 """
@@ -65,16 +65,16 @@ def _make_bar(ts: datetime, symbol: str = "ESM6", tf: str = "1m") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Inherits BaseAgent
+# Test 1: Inherits BaseDaemon
 # ---------------------------------------------------------------------------
 
 
 def test_inherits_base_agent():
-    """BarAggregatorComputeAgent must inherit BaseAgent."""
+    """BarAggregatorComputeAgent must inherit BaseDaemon."""
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
-    from src.core.agent.base import BaseAgent
+    from src.core.agent.base import BaseDaemon
 
-    assert issubclass(BarAggregatorComputeAgent, BaseAgent)
+    assert issubclass(BarAggregatorComputeAgent, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 # ---------------------------------------------------------------------------
 # Task 1 (63.1-01): Kafka bootstrap retry tests
-# Retry behavior moved to BaseAgent._setup_with_retry — _setup() is single-attempt.
+# Retry behavior moved to BaseDaemon._setup_with_retry — _setup() is single-attempt.
 # ---------------------------------------------------------------------------
 
 
@@ -248,7 +248,7 @@ def test_setup_retry_class_attributes():
 
 @pytest.mark.asyncio
 async def test_setup_single_attempt_success():
-    """_setup() runs one attempt body; retries are delegated to BaseAgent._setup_with_retry."""
+    """_setup() runs one attempt body; retries are delegated to BaseDaemon._setup_with_retry."""
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
@@ -282,7 +282,7 @@ async def test_setup_single_attempt_success():
 
 @pytest.mark.asyncio
 async def test_setup_propagates_exception():
-    """_setup() must propagate exceptions so BaseAgent._setup_with_retry can retry."""
+    """_setup() must propagate exceptions so BaseDaemon._setup_with_retry can retry."""
     from aiokafka.errors import KafkaConnectionError
 
     from services.bar_aggregator_agent import BarAggregatorComputeAgent
@@ -305,5 +305,5 @@ async def test_setup_propagates_exception():
     ):
         await agent._setup()
 
-    # Single attempt - exception propagated immediately (retry loop is in BaseAgent)
+    # Single attempt - exception propagated immediately (retry loop is in BaseDaemon)
     assert mock_producer.start.call_count == 1

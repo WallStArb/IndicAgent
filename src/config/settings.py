@@ -260,7 +260,7 @@ class Settings(BaseSettings):
         import warnings
 
         warnings.warn(
-            "Settings.get_config_value() is a temporary shim. Migrate to BaseAgent.get_config() at call site.",
+            "Settings.get_config_value() is a temporary shim. Migrate to BaseDaemon.get_config() at call site.",
             DeprecationWarning,
             stacklevel=2,
         )

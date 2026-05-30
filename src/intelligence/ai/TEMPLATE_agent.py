@@ -11,7 +11,7 @@ Copy this file when adding a new swarm agent. Required steps:
 Reference implementation: src/intelligence/ai/alpha/skeptic_agent.py
 Authoring protocol: src/intelligence/ai/AUTHORING.md
 
-Always extend BaseMultiplierAgent, never BaseAIAgent directly.
+Always extend BaseMultiplierAgent, never BaseAIWorker directly.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class TemplateComputeAgent(BaseMultiplierAgent):
     agent_id = "template_v1"  # MUST match shadow_registry.component_name
     group = "alpha"  # one of: "alpha", "narrative", "risk"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6})  # tiers consumed
-    latency_budget_ms = 5000.0  # asyncio.wait_for in BaseAIAgent.compute
+    latency_budget_ms = 5000.0  # asyncio.wait_for in BaseAIWorker.compute
     shadow_only = True  # start in shadow; graduation loop promotes if rho>0, p<0.05, n>=100
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
@@ -60,7 +60,7 @@ class TemplateComputeAgent(BaseMultiplierAgent):
         Contract:
           - Return AgentOutput via self._build_multiplier_output().
           - On error, return self._neutral(error=..., latency_ms=...).
-          - Never raise — BaseAIAgent.compute wraps with neutral fallback,
+          - Never raise — BaseAIWorker.compute wraps with neutral fallback,
             but explicit error returns are clearer.
           - prompt_version MUST be included via _build_multiplier_output()
             so LineageRecorder attribution is correct.

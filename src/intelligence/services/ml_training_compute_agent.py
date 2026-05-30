@@ -34,7 +34,7 @@ import shap
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.ml.registry import ModelRegistry
 from src.core.service_utils import setup_service_logging
@@ -71,7 +71,7 @@ _META_COLS = frozenset(
 )
 
 
-class MLTrainingComputeAgent(BaseAgent):
+class MLTrainingComputeAgent(BaseDaemon):
     """Nightly LightGBM training agent.
 
     Runs as a systemd Type=oneshot service, training segment models and registering

@@ -4,7 +4,7 @@ Updated for Phase 44.3: FeatureWriterAgent now consumes development.intelligence
 only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7/i8
 two-phase write code removed.
 
-Updated for Phase 68-02: FeatureWriterAgent inherits from BaseWriterAgent.
+Updated for Phase 68-02: FeatureWriterAgent inherits from BaseWriter.
 """
 
 from datetime import UTC, datetime
@@ -212,7 +212,7 @@ def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
     ), f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
 
 
-# ── _flush_batch (via BaseWriterAgent._do_flush) ──────────────────────────────
+# ── _flush_batch (via BaseWriter._do_flush) ──────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -260,12 +260,12 @@ async def test_do_flush_calls_execute_batch():
 
 @pytest.mark.asyncio
 async def test_do_flush_has_no_i7_i8_buffer_references():
-    """_do_flush (from BaseWriterAgent) no longer references _i7_buffer or _i8_buffer."""
+    """_do_flush (from BaseWriter) no longer references _i7_buffer or _i8_buffer."""
     import inspect
 
-    from src.core.agent.base_writer import BaseWriterAgent
+    from src.core.agent.base_writer import BaseWriter
 
-    source = inspect.getsource(BaseWriterAgent._do_flush)
+    source = inspect.getsource(BaseWriter._do_flush)
     assert "_i7_buffer" not in source, "_i7_buffer must be absent from _do_flush"
     assert "_i8_buffer" not in source, "_i8_buffer must be absent from _do_flush"
 
@@ -614,13 +614,13 @@ class TestFeatureWriterAgentLifecycle:
 
 
 def test_feature_writer_agent_inherits_base_writer_agent():
-    """FeatureWriterAgent must inherit from BaseWriterAgent (and BaseAgent)."""
+    """FeatureWriterAgent must inherit from BaseWriter (and BaseDaemon)."""
     from services.feature_writer_agent import FeatureWriterAgent
-    from src.core.agent.base import BaseAgent
-    from src.core.agent.base_writer import BaseWriterAgent
+    from src.core.agent.base import BaseDaemon
+    from src.core.agent.base_writer import BaseWriter
 
-    assert issubclass(FeatureWriterAgent, BaseWriterAgent)
-    assert issubclass(FeatureWriterAgent, BaseAgent)
+    assert issubclass(FeatureWriterAgent, BaseWriter)
+    assert issubclass(FeatureWriterAgent, BaseDaemon)
 
 
 def test_feature_writer_no_signal_signal_calls():
@@ -632,7 +632,7 @@ def test_feature_writer_no_signal_signal_calls():
     source = inspect.getsource(FeatureWriterAgent)
     assert (
         "signal.signal(" not in source
-    ), "signal.signal() must not appear — use BaseAgent._register_signal_handlers()"
+    ), "signal.signal() must not appear — use BaseDaemon._register_signal_handlers()"
 
 
 # ---------------------------------------------------------------------------

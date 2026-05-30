@@ -75,7 +75,7 @@ class TestLifecycleWriterAgentStructure:
 
     def test_inherits_base_writer_agent(self):
         source = open("services/lifecycle_writer_agent.py").read()
-        assert "BaseWriterAgent" in source
+        assert "BaseWriter" in source
 
     def test_no_compute_logic(self):
         """WriterAgent must contain zero lifecycle evaluation logic."""

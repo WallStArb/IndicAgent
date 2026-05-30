@@ -1,6 +1,6 @@
-"""Unit tests for BaseProviderAgent — TDD tests for Plan 54-03.
+"""Unit tests for BaseProvider — TDD tests for Plan 54-03.
 
-Tests structural contract (BaseAgent inheritance, abstract methods),
+Tests structural contract (BaseDaemon inheritance, abstract methods),
 behavioral contract (reconnect backoff, gap-fill routing, metrics labeling),
 and publish routing (raw topic, not canonical market.bars).
 """
@@ -15,18 +15,18 @@ import pytest
 # ---------------------------------------------------------------------------
 # Module-level test metrics (created once to avoid duplicate registration)
 # ---------------------------------------------------------------------------
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 
 # ---------------------------------------------------------------------------
-# Test 1: BaseProviderAgent inherits from BaseAgent
+# Test 1: BaseProvider inherits from BaseDaemon
 # ---------------------------------------------------------------------------
 
 
 def test_inherits_base_agent():
-    """BaseProviderAgent must be a subclass of BaseAgent."""
-    from src.providers.base_provider_agent import BaseProviderAgent
+    """BaseProvider must be a subclass of BaseDaemon."""
+    from src.providers.base_provider_agent import BaseProvider
 
-    assert issubclass(BaseProviderAgent, BaseAgent)
+    assert issubclass(BaseProvider, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------
@@ -35,13 +35,13 @@ def test_inherits_base_agent():
 
 
 def test_create_adapter_is_abstract():
-    """_create_adapter() must be abstract (cannot instantiate BaseProviderAgent)."""
+    """_create_adapter() must be abstract (cannot instantiate BaseProvider)."""
 
-    from src.providers.base_provider_agent import BaseProviderAgent
+    from src.providers.base_provider_agent import BaseProvider
 
-    assert hasattr(BaseProviderAgent._create_adapter, "__isabstractmethod__") or (
-        hasattr(BaseProviderAgent, "__abstractmethods__")
-        and "_create_adapter" in BaseProviderAgent.__abstractmethods__
+    assert hasattr(BaseProvider._create_adapter, "__isabstractmethod__") or (
+        hasattr(BaseProvider, "__abstractmethods__")
+        and "_create_adapter" in BaseProvider.__abstractmethods__
     )
 
 
@@ -52,9 +52,9 @@ def test_create_adapter_is_abstract():
 
 def test_agent_name_is_abstract():
     """_agent_name() must be abstract."""
-    from src.providers.base_provider_agent import BaseProviderAgent
+    from src.providers.base_provider_agent import BaseProvider
 
-    assert "_agent_name" in BaseProviderAgent.__abstractmethods__
+    assert "_agent_name" in BaseProvider.__abstractmethods__
 
 
 # ---------------------------------------------------------------------------
@@ -64,21 +64,21 @@ def test_agent_name_is_abstract():
 
 def test_provider_name_str_is_abstract():
     """_provider_name_str() must be abstract."""
-    from src.providers.base_provider_agent import BaseProviderAgent
+    from src.providers.base_provider_agent import BaseProvider
 
-    assert "_provider_name_str" in BaseProviderAgent.__abstractmethods__
+    assert "_provider_name_str" in BaseProvider.__abstractmethods__
 
 
 # ---------------------------------------------------------------------------
-# Helper: build a minimal concrete BaseProviderAgent subclass for testing
+# Helper: build a minimal concrete BaseProvider subclass for testing
 # ---------------------------------------------------------------------------
 
 
 def _make_concrete_agent():
-    """Build a concrete BaseProviderAgent subclass using __new__ bypass."""
-    from src.providers.base_provider_agent import BaseProviderAgent
+    """Build a concrete BaseProvider subclass using __new__ bypass."""
+    from src.providers.base_provider_agent import BaseProvider
 
-    class _TestAgent(BaseProviderAgent):
+    class _TestAgent(BaseProvider):
         def _agent_name(self) -> str:
             return "test_provider_agent"
 
@@ -280,9 +280,9 @@ async def test_gap_fills_published_to_raw_topic():
 
 def test_metrics_have_provider_label():
     """Pre-cached metric children must carry provider label matching _provider_name_str()."""
-    from src.providers.base_provider_agent import BaseProviderAgent
+    from src.providers.base_provider_agent import BaseProvider
 
-    class _TestAgent2(BaseProviderAgent):
+    class _TestAgent2(BaseProvider):
         def _agent_name(self) -> str:
             return "test_provider_agent"
 
@@ -294,8 +294,8 @@ def test_metrics_have_provider_label():
 
     # We can't call __init__ without Settings, but we verify the pattern
     # through the abstract method contract
-    assert "_provider_name_str" in BaseProviderAgent.__abstractmethods__
-    assert "_agent_name" in BaseProviderAgent.__abstractmethods__
+    assert "_provider_name_str" in BaseProvider.__abstractmethods__
+    assert "_agent_name" in BaseProvider.__abstractmethods__
 
     # Verify child class methods work
     agent = _TestAgent2.__new__(_TestAgent2)

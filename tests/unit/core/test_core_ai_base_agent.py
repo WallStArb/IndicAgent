@@ -1,16 +1,16 @@
-"""Tests for BaseAIAgent ABC and IAIAgent Protocol."""
+"""Tests for BaseAIWorker ABC and IAIAgent Protocol."""
 
 import asyncio
 from datetime import datetime
 
 import pytest
 
-from src.core.ai.base_agent import BaseAIAgent, IAIAgent
+from src.core.ai.base_agent import BaseAIWorker, IAIAgent
 from src.core.ai.context import AIContext
 from src.core.ai.output import AgentOutput
 
 
-class ConcreteAgent(BaseAIAgent):
+class ConcreteAgent(BaseAIWorker):
     """Concrete implementation for testing — provides _run() no-op."""
 
     agent_id = "concrete"
@@ -31,13 +31,13 @@ class ConcreteAgent(BaseAIAgent):
 
 
 class TestBaseAIAgent:
-    """Test suite for BaseAIAgent ABC."""
+    """Test suite for BaseAIWorker ABC."""
 
     def test_base_ai_agent_is_abstract(self):
         """Verify cannot instantiate directly without _compute()."""
         with pytest.raises(TypeError):
-            # BaseAIAgent is abstract — _compute() not implemented
-            BaseAIAgent()
+            # BaseAIWorker is abstract — _compute() not implemented
+            BaseAIWorker()
 
     def test_compute_captures_timing(self):
         """Verify latency_ms on returned AgentOutput equals wall-clock within 10ms."""
@@ -173,7 +173,7 @@ class TestIAIAgentProtocol:
     """Test suite for IAIAgent Protocol."""
 
     def test_protocol_compliance(self):
-        """Verify BaseAIAgent subclass satisfies IAIAgent Protocol."""
+        """Verify BaseAIWorker subclass satisfies IAIAgent Protocol."""
 
         class CompliantAgent(ConcreteAgent):
             agent_id = "compliant"

@@ -1,4 +1,4 @@
-"""BaseAIAgent — universal base class for all AI agents."""
+"""BaseAIWorker — universal base class for all AI agents."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import structlog
 from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 class IAIAgent(Protocol):
     """Protocol for AI agents — enables isinstance() checks and type hints.
 
-    All AI agents must implement this interface. BaseAIAgent provides
+    All AI agents must implement this interface. BaseAIWorker provides
     the default implementation; subclasses only override _compute().
     """
 
@@ -51,7 +51,7 @@ class IAIAgent(Protocol):
     async def _compute(self, context: AIContext) -> AgentOutput: ...
 
 
-class BaseAIAgent(BaseAgent, ABC):
+class BaseAIWorker(BaseDaemon, ABC):
     """Abstract base for all AI agents.
 
     Provides:
@@ -63,7 +63,7 @@ class BaseAIAgent(BaseAgent, ABC):
     Subclasses must implement:
     - _compute(context: AIContext) -> AgentOutput
 
-    Inherits from BaseAgent for full lifecycle:
+    Inherits from BaseDaemon for full lifecycle:
     - SIGTERM/SIGINT handling
     - Structured logging (self.logger)
     - OTel tracing (self.tracer)
@@ -150,14 +150,14 @@ class BaseAIAgent(BaseAgent, ABC):
                 return self._neutral(error=str(exc), latency_ms=latency_ms)
 
     async def _run(self) -> None:
-        """BaseAIAgent subclasses are compute objects driven by BaseGroupService.
+        """BaseAIWorker subclasses are compute objects driven by BaseSwarmCoordinator.
 
-        They must not be started as standalone agents. This satisfies BaseAgent's
+        They must not be started as standalone agents. This satisfies BaseDaemon's
         abstract requirement while failing loudly if misused.
         """
         raise RuntimeError(
             f"{self.__class__.__name__} is a compute agent and cannot be run standalone. "
-            "Use within a BaseGroupService."
+            "Use within a BaseSwarmCoordinator."
         )
 
     @abstractmethod

@@ -113,11 +113,11 @@ def test_build_multiplier_output_prompt_version_in_payload():
 
 
 def test_base_multiplier_agent_class_hierarchy():
-    """BaseMultiplierAgent is a subclass of BaseAIAgent and ABC."""
-    from src.core.ai.base_agent import BaseAIAgent
+    """BaseMultiplierAgent is a subclass of BaseAIWorker and ABC."""
+    from src.core.ai.base_agent import BaseAIWorker
     from src.core.ai.multiplier_agent import BaseMultiplierAgent
 
-    assert issubclass(BaseMultiplierAgent, BaseAIAgent)
+    assert issubclass(BaseMultiplierAgent, BaseAIWorker)
 
 
 def test_output_schema_class_var():
