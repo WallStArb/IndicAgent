@@ -1,4 +1,4 @@
-"""skeptic_agent.py -- SkepticComputeAgent (BaseMultiplierAgent subclass).
+"""skeptic_agent.py -- SkepticComputeAgent (Evaluator subclass).
 
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
 No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 import structlog
 
 from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.skeptic_prompts import (
@@ -32,10 +32,10 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class SkepticComputeAgent(BaseMultiplierAgent):
+class SkepticComputeAgent(Evaluator):
     """Devil's advocate alpha agent -- predicts signal failure probability.
 
-    Per D-03: extends BaseMultiplierAgent, declares output_schema ClassVar.
+    Per D-03: extends Evaluator, declares output_schema ClassVar.
     Per D-34: returns AgentOutput via _build_multiplier_output.
     Pure compute class -- dispatch layer owns infrastructure.
     """

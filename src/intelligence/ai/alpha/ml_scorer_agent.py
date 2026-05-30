@@ -28,7 +28,7 @@ import numpy as np
 import structlog
 
 from src.core.ai.context import AIContext
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp
 from src.core.ml.registry import ModelRegistry
@@ -71,7 +71,7 @@ _CATEGORICAL_KEYS: frozenset[str] = frozenset(
 )
 
 
-class MLScorerMultiplierAgent(BaseMultiplierAgent):
+class MLScorerMultiplierAgent(Evaluator):
     """LightGBM inference multiplier agent.
 
     Loads promoted models from ModelRegistry on startup.  Selects the
