@@ -80,7 +80,7 @@ class MLTrainer(BaseDaemon):
     """
 
     def __init__(self, settings: Settings) -> None:
-        setup_service_logging("logs/ml_training_compute_agent.log")
+        setup_service_logging("logs/ml_trainer.log")
         super().__init__("MLTrainingComputeAgent")
         self.settings = settings
         self._pool: asyncpg.Pool | None = None
