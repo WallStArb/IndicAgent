@@ -33,7 +33,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from pydantic import ValidationError
 
 from src.config.settings import get_active_contracts
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
 from src.core.schemas.provider_quality import ProviderQualityEvent
@@ -52,7 +52,7 @@ from src.observability.metrics import (
 )
 
 
-class ProviderMergerComputeAgent(BaseAgent):
+class ProviderMergerComputeAgent(BaseDaemon):
     """Canonical gateway agent that routes raw provider bars to market.bars.
 
     Single source of truth for the market.bars topic — all 8 downstream

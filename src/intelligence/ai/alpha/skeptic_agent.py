@@ -1,4 +1,4 @@
-"""skeptic_agent.py -- SkepticComputeAgent (BaseMultiplierAgent subclass).
+"""skeptic_agent.py -- SkepticEvaluator (Evaluator subclass).
 
 Pure compute class: prompt building + LLM call + JSON parse + transfer function.
 No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
@@ -10,8 +10,8 @@ from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.context import SignalContext, Tier
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.skeptic_prompts import (
@@ -32,10 +32,10 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class SkepticComputeAgent(BaseMultiplierAgent):
+class SkepticEvaluator(Evaluator):
     """Devil's advocate alpha agent -- predicts signal failure probability.
 
-    Per D-03: extends BaseMultiplierAgent, declares output_schema ClassVar.
+    Per D-03: extends Evaluator, declares output_schema ClassVar.
     Per D-34: returns AgentOutput via _build_multiplier_output.
     Pure compute class -- dispatch layer owns infrastructure.
     """
@@ -76,17 +76,17 @@ class SkepticComputeAgent(BaseMultiplierAgent):
         # Unknown type - keep fail-closed (do nothing)
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="SkepticComputeAgent", **kwargs)
+        super().__init__(name="SkepticEvaluator", **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Core computation: build prompt -> call LLM -> parse JSON -> transfer function.
 
-        Per D-01: full AIContext dump in prompt.
+        Per D-01: full SignalContext dump in prompt.
         Per D-04: multiplier = (1.0 - failure_probability) * llm_confidence.
         Per D-06: raw values stored in payload, never overwrites signal_ledger.
         """
-        # Build prompt — v2 passes AIContext directly; v1 uses dict adapter
+        # Build prompt — v2 passes SignalContext directly; v1 uses dict adapter
         if ACTIVE_VERSION == "skeptic_v2":
             prompt = build_skeptic_prompt(context)
         else:
@@ -129,8 +129,8 @@ class SkepticComputeAgent(BaseMultiplierAgent):
         )
 
 
-def _context_to_dict(context: AIContext) -> dict:
-    """Convert AIContext to dict for prompt building (v1 adapter — kept for rollback).
+def _context_to_dict(context: SignalContext) -> dict:
+    """Convert SignalContext to dict for prompt building (v1 adapter — kept for rollback).
 
     Used when ACTIVE_VERSION == "skeptic_v1". Preserved intact per plan instructions.
     NOTE: hmm_regime comes from ctx.smc (SMCContext), not ctx.i4 — schemas.I4Context

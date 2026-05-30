@@ -1,7 +1,7 @@
-"""Tests for AIContext typed tier rewrite.
+"""Tests for SignalContext typed tier rewrite.
 
 Plan 078-05, Task 1:
-- AIContext uses schemas.py types directly (no sparse subclasses)
+- SignalContext uses schemas.py types directly (no sparse subclasses)
 - Tier enum exposes I2, I3, I5
 - Direct pass-through of event.iN to ctx.iN (object identity)
 - Frozen model raises on mutation attempt
@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from src.core.ai.context import AIContext, AIContextCache, Tier
+from src.core.ai.context import SignalContext, SignalContextCache, Tier
 from src.intelligence.schemas import (
     I1Indicators,
     I2Events,
@@ -82,11 +82,11 @@ class TestTierEnumComplete:
 
 
 class TestAIContextTypedAssignment:
-    """D-09, D-13: AIContext uses schemas.py types; build() does direct pass-through."""
+    """D-09, D-13: SignalContext uses schemas.py types; build() does direct pass-through."""
 
     def test_i1_object_identity_no_copy(self) -> None:
         """build() must return event.i1 as-is (object identity, not a copy)."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
         event = _make_event()
         cache.update(event)
 
@@ -96,7 +96,7 @@ class TestAIContextTypedAssignment:
 
     def test_all_six_tiers_populated(self) -> None:
         """With all tiers requested, all six are non-None."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
         event = _make_event()
         cache.update(event)
 
@@ -115,7 +115,7 @@ class TestAIContextTypedAssignment:
 
     def test_all_six_tiers_are_schema_types(self) -> None:
         """Populated tiers must be the canonical schemas.py types."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
         event = _make_event()
         cache.update(event)
 
@@ -134,7 +134,7 @@ class TestAIContextTypedAssignment:
 
     def test_null_safe_when_tier_missing_from_event(self) -> None:
         """If event has i5=None, result.i5 must be None (no raise)."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
         event = _make_event(i5=None)
         cache.update(event)
 
@@ -144,7 +144,7 @@ class TestAIContextTypedAssignment:
 
     def test_not_requested_tier_is_none(self) -> None:
         """Tier not in tiers_needed must not be populated even if available."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
         event = _make_event()
         cache.update(event)
 
@@ -207,7 +207,7 @@ class TestSparseClassesDeleted:
 
 
 class TestNoEscapeHatch:
-    """D-15: No dict[str, Any] escape hatch on AIContext pipeline tier fields."""
+    """D-15: No dict[str, Any] escape hatch on SignalContext pipeline tier fields."""
 
     def test_no_full_features_field(self) -> None:
         import pathlib
@@ -216,9 +216,9 @@ class TestNoEscapeHatch:
         assert "full_features" not in content
 
     def test_aicontext_i1_type_is_not_dict(self) -> None:
-        """AIContext.i1 annotation must be I1Indicators | None, not dict."""
+        """SignalContext.i1 annotation must be I1Indicators | None, not dict."""
 
-        hints = AIContext.model_fields
+        hints = SignalContext.model_fields
         i1_field = hints.get("i1")
         assert i1_field is not None
         # annotation should reference I1Indicators, not dict
@@ -227,15 +227,15 @@ class TestNoEscapeHatch:
 
 
 class TestFrozenModel:
-    """AIContext must be frozen (immutable after construction)."""
+    """SignalContext must be frozen (immutable after construction)."""
 
     def test_assigning_i1_raises_validation_error(self) -> None:
-        ctx = AIContext(symbol="ES", timeframe="5m", ts=None)
+        ctx = SignalContext(symbol="ES", timeframe="5m", ts=None)
         with pytest.raises((ValidationError, TypeError)):
             ctx.i1 = None  # type: ignore[misc]
 
     def test_minimal_context_constructs_ok(self) -> None:
-        ctx = AIContext(symbol="ES", timeframe="5m", ts=None)
+        ctx = SignalContext(symbol="ES", timeframe="5m", ts=None)
         assert ctx.symbol == "ES"
         assert ctx.i1 is None
         assert ctx.i5 is None
@@ -246,10 +246,10 @@ class TestSchemaImports:
 
     def test_i1indicators_importable_from_context_module(self) -> None:
         """I1Indicators must be accessible (used in type annotations)."""
-        from src.core.ai.context import AIContext  # noqa: F401
+        from src.core.ai.context import SignalContext  # noqa: F401
 
         # Verify I1Indicators is the type used for i1 field
-        field = AIContext.model_fields.get("i1")
+        field = SignalContext.model_fields.get("i1")
         assert field is not None
 
     def test_schemas_import_present(self) -> None:

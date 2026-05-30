@@ -1,7 +1,7 @@
 """skeptic_prompts.py -- versioned prompt registry for SkepticAgent.
 
 Per D-03: prompt version tracked in every alpha_multiplier_shadow row via features JSONB.
-Per D-16: render_full_context iterates AIContext.model_fields -- open-ended, future-proof.
+Per D-16: render_full_context iterates SignalContext.model_fields -- open-ended, future-proof.
 Per D-17: ACTIVE_VERSION = "skeptic_v2".
 """
 
@@ -132,14 +132,14 @@ def build_skeptic_prompt(ctx: Any) -> str:
     """Build the skeptic prompt.
 
     v1 path: ctx is a dict (legacy 24-field flat dict from _context_to_dict).
-    v2 path: ctx is the typed AIContext object -- full pipeline tiers rendered.
+    v2 path: ctx is the typed SignalContext object -- full pipeline tiers rendered.
     """
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     if ACTIVE_VERSION == "skeptic_v2":
-        if not isinstance(ctx, AIContext):
-            raise TypeError("skeptic_v2 requires AIContext, got " f"{type(ctx).__name__}")
+        if not isinstance(ctx, SignalContext):
+            raise TypeError("skeptic_v2 requires SignalContext, got " f"{type(ctx).__name__}")
         i7 = ctx.i7
         return template.format(
             symbol=ctx.symbol,

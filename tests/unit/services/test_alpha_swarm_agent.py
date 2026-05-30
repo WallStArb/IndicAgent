@@ -20,7 +20,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 from src.core.stream_keys import topic_signal_lineage
 from src.intelligence.schemas import SMCContext
@@ -53,7 +53,7 @@ def _make_agent(hmm_regime: int = 1, tf: str = "5m"):
 
     # Mock context cache
     smc_ctx = SMCContext(hmm_regime=hmm_regime)
-    mock_context = AIContext(
+    mock_context = SignalContext(
         symbol="ESM6",
         timeframe=tf,
         ts=datetime.now(UTC),
@@ -143,7 +143,7 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
     agent, fake_producer = _make_agent(hmm_regime=1, tf="5m")
 
     smc_ctx = SMCContext(hmm_regime=1)
-    enriched = AIContext(
+    enriched = SignalContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
@@ -180,7 +180,7 @@ async def test_record_swarm_result_segment_key_numeric():
     agent, fake_producer = _make_agent(hmm_regime=2, tf="15m")
 
     smc_ctx = SMCContext(hmm_regime=2)
-    enriched = AIContext(
+    enriched = SignalContext(
         symbol="NQM6",
         timeframe="15m",
         ts=datetime.now(UTC),
@@ -215,7 +215,7 @@ async def test_record_swarm_result_missing_hmm_regime_uses_sentinel():
     agent, fake_producer = _make_agent(hmm_regime=1)
 
     smc_ctx = SMCContext(hmm_regime=None)
-    enriched = AIContext(
+    enriched = SignalContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
@@ -281,7 +281,7 @@ async def test_segment_key_uses_numeric_regime():
     agent, fake_producer = _make_agent(hmm_regime=1, tf="5m")
 
     smc_ctx = SMCContext(hmm_regime=1)
-    enriched = AIContext(
+    enriched = SignalContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),
@@ -463,7 +463,7 @@ async def test_graduation_loop_handles_nan_gracefully():
 
 
 def test_swarm_agents_are_four_typed_agents():
-    """Plan 80-07: _agents init list must declare list[BaseMultiplierAgent] with four agents.
+    """Plan 80-07: _agents init list must declare list[Evaluator] with four agents.
 
     Updated from Phase 78 single-skeptic assertion. Plan 80-07 adds
     Correlation, RegimeCoherence, Counterfactual alongside Skeptic.
@@ -472,18 +472,16 @@ def test_swarm_agents_are_four_typed_agents():
     import services.alpha_swarm_agent as m
 
     # All four Phase 80 agents must be importable from the module
-    assert hasattr(m, "CorrelationComputeAgent"), "CorrelationComputeAgent not in module"
-    assert hasattr(m, "RegimeCoherenceComputeAgent"), "RegimeCoherenceComputeAgent not in module"
-    assert hasattr(m, "CounterfactualComputeAgent"), "CounterfactualComputeAgent not in module"
-    assert hasattr(m, "SkepticComputeAgent"), "SkepticComputeAgent not in module"
+    assert hasattr(m, "CorrelationAnalyzer"), "CorrelationAnalyzer not in module"
+    assert hasattr(m, "RegimeCoherenceAnalyzer"), "RegimeCoherenceAnalyzer not in module"
+    assert hasattr(m, "CounterfactualEvaluator"), "CounterfactualEvaluator not in module"
+    assert hasattr(m, "SkepticEvaluator"), "SkepticEvaluator not in module"
     # VolumeAgentComputeAgent (Phase 74 dead code) must remain absent
     assert not hasattr(
         m, "VolumeAgentComputeAgent"
     ), "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
-    # BaseMultiplierAgent must be the typed list element
-    assert hasattr(
-        m, "BaseMultiplierAgent"
-    ), "BaseMultiplierAgent not imported in alpha_swarm_agent"
+    # Evaluator must be the typed list element
+    assert hasattr(m, "Evaluator"), "Evaluator not imported in alpha_swarm_agent"
 
 
 def test_swarm_agent_to_transform_has_all_agents():
@@ -510,12 +508,12 @@ async def test_enrich_context_is_pass_through():
     from datetime import UTC, datetime
 
     from services.alpha_swarm_agent import AlphaSwarmComputeAgent
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
 
     svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
     svc.logger = MagicMock()
     # _context_cache needed by _enrich_context? No — pass-through needs nothing
-    ctx = AIContext(symbol="ESM6", timeframe="5m", ts=datetime.now(UTC))
+    ctx = SignalContext(symbol="ESM6", timeframe="5m", ts=datetime.now(UTC))
 
     result = await svc._enrich_context(ctx)
     assert (
@@ -734,10 +732,10 @@ async def test_semaphore_blocks_then_proceeds() -> None:
 
     from datetime import UTC, datetime
 
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
     from src.intelligence.schemas import SMCContext
 
-    mock_context = AIContext(
+    mock_context = SignalContext(
         symbol="ESM6",
         timeframe="5m",
         ts=datetime.now(UTC),

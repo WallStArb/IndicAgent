@@ -1,8 +1,8 @@
-"""regime_coherence_prompts.py -- versioned prompt registry for RegimeCoherenceComputeAgent.
+"""regime_coherence_prompts.py -- versioned prompt registry for RegimeCoherenceAnalyzer.
 
 Per D-05: regime_coherence_v1 assesses whether the I7 winner setup TYPE is appropriate
 for the current HMM regime + trend regime.
-Per D-16: render_full_context iterates AIContext.model_fields -- open-ended, future-proof.
+Per D-16: render_full_context iterates SignalContext.model_fields -- open-ended, future-proof.
 """
 
 from __future__ import annotations
@@ -59,13 +59,13 @@ Rules:
 def build_regime_coherence_prompt(ctx: Any) -> str:
     """Build the regime coherence prompt.
 
-    Requires typed AIContext (v1 only — no legacy dict path).
+    Requires typed SignalContext (v1 only — no legacy dict path).
     """
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
 
-    if not isinstance(ctx, AIContext):
+    if not isinstance(ctx, SignalContext):
         raise TypeError(
-            "build_regime_coherence_prompt requires AIContext, got " f"{type(ctx).__name__}"
+            "build_regime_coherence_prompt requires SignalContext, got " f"{type(ctx).__name__}"
         )
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]

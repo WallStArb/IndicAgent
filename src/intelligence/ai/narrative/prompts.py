@@ -3,7 +3,7 @@
 All functions accept BarIntelligenceRecord and return str.
 No I/O, no LLM calls, no Kafka — fully testable without infrastructure.
 
-TODO: Update to accept AIContext instead of BarIntelligenceRecord (future plan).
+TODO: Update to accept SignalContext instead of BarIntelligenceRecord (future plan).
 """
 
 from __future__ import annotations

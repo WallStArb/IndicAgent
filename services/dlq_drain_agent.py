@@ -27,7 +27,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import structlog
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.schemas.dlq_payload import DLQPayload
@@ -74,10 +74,10 @@ VALUES
 """
 
 
-class DLQDrainAgent(BaseAgent):
+class DLQDrainAgent(BaseDaemon):
     """Continuous Kafka consumer draining all 15 DLQ topics into dlq_events.
 
-    Follows BaseAgent lifecycle contract (setup/_run/stop). No timer loop -
+    Follows BaseDaemon lifecycle contract (setup/_run/stop). No timer loop -
     processes messages as they arrive. Consumer group: dlq_drain_consumer.
     """
 

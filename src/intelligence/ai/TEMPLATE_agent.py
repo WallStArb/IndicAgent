@@ -11,7 +11,7 @@ Copy this file when adding a new swarm agent. Required steps:
 Reference implementation: src/intelligence/ai/alpha/skeptic_agent.py
 Authoring protocol: src/intelligence/ai/AUTHORING.md
 
-Always extend BaseMultiplierAgent, never BaseAIWorker directly.
+Always extend Evaluator, never BaseAIWorker directly.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.context import SignalContext, Tier
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 
@@ -34,7 +34,7 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class TemplateComputeAgent(BaseMultiplierAgent):
+class TemplateComputeAgent(Evaluator):
     """One-line description of what this agent decides and why."""
 
     # Required class attributes — every multiplier agent MUST set these six.
@@ -54,7 +54,7 @@ class TemplateComputeAgent(BaseMultiplierAgent):
         super().__init__(name=self.__class__.__name__, **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Build prompt -> call LLM -> parse -> return multiplier output.
 
         Contract:

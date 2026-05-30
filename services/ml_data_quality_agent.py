@@ -22,7 +22,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
@@ -43,7 +43,7 @@ _W_GAPS = 0.20
 _W_OUTLIERS = 0.20
 
 
-class MLDataQualityAuditorAgent(BaseAgent):
+class MLDataQualityAuditorAgent(BaseDaemon):
     """One-shot data quality auditor. Runs once and exits."""
 
     def __init__(self, settings: Settings) -> None:

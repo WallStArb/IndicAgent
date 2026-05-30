@@ -19,7 +19,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 import pandas as pd
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import (
@@ -80,7 +80,7 @@ GROUP BY tg.transform_id, tg.transform_version, tg.segment_key
 """
 
 
-class GraduationComputeAgent(BaseAgent):
+class GraduationComputeAgent(BaseDaemon):
     """Event-driven transform graduation evaluator.
 
     Consumes lifecycle.transitions EXIT events, increments per-segment counters,

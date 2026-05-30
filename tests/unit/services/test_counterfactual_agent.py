@@ -1,10 +1,10 @@
-"""Tests for CounterfactualComputeAgent and CounterfactualResult."""
+"""Tests for CounterfactualEvaluator and CounterfactualResult."""
 
 import pytest
 
 from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.counterfactual_agent import (
-    CounterfactualComputeAgent,
+    CounterfactualEvaluator,
     CounterfactualResult,
 )
 
@@ -92,13 +92,13 @@ def test_result_coerces_non_list_invalidation_conditions():
 
 def test_class_attributes():
     """Class-level attributes match the D-06 specification."""
-    assert CounterfactualComputeAgent.agent_id == "counterfactual_v1"
-    assert CounterfactualComputeAgent.shadow_only is True
-    assert Tier.I7 in CounterfactualComputeAgent.tiers_needed
-    assert Tier.I1 in CounterfactualComputeAgent.tiers_needed
-    assert Tier.I4 in CounterfactualComputeAgent.tiers_needed
-    assert CounterfactualComputeAgent.latency_budget_ms == pytest.approx(120000.0)
-    assert CounterfactualComputeAgent.group == "alpha"
+    assert CounterfactualEvaluator.agent_id == "counterfactual_v1"
+    assert CounterfactualEvaluator.shadow_only is True
+    assert Tier.I7 in CounterfactualEvaluator.tiers_needed
+    assert Tier.I1 in CounterfactualEvaluator.tiers_needed
+    assert Tier.I4 in CounterfactualEvaluator.tiers_needed
+    assert CounterfactualEvaluator.latency_budget_ms == pytest.approx(120000.0)
+    assert CounterfactualEvaluator.group == "alpha"
 
 
 def test_multiplier_formula_semantics():

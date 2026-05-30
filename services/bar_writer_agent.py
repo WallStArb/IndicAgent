@@ -15,7 +15,7 @@ Golden Signals (D-06):
 
 Version: 2.0.0
 Last Updated: 2026-04-13
-Status: Phase 68 Plan 02 — migrated to BaseWriterAgent
+Status: Phase 68 Plan 02 — migrated to BaseWriter
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 from pydantic import ValidationError
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
@@ -91,7 +91,7 @@ _CONTRACT_CACHE_RELOADS = _bw_meter.create_counter(
 )
 
 
-class BarWriterAgent(BaseWriterAgent):
+class BarWriterAgent(BaseWriter):
     """Dedicated OHLCV persistence agent.
 
     Consumes 1m bars from topic_market_bars and HTF bars from

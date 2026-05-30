@@ -23,7 +23,7 @@ from typing import Any
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import TF_SECONDS, topic_lifecycle_transitions
@@ -49,7 +49,7 @@ from src.observability.metrics import (
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 
-class SignalReplayAuditorAgent(BaseAgent):
+class SignalReplayAuditorAgent(BaseDaemon):
     """L9 periodic: recovers outcome labels for v1 signals the live tracker missed."""
 
     agent_id = "signal_replay_auditor"

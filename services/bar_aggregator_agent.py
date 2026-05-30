@@ -73,7 +73,7 @@ _STATE_CHECKPOINT_FAILURES_TOTAL = _baa_meter.create_counter(
     description="State checkpoint encode/decode failures",
 )
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_normalizer import SOURCE_UNKNOWN
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -151,7 +151,7 @@ class HealthMetrics:
         return True, "healthy"
 
 
-class BarAggregatorComputeAgent(BaseAgent):
+class BarAggregatorComputeAgent(BaseDaemon):
     """DB-ignorant bar aggregation agent.
 
     Consumes 1m bars from topic_market_bars, accumulates them per
@@ -201,7 +201,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
 
     async def _setup(self) -> None:
-        """Connect Kafka producer and consumer (single attempt — retries handled by BaseAgent._setup_with_retry)."""
+        """Connect Kafka producer and consumer (single attempt — retries handled by BaseDaemon._setup_with_retry)."""
         import aiokafka
 
         self._kafka_producer = KafkaProducerClient(
@@ -350,7 +350,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
-        # Start background tasks (lag_task created by BaseAgent.start() at line 155)
+        # Start background tasks (lag_task created by BaseDaemon.start() at line 155)
         health_task = asyncio.create_task(self._update_health_metrics())
         checker_task = asyncio.create_task(self._health_checker())
 

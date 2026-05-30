@@ -17,12 +17,12 @@ import time
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import parse_iso_ts, setup_service_logging
 from src.core.stream_keys import topic_ctx_snapshot
 from src.observability.metrics import counter
-from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
+from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_span
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -62,7 +62,7 @@ ON CONFLICT (symbol, event_type, valid_from) DO UPDATE
 """
 
 
-class CtxWriterAgent(BaseWriterAgent):
+class CtxWriterAgent(BaseWriter):
     """WriterAgent: ctx.snapshot -> ctx_events + ctx_snapshots batch writes."""
 
     BATCH_SIZE = 50
@@ -365,10 +365,10 @@ class CtxWriterAgent(BaseWriterAgent):
                 snapshots=len(snapshot_batch),
             )
 
-    # BaseWriterAgent requires _flush_batch — delegate to _flush with current buffers.
+    # BaseWriter requires _flush_batch — delegate to _flush with current buffers.
     async def _flush_batch(self, batch: list) -> None:
         """Required abstract method — actual flush is via _do_flush()/_flush()."""
-        # This path is used by BaseWriterAgent._do_flush when called from
+        # This path is used by BaseWriter._do_flush when called from
         # the default _run() loop. In CtxWriterAgent we override _run() and
         # _do_flush() directly, so this method is a no-op safety fallback.
         pass

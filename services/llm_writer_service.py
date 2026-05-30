@@ -8,7 +8,7 @@ Consumes three Kafka topics via consumer group 'llm_writer':
 
 Also recomputes llm_model_scores every 15 minutes.
 
-Inherits BaseWriterAgent for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
+Inherits BaseWriter for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
 Custom _run() handles the dual-consumer pattern (multiple topic subscriptions).
 """
 
@@ -26,7 +26,7 @@ import numpy as np
 import structlog
 from scipy.stats import binomtest
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts as _parse_ts
@@ -385,10 +385,10 @@ def _ece(conf: np.ndarray, outcome: np.ndarray, n_bins: int = 10) -> float:
 # ── Agent class ───────────────────────────────────────────────────────────────
 
 
-class LLMWriterAgent(BaseWriterAgent):
+class LLMWriterAgent(BaseWriter):
     """Async Kafka consumer agent: llm.calls + llm.outcomes + intelligence.i8 -> TimescaleDB.
 
-    Inherits BaseWriterAgent for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
+    Inherits BaseWriter for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
     Implements dual-consumer pattern (multiple topic subscriptions) via custom _run().
     15-min score recomputation runs as a background task alongside the consume loop.
     """
@@ -409,7 +409,7 @@ class LLMWriterAgent(BaseWriterAgent):
 
         self._kafka_bootstrap: str = self.settings.kafka_bootstrap_servers
 
-        # Second buffer for i8 column updates (separate from BaseWriterAgent._buffer)
+        # Second buffer for i8 column updates (separate from BaseWriter._buffer)
         self._i8_buffer: list[tuple] = []
         self._last_score_recompute: float = time.monotonic()
 
@@ -454,22 +454,22 @@ class LLMWriterAgent(BaseWriterAgent):
             "i8 UPDATEs that found 0 rows (timing window)",
         )
         self._batch_latency_attrs = {"agent_id": "llm_writer"}
-        # _consumer_lag_gauge is inherited from BaseAgent.__init__
+        # _consumer_lag_gauge is inherited from BaseDaemon.__init__
 
         self._total_calls = 0
         self._total_outcomes = 0
         self._total_batches = 0
         self._error_count = 0
 
-    # ── BaseWriterAgent abstract method implementations ───────────────────────
+    # ── BaseWriter abstract method implementations ───────────────────────
 
     def _topic_name(self) -> str:
-        """Primary Kafka topic — used by BaseWriterAgent for consumer setup."""
+        """Primary Kafka topic — used by BaseWriter for consumer setup."""
         return topic_llm_calls(self.env_name)
 
     @property
     def topics_consumed(self) -> list[str]:
-        """Kafka topics consumed — used by BaseAgent._send_to_dlq for source_topic."""
+        """Kafka topics consumed — used by BaseDaemon._send_to_dlq for source_topic."""
         return [
             topic_llm_calls(self.env_name),
         ]
@@ -483,7 +483,7 @@ class LLMWriterAgent(BaseWriterAgent):
         """Parse llm.calls topic message into INSERT param tuple.
 
         Returns None to route to DLQ on parse failure.
-        Only used when BaseWriterAgent's generic consume path is active;
+        Only used when BaseWriter's generic consume path is active;
         LLMWriterAgent uses a custom _run() with direct message routing.
         """
         parsed = _parse_llm_call_fields(payload)
@@ -494,7 +494,7 @@ class LLMWriterAgent(BaseWriterAgent):
     async def _flush_batch(self, batch: list) -> None:
         """Write batch of llm_calls rows to TimescaleDB.
 
-        Called by BaseWriterAgent._do_flush(). Must NOT clear self._buffer — caller handles that.
+        Called by BaseWriter._do_flush(). Must NOT clear self._buffer — caller handles that.
         """
         if not self.db_manager:
             raise RuntimeError("No database connection — cannot flush llm_calls batch")
@@ -557,7 +557,7 @@ class LLMWriterAgent(BaseWriterAgent):
     async def _setup_kafka_clients(self) -> None:
         """Create Kafka consumer subscribed to llm.calls.
 
-        Assigns self._consumer (BaseWriterAgent attribute) for offset commits.
+        Assigns self._consumer (BaseWriter attribute) for offset commits.
         Also starts a DLQ producer for routing unparseable messages.
         """
         calls_topic = topic_llm_calls(self.env_name)
@@ -573,7 +573,7 @@ class LLMWriterAgent(BaseWriterAgent):
             enable_auto_commit=False,
         )
         await kafka_consumer.start()
-        self._consumer = kafka_consumer  # BaseWriterAgent uses self._consumer for offset commits
+        self._consumer = kafka_consumer  # BaseWriter uses self._consumer for offset commits
         self.logger.info(
             "Kafka consumer started",
             topics=[calls_topic],
@@ -585,8 +585,8 @@ class LLMWriterAgent(BaseWriterAgent):
     async def _run(self) -> None:
         """Main loop: connect, then run dual-consumer + score recompute tasks.
 
-        BaseAgent.start() calls this after signal handler registration and metrics server start.
-        BaseWriterAgent._teardown() handles final flush on exit.
+        BaseDaemon.start() calls this after signal handler registration and metrics server start.
+        BaseWriter._teardown() handles final flush on exit.
         """
         self.logger.info("LLM Writer Agent starting")
         await self._connect_database()
@@ -609,7 +609,7 @@ class LLMWriterAgent(BaseWriterAgent):
                 )
 
     async def _teardown(self) -> None:
-        """Flush buffer and close all connections. Override of BaseWriterAgent._teardown()."""
+        """Flush buffer and close all connections. Override of BaseWriter._teardown()."""
         try:
             await super()._teardown()
         except Exception:
@@ -708,7 +708,7 @@ class LLMWriterAgent(BaseWriterAgent):
                 return True
 
             params = self._parsed_to_insert_tuple(parsed)
-            self._buffer_rows([params])  # Updates _buffer_depth_gauge via BaseWriterAgent
+            self._buffer_rows([params])  # Updates _buffer_depth_gauge via BaseWriter
             self.calls_consumed_total.add(1)
             self._total_calls += 1
             self.buffer_size_gauge.set(len(self._buffer))
