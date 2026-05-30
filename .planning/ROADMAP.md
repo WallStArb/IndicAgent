@@ -609,7 +609,7 @@ Plans:
 **Plans:** 5 plans in 3 waves
 
 - [x] 094-01-PLAN.md — AgentDeps dependency container (Wave 1)
-- [ ] 094-02-PLAN.md — PydanticAIAdapter bridge class (Wave 1)
+- [x] 094-02-PLAN.md — PydanticAIAdapter bridge class (Wave 1)
 - [ ] 094-03-PLAN.md — SkepticResult Pydantic model (Wave 2)
 - [ ] 094-04-PLAN.md — SkepticComputeAgentPydantic implementation (Wave 2)
 - [ ] 094-05-PLAN.md — Service registration + pydantic-ai dependency (Wave 3)
@@ -1393,7 +1393,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
 | 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
-| 094. LiteLLM + Instructor Structured Output | v2.8 | 1/3 | In Progress|  |
+| 094. LiteLLM + Instructor Structured Output | v2.8 | 2/3 | In Progress|  |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
