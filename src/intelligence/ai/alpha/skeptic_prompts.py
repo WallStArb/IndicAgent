@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, field_validator
+
 from src.core.ai.context import render_full_context
-from src.core.ai.prompt_utils import DIRECTION_LABELS, clamp, fmt
+from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
 
 ACTIVE_VERSION = "skeptic_v2"
 
@@ -100,40 +102,30 @@ Begin your response with {{ and end with }}. No prose before or after the JSON.
 """
 
 
-def _validate_skeptic_fields(data: dict) -> dict[str, Any] | None:
-    """Validate and sanitize the parsed skeptic response fields.
+class SkepticResult(BaseModel):
+    """Pydantic model for validated skeptic agent LLM output."""
 
-    Moved here from skeptic_agent.py per D-03: field validators belong in the
-    prompts file alongside the prompt content they validate.
-    """
-    if not isinstance(data, dict):
-        return None
+    failure_probability: float
+    confidence: float
+    risk_factors: list[str]
+    reasoning: str
 
-    fp = data.get("failure_probability")
-    conf = data.get("confidence")
+    @field_validator("failure_probability", "confidence")
+    @classmethod
+    def _clamp(cls, v: float) -> float:
+        return max(0.0, min(1.0, float(v)))
 
-    if not isinstance(fp, (int, float)) or not isinstance(conf, (int, float)):
-        return None
+    @field_validator("risk_factors", mode="before")
+    @classmethod
+    def _coerce_list(cls, v: object) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)]
+        return [str(x) for x in v]
 
-    fp = clamp(float(fp), 0.0, 1.0)
-    conf = clamp(float(conf), 0.0, 1.0)
-
-    risk_factors = data.get("risk_factors", [])
-    if not isinstance(risk_factors, list):
-        risk_factors = [str(risk_factors)]
-    else:
-        risk_factors = [str(rf) for rf in risk_factors]
-
-    reasoning = data.get("reasoning", "")
-    if not isinstance(reasoning, str):
-        reasoning = str(reasoning)
-
-    return {
-        "failure_probability": fp,
-        "confidence": conf,
-        "risk_factors": risk_factors,
-        "reasoning": reasoning,
-    }
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _coerce_str(cls, v: object) -> str:
+        return str(v) if v is not None else ""
 
 
 def build_skeptic_prompt(ctx: Any) -> str:
