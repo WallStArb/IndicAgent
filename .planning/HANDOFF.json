@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-05-30T14:48:42Z",
+  "phase": "pre-110",
+  "phase_name": "rename-phase-planning",
+  "phase_dir": null,
+  "plan": 0,
+  "task": 0,
+  "total_tasks": 0,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Commit documentation-system.md + README restructure", "status": "done", "commit": "4da5c52c"},
+    {"id": 2, "name": "Create naming-conventions.md reference doc", "status": "done", "commit": "7fd971ab"},
+    {"id": 3, "name": "Embed project philosophy in CLAUDE.md, principles.md, README.md", "status": "done", "commit": "3a1aa4ac"},
+    {"id": 4, "name": "Reframe README opening — remove passion project language", "status": "done", "commit": "4758a264"},
+    {"id": 5, "name": "Update design spec migration guidelines — clean break, wave structure, pre-095 sequencing", "status": "done", "commit": "39dec1e5"}
+  ],
+  "remaining_tasks": [
+    {"id": 6, "name": "Plan Phase 110 — rename phase", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Execute rename phase (Phase 110) before Phase 095",
+      "rationale": "Phase 095 directly touches Ring 0 infrastructure being renamed (BaseAIAgent, BaseGroupService, AgentContext) and introduces new evaluators that must be named correctly from day one. Foundation must be correct before building on it.",
+      "phase": "110"
+    },
+    {
+      "decision": "Clean break — no compatibility aliases, no systemd stubs",
+      "rationale": "Not a production system. All callers updated in same branch. Simplicity over caution.",
+      "phase": "110"
+    },
+    {
+      "decision": "Four-wave execution within atomic branch",
+      "rationale": "Wave 1: Ring 0 bases (7), Wave 2: Ring 1 math objects (9), Wave 3: Ring 2 class names (~30), Wave 4: file renames + systemd + imports",
+      "phase": "110"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-plan-phase 110 to plan the rename phase. The full rename spec is at docs/plans/2026-05-30-renaissance-naming-system-design.md Section 9 — 40+ renames across Ring 0/1/2.",
+  "context_notes": "Session was entirely documentation and discussion. No code changed. All commits are doc-only. The naming system design is complete and authoritative at docs/foundation/naming-system.md. The decision to rename before Phase 095 is recorded in the design spec Section 11. Ready to plan Phase 110."
+}

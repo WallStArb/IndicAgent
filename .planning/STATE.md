@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
-status: completed
-stopped_at: context exhaustion at 76% (2026-05-30)
-last_updated: "2026-05-30T03:58:36.407Z"
+status: ready-to-plan
+stopped_at: context exhaustion at 70% (2026-05-30)
+last_updated: "2026-05-30T14:48:42Z"
 last_activity: 2026-05-30
 progress:
   total_phases: 19
@@ -25,10 +25,12 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 095 (pydantic-ai-agents) — READY TO EXECUTE
-Plan: 0 of 5
-Status: Plans complete — naming corrected (AgentRuntime, AuditedModel, result_type on BaseAIAgent)
+Phase: 110 (rename) — READY TO PLAN
+Plan: 0 of TBD
+Status: Design spec complete — ready to plan Phase 110 rename before Phase 095
 Last activity: 2026-05-30
+
+**Sequencing decision (2026-05-30):** Phase 110 (rename) executes before Phase 095. Phase 095 touches Ring 0 infrastructure being renamed and must write new evaluators with correct names from day one. See design spec Section 11.
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
@@ -115,11 +117,11 @@ Last activity: 2026-05-30
 
 ## Session Continuity
 
-Last session: 2026-05-30T03:58:36.403Z
-Stopped at: context exhaustion at 76% (2026-05-30)
-Resume: execute Phase 109, then `/gsd-discuss-phase 094`
+Last session: 2026-05-30T14:48:42Z
+Stopped at: context exhaustion at 70% (2026-05-30)
+Resume: `/gsd-plan-phase 110` — plan the rename phase
 
-**v2.7 capstone (decided 2026-05-29):** 109 is v2.7 hardening — execute it to close out v2.7, then v2.8 begins with 094.
+**Rename-before-095 decision (2026-05-30):** Phase 110 executes before Phase 095. Rename spec: `docs/plans/2026-05-30-renaissance-naming-system-design.md`. Four waves: Ring 0 bases (7) → Ring 1 math objects (9) → Ring 2 class names (~30) → file/systemd/imports. Clean break, atomic branch.
 
 **Phase 107 archive:** `.planning/archive/phases/107-infrastructure-hygiene/`
 
