@@ -4,6 +4,42 @@
 
 ---
 
+## Milestone: v2.7 — Mathematical Correctness, Storage & Hardening
+
+**Shipped:** 2026-05-29
+**Phases:** 9 (093, 100, 100.5, 104, 105, 106, 107, 108, 109) | **Plans:** 43 | **Timeline:** 10 days (2026-05-20 → 2026-05-29)
+
+### What Was Built
+
+- Mathematical correctness audit: ATR Wilder bug fixed; 28 I1 indicators validated vs pandas-ta; Kalman/GARCH stateful invariants; edge case coverage; CI gate
+- Plugin shared infrastructure: IncrementalMixin for 31 incremental plugins; shared utilities (atr_utils, state_utils, confidence_utils); PluginObserver; 24 plugins migrated
+- Storage redesign: signal_ledger 97→38 columns; intelligence_features column renames (i1–i8 → concept names); 9 retention policies; 13 GB freed (feature_snapshots_shadow)
+- Architecture hotfixes: shadow signal suppression, writer AttributeErrors, OTel metric type corrections (Phase 105)
+- Foundation + hygiene (Renaissance): 9/9 HYGIENE criteria; DAG 31→42+ services; PluginCircuitBreaker wired; enqueue_blocking backpressure (Phases 106, 107)
+- Self-healing: WatchdogSec=60 on 39 daemons; DLQ quarantine (.dead-final); consumer stall detection; api_health gauge; oneshot job_completed_total counters (Phase 108)
+- Config foundation: DB-backed OPS config (4 tables), ConfigService HTTP API (port 9001), Kafka transactional outbox, BaseAgent hot-reload, SelfHealingAgent (port 9002) (Phase 109)
+
+### What Worked
+
+- Renaissance 9-criterion expansion for Phase 107: expanding from 4→9 HYGIENE criteria with binary SQL verification created a rigorous, objectively measurable close — no ambiguity about whether the phase was done
+- Treating Phase 109 as v2.7 capstone (not v2.8): config foundation is hardening, not AI platform; correct scoping prevented scope creep into v2.8
+- Decimal phase insertion (100.5): allowed plugin hardening to ship cleanly without disrupting the 100→104 dependency chain
+- Emergency hotfix pattern (Phase 105): inserting an unplanned architectural hotfix sprint immediately after discovering the 2026-05-23 audit findings — catching bugs before they compound is cheaper than fixing them later
+
+### What Was Inefficient
+
+- REQUIREMENTS.md tracking lag: FOUND/HYGIENE-05-09 requirements had incorrect checkbox state throughout v2.7 — phase completion wasn't reflected in the doc; burned time at close reconciling
+- ROADMAP.md milestone assignment drift: Phase 109 was listed as v2.8 in the progress table despite being a v2.7 capstone — inconsistency required cleanup at close
+- v2.7-MILESTONE-SUMMARY.md was created mid-milestone (after Phase 107) and not updated as 108 and 109 shipped — partial summaries create confusion
+
+### Key Lessons
+
+- **Track requirements against phases as they complete, not at milestone close** — retroactive reconciliation at close is error-prone; mark [x] in REQUIREMENTS.md when the phase SUMMARY is written
+- **Milestone assignment must be locked before execution** — if a phase is v2.7 work, set it as v2.7 in ROADMAP before executing; don't let it drift to v2.8 by default
+- **Config foundation is infrastructure, not AI** — any "load config at startup, react to changes" work belongs in the hardening milestone; keep it out of the AI platform milestone to prevent dilution
+
+---
+
 ## Milestone: v2.0 — Signal Integrity & ML Foundation
 
 **Shipped:** 2026-03-22
