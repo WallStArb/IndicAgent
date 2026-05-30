@@ -1,7 +1,7 @@
 """Lifecycle transition types and serialization for signal state changes.
 
-Published by IntelligencePipelineComputeAgent to lifecycle.transitions topic.
-Consumed by LifecycleWriterAgent for atomic persistence to signal_ledger.
+Published by IntelligencePipeline to lifecycle.transitions topic.
+Consumed by LifecycleWriter for atomic persistence to signal_ledger.
 
 Version: 1.0.0
 Last Updated: 2026-04-10

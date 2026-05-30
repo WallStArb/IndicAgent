@@ -942,10 +942,10 @@ class BarIntelligenceRecord(BaseModel):
 
 
 class MacroSignals(BaseModel):
-    """Macro factor signals from MacroComputeAgent.
+    """Macro factor signals from MacroAnalyzer.
 
     Published to topic_macro_signals.
-    Consumed by IntelligencePipelineComputeAgent (frames["cross_asset"]).
+    Consumed by IntelligencePipeline (frames["cross_asset"]).
     Written to macro_features hypertable by DataWriterAgent.
     """
 
@@ -991,7 +991,7 @@ class ShadowTransitionEvent:
 class MetricsComputedEvent(BaseModel):
     """Kafka payload for event_type='metrics_computed' on topic_signal_metrics.
 
-    Field list derived from SignalMetricsWriterAgent._handle_metrics_computed() signature.
+    Field list derived from SignalMetricsWriter._handle_metrics_computed() signature.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1026,7 +1026,7 @@ class MetricsComputedEvent(BaseModel):
 class ICComputedEvent(BaseModel):
     """Kafka payload for event_type='ic_computed' on topic_signal_metrics.
 
-    Field list derived from SignalMetricsWriterAgent._handle_ic_computed() signature.
+    Field list derived from SignalMetricsWriter._handle_ic_computed() signature.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1047,7 +1047,7 @@ class ICComputedEvent(BaseModel):
 class MetricsDQFailureEvent(BaseModel):
     """Kafka payload for event_type='metrics_dq_failure' on topic_signal_metrics.
 
-    Field list derived from SignalMetricsWriterAgent._handle_dq_failure() signature.
+    Field list derived from SignalMetricsWriter._handle_dq_failure() signature.
     """
 
     model_config = ConfigDict(extra="forbid")

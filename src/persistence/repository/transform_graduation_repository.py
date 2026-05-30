@@ -1,6 +1,6 @@
 """TransformGraduationRepository — UPSERT helper for transform_graduation table.
 
-Phase 72. Used by GraduationWriterAgent.
+Phase 72. Used by GraduationWriter.
 """
 
 from __future__ import annotations

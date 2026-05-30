@@ -1,7 +1,7 @@
 """Validation Results API Routes — Phase 82 D-05.
 
 Read-only endpoint exposing the latest per-plugin IC/p-value decisions written by
-FeatureValidationComputeAgent to the validation_results hypertable.
+FeatureValidationAnalyzer to the validation_results hypertable.
 
 Routes:
     GET /api/validation/results — latest validation decisions, optionally filtered by plugin_name

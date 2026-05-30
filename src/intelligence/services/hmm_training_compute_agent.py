@@ -1,4 +1,4 @@
-"""HMMTrainingComputeAgent — offline Baum-Welch training pipeline (Phase 082, Plan 03).
+"""HMMTrainer — offline Baum-Welch training pipeline (Phase 082, Plan 03).
 
 Systemd Type=oneshot service invoked by indicagent-hmm-training.timer (monthly).
 
@@ -72,7 +72,7 @@ _PIPELINE_UNIT = "indicagent-intelligence-pipeline.service"
 _CONFIG_DIR = Path("config")
 
 
-class HMMTrainingComputeAgent:
+class HMMTrainer:
     """Per-TF HMM training agent.
 
     Reads intelligence_features from TimescaleDB, fits GaussianHMM via Baum-Welch

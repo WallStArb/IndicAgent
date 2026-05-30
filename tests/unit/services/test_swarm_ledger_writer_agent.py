@@ -1,4 +1,4 @@
-"""Unit tests for SwarmLedgerWriterAgent (Phase 80, D-07).
+"""Unit tests for SwarmLedgerWriter (Phase 80, D-07).
 
 Tests verify:
 - test_projection_success: UPDATE 1 -> success metric incremented
@@ -17,10 +17,10 @@ import pytest
 
 
 def _make_writer():
-    """Build SwarmLedgerWriterAgent bypassing __init__ (CLAUDE.md __new__ pattern)."""
-    from services.swarm_ledger_writer_agent import SwarmLedgerWriterAgent
+    """Build SwarmLedgerWriter bypassing __init__ (CLAUDE.md __new__ pattern)."""
+    from services.swarm_ledger_writer_agent import SwarmLedgerWriter
 
-    w = SwarmLedgerWriterAgent.__new__(SwarmLedgerWriterAgent)
+    w = SwarmLedgerWriter.__new__(SwarmLedgerWriter)
     w.settings = MagicMock(
         database_url="postgresql://test",
         kafka_bootstrap_servers="localhost:9092",
@@ -144,9 +144,9 @@ def test_consumer_constructed_with_auto_commit_disabled() -> None:
 
     import services.swarm_ledger_writer_agent as mod
 
-    source = inspect.getsource(mod.SwarmLedgerWriterAgent._setup)
+    source = inspect.getsource(mod.SwarmLedgerWriter._setup)
     assert "enable_auto_commit=False" in source, (
-        "SwarmLedgerWriterAgent._setup() must construct KafkaConsumerClient with "
+        "SwarmLedgerWriter._setup() must construct KafkaConsumerClient with "
         "enable_auto_commit=False to prevent automatic offset advancement on transient DB failures"
     )
 

@@ -125,7 +125,7 @@ async def run_setup_performance_update(
 ) -> dict[str, float]:
     """Read perf weights from signal_metrics (market track, 'all' regime, 30d window).
 
-    SignalMetricsWriterAgent keeps setup_performance in sync as a shim.
+    SignalMetricsWriter keeps setup_performance in sync as a shim.
     This function now reads that shim table and returns perf_weights dict
     for backward compatibility with callers.
 

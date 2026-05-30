@@ -215,7 +215,7 @@ def _record_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriterAgent(BaseWriter):
+class FeatureWriter(BaseWriter):
     """Async Kafka consumer agent: intelligence.record topic -> buffer -> batch INSERT.
 
     Phase 44.3: Consumes intelligence.record only. Performs a single atomic INSERT
@@ -604,7 +604,7 @@ async def main() -> None:
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    svc = FeatureWriterAgent(args.config)
+    svc = FeatureWriter(args.config)
     try:
         await svc.start()
     except KeyboardInterrupt:

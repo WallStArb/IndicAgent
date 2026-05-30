@@ -1,4 +1,4 @@
-"""Tests for SignalMetricsWriterAgent."""
+"""Tests for SignalMetricsWriter."""
 
 from unittest.mock import AsyncMock
 

@@ -1,4 +1,4 @@
-"""Acceptance tests for IntelligencePipelineComputeAgent._assemble_checkpoint_extra.
+"""Acceptance tests for IntelligencePipeline._assemble_checkpoint_extra.
 
 Post-plan-05 form (final):
 - tod_priors reads from self._cache_mgr.tod_priors (migrated in Plan 03)

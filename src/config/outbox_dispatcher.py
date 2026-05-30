@@ -1,4 +1,4 @@
-"""OutboxDispatcherAgent — transactional outbox publisher for OPS config changes.
+"""OutboxPublisher — transactional outbox publisher for OPS config changes.
 
 Polls config_outbox for pending rows and publishes them to topic_config_updates (Kafka).
 Updates outbox status with exponential backoff retry semantics.
@@ -42,7 +42,7 @@ _POLL_MAX_MS: int = 2000
 _CLAIM_BATCH_SIZE: int = 100
 
 
-class OutboxDispatcherAgent(BaseDaemon):
+class OutboxPublisher(BaseDaemon):
     """Polls config_outbox and publishes pending rows to topic_config_updates.
 
     Adaptive polling: resets to 100ms on non-empty batch; doubles toward 2000ms on empty.

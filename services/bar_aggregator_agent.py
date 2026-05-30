@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BarAggregatorComputeAgent — standalone 1m->HTF bar aggregation.
+"""BarAggregator — standalone 1m->HTF bar aggregation.
 
 Consumes 1m bars from topic_market_bars, runs BarAccumulator,
 publishes completed HTF bars to topic_market_bars_htf.
@@ -151,7 +151,7 @@ class HealthMetrics:
         return True, "healthy"
 
 
-class BarAggregatorComputeAgent(BaseDaemon):
+class BarAggregator(BaseDaemon):
     """DB-ignorant bar aggregation agent.
 
     Consumes 1m bars from topic_market_bars, accumulates them per
@@ -669,7 +669,7 @@ class BarAggregatorComputeAgent(BaseDaemon):
 
 
 async def main() -> None:
-    agent = BarAggregatorComputeAgent()
+    agent = BarAggregator()
     await agent.start()
 
 

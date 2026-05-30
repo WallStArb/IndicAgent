@@ -83,7 +83,7 @@ _PAIR_LEAD: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-class CrossAssetComputeAgent(BaseDaemon):
+class CrossAssetAnalyzer(BaseDaemon):
     """Cross-asset intelligence microservice.
 
     Subscribes to intelligence topic, computes EQ_INDEX spread features,
@@ -489,4 +489,4 @@ class CrossAssetComputeAgent(BaseDaemon):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(CrossAssetComputeAgent().start())
+    asyncio.run(CrossAssetAnalyzer().start())

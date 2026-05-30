@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""SignalMetricsComputeAgent — timer-triggered signal performance metrics computation.
+"""SignalMetricsAnalyzer — timer-triggered signal performance metrics computation.
 
 Runs every 15 minutes. Queries signal_ledger for resolved signals in a 90-day
 window, validates each row through DataQualityValidator, computes per-segment
 metrics for zone and market tracks, and publishes events to
-intelligence.signal_metrics topic for SignalMetricsWriterAgent to persist.
+intelligence.signal_metrics topic for SignalMetricsWriter to persist.
 
 DB-aware (reads signal_ledger) but publishes DB-ignorant events.
 
@@ -103,7 +103,7 @@ _QUERY = """
 """
 
 
-class SignalMetricsComputeAgent(BaseDaemon):
+class SignalMetricsAnalyzer(BaseDaemon):
     """Timer-triggered agent that computes signal performance metrics.
 
     Publishes three event types to intelligence.signal_metrics:
@@ -383,7 +383,7 @@ class SignalMetricsComputeAgent(BaseDaemon):
 
 
 async def _amain() -> None:
-    agent = SignalMetricsComputeAgent()
+    agent = SignalMetricsAnalyzer()
     await agent.start()
 
 

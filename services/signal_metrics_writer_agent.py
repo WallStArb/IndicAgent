@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""SignalMetricsWriterAgent — persists signal metrics events to DB.
+"""SignalMetricsWriter — persists signal metrics events to DB.
 
 Subscribes to intelligence.signal_metrics Kafka topic.
-Handles three event types published by SignalMetricsComputeAgent:
+Handles three event types published by SignalMetricsAnalyzer:
   - metrics_computed -> UPSERT signal_metrics
   - ic_computed      -> UPSERT signal_metrics_ic
   - metrics_dq_failure -> INSERT signal_metrics_dq_failures
@@ -223,7 +223,7 @@ async def _handle_dq_failure(conn, event: dict) -> None:
     )
 
 
-class SignalMetricsWriterAgent(BaseWriter):
+class SignalMetricsWriter(BaseWriter):
     """Consumes intelligence.signal_metrics and writes to DB via BaseWriter."""
 
     BATCH_SIZE = 50
@@ -296,7 +296,7 @@ class SignalMetricsWriterAgent(BaseWriter):
 
 
 async def _amain() -> None:
-    agent = SignalMetricsWriterAgent()
+    agent = SignalMetricsWriter()
     await agent.start()
 
 

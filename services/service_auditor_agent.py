@@ -1,4 +1,4 @@
-"""ServiceAuditorAgent — pipeline health monitor and self-healer.
+"""ServiceAuditor — pipeline health monitor and self-healer.
 
 Hybrid three-layer design:
   systemd  -> process liveness (WatchdogSec kills hung processes)
@@ -117,7 +117,7 @@ _DAG_ORDER: dict[str, int] = {
 }
 
 # Lag thresholds are loaded from config_state (alert.lag.* keys) via
-# ServiceAuditorAgent._load_lag_thresholds() at startup and hot-reloaded via
+# ServiceAuditor._load_lag_thresholds() at startup and hot-reloaded via
 # _on_config_message_received when alert.lag.* Kafka updates arrive.
 # The original 21 entries were seeded into config_schema and config_state
 # by production/migrations/109_config_foundation.sql (Phase 109 Plan 05 Task 3).
@@ -224,7 +224,7 @@ def _parse_systemctl_show(output: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-class ServiceAuditorAgent(BaseDaemon):
+class ServiceAuditor(BaseDaemon):
     """Monitors all pipeline services, self-heals, and audits every event.
 
     Hybrid three-layer design:
@@ -314,7 +314,7 @@ class ServiceAuditorAgent(BaseDaemon):
         """Hot-reload lag thresholds when alert.lag.* config keys change.
 
         Plan 03 mixin already updated self._config_cache before invoking this hook.
-        ServiceAuditorAgent only needs to refresh its derived view of alert.lag.* keys.
+        ServiceAuditor only needs to refresh its derived view of alert.lag.* keys.
         """
         if key.startswith("alert.lag."):
             await self._load_lag_thresholds()
@@ -853,4 +853,4 @@ class ServiceAuditorAgent(BaseDaemon):
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(ServiceAuditorAgent().start())
+    asyncio.run(ServiceAuditor().start())

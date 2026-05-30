@@ -1,4 +1,4 @@
-"""Tests for BarReplayProviderAgent (Phase 81 plan 07 task 4).
+"""Tests for BarReplayProvider (Phase 81 plan 07 task 4).
 
 Tests: test_bar_replay_topic_routing, test_bar_replay_ordering, test_bar_replay_checkpoint_resume.
 """
@@ -14,12 +14,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.bar_replay_provider_agent import BarReplayProviderAgent
+from services.bar_replay_provider_agent import BarReplayProvider
 from src.core.stream_keys import topic_market_bars, topic_market_bars_htf
 
 
-def _make_agent() -> BarReplayProviderAgent:
-    agent = BarReplayProviderAgent.__new__(BarReplayProviderAgent)
+def _make_agent() -> BarReplayProvider:
+    agent = BarReplayProvider.__new__(BarReplayProvider)
     agent._log = MagicMock()
     agent.settings = MagicMock()
     agent.settings.env_name = "test"
@@ -67,7 +67,7 @@ async def test_bar_replay_topic_routing() -> None:
 
 def test_bar_replay_ordering() -> None:
     """_fetch_batch SQL must ORDER BY timestamp ASC then CASE timeframe END ASC with correct mappings."""
-    src = inspect.getsource(BarReplayProviderAgent._fetch_batch)
+    src = inspect.getsource(BarReplayProvider._fetch_batch)
 
     assert re.search(
         r"ORDER\s+BY\s+timestamp\s+ASC", src, re.IGNORECASE

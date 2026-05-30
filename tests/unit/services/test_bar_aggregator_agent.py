@@ -1,6 +1,6 @@
-"""Unit tests for BarAggregatorComputeAgent — TDD tests for Plan 053.2-02.
+"""Unit tests for BarAggregator — TDD tests for Plan 053.2-02.
 
-Tests BarAggregatorComputeAgent structural contract (BaseDaemon inheritance, topics),
+Tests BarAggregator structural contract (BaseDaemon inheritance, topics),
 behavioral contract (publishes HTF bars at period boundaries, silent on mid-period bars),
 and Golden Signals metrics (Counter/Histogram instances).
 """
@@ -17,15 +17,15 @@ from src.core.bar_accumulator import BarAccumulator
 from src.core.schemas.bar_message import BarMessage, SessionType
 
 # ---------------------------------------------------------------------------
-# Helpers: build a minimal BarAggregatorComputeAgent bypassing __init__
+# Helpers: build a minimal BarAggregator bypassing __init__
 # ---------------------------------------------------------------------------
 
 
 def _make_agent():
-    """Build BarAggregatorComputeAgent using __new__ (service test pattern)."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent, HealthMetrics
+    """Build BarAggregator using __new__ (service test pattern)."""
+    from services.bar_aggregator_agent import BarAggregator, HealthMetrics
 
-    agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
+    agent = BarAggregator.__new__(BarAggregator)
     agent.name = "bar_aggregator_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -70,11 +70,11 @@ def _make_bar(ts: datetime, symbol: str = "ESM6", tf: str = "1m") -> dict:
 
 
 def test_inherits_base_agent():
-    """BarAggregatorComputeAgent must inherit BaseDaemon."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    """BarAggregator must inherit BaseDaemon."""
+    from services.bar_aggregator_agent import BarAggregator
     from src.core.agent.base import BaseDaemon
 
-    assert issubclass(BarAggregatorComputeAgent, BaseDaemon)
+    assert issubclass(BarAggregator, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------
@@ -239,19 +239,19 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 
 def test_setup_retry_class_attributes():
-    """BarAggregatorComputeAgent uses base class retry defaults (no override)."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    """BarAggregator uses base class retry defaults (no override)."""
+    from services.bar_aggregator_agent import BarAggregator
 
-    assert BarAggregatorComputeAgent.SETUP_RETRY_ATTEMPTS == 3
-    assert BarAggregatorComputeAgent.SETUP_RETRY_BACKOFF_S == 2.0
+    assert BarAggregator.SETUP_RETRY_ATTEMPTS == 3
+    assert BarAggregator.SETUP_RETRY_BACKOFF_S == 2.0
 
 
 @pytest.mark.asyncio
 async def test_setup_single_attempt_success():
     """_setup() runs one attempt body; retries are delegated to BaseDaemon._setup_with_retry."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    from services.bar_aggregator_agent import BarAggregator
 
-    agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
+    agent = BarAggregator.__new__(BarAggregator)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.kafka_bootstrap_servers = "localhost:9092"
     agent.logger = MagicMock()
@@ -285,9 +285,9 @@ async def test_setup_propagates_exception():
     """_setup() must propagate exceptions so BaseDaemon._setup_with_retry can retry."""
     from aiokafka.errors import KafkaConnectionError
 
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    from services.bar_aggregator_agent import BarAggregator
 
-    agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
+    agent = BarAggregator.__new__(BarAggregator)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.kafka_bootstrap_servers = "localhost:9092"
     agent.logger = MagicMock()

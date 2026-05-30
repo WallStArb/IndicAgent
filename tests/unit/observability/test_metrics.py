@@ -7,7 +7,7 @@ from src.observability.metrics import (
 
 
 class TestServiceAuditorMetrics:
-    """Verify ServiceAuditorAgent observability metrics (Task 3)."""
+    """Verify ServiceAuditor observability metrics (Task 3)."""
 
     def test_service_auditor_service_restarts_total_registered(self):
         """SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL is an OTel counter with .add()."""
@@ -17,7 +17,7 @@ class TestServiceAuditorMetrics:
 
 
 class TestBarAuditorMetrics:
-    """Verify BarAuditorAgent observability metrics (Task 3)."""
+    """Verify BarAuditor observability metrics (Task 3)."""
 
     def test_bar_auditor_gap_fill_dlq_depth_registered(self):
         """BAR_AUDITOR_GAP_FILL_DLQ_DEPTH is an OTel up_down_counter with .add()."""

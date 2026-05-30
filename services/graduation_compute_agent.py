@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GraduationComputeAgent — event-driven Renaissance graduation evaluator.
+"""GraduationAnalyzer — event-driven Renaissance graduation evaluator.
 
 Consumes topic_lifecycle_transitions, evaluates per-segment graduation when
 enough new resolutions accumulate, publishes GraduationResult to
@@ -80,7 +80,7 @@ GROUP BY tg.transform_id, tg.transform_version, tg.segment_key
 """
 
 
-class GraduationComputeAgent(BaseDaemon):
+class GraduationAnalyzer(BaseDaemon):
     """Event-driven transform graduation evaluator.
 
     Consumes lifecycle.transitions EXIT events, increments per-segment counters,
@@ -323,7 +323,7 @@ class GraduationComputeAgent(BaseDaemon):
 
 
 async def main() -> None:
-    agent = GraduationComputeAgent()
+    agent = GraduationAnalyzer()
     try:
         await agent.start()
     except KeyboardInterrupt:
