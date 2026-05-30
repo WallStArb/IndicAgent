@@ -1,8 +1,20 @@
 # Phase 095 Plan Revision Summary
 
-**Revised:** 2026-05-21
-**Trigger:** Cross-AI review feedback from Gemini and Codex
-**Status:** All HIGH-severity issues addressed, plans ready for implementation
+**Revised:** 2026-05-29 (scope trim) / 2026-05-21 (original review fixes)
+**Trigger:** Cross-AI review feedback (Gemini + Codex) + v2.7 retrospective scope correction
+**Status:** Trimmed to core scope — Plans 01-05 only, ready for implementation
+
+## Scope Change (2026-05-29)
+
+Phase 095 was over-scoped during planning. Three plan groups extracted:
+
+- **Plan 00 (multi-tenant UserContext/AgentLimits)** — deferred. No user boundary exists yet; adding it now is premature. Revisit when building user-facing APIs.
+- **Plan 07 (AgentGenome)** — extracted to Phase 102 Plan 01. Genome infrastructure belongs in the genetic infrastructure phase, not the PydanticAI adapter phase.
+- **Plan 08 (PromotionGate/DemotionGate)** — extracted to Phase 101. Promotion/demotion criteria belong alongside the composite fitness function, not here.
+
+Also removed: `095-COMPLETE-FOUNDATION.md`, `095-MULTI-TENANT-ROADMAP.md` (reflected the over-scoped vision), misleading `095-08-SUMMARY.md` (Plan 08 was never executed).
+
+**Active plans: 01-05.** Migration path bug (wrong `migrations/` path) was in deleted plans only — remaining plans are clean.
 
 ## Overview
 
