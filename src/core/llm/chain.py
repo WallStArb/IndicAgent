@@ -235,16 +235,16 @@ class LLMProviderChain:
             span.set_attribute("llm.instructor_retries", retries)
 
             if result is None:
-                # H1: Publish audit row on failure -- _report_parse_failure() needs a row to update
+                # H1: Publish audit row on failure. Note: generate_structured always uses
+                # the default provider order (model selection not supported in structured path).
+                # The model field reflects the actual provider used, not a routing override.
                 failure_audit = dict(audit_context or {})
                 failure_audit.update(extra_audit or {})
                 failure_audit["succeeded"] = False
                 failure_audit["parse_success"] = False
                 if failure_reason:
                     failure_audit["failure_reason"] = failure_reason
-                await self._publish_audit(
-                    failure_audit, provider_id, latency_s, 0, "", "instructor"
-                )
+                await self._publish_audit(failure_audit, provider_id, latency_s, 0, "", provider_id)
                 record_llm_call(provider_id, self._call_type, latency_s, status="failure")
                 span.set_attribute("llm.status", "failure")
                 if failure_reason:
@@ -267,7 +267,7 @@ class LLMProviderChain:
             success_audit = dict(audit_context or {})
             success_audit.update(extra_audit or {})
             await self._publish_audit(
-                success_audit, provider_id, latency_s, tokens, response_str, "instructor"
+                success_audit, provider_id, latency_s, tokens, response_str, provider_id
             )
             return result
 
