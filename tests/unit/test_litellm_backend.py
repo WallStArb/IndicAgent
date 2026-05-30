@@ -1,4 +1,4 @@
-"""Unit tests for LiteLLMBackend (TDD - RED phase).
+"""Unit tests for LiteLLMBackend (TDD).
 
 Tests verify:
 - Ollama success path with correct provider_id and token usage
@@ -75,21 +75,19 @@ async def test_fallback_to_openrouter():
 
     call_count = 0
 
-    async def side_effect(**kwargs):
+    async def side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise ConnectionError("Ollama unreachable")
         return resp
 
+    # Do NOT use importlib.reload() inside patch() context — reload re-imports
+    # acompletion from litellm, bypassing the patch on the module namespace.
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
     with patch("src.core.llm.litellm_backend.acompletion", side_effect=side_effect):
-        # Reload to get fresh module state
-        import importlib
-
-        import src.core.llm.litellm_backend as mod
-
-        importlib.reload(mod)
-        backend = mod.LiteLLMBackend(settings)
+        backend = LiteLLMBackend(settings)
         result = await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert result == "openrouter response"
@@ -102,50 +100,35 @@ async def test_generate_returns_none_when_all_providers_fail():
     """All providers raise; result is None and last_provider_id is None."""
     settings = _make_settings()
 
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
     with patch("src.core.llm.litellm_backend.acompletion", new_callable=AsyncMock) as mock_ac:
         mock_ac.side_effect = ConnectionError("all fail")
-        import importlib
-
-        import src.core.llm.litellm_backend as mod
-
-        importlib.reload(mod)
-        backend = mod.LiteLLMBackend(settings)
+        backend = LiteLLMBackend(settings)
         result = await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert result is None
     assert backend.last_provider_id is None
 
 
-@pytest.mark.asyncio
-async def test_provider_list_ollama_only():
+def test_provider_list_ollama_only():
     """openrouter_api_key is empty -> providers contains only the ollama model string."""
     settings = _make_settings(openrouter_api_key="", openrouter_models="")
+    from src.core.llm.litellm_backend import LiteLLMBackend
 
-    import importlib
-
-    import src.core.llm.litellm_backend as mod
-
-    importlib.reload(mod)
-    backend = mod.LiteLLMBackend(settings)
-
+    backend = LiteLLMBackend(settings)
     assert backend.providers == ["ollama/nemotron-3-nano:4b"]
 
 
-@pytest.mark.asyncio
-async def test_provider_list_with_openrouter():
+def test_provider_list_with_openrouter():
     """openrouter_api_key set + two models -> providers has ollama + 2 openrouter strings."""
     settings = _make_settings(
         openrouter_api_key="sk-xyz",
         openrouter_models="gpt-4,claude-3",
     )
+    from src.core.llm.litellm_backend import LiteLLMBackend
 
-    import importlib
-
-    import src.core.llm.litellm_backend as mod
-
-    importlib.reload(mod)
-    backend = mod.LiteLLMBackend(settings)
-
+    backend = LiteLLMBackend(settings)
     assert "ollama/nemotron-3-nano:4b" in backend.providers
     assert "openrouter/gpt-4" in backend.providers
     assert "openrouter/claude-3" in backend.providers
@@ -157,14 +140,11 @@ async def test_last_token_usage_none_on_failure():
     """All providers fail; last_token_usage is None."""
     settings = _make_settings()
 
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
     with patch("src.core.llm.litellm_backend.acompletion", new_callable=AsyncMock) as mock_ac:
         mock_ac.side_effect = Exception("provider error")
-        import importlib
-
-        import src.core.llm.litellm_backend as mod
-
-        importlib.reload(mod)
-        backend = mod.LiteLLMBackend(settings)
+        backend = LiteLLMBackend(settings)
         result = await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert result is None
@@ -173,33 +153,23 @@ async def test_last_token_usage_none_on_failure():
 
 def test_normalize_usage_from_pydantic_model():
     """_normalize_usage handles object with .prompt_tokens/.completion_tokens/.total_tokens attrs."""
-    import importlib
-
-    import src.core.llm.litellm_backend as mod
-
-    importlib.reload(mod)
-    backend = mod.LiteLLMBackend(_make_settings())
+    from src.core.llm.litellm_backend import LiteLLMBackend
 
     usage_obj = MagicMock()
     usage_obj.prompt_tokens = 5
     usage_obj.completion_tokens = 10
     usage_obj.total_tokens = 15
 
-    result = backend._normalize_usage(usage_obj)
+    result = LiteLLMBackend._normalize_usage(usage_obj)
     assert result == {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15}
 
 
 def test_normalize_usage_from_dict():
     """_normalize_usage handles dict with prompt_tokens/completion_tokens/total_tokens keys."""
-    import importlib
-
-    import src.core.llm.litellm_backend as mod
-
-    importlib.reload(mod)
-    backend = mod.LiteLLMBackend(_make_settings())
+    from src.core.llm.litellm_backend import LiteLLMBackend
 
     usage_dict = {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15}
-    result = backend._normalize_usage(usage_dict)
+    result = LiteLLMBackend._normalize_usage(usage_dict)
     assert result == {"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15}
 
 
@@ -209,14 +179,11 @@ async def test_ollama_kwargs_include_think_false_and_num_ctx():
     settings = _make_settings(ollama_num_ctx=4096)
     resp = _make_litellm_response("output")
 
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
     with patch("src.core.llm.litellm_backend.acompletion", new_callable=AsyncMock) as mock_ac:
         mock_ac.return_value = resp
-        import importlib
-
-        import src.core.llm.litellm_backend as mod
-
-        importlib.reload(mod)
-        backend = mod.LiteLLMBackend(settings)
+        backend = LiteLLMBackend(settings)
         await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert mock_ac.called
@@ -231,14 +198,11 @@ async def test_think_tags_stripped_from_response():
     settings = _make_settings()
     resp = _make_litellm_response("<think>reasoning here</think>actual output")
 
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
     with patch("src.core.llm.litellm_backend.acompletion", new_callable=AsyncMock) as mock_ac:
         mock_ac.return_value = resp
-        import importlib
-
-        import src.core.llm.litellm_backend as mod
-
-        importlib.reload(mod)
-        backend = mod.LiteLLMBackend(settings)
+        backend = LiteLLMBackend(settings)
         result = await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert result == "actual output"
