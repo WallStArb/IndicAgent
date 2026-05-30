@@ -217,6 +217,7 @@ appendonly.aof
 # Application specific
 data/
 *.db
+cache/
 *.sqlite
 *.sqlite3
 
