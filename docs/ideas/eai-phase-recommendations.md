@@ -1,9 +1,11 @@
 # eAI Foundation Gaps and Phase Recommendations
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-21
-**Assessment:** Your evolvable AI vision requires foundational components beyond Phase 094's current scope.
+**Tags:** evolvable-ai, genome, phase-recommendations, foundation, agents, shadow-governance
 
 ## Critical Missing Components
 

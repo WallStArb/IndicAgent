@@ -1,11 +1,11 @@
 # Intelligence Stack Latency Reduction
 
 **Version:** 1.0
+**Status:** under-review
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02
-
-**Created:** 2026-03-07
-**Status:** Active Research — Revise as discoveries emerge
-**Purpose:** Document latency bottlenecks, Renaissance-framed approaches, and implementation roadmap
+**Tags:** latency, performance, pipeline, parallelism, hot-path, renaissance, intelligence
 
 ---
 

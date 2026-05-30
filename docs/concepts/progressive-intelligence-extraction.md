@@ -1,4 +1,10 @@
 # Progressive Intelligence Extraction
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** intelligence-tiers, abstraction-layers, feature-extraction, signal-pipeline
+
 > Raw market data contains no signal — it must be transformed through sequential layers of increasing abstraction before patterns emerge.
 
 ## The Problem It Solves

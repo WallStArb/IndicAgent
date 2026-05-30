@@ -1,10 +1,11 @@
 # Regime Transition Early Detection
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-03-23
-**Status:** Research — not yet scheduled
-**Priority:** Medium-High
-**Related:** `regime-adaptive-trading.md`, `second-derivative-indicators-current-and-future.md`
+**Tags:** regime, hmm, transition, early-detection, bocpd, signal-gating, intelligence
 
 ---
 

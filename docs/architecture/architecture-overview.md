@@ -1,8 +1,9 @@
 # IndicAgent Architecture Overview
 
 **Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-28
-**Status:** v2.8 in progress — AI Platform (094-099) + Evolvable Agents (101-103)
+**Tags:** architecture, overview, intelligence-pipeline, microservices, event-driven, plugin-system
 
 ---
 

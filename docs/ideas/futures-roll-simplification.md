@@ -1,15 +1,11 @@
----
-name: futures-roll-simplification
-description: Research: Replace real-time futures roll detection with nightly SQL batch
-status: Research
-created: 2026-05-26
----
-
 # Futures Roll Detection Architectural Simplification
 
 **Version:** 1.0
-**Status:** design
+**Status:** adopted
+**Priority:** medium
+**Milestone:** v2.8
 **Last Updated:** 2026-05-26
+**Tags:** futures, roll-detection, batch, simplification, sql, architecture, systemd
 ## Problem Statement
 
 **Current architecture is over-engineered:**

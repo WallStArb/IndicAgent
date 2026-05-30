@@ -127,6 +127,20 @@ L10  service-auditor                                   — meta: monitors + rest
 
 A meta-service at L10 monitors all others, restarts in DAG order, and escalates after repeated failures. Each service is independently deployable, restartable, and observable — systemd-managed with Prometheus lag monitoring.
 
+### DAG Invariants
+
+These are non-negotiable architectural constraints. Any code that violates one of them breaks the guarantees above.
+
+1. **`ProviderMergerAgent` is the sole writer to `market.bars`** — downstream agents are isolated from provider topology. Adding a new data source requires zero downstream changes.
+2. **I1–I7 runs entirely in-process** — Kafka is a sink, not an inter-stage pipe. No Kafka hop between intelligence tiers.
+3. **No ComputeAgent touches the database** — only WriterAgents, TrackerAgents, and AuditorAgents perform DB operations. A DB outage has zero impact on signal generation.
+4. **All topic keys via `stream_keys.py`** — no hardcoded topic strings anywhere in the codebase.
+5. **No agent calls another agent directly** — topics are the only coupling. Every agent can be restarted independently and resumes from its committed Kafka offset.
+6. **All timestamps UTC** — `datetime.now(UTC)` only. Every bar, event, and DB write is timezone-aware.
+7. **Scaling via systemd + Prometheus lag** — no Kubernetes HPA. Consumer lag is the scaling signal.
+
+Full system map with Mermaid diagram and topic registry: [`docs/architecture/architecture-dag-topology.md`](docs/architecture/architecture-dag-topology.md).
+
 ---
 
 ## Intelligence Pipeline: I1–I8

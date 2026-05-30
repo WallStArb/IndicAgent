@@ -1,11 +1,11 @@
 # Architecture Decision: I6 Confluence Expansion
 
 **Version:** 1.0
-**Date:** 2026-04-08
+**Status:** adopted
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-16
-**Status:** Approved
-**Related:** `docs/ideas/i6-confluence-expansion.md`, Phase 64, todo 028 (gradient scoring)
-**Note:** Moved from `.planning/notes/` to `docs/ideas/` on 2026-05-16 — permanent ADR, not a session note.
+**Tags:** i6, confluence, cross-timeframe, cross-asset, architecture, kafka, adr, intelligence
 
 ## Decision
 

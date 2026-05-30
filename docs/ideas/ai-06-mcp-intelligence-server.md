@@ -1,10 +1,11 @@
 # MCP Intelligence Server & Agent Tool Use
 
 **Version:** 1.0
-**Status:** Implementation-ready design
+**Status:** under-review
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-10
-**Branch:** feat/phase80-swarm-observability-ux
-**Related:** `docs/ideas/ai-03-evolvable-ai-agents.md`, `docs/concepts/evolvable-ai.md`, `docs/intelligence/ai-tech-stack.md`
+**Tags:** mcp, tool-use, agents, ai-context, fastmcp, intelligence, push-pull, llm
 
 ## Concept
 

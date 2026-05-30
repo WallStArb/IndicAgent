@@ -1,4 +1,10 @@
 # Regime Awareness
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** market-regime, non-stationarity, context-classification, adaptive-signals
+
 > Market behavior is non-stationary — rules that work in trending markets fail in ranging ones. Every signal must know what kind of market it is operating in.
 
 ## The Problem It Solves

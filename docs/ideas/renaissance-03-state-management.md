@@ -1,11 +1,11 @@
 # Renaissance-Style Analysis: Plugin State Management Bug
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-21
-**Date**: 2026-05-21
-**Severity**: CRITICAL — P0 Data Integrity Failure
-**Blast Radius**: 23/286 intelligence plugins (~8%), including all volatility/momentum indicators
+**Tags:** state-management, plugins, data-integrity, atr, invariant-testing, architecture, renaissance
 
 ## The Renaissance Question: "How Did This Happen?"
 

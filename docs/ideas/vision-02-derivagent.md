@@ -1,11 +1,11 @@
 # DerivAgent — Derivatives Intelligence & Autonomous Options Execution Platform (Vision)
 
 **Version:** 1.0
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
-**Status:** Vision — active ideation / ideas capture  
-**Name confirmed:** DerivAgent  
-**Related:** `docs/ideas/qualagent-vision.md` (boundary definition), `docs/ideas/tradeagent-vision.md` (sister execution platform)
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-03-04
+**Tags:** derivagent, options, derivatives, vol-surface, gex, execution, platform, vision
 
 ---
 

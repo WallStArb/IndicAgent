@@ -1,13 +1,11 @@
 # Renaissance-Style Intelligence Refinement Ideas
 
 **Version:** 1.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-03-07
-**Status:** Future Research — 105 ideas across 48 sections
-**Created:** 2026-03-07
-**Updated:** 2026-04-08
-**Reference:** 
-- `docs/ideas/renaissance-framing.md` (10 Simons principles)
-- `docs/plans/2026-04-08-ai-extensions-design.md` (Implementation roadmap)
+**Tags:** renaissance, research-backlog, signal-intelligence, ml, neural, meta-learning, pipeline
 
 
 ---

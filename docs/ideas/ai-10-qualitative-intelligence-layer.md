@@ -1,10 +1,11 @@
 # Qualitative Intelligence Layer — Architecture Design
 
 **Version:** 1.0
-**Status:** Design / Pre-implementation
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02
-**Author:** Architecture review, 2026-04-30
-**Related:** `docs/ideas/platform-architecture.md` (QualAgent vision), `docs/ideas/ai-07-i8-intelligence-extensions.md`
+**Tags:** qualitative, macro, sentiment, earnings, cot, feature-store, ai-context, intelligence
 
 ---
 

@@ -1,7 +1,9 @@
 # Self-Healing Architecture
 
 **Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-28
+**Tags:** self-healing, otel, watchdog, circuit-breaker, alerting, phase-108
 **Phase:** 108 — Self-Healing Hardening (complete)
 
 ---

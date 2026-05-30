@@ -1,11 +1,11 @@
 # AegisAgent — Independent Risk Management Platform (Vision)
 
 **Version:** 1.0
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
-**Status:** Vision — active ideation / ideas capture  
-**Name confirmed:** AegisAgent  
-**Related:** `docs/ideas/platform-architecture.md`, `docs/ideas/primeagent-vision.md` (portfolio boundary)
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-03-04
+**Tags:** risk-management, portfolio, execution, platform, vision, autonomous, aegisagent
 
 ---
 

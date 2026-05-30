@@ -1,8 +1,11 @@
 # Structured Strategy to Execute the Transition
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-27  
-**Status:** Reference — trading strategy ideas
+**Version:** 1.0.0
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-02-27
+**Tags:** timeframe, cascade, strategy, trailing-stop, momentum, trade-lifecycle
 
 ---
 

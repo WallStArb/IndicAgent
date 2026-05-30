@@ -1,4 +1,10 @@
 # Temporal Data Architecture
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** time-series, immutability, timescaledb, data-retention
+
 > Every market event is a timestamped, immutable record — nothing is dropped, everything is queryable by time.
 
 ## The Problem It Solves

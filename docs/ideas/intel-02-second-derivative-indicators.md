@@ -1,8 +1,11 @@
 # Second Derivative Indicators — Current State & Future Additions
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-03-11
-**Status:** Research — current inventory complete + expansion ideas
+**Tags:** second-derivative, momentum, indicators, acceleration, oscillator, regime, exhaustion
 
 ---
 

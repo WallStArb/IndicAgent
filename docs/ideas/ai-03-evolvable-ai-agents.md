@@ -1,9 +1,12 @@
 # Evolvable AI Agents — eAI for Alpha Generation
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-18
-*Status: Concept / Long-horizon idea. Not scheduled for implementation.*
+**Tags:** evolvable-ai, darwinian, agents, alpha-generation, shadow-governance, genome, long-horizon
+
 *Inspired by: "Abstract Evolvable AI" (PNAS 2025) and Renaissance Technologies principles.*
 
 ---

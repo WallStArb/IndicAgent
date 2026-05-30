@@ -1,12 +1,11 @@
 # HMM Regime — Multi-Timeframe Design & Training Pipeline
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** high
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-03-23
-**Status:** Research — v2.3 candidate (after 30+ days clean signal data)
-**Priority:** High
-**Origin:** `docs/plans/archive/2026-02-15-hmm-regime-design.md` — original design doc; training via offline EM was always the plan, never executed. 2D fallback explicitly documented as intentional there.
-**Related:** `regime-transition-early-detection.md`, `regime-adaptive-trading.md`
-**Active phase touching this:** Phase 49.1 (`regime-gate-fix-write-all-signals-to-signal-ledger`) — decouples `signal_ledger` writes from winner selection and populates `regime_type_at_fire` / `hmm_regime_at_fire` from `regime_data`. Does NOT change the gate logic or HMM itself. Data it collects will reflect 1m-based regime context for all TFs (see v2.1 Data Quality Caveat below).
+**Tags:** hmm, regime, multi-timeframe, training, em-algorithm, signal-gating, intelligence
 
 ---
 

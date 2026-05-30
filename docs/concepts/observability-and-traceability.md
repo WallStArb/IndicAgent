@@ -1,4 +1,10 @@
 # Observability and Traceability
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** observability, metrics, audit-trail, otel
+
 > Every decision the system makes is measurable, attributable, and auditable — from a raw bar to a fired signal to an LLM call to a position outcome.
 
 ## The Problem It Solves

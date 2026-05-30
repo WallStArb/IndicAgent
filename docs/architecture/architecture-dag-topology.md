@@ -1,9 +1,9 @@
-<!-- generated-by: gsd-doc-writer -->
 # DAG Topology & Methodology
 
 **Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-27
-**Status:** v2.7 shipped 2026-05-26 — Full observability, DLQ, swarm foundation, signal metrics, expires_at TTL
+**Tags:** dag, agent-taxonomy, service-dag, topology, pipeline, orchestration
 
 ## Overview
 
@@ -359,4 +359,4 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 - `docs/intelligence/intelligence-plugins.md` — Plugin protocol, InputSpec, tier lists
 - `docs/agents/agents-foundation.md` — BaseAgent lifecycle contract and role taxonomy
 - `docs/agents/agents-operations.md` — Service mesh, DAG topology, and operations
-- `design-principles.md` — Architectural design principles
+- `docs/foundation/foundation-design-principles.md` — Architectural design principles

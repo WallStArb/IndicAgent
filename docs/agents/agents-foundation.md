@@ -245,10 +245,31 @@ grep '"level":"error"' logs/intelligence_pipeline_agent.log | tail -20
 
 ---
 
+## DAG Mandate
+
+Every agent operates inside a strict DAG (Directed Acyclic Graph). Before writing a new agent, understand the invariants it must respect:
+
+| Role | DB reads | DB writes | Kafka reads | Kafka writes |
+|------|----------|-----------|-------------|--------------|
+| `ProviderAgent` | No | No | No | Yes (raw topic only) |
+| `MergerAgent` | No | No | Yes | Yes (canonical topic only) |
+| `ComputeAgent` | **No** | **No** | Yes | Yes |
+| `WriterAgent` | No | **Yes** | Yes | No |
+| `TrackerAgent` | Yes | Yes | Yes | Yes |
+| `AuditorAgent` | Yes | No | Yes | Yes (gap requests only) |
+
+**The critical rule for ComputeAgents:** DB access is a DAG violation. If your `ComputeAgent` needs historical data, that data must arrive via Kafka from a service that read it — not via a direct DB query in the hot path.
+
+The full DAG mandate and all seven architectural invariants are in `docs/foundation/foundation-design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
+
+---
+
 ## See Also
 
 - `docs/agents/agents-writers.md` — BaseWriterAgent and the persistence pattern
 - `docs/agents/agents-operations.md` — service mesh management and DAG topology
+- `docs/architecture/architecture-dag-topology.md` — full system map: every service, topic, and invariant
+- `docs/foundation/foundation-design-principles.md` — DAG invariants (Principle 11) and all architectural north stars
 - `src/core/agent/base.py` — source of truth for lifecycle implementation
 - `src/observability/metrics.py` — canonical OTel metric definitions
 - `src/observability/spans.py` — `observed_span()` helper and ATTR_* constants for tracing

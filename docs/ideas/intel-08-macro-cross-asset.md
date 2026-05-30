@@ -1,8 +1,11 @@
 # Macro & Cross-Asset Intelligence — Improvement Backlog
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-25
-**Status:** Idea — captured for future phase planning
+**Tags:** macro, cross-asset, ftq, yield-curve, feature-store, i4-context, intelligence
 
 ---
 

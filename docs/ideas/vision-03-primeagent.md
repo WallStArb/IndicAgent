@@ -1,11 +1,11 @@
 # PrimeAgent — Unified Portfolio Management Platform (Vision)
 
 **Version:** 1.0
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
-**Status:** Vision — active ideation / ideas capture  
-**Name confirmed:** PrimeAgent  
-**Related:** `docs/ideas/platform-architecture.md`, `docs/ideas/aegisagent-vision.md` (risk boundary), `docs/ideas/tradeagent-vision.md`, `docs/ideas/derivagent-vision.md`
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-03-04
+**Tags:** primeagent, portfolio, capital-management, prime-brokerage, platform, vision, performance
 
 ---
 

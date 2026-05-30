@@ -1,9 +1,11 @@
 # Latency & Persistence Architectural Improvements
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-16
-**Reviewed:** 2026-05-16 — "DAG Decoupling: audit hot path for `await db.insert()` calls" and "Scientific Integrity: per-plugin compute budgets" are in Phase 084 scope. "Kafka fire-and-batch" remains deferred (see ingestion hardening plan Commit 4). "PersistenceCoordinator" and "IntelligenceJournal" are longer-horizon — not Phase 084. Hot/Cold path separation is correct architecture; DragonflyDB references are stale (current arch uses Redpanda directly).
+**Tags:** latency, persistence, hot-path, kafka, dag, signal-generation, architecture, audit
 
 ## Goal
 Decouple signal generation from I/O-bound persistence to achieve sub-millisecond signal latency, while maintaining rigorous auditability and data integrity.

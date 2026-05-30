@@ -1,12 +1,11 @@
 # ML/AI Technology Palette — Research, Rationale, and Decisions
 
 **Version:** 1.0
-**Status:** living document
-**Purpose:** Research-backed analysis of ML/AI technology choices. A "color palette" for our tech stack — each tool has strengths, weaknesses, and intended applications.
+**Status:** under-review
+**Priority:** medium
+**Milestone:** future
 **Last Updated:** 2026-04-08
-**Related:** 
-- `docs/plans/2026-04-08-ai-extensions-design.md` — AI services roadmap
-- `tech-stack.md`, `ai-02-ml-agent-architecture.md`, `renaissance-alpha-pipeline.md`
+**Tags:** ml, ai, technology, lightgbm, pydantic-ai, sklearn, research, decision-framework
 
 ---
 

@@ -1,16 +1,11 @@
 # Signal Control Loop Separation
 
 **Version:** 1.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-18
-**Status:** Idea - not scheduled
-**Created:** 2026-05-18
-**Updated:** 2026-05-18
-**Related:**
-- `docs/signals/signals-lifecycle.md`
-- `docs/concepts/cis-scoring.md`
-- `docs/intelligence/ai-intelligence-architecture.md`
-- `docs/ideas/ai-02-ml-agent-architecture.md`
-- `docs/ideas/ai-03-evolvable-ai-agents.md`
+**Tags:** control-loop, signal-generation, learning, shadow-governance, deterministic, auditability
 
 ---
 
