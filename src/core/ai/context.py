@@ -1,4 +1,4 @@
-"""AIContext — typed market context for AI agent computation."""
+"""SignalContext — typed market context for AI agent computation."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class BarContext(TierContext):
     volume: float | None = None
 
 
-class AIContext(BaseModel):
+class SignalContext(BaseModel):
     """Typed context for AI agent computation. Immutable after construction.
 
     Pipeline tiers (i1-i6, smc) use schemas.py types directly (D-09).
@@ -129,11 +129,11 @@ class AIContext(BaseModel):
     smc: SMCContext | None = None  # SMC tier; hmm_regime lives here, NOT on i4
 
     # Enrichment fields
-    lead_context: AIContext | None = None
+    lead_context: SignalContext | None = None
 
 
 # Enable self-referential lead_context field
-AIContext.model_rebuild()
+SignalContext.model_rebuild()
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +170,11 @@ This map is the single place to add labels for new intelligence categories.
 """
 
 
-def render_full_context(ctx: AIContext) -> str:
+def render_full_context(ctx: SignalContext) -> str:
     """Render populated pipeline tier fields as deterministic LLM-friendly text.
 
     Open-ended: iterates ctx.model_fields, NOT a hardcoded tier list.
-    Any new tier added to AIContext automatically appears with zero prompt changes.
+    Any new tier added to SignalContext automatically appears with zero prompt changes.
     Null fields are omitted — only populated values reach the prompt.
     Section headers use semantic labels from _TIER_SECTION_LABELS.
     """
@@ -203,11 +203,11 @@ def render_full_context(ctx: AIContext) -> str:
     return "\n".join(lines) if lines else "(no features available)"
 
 
-class AIContextCache:
+class SignalContextCache:
     """asyncio-safe in-memory context cache (NOT thread-safe).
 
     Bar loop calls update() after each IntelligenceEvent.
-    Agent callers call build() to construct an AIContext.
+    Agent callers call build() to construct an SignalContext.
     Provides get_lead() for D-10 fix (replaces private _cache access).
     """
 
@@ -254,8 +254,8 @@ class AIContextCache:
         signal: Any | None = None,
         signal_id: Any | None = None,
         group_id: str = "",
-    ) -> AIContext | None:
-        """Build AIContext from cached event, populating only requested tiers.
+    ) -> SignalContext | None:
+        """Build SignalContext from cached event, populating only requested tiers.
 
         D-13: Direct pass-through — event.iN is assigned to ctx.iN with no copy.
         None-safe: Pydantic accepts None for Optional fields.
@@ -269,7 +269,7 @@ class AIContextCache:
             group_id: Optional group_id for cache hit/miss metrics
 
         Returns:
-            AIContext if cache hit and not stale, None otherwise
+            SignalContext if cache hit and not stale, None otherwise
         """
         key = (symbol, tf)
         entry = self._cache.get(key)
@@ -355,7 +355,7 @@ class AIContextCache:
             )
 
         # Pipeline tiers — direct pass-through (D-13). None-safe by Pydantic.
-        return AIContext(
+        return SignalContext(
             signal_id=signal_id,
             symbol=symbol,
             timeframe=tf,
@@ -377,7 +377,7 @@ class AIContextCache:
         symbol: str,
         tf: str,
         lead_map: dict[str, str],
-    ) -> AIContext | None:
+    ) -> SignalContext | None:
         """Look up lead index context without exposing _cache internals.
 
         Replaces private self._context_cache._cache access in _find_lead_context.
@@ -389,7 +389,7 @@ class AIContextCache:
             lead_map: Mapping from base symbol to lead base symbol (e.g., {"ES": "ZN"})
 
         Returns:
-            AIContext for lead instrument if found and not stale, None otherwise
+            SignalContext for lead instrument if found and not stale, None otherwise
         """
 
         def _extract_base(sym: str) -> str:
@@ -405,7 +405,7 @@ class AIContextCache:
         # Search cache for lead symbol entries
         for (s, t), _entry in self._cache.items():
             if s.startswith(lead_base) and t == tf:
-                # Build AIContext with I1/I4/I6 tiers (standard lead context)
+                # Build SignalContext with I1/I4/I6 tiers (standard lead context)
                 return self.build(s, t, frozenset({Tier.I1, Tier.I4, Tier.I6}))
 
         return None

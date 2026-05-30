@@ -1,4 +1,4 @@
-"""CorrelationComputeAgent — cross-asset coherence multiplier (Phase 80, D-04)."""
+"""CorrelationAnalyzer — cross-asset coherence multiplier (Phase 80, D-04)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 import structlog
 from pydantic import BaseModel, field_validator
 
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
@@ -52,7 +52,7 @@ class CorrelationResult(BaseModel):
         return str(v) if v is not None else ""
 
 
-class CorrelationComputeAgent(Evaluator):
+class CorrelationAnalyzer(Evaluator):
     """Cross-asset coherence — does ZN/VIX/ES/CL behavior support this signal?
 
     Per D-04: multiplier = coherence_score × confidence (discount-only, Phase 80).
@@ -98,7 +98,7 @@ class CorrelationComputeAgent(Evaluator):
         super().__init__(name=self.__class__.__name__, **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         prompt = build_correlation_prompt(context)
         result, call_id = await self._llm_generate_structured(
             context,

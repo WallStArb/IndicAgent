@@ -1,4 +1,4 @@
-"""CounterfactualComputeAgent — validation/invalidation reasoning multiplier (Phase 80, D-06)."""
+"""CounterfactualEvaluator — validation/invalidation reasoning multiplier (Phase 80, D-06)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 import structlog
 from pydantic import BaseModel, field_validator
 
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
@@ -53,7 +53,7 @@ class CounterfactualResult(BaseModel):
         return str(v) if v is not None else ""
 
 
-class CounterfactualComputeAgent(Evaluator):
+class CounterfactualEvaluator(Evaluator):
     """Counterfactual reasoning — what must be true for this signal to work?"""
 
     output_schema: ClassVar[dict] = {
@@ -93,10 +93,10 @@ class CounterfactualComputeAgent(Evaluator):
         # Unknown type - keep fail-closed (do nothing)
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="CounterfactualComputeAgent", **kwargs)
+        super().__init__(name="CounterfactualEvaluator", **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Core computation: build prompt -> call LLM -> parse JSON -> multiplier.
 
         multiplier = plausibility × llm_confidence.

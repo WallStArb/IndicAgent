@@ -39,7 +39,7 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.ai.base_group_service import BaseGroupService
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
@@ -48,11 +48,11 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_swarm_alpha,
 )
-from src.intelligence.ai.alpha.correlation_agent import CorrelationComputeAgent
-from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualComputeAgent
-from src.intelligence.ai.alpha.ml_scorer_agent import MLScorerMultiplierAgent
-from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
-from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
+from src.intelligence.ai.alpha.correlation_agent import CorrelationAnalyzer
+from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualEvaluator
+from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
+from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAnalyzer
+from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
@@ -109,7 +109,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
     """Single service dispatching all alpha agents.
 
     Per D-32: extends BaseGroupService, one bar consumer, one signal consumer,
-    one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one AIContextCache.
+    one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one SignalContextCache.
     Agents are pure compute, iterated per signal via asyncio.gather().
 
     Plan 78-01: Write path is LineageRecorder -> topic_signal_lineage() -> LineageWriterAgent -> signal_lineage.
@@ -148,7 +148,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         return topic_swarm_alpha(self.settings.env_name)
 
     def _bar_topics(self) -> list[str]:
-        """Intelligence topic carries IntelligenceEvent payloads for AIContextCache."""
+        """Intelligence topic carries IntelligenceEvent payloads for SignalContextCache."""
         return [topic_intelligence(self.settings.env_name)]
 
     async def _setup(self) -> None:
@@ -163,14 +163,14 @@ class AlphaSwarmComputeAgent(BaseGroupService):
 
         # Agents require _llm_chain which is wired by super()._setup() — construct here.
         self._agents = [
-            SkepticComputeAgent(llm_chain=self._llm_chain),
-            CorrelationComputeAgent(llm_chain=self._llm_chain),
-            RegimeCoherenceComputeAgent(llm_chain=self._llm_chain),
-            CounterfactualComputeAgent(llm_chain=self._llm_chain),
+            SkepticEvaluator(llm_chain=self._llm_chain),
+            CorrelationAnalyzer(llm_chain=self._llm_chain),
+            RegimeCoherenceAnalyzer(llm_chain=self._llm_chain),
+            CounterfactualEvaluator(llm_chain=self._llm_chain),
         ]
-        # MLScorerMultiplierAgent: no LLM chain; uses pool for ModelRegistry.
+        # MLEvaluator: no LLM chain; uses pool for ModelRegistry.
         # Must be appended after super()._setup() so self._pool is available.
-        self._agents.append(MLScorerMultiplierAgent(pool=self._pool))
+        self._agents.append(MLEvaluator(pool=self._pool))
         await self._agents[-1]._setup_models()
 
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
@@ -667,7 +667,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
     async def _record_swarm_result(
         self,
         signal_id: Any,
-        enriched: AIContext,
+        enriched: SignalContext,
         agent: Evaluator,
         result: Any,
     ) -> None:
@@ -730,12 +730,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             tf=enriched.timeframe,
         )
 
-    async def _enrich_context(self, ctx: AIContext) -> AIContext:
+    async def _enrich_context(self, ctx: SignalContext) -> SignalContext:
         """Pass-through (Phase 78 D-22).
 
         CorrelationAgent and VolumeAgent are deleted; their consumers (lead_context,
         volume_profile) no longer exist. Skeptic v2 reads volume_z_score and corr_z
-        directly from AIContext via _render_full_context iterating model_fields.
+        directly from SignalContext via _render_full_context iterating model_fields.
         """
         return ctx
 

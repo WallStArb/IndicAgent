@@ -22,7 +22,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.service_utils import parse_iso_ts, setup_service_logging
 from src.core.stream_keys import topic_ctx_snapshot
 from src.observability.metrics import counter
-from src.observability.spans import observed_span, ATTR_BATCH_SIZE, ATTR_FLUSH_MS
+from src.observability.spans import ATTR_BATCH_SIZE, ATTR_FLUSH_MS, observed_span
 
 # ---------------------------------------------------------------------------
 # Constants

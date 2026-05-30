@@ -782,12 +782,12 @@ SWARM_DISPATCH_SECONDS = _meter.create_histogram(
 
 AI_CONTEXT_CACHE_HITS_TOTAL = _meter.create_counter(
     "ai_context_cache_hits_total",
-    description="AIContextCache.build() returning a fresh context",
+    description="SignalContextCache.build() returning a fresh context",
 )
 
 AI_CONTEXT_CACHE_MISSES_TOTAL = _meter.create_counter(
     "ai_context_cache_misses_total",
-    description="AIContextCache.build() returning None (no entry or stale)",
+    description="SignalContextCache.build() returning None (no entry or stale)",
 )
 
 # ---------------------------------------------------------------------------

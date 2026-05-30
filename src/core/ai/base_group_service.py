@@ -12,7 +12,7 @@ from opentelemetry.trace import StatusCode
 from src.config.settings import Settings
 from src.core.agent.base import BaseDaemon
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import AIContextCache
+from src.core.ai.context import SignalContextCache
 from src.core.ai.lineage import LineageRecorder
 from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -67,13 +67,13 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
     # Abstract methods for subclass Kafka wiring
     @abstractmethod
     def _bar_topics(self) -> list[str]:
-        """Topics for bar data that update AIContextCache. Return [] to skip bar consumer."""
+        """Topics for bar data that update SignalContextCache. Return [] to skip bar consumer."""
         ...
 
     def __init__(self, settings: Settings, *args: Any, **kwargs: Any) -> None:
         super().__init__(name=self.__class__.__name__, max_idle_seconds=0, settings=settings)
         self.settings = settings
-        self._context_cache = AIContextCache()
+        self._context_cache = SignalContextCache()
         self._bar_consumer: KafkaConsumerClient | None = None
         self._trigger_consumer: KafkaConsumerClient | None = None
         self._producer: KafkaProducerClient | None = None
@@ -86,7 +86,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
 
         Subclasses should call super()._setup() then add group-specific wiring.
         """
-        # Wire bar consumer (for AIContextCache updates)
+        # Wire bar consumer (for SignalContextCache updates)
         bar_topics = self._bar_topics()
         if bar_topics:
             self._bar_consumer = KafkaConsumerClient(
@@ -170,7 +170,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
         )
 
     async def _seed_context_cache(self) -> None:
-        """Seed AIContextCache with recent intelligence_features rows."""
+        """Seed SignalContextCache with recent intelligence_features rows."""
         assert self._pool is not None
 
         async with self._pool.acquire() as conn:
@@ -224,7 +224,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
             await self._producer.stop()
 
     async def _bar_loop(self) -> None:
-        """Update AIContextCache on each IntelligenceEvent."""
+        """Update SignalContextCache on each IntelligenceEvent."""
         assert self._bar_consumer is not None
         async for _topic, _key, payload in self._bar_consumer.messages():
             if not self.running:

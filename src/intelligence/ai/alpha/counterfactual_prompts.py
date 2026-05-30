@@ -1,13 +1,13 @@
-"""counterfactual_prompts.py -- versioned prompt registry for CounterfactualComputeAgent.
+"""counterfactual_prompts.py -- versioned prompt registry for CounterfactualEvaluator.
 
 Per D-03: prompt version tracked in every alpha_multiplier_shadow row via features JSONB.
-Per D-16: render_full_context iterates AIContext.model_fields -- open-ended, future-proof.
+Per D-16: render_full_context iterates SignalContext.model_fields -- open-ended, future-proof.
 Phase 80 D-06: counterfactual reasoning -- validation/invalidation conditions.
 """
 
 from __future__ import annotations
 
-from src.core.ai.context import AIContext, render_full_context
+from src.core.ai.context import SignalContext, render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
 
 ACTIVE_VERSION = "counterfactual_v1"
@@ -47,14 +47,14 @@ Begin your response with {{ and end with }}. No prose before or after the JSON:
 }
 
 
-def build_counterfactual_prompt(ctx: AIContext) -> str:
-    """Build the counterfactual prompt from a typed AIContext.
+def build_counterfactual_prompt(ctx: SignalContext) -> str:
+    """Build the counterfactual prompt from a typed SignalContext.
 
-    Raises TypeError if ctx is not an AIContext instance.
+    Raises TypeError if ctx is not an SignalContext instance.
     """
-    if not isinstance(ctx, AIContext):
+    if not isinstance(ctx, SignalContext):
         raise TypeError(
-            "build_counterfactual_prompt requires AIContext, got " f"{type(ctx).__name__}"
+            "build_counterfactual_prompt requires SignalContext, got " f"{type(ctx).__name__}"
         )
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]

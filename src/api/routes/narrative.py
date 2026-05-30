@@ -8,7 +8,7 @@ Renaissance design:
   - DB-first: check signal_narratives before calling LLM (idempotent, zero repeat cost)
   - Persist every generation: every narrative is a labeled training sample
   - LLM audit: every call flows through LLMProviderChain audit trail
-  - Typed AIContext: schemas.py models, no dict[str, Any] escape hatch (D-15)
+  - Typed SignalContext: schemas.py models, no dict[str, Any] escape hatch (D-15)
 """
 
 import hashlib
@@ -22,11 +22,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ...config.settings import Settings
-from ...core.ai.context import AIContext, BarContext, QuantSignalContext
+from ...core.ai.context import BarContext, QuantSignalContext, SignalContext
 from ...core.ai.context import Tier as _Tier
 from ...core.database_manager import DatabaseManager
 from ...core.llm.chain import LLMProviderChain
-from ...intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
+from ...intelligence.ai.narrative.narrative_agent import NarrativeSynthesizer
 from ...intelligence.schemas import (
     I1Indicators,
     I2Events,
@@ -83,14 +83,14 @@ def _maybe_validate(model_cls, payload):
     return model_cls.model_validate(payload)
 
 
-def _build_context_from_row(row) -> AIContext:
-    """Construct typed AIContext from joined signal_ledger + intelligence_features row.
+def _build_context_from_row(row) -> SignalContext:
+    """Construct typed SignalContext from joined signal_ledger + intelligence_features row.
 
     Args:
         row: Database row with signal_ledger + intelligence_features columns
 
     Returns:
-        Fully populated AIContext with all pipeline tiers populated.
+        Fully populated SignalContext with all pipeline tiers populated.
     """
     bar_data = _parse_jsonb(row.get("bar"), default={})
     bar_ctx = None
@@ -114,7 +114,7 @@ def _build_context_from_row(row) -> AIContext:
         entry_type=row.get("entry_type"),
     )
 
-    return AIContext(
+    return SignalContext(
         signal_id=row["signal_id"],
         symbol=row["symbol"],
         timeframe=row["feature_tf"],
@@ -135,11 +135,11 @@ def _build_context_from_row(row) -> AIContext:
     )
 
 
-def _prompt_hash(context: AIContext) -> str:
-    """Compute deterministic hash of AIContext for cache invalidation detection.
+def _prompt_hash(context: SignalContext) -> str:
+    """Compute deterministic hash of SignalContext for cache invalidation detection.
 
     Args:
-        context: AIContext to hash
+        context: SignalContext to hash
 
     Returns:
         16-character hex digest of context content.
@@ -216,7 +216,7 @@ async def get_narrative(
             context = _build_context_from_row(row)
 
             # 3. Generate narrative
-            agent = NarrativeComputeAgent(llm_chain=_get_llm_chain())
+            agent = NarrativeSynthesizer(llm_chain=_get_llm_chain())
             t0 = time.monotonic()
             output = await agent.compute(context)
             latency_ms = (time.monotonic() - t0) * 1000

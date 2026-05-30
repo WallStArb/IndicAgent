@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from src.core.ai.base_agent import BaseAIWorker, IAIAgent
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 
 
@@ -17,7 +17,7 @@ class ConcreteAgent(BaseAIWorker):
     group = "alpha"
     tiers_needed = frozenset()
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         return AgentOutput(
             agent_id=self.agent_id,
             group=self.group,
@@ -45,7 +45,7 @@ class TestBaseAIAgent:
         class TimedAgent(ConcreteAgent):
             agent_id = "timed"
 
-            async def _compute(self, context: AIContext) -> AgentOutput:
+            async def _compute(self, context: SignalContext) -> AgentOutput:
                 # Simulate 50ms computation
                 await asyncio.sleep(0.05)
                 return AgentOutput(
@@ -56,7 +56,7 @@ class TestBaseAIAgent:
                 )
 
         agent = TimedAgent()
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -75,11 +75,11 @@ class TestBaseAIAgent:
         class FailingAgent(ConcreteAgent):
             agent_id = "failing"
 
-            async def _compute(self, context: AIContext) -> AgentOutput:
+            async def _compute(self, context: SignalContext) -> AgentOutput:
                 raise ValueError("test error")
 
         agent = FailingAgent()
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -100,7 +100,7 @@ class TestBaseAIAgent:
             agent_id = "slow"
             latency_budget_ms = 100.0  # 100ms budget
 
-            async def _compute(self, context: AIContext) -> AgentOutput:
+            async def _compute(self, context: SignalContext) -> AgentOutput:
                 # Sleep for 200ms — exceeds 100ms budget
                 await asyncio.sleep(0.2)
                 return AgentOutput(
@@ -110,7 +110,7 @@ class TestBaseAIAgent:
                 )
 
         agent = SlowAgent()
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -130,7 +130,7 @@ class TestBaseAIAgent:
             agent_id = "hook"
             error_received = None
 
-            async def _compute(self, context: AIContext) -> AgentOutput:
+            async def _compute(self, context: SignalContext) -> AgentOutput:
                 raise ValueError("hook test")
 
             async def _on_error(self, error: Exception) -> None:
@@ -138,7 +138,7 @@ class TestBaseAIAgent:
                 HookAgent.error_received = error
 
         agent = HookAgent()
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -158,7 +158,7 @@ class TestBaseAIAgent:
         class AuditAgent(ConcreteAgent):
             agent_id = "audit"
 
-            async def _compute(self, context: AIContext) -> AgentOutput:
+            async def _compute(self, context: SignalContext) -> AgentOutput:
                 return AgentOutput(
                     agent_id=self.agent_id,
                     group=self.group,

@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 import structlog
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp, parse_llm_json
 
@@ -43,7 +43,7 @@ class Evaluator(BaseAIWorker, ABC):
 
     def _build_multiplier_output(
         self,
-        context: AIContext,
+        context: SignalContext,
         multiplier: float,
         confidence: float,
         payload: dict[str, Any],

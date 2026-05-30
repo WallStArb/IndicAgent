@@ -10,7 +10,7 @@ UTC = UTC
 
 def _make_dummy_agent():
     """Construct a minimal concrete subclass of Evaluator for testing."""
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
     from src.core.ai.evaluator import Evaluator
 
     class _DummyAgent(Evaluator):
@@ -21,17 +21,17 @@ def _make_dummy_agent():
         latency_budget_ms = 1000.0
         shadow_only = True
 
-        async def _compute(self, context: AIContext):
+        async def _compute(self, context: SignalContext):
             return self._neutral(error="not used in tests", latency_ms=0.0)
 
     return _DummyAgent.__new__(_DummyAgent)
 
 
 def _make_context():
-    """Build a minimal AIContext for testing."""
-    from src.core.ai.context import AIContext
+    """Build a minimal SignalContext for testing."""
+    from src.core.ai.context import SignalContext
 
-    return AIContext(
+    return SignalContext(
         signal_id=None,
         symbol="ES",
         timeframe="5m",
