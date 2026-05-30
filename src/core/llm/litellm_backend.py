@@ -69,6 +69,7 @@ def _configure_litellm(settings) -> None:
     # Prevent LiteLLM from sending telemetry or logging prompts externally
     litellm.telemetry = False
     litellm.success_callback = []
+    litellm.failure_callback = []  # prevent failure telemetry from leaking request metadata
 
 
 class LiteLLMBackend:
