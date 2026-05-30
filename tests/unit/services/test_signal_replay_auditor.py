@@ -1,4 +1,4 @@
-"""Tests for SignalReplayAuditorAgent (Phase 81 plan 07 task 3).
+"""Tests for SignalReplayAuditor (Phase 81 plan 07 task 3).
 
 Tests: test_replay_outcome_parametric (16 cases), test_replay_both_tracks_independent,
 test_replay_skips_v0_signals, test_replay_skips_ttl_not_elapsed,
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_replay_auditor_agent import SignalReplayAuditorAgent
+from services.signal_replay_auditor_agent import SignalReplayAuditor
 from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
@@ -27,8 +27,8 @@ from src.persistence.repository.signal_ledger_repository import SignalStatus
 T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 
 
-def _make_agent() -> SignalReplayAuditorAgent:
-    agent = SignalReplayAuditorAgent.__new__(SignalReplayAuditorAgent)
+def _make_agent() -> SignalReplayAuditor:
+    agent = SignalReplayAuditor.__new__(SignalReplayAuditor)
     agent._log = MagicMock()
     agent.logger = MagicMock()
     agent._settings = MagicMock()
@@ -382,7 +382,7 @@ def test_replay_skips_v0_signals() -> None:
     """_fetch_unresolved SQL must filter by SIGNAL_SCHEMA_VERSION to exclude v0 rows."""
     from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
-    src = inspect.getsource(SignalReplayAuditorAgent._fetch_unresolved)
+    src = inspect.getsource(SignalReplayAuditor._fetch_unresolved)
     # Verify the query uses a $1 parameter (not hardcoded 'v1') and passes SIGNAL_SCHEMA_VERSION
     assert re.search(r"signal_schema_version\s*=\s*\$1", src), (
         "_fetch_unresolved must filter signal_schema_version via $1 parameter. "

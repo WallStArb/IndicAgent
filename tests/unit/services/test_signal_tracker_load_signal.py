@@ -1,4 +1,4 @@
-"""Tests for SignalTrackerComputeAgent._load_signal canonical contract.
+"""Tests for SignalTracker._load_signal canonical contract.
 
 Covers:
 1. test__load_signal_canonical — all 17 canonical fields present with correct types
@@ -12,12 +12,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
+from services.signal_tracker_compute_agent import SignalTracker
 
 
-def _make_agent() -> SignalTrackerComputeAgent:
-    """Create a SignalTrackerComputeAgent bypassing __init__."""
-    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
+def _make_agent() -> SignalTracker:
+    """Create a SignalTracker bypassing __init__."""
+    agent = SignalTracker.__new__(SignalTracker)
     agent.logger = MagicMock()
     agent._active_index: dict = defaultdict(list)
     agent._active_symbols: set = set()

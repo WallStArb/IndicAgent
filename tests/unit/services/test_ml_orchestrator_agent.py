@@ -1,4 +1,4 @@
-"""Unit tests for MLOrchestratorComputeAgent. Uses __new__ pattern."""
+"""Unit tests for MLOrchestrator. Uses __new__ pattern."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_orchestrator_agent import MLOrchestratorComputeAgent
+    from services.ml_orchestrator_agent import MLOrchestrator
 
-    agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
+    agent = MLOrchestrator.__new__(MLOrchestrator)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()
@@ -82,9 +82,9 @@ async def test_orchestrator_runs_discovery_when_quality_high():
 @pytest.mark.asyncio
 async def test_training_node_is_noop():
     """TrainingNode must log 'awaiting Phase 67' and return state unchanged."""
-    from services.ml_orchestrator_agent import MLOrchestratorComputeAgent
+    from services.ml_orchestrator_agent import MLOrchestrator
 
-    agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
+    agent = MLOrchestrator.__new__(MLOrchestrator)
     agent.logger = MagicMock()
 
     state = {
@@ -104,9 +104,9 @@ async def test_training_node_is_noop():
 @pytest.mark.asyncio
 async def test_monitor_node_is_noop():
     """MonitorNode must log 'awaiting Phase 67' and return state unchanged."""
-    from services.ml_orchestrator_agent import MLOrchestratorComputeAgent
+    from services.ml_orchestrator_agent import MLOrchestrator
 
-    agent = MLOrchestratorComputeAgent.__new__(MLOrchestratorComputeAgent)
+    agent = MLOrchestrator.__new__(MLOrchestrator)
     agent.logger = MagicMock()
 
     state = {

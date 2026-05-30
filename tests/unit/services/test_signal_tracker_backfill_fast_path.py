@@ -1,4 +1,4 @@
-"""Tests for SignalTrackerComputeAgent._ingest_signal backfill fast-path.
+"""Tests for SignalTracker._ingest_signal backfill fast-path.
 
 Covers:
 1. test_backfill_fast_path_expired — backfill signal past TTL → TTL-expired published, NOT added to active index
@@ -11,12 +11,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
+from services.signal_tracker_compute_agent import SignalTracker
 
 
-def _make_agent() -> SignalTrackerComputeAgent:
-    """Create a SignalTrackerComputeAgent bypassing __init__."""
-    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
+def _make_agent() -> SignalTracker:
+    """Create a SignalTracker bypassing __init__."""
+    agent = SignalTracker.__new__(SignalTracker)
     agent.logger = MagicMock()
     agent._active_index: dict = defaultdict(list)
     agent._active_symbols: set = set()

@@ -1,4 +1,4 @@
-"""alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseSwarmCoordinator.
+"""alpha_swarm_agent.py -- AlphaSwarm extending BaseSwarmCoordinator.
 
 Per B+ architecture: one service, all alpha agents, extends BaseSwarmCoordinator.
 group_id="alpha". Graduation dispatch via override detection in BaseSwarmCoordinator.
@@ -23,7 +23,7 @@ Plan 80-07 changes:
 - Weighted aggregation: _compute_final_multiplier normalized over non-error agents
 - Shadow enrollment loops over self._agents
 - Per-(agent_id, timeframe) Spearman weight learning via _evaluate_agent
-- AlphaSwarmComputeAgent never writes UPDATE/INSERT signal_ledger directly
+- AlphaSwarm never writes UPDATE/INSERT signal_ledger directly
 """
 
 from __future__ import annotations
@@ -105,14 +105,14 @@ def _now_utc_iso() -> str:
     return format_iso_ts(datetime.now(UTC))
 
 
-class AlphaSwarmComputeAgent(BaseSwarmCoordinator):
+class AlphaSwarm(BaseSwarmCoordinator):
     """Single service dispatching all alpha agents.
 
     Per D-32: extends BaseSwarmCoordinator, one bar consumer, one signal consumer,
     one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one SignalContextCache.
     Agents are pure compute, iterated per signal via asyncio.gather().
 
-    Plan 78-01: Write path is LineageRecorder -> topic_signal_lineage() -> LineageWriterAgent -> signal_lineage.
+    Plan 78-01: Write path is LineageRecorder -> topic_signal_lineage() -> LineageWriter -> signal_lineage.
     Plan 80-07: self._agents is list[Evaluator]; no direct signal_ledger writes.
     """
 
@@ -129,7 +129,7 @@ class AlphaSwarmComputeAgent(BaseSwarmCoordinator):
         self._agent_weights: dict[tuple[str, str], float] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
         # Phase 109 Plan 05 Task 4: restrict config reload to ai.agent.* keys only.
-        # (other prefixes like alert.lag.* are irrelevant to AlphaSwarmComputeAgent)
+        # (other prefixes like alert.lag.* are irrelevant to AlphaSwarm)
         self._config_prefixes = ("ai.agent.",)
 
     @property
@@ -742,7 +742,7 @@ class AlphaSwarmComputeAgent(BaseSwarmCoordinator):
 
 def main() -> None:
     settings = Settings()
-    service = AlphaSwarmComputeAgent(settings)
+    service = AlphaSwarm(settings)
     import asyncio
 
     asyncio.run(service.start())

@@ -385,7 +385,7 @@ def _ece(conf: np.ndarray, outcome: np.ndarray, n_bins: int = 10) -> float:
 # ── Agent class ───────────────────────────────────────────────────────────────
 
 
-class LLMWriterAgent(BaseWriter):
+class LLMWriter(BaseWriter):
     """Async Kafka consumer agent: llm.calls + llm.outcomes + intelligence.i8 -> TimescaleDB.
 
     Inherits BaseWriter for buffer/flush/offset-commit/DLQ/metrics/lifecycle.
@@ -484,7 +484,7 @@ class LLMWriterAgent(BaseWriter):
 
         Returns None to route to DLQ on parse failure.
         Only used when BaseWriter's generic consume path is active;
-        LLMWriterAgent uses a custom _run() with direct message routing.
+        LLMWriter uses a custom _run() with direct message routing.
         """
         parsed = _parse_llm_call_fields(payload)
         if parsed is None:
@@ -952,7 +952,7 @@ class LLMWriterAgent(BaseWriter):
             idle_secs = time.monotonic() - self._last_message_ts
             if idle_secs >= self.max_idle_seconds:
                 self.logger.warning(
-                    "LLMWriterAgent stall detected — no messages consumed",
+                    "LLMWriter stall detected — no messages consumed",
                     idle_seconds=int(idle_secs),
                     max_idle_seconds=self.max_idle_seconds,
                 )
@@ -1017,7 +1017,7 @@ class LLMWriterAgent(BaseWriter):
 
 
 # Backward-compatibility alias — existing tests import LLMWriterService
-LLMWriterService = LLMWriterAgent
+LLMWriterService = LLMWriter
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
@@ -1030,7 +1030,7 @@ async def main() -> None:
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    agent = LLMWriterAgent(args.config)
+    agent = LLMWriter(args.config)
     try:
         await agent.start()
     except KeyboardInterrupt:

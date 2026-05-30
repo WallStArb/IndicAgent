@@ -39,7 +39,7 @@ from src.observability.metrics import counter
 logger = structlog.get_logger(__name__)
 
 
-class MacroComputeAgent(BaseDaemon):
+class MacroAnalyzer(BaseDaemon):
     """Macro factors microservice — extends BaseDaemon.
 
     Subscribes to market_bars topic, computes macro factors from
@@ -281,7 +281,7 @@ class MacroComputeAgent(BaseDaemon):
 
 def main() -> None:
     """Entry point for systemd service."""
-    agent = MacroComputeAgent()
+    agent = MacroAnalyzer()
     asyncio.run(agent.start())
 
 

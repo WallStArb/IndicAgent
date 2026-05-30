@@ -1,7 +1,7 @@
 # src/intelligence/metrics/compute.py
 """Pure compute functions for signal performance metrics.
 
-No I/O. Called by SignalMetricsComputeAgent after data quality validation.
+No I/O. Called by SignalMetricsAnalyzer after data quality validation.
 Two tracks: 'zone' (structural setup quality) and 'market' (tradeable alpha).
 """
 

@@ -16,13 +16,13 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
-from src.intelligence.services.hmm_training_compute_agent import HMMTrainingComputeAgent
+from src.intelligence.services.hmm_training_compute_agent import HMMTrainer
 
 
 def main() -> None:
     """Create agent, run, exit.
 
-    HMMTrainingComputeAgent.start() swallows all exceptions and logs them,
+    HMMTrainer.start() swallows all exceptions and logs them,
     so asyncio.run() always completes cleanly (systemd oneshot exit code 0).
     """
     setup_service_logging("logs/hmm_training_agent.log")
@@ -32,7 +32,7 @@ def main() -> None:
         db_manager = DatabaseManager(settings.database_url)
         await db_manager.initialize()
         try:
-            agent = HMMTrainingComputeAgent(db_manager=db_manager, settings=settings)
+            agent = HMMTrainer(db_manager=db_manager, settings=settings)
             await agent.start()
         finally:
             if db_manager.pool is not None:

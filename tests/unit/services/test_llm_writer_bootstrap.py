@@ -1,4 +1,4 @@
-"""TDD tests for LLMWriterAgent migration to BaseWriter.
+"""TDD tests for LLMWriter migration to BaseWriter.
 
 Tests verify that BaseWriter observability metrics are emitted correctly:
 - buffer_depth_gauge tracks buffer size
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from services.llm_writer_service import LLMWriterAgent
+from services.llm_writer_service import LLMWriter
 
 
 def _mock_base_agent_attributes(agent):
@@ -40,7 +40,7 @@ def _mock_base_agent_attributes(agent):
 @pytest.mark.asyncio
 async def test_llm_writer_emits_setup_success_metric():
     """Verify agent_setup_success_total increments after successful _setup()."""
-    agent = LLMWriterAgent.__new__(LLMWriterAgent)
+    agent = LLMWriter.__new__(LLMWriter)
     agent.name = "llm_writer_agent"
     _mock_base_agent_attributes(agent)
 
@@ -58,7 +58,7 @@ async def test_llm_writer_emits_setup_success_metric():
 @pytest.mark.asyncio
 async def test_llm_writer_buffer_depth_gauge():
     """Verify buffer_depth_gauge tracks buffer size."""
-    agent = LLMWriterAgent.__new__(LLMWriterAgent)
+    agent = LLMWriter.__new__(LLMWriter)
     agent.name = "llm_writer_agent"
     _mock_base_agent_attributes(agent)
 
@@ -88,7 +88,7 @@ async def test_llm_writer_buffer_depth_gauge():
 @pytest.mark.asyncio
 async def test_llm_writer_record_message_consumed_updates_timestamp():
     """Verify _record_message_consumed updates the last message timestamp."""
-    agent = LLMWriterAgent.__new__(LLMWriterAgent)
+    agent = LLMWriter.__new__(LLMWriter)
     agent.name = "llm_writer_agent"
     _mock_base_agent_attributes(agent)
     agent.max_idle_seconds = 300

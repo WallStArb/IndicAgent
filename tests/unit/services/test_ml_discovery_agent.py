@@ -1,4 +1,4 @@
-"""Unit tests for MLDiscoveryComputeAgent. Uses __new__ pattern."""
+"""Unit tests for MLDiscoveryAnalyzer. Uses __new__ pattern."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_discovery_agent import MLDiscoveryComputeAgent
+    from services.ml_discovery_agent import MLDiscoveryAnalyzer
 
-    agent = MLDiscoveryComputeAgent.__new__(MLDiscoveryComputeAgent)
+    agent = MLDiscoveryAnalyzer.__new__(MLDiscoveryAnalyzer)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()

@@ -206,7 +206,7 @@ class TestSymbolGrouping:
 
 
 class TestComputeAgentSymbolPublish:
-    """Test that SignalMetricsComputeAgent publishes symbol in event."""
+    """Test that SignalMetricsAnalyzer publishes symbol in event."""
 
     def test_metrics_computed_event_has_symbol(self):
         """The metrics_computed event dict should contain 'symbol' key."""

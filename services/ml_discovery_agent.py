@@ -1,4 +1,4 @@
-"""MLDiscoveryComputeAgent -- weekly tsfresh + IC feature discovery.
+"""MLDiscoveryAnalyzer -- weekly tsfresh + IC feature discovery.
 
 Timer-triggered: indicagent-ml-discovery.timer (Monday 06:00 UTC).
 One-shot: runs discovery, writes ml_discovery_runs, updates feature_ic_score gauges, exits.
@@ -60,7 +60,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 """
 
 
-class MLDiscoveryComputeAgent(BaseDaemon):
+class MLDiscoveryAnalyzer(BaseDaemon):
     """One-shot weekly feature IC discovery agent."""
 
     def __init__(self, settings: Settings) -> None:
@@ -240,7 +240,7 @@ class MLDiscoveryComputeAgent(BaseDaemon):
 
 def main() -> None:
     settings = Settings()
-    agent = MLDiscoveryComputeAgent(settings)
+    agent = MLDiscoveryAnalyzer(settings)
     asyncio.run(agent.start())
 
 

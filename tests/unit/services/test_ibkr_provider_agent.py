@@ -1,4 +1,4 @@
-"""Unit tests for IBKRProviderAgent — TDD tests for Plan 54-03.
+"""Unit tests for IBKRProvider — TDD tests for Plan 54-03.
 
 Tests structural contract (BaseProvider inheritance) and concrete
 method implementations (agent name, metrics port, provider name, adapter type).
@@ -7,16 +7,16 @@ method implementations (agent name, metrics port, provider name, adapter type).
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Test 12: IBKRProviderAgent inherits from BaseProvider
+# Test 12: IBKRProvider inherits from BaseProvider
 # ---------------------------------------------------------------------------
 
 
 def test_inherits_base_provider_agent():
-    """IBKRProviderAgent must be a subclass of BaseProvider."""
-    from services.ibkr_provider_agent import IBKRProviderAgent
+    """IBKRProvider must be a subclass of BaseProvider."""
+    from services.ibkr_provider_agent import IBKRProvider
     from src.providers.base_provider_agent import BaseProvider
 
-    assert issubclass(IBKRProviderAgent, BaseProvider)
+    assert issubclass(IBKRProvider, BaseProvider)
 
 
 # ---------------------------------------------------------------------------
@@ -28,10 +28,10 @@ def test_create_adapter_returns_ibkr_adapter():
     """_create_adapter() must return an IBKRAdapter instance."""
     from unittest.mock import MagicMock
 
-    from services.ibkr_provider_agent import IBKRProviderAgent
+    from services.ibkr_provider_agent import IBKRProvider
     from src.providers.ibkr_adapter import IBKRAdapter
 
-    agent = IBKRProviderAgent.__new__(IBKRProviderAgent)
+    agent = IBKRProvider.__new__(IBKRProvider)
     agent.settings = MagicMock(env_name="")
     agent.settings.ib_host = "192.168.1.157"
     agent.settings.ib_port = 7497
@@ -48,9 +48,9 @@ def test_create_adapter_returns_ibkr_adapter():
 
 def test_agent_name():
     """_agent_name() must return 'ibkr_provider_agent'."""
-    from services.ibkr_provider_agent import IBKRProviderAgent
+    from services.ibkr_provider_agent import IBKRProvider
 
-    agent = IBKRProviderAgent.__new__(IBKRProviderAgent)
+    agent = IBKRProvider.__new__(IBKRProvider)
     assert agent._agent_name() == "ibkr_provider_agent"
 
 
@@ -61,7 +61,7 @@ def test_agent_name():
 
 def test_provider_name():
     """_provider_name_str() must return 'ibkr'."""
-    from services.ibkr_provider_agent import IBKRProviderAgent
+    from services.ibkr_provider_agent import IBKRProvider
 
-    agent = IBKRProviderAgent.__new__(IBKRProviderAgent)
+    agent = IBKRProvider.__new__(IBKRProvider)
     assert agent._provider_name_str() == "ibkr"

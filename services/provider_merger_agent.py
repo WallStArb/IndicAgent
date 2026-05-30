@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ProviderMergerComputeAgent — canonical gateway from raw provider topics to market.bars.
+"""ProviderMerger — canonical gateway from raw provider topics to market.bars.
 
 Subscribes to all configured `market.bars.raw.<provider>` topics.
 Routes bars from the authoritative provider to `market.bars`.
@@ -52,7 +52,7 @@ from src.observability.metrics import (
 )
 
 
-class ProviderMergerComputeAgent(BaseDaemon):
+class ProviderMerger(BaseDaemon):
     """Canonical gateway agent that routes raw provider bars to market.bars.
 
     Single source of truth for the market.bars topic — all 8 downstream
@@ -332,4 +332,4 @@ class ProviderMergerComputeAgent(BaseDaemon):
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(ProviderMergerComputeAgent().start())
+    asyncio.run(ProviderMerger().start())

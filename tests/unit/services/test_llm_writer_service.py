@@ -266,18 +266,18 @@ def test_process_i8_message_missing_ts_logs_warning():
 
 
 # ---------------------------------------------------------------------------
-# Phase-105 regression tests for LLMWriterAgent
+# Phase-105 regression tests for LLMWriter
 # ---------------------------------------------------------------------------
 
 
 def _make_llm_writer():
-    """Build LLMWriterAgent using __new__ (bypasses __init__ for unit testing)."""
+    """Build LLMWriter using __new__ (bypasses __init__ for unit testing)."""
     import asyncio
     from unittest.mock import MagicMock
 
-    from services.llm_writer_service import LLMWriterAgent
+    from services.llm_writer_service import LLMWriter
 
-    w = LLMWriterAgent.__new__(LLMWriterAgent)
+    w = LLMWriter.__new__(LLMWriter)
     w.name = "llm_writer_agent"
     w._stop_event = asyncio.Event()
     w.logger = MagicMock()
@@ -328,7 +328,7 @@ def _make_llm_writer():
 
 
 def test_llm_writer_no_self_pool_attribute() -> None:
-    """LLMWriterAgent must not have a self._pool attribute.
+    """LLMWriter must not have a self._pool attribute.
 
     Phase-105 HF-3: self._pool was a ghost reference — DatabaseManager was used
     correctly via self.db_manager, but a stale self._pool assignment would shadow it.
@@ -366,7 +366,7 @@ def test_llm_writer_no_self_pool_attribute() -> None:
     # Ensure no _pool attribute is present (the stale reference should be gone)
     assert not hasattr(
         w, "_pool"
-    ), "LLMWriterAgent must not have a self._pool attribute — db_manager is the correct path"
+    ), "LLMWriter must not have a self._pool attribute — db_manager is the correct path"
 
 
 def test_llm_writer_i8_writes_uses_add_not_inc() -> None:
@@ -456,17 +456,17 @@ def test_llm_writer_kafka_setup_uses_earliest_and_no_auto_commit() -> None:
 
     import services.llm_writer_service as mod
 
-    source = inspect.getsource(mod.LLMWriterAgent._setup_kafka_clients)
+    source = inspect.getsource(mod.LLMWriter._setup_kafka_clients)
     assert (
         'auto_offset_reset="earliest"' in source
-    ), "LLMWriterAgent._setup_kafka_clients() must set auto_offset_reset='earliest'"
+    ), "LLMWriter._setup_kafka_clients() must set auto_offset_reset='earliest'"
     assert (
         "enable_auto_commit=False" in source
-    ), "LLMWriterAgent._setup_kafka_clients() must set enable_auto_commit=False"
+    ), "LLMWriter._setup_kafka_clients() must set enable_auto_commit=False"
 
 
 def test_llm_writer_subscribes_only_to_calls_topic() -> None:
-    """LLMWriterAgent must subscribe only to the llm.calls topic (not llm.outcomes or intelligence.i8).
+    """LLMWriter must subscribe only to the llm.calls topic (not llm.outcomes or intelligence.i8).
 
     Phase-105 HF-10: llm.outcomes and intelligence.i8 had no active publishers as of
     2026-05-23 audit. Dead subscriptions waste consumer group resources.
@@ -476,7 +476,7 @@ def test_llm_writer_subscribes_only_to_calls_topic() -> None:
 
     import services.llm_writer_service as mod
 
-    source = inspect.getsource(mod.LLMWriterAgent._setup_kafka_clients)
+    source = inspect.getsource(mod.LLMWriter._setup_kafka_clients)
 
     # Strip comment lines before checking — the comment may reference removed topics
     non_comment_lines = "\n".join(
@@ -486,11 +486,11 @@ def test_llm_writer_subscribes_only_to_calls_topic() -> None:
     # llm.calls must be in the subscription (actual code, not a comment)
     assert (
         "topic_llm_calls" in non_comment_lines
-    ), "LLMWriterAgent._setup_kafka_clients() must subscribe to topic_llm_calls"
+    ), "LLMWriter._setup_kafka_clients() must subscribe to topic_llm_calls"
 
     # topic_llm_outcomes must not appear in actual code (only comments are OK)
     assert "topic_llm_outcomes" not in non_comment_lines, (
-        "LLMWriterAgent._setup_kafka_clients() must NOT subscribe to llm.outcomes "
+        "LLMWriter._setup_kafka_clients() must NOT subscribe to llm.outcomes "
         "(no active publishers as of 2026-05-23 audit)"
     )
 

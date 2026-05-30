@@ -1,6 +1,6 @@
-"""SwarmLedgerWriterAgent — writer-owned projection of swarm aggregate adjustments into signal_ai_enrichment.
+"""SwarmLedgerWriter — writer-owned projection of swarm aggregate adjustments into signal_ai_enrichment.
 
-Phase 80, D-07: strict separation of concerns — AlphaSwarmComputeAgent emits aggregate
+Phase 80, D-07: strict separation of concerns — AlphaSwarm emits aggregate
 events on the swarm.alpha topic; this writer owns DB persistence of those adjustments.
 
 AI-SEP-01 (Phase 70, Plan 02): Writes to signal_ai_enrichment (AI-owned table) instead of
@@ -67,7 +67,7 @@ ON CONFLICT (signal_id) DO UPDATE SET
 """
 
 
-class SwarmLedgerWriterAgent(BaseDaemon):
+class SwarmLedgerWriter(BaseDaemon):
     """Consumes swarm.alpha events and UPSERTs aggregate adjustments into signal_ai_enrichment.
 
     Writer responsibilities (D-07, AI-SEP-01):
@@ -160,7 +160,7 @@ class SwarmLedgerWriterAgent(BaseDaemon):
             return True
 
         # Extract ml_scorer_v1 payload from aggregate agent_outputs list if present.
-        # The AlphaSwarmComputeAgent aggregate event carries individual agent payloads
+        # The AlphaSwarm aggregate event carries individual agent payloads
         # under "agent_outputs": [{"agent_id": ..., "payload": {...}}, ...].
         ml_score: float | None = None
         ml_model_id: str | None = None
@@ -271,7 +271,7 @@ class SwarmLedgerWriterAgent(BaseDaemon):
 
 def main() -> None:
     settings = Settings()
-    agent = SwarmLedgerWriterAgent(settings=settings)
+    agent = SwarmLedgerWriter(settings=settings)
     asyncio.run(agent.start())
 
 

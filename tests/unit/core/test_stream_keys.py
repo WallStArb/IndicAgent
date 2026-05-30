@@ -126,7 +126,7 @@ def test_topic_market_data_quality() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Service health event stream key tests (ServiceAuditorAgent)
+# Service health event stream key tests (ServiceAuditor)
 # ---------------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for BarAuditorAgent.
+"""Unit tests for BarAuditor.
 
 Uses __new__ pattern to bypass __init__ and isolate tested behaviour.
 Tests cover:
@@ -25,10 +25,10 @@ class TestBarAuditorAgentInit:
     """Test constructor attributes and property contracts."""
 
     def test_name(self):
-        """BarAuditorAgent sets name='bar_auditor_agent'."""
-        from services.bar_auditor_agent import BarAuditorAgent
+        """BarAuditor sets name='bar_auditor_agent'."""
+        from services.bar_auditor_agent import BarAuditor
 
-        agent = BarAuditorAgent.__new__(BarAuditorAgent)
+        agent = BarAuditor.__new__(BarAuditor)
         agent.name = "bar_auditor_agent"
         agent.settings = MagicMock(env_name="development")
 
@@ -36,23 +36,23 @@ class TestBarAuditorAgentInit:
 
     def test_topics_consumed_returns_empty_list(self):
         """topics_consumed returns contract_update topic."""
-        from services.bar_auditor_agent import BarAuditorAgent
+        from services.bar_auditor_agent import BarAuditor
 
-        agent = BarAuditorAgent.__new__(BarAuditorAgent)
+        agent = BarAuditor.__new__(BarAuditor)
         agent.settings = MagicMock(env_name="development")
         # Inject the property via the class
-        topics = BarAuditorAgent.topics_consumed.fget(agent)
+        topics = BarAuditor.topics_consumed.fget(agent)
         assert len(topics) == 1
         assert any("contract_update" in t for t in topics)
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
-        from services.bar_auditor_agent import BarAuditorAgent
+        from services.bar_auditor_agent import BarAuditor
 
-        agent = BarAuditorAgent.__new__(BarAuditorAgent)
+        agent = BarAuditor.__new__(BarAuditor)
         agent.settings = MagicMock(env_name="development")
 
-        produced = BarAuditorAgent.topics_produced.fget(agent)
+        produced = BarAuditor.topics_produced.fget(agent)
         assert produced == [topic_gap_requests("development")]
         assert "market.events.gap_requests" in produced[0]
 
@@ -60,7 +60,7 @@ class TestBarAuditorAgentInit:
 class TestExpectedBarsForDate:
     """Test TradingSession.expected_bars_for_date for various session types.
 
-    Moved from BarAuditorAgent._expected_bars_for_date (static method) to
+    Moved from BarAuditor._expected_bars_for_date (static method) to
     TradingSession.expected_bars_for_date (instance method) in Phase 58.1 to
     eliminate duplication with session_window_for_date().
     """
@@ -103,10 +103,10 @@ class TestExpectedBarsForDate:
 
 
 def _make_agent_stub(env_name="development"):
-    """Create a BarAuditorAgent via __new__ with minimal attributes for unit tests."""
-    from services.bar_auditor_agent import BarAuditorAgent
+    """Create a BarAuditor via __new__ with minimal attributes for unit tests."""
+    from services.bar_auditor_agent import BarAuditor
 
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.name = "bar_auditor_agent"
     agent.settings = MagicMock(env_name=env_name)
     agent.logger = MagicMock()
@@ -281,10 +281,10 @@ def test_htf_timeframe_minutes_constant():
 
 def test_topics_consumed_includes_contract_updates():
     """topics_consumed must include the contract_updates topic for cache invalidation."""
-    from services.bar_auditor_agent import BarAuditorAgent
+    from services.bar_auditor_agent import BarAuditor
 
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="")
-    topics = BarAuditorAgent.topics_consumed.fget(agent)
+    topics = BarAuditor.topics_consumed.fget(agent)
     expected_topic = topic_contract_updates("")
     assert expected_topic in topics

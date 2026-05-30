@@ -1,4 +1,4 @@
-"""FeatureValidationComputeAgent — daily IC/p-value decision agent (Phase 82 D-05).
+"""FeatureValidationAnalyzer — daily IC/p-value decision agent (Phase 82 D-05).
 
 Systemd Type=oneshot service invoked by indicagent-feature-validation.timer (daily 02:00 ET).
 
@@ -64,7 +64,7 @@ _DECISION_TWEAK = "TWEAK"
 _DECISION_KILL = "KILL"
 
 
-class FeatureValidationComputeAgent:
+class FeatureValidationAnalyzer:
     """Daily IC/p-value compute agent.
 
     Instantiated by the oneshot entrypoint with a Settings object.

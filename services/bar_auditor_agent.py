@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BarAuditorAgent — self-healing gap detection for market_data_ohlcv.
+"""BarAuditor — self-healing gap detection for market_data_ohlcv.
 
 Reads market_data_ohlcv on startup + every 5 minutes during market hours.
 Compares actual row counts vs expected counts derived from TradingSession.
@@ -98,7 +98,7 @@ _CANONICAL_COMPLETENESS = _ba_meter.create_up_down_counter(
 )
 
 
-class BarAuditorAgent(BaseDaemon):
+class BarAuditor(BaseDaemon):
     """AuditorAgent: detects gaps in market_data_ohlcv and publishes BarGapRequest.
 
     Runs gap audit on startup then every 5 minutes during market hours.
@@ -609,4 +609,4 @@ class BarAuditorAgent(BaseDaemon):
 
 
 if __name__ == "__main__":
-    asyncio.run(BarAuditorAgent().start())
+    asyncio.run(BarAuditor().start())

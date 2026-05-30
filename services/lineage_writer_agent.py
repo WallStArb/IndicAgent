@@ -1,7 +1,7 @@
 """lineage_writer_agent.py — persists signal lineage events from Kafka to TimescaleDB.
 
 Consumes topic_signal_lineage() published by LineageRecorder.
-Replaces GraduationWriterAgent's write path and swarm_writer_agent's shadow write path.
+Replaces GraduationWriter's write path and swarm_writer_agent's shadow write path.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from src.core.service_utils import parse_iso_ts
 from src.core.stream_keys import topic_signal_lineage, topic_signal_lineage_dlq
 
 
-class LineageWriterAgent(BaseWriter):
+class LineageWriter(BaseWriter):
     """Consumes signal lineage events and persists to signal_lineage hypertable."""
 
     payload_model = LineageEvent
@@ -101,7 +101,7 @@ def main() -> None:
     settings = Settings()
     setup_service_logging("logs/lineage_writer_agent.log")
 
-    agent = LineageWriterAgent(settings=settings)
+    agent = LineageWriter(settings=settings)
     asyncio.run(agent.start())
 
 

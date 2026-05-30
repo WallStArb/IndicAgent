@@ -671,7 +671,7 @@ WHERE signal_id = $1::uuid
         await self._db_manager.execute_command(sql, signal_id, start_ts)
 
     # ------------------------------------------------------------------
-    # Batch transition persistence (consumed by LifecycleWriterAgent)
+    # Batch transition persistence (consumed by LifecycleWriter)
     # ------------------------------------------------------------------
 
     _BATCH_ACTIVATION_SQL = """

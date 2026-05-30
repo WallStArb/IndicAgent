@@ -1,4 +1,4 @@
-"""NarrativeGroupComputeAgent — per-signal market narrative generation service.
+"""NarrativeSwarm — per-signal market narrative generation service.
 
 Extends BaseSwarmCoordinator (group_id="narrative"). Subscribes to i7 signals,
 dispatches NarrativeSynthesizer for eligible timeframes (5m+), and publishes
@@ -35,7 +35,7 @@ from src.observability.metrics import NARRATIVE_GENERATION_TOTAL
 logger = structlog.get_logger(__name__)
 
 
-class NarrativeGroupComputeAgent(BaseSwarmCoordinator):
+class NarrativeSwarm(BaseSwarmCoordinator):
     """Single-agent narrative group service.
 
     One NarrativeSynthesizer, one consumer group, one output topic.
@@ -170,7 +170,7 @@ class NarrativeGroupComputeAgent(BaseSwarmCoordinator):
 def main() -> None:
     setup_service_logging("logs/narrative_group_compute_agent.log")
     settings = Settings()
-    service = NarrativeGroupComputeAgent(settings)
+    service = NarrativeSwarm(settings)
     asyncio.run(service.start())
 
 

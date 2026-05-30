@@ -1,4 +1,4 @@
-"""MLTrainingComputeAgent — nightly oneshot LightGBM training pipeline (Phase 070).
+"""MLTrainer — nightly oneshot LightGBM training pipeline (Phase 070).
 
 Systemd Type=oneshot service invoked by indicagent-ml-training.timer (nightly 03:00 UTC).
 
@@ -71,7 +71,7 @@ _META_COLS = frozenset(
 )
 
 
-class MLTrainingComputeAgent(BaseDaemon):
+class MLTrainer(BaseDaemon):
     """Nightly LightGBM training agent.
 
     Runs as a systemd Type=oneshot service, training segment models and registering

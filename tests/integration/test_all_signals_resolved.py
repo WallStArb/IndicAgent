@@ -13,7 +13,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from services.signal_replay_auditor_agent import SignalReplayAuditorAgent
+from services.signal_replay_auditor_agent import SignalReplayAuditor
 from src.config.settings import get_settings
 
 pytestmark = pytest.mark.integration
@@ -119,7 +119,7 @@ async def test_all_signals_resolved():
                 )
 
         # Run one replay cycle
-        agent = SignalReplayAuditorAgent()
+        agent = SignalReplayAuditor()
         await agent._setup()
         try:
             # Run single replay cycle
@@ -127,7 +127,7 @@ async def test_all_signals_resolved():
         finally:
             await agent._teardown()
 
-        # Wait briefly for LifecycleWriterAgent to apply transitions
+        # Wait briefly for LifecycleWriter to apply transitions
         await asyncio.sleep(2)
 
         # Assert: zero unresolved v1 signals (north star invariant)

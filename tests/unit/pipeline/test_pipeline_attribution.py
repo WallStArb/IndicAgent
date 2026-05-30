@@ -17,7 +17,7 @@ from src.persistence.repository.signal_ledger_repository import (
 )
 
 # ---------------------------------------------------------------------------
-# Invariant helpers (mirror the logic from IntelligencePipelineComputeAgent)
+# Invariant helpers (mirror the logic from IntelligencePipeline)
 # ---------------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for OutputQueue (extracted from IntelligencePipelineComputeAgent).
+"""Unit tests for OutputQueue (extracted from IntelligencePipeline).
 
 Exercises the class in isolation using fakes — no full agent instantiation.
 Tests verify: drop-on-full, blocking back-pressure, drain publishes via msg= kwarg,

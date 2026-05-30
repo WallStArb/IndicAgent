@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IBKRProviderAgent — thin subclass of BaseProvider for IBKR.
+"""IBKRProvider — thin subclass of BaseProvider for IBKR.
 
 Delegates all lifecycle, metrics, reconnect, and gap-fill logic to
 BaseProvider. This file only describes what makes IBKR unique:
@@ -17,7 +17,7 @@ from src.providers.base_provider_agent import BaseProvider
 from src.providers.ibkr_adapter import IBKRAdapter
 
 
-class IBKRProviderAgent(BaseProvider):
+class IBKRProvider(BaseProvider):
     """IBKR-specific provider agent.
 
     One thin subclass — all heavy lifting in BaseProvider.
@@ -42,5 +42,5 @@ class IBKRProviderAgent(BaseProvider):
 if __name__ == "__main__":
     import asyncio
 
-    agent = IBKRProviderAgent()
+    agent = IBKRProvider()
     asyncio.run(agent.start())
