@@ -90,9 +90,9 @@ async def system_health() -> dict:
     }
 
     async def _query(session: aiohttp.ClientSession, query: str) -> list:
-        async with session.get(prom_url, params={"query": query}) as resp:
-            if resp.status == 200:
-                data = await resp.json()
+        async with session.get(prom_url, params={"query": query}) as response:
+            if response.status == 200:
+                data = await response.json()
                 return data.get("data", {}).get("result", [])
             return []
 
