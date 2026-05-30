@@ -1048,6 +1048,28 @@ Plans:
 
 **Plans**: TBD (2 plans written from v2.7, not yet executed)
 
+### Phase 110: Renaissance Rename
+
+**Goal**: Align the entire codebase vocabulary with the Ring/taxonomy naming system. Retire `Agent` suffix from Ring 0 infrastructure and Ring 2 daemons. Rename Ring 1 AI evaluation classes to their mathematical object names. Update file names, systemd units, imports, and Ring 3 surface strings. Clean break — no compatibility aliases.
+**Depends on**: Phase 094
+**Requirements**: RENAME-01, RENAME-02, RENAME-03, RENAME-04
+**Success Criteria** (what must be TRUE):
+
+  1. `git grep -rn "BaseAgent\|BaseWriterAgent\|BaseProviderAgent\|BaseAIAgent\|BaseGroupService\|AgentContext\|AgentProtocol" src/core/` returns zero results; 7 Ring 0 base classes renamed per Section 9 of naming spec
+  2. All 9 Ring 1 AI evaluation classes renamed (e.g. `SkepticComputeAgent` → `SkepticEvaluator`); `AIContext` → `SignalContext`; `git grep` finds zero old Ring 1 names
+  3. All 33 Ring 2 daemon processes renamed per Section 9; file names updated (`_agent` suffix retired from Ring 2 files); `git grep -rn "ComputeAgent\|WriterAgent\|ProviderAgent\|AuditorAgent\|GroupService"` returns zero results in `services/`
+  4. systemd unit files, API imports, and dashboard display strings updated; `pytest tests/unit/ -q` passes with zero failures; `ruff check .` passes
+
+**Execution**: Atomic branch `rename/phase-110`; 4 waves executed sequentially (Ring 0 → Ring 1 → Ring 2 → file/systemd/imports); fast-forward merge to main when all criteria pass.
+
+**Plans**: 4 plans in 4 waves (sequential)
+
+Plans:
+- [ ] 110-01-PLAN.md — Wave 1: rename 5 Ring 0 base classes (BaseAgent→BaseDaemon, etc.)
+- [ ] 110-02-PLAN.md — Wave 2: rename Ring 1 AI evaluation layer + move Evaluator to src/core/ai/evaluator.py
+- [ ] 110-03-PLAN.md — Wave 3: rename 33 Ring 2 daemon classes (agent_id labels preserved)
+- [ ] 110-04-PLAN.md — Wave 4: file renames, systemd ExecStart, API/Tier3 fixes, dashboard, CLAUDE.md
+
 ### Phase 095: Pydantic AI Agent Execution Layer
 
 **Goal**: Build a generic, inheritable Pydantic AI foundation at the base class level — `IndicAgentModel` bridge, `result_type` ClassVar on `BaseMultiplierAgent`, `AgentDeps` typed container — so every new AI agent gets typed structured output, auto-retry, tool calling, and audit trail for free. `SkepticComputeAgentV2` is the reference shadow implementation proving the pattern.
@@ -1394,6 +1416,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
+| 110. Renaissance Rename | v2.8 | 0/TBD | Not started | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
