@@ -24,22 +24,11 @@ from src.observability.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger(__name__)
 
-# Module-level circuit breakers — shared across all LiteLLMBackend instances so
-# an attacker cannot instantiate a fresh breaker with no failure history.
-# Use CircuitBreaker (observability) for its allow_request/record_success/record_failure
-# manual-tracking API. PluginCircuitBreaker is preserved for the config constants below.
-_OLLAMA_CB = CircuitBreaker(
-    failure_threshold=5,
-    timeout_sec=60,
-    name="litellm_ollama",
-)
-_REMOTE_CB = CircuitBreaker(
-    failure_threshold=3,
-    timeout_sec=300,
-    name="litellm_remote",
-)
-
-# Circuit breaker configs preserved for reference (match plan spec)
+# Circuit breaker configs (plan spec). CircuitBreakerConfig carries more fields than
+# the observability CircuitBreaker constructor supports (e.g. success_threshold,
+# max_half_open_calls, failure_window, performance_threshold_ms are not wired in);
+# those advanced fields are preserved here for future use as the circuit breaker
+# implementation matures.
 _OLLAMA_CB_CONFIG = CircuitBreakerConfig(
     failure_threshold=5,
     recovery_timeout=60,
@@ -55,6 +44,22 @@ _REMOTE_CB_CONFIG = CircuitBreakerConfig(
     max_half_open_calls=3,
     failure_window=60,
     performance_threshold_ms=60000.0,
+)
+
+# Module-level circuit breakers — shared across all LiteLLMBackend instances so
+# an attacker cannot instantiate a fresh breaker with no failure history.
+# Use CircuitBreaker (observability) for its allow_request/record_success/record_failure
+# manual-tracking API. Constructed from the config constants above so changes to the
+# configs take effect without hunting for the hardcoded values below.
+_OLLAMA_CB = CircuitBreaker(
+    failure_threshold=_OLLAMA_CB_CONFIG.failure_threshold,
+    timeout_sec=_OLLAMA_CB_CONFIG.recovery_timeout,
+    name="litellm_ollama",
+)
+_REMOTE_CB = CircuitBreaker(
+    failure_threshold=_REMOTE_CB_CONFIG.failure_threshold,
+    timeout_sec=_REMOTE_CB_CONFIG.recovery_timeout,
+    name="litellm_remote",
 )
 
 
