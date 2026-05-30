@@ -1,7 +1,7 @@
 """graduation.py -- Pure-function validation module for alpha modifier graduation.
 
 Single source of truth for graduation gate constants and Renaissance compute
-functions. Used by both GraduationComputeAgent (always-on) and
+functions. Used by both GraduationAnalyzer (always-on) and
 scripts/validate_skeptic.py (on-demand CLI).
 
 DataFrame input contract: columns ``multiplier`` (float) and ``pnl_r`` (float).

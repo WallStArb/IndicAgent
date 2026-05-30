@@ -1,4 +1,4 @@
-"""BarReplayProviderAgent — L1 one-shot.
+"""BarReplayProvider — L1 one-shot.
 
 Phase 81. Reads market_data_ohlcv chronologically and feeds bars into the
 pipeline via market.bars (1m) and market.bars.htf (HTF). Self-terminates
@@ -35,7 +35,7 @@ BATCH_SIZE = 1000
 DEFAULT_RATE_BPS = float(os.environ.get("BAR_REPLAY_BARS_PER_SEC", "10"))
 
 
-class BarReplayProviderAgent(BaseDaemon):
+class BarReplayProvider(BaseDaemon):
     """One-shot L1 provider that replays market_data_ohlcv into the pipeline.
 
     Publishes 1m bars to topic_market_bars and HTF bars to topic_market_bars_htf,
@@ -159,4 +159,4 @@ class BarReplayProviderAgent(BaseDaemon):
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(BarReplayProviderAgent().main()))
+    sys.exit(asyncio.run(BarReplayProvider().main()))

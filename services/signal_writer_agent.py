@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Signal Writer Agent — persists all I7 signals to signal_ledger hypertable.
 
-Subscribes to intelligence.i7.signals (published by IntelligencePipelineComputeAgent
+Subscribes to intelligence.i7.signals (published by IntelligencePipeline
 after each bar's I7 run). Converts signal dicts to LedgerEntry objects and
 batch-inserts to signal_ledger via SignalLedgerRepository.
 
@@ -40,7 +40,7 @@ from src.persistence.repository.signal_ledger_repository import (
 CONSUMER_GROUP = "signal_writer_group"
 
 
-class SignalWriterAgent(BaseWriter):
+class SignalWriter(BaseWriter):
     """WriterAgent: intelligence.i7.signals -> signal_ledger.
 
     Consumes I7 signals and batch-inserts them to signal_ledger hypertable.
@@ -240,5 +240,5 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
 
 
 if __name__ == "__main__":
-    agent = SignalWriterAgent()
+    agent = SignalWriter()
     asyncio.run(agent.start())

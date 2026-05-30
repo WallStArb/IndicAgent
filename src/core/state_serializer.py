@@ -1,4 +1,4 @@
-"""State checkpoint serializer for IntelligencePipelineComputeAgent.
+"""State checkpoint serializer for IntelligencePipeline.
 
 Converts full agent state dicts (containing numpy arrays, Pydantic models,
 deques, and primitives) to/from msgpack bytes via explicit type tagging.

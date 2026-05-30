@@ -250,7 +250,7 @@ class KafkaConsumerClient:
 
         Returns {TopicPartition: [ConsumerRecord, ...]} immediately with any
         buffered messages (when timeout_ms=0). Used by agents that need to drain
-        messages without blocking (e.g. BarAuditorAgent contract cache invalidation).
+        messages without blocking (e.g. BarAuditor contract cache invalidation).
         """
         return await self._consumer.getmany(timeout_ms=timeout_ms, max_records=max_records)
 

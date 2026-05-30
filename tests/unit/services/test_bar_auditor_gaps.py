@@ -1,17 +1,17 @@
-"""Tests for BarAuditorAgent market_data_gaps write path and DLQ routing."""
+"""Tests for BarAuditor market_data_gaps write path and DLQ routing."""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.bar_auditor_agent import BarAuditorAgent
+from services.bar_auditor_agent import BarAuditor
 
 
 @pytest.mark.asyncio
 async def test_upsert_gap_on_incomplete_audit():
     """UPSERT a gap row when completeness < threshold."""
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
@@ -32,7 +32,7 @@ async def test_upsert_gap_on_incomplete_audit():
 @pytest.mark.asyncio
 async def test_resolve_gap_on_complete_audit():
     """Mark an open gap as resolved when completeness reaches 100%."""
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
@@ -53,7 +53,7 @@ async def test_resolve_gap_on_complete_audit():
 @pytest.mark.asyncio
 async def test_resolve_gap_noop_when_no_open_gap():
     """No UPDATE when no open gap exists (fetchval returns None)."""
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="test")
 
     conn = AsyncMock()
@@ -84,7 +84,7 @@ async def test_dlq_published_on_retry_exhaustion():
 
     mock_dlq_depth = MagicMock()
 
-    agent = BarAuditorAgent.__new__(BarAuditorAgent)
+    agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
     agent._kafka_producer = AsyncMock()

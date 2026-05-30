@@ -35,10 +35,10 @@ def _make_htf_bar(symbol: str, tf: str, ts: datetime) -> BarMessage:
 
 
 def _make_agent():
-    """Create a BarAggregatorComputeAgent bypassing __init__ Kafka setup."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    """Create a BarAggregator bypassing __init__ Kafka setup."""
+    from services.bar_aggregator_agent import BarAggregator
 
-    agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
+    agent = BarAggregator.__new__(BarAggregator)
     agent.name = "bar_aggregator_agent"
     agent._stop_event = asyncio.Event()
     agent._env_name = "dev"
@@ -76,12 +76,12 @@ def _make_agent():
 @pytest.mark.asyncio
 async def test_malformed_bar_routes_to_dlq():
     """A bar payload that fails parsing must be sent to the DLQ, not silently dropped."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    from services.bar_aggregator_agent import BarAggregator
 
     agent = _make_agent()
 
     # Patch _parse_bar to return None (simulates parse failure)
-    with patch.object(BarAggregatorComputeAgent, "_parse_bar", return_value=None):
+    with patch.object(BarAggregator, "_parse_bar", return_value=None):
         # Call the DLQ routing path directly as the consume loop would
         raw_payload = {"bad": "data", "corrupted": True}
 
@@ -178,7 +178,7 @@ async def test_different_period_ts_both_emitted():
 
 
 def test_last_emitted_initialized():
-    """BarAggregatorComputeAgent.__init__ must set _last_emitted as empty dict."""
+    """BarAggregator.__init__ must set _last_emitted as empty dict."""
 
     # We can't call __init__ without Prometheus conflicts, so verify via the
     # real attribute access pattern used by _make_agent helper above.

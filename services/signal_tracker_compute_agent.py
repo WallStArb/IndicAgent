@@ -93,12 +93,12 @@ class SignalState:
     bars_since_activation: int = 0
 
 
-class SignalTrackerComputeAgent(BaseDaemon):
+class SignalTracker(BaseDaemon):
     """DB-ignorant lifecycle evaluation agent.
 
     Consumes bars from Kafka, evaluates signal lifecycle transitions using
     evaluate_signal(), and publishes transitions to lifecycle.transitions topic
-    for LifecycleWriterAgent to persist.
+    for LifecycleWriter to persist.
 
     Invariants:
       - Never writes to DB (bootstrap is the only read)
@@ -1011,7 +1011,7 @@ class SignalTrackerComputeAgent(BaseDaemon):
 
 
 async def main() -> None:
-    agent = SignalTrackerComputeAgent()
+    agent = SignalTracker()
     try:
         await agent.start()
     except KeyboardInterrupt:

@@ -1,4 +1,4 @@
-"""Unit tests for GraduationComputeAgent.
+"""Unit tests for GraduationAnalyzer.
 
 Tests use the __new__ bypass pattern per CLAUDE.md to avoid hitting
 __init__ infrastructure (asyncpg pool, Kafka clients, metrics registration).
@@ -15,7 +15,7 @@ import pytest
 from services.graduation_compute_agent import (
     _EVAL_QUERY,
     CONSUMER_GROUP,
-    GraduationComputeAgent,
+    GraduationAnalyzer,
 )
 from src.intelligence.swarm.graduation import EVAL_RESOLUTION_THRESHOLD
 
@@ -53,10 +53,10 @@ def test_eval_query_filters_by_transform_and_segment():
 # ---------------------------------------------------------------------------
 
 
-def _make_agent() -> GraduationComputeAgent:
+def _make_agent() -> GraduationAnalyzer:
     """Bypass __init__ — set required attributes manually."""
-    a = GraduationComputeAgent.__new__(GraduationComputeAgent)
-    a.name = "GraduationComputeAgent"
+    a = GraduationAnalyzer.__new__(GraduationAnalyzer)
+    a.name = "GraduationAnalyzer"
     a.logger = MagicMock()
     a._pool = MagicMock()
     a._producer = AsyncMock()
@@ -68,7 +68,7 @@ def _make_agent() -> GraduationComputeAgent:
     a.settings = MagicMock(env_name="dev")
     a._stop_event = MagicMock()
     a._stop_event.is_set.return_value = False
-    a._dlq_attrs = {"agent_id": "GraduationComputeAgent"}
+    a._dlq_attrs = {"agent_id": "GraduationAnalyzer"}
     return a
 
 

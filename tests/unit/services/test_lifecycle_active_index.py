@@ -24,7 +24,7 @@ class TestActiveIndexLookup:
     def test_active_index_lookup_returns_matching_signals(self):
         """Lookup by (symbol, tf) tuple returns the correct signals."""
         from services.signal_tracker_compute_agent import (
-            SignalTrackerComputeAgent as SignalTrackerAgent,
+            SignalTracker as SignalTrackerAgent,
         )
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
@@ -39,7 +39,7 @@ class TestActiveIndexLookup:
     def test_active_index_returns_empty_for_unknown_key(self):
         """Lookup for a key with no signals returns empty list — no KeyError."""
         from services.signal_tracker_compute_agent import (
-            SignalTrackerComputeAgent as SignalTrackerAgent,
+            SignalTracker as SignalTrackerAgent,
         )
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
@@ -51,7 +51,7 @@ class TestActiveIndexLookup:
     def test_active_index_isolates_keys(self):
         """Signals for one (symbol, tf) key do not bleed into another."""
         from services.signal_tracker_compute_agent import (
-            SignalTrackerComputeAgent as SignalTrackerAgent,
+            SignalTracker as SignalTrackerAgent,
         )
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
@@ -82,7 +82,7 @@ class TestRemoveFromIndex:
         from unittest.mock import MagicMock
 
         from services.signal_tracker_compute_agent import (
-            SignalTrackerComputeAgent as SignalTrackerAgent,
+            SignalTracker as SignalTrackerAgent,
         )
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
@@ -106,7 +106,7 @@ class TestRemoveFromIndex:
         from unittest.mock import MagicMock
 
         from services.signal_tracker_compute_agent import (
-            SignalTrackerComputeAgent as SignalTrackerAgent,
+            SignalTracker as SignalTrackerAgent,
         )
 
         svc = SignalTrackerAgent.__new__(SignalTrackerAgent)

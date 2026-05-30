@@ -311,11 +311,11 @@ AI_AGENT_ERRORS_TOTAL = _meter.create_counter(
 
 FEATURE_IC_SCORE = _meter.create_up_down_counter(
     "feature_ic_score",
-    description="Information coefficient per feature per regime (updated weekly by MLDiscoveryComputeAgent)",
+    description="Information coefficient per feature per regime (updated weekly by MLDiscoveryAnalyzer)",
 )
 DATA_QUALITY_SCORE = _meter.create_up_down_counter(
     "data_quality_score",
-    description="Training data quality score 0-1 (updated by MLDataQualityAuditorAgent)",
+    description="Training data quality score 0-1 (updated by DataQualityAuditor)",
 )
 
 # ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ DATA_QUALITY_SCORE = _meter.create_up_down_counter(
 
 SERVICE_AUDITOR_SERVICE_RESTARTS_TOTAL = _meter.create_counter(
     "service_auditor_service_restarts_total",
-    description="Total service restarts triggered by ServiceAuditorAgent",
+    description="Total service restarts triggered by ServiceAuditor",
 )
 BAR_AUDITOR_GAP_FILL_DLQ_DEPTH = _meter.create_counter(
     "bar_auditor_gap_fill_dlq_depth",
@@ -714,7 +714,7 @@ SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = _meter.create_counter(
 
 BAR_REPLAY_PROVIDER_BARS_PUBLISHED_TOTAL = _meter.create_counter(
     "bar_replay_provider_bars_published_total",
-    description="Bars published by BarReplayProviderAgent (progress tracking)",
+    description="Bars published by BarReplayProvider (progress tracking)",
 )
 
 BAR_REPLAY_PROVIDER_LAG_SECONDS = _meter.create_up_down_counter(

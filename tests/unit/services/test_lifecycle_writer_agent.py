@@ -1,4 +1,4 @@
-"""Unit tests for LifecycleWriterAgent.
+"""Unit tests for LifecycleWriter.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
 Tests structural contract, buffer accumulation, flush grouping by transition type,
@@ -14,10 +14,10 @@ import pytest
 
 
 def _make_agent():
-    """Build a minimal LifecycleWriterAgent bypassing __init__."""
-    from services.lifecycle_writer_agent import LifecycleWriterAgent
+    """Build a minimal LifecycleWriter bypassing __init__."""
+    from services.lifecycle_writer_agent import LifecycleWriter
 
-    agent = LifecycleWriterAgent.__new__(LifecycleWriterAgent)
+    agent = LifecycleWriter.__new__(LifecycleWriter)
     agent.logger = MagicMock()
     agent._settings = MagicMock()
     agent._settings.database_url = "postgresql://postgres@localhost/indicagent"
@@ -71,7 +71,7 @@ def _make_transition(
 class TestLifecycleWriterAgentStructure:
     def test_class_name(self):
         source = open("services/lifecycle_writer_agent.py").read()
-        assert "LifecycleWriterAgent" in source
+        assert "LifecycleWriter" in source
 
     def test_inherits_base_writer_agent(self):
         source = open("services/lifecycle_writer_agent.py").read()

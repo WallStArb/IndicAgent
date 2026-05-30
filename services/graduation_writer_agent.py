@@ -44,7 +44,7 @@ _REQUIRED_KEYS = (
 )
 
 
-class GraduationWriterAgent(BaseWriter):
+class GraduationWriter(BaseWriter):
     """WriterAgent: topic_transform_graduation -> transform_graduation upserts."""
 
     BATCH_SIZE = 50
@@ -126,5 +126,5 @@ class GraduationWriterAgent(BaseWriter):
 
 
 if __name__ == "__main__":
-    agent = GraduationWriterAgent()
+    agent = GraduationWriter()
     asyncio.run(agent.start())

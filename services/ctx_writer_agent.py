@@ -62,7 +62,7 @@ ON CONFLICT (symbol, event_type, valid_from) DO UPDATE
 """
 
 
-class CtxWriterAgent(BaseWriter):
+class ContextWriter(BaseWriter):
     """WriterAgent: ctx.snapshot -> ctx_events + ctx_snapshots batch writes."""
 
     BATCH_SIZE = 50
@@ -83,7 +83,7 @@ class CtxWriterAgent(BaseWriter):
         # Metrics — Golden Signals
         self._events_consumed = counter(
             "ctx_writer_events_consumed_total",
-            "Kafka messages consumed by CtxWriterAgent",
+            "Kafka messages consumed by ContextWriter",
         )
         self._events_written = counter(
             "ctx_writer_events_written_total",
@@ -369,7 +369,7 @@ class CtxWriterAgent(BaseWriter):
     async def _flush_batch(self, batch: list) -> None:
         """Required abstract method — actual flush is via _do_flush()/_flush()."""
         # This path is used by BaseWriter._do_flush when called from
-        # the default _run() loop. In CtxWriterAgent we override _run() and
+        # the default _run() loop. In ContextWriter we override _run() and
         # _do_flush() directly, so this method is a no-op safety fallback.
         pass
 
@@ -404,7 +404,7 @@ class CtxWriterAgent(BaseWriter):
 
 async def main() -> None:
     setup_service_logging("logs/ctx_writer_agent.log")
-    agent = CtxWriterAgent()
+    agent = ContextWriter()
     try:
         await agent.start()
     except KeyboardInterrupt:

@@ -1,6 +1,6 @@
-"""Unit tests for ProviderMergerComputeAgent — TDD tests for Plan 54-04.
+"""Unit tests for ProviderMerger — TDD tests for Plan 54-04.
 
-Tests ProviderMergerComputeAgent structural contract (BaseDaemon inheritance, consumer group),
+Tests ProviderMerger structural contract (BaseDaemon inheritance, consumer group),
 routing contract (authoritative -> market.bars, non-authoritative dropped),
 quality event contract (ProviderQualityEvent published per bar),
 and failover/recovery contract (primary silence -> promote secondary).
@@ -18,7 +18,7 @@ import pytest
 from src.core.schemas.bar_message import BarMessage, SessionType
 
 # ---------------------------------------------------------------------------
-# Helpers: build a minimal ProviderMergerComputeAgent bypassing __init__
+# Helpers: build a minimal ProviderMerger bypassing __init__
 # ---------------------------------------------------------------------------
 
 _SOURCE_IBKR_GENERIC = "ibkr"
@@ -51,10 +51,10 @@ def _make_agent(
     provider_routing_config: dict[str, str] | None = None,
     provider_silence_bars_threshold: int = 5,
 ):
-    """Build ProviderMergerComputeAgent using __new__ (service test pattern)."""
-    from services.provider_merger_agent import ProviderMergerComputeAgent
+    """Build ProviderMerger using __new__ (service test pattern)."""
+    from services.provider_merger_agent import ProviderMerger
 
-    agent = ProviderMergerComputeAgent.__new__(ProviderMergerComputeAgent)
+    agent = ProviderMerger.__new__(ProviderMerger)
     agent.name = "provider_merger_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -97,11 +97,11 @@ def _make_agent(
 
 
 def test_inherits_base_agent() -> None:
-    """ProviderMergerComputeAgent must be a BaseDaemon subclass."""
-    from services.provider_merger_agent import ProviderMergerComputeAgent
+    """ProviderMerger must be a BaseDaemon subclass."""
+    from services.provider_merger_agent import ProviderMerger
     from src.core.agent.base import BaseDaemon
 
-    assert issubclass(ProviderMergerComputeAgent, BaseDaemon)
+    assert issubclass(ProviderMerger, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------

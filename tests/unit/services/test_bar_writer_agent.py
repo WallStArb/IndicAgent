@@ -1,6 +1,6 @@
-"""Unit tests for BarWriterAgent — TDD tests for Plan 053.1-01 + Plan 63-06.
+"""Unit tests for BarWriter — TDD tests for Plan 053.1-01 + Plan 63-06.
 
-Tests BarWriterAgent structural contract (BaseWriter inheritance, topics, metrics),
+Tests BarWriter structural contract (BaseWriter inheritance, topics, metrics),
 behavioral contract (parse payload, flush batch, source tagging, error handling),
 Golden Signals metrics, and contract cache invalidation.
 
@@ -16,15 +16,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # ---------------------------------------------------------------------------
-# Helpers: build a minimal BarWriterAgent bypassing __init__
+# Helpers: build a minimal BarWriter bypassing __init__
 # ---------------------------------------------------------------------------
 
 
 def _make_agent():
-    """Build BarWriterAgent using __new__ (service test pattern)."""
-    from services.bar_writer_agent import BarWriterAgent
+    """Build BarWriter using __new__ (service test pattern)."""
+    from services.bar_writer_agent import BarWriter
 
-    agent = BarWriterAgent.__new__(BarWriterAgent)
+    agent = BarWriter.__new__(BarWriter)
     agent.name = "bar_writer_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -90,18 +90,18 @@ def _make_bar_payload(tf: str = "1m", symbol: str = "ESM6") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: BarWriterAgent inherits from BaseWriter
+# Test 1: BarWriter inherits from BaseWriter
 # ---------------------------------------------------------------------------
 
 
 def test_init_name():
-    """BarWriterAgent must inherit from BaseWriter (and BaseDaemon)."""
-    from services.bar_writer_agent import BarWriterAgent
+    """BarWriter must inherit from BaseWriter (and BaseDaemon)."""
+    from services.bar_writer_agent import BarWriter
     from src.core.agent.base import BaseDaemon
     from src.core.agent.base_writer import BaseWriter
 
-    assert issubclass(BarWriterAgent, BaseWriter)
-    assert issubclass(BarWriterAgent, BaseDaemon)
+    assert issubclass(BarWriter, BaseWriter)
+    assert issubclass(BarWriter, BaseDaemon)
 
 
 # ---------------------------------------------------------------------------

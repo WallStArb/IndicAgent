@@ -64,7 +64,7 @@ def _ensure_datetimes(entry: dict) -> None:
             entry[key] = parse_iso_ts(val)
 
 
-class LifecycleWriterAgent(BaseWriter):
+class LifecycleWriter(BaseWriter):
     """WriterAgent: lifecycle.transitions -> signal_ledger batch updates."""
 
     BATCH_SIZE = 100
@@ -227,5 +227,5 @@ UPDATE signal_outcomes
 
 
 if __name__ == "__main__":
-    agent = LifecycleWriterAgent()
+    agent = LifecycleWriter()
     asyncio.run(agent.start())

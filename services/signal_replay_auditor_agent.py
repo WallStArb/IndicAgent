@@ -1,4 +1,4 @@
-"""SignalReplayAuditorAgent — L9 periodic outcome recovery.
+"""SignalReplayAuditor — L9 periodic outcome recovery.
 
 Phase 81 Plan 05. On a fast cycle, finds v1 signals with exit_at IS NULL
 past their TTL window and replays them bar-by-bar against market_data_ohlcv
@@ -7,7 +7,7 @@ to compute outcomes that the live tracker missed (restart, edge cases, gaps).
 Two-path safety contract:
   - Live tracker is fast and usually correct.
   - Replay catches everything the live tracker missed.
-  - LifecycleWriterAgent EXIT guard (WHERE exit_at IS NULL) ensures the
+  - LifecycleWriter EXIT guard (WHERE exit_at IS NULL) ensures the
     second writer is always a safe no-op (first writer wins).
 
 North-star metric: signal_replay_unresolved_gauge == 0.
@@ -49,7 +49,7 @@ from src.observability.metrics import (
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 
-class SignalReplayAuditorAgent(BaseDaemon):
+class SignalReplayAuditor(BaseDaemon):
     """L9 periodic: recovers outcome labels for v1 signals the live tracker missed."""
 
     agent_id = "signal_replay_auditor"
@@ -507,4 +507,4 @@ class SignalReplayAuditorAgent(BaseDaemon):
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(SignalReplayAuditorAgent().main()))
+    sys.exit(asyncio.run(SignalReplayAuditor().main()))

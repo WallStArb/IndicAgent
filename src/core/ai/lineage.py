@@ -2,7 +2,7 @@
 
 Replaces ShadowRecorder + TransformRecorder with a single Kafka-first recorder.
 Hot path publishes to topic_signal_lineage() Kafka topic (D-46).
-LineageWriterAgent consumes and persists to signal_lineage hypertable.
+LineageWriter consumes and persists to signal_lineage hypertable.
 """
 
 from __future__ import annotations

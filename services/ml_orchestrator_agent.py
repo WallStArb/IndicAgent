@@ -1,4 +1,4 @@
-"""MLOrchestratorComputeAgent -- LangGraph orchestrator for weekly ML pipeline.
+"""MLOrchestrator -- LangGraph orchestrator for weekly ML pipeline.
 
 Timer-triggered: indicagent-ml-orchestrator.timer (Monday 04:00 UTC).
 One-shot: runs LangGraph StateGraph, then exits.
@@ -53,7 +53,7 @@ class MLOrchestrationState(TypedDict):
     last_error: str | None
 
 
-class MLOrchestratorComputeAgent(BaseDaemon):
+class MLOrchestrator(BaseDaemon):
     """Weekly ML pipeline orchestrator using LangGraph StateGraph."""
 
     def __init__(self, settings: Settings) -> None:
@@ -232,7 +232,7 @@ class MLOrchestratorComputeAgent(BaseDaemon):
 
 def main() -> None:
     settings = Settings()
-    agent = MLOrchestratorComputeAgent(settings)
+    agent = MLOrchestrator(settings)
     asyncio.run(agent.start())
 
 

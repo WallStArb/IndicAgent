@@ -275,7 +275,7 @@ class ConfigConsumerMixin:
     async def _on_config_message_received(self, key: str, value: Any) -> None:
         """No-op hook called after each accepted Kafka config message is cached.
 
-        Subclasses (e.g., ServiceAuditorAgent in Plan 05 Task 3) override this to
+        Subclasses (e.g., ServiceAuditor in Plan 05 Task 3) override this to
         react to specific config_key updates (e.g., reload lag-threshold map on
         alert.lag.* keys) WITHOUT having to override the whole _reload_config_loop.
 

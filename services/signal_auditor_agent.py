@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SignalAuditorAgent — coverage validation and lag monitoring for signal_ledger.
+"""SignalAuditor — coverage validation and lag monitoring for signal_ledger.
 
 Runs a 5-minute audit loop during market hours. Checks:
 1. Signal coverage per (symbol, tf) — at least one signal fired in the last session
@@ -76,7 +76,7 @@ _CIS_STDDEV = _sa_meter.create_up_down_counter(
 )
 
 
-class SignalAuditorAgent(BaseDaemon):
+class SignalAuditor(BaseDaemon):
     """Validates signal coverage and pipeline health via periodic audits.
 
     Runs a 5-minute audit loop during market hours (plus 30-min buffer).
@@ -348,4 +348,4 @@ class SignalAuditorAgent(BaseDaemon):
 
 
 if __name__ == "__main__":
-    asyncio.run(SignalAuditorAgent().start())
+    asyncio.run(SignalAuditor().start())

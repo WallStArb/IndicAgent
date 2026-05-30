@@ -1,4 +1,4 @@
-"""MLDataQualityAuditorAgent — weekly training data quality check.
+"""DataQualityAuditor — weekly training data quality check.
 
 Timer-triggered: indicagent-ml-data-quality.timer (Monday 05:00 UTC).
 One-shot: runs checks, emits metrics, publishes alert if score < threshold, exits.
@@ -43,12 +43,12 @@ _W_GAPS = 0.20
 _W_OUTLIERS = 0.20
 
 
-class MLDataQualityAuditorAgent(BaseDaemon):
+class DataQualityAuditor(BaseDaemon):
     """One-shot data quality auditor. Runs once and exits."""
 
     def __init__(self, settings: Settings) -> None:
         setup_service_logging("logs/ml_data_quality_agent.log")
-        super().__init__("MLDataQualityAuditorAgent")
+        super().__init__("DataQualityAuditor")
         self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._producer = KafkaProducerClient(
@@ -213,7 +213,7 @@ class MLDataQualityAuditorAgent(BaseDaemon):
 
 def main() -> None:
     settings = Settings()
-    agent = MLDataQualityAuditorAgent(settings)
+    agent = DataQualityAuditor(settings)
     asyncio.run(agent.start())
 
 

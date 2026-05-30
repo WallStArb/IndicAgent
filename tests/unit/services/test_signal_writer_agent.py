@@ -1,4 +1,4 @@
-"""Unit tests for SignalWriterAgent.
+"""Unit tests for SignalWriter.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
 Tests structural contract, _payload_to_ledger_entries conversion, and flush behavior.
@@ -14,10 +14,10 @@ import pytest
 
 
 def _make_agent():
-    """Build a minimal SignalWriterAgent bypassing __init__."""
-    from services.signal_writer_agent import SignalWriterAgent
+    """Build a minimal SignalWriter bypassing __init__."""
+    from services.signal_writer_agent import SignalWriter
 
-    agent = SignalWriterAgent.__new__(SignalWriterAgent)
+    agent = SignalWriter.__new__(SignalWriter)
     agent.logger = MagicMock()
     agent._settings = MagicMock()
     agent._settings.database_url = "postgresql://postgres@localhost/indicagent"
@@ -93,16 +93,16 @@ class TestSignalWriterAgentStructure:
 
     def test_batch_size_and_flush_interval_defined(self):
         """BATCH_SIZE and FLUSH_INTERVAL_SECS are class-level on BaseWriter subclass."""
-        from services.signal_writer_agent import SignalWriterAgent
+        from services.signal_writer_agent import SignalWriter
 
-        assert SignalWriterAgent.BATCH_SIZE > 0
-        assert SignalWriterAgent.FLUSH_INTERVAL_SECS > 0
+        assert SignalWriter.BATCH_SIZE > 0
+        assert SignalWriter.FLUSH_INTERVAL_SECS > 0
 
     def test_inherits_base_writer_agent(self):
-        from services.signal_writer_agent import SignalWriterAgent
+        from services.signal_writer_agent import SignalWriter
         from src.core.agent.base_writer import BaseWriter
 
-        assert issubclass(SignalWriterAgent, BaseWriter)
+        assert issubclass(SignalWriter, BaseWriter)
 
 
 # ---------------------------------------------------------------------------

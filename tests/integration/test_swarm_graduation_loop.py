@@ -1,4 +1,4 @@
-"""Integration test for AlphaSwarmComputeAgent graduation loop.
+"""Integration test for AlphaSwarm graduation loop.
 
 Requires live TimescaleDB. Inserts signal_lineage + signal_ledger rows with
 rank-correlated prediction/pnl_r, runs one evaluation cycle, asserts state='live'.
@@ -31,7 +31,7 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
     import numpy as np
     from scipy.stats import spearmanr
 
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from services.alpha_swarm_agent import AlphaSwarm
     from src.config.settings import Settings
     from src.core.database_manager import create_pool as create_db_pool
 
@@ -97,7 +97,7 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
             )
 
     # Build agent with the live pool
-    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock()
     agent.settings.swarm_graduation_interval_s = 0
     agent.logger = MagicMock()

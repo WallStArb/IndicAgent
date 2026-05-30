@@ -37,9 +37,9 @@ def test_metrics_registered() -> None:
 async def test_aggregate_event_round_trips_to_writer() -> None:
     from unittest.mock import patch
 
-    from services.swarm_ledger_writer_agent import SwarmLedgerWriterAgent
+    from services.swarm_ledger_writer_agent import SwarmLedgerWriter
 
-    w = SwarmLedgerWriterAgent.__new__(SwarmLedgerWriterAgent)
+    w = SwarmLedgerWriter.__new__(SwarmLedgerWriter)
     w.settings = MagicMock()
     w.logger = MagicMock()
 
@@ -85,10 +85,10 @@ async def test_aggregate_event_round_trips_to_writer() -> None:
 
 def test_compute_final_multiplier_weighted_average() -> None:
     """Aggregator math: explicit weights override default 1/N."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from services.alpha_swarm_agent import AlphaSwarm
     from src.core.ai.output import AgentOutput
 
-    a = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    a = AlphaSwarm.__new__(AlphaSwarm)
     a.settings = MagicMock()
     a.logger = MagicMock()
     a._agents = []

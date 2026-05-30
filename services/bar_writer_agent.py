@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BarWriterAgent — dedicated OHLCV persistence agent.
+"""BarWriter — dedicated OHLCV persistence agent.
 
 Subscribes to market.bars (1m) + market.bars.htf (5m-1d), batch-writes
 to market_data_ohlcv with ON CONFLICT DO NOTHING for idempotent writes.
@@ -91,7 +91,7 @@ _CONTRACT_CACHE_RELOADS = _bw_meter.create_counter(
 )
 
 
-class BarWriterAgent(BaseWriter):
+class BarWriter(BaseWriter):
     """Dedicated OHLCV persistence agent.
 
     Consumes 1m bars from topic_market_bars and HTF bars from
@@ -404,7 +404,7 @@ class BarWriterAgent(BaseWriter):
 
 
 async def main() -> None:
-    agent = BarWriterAgent()
+    agent = BarWriter()
     await agent.start()
 
 

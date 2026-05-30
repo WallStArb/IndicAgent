@@ -51,7 +51,7 @@ def _mock_contracts():
 
 
 def _make_service(mock_contracts=None):
-    """Construct FeatureWriterAgent with infrastructure and DB mocked out."""
+    """Construct FeatureWriter with infrastructure and DB mocked out."""
     if mock_contracts is None:
         mock_contracts = _mock_contracts()
 
@@ -65,9 +65,9 @@ def _make_service(mock_contracts=None):
             return_value=[i.symbol for i in mock_contracts],
         ),
     ):
-        from services.feature_writer_agent import FeatureWriterAgent
+        from services.feature_writer_agent import FeatureWriter
 
-        service = FeatureWriterAgent.__new__(FeatureWriterAgent)
+        service = FeatureWriter.__new__(FeatureWriter)
         service.config = service._load_config(None)
     return service
 

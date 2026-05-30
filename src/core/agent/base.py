@@ -526,7 +526,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         return None
 
     async def _send_alert(self, severity: str, message: str, context: dict | None = None) -> None:
-        """Send alert to AlertingComputeAgent via Kafka.
+        """Send alert to AlertMonitor via Kafka.
 
         Args:
             severity: "CRITICAL" | "HIGH" | "MEDIUM"
@@ -534,7 +534,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             context: Optional structured context (symbol, tf, error details, etc.)
 
         No-op if producer not configured (agents without Kafka output).
-        AlertingComputeAgent routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
+        AlertMonitor routes: CRITICAL → Telegram, HIGH/MEDIUM → Discord.
         """
         if not hasattr(self, "_producer") or self._producer is None:
             return

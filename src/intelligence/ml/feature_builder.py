@@ -1,6 +1,6 @@
 """Feature matrix construction for ML training (Phase 070).
 
-Called from MLTrainingComputeAgent on the nightly training cycle.
+Called from MLTrainer on the nightly training cycle.
 Independent failure domain: any exception propagates to caller, which catches
 at the top level and exits 0 to preserve systemd timer cadence.
 
