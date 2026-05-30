@@ -610,7 +610,7 @@ Plans:
 
 - [x] 094-01-PLAN.md — AgentDeps dependency container (Wave 1)
 - [x] 094-02-PLAN.md — PydanticAIAdapter bridge class (Wave 1)
-- [ ] 094-03-PLAN.md — SkepticResult Pydantic model (Wave 2)
+- [x] 094-03-PLAN.md — SkepticResult Pydantic model (Wave 2)
 - [ ] 094-04-PLAN.md — SkepticComputeAgentPydantic implementation (Wave 2)
 - [ ] 094-05-PLAN.md — Service registration + pydantic-ai dependency (Wave 3)
 
@@ -1050,18 +1050,18 @@ Plans:
 
 ### Phase 095: Pydantic AI Agent Execution Layer
 
-**Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent. Skeptic is the reference implementation.
+**Goal**: Build a generic, inheritable Pydantic AI foundation at the base class level — `IndicAgentModel` bridge, `result_type` ClassVar on `BaseMultiplierAgent`, `AgentDeps` typed container — so every new AI agent gets typed structured output, auto-retry, tool calling, and audit trail for free. `SkepticComputeAgentV2` is the reference shadow implementation proving the pattern.
 **Depends on**: Phase 094
 **Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
 **Success Criteria** (what must be TRUE):
 
-  1. `PydanticAIAdapter` exists; calling `adapter.run(context)` produces the same `AgentOutput` as the legacy `_compute()` path, verified by a test against the Skeptic agent
-  2. `AgentDeps` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; agents access them via `RunContext[AgentDeps]`
-  3. Skeptic agent runs on Pydantic AI adapter in shadow mode (`shadow_only=True`); all other agents remain on `BaseAIAgent` unchanged
-  4. After >= 100 inferences, `calibrated_confidence` delta between Skeptic (Pydantic AI) and baseline is measured and logged; no automatic promotion
-  5. `BaseAIAgent` class is unchanged; unmigrated agents continue to pass all existing tests
+  1. `IndicAgentModel` exists as a custom Pydantic AI `Model` wrapping `LiteLLMModel`; `BaseMultiplierAgent` has `result_type: ClassVar` and `_run_typed()`; calling `self._run_typed(context, prompt, system)` produces the same `AgentOutput` as the legacy `_llm_generate()` path, verified by a test using `SkepticComputeAgentV2`
+  2. `AgentDeps` frozen dataclass at `src/core/ai/agent_deps.py` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; passed as `deps` to `pydantic_ai.Agent.run()` enabling tool calling in future phases
+  3. `SkepticComputeAgentV2` (shadow_only=True) runs via `_run_typed()` with `result_type=SkepticResult`; all other agents remain on `BaseAIAgent`/`_llm_generate()` unchanged
+  4. After >= 100 inferences, `calibrated_confidence` delta between `SkepticComputeAgentV2` and `SkepticComputeAgent` baseline is logged via structlog; tracked by inference counter in `shadow_registry`; no automatic promotion
+  5. `BaseAIAgent` class is unchanged; `_llm_generate()` signature and behavior unmodified; unmigrated agents pass all existing tests
 
-**Plans**: 5 plans in 3 waves (8 written from v2.7 iteration)
+**Plans**: 5 plans in 3 waves
 
 ### Phase 096: Agent Registry
 
@@ -1393,7 +1393,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
 | 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
-| 094. LiteLLM + Instructor Structured Output | v2.8 | 2/3 | In Progress|  |
+| 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete   | 2026-05-30 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
