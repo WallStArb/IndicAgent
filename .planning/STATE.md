@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 110 — renaissance-rename
+**Current focus:** Phase 111 — full-naming-alignment
 
 ## Current Position
 
-Phase: 110 (renaissance-rename) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 110
-Last activity: 2026-05-30 -- Phase 110 execution started
+Phase: 111 (full-naming-alignment) — PLANNED
+Plan: 0 of 4
+Status: Phase 111 planning complete — 4 plans in 4 sequential waves, ready to execute
+Last activity: 2026-05-30 -- Phase 111 planning complete (4 plans)
 
 **Sequencing decision (2026-05-30):** Phase 110 (rename) executes before Phase 095. Phase 095 touches Ring 0 infrastructure being renamed and must write new evaluators with correct names from day one. See design spec Section 11.
 

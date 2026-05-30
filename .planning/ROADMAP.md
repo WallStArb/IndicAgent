@@ -1084,6 +1084,31 @@ Plans:
 
 - pytest tests/unit/ passes with zero failures; ruff check . passes
 
+### Phase 111: Full Naming Alignment
+
+**Goal**: Complete the naming alignment work started in Phase 110 — fix all runtime surfaces (Prometheus labels, log paths, structlog event strings), rename 5 missing services, enforce the Ring 0 boundary in pre-commit, and clean up 29 test file names and 9 test class names. After this phase, `agent_id` labels, log file paths, and event strings all derive from class names automatically; no subclass can silently drift.
+**Depends on**: Phase 110
+**Requirements**: ALIGN-01, ALIGN-02, ALIGN-03, ALIGN-04
+**Success Criteria** (what must be TRUE):
+
+  1. `BaseDaemon.__init__` accepts `name: str | None = None`; when `None`, derives `agent_id` via `_to_snake_case(self.__class__.__name__)`; all 18 `name=` override calls removed from services; all 15 `setup_service_logging()` path overrides removed; all 2 `_AGENT_NAME` module constants deleted; hardcoded `"feature_writer_agent"` metric label fixed; 11 stale `_AGENT_ID_TO_UNIT` keys updated
+  2. 5 missing Phase 110 service renames complete (`DLQDrain`, `MLSignalTrainingMaterializer`, `shadow_auditor.py`, `self_healer.py`, `config_service.py`); `TEMPLATE_agent.py` → `TEMPLATE.py`; all systemd ExecStart paths updated; `pytest tests/unit/ -q` green; `ruff check .` clean
+  3. Structlog event string prefixes updated in all 20 affected files to match derived `agent_id` (e.g. `bar_aggregator_agent.` → `bar_aggregator.`); `grep -rn "_agent\." services/ src/` returns zero hits for stale prefixes
+  4. Ring 0 pre-commit hook added to `.git/hooks/pre-commit`; fires on deliberate `from src.intelligence` import in `src/core/`; `ctx` → `audit_context`/`context` local var cleanup in 2 files; 29 test file names + 9 test class names updated; CLAUDE.md log naming rule corrected; Grafana + alertmanager label values updated
+
+**Plans**: 4 plans in 4 waves (sequential)
+
+Plans:
+
+- [ ] 111-01-PLAN.md — Wave 1: BaseDaemon auto-derive; remove name= overrides; remove logging overrides; delete _AGENT_NAME constants; fix metric label; update _AGENT_ID_TO_UNIT; Grafana + alertmanager
+- [ ] 111-02-PLAN.md — Wave 2: 5 missing service renames + TEMPLATE rename; systemd ExecStart; 29 test file renames; 9 test class renames
+- [ ] 111-03-PLAN.md — Wave 3: structlog event string prefix replacement across 20 files
+- [ ] 111-04-PLAN.md — Wave 4: Ring 0 pre-commit hook; ctx → audit_context/context cleanup; CLAUDE.md updates
+
+**Cross-cutting constraints:**
+
+- pytest tests/unit/ passes with zero failures; ruff check . passes
+
 ### Phase 095: Pydantic AI Agent Execution Layer
 
 **Goal**: Build a generic, inheritable Pydantic AI foundation at the base class level — `IndicAgentModel` bridge, `result_type` ClassVar on `BaseMultiplierAgent`, `AgentDeps` typed container — so every new AI agent gets typed structured output, auto-retry, tool calling, and audit trail for free. `SkepticComputeAgentV2` is the reference shadow implementation proving the pattern.
@@ -1431,6 +1456,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
 | 110. Renaissance Rename | v2.8 | 4/4 | Complete   | 2026-05-30 |
+| 111. Full Naming Alignment | v2.8 | 0/4 | Not started | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
