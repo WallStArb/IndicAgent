@@ -13,6 +13,7 @@ import structlog
 from opentelemetry.metrics import CallbackOptions
 from opentelemetry.metrics import Observation as _Observation
 from opentelemetry.trace import StatusCode
+from pydantic import BaseModel
 
 from src.core.llm.litellm_backend import LiteLLMBackend
 from src.core.llm.rate_limiter import RateLimiter
@@ -195,6 +196,80 @@ class LLMProviderChain:
             latency_ms=round(latency_s * 1000, 1),
         )
         return response
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        system: str,
+        response_model: type[BaseModel],
+        max_tokens: int = 500,
+        timeout: float = 120.0,
+        audit_context: dict | None = None,
+        extra_audit: dict | None = None,
+    ) -> BaseModel | None:
+        """Structured output via instructor. Returns validated BaseModel or None on failure.
+
+        Publishes an llm_calls audit row on BOTH success and failure (H1).
+        Accepts extra_audit kwarg for additional audit fields, same as generate() (M4).
+        Sets llm.instructor_retries span attribute.
+        """
+        with _tracer.start_as_current_span(
+            "llm.generate_structured",
+            attributes={"call_type": self._call_type},
+        ) as span:
+            t0 = time.monotonic()
+            result = await self._inner.generate_structured(
+                prompt=prompt,
+                system=system,
+                response_model=response_model,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+            latency_s = time.monotonic() - t0
+            provider_id = self._inner.last_provider_id or "unknown"
+            retries = self._inner.last_instructor_retries
+            failure_reason = getattr(self._inner, "last_failure_reason", None)
+
+            span.set_attribute("llm.provider", provider_id)
+            span.set_attribute("llm.latency_ms", round(latency_s * 1000, 1))
+            span.set_attribute("llm.instructor_retries", retries)
+
+            if result is None:
+                # H1: Publish audit row on failure -- _report_parse_failure() needs a row to update
+                failure_audit = dict(audit_context or {})
+                failure_audit.update(extra_audit or {})
+                failure_audit["succeeded"] = False
+                failure_audit["parse_success"] = False
+                if failure_reason:
+                    failure_audit["failure_reason"] = failure_reason
+                await self._publish_audit(
+                    failure_audit, provider_id, latency_s, 0, "", "instructor"
+                )
+                record_llm_call(provider_id, self._call_type, latency_s, status="failure")
+                span.set_attribute("llm.status", "failure")
+                if failure_reason:
+                    span.set_attribute("llm.failure_reason", failure_reason)
+                return None
+
+            response_str = result.model_dump_json()
+            token_usage = self._inner.last_token_usage
+            actual_total = (
+                token_usage.get("total_tokens") if isinstance(token_usage, dict) else None
+            )
+            tokens = (
+                actual_total
+                if (actual_total and actual_total > 0)
+                else max(1, len(prompt) // 4 + len(response_str) // 4)
+            )
+            span.set_attribute("llm.tokens", tokens)
+            record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
+
+            success_audit = dict(audit_context or {})
+            success_audit.update(extra_audit or {})
+            await self._publish_audit(
+                success_audit, provider_id, latency_s, tokens, response_str, "instructor"
+            )
+            return result
 
     async def _publish_audit(
         self,
