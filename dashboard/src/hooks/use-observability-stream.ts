@@ -62,6 +62,9 @@ const SERVICE_LAYERS: Array<{ layer: number; name: string; units: string[] }> = 
   { layer: 10, name: "Meta",          units: ["indicagent-service-auditor"] },
 ];
 
+// These string values are Prometheus `agent` label values (agent_id), preserved
+// verbatim under the Phase 110 operational exception (naming-system.md Section 10).
+// They intentionally retain old class-name form because the metric label is unchanged.
 const UNIT_TO_AGENT: Record<string, string> = {
   "indicagent-intelligence-pipeline":   "intelligence_pipeline_agent",
   "indicagent-bar-aggregator":          "bar_aggregator_agent",
