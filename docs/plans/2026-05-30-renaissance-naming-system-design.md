@@ -1,6 +1,6 @@
 # Renaissance Naming System — Design Spec
 
-**Version:** 1.0
+**Version:** 1.2
 **Date:** 2026-05-30
 **Status:** Active — living document
 **Scope:** All naming surfaces across all rings of the IndicAgent codebase and any project built from this foundation
@@ -23,9 +23,19 @@ The naming system is not a style guide. It is a mathematical specification of wh
 
 The mathematical model and the codebase are not two things connected by documentation — they are one thing. The names prove it. When a senior quant reads a list of class names, they are reading the mathematical architecture: what the system evaluates, what it synthesizes, what it writes, what it monitors. When names describe mechanism instead of role, the code has drifted from the model. Naming cleanup is not cosmetic — it restores the identity between model and code.
 
+### The Invariant
+
+Every naming decision in this spec reduces to one falsifiable test:
+
+> **A name is correct if and only if a domain expert who has never seen the implementation can correctly predict the object's mathematical role, its inputs, and its output contract from the name alone — without reading any code.**
+
+This is the single criterion. The three governing tests below are tools for applying it. When they conflict or leave a case unresolved, return to the invariant. If you cannot state what inputs and outputs a reader would predict from the name, the name is wrong.
+
+The invariant is also why naming enforcement belongs in code review, not just CI. Automated checks catch mechanical violations. The invariant requires domain judgment.
+
 ### Three Governing Tests
 
-Every name, on every surface, is evaluated against these three tests. They are the only decision tools needed.
+Every name, on every surface, is evaluated against these three tests.
 
 **The Whiteboard Test**
 Write the name on a whiteboard in a mathematics seminar. Would a quant immediately understand what the object IS — its role in the mathematical model? `SkepticEvaluator` passes. `SkepticComputeAgent` fails. `context` passes. `ctx` fails.
@@ -34,7 +44,7 @@ Write the name on a whiteboard in a mathematics seminar. Would a quant immediate
 If you replaced the implementation tomorrow — swap the LLM for a neural net, swap asyncio for threads, swap Kafka for a message queue — would the name still be correct? If yes, it names the role. If no, it names the mechanism. `BarAggregator` survives any implementation change. `BarAggregatorComputeAgent` does not — `Compute` describes mechanism.
 
 **The Portability Test** *(applies to Ring 0 only)*
-Could this name be extracted into a shared library and used unchanged in a credit risk system, an options pricing engine, or a macro research platform? If not, it belongs in Ring 1 or Ring 2, not Ring 0. `BaseAgent` passes — it names the daemon base in any system. `AIContext` fails — it names a trading intelligence construct. `SignalContext` also fails Ring 0 — correct in Ring 1, wrong for generic infrastructure.
+Could this name be extracted into a shared library and used unchanged in a credit risk system, an options pricing engine, or a macro research platform? If not, it belongs in Ring 1 or Ring 2, not Ring 0. `BaseDaemon` passes — it names the daemon base in any system. `AIContext` fails — it names a trading intelligence construct.
 
 ### What Fails All Three Tests
 
@@ -42,7 +52,7 @@ Could this name be extracted into a shared library and used unchanged in a credi
 - **Unearned role words:** `Agent` on a component that is called, not autonomous. `Service` on a class that is not a service.
 - **The `Base*` pattern on domain objects:** `BaseMultiplierAgent` implies a non-base `MultiplierAgent` exists. `Evaluator` (abstract) is simply the type.
 - **Code abbreviations:** `ctx`, `cfg`, `msg`, `sig` — shortcuts that fail the whiteboard test in every field.
-- **Three independent semantic units:** if a name requires three unrelated concepts, the object is doing too much or the concept hasn't been named precisely.
+- **Three unrelated semantic units:** if a name requires three concepts with no shared mathematical relationship, the object is doing too much or the concept hasn't been named precisely. Note: three related words in a compound concept (`RegimeCoherenceAnalyzer`, `SignalMetricsWriter`) are fine — the smell is *unrelated* concepts, not word count. The CI advisory check (Section 8, Check 5) flags four or more PascalCase segments as a concrete heuristic.
 
 ---
 
@@ -61,14 +71,16 @@ Ring 1  src/intelligence/, src/config/, src/providers/, src/self_healing/, src/v
 
 Ring 2  services/
         Runtime processes (daemons). Always fully specific.
-        Pure role nouns. Location and BaseAgent inheritance encode "this is a daemon."
+        Pure role nouns. Location and BaseDaemon inheritance encode "this is a daemon."
 
 Ring 3  src/api/, dashboard/, production/
         External interfaces. REST, frontend, deployment.
         Follows surface-specific conventions (REST, TypeScript, systemd).
 ```
 
-**Import direction is strictly outward — never inward:**
+**Note on Ring 1 sub-modules:** Some files within Ring 1 directories may contain purely generic patterns (e.g., a provider reconnect mixin with no IndicAgent vocabulary). Those individual files may be factored into Ring 0 when they genuinely pass the portability test. The Ring 1 assignment describes where domain-specific implementations belong by default, not a blanket prohibition on portable code within those directories.
+
+**Outer rings depend on inner rings; inner rings must never depend on outer rings:**
 
 ```
 Ring 0  →  no imports from Ring 1, 2, or 3
@@ -79,11 +91,23 @@ Ring 3  →  imports from any ring
 
 A Ring 0 file importing from `src/intelligence/` or `services/` is a boundary violation. This is checked in CI.
 
+### Rings vs Intelligence Tiers
+
+Rings and the I1–I8 intelligence tiers are orthogonal systems. Rings describe portability and architectural layer. Tiers describe a class's position in the mathematical pipeline — what transforms what.
+
+**File location encodes tier membership; class names do not repeat tier codes.**
+
+`src/intelligence/features/i1_indicators/rsi.py` contains `RSIPlugin`. The `i1_indicators` directory signals I1 membership. The class name `RSIPlugin` does not need to become `I1RSIPlugin`. Tier is structural metadata; names encode mathematical role.
+
+Exception: when tier membership is the concept itself — an object that explicitly manages tier boundaries or is defined by spanning tiers — the tier code may appear in the name. This should be rare and requires justification.
+
 **`Base*` prefix rule:**
-- Infrastructure base classes in Ring 0 keep `Base*` — they are shared implementation foundations, not domain objects. `BaseDaemon` is this project's equivalent of `abc.ABC`. It does not imply a non-base `Daemon` floating around.
+- Infrastructure base classes in Ring 0 keep `Base*` — they are shared implementation foundations. `BaseDaemon` is this project's equivalent of `abc.ABC`. It does not imply a non-base `Daemon` floating around.
 - Mathematical abstract types in Ring 0/1 drop `Base*` — the abstract class IS the type. `Evaluator` (not `BaseEvaluator`). `Synthesizer` (not `BaseSynthesizer`).
 
-**`Agent` is fully retired** — including from infrastructure base class names. The word fails the whiteboard test in 2026 (polluted by LLM framework conventions) and the survival test (a `BaseDaemon` is still a daemon if you swap Kafka for Redis Streams; a `BaseAgent` implies framework-specific agent semantics). No exceptions.
+**`Agent` is fully retired** — including from infrastructure base class names. The word fails the whiteboard test in 2026 (polluted by LLM framework conventions) and the survival test (a `BaseDaemon` is still a daemon if you swap Kafka for Redis Streams; a `BaseAgent` implies framework-specific agent semantics). No exceptions in class or file names.
+
+**`agent_id` operational exception:** The metric label key `agent_id` and the structlog field `agent_id` are preserved as-is for operational compatibility with existing Grafana dashboards, Prometheus alert rules, and OTel pipelines. Renaming these would break production observability across all running services. This is an explicit one-time exception: `agent_id` is a legacy operational field. All new metric labels and log fields introduced after the rename phase use the role-specific identifier (e.g., `daemon_id`, `service_id`, or the specific concept name) unless wiring into an existing metric family.
 
 ---
 
@@ -108,7 +132,7 @@ Abstract types in this vocabulary are the type itself — no `Base*` prefix.
 
 ### Vocabulary B — Runtime Processes
 
-Run autonomously. Have a daemon loop, a systemd unit, a Kafka subscription or timer trigger. Live in Ring 2. Class names are pure role nouns — the `services/` location and `BaseAgent` inheritance encode daemon nature; the name encodes role only.
+Run autonomously. Have a daemon loop, a systemd unit, a Kafka subscription or timer trigger. Live in Ring 2. Class names are pure role nouns — the `services/` location and `BaseDaemon` inheritance encode daemon nature; the name encodes role only.
 
 | Category | Role in the data flow | I/O | Example |
 |----------|----------------------|-----|---------|
@@ -122,17 +146,54 @@ Run autonomously. Have a daemon loop, a systemd unit, a Kafka subscription or ti
 | `Monitor` | Watches conditions, dispatches alerts | Kafka / DB → Alerts | `AlertMonitor` |
 | `Orchestrator` | Coordinates multi-step batch workflows | Timer → Jobs | `MLOrchestrator` |
 | `Trainer` | Executes model training | Data → Model artifact | `MLTrainer`, `HMMTrainer` |
+| `Publisher` | Reads from DB/outbox and emits to stream | DB → Kafka | `OutboxPublisher` |
+
+### Disambiguating Shared Suffixes
+
+`Aggregator` and `Analyzer` appear in both Vocabulary A and Vocabulary B. The disambiguation rule:
+
+- **Ring determines vocabulary.** A class in Ring 0/1 with suffix `Aggregator` or `Analyzer` is a mathematical object — called, stateless, returns a result. A class in Ring 2 with the same suffix is a daemon — runs autonomously, owns a Kafka subscription or timer.
+- **Lifecycle determines vocabulary.** Mathematical objects have no `start()`/`stop()` lifecycle. Daemons do.
+
+This is not ambiguous in practice: ring membership is determined by file location, and `BaseDaemon` inheritance is required for Ring 2. A `BarAggregator` in `services/` is a daemon. A `CISAggregator` in `src/intelligence/` is a mathematical object.
+
+### Plain Role Nouns (Ring 2 exemption)
+
+Some Ring 2 daemons are the concept itself — no category suffix adds precision. These are listed explicitly and exempt from the taxonomy suffix requirement (Check 4 in Section 8):
+
+| Name | Reason |
+|------|--------|
+| `IntelligencePipeline` | IS the pipeline — adding `Analyzer` or `Orchestrator` would misrepresent its role as the unified I1-I7 compute process |
+| `AlphaSwarm` | IS the swarm — the swarm is the architectural concept, not a coordinator of a different thing |
+| `NarrativeSwarm` | Same pattern as `AlphaSwarm` — the group coordinator IS the swarm |
+
+New plain role nouns require explicit addition to this table before use. The anti-creep rule applies: a concept name is not self-evidently a plain role noun unless the taxonomy has no suffix that fits without distortion.
+
+### The Composability Principle
+
+A composition of mathematical objects or runtime processes earns its own name when it has a **stable mathematical identity that outlives its current members**: if the composition's members can be replaced without changing what the composition IS, the name is correct.
+
+`AlphaSwarm` is stable: replacing `SkepticEvaluator` with `AdversarialEvaluator` does not change what the swarm IS — a group evaluation process that produces a composite alpha multiplier. The name belongs to the role of the composition, not to the enumeration of its parts.
+
+**Rules for naming compositions:**
+
+1. **Name by role, never by members.** `AlphaSwarm` not `SkepticCorrelationCounterfactualEvaluatorGroup`. The members are implementation detail.
+2. **A composition that IS its pipeline does not earn a separate name.** If replacing any member changes what the thing IS, it is a pipeline, and the pipeline's stage names apply.
+3. **When a composition gains stable identity, it earns a plain role noun** — apply the plain role noun rule above. It does not require a category suffix when the composition IS the thing.
+4. **Composites name coordinators separately from members.** `NarrativeSwarm` (coordinator daemon, Ring 2) is distinct from `NarrativeSynthesizer` (individual mathematical object, Ring 1). The coordinator IS the swarm; the synthesizer IS the mathematical operation.
 
 ### Taxonomy Governance
 
 **This taxonomy is a living document.** It grows as new mathematical roles are identified.
 
-**Anti-creep rule:** A new category requires at least two distinct existing objects that share the same mathematical role and fit no current category. One object is not a pattern — it is an edge case. Edge cases map to the nearest existing category. A taxonomy that grows for single instances becomes vocabulary pollution.
+**Anti-creep rule:** A new category requires at least two distinct existing objects that share the same mathematical role and fit no current category. One object is not a pattern — it is an edge case. Edge cases map to the nearest existing category.
+
+**Governance:** Taxonomy additions require the proposer to demonstrate that the three governing tests pass for the new category name, that the anti-creep rule is satisfied, and that at least one other engineer with domain knowledge reviews the addition against this spec. This is a domain correctness decision, not a majority vote. The spec is the decision framework.
 
 When an object does not fit an existing category:
-1. Check the anti-creep rule first. If only one object would use the new category, map it to the nearest existing category.
+1. Check the anti-creep rule first.
 2. If two or more objects share an unrepresented role, define the new category: name, mathematical role, output contract, example.
-3. Add it to the taxonomy and the CI YAML block (Section 7) before naming the object.
+3. Add it to the taxonomy YAML block before naming the object.
 4. The taxonomy grows by precision and reuse, never by exception.
 
 ### Machine-Readable Taxonomy Block
@@ -146,24 +207,39 @@ taxonomy:
     rings: [0, 1]
     no_base_prefix: true
   runtime_processes:
-    suffixes: [Provider, Merger, Aggregator, Analyzer, Writer, Tracker, Auditor, Monitor, Orchestrator, Trainer]
+    suffixes: [Provider, Merger, Aggregator, Analyzer, Writer, Tracker, Auditor, Monitor, Orchestrator, Trainer, Publisher]
+    plain_role_nouns: [IntelligencePipeline, AlphaSwarm, NarrativeSwarm]
     rings: [2]
-    inherits: BaseAgent
+    inherits: BaseDaemon
   infrastructure_bases:
     classes: [BaseDaemon, BaseWriter, BaseProvider, BaseAIWorker, BaseSwarmCoordinator]
     rings: [0]
     base_prefix: permitted
+  behavioral_mixins:
+    suffix: Mixin
+    rings: [0, 1]
+    rule: provides methods only — no persistent state of its own
+  enumerations:
+    suffix: none — PascalCase singular noun
+    rings: [0, 1, 2]
+    members: UPPER_SNAKE_CASE
+  configuration_objects:
+    suffix: Config
+    rings: [0, 1]
+    rule: component-scoped only — global singleton is Settings
   retired:
     suffixes: [ComputeAgent, MultiplierAgent, GroupService, Agent]
     words: [Compute, Handler, Helper, Util, Utils, Manager, Processor, Agent]
-    note: Agent is fully retired — including from infrastructure base class names
+    note: >
+      Agent is fully retired — including from infrastructure base class names.
+      Exception: agent_id metric label and structlog field preserved for operational compatibility.
 ```
 
 ---
 
 ## 4. The Five Surfaces
 
-One concept name mechanically derives all five surface names. No judgment calls, no lookup tables.
+One concept name mechanically derives all surface names. No judgment calls, no lookup tables.
 
 ### Surface 1 — Python Classes
 
@@ -171,20 +247,30 @@ Derived from the taxonomy directly.
 
 | Object type | Pattern | Example |
 |------------|---------|---------|
-| Ring 2 daemon | `PascalCase(concept)` | `SignalTracker` |
-| Ring 1 mathematical object | `PascalCase(concept) + CategorySuffix` | `SkepticEvaluator` |
-| Ring 0/1 abstract math type | `CategorySuffix` alone | `Evaluator`, `Synthesizer` |
-| Ring 0 infrastructure base | `Base + PascalCase(role)` | `BaseAgent`, `BaseWriterAgent` |
-| Plugin | `PascalCase(concept) + Plugin` | `ADXPlugin`, `VWAPPlugin` |
-| Protocol | `PascalCase(concept) + Protocol` | `AgentProtocol` |
-| Result / output model | `PascalCase(concept) + Result` | `SkepticResult`, `SignalMetricsResult` |
-| Context carrier | `PascalCase(concept) + Context` | `SignalContext`, `AgentContext`, `SMCContext` |
-| Repository | `PascalCase(concept) + Repository` | `SignalLedgerRepository` |
-| Error | `PascalCase(concept) + Error` | `ConfigValidationError`, `CircuitOpenError` |
+| Ring 2 daemon | `PascalCase(concept)` + category suffix | `SignalTracker`, `BarAggregator` |
+| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm` |
+| Ring 1 mathematical object | `PascalCase(concept)` + category suffix | `SkepticEvaluator` |
+| Ring 0/1 abstract math type | Category suffix alone | `Evaluator`, `Synthesizer` |
+| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter` |
+| Behavioral mixin | `PascalCase(capability)` + `Mixin` | `IncrementalMixin`, `ConfigConsumerMixin` |
+| Enumeration | `PascalCase` singular noun — no suffix | `MarketRegime`, `SignalStatus`, `AssetClass` |
+| Component config | `PascalCase(concept)` + `Config` | `EvaluatorConfig`, `PipelineConfig` |
+| Plugin | `PascalCase(concept)` + `Plugin` | `ADXPlugin`, `VWAPPlugin` |
+| Protocol | `PascalCase(concept)` + `Protocol` | `AIWorkerProtocol` |
+| Result / output model | `PascalCase(concept)` + `Result` | `SkepticResult`, `SignalMetricsResult` |
+| Context carrier | `PascalCase(concept)` + `Context` | `SignalContext`, `WorkerContext`, `SMCContext` |
+| Repository | `PascalCase(concept)` + `Repository` | `SignalLedgerRepository` |
+| Error | `PascalCase(concept)` + `Error` | `ConfigValidationError`, `CircuitOpenError` |
+
+**On mixins:** A mixin provides behavioral capability through methods. It must not carry persistent state of its own — if it needs state, the capability belongs in a base class or a composed object, not a mixin. `IncrementalMixin` provides incremental computation methods to plugins. `ConfigConsumerMixin` provides config subscription capability to daemons.
+
+**On enumerations:** Enum members are `UPPER_SNAKE_CASE`. The enum type name is a singular noun — `MarketRegime` not `MarketRegimes`, `SignalStatus` not `SignalStatuses`. The type IS the enumeration; plural implies a collection, not a type. Enums live in the same ring as the domain they describe: `CircuitState` in Ring 0 (`src/observability/`), `MarketRegime` in Ring 1 (`src/intelligence/`).
+
+**On component config:** A component gets its own `*Config` type only when its configuration is meaningfully distinct from global `Settings` and must be passed explicitly — in tests, in parameterized instantiation, or when the component is reused across contexts. Components that read directly from `Settings` at construction do not get a `*Config` type.
 
 ### Surface 2 — File Names
 
-The `_agent` suffix in file names is retired alongside the class suffix. File location encodes the ring; file name encodes the concept only.
+The `_agent` suffix in file names is retired alongside the class suffix. File location encodes both the ring and the intelligence tier; file name encodes the concept only.
 
 | Object type | Pattern | Example |
 |------------|---------|---------|
@@ -192,7 +278,9 @@ The `_agent` suffix in file names is retired alongside the class suffix. File lo
 | Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic.py` |
 | Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/context.py` |
 | Ring 0 infrastructure | `src/core/<module>/<concept>.py` | `src/core/ai/evaluator.py` |
-| Plugin | `src/intelligence/trading/<concept>.py` | `src/intelligence/trading/adx.py` |
+| Plugin (I1–I5) | `src/intelligence/features/i<N>_<tier_name>/<concept>.py` | `src/intelligence/features/i1_indicators/rsi.py` |
+
+The tier subdirectory (`i1_indicators`, `i3_structure`, etc.) encodes tier membership. The file name does not repeat the tier. `rsi.py` not `i1_rsi.py`.
 
 ### Surface 3 — Kafka Topics
 
@@ -210,26 +298,29 @@ Domain abbreviations permitted in topic strings when universally understood in q
 
 | Object | Pattern | Example |
 |--------|---------|---------|
-| Table | `snake_case` plural noun | `signal_ledger`, `intelligence_features` |
+| Table | `snake_case` stable relation name | `signal_ledger`, `intelligence_features` |
 | View | `<source_table>_<qualifier>` | `signal_ledger_full`, `ohlcv_15m` |
 | Migration | `NNN_description.sql` | `095_signal_ledger_split.sql` |
 | Timestamp column | Always `ts` | `ts` |
 | Timeframe column | Always `tf` | `tf` |
 | All other columns | Full `snake_case` noun phrase | `exit_reason`, `failure_probability`, `pnl_r` |
 
-Quant domain codes are permitted as column names — see Section 5 Tier 1.
+**On table naming:** The rule is a stable, readable relation name — not strictly grammatical pluralization. Event-store and ledger tables (`signal_ledger`, `llm_calls`) follow the convention already established. Do not rename existing tables for grammatical consistency. New tables should use a name that a quant would write naturally on a whiteboard for that relation.
+
+Quant domain codes are permitted as column names — see Section 6 Tier 1.
 
 ### Surface 5 — Variables, Arguments, and Labels
 
-No code abbreviations. Quant domain codes and CS standards permitted (Section 5).
+No code abbreviations. Quant domain codes and CS standards permitted (Section 6).
 
 | Surface | Rule | Example |
 |---------|------|---------|
 | Function arguments | Full descriptive name | `context`, `signal`, `timeframe` |
 | Local variables | Full descriptive name | `signal_context`, `audit_result` |
-| Structlog field names | Full descriptive name | `agent_id`, `symbol`, `failure_reason` |
-| Metric names | Prometheus convention (verbose) | `signal_tracker_messages_processed_total` |
-| Metric labels | Full descriptive name | `agent_id`, `symbol`, `timeframe` |
+| Structlog field names | Full descriptive name | `daemon_id`, `symbol`, `failure_reason` |
+| Metric label: liveness/DLQ/crash | `agent_id` (legacy compatibility — see Section 2) | `agent_id` |
+| All other new metric labels | Full descriptive name | `symbol`, `timeframe`, `job` |
+| Enum members | `UPPER_SNAKE_CASE` | `REGIME_TRENDING`, `PENDING` |
 | Mathematical variables in formulas | Single-letter mathematical convention | `n`, `x`, `y`, `i`, `j`, `t`, `p`, `r` |
 
 ### The Mechanical Derivation Table
@@ -246,12 +337,61 @@ Given concept `signal_tracker`:
 | DB table | `signal_trackers` |
 | Log file | `logs/signal_tracker.log` |
 | Metric prefix | `signal_tracker_` |
-| Structlog `agent_id` value | `signal_tracker` |
+| Structlog `daemon_id` value | `signal_tracker` |
 | Variable name | `signal_tracker` |
 
 ---
 
-## 5. The Abbreviation Policy
+## 5. Model Identity and Evolution
+
+This section governs how names behave when the mathematical model changes. It is the most important section for long-term vocabulary integrity.
+
+### Names Encode Role, Not Version
+
+A class name is a claim about mathematical role. It is not a version identifier, a prompt identifier, or an implementation identifier. The corollary: when an evaluator's internal model changes but its mathematical role is unchanged, the name does not change.
+
+`SkepticEvaluator` evaluates a trading signal from an adversarial skeptic perspective and produces a confidence multiplier. That role is stable across LLM provider changes, prompt rewrites, and architectural improvements. The internal evolution is tracked by `prompt_version` (for LLM iteration) and `model_version` attributes. The class name is the invariant.
+
+### The Model Evolution Protocol
+
+Three cases, three responses:
+
+**Case 1 — Implementation changes, role unchanged.**
+Prompt rewrite, LLM provider swap, algorithm improvement. The evaluator still does the same thing mathematically.
+→ Increment `prompt_version` or equivalent version attribute. Class name unchanged. No shadow period required unless the change is substantial enough to warrant it.
+
+**Case 2 — New mathematical approach to the same role.**
+A different analytical technique for the same question (e.g., Bayesian skeptic evaluation replacing heuristic scoring). The role is the same; the math is fundamentally different.
+→ New class on a feature branch, starts in shadow mode (`shadow_only = True`). Old class runs in parallel. When graduation criteria are met, the new class is promoted and the old one is deprecated, then deleted in the next cleanup phase. Both classes use the same name for their role; only one can be the canonical non-shadow instance at a time.
+
+**Case 3 — New mathematical role.**
+A genuinely different evaluation perspective that produces a different analytical function — not a better version of the same thing, but a different thing.
+→ New class with a new name derived from its new role. The old class continues independently under its original name. These are not versions of each other; they are different evaluators.
+
+**Version numbers in class names are prohibited in all three cases.** `SkepticEvaluatorV2` implies `SkepticEvaluatorV1` exists simultaneously, which means either they serve different mathematical roles (give them different names) or one should be in shadow mode (use `shadow_only`, not a version suffix).
+
+### Shadow Mode Is Runtime State, Not Mathematical Identity
+
+`shadow_only = True` does not create a different type of evaluator. A `SkepticEvaluator` in shadow mode and a `SkepticEvaluator` in production are the same mathematical object in different operational states. The graduation system (`shadow_registry`) manages the boundary. This has two consequences for naming:
+
+1. **No shadow-suffixed class names.** Never `SkepticEvaluatorShadow`. The class was always `SkepticEvaluator`.
+2. **Promotion requires no renaming.** When a shadow evaluator is promoted to production, zero code changes to names occur. The `shadow_only` attribute flips; nothing else changes.
+
+The research/production boundary in this system is entirely runtime-governed, not name-governed. This is by design: the mathematical claim encoded in the name — what the evaluator IS — is the same in research and production. Encoding environment in the name would imply the math changes between environments. It does not.
+
+### Retirement Protocol
+
+When a class is replaced and its role is no longer needed:
+
+1. Add a deprecation note at the class level citing the replacement and the target removal date.
+2. Run in parallel for one deployment cycle to confirm replacement is stable.
+3. Delete the class. No zombie classes, no `_deprecated` suffixes.
+
+If deletion requires updating many callers, that is a sign the class had too many direct dependencies — a modularity problem to fix, not a reason to keep the zombie class.
+
+---
+
+## 6. The Abbreviation Policy
 
 ### The Principle
 
@@ -281,7 +421,7 @@ Canonical field codes in quantitative finance, statistics, mathematics, and comp
 |------|----------------|-----------|
 | `i1`–`i8` | DB columns, topic strings, metric labels | Intelligence tier codes — IndicAgent domain vocabulary |
 | `smc` | Topic strings, JSONB keys | Smart Money Concepts sub-domain abbreviation |
-| Prometheus label conventions | Metric names only | Prometheus has established naming standards |
+| `agent_id` | Metric labels, structlog fields (legacy family) | Operational compatibility — see Section 2 |
 
 ### Tier 3 — Never Permitted
 
@@ -292,8 +432,9 @@ Code shortcuts. Use the full word or name by role.
 `obj` → name by type | `res` → `result` | `req` → `request` | `resp` → `response`
 `tmp` → name by what it holds | `err` → `error` | `exc` → `exception`
 `fn` → name by role | `num` → `count` or `number` | `idx` → `index`
-`buf` → `buffer` | `val` → `value` (unless meaning value area low — that is Tier 1)
-`e` in `except Exception as e` → `error` or `exception`
+`buf` → `buffer` | `e` in `except Exception as e` → `error` or `exception`
+
+**Note on `val`:** `val` is Tier 3 when it means "value" (a shortcut). It is Tier 1 when it means value area low (a quant domain code). The distinction is semantic, not syntactic — enforcement is by code review, not grep.
 
 ### The Test
 
@@ -301,7 +442,7 @@ Would a practitioner write this on a whiteboard in a mathematics, finance, or co
 
 ---
 
-## 6. The Ring 0 Portability Contract
+## 7. The Ring 0 Portability Contract
 
 ### What Ring 0 Exports
 
@@ -316,8 +457,9 @@ src/core/
   ai/
     BaseAIWorker        LLM generation, audit trail, typed output
     BaseSwarmCoordinator  group coordinator for parallel evaluator dispatch
-    AgentContext        frozen execution context for one evaluator run
+    WorkerContext       frozen execution context for one evaluator run
     LLMAdapter          Pydantic AI Model protocol bridge
+    AIWorkerProtocol    protocol interface for AI workers
     Evaluator           abstract: evaluate → scored judgment
     Synthesizer         abstract: synthesize → qualitative output
 
@@ -326,13 +468,17 @@ src/persistence/        generic repository pattern, connection pool
 src/monitoring/         CUSUM, KS drift — generic statistical monitors
 ```
 
+**On `WorkerContext`:** This is the frozen context passed to each evaluator run — holds execution inputs (signal data, LLM chain, DB pool, memory client). `Worker` passes the portability test: any system with worker-pattern execution needs a frozen context object. The former name `AgentContext` is retired with `Agent`.
+
+**On `BaseAIWorker`:** Interim name. The architectural concern — that Ring 1 mathematical objects (`SkepticEvaluator`, `CorrelationAnalyzer`) currently inherit from a daemon base — is real. Separating the evaluator class hierarchy from the daemon hierarchy is Phase 2 architectural work, required before the evaluator pattern is reused in a new project.
+
 ### Domain Objects That Belong in Ring 1
 
 These currently live near Ring 0 but carry domain vocabulary:
 
 | Object | Correct location | Reason |
 |--------|-----------------|--------|
-| `AIContext` | `src/intelligence/context.py` | Trading intelligence state — fails credit risk portability test |
+| `AIContext` | `src/intelligence/context.py` | Trading intelligence state — fails portability test |
 | `SignalContext` (rename target) | `src/intelligence/context.py` | Same |
 | `AIContextCache` | `src/intelligence/context.py` | Domain cache tied to intelligence tiers |
 
@@ -342,31 +488,36 @@ Ring 0 has zero dependencies on outer rings. If any file in `src/core/` imports 
 
 ---
 
-## 7. CI Enforcement
+## 8. CI Enforcement
 
 The taxonomy is only durable if violations fail the build. Without enforcement, vocabulary drifts back within months.
 
+**Implementation note:** The grep checks below are advisory pre-checks useful for fast feedback. For durable enforcement, implement an AST-based Python linter using the `ast` module for class name checks and an import graph checker for boundary violations. Grep misses multiline class definitions, dynamically generated classes, and aliased imports. Extract the YAML block in Section 3 into a standalone `taxonomy.yaml` file as the single source of truth for both the AST linter and documentation.
+
 ### Check 1 — Retired Mechanism Words
 
-Fail if any class name contains a retired word.
+Fail if any class definition contains a retired suffix or word.
 
 ```bash
-grep -rn "class.*ComputeAgent\b\|class.*\bManager\b\|class.*\bHelper\b\|class.*Utils\b\|class.*\bHandler\b\|class.*\bProcessor\b" \
+grep -rn "class.*ComputeAgent\b\|class.*\bManager\b\|class.*\bHelper\b\|class.*Utils\b\|class.*\bHandler\b\|class.*\bProcessor\b\|class.*\bAgent\b" \
   src/ services/ --include="*.py"
 ```
 
-Exception: `Handler` in `src/api/` (Ring 3, HTTP handlers). `Manager` for genuine resource managers (connection pool, thread pool) — requires explicit taxonomy note.
+Permitted exceptions:
+- `Handler` in `src/api/` (Ring 3, HTTP handlers)
+- `Manager` for genuine resource managers (connection pool, thread pool) — requires explicit taxonomy note in the file
+- Test files (`test_*.py`) are excluded
 
 ### Check 2 — Banned Code Abbreviations in Signatures
 
-Fail if any function definition or assignment contains Tier 3 shortcuts.
+Fail if any function definition or variable assignment uses Tier 3 shortcuts.
 
 ```bash
-grep -rn "\bctx\b\|\bcfg\b\|\bmsg\b\|\bevt\b\|\bdeps\b\|\btmp\b\|\berr\b\|\bexc\b\|\bres\b\b" \
-  src/ services/ --include="*.py" | grep -v "test_\|#"
+grep -rn "\bctx\b\|\bcfg\b\|\bmsg\b\|\bevt\b\|\bdeps\b\|\btmp\b\|\berr\b\|\bexc\b\|\bres\b\|\bsig\b\|\breq\b\|\bresp\b\|\bidx\b\|\bbuf\b\|\bfn\b\|\bobj\b\|\bnum\b" \
+  src/ services/ --include="*.py" | grep -v "test_\|#\|\".*\"\|'.*'"
 ```
 
-Not applied to single-letter mathematical variables in computation functions.
+Not applied to single-letter mathematical variables in computation functions. The `val` ambiguity requires human review — Check 2 does not flag `val`.
 
 ### Check 3 — Ring 0 Boundary Violation
 
@@ -379,21 +530,27 @@ grep -rn "from src\.intelligence\|from src\.config\|from src\.providers\|from sr
 
 ### Check 4 — Taxonomy Coverage for New Classes
 
-Every new class in `services/` or `src/intelligence/ai/` must end with a suffix from the taxonomy YAML block. Implemented as a pre-commit Python script that parses new class definitions and validates against the `taxonomy.yaml` block in this document.
+Every new class in `services/` or `src/intelligence/ai/` must either:
+- End with a suffix from the `runtime_processes.suffixes` or `mathematical_objects.suffixes` list, or
+- Be listed in `runtime_processes.plain_role_nouns`
 
-### Check 5 — 2-Unit Rule (Advisory)
+Implemented as a pre-commit Python script that parses new class definitions, validates against the taxonomy YAML, and checks the plain role noun exemption list before failing.
+
+### Check 5 — Segment Count (Advisory)
 
 Flag — not fail — any class name with four or more independent PascalCase segments. Triggers human review.
 
 ```python
 import re
-def word_count(name): return len(re.findall(r'[A-Z][a-z0-9]+', name))
-# flag if word_count(class_name) >= 4
+def segment_count(name): return len(re.findall(r'[A-Z][a-z0-9]+', name))
+# flag if segment_count(class_name) >= 4
 ```
+
+This is a heuristic for the "three unrelated semantic units" smell. `RegimeCoherenceAnalyzer` has three segments and is fine. Four or more segments is a strong signal that the concept hasn't been named precisely or the object has too many responsibilities.
 
 ---
 
-## 8. Pending Renames
+## 9. Pending Renames
 
 The following renames are established by this spec. They represent the delta between the current codebase and the target vocabulary. These are executed in a dedicated rename phase — not incrementally.
 
@@ -402,12 +559,12 @@ The following renames are established by this spec. They represent the delta bet
 | Current | Target | Note |
 |---------|--------|------|
 | `BaseAgent` | `BaseDaemon` | Timeless, portable, passes all three tests |
-| `BaseWriterAgent` | `BaseWriter` | Role suffix is complete without `Agent` |
+| `BaseWriterAgent` | `BaseWriter` | Role suffix complete without `Agent` |
 | `BaseProviderAgent` | `BaseProvider` | Same |
-| `BaseAIAgent` | `BaseAIWorker` | Interim — see architectural note below |
+| `BaseAIAgent` | `BaseAIWorker` | Interim — see Section 7 architectural note |
 | `BaseGroupService` | `BaseSwarmCoordinator` | Names the actual coordination role |
-
-**Architectural note:** `SkepticEvaluator`, `CorrelationAnalyzer`, and other Ring 1 mathematical objects currently inherit from `BaseAIAgent` → `BaseAgent`. A mathematical object that is *called*, not *run*, should not inherit from a daemon base. `BaseAIWorker` is an interim rename. Separating the evaluator class hierarchy from the daemon hierarchy is a Phase 2 architectural concern — out of scope for the rename phase but required before the evaluator pattern is reused in a new project.
+| `AgentContext` | `WorkerContext` | `Agent` retired; `Worker` passes portability test |
+| `AgentProtocol` | `AIWorkerProtocol` | Consistent with `BaseAIWorker` prefix |
 
 ### Ring 1 — AI Evaluation Layer (I8)
 
@@ -419,8 +576,7 @@ The following renames are established by this spec. They represent the delta bet
 | `CounterfactualComputeAgent` | `CounterfactualEvaluator` | Mathematical object |
 | `RegimeCoherenceComputeAgent` | `RegimeCoherenceAnalyzer` | Mathematical object |
 | `MLScorerMultiplierAgent` | `MLEvaluator` | Mathematical object |
-| `NarrativeComputeAgent` | `NarrativeSynthesizer` | Mathematical object |
-| `NarrativeGroupComputeAgent` | `NarrativeSynthesizer` (group coordinator) | Mathematical object |
+| `NarrativeComputeAgent` | `NarrativeSynthesizer` | Mathematical object (individual) |
 | `AIContext` | `SignalContext` | Context carrier (Ring 1) |
 | `AIContextCache` | `SignalContextCache` | Context carrier (Ring 1) |
 
@@ -428,18 +584,19 @@ The following renames are established by this spec. They represent the delta bet
 
 | Current | Target | Category |
 |---------|--------|----------|
-| `IntelligencePipelineComputeAgent` | `IntelligencePipeline` | Daemon (no category suffix — IS the pipeline) |
-| `AlphaSwarmComputeAgent` | `AlphaSwarm` | Daemon (IS the swarm) |
+| `IntelligencePipelineComputeAgent` | `IntelligencePipeline` | Plain role noun |
+| `AlphaSwarmComputeAgent` | `AlphaSwarm` | Plain role noun |
+| `NarrativeGroupComputeAgent` | `NarrativeSwarm` | Plain role noun — group coordinator IS the swarm; distinct from individual `NarrativeSynthesizer` |
 | `BarAggregatorComputeAgent` | `BarAggregator` | Aggregator |
 | `ProviderMergerComputeAgent` | `ProviderMerger` | Merger |
 | `CrossAssetComputeAgent` | `CrossAssetAnalyzer` | Analyzer |
 | `MacroComputeAgent` | `MacroAnalyzer` | Analyzer |
 | `SignalMetricsComputeAgent` | `SignalMetricsAnalyzer` | Analyzer |
 | `GraduationComputeAgent` | `GraduationAnalyzer` | Analyzer |
+| `MLDiscoveryComputeAgent` | `MLDiscoveryAnalyzer` | Analyzer — `Discovery` alone fails Check 4; `Analyzer` names the role |
 | `SignalTrackerComputeAgent` | `SignalTracker` | Tracker |
 | `AlertingComputeAgent` | `AlertMonitor` | Monitor |
 | `MLOrchestratorComputeAgent` | `MLOrchestrator` | Orchestrator |
-| `MLDiscoveryComputeAgent` | `MLDiscovery` | Analyzer |
 | `MLDataQualityAuditorAgent` | `DataQualityAuditor` | Auditor |
 | `MLTrainingComputeAgent` | `MLTrainer` | Trainer |
 | `HMMTrainingComputeAgent` | `HMMTrainer` | Trainer |
@@ -450,8 +607,8 @@ The following renames are established by this spec. They represent the delta bet
 | `SignalWriterAgent` | `SignalWriter` | Writer |
 | `LifecycleWriterAgent` | `LifecycleWriter` | Writer |
 | `LineageWriterAgent` | `LineageWriter` | Writer |
-| `LLMWriterAgent` | `LLMWriter` | Writer |
-| `CtxWriterAgent` | `ContextWriter` | Writer |
+| `LLMWriterAgent` | `LLMWriter` | Writer — `llm` is Tier 1 permitted; role is writing LLM call audit records to `llm_calls` |
+| `CtxWriterAgent` | `ContextWriter` | Writer — `ctx` is Tier 3; full word required |
 | `SwarmLedgerWriterAgent` | `SwarmLedgerWriter` | Writer |
 | `SignalMetricsWriterAgent` | `SignalMetricsWriter` | Writer |
 | `GraduationWriterAgent` | `GraduationWriter` | Writer |
@@ -459,27 +616,49 @@ The following renames are established by this spec. They represent the delta bet
 | `SignalAuditorAgent` | `SignalAuditor` | Auditor |
 | `SignalReplayAuditorAgent` | `SignalReplayAuditor` | Auditor |
 | `ServiceAuditorAgent` | `ServiceAuditor` | Auditor |
-| `OutboxDispatcherAgent` | `OutboxDispatcher` | Plain role noun (single instance — anti-creep rule applies) |
+| `OutboxDispatcherAgent` | `OutboxPublisher` | Publisher — reads DB outbox, emits to Kafka |
 
 ### File Names (alongside class renames)
 
-File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregator.py`. The `_agent` suffix is retired from file names in Ring 2.
+File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregator.py`. The `_agent` suffix is retired from Ring 2 file names.
 
 ### Documentation
 
-`docs/foundation/naming-conventions.md` is superseded by this spec for all prescriptive guidance. It will be updated to reference this document as the canonical source in the rename phase.
+`docs/foundation/naming-conventions.md` is superseded by this spec. It will be replaced with a redirect to this document in the rename phase.
 
 ---
 
-## 9. What Does Not Change
+## 10. What Does Not Change
 
 - **Kafka topic strings** — the current pattern is correct.
-- **DB table names** — correct. `signal_ledger`, `intelligence_features` stay.
+- **DB table names** — `signal_ledger`, `intelligence_features`, `llm_calls` stay.
 - **DB column quant codes** — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay.
 - **Plugin naming** — `PascalCasePlugin` convention stays.
-- **Intelligence tier codes** — `I1`–`I8` stay in code, docs, and metrics.
-- **`BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`** — Ring 0 infrastructure bases keep `Base*` prefix; `Agent` is retired from all names.
+- **Intelligence tier codes** — `I1`–`I8` stay in code, docs, metrics, and directory names.
+- **Ring 0 infrastructure base `Base*` prefix** — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseSwarmCoordinator` keep `Base*`; `Agent` is retired from all names.
+- **`agent_id` metric label and structlog field** — stays for operational compatibility. See Section 2.
 - **Systemd unit names** — updated mechanically when class/file names change, no independent changes.
+
+---
+
+## 11. Migration Guidelines
+
+The rename phase touches every service file, class name, and import in the codebase simultaneously. These rules prevent the migration from breaking the build or operational systems mid-flight.
+
+**Atomic rename:** All renames in Section 9 execute in a single phase on a feature branch. Incremental rename across multiple PRs creates a window where CI checks fail and dashboards break. The branch merges only when all checks pass.
+
+**Compatibility aliases:** During the rename phase, add module-level aliases for any class imported by Ring 3 (API routes, dashboard backend) or external tooling. Remove aliases in a follow-up cleanup PR after all callers are updated.
+
+```python
+# Temporary alias — remove after callers updated
+SignalTrackerComputeAgent = SignalTracker
+```
+
+**Systemd units:** Rename systemd unit files alongside class renames. Keep the old unit file as a one-line stub that `ExecStart`-redirects to the new unit name for one deploy cycle, then remove.
+
+**Metrics and dashboards:** The `agent_id` label exception in Section 2 means no Grafana dashboard changes are required for the core liveness/DLQ/crash metrics. For any metrics that include the old class name in their prefix (e.g., `bar_aggregator_compute_agent_messages_total`), update the metric name and add a Grafana alert annotation marking the rename date.
+
+**Ring boundary violations:** During the rename phase, the Ring 0 boundary check (Check 3) may temporarily fail if `BaseAIAgent`/`BaseAgent` references are being removed from Ring 0. These checks should be marked `# noqa: ring0-boundary` with a tracking comment and removed as part of the phase completion checklist.
 
 ---
 

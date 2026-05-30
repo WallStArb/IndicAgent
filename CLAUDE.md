@@ -4,7 +4,7 @@ Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
-**Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. **Layer rule:** `src/core/` = L1 generic infrastructure (no project prefix, no domain vocab — e.g. `LLMAdapter`, `AgentContext`); `src/intelligence/` = L2 domain (`BaseAIAgent`, `AIContext`); `services/` = L3 specific. Full table: `docs/foundation/naming-conventions.md`.
+**Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/` = Ring 0 portable infrastructure (no domain vocab — e.g. `BaseDaemon`, `WorkerContext`); `src/intelligence/` = Ring 1 domain (`BaseAIWorker`, `SignalContext`); `services/` = Ring 2 daemons (pure role nouns, no suffix required for plain role nouns). Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.
 **Gotchas:** See `docs/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Agentic DAG:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics, DataWriterAgents manage persistence. Scaling: systemd + Prometheus lag monitoring (no Kubernetes HPA).
 

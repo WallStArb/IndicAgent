@@ -83,7 +83,7 @@ Use relative paths — never absolute:
 
 ## Code Naming Conventions
 
-See also: `CLAUDE.md` Naming section and `docs/naming-conventions.md`.
+See also: `CLAUDE.md` Naming section and `docs/foundation/naming-system.md`.
 
 ### Python
 
