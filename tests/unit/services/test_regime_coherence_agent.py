@@ -1,4 +1,4 @@
-"""Unit tests for RegimeCoherenceComputeAgent and _validate_regime_coherence_fields."""
+"""Unit tests for RegimeCoherenceComputeAgent and RegimeCoherenceResult."""
 
 from __future__ import annotations
 
@@ -7,97 +7,82 @@ import pytest
 from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.regime_coherence_agent import (
     RegimeCoherenceComputeAgent,
-    _validate_regime_coherence_fields,
+    RegimeCoherenceResult,
 )
 
-# ---------------------------------------------------------------------------
-# Validator tests
-# ---------------------------------------------------------------------------
+
+def test_result_accepts_valid_payload() -> None:
+    """Valid payload parses correctly."""
+    result = RegimeCoherenceResult(
+        regime_fit=0.8,
+        confidence=0.7,
+        mismatches=["mean_reversion_in_trend"],
+        reasoning="Setup type contradicts trending regime.",
+    )
+    assert result.regime_fit == pytest.approx(0.8)
+    assert result.confidence == pytest.approx(0.7)
+    assert result.mismatches == ["mean_reversion_in_trend"]
+    assert result.reasoning == "Setup type contradicts trending regime."
 
 
-def test_validator_accepts_valid_payload() -> None:
-    """Valid payload with both numerics, list mismatches, and string reasoning."""
-    data = {
-        "regime_fit": 0.8,
-        "confidence": 0.7,
-        "mismatches": ["mean_reversion_in_trend"],
-        "reasoning": "Setup type contradicts trending regime.",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is not None
-    assert result["regime_fit"] == pytest.approx(0.8)
-    assert result["confidence"] == pytest.approx(0.7)
-    assert result["mismatches"] == ["mean_reversion_in_trend"]
-    assert result["reasoning"] == "Setup type contradicts trending regime."
+def test_result_rejects_non_numeric_regime_fit() -> None:
+    """Non-numeric regime_fit should raise ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RegimeCoherenceResult(
+            regime_fit="high",
+            confidence=0.5,
+            mismatches=[],
+            reasoning="some reasoning",
+        )
 
 
-def test_validator_rejects_non_numeric_regime_fit() -> None:
-    """Non-numeric regime_fit should return None."""
-    data = {
-        "regime_fit": "high",
-        "confidence": 0.5,
-        "mismatches": [],
-        "reasoning": "some reasoning",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is None
+def test_result_rejects_non_numeric_confidence() -> None:
+    """Non-numeric confidence should raise ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RegimeCoherenceResult(
+            regime_fit=0.6,
+            confidence=None,
+            mismatches=[],
+            reasoning="some reasoning",
+        )
 
 
-def test_validator_rejects_non_numeric_confidence() -> None:
-    """Non-numeric confidence should return None."""
-    data = {
-        "regime_fit": 0.6,
-        "confidence": None,
-        "mismatches": [],
-        "reasoning": "some reasoning",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is None
-
-
-def test_validator_clamps_out_of_range() -> None:
+def test_result_clamps_out_of_range() -> None:
     """Values outside [0,1] should be clamped."""
-    data = {
-        "regime_fit": 1.5,
-        "confidence": -0.2,
-        "mismatches": [],
-        "reasoning": "out of range values",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is not None
-    assert result["regime_fit"] == pytest.approx(1.0)
-    assert result["confidence"] == pytest.approx(0.0)
+    result = RegimeCoherenceResult(
+        regime_fit=1.5,
+        confidence=-0.2,
+        mismatches=[],
+        reasoning="out of range values",
+    )
+    assert result.regime_fit == pytest.approx(1.0)
+    assert result.confidence == pytest.approx(0.0)
 
 
-def test_validator_coerces_non_list_mismatches() -> None:
+def test_result_coerces_non_list_mismatches() -> None:
     """Non-list mismatches should be coerced to [str(value)]."""
-    data = {
-        "regime_fit": 0.5,
-        "confidence": 0.5,
-        "mismatches": "single_mismatch_string",
-        "reasoning": "coerce test",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is not None
-    assert result["mismatches"] == ["single_mismatch_string"]
+    result = RegimeCoherenceResult(
+        regime_fit=0.5,
+        confidence=0.5,
+        mismatches="single_mismatch_string",
+        reasoning="coerce test",
+    )
+    assert result.mismatches == ["single_mismatch_string"]
 
 
-def test_validator_coerces_list_elements_to_str() -> None:
+def test_result_coerces_list_elements_to_str() -> None:
     """List elements should be coerced to str."""
-    data = {
-        "regime_fit": 0.5,
-        "confidence": 0.5,
-        "mismatches": [1, 2.0, "three"],
-        "reasoning": "coerce list elements",
-    }
-    result = _validate_regime_coherence_fields(data)
-    assert result is not None
-    assert result["mismatches"] == ["1", "2.0", "three"]
-
-
-# ---------------------------------------------------------------------------
-# Class attribute tests
-# ---------------------------------------------------------------------------
+    result = RegimeCoherenceResult(
+        regime_fit=0.5,
+        confidence=0.5,
+        mismatches=[1, 2.0, "three"],
+        reasoning="coerce list elements",
+    )
+    assert result.mismatches == ["1", "2.0", "three"]
 
 
 def test_class_attributes() -> None:
@@ -111,13 +96,8 @@ def test_class_attributes() -> None:
     assert RegimeCoherenceComputeAgent.group == "alpha"
 
 
-# ---------------------------------------------------------------------------
-# Multiplier formula test
-# ---------------------------------------------------------------------------
-
-
 def test_multiplier_formula_semantics() -> None:
-    """regime_fit × confidence equals the expected product."""
+    """regime_fit x confidence equals the expected product."""
     regime_fit, conf = 0.4, 0.5
     assert regime_fit * conf == pytest.approx(0.2)
 

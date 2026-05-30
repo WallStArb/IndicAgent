@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import structlog
+from pydantic import BaseModel, field_validator
 
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
-from src.core.ai.prompt_utils import clamp
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.counterfactual_prompts import (
     ACTIVE_VERSION,
@@ -24,6 +24,33 @@ _SYSTEM_MESSAGE = (
     "Phase 80 policy: discount-only — plausibility and confidence in [0.0, 1.0]. "
     "reasoning must be under 100 words."
 )
+
+
+class CounterfactualResult(BaseModel):
+    """Pydantic model for validated counterfactual agent LLM output."""
+
+    plausibility: float
+    confidence: float
+    validation_conditions: list[str]
+    invalidation_conditions: list[str]
+    reasoning: str
+
+    @field_validator("plausibility", "confidence")
+    @classmethod
+    def _clamp(cls, v: float) -> float:
+        return max(0.0, min(1.0, float(v)))
+
+    @field_validator("validation_conditions", "invalidation_conditions", mode="before")
+    @classmethod
+    def _coerce_list(cls, v: object) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)]
+        return [str(x) for x in v]
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _coerce_str(cls, v: object) -> str:
+        return str(v) if v is not None else ""
 
 
 class CounterfactualComputeAgent(BaseMultiplierAgent):
@@ -77,29 +104,25 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
         """
         prompt = build_counterfactual_prompt(context)
 
-        response, call_id = await self._llm_generate(
+        result, call_id = await self._llm_generate_structured(
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
+            response_model=CounterfactualResult,
             max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
 
-        if not response:
-            return self._neutral(error="LLM returned empty response", latency_ms=0.0)
-
-        parsed = self._parse_multiplier_response(response, _validate_counterfactual_fields)
-        if parsed is None:
+        if result is None:
             logger.warning(
-                "counterfactual_agent.json_parse_failed",
+                "counterfactual_agent.structured_output_failed",
                 agent_id=self.agent_id,
-                raw_response=response[:200],
             )
             await self._report_parse_failure(call_id)
-            return self._neutral(error="JSON parse failed", latency_ms=0.0)
+            return self._neutral(error="Structured output failed", latency_ms=0.0)
 
-        plausibility = parsed["plausibility"]
-        llm_confidence = parsed["confidence"]
+        plausibility = result.plausibility
+        llm_confidence = result.confidence
         multiplier = plausibility * llm_confidence
 
         return self._build_multiplier_output(
@@ -108,53 +131,9 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
             confidence=llm_confidence,
             payload={
                 "plausibility": plausibility,
-                "validation_conditions": parsed["validation_conditions"],
-                "invalidation_conditions": parsed["invalidation_conditions"],
-                "reasoning": parsed["reasoning"],
+                "validation_conditions": result.validation_conditions,
+                "invalidation_conditions": result.invalidation_conditions,
+                "reasoning": result.reasoning,
             },
             prompt_version=ACTIVE_VERSION,
         )
-
-
-def _validate_counterfactual_fields(data: dict) -> dict[str, Any] | None:
-    """Validate and sanitize the parsed counterfactual response fields.
-
-    - Rejects non-dict input.
-    - Rejects non-numeric plausibility or confidence.
-    - Clamps both to [0.0, 1.0].
-    - Coerces validation_conditions and invalidation_conditions to list[str].
-    - Returns dict with all five keys; None on failure.
-    """
-    if not isinstance(data, dict):
-        return None
-
-    plausibility = data.get("plausibility")
-    confidence = data.get("confidence")
-
-    if not isinstance(plausibility, (int, float)) or not isinstance(confidence, (int, float)):
-        return None
-
-    plausibility = clamp(float(plausibility), 0.0, 1.0)
-    confidence = clamp(float(confidence), 0.0, 1.0)
-
-    validation_conditions = data.get("validation_conditions", [])
-    if not isinstance(validation_conditions, list):
-        validation_conditions = [str(validation_conditions)]
-    else:
-        validation_conditions = [str(x) for x in validation_conditions]
-
-    invalidation_conditions = data.get("invalidation_conditions", [])
-    if not isinstance(invalidation_conditions, list):
-        invalidation_conditions = [str(invalidation_conditions)]
-    else:
-        invalidation_conditions = [str(x) for x in invalidation_conditions]
-
-    reasoning = str(data.get("reasoning", ""))
-
-    return {
-        "plausibility": plausibility,
-        "confidence": confidence,
-        "validation_conditions": validation_conditions,
-        "invalidation_conditions": invalidation_conditions,
-        "reasoning": reasoning,
-    }
