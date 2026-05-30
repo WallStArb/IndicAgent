@@ -478,4 +478,69 @@ These do not change as part of any rename or refactor:
 
 ---
 
+## 10. Operational Files — Surface 6
+
+These are the non-code file categories that appear at the project root and in supporting directories. Each has a single canonical location and a deletion rule.
+
+### The Renaissance Deletion Principle
+
+> **A file with no permanent operational use is deleted the day its job is complete. Git history is the archive. There are no archive folders.**
+
+An `archive/` subdirectory signals uncertainty about whether work is truly finished. That uncertainty is noise. Delete the file; the commit that removed it records what it was and why.
+
+### Migration Files
+
+| Location | Rule |
+|----------|------|
+| `db/migrations/NNN_description.sql` | Canonical home for all migrations Phase 104+. Numbered sequentially. Applied once; never modified after apply. |
+| `production/migrations/` | Legacy home, frozen. Migrations 001–103 live here. No new files. |
+
+One canonical home. The split exists because `db/migrations/` was established in Phase 104 as the correct Ring 3 location. `production/migrations/` is preserved for history only.
+
+**Naming:** `NNN_description.sql` where `NNN` is globally unique across both directories. Duplicate numbers are a violation — they are the artifact of parallel development without coordination and must be resolved.
+
+### Operational Tools — `tools/`
+
+Permanent utilities used on a recurring basis to operate, validate, or analyze the live system.
+
+| Pattern | Example | Rule |
+|---------|---------|------|
+| `<concept>_<verb>.py` | `validate_skeptic.py` | Validates a live component against a baseline |
+| `<concept>_<noun>.py` | `feature_selection.py` | Applies a quantitative decision rule |
+| `backtest_<concept>.py` | `backtest_i6_plugin.py` | Replays historical data against a plugin |
+| `check_<concept>.py` | `check_duplicate_tests.py` | Diagnostic or integrity check |
+| `compute_<concept>.py` | `compute_skeptic_baseline.py` | Computes a baseline or reference value |
+| `scan_<concept>.py` | `scan_binary_patterns.py` | Pattern sweep across data or code |
+
+A tool belongs in `tools/` only if it will be run again. If it answers a one-time question, it is deleted after use — not committed. If it was already committed, delete it in the next cleanup pass.
+
+`tools/` has no subdirectories. A `tools/backtest/` or `tools/archive/` is a signal that the directory is being used as a graveyard.
+
+### Operational Scripts — `production/scripts/`
+
+Long-running or periodic operational scripts that are part of the deployed system — backfills, replays, batch jobs. These are not tools; they are part of the production workflow.
+
+| Pattern | Example |
+|---------|---------|
+| `<verb>_<concept>.py` | `historical_backfill.py`, `lifecycle_replay.py` |
+| `<concept>_<verb>.sh` | `db_setup.sh`, `ensure_topics.sh` |
+
+One-off scripts used during a phase (data migrations, schema repairs, investigation queries) are deleted when the phase closes. They are not committed unless they are part of a repeatable production operation. If already committed and the job is done, delete on next cleanup pass.
+
+`production/scripts/archive/` is prohibited. Delete, don't archive.
+
+### Schema Reference Files — `production/schemas/`
+
+Monolithic schema snapshots (`create_schema.sql`, `signal_ledger_migration.sql`) are an anti-pattern once a migration sequence exists. The migrations ARE the schema. A snapshot that is not continuously maintained diverges from reality and becomes noise.
+
+**Rule:** No schema snapshot files. The current schema is reconstructed by applying all migrations in sequence. If a snapshot is needed for onboarding, generate it from the live database — do not commit a hand-maintained copy.
+
+### Systemd Unit Files — `production/systemd/`
+
+Every `.service` and `.timer` file in `production/systemd/` corresponds to a deployed or deployment-ready service. A unit file for a service that has been permanently abandoned is deleted immediately — not commented out, not renamed with `.disabled`.
+
+A unit file for a service that is implemented but not yet installed is legitimate — it is the deployment artifact waiting for the install step. The distinction: **planned vs abandoned**. Planned services have a live Python implementation in `services/`. Abandoned services have neither a live implementation nor a phase that will deploy them.
+
+---
+
 *When the taxonomy grows, update Section 3 and the YAML block. When a new surface is added, update Section 4. The spec grows; the principle does not.*
