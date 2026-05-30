@@ -212,11 +212,29 @@ class LLMProviderChain:
         Publishes an llm_calls audit row on BOTH success and failure (H1).
         Accepts extra_audit kwarg for additional audit fields, same as generate() (M4).
         Sets llm.instructor_retries span attribute.
+
+        Note: cache is intentionally skipped for structured calls — structured responses are
+        Pydantic model instances and cannot be serialised/deserialised through the string cache
+        without introducing a schema-version dependency. Rate limiting IS applied to prevent
+        concurrent structured calls from saturating configured RPM/TPM limits.
+
+        Note: the rate limiter is keyed by last_provider_id (pre-call value) as a best-effort
+        approximation. If the prior call used a different provider than this call will use (e.g.
+        due to circuit breaker failover), the wrong per-provider limit is applied. This is a
+        known limitation; fixing it properly requires per-provider limiter selection inside
+        LiteLLMBackend and is deferred to a future phase.
         """
         with _tracer.start_as_current_span(
             "llm.generate_structured",
             attributes={"call_type": self._call_type},
         ) as span:
+            # Apply rate limiter before calling the backend (mirrors _generate_inner).
+            limiter = self._rate_limiters.get(self._inner.last_provider_id) or next(
+                iter(self._rate_limiters.values()), None
+            )
+            if limiter is not None:
+                await limiter.acquire(tokens=max_tokens)
+
             t0 = time.monotonic()
             result = await self._inner.generate_structured(
                 prompt=prompt,
