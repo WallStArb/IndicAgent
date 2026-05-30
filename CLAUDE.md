@@ -2,6 +2,8 @@
 
 Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents). Phase 108 SOP added.
 
+**Project nature:** Passion/learning project — not a production system, not relied upon. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking over operational caution. Renaissance Capital / Jim Simons principles are the north star. The platform and the builder improve together — every refinement compounds. When giving advice, do not hedge around operational risk that doesn't apply; apply the same rigor you would to a system built to last.
+
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
 **Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/` = Ring 0 portable infrastructure (no domain vocab — e.g. `BaseDaemon`, `WorkerContext`); `src/intelligence/` = Ring 1 domain (`BaseAIWorker`, `SignalContext`); `services/` = Ring 2 daemons (pure role nouns, no suffix required for plain role nouns). Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.

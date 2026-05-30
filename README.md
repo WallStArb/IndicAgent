@@ -6,6 +6,12 @@
 
 ---
 
+IndicAgent is a passion project — built to learn real architecture, apply institutional thinking to software design, and improve by doing. The goal is a foundational platform rooted in the rigor of Renaissance Capital and Jim Simons: mathematical discipline applied to every layer, from how things are named to how evidence is evaluated to how models are promoted or rejected. Every refinement sharpens both the platform and the understanding behind it. They compound together.
+
+The platform is designed to extend — quantitative intelligence today, fundamental and qualitative domains next, evolvable AI agents throughout. It is not a pipeline. It is an architecture that can carry any form of market intelligence through the same spine.
+
+---
+
 IndicAgent is a composable, AI-first market intelligence platform where multiple analysis domains feed multiple application agents — all connected through a unified streaming data bus.
 
 The platform is built on one architectural bet: that intelligence, execution, and risk should be independent subscribers to a shared event stream — not coupled services calling each other. Every component is a microservice. Every interaction is an event. Every output is an API. New domains and new agents attach by subscribing and publishing — nothing already running changes.
