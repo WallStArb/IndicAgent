@@ -622,6 +622,38 @@ The following renames are established by this spec. They represent the delta bet
 
 File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregator.py`. The `_agent` suffix is retired from Ring 2 file names.
 
+### Ring 3 — API and Dashboard
+
+Ring 3 follows surface-specific conventions (REST, TypeScript, systemd) and is not subject to the taxonomy suffix rules. However it must be updated in Wave 4 to reflect Ring 1/2 renames and to fix Tier 3 abbreviations in Python.
+
+**Dashboard — display string updates (`dashboard/src/hooks/use-observability-stream.ts`):**
+
+| Current string | Target string |
+|----------------|---------------|
+| `"SignalTrackerComputeAgent"` | `"SignalTracker"` |
+| `"AlphaSwarmComputeAgent"` | `"AlphaSwarm"` |
+| `"CrossAssetComputeAgent"` | `"CrossAssetAnalyzer"` |
+| `"GraduationComputeAgent"` | `"GraduationAnalyzer"` |
+
+Also update `agentAge["AlphaSwarmComputeAgent"]` key reference on line 213.
+
+**API — import updates (flow from Ring 1/2 renames):**
+
+| File | Change |
+|------|--------|
+| `src/api/routes/narrative.py` | Import `NarrativeSynthesizer` (was `NarrativeComputeAgent`) |
+
+**API — Tier 3 abbreviation fixes:**
+
+| File | Current | Target |
+|------|---------|--------|
+| `src/api/routes/narrative.py:96` | `bar_ctx` | `bar_context` |
+| `src/api/routes/narrative.py:107` | `i7_ctx` | `i7_context` |
+| `src/api/routes/health.py:94-95` | `resp` | `response` |
+| `src/api/routes/drift.py`, `ai_stats.py`, `narrative.py`, `signals.py` | `except Exception as exc:` | `except Exception as error:` |
+
+**TypeScript note:** `SymbolConfigManager` in `dashboard/src/lib/symbol-config.ts` uses `Manager` which is idiomatic TypeScript for this pattern. Ring 3 follows surface-specific conventions — leave unchanged.
+
 ### Documentation
 
 `docs/foundation/naming-conventions.md` is superseded by this spec. It will be replaced with a redirect to this document in the rename phase.
