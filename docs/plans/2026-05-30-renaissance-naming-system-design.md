@@ -80,8 +80,10 @@ Ring 3  →  imports from any ring
 A Ring 0 file importing from `src/intelligence/` or `services/` is a boundary violation. This is checked in CI.
 
 **`Base*` prefix rule:**
-- Infrastructure base classes in Ring 0 keep `Base*` — they are shared implementation foundations, not domain objects. `BaseAgent` is this project's equivalent of `abc.ABC`. It does not imply a non-base `Agent` floating around.
+- Infrastructure base classes in Ring 0 keep `Base*` — they are shared implementation foundations, not domain objects. `BaseDaemon` is this project's equivalent of `abc.ABC`. It does not imply a non-base `Daemon` floating around.
 - Mathematical abstract types in Ring 0/1 drop `Base*` — the abstract class IS the type. `Evaluator` (not `BaseEvaluator`). `Synthesizer` (not `BaseSynthesizer`).
+
+**`Agent` is fully retired** — including from infrastructure base class names. The word fails the whiteboard test in 2026 (polluted by LLM framework conventions) and the survival test (a `BaseDaemon` is still a daemon if you swap Kafka for Redis Streams; a `BaseAgent` implies framework-specific agent semantics). No exceptions.
 
 ---
 
@@ -125,11 +127,13 @@ Run autonomously. Have a daemon loop, a systemd unit, a Kafka subscription or ti
 
 **This taxonomy is a living document.** It grows as new mathematical roles are identified.
 
+**Anti-creep rule:** A new category requires at least two distinct existing objects that share the same mathematical role and fit no current category. One object is not a pattern — it is an edge case. Edge cases map to the nearest existing category. A taxonomy that grows for single instances becomes vocabulary pollution.
+
 When an object does not fit an existing category:
-1. Do not force it into the nearest category.
-2. Define the new category: name, mathematical role, output contract, example.
+1. Check the anti-creep rule first. If only one object would use the new category, map it to the nearest existing category.
+2. If two or more objects share an unrepresented role, define the new category: name, mathematical role, output contract, example.
 3. Add it to the taxonomy and the CI YAML block (Section 7) before naming the object.
-4. The taxonomy grows by precision, never by exception.
+4. The taxonomy grows by precision and reuse, never by exception.
 
 ### Machine-Readable Taxonomy Block
 
@@ -146,12 +150,13 @@ taxonomy:
     rings: [2]
     inherits: BaseAgent
   infrastructure_bases:
-    classes: [BaseAgent, BaseWriterAgent, BaseProviderAgent, BaseAIAgent]
+    classes: [BaseDaemon, BaseWriter, BaseProvider, BaseAIWorker, BaseSwarmCoordinator]
     rings: [0]
     base_prefix: permitted
   retired:
-    suffixes: [ComputeAgent, MultiplierAgent, GroupService]
-    words: [Compute, Handler, Helper, Util, Utils, Manager, Processor]
+    suffixes: [ComputeAgent, MultiplierAgent, GroupService, Agent]
+    words: [Compute, Handler, Helper, Util, Utils, Manager, Processor, Agent]
+    note: Agent is fully retired — including from infrastructure base class names
 ```
 
 ---
@@ -305,12 +310,13 @@ Ring 0 publishes a stable public API. Every class exported from `src/core/` is a
 ```
 src/core/
   agent/
-    BaseAgent           daemon lifecycle, Kafka, systemd, OTel, watchdog
-    BaseWriterAgent     writer pattern: DLQ, batch, parse contract
-    BaseProviderAgent   ingestion pattern: reconnect, gap detection
+    BaseDaemon          daemon lifecycle, Kafka, systemd, OTel, watchdog
+    BaseWriter          writer pattern: DLQ, batch, parse contract
+    BaseProvider        ingestion pattern: reconnect, gap detection
   ai/
-    BaseAIAgent         LLM generation, audit trail, typed output
-    AgentContext        frozen execution context for one agent run
+    BaseAIWorker        LLM generation, audit trail, typed output
+    BaseSwarmCoordinator  group coordinator for parallel evaluator dispatch
+    AgentContext        frozen execution context for one evaluator run
     LLMAdapter          Pydantic AI Model protocol bridge
     Evaluator           abstract: evaluate → scored judgment
     Synthesizer         abstract: synthesize → qualitative output
@@ -391,6 +397,18 @@ def word_count(name): return len(re.findall(r'[A-Z][a-z0-9]+', name))
 
 The following renames are established by this spec. They represent the delta between the current codebase and the target vocabulary. These are executed in a dedicated rename phase — not incrementally.
 
+### Ring 0 — Infrastructure Base Classes
+
+| Current | Target | Note |
+|---------|--------|------|
+| `BaseAgent` | `BaseDaemon` | Timeless, portable, passes all three tests |
+| `BaseWriterAgent` | `BaseWriter` | Role suffix is complete without `Agent` |
+| `BaseProviderAgent` | `BaseProvider` | Same |
+| `BaseAIAgent` | `BaseAIWorker` | Interim — see architectural note below |
+| `BaseGroupService` | `BaseSwarmCoordinator` | Names the actual coordination role |
+
+**Architectural note:** `SkepticEvaluator`, `CorrelationAnalyzer`, and other Ring 1 mathematical objects currently inherit from `BaseAIAgent` → `BaseAgent`. A mathematical object that is *called*, not *run*, should not inherit from a daemon base. `BaseAIWorker` is an interim rename. Separating the evaluator class hierarchy from the daemon hierarchy is a Phase 2 architectural concern — out of scope for the rename phase but required before the evaluator pattern is reused in a new project.
+
 ### Ring 1 — AI Evaluation Layer (I8)
 
 | Current | Target | Category |
@@ -417,7 +435,7 @@ The following renames are established by this spec. They represent the delta bet
 | `CrossAssetComputeAgent` | `CrossAssetAnalyzer` | Analyzer |
 | `MacroComputeAgent` | `MacroAnalyzer` | Analyzer |
 | `SignalMetricsComputeAgent` | `SignalMetricsAnalyzer` | Analyzer |
-| `GraduationComputeAgent` | `SignalGraduator` | *(new category candidate — see governance)* |
+| `GraduationComputeAgent` | `GraduationAnalyzer` | Analyzer |
 | `SignalTrackerComputeAgent` | `SignalTracker` | Tracker |
 | `AlertingComputeAgent` | `AlertMonitor` | Monitor |
 | `MLOrchestratorComputeAgent` | `MLOrchestrator` | Orchestrator |
@@ -441,7 +459,7 @@ The following renames are established by this spec. They represent the delta bet
 | `SignalAuditorAgent` | `SignalAuditor` | Auditor |
 | `SignalReplayAuditorAgent` | `SignalReplayAuditor` | Auditor |
 | `ServiceAuditorAgent` | `ServiceAuditor` | Auditor |
-| `OutboxDispatcherAgent` | `OutboxDispatcher` | *(dispatcher — new category candidate)* |
+| `OutboxDispatcherAgent` | `OutboxDispatcher` | Plain role noun (single instance — anti-creep rule applies) |
 
 ### File Names (alongside class renames)
 
@@ -460,7 +478,7 @@ File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregato
 - **DB column quant codes** — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay.
 - **Plugin naming** — `PascalCasePlugin` convention stays.
 - **Intelligence tier codes** — `I1`–`I8` stay in code, docs, and metrics.
-- **`BaseAgent`, `BaseWriterAgent`, `BaseProviderAgent`, `BaseAIAgent`** — Ring 0 infrastructure bases keep `Base*`.
+- **`BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`** — Ring 0 infrastructure bases keep `Base*` prefix; `Agent` is retired from all names.
 - **Systemd unit names** — updated mechanically when class/file names change, no independent changes.
 
 ---
