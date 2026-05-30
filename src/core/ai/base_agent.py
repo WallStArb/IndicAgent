@@ -185,6 +185,27 @@ class BaseAIAgent(BaseAgent, ABC):
             error=error,
         )
 
+    def _build_audit_context(self, context: AIContext, prompt: str, call_id: str) -> dict[str, Any]:
+        """Build the base audit_context dict for an LLM call."""
+        ctx: dict[str, Any] = {
+            "call_id": call_id,
+            "called_at": format_iso_ts(datetime.now(UTC)),
+            "symbol": context.symbol,
+            "signal_id": str(context.signal_id) if context.signal_id else None,
+            "group_name": self.group,
+            "agent_id": self.agent_id,
+            "prompt_version": self.prompt_version,
+            "timeframe": context.timeframe,
+            "prompt": prompt,
+            "succeeded": True,
+            "parse_success": True,
+        }
+        if context.smc is not None:
+            regime = getattr(context.smc, "hmm_regime", None)
+            if regime is not None:
+                ctx["regime"] = str(int(regime))
+        return ctx
+
     async def _llm_generate(
         self,
         context: AIContext,
@@ -216,24 +237,7 @@ class BaseAIAgent(BaseAgent, ABC):
         ) as span:
             try:
                 call_id = str(uuid4())
-                audit_context: dict[str, Any] = {
-                    "call_id": call_id,
-                    "called_at": format_iso_ts(datetime.now(UTC)),
-                    "symbol": context.symbol,
-                    "signal_id": str(context.signal_id) if context.signal_id else None,
-                    "group_name": self.group,
-                    "agent_id": self.agent_id,
-                    "prompt_version": self.prompt_version,
-                    "timeframe": context.timeframe,
-                    "prompt": prompt,
-                    "succeeded": True,
-                    "parse_success": True,
-                }
-
-                if context.smc is not None:
-                    regime = getattr(context.smc, "hmm_regime", None)
-                    if regime is not None:
-                        audit_context["regime"] = str(int(regime))
+                audit_context = self._build_audit_context(context, prompt, call_id)
 
                 if extra_audit:
                     audit_context.update(extra_audit)
@@ -284,24 +288,7 @@ class BaseAIAgent(BaseAgent, ABC):
         ) as span:
             try:
                 call_id = str(uuid4())
-                audit_context: dict[str, Any] = {
-                    "call_id": call_id,
-                    "called_at": format_iso_ts(datetime.now(UTC)),
-                    "symbol": context.symbol,
-                    "signal_id": str(context.signal_id) if context.signal_id else None,
-                    "group_name": self.group,
-                    "agent_id": self.agent_id,
-                    "prompt_version": self.prompt_version,
-                    "timeframe": context.timeframe,
-                    "prompt": prompt,
-                    "succeeded": True,
-                    "parse_success": True,
-                }
-
-                if context.smc is not None:
-                    regime = getattr(context.smc, "hmm_regime", None)
-                    if regime is not None:
-                        audit_context["regime"] = str(int(regime))
+                audit_context = self._build_audit_context(context, prompt, call_id)
 
                 # Do NOT pre-merge extra_audit here (WR-04): chain.generate_structured
                 # already merges extra_audit into the audit row. Pre-merging here and then

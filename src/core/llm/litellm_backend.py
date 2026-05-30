@@ -24,6 +24,11 @@ from src.observability.circuit_breaker import CircuitBreaker
 
 logger = structlog.get_logger(__name__)
 
+# Instructor client singleton — wraps module-level acompletion, safe to share across instances.
+# Initialized on first LiteLLMBackend construction (deferred so litellm import is not required
+# at module load time if no backend is ever created).
+_instructor_client = None
+
 # Circuit breaker configs (plan spec). CircuitBreakerConfig carries more fields than
 # the observability CircuitBreaker constructor supports (e.g. success_threshold,
 # max_half_open_calls, failure_window, performance_threshold_ms are not wired in);
@@ -63,8 +68,18 @@ _REMOTE_CB = CircuitBreaker(
 )
 
 
+_litellm_configured = False
+
+
 def _configure_litellm(settings) -> None:
-    """Set LiteLLM environment variables and disable telemetry/logging."""
+    """Set LiteLLM environment variables and disable telemetry/logging.
+
+    Guarded by _litellm_configured so the module-level mutations only run once
+    regardless of how many LiteLLMBackend instances are created.
+    """
+    global _litellm_configured
+    if _litellm_configured:
+        return
     import litellm
 
     os.environ.setdefault("OLLAMA_API_BASE", settings.ollama_base_url)
@@ -75,6 +90,7 @@ def _configure_litellm(settings) -> None:
     litellm.telemetry = False
     litellm.success_callback = []
     litellm.failure_callback = []  # prevent failure telemetry from leaking request metadata
+    _litellm_configured = True
 
 
 class LiteLLMBackend:
@@ -93,18 +109,21 @@ class LiteLLMBackend:
     """
 
     def __init__(self, settings) -> None:
+        global _instructor_client
         self._settings = settings
         self.providers: list[str] = self._build_providers()
         _configure_litellm(settings)
         self.last_provider_id: str | None = None
         self.last_token_usage: dict | None = None
-        # Instructor client for structured output. Uses JSON mode for Ollama compatibility.
+        # Instructor client for structured output — shared singleton across all instances.
         # mode=instructor.Mode.JSON is required for non-OpenAI providers (Ollama, OpenRouter).
-        import litellm as _litellm
+        if _instructor_client is None:
+            import litellm as _litellm
 
-        self._instructor_client = instructor.from_litellm(
-            _litellm.acompletion, mode=instructor.Mode.JSON
-        )
+            _instructor_client = instructor.from_litellm(
+                _litellm.acompletion, mode=instructor.Mode.JSON
+            )
+        self._instructor_client = _instructor_client
         self.last_instructor_retries: int = 0
         self.last_failure_reason: str | None = None
 
@@ -229,7 +248,6 @@ class LiteLLMBackend:
                 self.last_token_usage = self._normalize_usage(
                     getattr(raw_completion, "usage", None)
                 )
-                self.last_instructor_retries = 0
                 self.last_failure_reason = None
                 return validated_model
             except Exception as exc:
