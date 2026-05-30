@@ -185,6 +185,21 @@ Given concept `signal_tracker`:
 
 ---
 
+## Operational Files (Surface 6)
+
+<!-- src: docs/foundation/naming-system.md §10 -->
+
+| Location | Purpose | Rule |
+|----------|---------|------|
+| `db/migrations/NNN_description.sql` | Canonical migrations Phase 104+ | Sequential, applied once, never modified |
+| `production/migrations/` | Legacy migrations 001–103 | Frozen — no new files |
+| `tools/<concept>_<verb>.py` | Permanent operational utilities | Only if run repeatedly; one-offs deleted on completion |
+| `production/scripts/<verb>_<concept>.py` | Production operational scripts | One-offs deleted when phase closes |
+
+**Deletion rule:** A file with no permanent operational use is deleted the day its job is complete. Git history is the archive. No `archive/` subdirectories.
+
+---
+
 ## What Does Not Change
 
 <!-- src: docs/foundation/naming-system.md §9 -->
