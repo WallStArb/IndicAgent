@@ -4,8 +4,8 @@ milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
 stopped_at: context exhaustion at 77% (2026-05-30)
-last_updated: "2026-05-30T19:25:59.903Z"
-last_activity: 2026-05-30 -- Phase 110 planning complete
+last_updated: "2026-05-30T19:28:55.003Z"
+last_activity: 2026-05-30 -- Phase 110 execution started
 progress:
   total_phases: 19
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 095 — pydantic ai agents
+**Current focus:** Phase 110 — renaissance-rename
 
 ## Current Position
 
-Phase: 110 (rename) — READY TO PLAN
-Plan: 0 of TBD
-Status: Ready to execute
-Last activity: 2026-05-30 -- Phase 110 planning complete
+Phase: 110 (renaissance-rename) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 110
+Last activity: 2026-05-30 -- Phase 110 execution started
 
 **Sequencing decision (2026-05-30):** Phase 110 (rename) executes before Phase 095. Phase 095 touches Ring 0 infrastructure being renamed and must write new evaluators with correct names from day one. See design spec Section 11.
 
