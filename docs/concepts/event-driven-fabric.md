@@ -1,4 +1,10 @@
 # Event-Driven Fabric
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** event-driven, messaging, decoupling, kafka
+
 > Agents communicate exclusively through named topics — no agent ever calls another directly.
 
 ## The Problem It Solves

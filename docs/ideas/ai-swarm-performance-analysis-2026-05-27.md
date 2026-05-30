@@ -1,8 +1,10 @@
 # AI Swarm Performance Analysis
 **Version:** 1.0
-**Date:** 2026-05-27  
-**Analysis Period:** 2026-05-20 to 2026-05-27 (7 days)  
-**Analyst:** Claude Code + User Investigation
+**Status:** draft
+**Priority:** high
+**Milestone:** v2.8
+**Last Updated:** 2026-05-27
+**Tags:** swarm, performance, analysis, signal-quality, confidence-gating, pnl, ai
 
 ## Executive Summary
 

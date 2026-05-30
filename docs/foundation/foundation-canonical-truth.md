@@ -1,8 +1,9 @@
 # Canonical Truth Registry
 
 **Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-05
-**Status:** Architecture standard
+**Tags:** data-ownership, canonical-source, streams, persistence, writer-agents, kafka
 
 This registry defines which stream/table owns each durable business fact. Any new table, stream, read model, or cache must either appear here or explicitly declare that it is a derived projection.
 

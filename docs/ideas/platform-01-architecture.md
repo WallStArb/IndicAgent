@@ -1,10 +1,11 @@
 # Platform Architecture — Unified Intelligence & Execution Suite (Vision)
 
 **Version:** 1.0
-**Created:** 2026-03-04
+**Status:** draft
+**Priority:** high
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02
-**Status:** Vision — architecture ideation / ideas capture
-**Related:** `docs/ideas/ai-02-ml-agent-architecture.md` (ML/AI), `docs/ideas/ai-05-intelligence-swarm-manifest.md` (swarm), qualagent/derivagent/tradeagent/primeagent/aegisagent visions, `docs/ideas/renaissance-framing.md`
+**Tags:** platform, architecture, event-bus, redpanda, product-family, vision, intelligence, execution
 
 > **Living document.** The data flow section and canonical stream namespace are the source of truth for stream contracts across all products. Update these whenever a stream is added, renamed, or retired.
 

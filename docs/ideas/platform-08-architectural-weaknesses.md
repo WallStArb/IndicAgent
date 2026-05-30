@@ -1,14 +1,11 @@
 # Architectural Weakness Assessment
 
 **Version:** 1.0
-**Status:** Active — living document
-**Priority:** High — foundational tech debt affecting all future phases
-**Date:** 2026-05-10
+**Status:** under-review
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-23
-**Trigger:** Pre-phase-80 architectural review; full-spectrum 7-domain audit 2026-05-23
-**Updates:**
-- 2026-05-16 — full persistence writer audit added (#3, #6); new entries #8-#12
-- 2026-05-23 — 7-domain audit (telemetry, code-reuse, DAG, shadow-governance, compute-latency, persistence, simplification) merged; HOTFIX section added; 24 new findings added (#13-#36); Renaissance backlog and v2.8 readiness sections added
+**Tags:** architecture, tech-debt, persistence, shadow-governance, telemetry, dag, hotfix, audit
 
 ---
 

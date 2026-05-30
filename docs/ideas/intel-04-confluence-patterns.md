@@ -1,10 +1,11 @@
 # I6 Confluence Pattern Exploration
 
 **Version:** 1.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02
-
-**Created:** 2026-03-11
-**Status:** Research phase — Renaissance-aligned confluence framework concept
+**Tags:** confluence, i6, cross-timeframe, patterns, renaissance, algorithm, intelligence
 
 ## Problem Statement
 

@@ -1,9 +1,9 @@
-<!-- generated-by: gsd-doc-writer -->
 # IndicAgent v2.8 — Current Architecture State
 
 **Version:** 2.8
+**Status:** current
 **Last Updated:** 2026-05-27
-**Status:** v2.8 in progress — AI Platform (094-099) + Evolvable Agents (101-103). v2.7 shipped 2026-05-26 (Phases 093, 100, 100.5, 104, 105, 106, 107).
+**Tags:** architecture, evolution, versioning, pipeline, swarm, ml-infrastructure
 
 > This is the single source of truth for the current production architecture. For design history and evolution, see `archive/`.
 

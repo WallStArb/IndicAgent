@@ -3,6 +3,7 @@
 **Version:** 2.8
 **Status:** current
 **Last Updated:** 2026-04-21
+**Tags:** architecture, design-principles, plugin-system, event-driven, pipeline, extensibility
 
 > The North Star for all development and architectural decisions. When in doubt about a design choice, check it against these principles first.
 
@@ -45,6 +46,20 @@ Drift detection (KS/CUSUM), performance monitoring, and model-weight backfilling
 ## 9. Never Drop Data That Could Contain Signal
 
 Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered. `intelligence_features`, `signal_ledger`, and `llm_calls` have no retention policies — they grow forever (TimescaleDB compression handles the cost).
+
+## 11. DAG Invariants — Non-Negotiable
+
+The agentic DAG has seven structural invariants. These are not guidelines — violating any one of them breaks the guarantees that make the rest of the system work. Every new service and every code review must verify these hold.
+
+1. **`ProviderMergerAgent` is the sole writer to `market.bars`.** All downstream agents are isolated from provider topology. Adding a new data source means adding a ProviderAgent — zero downstream changes.
+2. **I1–I7 runs entirely in-process.** `IntelligencePipelineComputeAgent` computes all 132 plugins in-memory before publishing. Kafka is a sink, not an inter-stage pipe. No I6→I7 Kafka hop.
+3. **No ComputeAgent touches the database.** Only `WriterAgent`, `TrackerAgent`, and `AuditorAgent` perform DB operations. A ComputeAgent that queries the DB is a DAG violation.
+4. **All topic keys via `stream_keys.py`.** No hardcoded topic strings anywhere in the codebase.
+5. **No agent calls another agent directly.** Topics are the only coupling. Point-to-point calls make topology invisible, create restart dependencies, and break the restart-from-offset guarantee.
+6. **All timestamps UTC.** Every bar, event, and DB write uses timezone-aware UTC datetimes. `datetime.now(UTC)` only — never `datetime.now()` or `datetime.utcnow()`.
+7. **Scaling via systemd + Prometheus lag.** No Kubernetes HPA. Consumer lag monitored via `persistence_consumer_lag` metric.
+
+**Canonical reference:** `docs/architecture/architecture-dag-topology.md` — full system map with Mermaid diagram, agent taxonomy, and topic registry.
 
 ## 10. Shadow Before Production
 

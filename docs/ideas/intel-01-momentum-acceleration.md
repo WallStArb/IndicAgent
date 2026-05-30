@@ -1,8 +1,11 @@
 # Momentum Acceleration (Second-Derivative Analysis)
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-27  
-**Status:** Reference — big idea; not yet scheduled
+**Version:** 1.0.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-02-27
+**Tags:** momentum, second-derivative, acceleration, indicators, rsi, macd, roc, intelligence
 
 **Detail / implementation plan:** [docs/plans/2026-02-25-momentum-acceleration-analysis.md](../plans/2026-02-25-momentum-acceleration-analysis.md)
 

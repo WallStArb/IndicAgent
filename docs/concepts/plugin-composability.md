@@ -1,4 +1,10 @@
 # Plugin Composability
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** plugins, composability, extensibility, pipeline
+
 > Intelligence is entirely composed of plugins — the pipeline shell is empty; adding intelligence means writing a plugin, not modifying core code.
 
 ## The Problem It Solves

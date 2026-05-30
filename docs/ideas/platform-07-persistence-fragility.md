@@ -1,15 +1,11 @@
----
-title: Persistence Layer — Fragility Assessment
-date: 2026-05-16
-context: Pre-v2.6 foundation cleanup — architectural weakness exploration
-audit_date: 2026-05-16
----
-
 # Persistence Layer Fragility Assessment
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-16
+**Tags:** persistence, fragility, asyncpg, signal-ledger, schema, validation, architecture
 The persistence layer has accumulated fragility across multiple dimensions. Because signals,
 features, lifecycle events, and lineage all flow through it, instability here propagates to
 the whole system.

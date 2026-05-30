@@ -1,4 +1,10 @@
 # Swarm Intelligence
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** multi-agent, ensemble, specialist-agents, mixture-of-experts
+
 > No single AI agent makes a decision — specialist agents each assess one dimension, and their outputs are composed into a calibrated multiplier.
 
 ## The Problem It Solves

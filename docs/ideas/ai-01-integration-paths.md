@@ -1,8 +1,11 @@
 # AI Integration Paths
 
 **Version:** 1.0
-**Status:** design
+**Status:** draft
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-18
+**Tags:** ai, integration, swarm, llm, shadow-mode, kafka, signal-quality
 
 ## Key Insight
 

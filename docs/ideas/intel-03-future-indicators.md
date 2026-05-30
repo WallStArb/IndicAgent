@@ -1,7 +1,11 @@
 # Future Indicators Backlog
 
 **Version:** 1.0
+**Status:** draft
+**Priority:** low
+**Milestone:** future
 **Last Updated:** 2026-05-02
+**Tags:** indicators, backlog, archived, supertrend, garch, kalman, patterns, intelligence
 
 > **⚠️ ARCHIVED 2026-03-22**
 >

@@ -1,4 +1,10 @@
 # Evidence-Graded Signals
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** signal-quality, confluence, multi-factor, evidence
+
 > A signal requires agreement from multiple independent evidence sources — no single indicator can produce a tradeable signal.
 
 ## The Problem It Solves

@@ -1,8 +1,11 @@
 # Jim Simons / Renaissance Principles (Research)
 
-**Version:** 1.2.0  
-**Last Updated:** 2026-02-27  
-**Status:** Reference — principles distilled from external research
+**Version:** 1.2.0
+**Status:** draft
+**Priority:** high
+**Milestone:** future
+**Last Updated:** 2026-02-27
+**Tags:** renaissance, jim-simons, principles, medallion, data-first, edge, philosophy
 
 **Sources:**
 - [QuantVPS – Jim Simons Trading Strategy Explained](https://www.quantvps.com/blog/jim-simons-trading-strategy)

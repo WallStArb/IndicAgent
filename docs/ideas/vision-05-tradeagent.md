@@ -1,8 +1,11 @@
 # TradeAgent — Autonomous Trading Application (Vision)
 
-**Version:** 0.9  
-**Last Updated:** 2026-03-04  
-**Status:** Vision — design in progress
+**Version:** 0.9
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-03-04
+**Tags:** tradeagent, execution, autonomous-trading, broker, portfolio, risk, platform, vision
 
 ---
 

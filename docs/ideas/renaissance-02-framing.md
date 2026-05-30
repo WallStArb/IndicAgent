@@ -1,11 +1,11 @@
 # The Renaissance Framing — How Simons Would Build This
 
 **Version:** 1.0
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
-**Status:** Vision — foundational philosophy document  
-**Reference:** `docs/ideas/jim-simons-renaissance-principles.md`  
-**Related:** `docs/ideas/platform-architecture.md`, `docs/ideas/qualagent-vision.md`, `docs/ideas/derivagent-vision.md`, `docs/ideas/tradeagent-vision.md`
+**Status:** draft
+**Priority:** high
+**Milestone:** future
+**Last Updated:** 2026-03-04
+**Tags:** renaissance, jim-simons, philosophy, architecture, medallion, data-first, pattern-recognition
 
 ---
 

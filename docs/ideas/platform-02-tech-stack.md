@@ -1,10 +1,11 @@
 # Platform Tech Stack — Decisions, Reasoning, and Migration Path
 
 **Version:** 1.0
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-10  
-**Status:** Vision — active decisions + future planning  
-**Related:** `docs/ideas/platform-architecture.md`
+**Status:** draft
+**Priority:** medium
+**Milestone:** future
+**Last Updated:** 2026-03-10
+**Tags:** tech-stack, redpanda, timescaledb, fastapi, systemd, docker, python, decisions
 
 > **Living document.** Record every significant tech decision here with the reasoning. Future decisions should reference this doc so we don't re-debate resolved questions.
 

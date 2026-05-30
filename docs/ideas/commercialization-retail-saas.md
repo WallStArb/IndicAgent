@@ -1,8 +1,11 @@
 # Commercialization — Retail SaaS + Tiered API
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-02-28
-**Status:** Idea — strategic direction, not yet scoped into roadmap
+**Tags:** commercialization, saas, retail, api, monetization, platform, tiers
 
 ---
 

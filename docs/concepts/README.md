@@ -1,51 +1,25 @@
 # Concepts Library
 
-Reusable intellectual artifacts — the architectural DNA of IndicAgent. Each doc captures the *why* behind a design decision at a level of abstraction that transfers to new systems.
+This folder contains the foundational concepts behind IndicAgent's architecture. Each document explains one principle: the problem it solves, the theoretical solution, and how IndicAgent applies it.
 
-**How to read this library:**
-- New engineer onboarding: read Layer 1 first, then Layer 2
-- Designing a new system: use the Recipe section of any relevant doc
-- Understanding a domain doc: the concept doc is its intellectual foundation
+These are stable reference documents. They explain *why* the system is designed the way it is — not implementation details (see domain folders) or operational procedures (see `docs/operations/`).
 
 ---
 
-## Layer 1 — System Architecture
+## Index
 
-Foundations that everything else rests on.
-
-| Doc | Core idea |
-|-----|-----------|
-| [Hot-Path Isolation](hot-path-isolation.md) | Real-time compute never touches storage — decouples latency from I/O |
-| [Event-Driven Fabric](event-driven-fabric.md) | Agents decouple through topics, never direct calls |
-| [Incremental Computation](incremental-computation.md) | O(1) per-bar updates via stateful plugins |
-| [Temporal Data Architecture](temporal-data-architecture.md) | Time-series native; every event timestamped, nothing dropped |
-
-## Layer 2 — Intelligence Design
-
-How you build a smart system on that foundation.
-
-| Doc | Core idea |
-|-----|-----------|
-| [Progressive Intelligence Extraction](progressive-intelligence-extraction.md) | Raw data → actionable intelligence through 8 tiers (I1-I8) |
-| [Plugin Composability](plugin-composability.md) | Intelligence as independently-testable units with declared dependencies |
-| [DAG Execution](dag-execution.md) | Topological ordering derives parallelism from the dependency graph |
-| [Regime Awareness](regime-awareness.md) | Signals conditioned on market state, not absolute thresholds |
-
-## Layer 3 — Trust and Quality
-
-How you know the system is right.
-
-| Doc | Core idea |
-|-----|-----------|
-| [Evidence-Graded Signals](evidence-graded-signals.md) | Multi-dimensional confirmation before any signal fires |
-| [Adaptive Intelligence](adaptive-intelligence.md) | The system earns the right to act through statistical proof |
-| [Swarm Intelligence](swarm-intelligence.md) | Mixture of expert agents — no single model makes a decision |
-
-## Layer 4 — Operational Excellence
-
-How you run it reliably at scale.
-
-| Doc | Core idea |
-|-----|-----------|
-| [Observability and Traceability](observability-and-traceability.md) | Every decision auditable end-to-end |
-| [Autonomous Resilience](autonomous-resilience.md) | The system detects and corrects its own failures |
+| Concept | One-line summary |
+|---------|-----------------|
+| [Adaptive Intelligence](adaptive-intelligence.md) | Every component earns influence through statistical proof and loses it when evidence degrades |
+| [Autonomous Resilience](autonomous-resilience.md) | The system detects failures, routes around them, and recovers without human intervention |
+| [DAG Execution](dag-execution.md) | Plugin dependencies are declared, not scheduled — topological sort derives order automatically |
+| [Event-Driven Fabric](event-driven-fabric.md) | Agents communicate exclusively through named topics — no agent ever calls another directly |
+| [Evidence-Graded Signals](evidence-graded-signals.md) | A signal requires agreement from multiple independent evidence sources |
+| [Hot-Path Isolation](hot-path-isolation.md) | Real-time compute is strictly isolated from storage — the hot path never blocks on I/O |
+| [Incremental Computation](incremental-computation.md) | Plugins maintain bounded state and update O(1) per bar — no history reprocessed after warmup |
+| [Observability and Traceability](observability-and-traceability.md) | Every decision is measurable, attributable, and auditable from bar to signal to outcome |
+| [Plugin Composability](plugin-composability.md) | Intelligence is entirely composed of plugins — adding capability means writing a plugin, not modifying core |
+| [Progressive Intelligence Extraction](progressive-intelligence-extraction.md) | Raw data is transformed through sequential layers of increasing abstraction before patterns emerge |
+| [Regime Awareness](regime-awareness.md) | Market behavior is non-stationary — every signal must know what kind of market it is operating in |
+| [Swarm Intelligence](swarm-intelligence.md) | No single agent makes a decision — specialists each assess one dimension and outputs are composed |
+| [Temporal Data Architecture](temporal-data-architecture.md) | Every market event is a timestamped immutable record — nothing dropped, everything queryable by time |

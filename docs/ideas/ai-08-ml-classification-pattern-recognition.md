@@ -1,11 +1,11 @@
 # ML Classification for Pattern Recognition in IndicAgent
 
 **Version:** 1.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-02
-
-**Created:** 2026-03-11
-**Status:** Research Phase
-**Tags:** `ml`, `classification`, `random-forest`, `knn`, `svm`, `pattern-recognition`, `supervised-learning`
+**Tags:** ml, classification, random-forest, knn, svm, pattern-recognition, supervised-learning
 
 ---
 

@@ -1,10 +1,11 @@
 # Kubernetes: Evaluation for IndicAgent v2.1
 
-**Last Updated:** 2026-05-02
-
 **Version:** 1.0
-**Created:** 2026-03-30
-**Status:** Research & Planning — Not Currently Implemented
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-05-02
+**Tags:** kubernetes, orchestration, scaling, hpa, systemd, docker, infrastructure
 
 > **Purpose:** Document Kubernetes fundamentals, evaluate fit for IndicAgent architecture, and provide learning foundation for future container orchestration decisions.
 

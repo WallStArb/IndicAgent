@@ -1,4 +1,10 @@
 # Autonomous Resilience
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** fault-tolerance, self-healing, circuit-breaker, reliability
+
 > The system detects failures, routes around them, and recovers without human intervention.
 
 ## The Problem It Solves

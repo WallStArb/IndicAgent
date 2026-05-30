@@ -1,4 +1,10 @@
 # Adaptive Intelligence
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** adaptive-weighting, statistical-validation, signal-quality, feedback-loops
+
 > Every component that influences a decision must earn that influence through statistical proof, and must lose it when evidence degrades.
 
 ## The Problem It Solves

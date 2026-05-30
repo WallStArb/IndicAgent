@@ -1,8 +1,11 @@
 # Orderflow-Based Setups (Research)
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-27  
-**Status:** Reference — future setups; requires orderflow integration first
+**Version:** 1.0.0
+**Status:** draft
+**Priority:** low
+**Milestone:** future (post-v2.8)
+**Last Updated:** 2026-02-27
+**Tags:** orderflow, delta, signals, setups, ibkr, tick-data, absorption
 
 **Source:** `.planning/IDEAS.md`
 

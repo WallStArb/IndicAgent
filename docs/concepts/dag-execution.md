@@ -1,4 +1,10 @@
 # DAG Execution
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** dag, topological-sort, parallelism, plugin-dependencies
+
 > Plugin dependencies are declared, not scheduled — a topological sort derives execution order and reveals parallelism automatically.
 
 ## The Problem It Solves
@@ -51,9 +57,26 @@ When designing a DAG-executed system:
 5. **Separate the DAG from execution** — compute topological order once; apply it repeatedly. The sort is not free; per-event recomputation is waste.
 6. **Validate at registration** — check that every declared input actually exists in the graph. Typos in dependency declarations create silent data gaps.
 
+## The Seven Invariants in Practice
+
+The principle above describes the theory. In IndicAgent, it materialises as seven non-negotiable architectural invariants — the operational expression of the DAG mandate:
+
+1. `ProviderMergerAgent` is the sole writer to `market.bars`
+2. I1–I7 runs entirely in-process — Kafka is a sink, not an inter-stage pipe
+3. No ComputeAgent touches the database
+4. All topic keys via `stream_keys.py` — no hardcoded strings
+5. No agent calls another agent directly
+6. All timestamps UTC
+7. Scaling via systemd + Prometheus lag — no Kubernetes HPA
+
+These invariants are the reason the system can be fully replayed from a Kafka offset, the reason a DB outage has zero impact on signal generation, and the reason a new data provider requires zero downstream changes.
+
+Full system map with Mermaid diagram, agent taxonomy, topic registry, and all invariant rationale: `docs/architecture/architecture-dag-topology.md`.
+
 ## See Also
 
 - Implementation: `docs/intelligence/intelligence-plugins.md` — plugin DAG structure, wave execution, code
-- Service DAG: `docs/agents/agents-foundation.md` — L1-L10 service topology
+- Service DAG: `docs/architecture/architecture-dag-topology.md` — full system map and service invariants
+- Principles: `docs/foundation/foundation-design-principles.md` — DAG mandate as Principle 11
 - Code: `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 - Related concept: `docs/concepts/plugin-composability.md` — how plugins declare their interfaces

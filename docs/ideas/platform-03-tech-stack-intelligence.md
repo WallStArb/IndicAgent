@@ -1,9 +1,12 @@
 <!-- generated-by: gsd-doc-writer -->
 # AI/ML Tech Stack — Consolidated Reference
 
-**Purpose:** Single reference for all AI/ML technology choices. What we use, why we chose it, how it fits together.
+**Version:** 1.0
+**Status:** under-review
+**Priority:** high
+**Milestone:** v2.8
 **Last Updated:** 2026-05-27
-**Status:** Living document — reflects current v2.8 state (AI Platform + Evolvable Agents in progress)
+**Tags:** ai, ml, tech-stack, lightgbm, pydantic-ai, litellm, ollama, evolvable-ai, intelligence
 
 **Deep dives:**
 - Agent system: `../ideas/ai-02-ml-agent-architecture.md` — Multi-agent learning machine design

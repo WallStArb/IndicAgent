@@ -1,10 +1,11 @@
 # MLAgent — Renaissance-Style Learning Machine
 
 **Version:** 1.0
-**Status:** design — prerequisites met, ready for roadmap planning
+**Status:** under-review
 **Priority:** high
 **Milestone:** v1.9+
 **Last Updated:** 2026-05-02
+**Tags:** ml, agents, learning-machine, shadow-governance, drift-detection, signal-scoring, renaissance
 
 ---
 

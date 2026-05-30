@@ -1,8 +1,11 @@
 # Regime-Adaptive Trading (Research)
 
 **Version:** 1.0.0
+**Status:** draft
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-02-27
-**Status:** Reference — applicable to I7 signal gating and Phase 7 ML layer
+**Tags:** regime, hmm, random-forest, signal-gating, adaptive, trading, ml, intelligence
 
 **Source:** [QuantInsti — Step-by-Step Python Guide for Regime-Specific Trading Using HMM and Random Forest](https://blog.quantinsti.com/regime-adaptive-trading-python)
 

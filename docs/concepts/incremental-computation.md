@@ -1,4 +1,10 @@
 # Incremental Computation
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** stateful-plugins, incremental-updates, computational-efficiency, streaming
+
 > Plugins maintain bounded internal state and update it O(1) per bar — no history reprocessed after warmup.
 
 ## The Problem It Solves

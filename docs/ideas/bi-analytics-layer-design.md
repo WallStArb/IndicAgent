@@ -1,11 +1,11 @@
 # BI Analytics Layer — Apache Superset
 
 **Version:** 1.0
+**Status:** adopted
+**Priority:** medium
+**Milestone:** future (post-v2.8)
 **Last Updated:** 2026-05-05
-
-**Status:** approved design, not yet implemented
-**Created:** 2026-04-23
-**Replaces:** earlier BI analytics layer draft, not retained in repo
+**Tags:** bi, analytics, superset, timescaledb, dashboards, signal-outcomes, data-quality
 
 **Implementation snapshot (2026-05-05):**
 - Superset is planned but not present in `production/docker-compose.yml`.

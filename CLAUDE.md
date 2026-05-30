@@ -99,8 +99,8 @@ L10 service-auditor                      — meta: monitors + restarts all above
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseScorer, BaseGroupService, AIContext, AgentOutput). Phase 095 adds: AgentContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
-- **Pending renames (conventions established, code not yet updated):** `BaseMultiplierAgent`→`BaseScorer`, `SkepticComputeAgent`→`SkepticScorer`, `CorrelationComputeAgent`→`CorrelationScorer`, `CounterfactualComputeAgent`→`CounterfactualScorer`, `RegimeCoherenceComputeAgent`→`RegimeCoherenceScorer`, `MLScorerMultiplierAgent`→`MLScorer`, `NarrativeComputeAgent`→`NarrativeSynthesizer`. Use OLD names when reading/editing existing code until rename phase ships.
+- `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseEvaluator, BaseGroupService, AIContext, AgentOutput). Phase 095 adds: WorkerContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
+- **Pending renames (conventions established, code not yet updated):** `BaseMultiplierAgent`→`BaseEvaluator`, `SkepticComputeAgent`→`SkepticEvaluator`, `CorrelationComputeAgent`→`CorrelationEvaluator`, `CounterfactualComputeAgent`→`CounterfactualEvaluator`, `RegimeCoherenceComputeAgent`→`RegimeCoherenceEvaluator`, `MLScorerMultiplierAgent`→`MLEvaluator`, `NarrativeComputeAgent`→`NarrativeSynthesizer`. Use OLD names when reading/editing existing code until rename phase ships.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
@@ -140,6 +140,18 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Files**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py` (expose `PROMPT_REGISTRY`, `ACTIVE_VERSION`)
 - **`_compute()` contract**: Build prompt → call LLM → parse → `AgentOutput`. Never raise; `self._neutral(error=...)` on failure.
 - Register in group service (e.g., `AlphaSwarmComputeAgent._agents`) + call `shadow_registry_ensure()` at startup.
+
+## DAG Invariants
+
+These are non-negotiable architectural constraints. Any code that violates one of them is wrong regardless of whether it works locally. Full rationale: `docs/foundation/foundation-design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
+
+1. **`ProviderMergerAgent` is the sole writer to `market.bars`** — all downstream agents are isolated from provider topology.
+2. **I1–I7 runs entirely in-process** — `IntelligencePipelineComputeAgent` is DB-ignorant; Kafka is a sink, not an inter-stage pipe.
+3. **No ComputeAgent touches the database** — only `WriterAgent`, `TrackerAgent`, and `AuditorAgent` perform DB operations.
+4. **All topic keys via `stream_keys.py`** — no hardcoded topic strings anywhere.
+5. **No agent calls another agent directly** — topics are the only coupling between agents.
+6. **All timestamps UTC** — `datetime.now(UTC)` only; never `datetime.now()` or `datetime.utcnow()`.
+7. **Scaling via systemd + Prometheus lag** — no Kubernetes HPA; consumer lag monitored via `persistence_consumer_lag`.
 
 ## Key Rules
 

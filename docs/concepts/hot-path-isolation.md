@@ -1,4 +1,10 @@
 # Hot-Path Isolation
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+**Tags:** latency, real-time, io-isolation, performance
+
 > Real-time compute is strictly isolated from storage and I/O — the hot path never blocks on a database or network call.
 
 ## The Problem It Solves
