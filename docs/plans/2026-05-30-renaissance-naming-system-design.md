@@ -643,22 +643,23 @@ File names follow the class rename. `bar_aggregator_agent.py` → `bar_aggregato
 
 ## 11. Migration Guidelines
 
-The rename phase touches every service file, class name, and import in the codebase simultaneously. These rules prevent the migration from breaking the build or operational systems mid-flight.
+The rename phase touches every service file, class name, and import in the codebase simultaneously.
 
-**Atomic rename:** All renames in Section 9 execute in a single phase on a feature branch. Incremental rename across multiple PRs creates a window where CI checks fail and dashboards break. The branch merges only when all checks pass.
+**Sequencing decision (2026-05-30):** The rename executes before Phase 095 (Pydantic AI Agent Execution Layer). Phase 095 directly touches the Ring 0 infrastructure being renamed — `BaseAIAgent`, `BaseGroupService`, `AgentContext` — and introduces new evaluators that must be named correctly from day one. Writing 095 code against old names would compound the debt. The foundation must be correct before anything built on top of it can be trusted.
 
-**Compatibility aliases:** During the rename phase, add module-level aliases for any class imported by Ring 3 (API routes, dashboard backend) or external tooling. Remove aliases in a follow-up cleanup PR after all callers are updated.
+**Atomic rename:** All renames in Section 9 execute in a single phase on a feature branch. Incremental rename across multiple PRs creates a window where CI checks fail and vocabulary is contradictory. The branch merges only when all checks pass.
 
-```python
-# Temporary alias — remove after callers updated
-SignalTrackerComputeAgent = SignalTracker
-```
+**Wave structure within the branch:** Four commits, each verified before the next:
+1. Ring 0 base classes (7 renames) — highest leverage; everything inherits from these
+2. Ring 1 math objects (9 renames) — self-contained, no service restarts
+3. Ring 2 class names (~30 renames) — class names only, no file moves yet
+4. File renames + systemd units + import cleanup
 
-**Systemd units:** Rename systemd unit files alongside class renames. Keep the old unit file as a one-line stub that `ExecStart`-redirects to the new unit name for one deploy cycle, then remove.
+**Clean break:** No compatibility aliases, no systemd stub files. All callers are updated in the same branch. This is not a production system with external dependents — a clean atomic rename is correct.
 
-**Metrics and dashboards:** The `agent_id` label exception in Section 2 means no Grafana dashboard changes are required for the core liveness/DLQ/crash metrics. For any metrics that include the old class name in their prefix (e.g., `bar_aggregator_compute_agent_messages_total`), update the metric name and add a Grafana alert annotation marking the rename date.
+**Metrics and dashboards:** The `agent_id` label exception in Section 2 means no Grafana dashboard changes are required for the core liveness/DLQ/crash metrics. Metric prefixes derived from old class names (e.g., `bar_aggregator_compute_agent_messages_total`) update alongside the class rename in Wave 3.
 
-**Ring boundary violations:** During the rename phase, the Ring 0 boundary check (Check 3) may temporarily fail if `BaseAIAgent`/`BaseAgent` references are being removed from Ring 0. These checks should be marked `# noqa: ring0-boundary` with a tracking comment and removed as part of the phase completion checklist.
+**Ring boundary violations:** During the rename phase, the Ring 0 boundary check (Check 3) may temporarily fail if `BaseAIAgent`/`BaseAgent` references are being removed from Ring 0. Mark these `# noqa: ring0-boundary` with a tracking comment; remove as part of the phase completion checklist.
 
 ---
 
