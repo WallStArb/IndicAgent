@@ -206,3 +206,14 @@ async def test_think_tags_stripped_from_response():
         result = await backend.generate("prompt", "system", max_tokens=100, timeout=30.0)
 
     assert result == "actual output"
+
+
+def test_llm_provider_chain_uses_litellm_backend():
+    """LLMProviderChain._inner must be LiteLLMBackend after Plan 02 wiring."""
+    from src.core.llm.chain import LLMProviderChain
+    from src.core.llm.litellm_backend import LiteLLMBackend
+
+    chain = LLMProviderChain(call_type="test", settings=_make_settings())
+    assert isinstance(
+        chain._inner, LiteLLMBackend
+    ), f"Expected LiteLLMBackend but got {type(chain._inner).__name__}"
