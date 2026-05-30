@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents). Phase 108 SOP added.
+Version: 5.45.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents). Phase 108 SOP added. Phase 110 complete: renaissance rename (BaseDaemon, BaseWriter, BaseAIWorker, BaseSwarmCoordinator, NarrativeSwarm, SignalContext).
 
 **Project nature:** Passion/learning project — not a production system, not relied upon. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking over operational caution. Renaissance Capital / Jim Simons principles are the north star. The platform and the builder improve together — every refinement compounds. When giving advice, do not hedge around operational risk that doesn't apply; apply the same rigor you would to a system built to last.
 
@@ -59,16 +59,16 @@ Layer 1: Data Foundation                   -> HF collection, aggregation, typed 
 
 **Intelligence Pipeline:**
 ```
-IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
+IBKR TWS → intelligence_pipeline (I1-I7 unified, in-process) →
   signal_ledger + intelligence_features →
-  feature_writer_service → TimescaleDB → SSE → Dashboard
+  feature_writer → TimescaleDB → SSE → Dashboard
 ```
 
-**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` hypertable by `feature_writer_service`.
+**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` hypertable by `feature_writer`.
 
 ## Service DAG
 
-Canonical registry: `_DAG_ORDER` in `services/service_auditor_agent.py`. Never maintain a parallel list here.
+Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintain a parallel list here.
 **Live state:** `systemctl list-units --all | grep indicagent` · **Monitoring:** Grafana `:3001`
 
 ```
@@ -99,19 +99,18 @@ L10 service-auditor                      — meta: monitors + restarts all above
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseEvaluator, BaseGroupService, AIContext, AgentOutput). Phase 095 adds: WorkerContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
-- **Pending renames (conventions established, code not yet updated):** `BaseMultiplierAgent`→`BaseEvaluator`, `SkepticComputeAgent`→`SkepticEvaluator`, `CorrelationComputeAgent`→`CorrelationEvaluator`, `CounterfactualComputeAgent`→`CounterfactualEvaluator`, `RegimeCoherenceComputeAgent`→`RegimeCoherenceEvaluator`, `MLScorerMultiplierAgent`→`MLEvaluator`, `NarrativeComputeAgent`→`NarrativeSynthesizer`. Use OLD names when reading/editing existing code until rename phase ships.
+- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, BaseSwarmCoordinator, SignalContext, AgentOutput). Phase 095 adds: WorkerContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
-- **Narrative service:** `services/narrative_group_compute_agent.py` (`NarrativeGroupComputeAgent`) maps to `indicagent-ai-narrative`. Docs referencing `ai_narrative_agent.py` or `AINarrativeAgent` are wrong.
+- **Narrative service:** `services/narrative_swarm.py` (`NarrativeSwarm`) maps to `indicagent-ai-narrative`. Docs referencing the old narrative_agent file names are wrong.
 
 ## Data Flow
 
 ```
 Hot:  IBKR TWS → Redpanda Streams → Services              (sub-ms)
 Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
-Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
+Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 ```
 **Real-time pipeline never touches the database directly.**
 
@@ -120,7 +119,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - `market_data_ohlcv` — raw OHLCV. Primary time column: `timestamp` (not `ts`)
 - `intelligence_features` — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
 - `signal_ledger` — ALL I7 signals + lifecycle outcomes. JOIN via `(symbol, feature_ts, feature_tf)`. Primary time: `timestamp`
-- `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service`
+- `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer`
 - `setup_performance` — per-setup rolling 30d stats; drives aggregator `perf_multiplier`; `sample_size >= 30` gate
 - **Volume Profile**: `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h)
 
@@ -139,15 +138,15 @@ Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`
 - **Mandatory attrs**: `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`
 - **Files**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py` (expose `PROMPT_REGISTRY`, `ACTIVE_VERSION`)
 - **`_compute()` contract**: Build prompt → call LLM → parse → `AgentOutput`. Never raise; `self._neutral(error=...)` on failure.
-- Register in group service (e.g., `AlphaSwarmComputeAgent._agents`) + call `shadow_registry_ensure()` at startup.
+- Register in group service (e.g., `AlphaSwarm._agents`) + call `shadow_registry_ensure()` at startup.
 
 ## DAG Invariants
 
 These are non-negotiable architectural constraints. Any code that violates one of them is wrong regardless of whether it works locally. Full rationale: `docs/foundation/foundation-design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
 
-1. **`ProviderMergerAgent` is the sole writer to `market.bars`** — all downstream agents are isolated from provider topology.
-2. **I1–I7 runs entirely in-process** — `IntelligencePipelineComputeAgent` is DB-ignorant; Kafka is a sink, not an inter-stage pipe.
-3. **No ComputeAgent touches the database** — only `WriterAgent`, `TrackerAgent`, and `AuditorAgent` perform DB operations.
+1. **`ProviderMerger` is the sole writer to `market.bars`** — all downstream agents are isolated from provider topology.
+2. **I1–I7 runs entirely in-process** — `IntelligencePipeline` is DB-ignorant; Kafka is a sink, not an inter-stage pipe.
+3. **No analyzer or pipeline daemon touches the database** — only `BaseWriter`, `BaseTracker`, and `BaseAuditor` subclasses perform DB operations.
 4. **All topic keys via `stream_keys.py`** — no hardcoded topic strings anywhere.
 5. **No agent calls another agent directly** — topics are the only coupling between agents.
 6. **All timestamps UTC** — `datetime.now(UTC)` only; never `datetime.now()` or `datetime.utcnow()`.
@@ -156,11 +155,11 @@ These are non-negotiable architectural constraints. Any code that violates one o
 ## Key Rules
 
 **Core Patterns**
-- **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `SignalTrackerComputeAgent._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
+- **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `SignalTracker._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
-- **`BaseGroupService` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
+- **`BaseSwarmCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
-- **`prompt_version` class attribute** on every BaseAIAgent subclass — set from agent's `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing.
+- **`prompt_version` class attribute** on every BaseAIWorker subclass — set from agent's `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing.
 - **`llm_calls` composite PK: `(call_id, called_at)`** — ON CONFLICT must use both columns.
 - **Kafka is transport, not state store.** Hot state (plugin_states, kalman) → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamps: always UTC.** `datetime.now(UTC)` only. Never `datetime.now()` or `datetime.utcnow()`. All DB columns `timestamptz`; stream timestamps UTC ISO-8601 (`Z` suffix).
@@ -168,7 +167,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 - **`get_active_contracts()`** is a module-level function in `settings.py`, not a method on `Settings`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
 - **asyncpg**: Use for all new DB code. JSONB → `dict` (no `json.loads()`/`json.dumps()`). Timestamps → `datetime`. UUIDs → `str()` before Kafka. Edge cases: `docs/gotchas.md`.
 - **structlog `event` kwarg collision**: Never pass `event=<value>` as keyword — use `signal=`, `payload=`, `data=` instead.
-- **Service registry**: `_DAG_ORDER` in `services/service_auditor_agent.py`. When adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT`.
+- **Service registry**: `_DAG_ORDER` in `services/service_auditor.py`. When adding a service, update `_DAG_ORDER`, `_LAG_THRESHOLDS`, `_AGENT_ID_TO_UNIT`.
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
@@ -177,7 +176,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 - **Alpha swarm agent timeouts**: all LLM agents (correlation, regime_coherence, counterfactual, skeptic) have 120s `latency_budget_ms`. `ml_scorer_v1` is 50ms (local model, no LLM calls). With nemotron-3-nano:4b, p50 latency is ~47-52s — well within budget.
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
 - **`CircuitBreaker` manual-tracking** (`src/observability/circuit_breaker.py`): `record_failure()` opens the breaker but `OPEN→HALF_OPEN` recovery only fires inside `call()`. For manual tracking outside `call()`, use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (resets failures, closes from HALF_OPEN) — both added in Phase 086.
-- **`BaseWriterAgent._parse_payload` return contract**: returning `None` triggers `_maybe_route_to_dlq` on the whole payload. When doing per-signal validation, return `[]` for the all-invalid case to prevent the base writer from double-DLQ-ing the payload; only return `None` for a truly empty/unparseable payload with no signals at all.
+- **`BaseWriter._parse_payload` return contract**: returning `None` triggers `_maybe_route_to_dlq` on the whole payload. When doing per-signal validation, return `[]` for the all-invalid case to prevent the base writer from double-DLQ-ing the payload; only return `None` for a truly empty/unparseable payload with no signals at all.
 - **API health router prefix is `/health`** not `/api/health`: `app.include_router(health.router, prefix="/health", ...)` at `src/api/main.py:131`. Routes are `/health/system`, `/health/database`, etc.
 - **`agent_last_message_timestamp_seconds` label key is `agent_id`**: `self._last_msg_ts_attrs = {"agent_id": name}` in `src/core/agent/base.py`. Use `r["metric"].get("agent_id")` when querying this metric from Prometheus.
 - **gemma4:e4b JSON enforcement:** outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt. `_strip_thinking_tags` only removes `<think>` tags — does not catch prose.
@@ -195,16 +194,16 @@ These are non-negotiable architectural constraints. Any code that violates one o
 - **Log file names**: `logs/<agent_snake_case>_agent.log` (e.g. `alpha_swarm_compute_agent.log`, not `alpha_swarm.log`). Check `logs/` for actual names.
 - **`setup_service_logging` requires full path**: `"logs/<name>.log"`, not bare name.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
-- **intelligence_pipeline_agent subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
+- **`intelligence_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests CI-clean.
 
 ## OTel Health Contract (Phase 108 SOP)
 
-Every new daemon that inherits BaseAgent MUST emit these five OTel signals; non-compliance is a code review rejection (D-26). All five are inherited automatically from BaseAgent - no per-service code is needed.
+Every new daemon that inherits BaseDaemon MUST emit these five OTel signals; non-compliance is a code review rejection (D-26). All five are inherited automatically from BaseDaemon - no per-service code is needed.
 
 **Mandatory signals (D-04):**
 - `agent_last_message_timestamp_seconds` (gauge, label `agent_id`) - liveness; updated on every processed message
-- `agent_crash_total` (counter, label `agent_id`) - uncaught exceptions in `_run()`
+- `agent_crash_total` (counter, label `agent_id`) - uncaught exceptions in `_run()` (BaseDaemon method)
 - `agent_dlq_total` (counter, label `agent_id`) - DLQ routing events
 - `watchdog_notify_total` (counter, label `agent_id`) - successful sd_notify WATCHDOG=1 pings (Phase 108)
 - `watchdog_notify_suppressed_total` (counter, label `agent_id`) - suppressed pings: agent alive but idle/stalled (Phase 108)
