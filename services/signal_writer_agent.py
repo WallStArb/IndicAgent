@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import parse_iso_ts, tf_to_seconds
@@ -40,7 +40,7 @@ from src.persistence.repository.signal_ledger_repository import (
 CONSUMER_GROUP = "signal_writer_group"
 
 
-class SignalWriterAgent(BaseWriterAgent):
+class SignalWriterAgent(BaseWriter):
     """WriterAgent: intelligence.i7.signals -> signal_ledger.
 
     Consumes I7 signals and batch-inserts them to signal_ledger hypertable.

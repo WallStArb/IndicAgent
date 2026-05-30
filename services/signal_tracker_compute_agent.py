@@ -25,7 +25,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import get_point_value
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, tf_to_seconds
@@ -93,7 +93,7 @@ class SignalState:
     bars_since_activation: int = 0
 
 
-class SignalTrackerComputeAgent(BaseAgent):
+class SignalTrackerComputeAgent(BaseDaemon):
     """DB-ignorant lifecycle evaluation agent.
 
     Consumes bars from Kafka, evaluates signal lifecycle transitions using

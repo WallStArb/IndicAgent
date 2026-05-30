@@ -31,7 +31,7 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -98,7 +98,7 @@ _CANONICAL_COMPLETENESS = _ba_meter.create_up_down_counter(
 )
 
 
-class BarAuditorAgent(BaseAgent):
+class BarAuditorAgent(BaseDaemon):
     """AuditorAgent: detects gaps in market_data_ohlcv and publishes BarGapRequest.
 
     Runs gap audit on startup then every 5 minutes during market hours.
@@ -122,7 +122,7 @@ class BarAuditorAgent(BaseAgent):
         self._gap_fill_dlq_depth = BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
 
     # ------------------------------------------------------------------
-    # BaseAgent interface
+    # BaseDaemon interface
     # ------------------------------------------------------------------
 
     @property

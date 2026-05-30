@@ -28,7 +28,7 @@ import aiohttp
 import asyncpg
 
 from src.config.settings import get_active_contracts, get_settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.models import SESSION_REGISTRY
@@ -224,7 +224,7 @@ def _parse_systemctl_show(output: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-class ServiceAuditorAgent(BaseAgent):
+class ServiceAuditorAgent(BaseDaemon):
     """Monitors all pipeline services, self-heals, and audits every event.
 
     Hybrid three-layer design:
@@ -274,7 +274,7 @@ class ServiceAuditorAgent(BaseAgent):
             bootstrap_servers=self.settings.kafka_bootstrap_servers,
         )
         await self._kafka_producer.start()
-        # Wire _producer for BaseAgent._send_alert() to use
+        # Wire _producer for BaseDaemon._send_alert() to use
         self._producer = self._kafka_producer
         # Phase 109 Plan 05 Task 3: load lag thresholds from config cache (populated
         # by _pre_setup_config_load before _setup is called).
@@ -328,7 +328,7 @@ class ServiceAuditorAgent(BaseAgent):
             await self._db_pool.close()
 
     async def _run(self) -> None:
-        # lag_task created by BaseAgent.start() at line 155
+        # lag_task created by BaseDaemon.start() at line 155
         prom_task = asyncio.create_task(self._prometheus_check_loop())
         sysd_task = asyncio.create_task(self._systemd_check_loop())
         hb_task = asyncio.create_task(self._heartbeat_loop())
@@ -699,7 +699,7 @@ class ServiceAuditorAgent(BaseAgent):
     async def _fetch_stalled_agents(self) -> list[str]:
         """Return systemd unit names for agents whose last-message timestamp is stale.
 
-        Queries the agent_last_message_timestamp_seconds gauge (set by BaseAgent
+        Queries the agent_last_message_timestamp_seconds gauge (set by BaseDaemon
         ._record_message_consumed). An agent is stalled when:
           now - last_ts > _STALL_THRESHOLD_SECONDS (360s)
         AND the metric series exists (ts > 0 -- cold-start false-positive guard).
@@ -709,7 +709,7 @@ class ServiceAuditorAgent(BaseAgent):
         this detector fires at 360s only for cases where the in-process watchdog
         has been disabled or has itself stalled.
 
-        Label key is "agent_id" -- matches BaseAgent._last_msg_ts_attrs = {"agent_id": name}.
+        Label key is "agent_id" -- matches BaseDaemon._last_msg_ts_attrs = {"agent_id": name}.
         """
         try:
             results = await self._query_prometheus("agent_last_message_timestamp_seconds")

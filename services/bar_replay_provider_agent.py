@@ -16,7 +16,7 @@ from pathlib import Path
 
 import asyncpg
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import (
@@ -35,7 +35,7 @@ BATCH_SIZE = 1000
 DEFAULT_RATE_BPS = float(os.environ.get("BAR_REPLAY_BARS_PER_SEC", "10"))
 
 
-class BarReplayProviderAgent(BaseAgent):
+class BarReplayProviderAgent(BaseDaemon):
     """One-shot L1 provider that replays market_data_ohlcv into the pipeline.
 
     Publishes 1m bars to topic_market_bars and HTF bars to topic_market_bars_htf,

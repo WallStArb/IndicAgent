@@ -16,7 +16,7 @@ from collections import defaultdict
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_iso_ts
@@ -64,7 +64,7 @@ def _ensure_datetimes(entry: dict) -> None:
             entry[key] = parse_iso_ts(val)
 
 
-class LifecycleWriterAgent(BaseWriterAgent):
+class LifecycleWriterAgent(BaseWriter):
     """WriterAgent: lifecycle.transitions -> signal_ledger batch updates."""
 
     BATCH_SIZE = 100

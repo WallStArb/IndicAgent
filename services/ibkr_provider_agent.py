@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""IBKRProviderAgent — thin subclass of BaseProviderAgent for IBKR.
+"""IBKRProviderAgent — thin subclass of BaseProvider for IBKR.
 
 Delegates all lifecycle, metrics, reconnect, and gap-fill logic to
-BaseProviderAgent. This file only describes what makes IBKR unique:
+BaseProvider. This file only describes what makes IBKR unique:
 - agent name, metrics port, provider name string
 - how to build the IBKRAdapter
 
@@ -13,14 +13,14 @@ from __future__ import annotations
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.providers.base import DataProviderAdapter
-from src.providers.base_provider_agent import BaseProviderAgent
+from src.providers.base_provider_agent import BaseProvider
 from src.providers.ibkr_adapter import IBKRAdapter
 
 
-class IBKRProviderAgent(BaseProviderAgent):
+class IBKRProviderAgent(BaseProvider):
     """IBKR-specific provider agent.
 
-    One thin subclass — all heavy lifting in BaseProviderAgent.
+    One thin subclass — all heavy lifting in BaseProvider.
     Publishes to market.bars.raw.ibkr; MergerAgent routes to market.bars.
     """
 

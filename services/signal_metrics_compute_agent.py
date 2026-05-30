@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 from opentelemetry import metrics as _otel_metrics
 
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_signal_metrics
@@ -103,7 +103,7 @@ _QUERY = """
 """
 
 
-class SignalMetricsComputeAgent(BaseAgent):
+class SignalMetricsComputeAgent(BaseDaemon):
     """Timer-triggered agent that computes signal performance metrics.
 
     Publishes three event types to intelligence.signal_metrics:
@@ -182,7 +182,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         import time as _time
 
         _attrs = {"agent": _AGENT_NAME}
-        # lag_task created by BaseAgent.start() at line 155
+        # lag_task created by BaseDaemon.start() at line 155
         while not self._stop_event.is_set():
             _t0 = _time.monotonic()
             try:
