@@ -40,3 +40,9 @@ tests/unit/services test_multiplier_formula_semantics
 tests/unit/services test_validator_accepts_valid_payload
 tests/unit/services test_validator_clamps_out_of_range
 tests/unit/services test_validator_rejects_non_numeric_confidence
+
+# Plan 094-03: SkepticResult / CorrelationResult / RegimeCoherenceResult / CounterfactualResult
+# share the same Pydantic validation pattern -- these structural tests are intentional duplicates
+tests/unit/services test_result_accepts_valid_payload
+tests/unit/services test_result_clamps_out_of_range
+tests/unit/services test_result_rejects_non_numeric_confidence

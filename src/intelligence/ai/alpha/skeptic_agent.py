@@ -16,7 +16,7 @@ from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
-    _validate_skeptic_fields,
+    SkepticResult,
     build_skeptic_prompt,
 )
 
@@ -71,29 +71,25 @@ class SkepticComputeAgent(BaseMultiplierAgent):
         else:
             prompt = build_skeptic_prompt(_context_to_dict(context))
 
-        response, call_id = await self._llm_generate(
+        result, call_id = await self._llm_generate_structured(
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
+            response_model=SkepticResult,
             max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
 
-        if not response:
-            return self._neutral(error="LLM returned empty response", latency_ms=0.0)
-
-        parsed = self._parse_multiplier_response(response, _validate_skeptic_fields)
-        if parsed is None:
+        if result is None:
             logger.warning(
-                "skeptic_agent.json_parse_failed",
+                "skeptic_agent.structured_output_failed",
                 agent_id=self.agent_id,
-                raw_response=response[:200],
             )
             await self._report_parse_failure(call_id)
-            return self._neutral(error="JSON parse failed", latency_ms=0.0)
+            return self._neutral(error="Structured output failed", latency_ms=0.0)
 
-        failure_probability = parsed["failure_probability"]
-        llm_confidence = parsed["confidence"]
+        failure_probability = result.failure_probability
+        llm_confidence = result.confidence
         multiplier = (1.0 - failure_probability) * llm_confidence
 
         return self._build_multiplier_output(
@@ -102,8 +98,8 @@ class SkepticComputeAgent(BaseMultiplierAgent):
             confidence=llm_confidence,
             payload={
                 "failure_probability": failure_probability,
-                "risk_factors": parsed["risk_factors"],
-                "reasoning": parsed["reasoning"],
+                "risk_factors": result.risk_factors,
+                "reasoning": result.reasoning,
             },
             prompt_version=ACTIVE_VERSION,
         )

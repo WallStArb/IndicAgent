@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import structlog
 from opentelemetry.trace import StatusCode
+from pydantic import BaseModel
 
 from src.core.agent.base import BaseAgent
 from src.core.ai.context import AIContext, Tier
@@ -244,6 +245,75 @@ class BaseAIAgent(BaseAgent, ABC):
                     timeout=timeout,
                     model=model,
                     audit_context=audit_context,
+                )
+                if result is None:
+                    span.set_attribute("llm.empty_response", True)
+                    LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
+                return result, call_id
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                raise
+
+    async def _llm_generate_structured(
+        self,
+        context: AIContext,
+        prompt: str,
+        system: str,
+        response_model: type[BaseModel],
+        max_tokens: int,
+        timeout: float,
+        extra_audit: dict | None = None,
+    ) -> tuple[BaseModel | None, str]:
+        """Generate structured output via instructor with automatic audit trail.
+
+        Mirrors _llm_generate() -- same audit context, same span setup, same call_id
+        returned for _report_parse_failure(). Supports extra_audit kwarg for additional
+        audit fields, same as _llm_generate() (M4).
+
+        Returns (result, call_id). result is None when instructor exhausts retries.
+        Caller must invoke _report_parse_failure(call_id) on None result.
+        """
+        with self.tracer.start_as_current_span(
+            "agent.llm_generate_structured",
+            attributes={
+                ATTR_AGENT_ID: self.agent_id,
+                ATTR_SYMBOL: context.symbol,
+                ATTR_TF: context.timeframe,
+            },
+        ) as span:
+            try:
+                call_id = str(uuid4())
+                audit_context: dict[str, Any] = {
+                    "call_id": call_id,
+                    "called_at": format_iso_ts(datetime.now(UTC)),
+                    "symbol": context.symbol,
+                    "signal_id": str(context.signal_id) if context.signal_id else None,
+                    "group_name": self.group,
+                    "agent_id": self.agent_id,
+                    "prompt_version": self.prompt_version,
+                    "timeframe": context.timeframe,
+                    "prompt": prompt,
+                    "succeeded": True,
+                    "parse_success": True,
+                }
+
+                if context.smc is not None:
+                    regime = getattr(context.smc, "hmm_regime", None)
+                    if regime is not None:
+                        audit_context["regime"] = str(int(regime))
+
+                if extra_audit:
+                    audit_context.update(extra_audit)
+
+                result = await self._llm.generate_structured(
+                    prompt=prompt,
+                    system=system,
+                    response_model=response_model,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                    audit_context=audit_context,
+                    extra_audit=extra_audit,
                 )
                 if result is None:
                     span.set_attribute("llm.empty_response", True)
