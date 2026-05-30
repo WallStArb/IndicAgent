@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import structlog
+from pydantic import BaseModel, field_validator
 
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
-from src.core.ai.prompt_utils import clamp
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.correlation_prompts import (
     ACTIVE_VERSION,
@@ -26,27 +26,30 @@ _SYSTEM_MESSAGE = (
 )
 
 
-def _validate_correlation_fields(data: dict) -> dict | None:
-    if not isinstance(data, dict):
-        return None
-    score = data.get("coherence_score")
-    conf = data.get("confidence")
-    if not isinstance(score, (int, float)) or not isinstance(conf, (int, float)):
-        return None
-    score = clamp(score, 0.0, 1.0)
-    conf = clamp(conf, 0.0, 1.0)
-    assets = data.get("contradicting_assets", [])
-    if not isinstance(assets, list):
-        assets = [str(assets)]
-    else:
-        assets = [str(a) for a in assets]
-    reasoning = str(data.get("reasoning", ""))
-    return {
-        "coherence_score": score,
-        "confidence": conf,
-        "contradicting_assets": assets,
-        "reasoning": reasoning,
-    }
+class CorrelationResult(BaseModel):
+    """Pydantic model for validated correlation agent LLM output."""
+
+    coherence_score: float
+    confidence: float
+    contradicting_assets: list[str]
+    reasoning: str
+
+    @field_validator("coherence_score", "confidence")
+    @classmethod
+    def _clamp(cls, v: float) -> float:
+        return max(0.0, min(1.0, float(v)))
+
+    @field_validator("contradicting_assets", mode="before")
+    @classmethod
+    def _coerce_list(cls, v: object) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)]
+        return [str(a) for a in v]
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _coerce_str(cls, v: object) -> str:
+        return str(v) if v is not None else ""
 
 
 class CorrelationComputeAgent(BaseMultiplierAgent):
@@ -97,29 +100,24 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
 
     async def _compute(self, context: AIContext) -> AgentOutput:
         prompt = build_correlation_prompt(context)
-        response, call_id = await self._llm_generate(
+        result, call_id = await self._llm_generate_structured(
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
+            response_model=CorrelationResult,
             max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
-        if not response:
-            return self._neutral(error="LLM returned empty response", latency_ms=0.0)
-
-        parsed = self._parse_multiplier_response(response, _validate_correlation_fields)
-        if parsed is None:
+        if result is None:
             logger.warning(
-                "correlation_agent.json_parse_failed",
+                "correlation_agent.structured_output_failed",
                 agent_id=self.agent_id,
-                raw_response=response[:200],
-                expected_schema=self.output_schema,
             )
             await self._report_parse_failure(call_id)
-            return self._neutral(error="JSON parse failed", latency_ms=0.0)
+            return self._neutral(error="Structured output failed", latency_ms=0.0)
 
-        coherence_score = parsed["coherence_score"]
-        llm_confidence = parsed["confidence"]
+        coherence_score = result.coherence_score
+        llm_confidence = result.confidence
         multiplier = coherence_score * llm_confidence  # D-04 formula
 
         return self._build_multiplier_output(
@@ -128,8 +126,8 @@ class CorrelationComputeAgent(BaseMultiplierAgent):
             confidence=llm_confidence,
             payload={
                 "coherence_score": coherence_score,
-                "contradicting_assets": parsed["contradicting_assets"],
-                "reasoning": parsed["reasoning"],
+                "contradicting_assets": result.contradicting_assets,
+                "reasoning": result.reasoning,
             },
             prompt_version=ACTIVE_VERSION,
         )

@@ -1,13 +1,13 @@
 """Tests for SkepticAgent compute class and prompt building."""
 
-import json
 from uuid import uuid4
 
-from src.core.ai.prompt_utils import parse_llm_json
+import pytest
+
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
-    _validate_skeptic_fields,
+    SkepticResult,
     build_skeptic_prompt,
 )
 
@@ -61,55 +61,60 @@ def test_build_prompt_fills_fields(monkeypatch):
     assert "N/A" not in prompt  # all fields set
 
 
-def test_parse_valid_json():
-    raw = json.dumps(
-        {
-            "failure_probability": 0.7,
-            "confidence": 0.8,
-            "risk_factors": ["weak trend"],
-            "reasoning": "test",
-        }
+def test_skeptic_result_valid():
+    """SkepticResult parses valid LLM output dict."""
+    result = SkepticResult(
+        failure_probability=0.7,
+        confidence=0.8,
+        risk_factors=["weak trend"],
+        reasoning="test",
     )
-    result = parse_llm_json(raw, _validate_skeptic_fields)
-    assert result is not None
-    assert result["failure_probability"] == 0.7
+    assert result.failure_probability == 0.7
+    assert result.confidence == 0.8
 
 
-def test_parse_json_with_preamble():
-    raw = "Here is my analysis:\n" + json.dumps(
-        {
-            "failure_probability": 0.3,
-            "confidence": 0.9,
-            "risk_factors": [],
-            "reasoning": "looks good",
-        }
+def test_skeptic_result_clamps_floats():
+    """SkepticResult clamps failure_probability and confidence to [0, 1]."""
+    result = SkepticResult(
+        failure_probability=1.5,
+        confidence=-0.5,
+        risk_factors=[],
+        reasoning="test",
     )
-    result = parse_llm_json(raw, _validate_skeptic_fields)
-    assert result is not None
-    assert result["failure_probability"] == 0.3
+    assert result.failure_probability == 1.0
+    assert result.confidence == 0.0
 
 
-def test_parse_invalid_returns_none():
-    assert parse_llm_json("not json", _validate_skeptic_fields) is None
-    assert parse_llm_json("", _validate_skeptic_fields) is None
-
-
-def test_validate_clamps_values():
-    result = _validate_skeptic_fields(
-        {
-            "failure_probability": 1.5,
-            "confidence": -0.5,
-            "risk_factors": "not a list",
-            "reasoning": 123,
-        }
+def test_skeptic_result_coerces_risk_factors_to_list():
+    """SkepticResult coerces non-list risk_factors to list[str]."""
+    result = SkepticResult(
+        failure_probability=0.5,
+        confidence=0.5,
+        risk_factors="not a list",
+        reasoning="test",
     )
-    assert result is not None
-    assert result["failure_probability"] == 1.0  # clamped
-    assert result["confidence"] == 0.0  # clamped
-    assert isinstance(result["risk_factors"], list)
-    assert isinstance(result["reasoning"], str)
+    assert isinstance(result.risk_factors, list)
+    assert result.risk_factors == ["not a list"]
 
 
-def test_validate_rejects_missing_fields():
-    assert _validate_skeptic_fields({"failure_probability": 0.5}) is None
-    assert _validate_skeptic_fields({"confidence": 0.5}) is None
+def test_skeptic_result_coerces_reasoning_to_str():
+    """SkepticResult coerces non-str reasoning to str."""
+    result = SkepticResult(
+        failure_probability=0.5,
+        confidence=0.5,
+        risk_factors=[],
+        reasoning=123,
+    )
+    assert isinstance(result.reasoning, str)
+    assert result.reasoning == "123"
+
+
+def test_skeptic_result_rejects_missing_fields():
+    """SkepticResult raises ValidationError when required fields are missing."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SkepticResult(failure_probability=0.5)
+
+    with pytest.raises(ValidationError):
+        SkepticResult(confidence=0.5)

@@ -14,8 +14,10 @@ from __future__ import annotations
 import os
 import re
 
+import instructor
 import structlog
 from litellm import acompletion
+from pydantic import BaseModel
 
 from src.core.plugin_circuit_breaker import CircuitBreakerConfig
 from src.observability.circuit_breaker import CircuitBreaker
@@ -90,6 +92,15 @@ class LiteLLMBackend:
         _configure_litellm(settings)
         self.last_provider_id: str | None = None
         self.last_token_usage: dict | None = None
+        # Instructor client for structured output. Uses JSON mode for Ollama compatibility.
+        # mode=instructor.Mode.JSON is required for non-OpenAI providers (Ollama, OpenRouter).
+        import litellm as _litellm
+
+        self._instructor_client = instructor.from_litellm(
+            _litellm.acompletion, mode=instructor.Mode.JSON
+        )
+        self.last_instructor_retries: int = 0
+        self.last_failure_reason: str | None = None
 
     def _build_providers(self) -> list[str]:
         """Build ordered list of LiteLLM model strings from settings."""
@@ -148,6 +159,89 @@ class LiteLLMBackend:
                     error=str(exc)[:120],
                 )
 
+        return None
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        system: str,
+        response_model: type[BaseModel],
+        max_tokens: int = 500,
+        timeout: float = 120.0,
+    ) -> BaseModel | None:
+        """Structured output via instructor with Pydantic validation and multi-provider fallback.
+
+        Uses max_retries=1 per call -- NOT the instructor default of 3.
+        With gemma4:e4b at ~50s/call, 3 retries = 150s > the 120s latency_budget_ms
+        of all swarm agents.
+
+        Iterates ALL providers with same fallback semantics as generate():
+        - Skips providers with open circuit breakers
+        - Moves to next provider on exception
+        - Returns None only after all providers exhausted
+
+        Uses create_with_completion() to capture raw completion for token usage.
+        Sets last_provider_id, last_token_usage, last_instructor_retries as side effects.
+        Sets last_failure_reason to one of: 'circuit_open', 'all_providers_exhausted',
+        'instructor_validation_failed', 'provider_error'.
+        """
+        self.last_provider_id = None
+        self.last_token_usage = None
+        self.last_instructor_retries = 0
+        self.last_failure_reason = None
+
+        if not self.providers:
+            self.last_failure_reason = "all_providers_exhausted"
+            return None
+
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+
+        for provider in self.providers:
+            cb = self._circuit_breaker_for(provider)
+            if not cb.allow_request():
+                self.last_failure_reason = "circuit_open"
+                continue
+
+            extra_kwargs = self._build_extra_kwargs(provider)
+            try:
+                validated_model, raw_completion = (
+                    await self._instructor_client.chat.completions.create_with_completion(
+                        model=provider,
+                        response_model=response_model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        timeout=timeout,
+                        max_retries=1,
+                        **extra_kwargs,
+                    )
+                )
+                cb.record_success()
+                self.last_provider_id = provider
+                self.last_token_usage = self._normalize_usage(
+                    getattr(raw_completion, "usage", None)
+                )
+                self.last_instructor_retries = 0
+                self.last_failure_reason = None
+                return validated_model
+            except Exception as exc:
+                cb.record_failure()
+                # Distinguish validation failure from provider/network failure
+                exc_str = str(exc).lower()
+                if "validation" in exc_str or "pydantic" in exc_str:
+                    self.last_failure_reason = "instructor_validation_failed"
+                else:
+                    self.last_failure_reason = "provider_error"
+                logger.warning(
+                    "litellm_backend.generate_structured.provider_failed",
+                    provider=provider,
+                    error=str(exc)[:120],
+                    failure_reason=self.last_failure_reason,
+                )
+
+        self.last_failure_reason = "all_providers_exhausted"
         return None
 
     def _build_extra_kwargs(self, provider: str) -> dict:

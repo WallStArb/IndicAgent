@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import structlog
+from pydantic import BaseModel, field_validator
 
 from src.core.ai.context import AIContext, Tier
 from src.core.ai.multiplier_agent import BaseMultiplierAgent
 from src.core.ai.output import AgentOutput
-from src.core.ai.prompt_utils import clamp
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.regime_coherence_prompts import (
     ACTIVE_VERSION,
@@ -26,39 +26,30 @@ _SYSTEM_MESSAGE = (
 )
 
 
-def _validate_regime_coherence_fields(data: dict) -> dict[str, Any] | None:
-    """Validate and sanitize regime coherence LLM response fields.
+class RegimeCoherenceResult(BaseModel):
+    """Pydantic model for validated regime coherence agent LLM output."""
 
-    Returns None on type failure.
-    """
-    if not isinstance(data, dict):
-        return None
+    regime_fit: float
+    confidence: float
+    mismatches: list[str]
+    reasoning: str
 
-    regime_fit = data.get("regime_fit")
-    confidence = data.get("confidence")
+    @field_validator("regime_fit", "confidence")
+    @classmethod
+    def _clamp(cls, v: float) -> float:
+        return max(0.0, min(1.0, float(v)))
 
-    if not isinstance(regime_fit, (int, float)) or not isinstance(confidence, (int, float)):
-        return None
+    @field_validator("mismatches", mode="before")
+    @classmethod
+    def _coerce_list(cls, v: object) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)]
+        return [str(m) for m in v]
 
-    regime_fit = clamp(float(regime_fit), 0.0, 1.0)
-    confidence = clamp(float(confidence), 0.0, 1.0)
-
-    mismatches = data.get("mismatches", [])
-    if not isinstance(mismatches, list):
-        mismatches = [str(mismatches)]
-    else:
-        mismatches = [str(m) for m in mismatches]
-
-    reasoning = data.get("reasoning", "")
-    if not isinstance(reasoning, str):
-        reasoning = str(reasoning)
-
-    return {
-        "regime_fit": regime_fit,
-        "confidence": confidence,
-        "mismatches": mismatches,
-        "reasoning": reasoning,
-    }
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _coerce_str(cls, v: object) -> str:
+        return str(v) if v is not None else ""
 
 
 class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
@@ -110,29 +101,25 @@ class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
         """
         prompt = build_regime_coherence_prompt(context)
 
-        response, call_id = await self._llm_generate(
+        result, call_id = await self._llm_generate_structured(
             context,
             prompt=prompt,
             system=_SYSTEM_MESSAGE,
+            response_model=RegimeCoherenceResult,
             max_tokens=500,
             timeout=self.latency_budget_ms / 1000.0,
         )
 
-        if not response:
-            return self._neutral(error="LLM returned empty response", latency_ms=0.0)
-
-        parsed = self._parse_multiplier_response(response, _validate_regime_coherence_fields)
-        if parsed is None:
+        if result is None:
             logger.warning(
-                "regime_coherence_agent.json_parse_failed",
+                "regime_coherence_agent.structured_output_failed",
                 agent_id=self.agent_id,
-                raw_response=response[:200],
             )
             await self._report_parse_failure(call_id)
-            return self._neutral(error="JSON parse failed", latency_ms=0.0)
+            return self._neutral(error="Structured output failed", latency_ms=0.0)
 
-        regime_fit = parsed["regime_fit"]
-        llm_confidence = parsed["confidence"]
+        regime_fit = result.regime_fit
+        llm_confidence = result.confidence
         multiplier = regime_fit * llm_confidence
 
         return self._build_multiplier_output(
@@ -141,8 +128,8 @@ class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
             confidence=llm_confidence,
             payload={
                 "regime_fit": regime_fit,
-                "mismatches": parsed["mismatches"],
-                "reasoning": parsed["reasoning"],
+                "mismatches": result.mismatches,
+                "reasoning": result.reasoning,
             },
             prompt_version=ACTIVE_VERSION,
         )
