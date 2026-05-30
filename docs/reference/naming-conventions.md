@@ -1,0 +1,198 @@
+# Naming Conventions
+
+**Version:** 1.0
+**Status:** current
+**Last Updated:** 2026-05-30
+
+Quick-lookup reference for naming on every surface. All claims derive from the canonical spec.
+<!-- src: docs/foundation/naming-system.md -->
+
+For the full spec — governing tests, taxonomy governance, ring architecture, abbreviation rationale, rename protocol, model evolution — see `docs/foundation/naming-system.md`.
+
+---
+
+## Python Classes
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 1 -->
+
+| Object type | Pattern | Example |
+|------------|---------|---------|
+| Ring 2 daemon | `PascalCase(concept)` + category suffix | `SignalTracker`, `BarAggregator` |
+| Ring 2 daemon (plain role noun) | `PascalCase(concept)` — no suffix | `IntelligencePipeline`, `AlphaSwarm` |
+| Ring 1 mathematical object | `PascalCase(concept)` + category suffix | `SkepticEvaluator`, `CorrelationAnalyzer` |
+| Ring 0/1 abstract type | Category suffix alone | `Evaluator`, `Synthesizer` |
+| Ring 0 infrastructure base | `Base` + `PascalCase(role)` | `BaseDaemon`, `BaseWriter` |
+| Behavioral mixin | `PascalCase(capability)` + `Mixin` | `IncrementalMixin`, `ConfigConsumerMixin` |
+| Enumeration | `PascalCase` singular noun — no suffix | `MarketRegime`, `SignalStatus` |
+| Component config | `PascalCase(concept)` + `Config` | `EvaluatorConfig`, `PipelineConfig` |
+| Plugin | `PascalCase(concept)` + `Plugin` | `ADXPlugin`, `VWAPPlugin` |
+| Protocol | `PascalCase(concept)` + `Protocol` | `AIWorkerProtocol` |
+| Result / output model | `PascalCase(concept)` + `Result` | `SkepticResult`, `SignalMetricsResult` |
+| Context carrier | `PascalCase(concept)` + `Context` | `SignalContext`, `WorkerContext` |
+| Repository | `PascalCase(concept)` + `Repository` | `SignalLedgerRepository` |
+| Error | `PascalCase(concept)` + `Error` | `ConfigValidationError`, `CircuitOpenError` |
+
+**Taxonomy suffixes — mathematical objects (Ring 0/1):** `Evaluator`, `Analyzer`, `Synthesizer`, `Detector`, `Classifier`, `Aggregator`
+<!-- src: docs/foundation/naming-system.md §3 Vocabulary A -->
+
+**Taxonomy suffixes — runtime processes (Ring 2):** `Provider`, `Merger`, `Aggregator`, `Analyzer`, `Writer`, `Tracker`, `Auditor`, `Monitor`, `Orchestrator`, `Trainer`, `Publisher`
+<!-- src: docs/foundation/naming-system.md §3 Vocabulary B -->
+
+**Retired — never use:** `ComputeAgent`, `MultiplierAgent`, `GroupService`, `Agent`, and mechanism words `Compute`, `Handler`, `Helper`, `Util`, `Utils`, `Manager`, `Processor`
+<!-- src: docs/foundation/naming-system.md §3 taxonomy YAML retired block -->
+
+---
+
+## File Names
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 2 -->
+
+| Object type | Pattern | Example |
+|------------|---------|---------|
+| Ring 2 daemon | `services/<concept>.py` | `services/signal_tracker.py` |
+| Ring 1 AI evaluator | `src/intelligence/ai/<group>/<concept>.py` | `src/intelligence/ai/alpha/skeptic.py` |
+| Ring 1 domain | `src/intelligence/<module>/<concept>.py` | `src/intelligence/context.py` |
+| Ring 0 infrastructure | `src/core/<module>/<concept>.py` | `src/core/ai/evaluator.py` |
+| Plugin (I1–I5) | `src/intelligence/features/i<N>_<tier_name>/<concept>.py` | `src/intelligence/features/i1_indicators/rsi.py` |
+| Functions | `snake_case` | `compute_next()`, `get_active_contracts()` |
+| Constants | `UPPER_SNAKE_CASE` | `TIER_I1`, `SIGNAL_SCHEMA_VERSION` |
+| Private attributes | `_snake_case` | `_regime_cache`, `_plugin_states` |
+
+The `_agent` file suffix is retired alongside `Agent` class names.
+
+---
+
+## Kafka Topics
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 3 -->
+
+Topics use **dots only** — never colons.
+
+| Layer | Pattern | Example |
+|-------|---------|---------|
+| Topic function | `topic_<concept>()` in `stream_keys.py` | `topic_signal_tracker()` |
+| Topic string | `<env>.<domain>[.<sublayer>]` | `prod.signals.tracker` |
+| Consumer group | `<concept>_consumer` | `signal_tracker_consumer` |
+
+Always constructed via `src/core/stream_keys.py` — never inline f-strings.
+<!-- src: src/core/stream_keys.py -->
+
+---
+
+## Database
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 4 -->
+
+| Object | Pattern | Example |
+|--------|---------|---------|
+| Table | `snake_case` stable relation name | `signal_ledger`, `intelligence_features` |
+| View | `<source_table>_<qualifier>` | `signal_ledger_full`, `ohlcv_15m` |
+| Migration | `NNN_description.sql` | `095_signal_ledger_split.sql` |
+| Timestamp column | Always `ts` | `ts` |
+| Timeframe column | Always `tf` | `tf` |
+| All other columns | Full `snake_case` noun phrase | `exit_reason`, `pnl_r`, `failure_probability` |
+| Index | `idx_<table>_<cols>` | `idx_signal_ledger_symbol_ts` |
+
+---
+
+## Systemd Units
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 4; production/systemd/ -->
+
+```
+indicagent-<concept>.service
+```
+
+`concept` is the daemon's `snake_case` concept name. Examples: `indicagent-signal-tracker.service`, `indicagent-intelligence-pipeline.service`
+
+Unit names update alongside class/file renames — never independently.
+
+---
+
+## Variables, Arguments, Labels
+
+<!-- src: docs/foundation/naming-system.md §4 Surface 5 -->
+
+| Surface | Rule | Example |
+|---------|------|---------|
+| Function arguments | Full descriptive name | `context`, `signal`, `timeframe` |
+| Local variables | Full descriptive name | `signal_context`, `audit_result` |
+| Structlog fields | Full descriptive name | `daemon_id`, `symbol`, `failure_reason` |
+| Metric label: liveness/DLQ/crash | `agent_id` (legacy compatibility) | `agent_id` |
+| All other new metric labels | Full descriptive name | `symbol`, `timeframe`, `job` |
+| Enum members | `UPPER_SNAKE_CASE` | `REGIME_TRENDING`, `PENDING` |
+| Mathematical variables | Single-letter convention | `n`, `x`, `y`, `i`, `j`, `t`, `p`, `r` |
+
+---
+
+## Tests
+
+```
+tests/unit/test_<module>.py
+tests/unit/<domain>_tests/test_<thing>.py
+tests/integration/test_<thing>.py
+```
+
+Test functions: `test_<what>_<condition>` — e.g. `test_compute_next_returns_macd_when_warmed_up`
+
+---
+
+## TypeScript / Dashboard (Ring 3)
+
+| Thing | Convention | Example |
+|-------|-----------|---------|
+| Components | `PascalCase.tsx` | `SignalCard.tsx`, `SkeletonCard.tsx` |
+| Hooks | `use-kebab-case.ts` | `use-market-stream.ts` |
+| Utilities | `kebab-case.ts` | `format.ts`, `symbol-config.ts` |
+| CSS variables | `--kebab-case` | `--amber`, `--signal-green` |
+
+---
+
+## Abbreviations
+
+<!-- src: docs/foundation/naming-system.md §6 -->
+
+**Always permitted** — canonical field codes in quant finance, statistics, and CS:
+
+`pnl` `pnl_r` `mae` `mfe` `ts` `tf` `vol` `vix` `poc` `vah` `val` `beta` `alpha` `sharpe` `ohlcv` `vwap` `twap` `macd` `rsi` `ema` `sma` `atr` `adx` `std` `corr` `hmm` `id` `url` `api` `db` `sql` `json` `uuid` `llm` `gpu` `cpu` `otel` `sse`
+
+**Specific surfaces only:** `i1`–`i8` (DB columns, topic strings, metric labels), `smc` (topic strings, JSONB keys), `agent_id` (legacy metric labels and structlog only)
+
+**Never permitted** — code shortcuts:
+
+`ctx` → `context` | `cfg` → `config` | `msg` → `message` | `evt` → `event` | `sig` → `signal` | `err` → `error` | `exc` → `exception` | `res` → `result` | `req` → `request` | `resp` → `response` | `tmp` → name by what it holds | `fn` → name by role | `idx` → `index` | `buf` → `buffer` | `obj` → name by type | `num` → `count` or `number`
+
+---
+
+## The Mechanical Derivation Table
+
+<!-- src: docs/foundation/naming-system.md §4 -->
+
+Given concept `signal_tracker`:
+
+| Surface | Result |
+|---------|--------|
+| Daemon class | `SignalTracker` |
+| File name | `services/signal_tracker.py` |
+| Systemd unit | `indicagent-signal-tracker.service` |
+| Topic function | `topic_signal_tracker()` |
+| Topic string | `prod.signals.tracker` |
+| DB table | `signal_trackers` |
+| Log file | `logs/signal_tracker.log` |
+| Metric prefix | `signal_tracker_` |
+| Structlog `daemon_id` value | `signal_tracker` |
+| Variable name | `signal_tracker` |
+
+---
+
+## What Does Not Change
+
+<!-- src: docs/foundation/naming-system.md §9 -->
+
+- Kafka topic strings — current pattern is correct
+- DB table names — `signal_ledger`, `intelligence_features`, `llm_calls` stay
+- DB column quant codes — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay
+- Plugin naming — `PascalCasePlugin` stays
+- Intelligence tier codes — `I1`–`I8` stay in code, docs, metrics, directory names
+- Ring 0 `Base*` prefix — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseSwarmCoordinator`
+- `agent_id` metric label and structlog field — stays for operational compatibility

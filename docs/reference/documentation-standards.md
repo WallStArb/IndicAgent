@@ -5,7 +5,7 @@
 **Status:** current
 **Last Updated:** 2026-05-27
 
-Formatting and naming conventions for docs and code. For the documentation system design — taxonomy, verification lifecycle, the `current` status contract — see `docs/foundation/documentation-system.md`.
+Formatting conventions for documentation files. For code naming on all surfaces (Python, Kafka, DB, systemd, TypeScript), see `docs/reference/naming-conventions.md`. For the documentation system design — taxonomy, verification lifecycle, the `current` status contract — see `docs/foundation/documentation-system.md`.
 
 ---
 
@@ -78,83 +78,6 @@ Use relative paths — never absolute:
 ### Subsection
 #### Detail (use sparingly)
 ```
-
----
-
-## Code Naming Conventions
-
-See also: `CLAUDE.md` Naming section and `docs/foundation/naming-system.md`.
-
-### Python
-
-| Thing | Convention | Example |
-|-------|-----------|---------|
-| Plugin classes | `PascalCase` + `Plugin` suffix | `MACDPlugin`, `BollingerPlugin` |
-| Aggregator/utility classes | `PascalCase`, no suffix required | `CISScorer`, `TradeFramer` |
-| Result/data classes | `PascalCase` + `Result` or descriptive | `CISResult`, `AggregatedResult` |
-| Service files | `snake_case_service.py` | `signal_generator_service.py` |
-| Core modules | `snake_case.py` | `stream_keys.py`, `database_manager.py` |
-| Plugin files | `snake_case.py`, short and descriptive | `adx.py`, `bollinger.py`, `choch_reversal.py` |
-| Functions | `snake_case` | `compute_next()`, `get_active_contracts()` |
-| Constants | `UPPER_SNAKE_CASE` | `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE` |
-| Private attrs | `_snake_case` leading underscore | `_regime_cache`, `_plugin_states` |
-| Topic builders | `topic_<thing>` | `topic_indicators()`, `topic_signals_aggregated()` |
-
-### Redpanda Topics
-
-Topics use **dots**, not colons (colons are invalid Kafka topic names):
-
-```
-{env}.market.bars                  # canonical 1m bars
-{env}.market.bars.htf              # HTF bars (5m-1d)
-{env}.intelligence.journal         # BarIntelligenceRecord (atomic per-bar output)
-{env}.intelligence.i7.signals      # all ranked I7 signals per bar
-{env}.lifecycle.transitions        # signal lifecycle state changes
-{env}.llm.calls                    # LLM audit log
-{env}.system.health.events         # service health transitions
-{env}.<domain>.<agent>.dlq         # dead letter queue per agent
-```
-
-Always built via `src/core/stream_keys.py` — never construct topic strings manually with f-strings. Full topic list: see `topic_*` functions in `stream_keys.py`.
-
-### Database
-
-| Thing | Convention | Example |
-|-------|-----------|---------|
-| Tables | `snake_case` | `intelligence_features`, `signal_ledger` |
-| Columns | `snake_case` | `feature_ts`, `pnl_r`, `bar_close` |
-| Indexes | implicit (TimescaleDB) or `idx_<table>_<cols>` | `idx_signal_ledger_symbol_ts` |
-| Migrations | `NNN_description.sql` (zero-padded) | `030_drift_state.sql` |
-| Views / caggs | `<source>_<tf>` | `ohlcv_15m`, `market_data_5m` |
-
-### Systemd Services
-
-```
-indicagent-<name>.service
-```
-
-Examples: `indicagent-intelligence-pipeline.service`, `indicagent-signal-writer.service`
-
-Check authoritative live state: `systemctl list-units --all | grep indicagent`
-
-### Tests
-
-```
-tests/unit/test_<module>.py
-tests/unit/<domain>_tests/test_<thing>.py
-tests/integration/test_<thing>.py
-```
-
-Test functions: `test_<what>_<condition>` — `test_compute_next_returns_macd_when_warmed_up`
-
-### TypeScript / Dashboard
-
-| Thing | Convention | Example |
-|-------|-----------|---------|
-| Components | `PascalCase.tsx` | `SignalCard.tsx`, `SkeletonCard.tsx` |
-| Hooks | `use-kebab-case.ts` | `use-market-stream.ts` |
-| Utilities | `kebab-case.ts` | `format.ts`, `symbol-config.ts` |
-| CSS variables | `--kebab-case` | `--amber`, `--signal-green` |
 
 ---
 
