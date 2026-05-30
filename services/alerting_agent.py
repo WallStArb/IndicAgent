@@ -14,16 +14,16 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import aiohttp
 
 from src.config.settings import get_settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.stream_keys import topic_alert_requests
 from src.observability.metrics import ALERTING_DISPATCH_TOTAL, ALERTING_LATENCY_SECONDS
 
 
-class AlertingComputeAgent(BaseAgent):
+class AlertingComputeAgent(BaseDaemon):
     """Consume topic_alert_requests, dispatch CRITICAL -> Telegram, HIGH/MEDIUM -> Discord.
 
-    Any agent can publish alert requests via BaseAgent._send_alert(). This agent
+    Any agent can publish alert requests via BaseDaemon._send_alert(). This agent
     consumes and routes to the correct channel based on severity:
     - CRITICAL -> Telegram (urgent, human-critical)
     - HIGH/MEDIUM -> Discord (operational alerts)

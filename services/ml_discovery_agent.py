@@ -25,7 +25,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.ml.training_data import TrainingDataQuery
@@ -60,7 +60,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 """
 
 
-class MLDiscoveryComputeAgent(BaseAgent):
+class MLDiscoveryComputeAgent(BaseDaemon):
     """One-shot weekly feature IC discovery agent."""
 
     def __init__(self, settings: Settings) -> None:

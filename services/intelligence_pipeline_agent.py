@@ -23,7 +23,7 @@ from src.config.settings import (
     get_settings,
     invalidate_active_contracts_cache,
 )
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -97,7 +97,7 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 # ---------------------------------------------------------------------------
 
 
-class IntelligencePipelineComputeAgent(BaseAgent):
+class IntelligencePipelineComputeAgent(BaseDaemon):
     """Unified I1-I7 in-process pipeline agent — thin DAG router.
 
     Constructs all 5 extracted classes and routes to 4 output topics.

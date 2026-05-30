@@ -1,14 +1,14 @@
-"""alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseGroupService.
+"""alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseSwarmCoordinator.
 
-Per B+ architecture: one service, all alpha agents, extends BaseGroupService.
-group_id="alpha". Graduation dispatch via override detection in BaseGroupService.
+Per B+ architecture: one service, all alpha agents, extends BaseSwarmCoordinator.
+group_id="alpha". Graduation dispatch via override detection in BaseSwarmCoordinator.
 
 Plan 78-01 changes (D-01, D-04, D-08, D-35, D-36, D-37, D-38, POOL-FIX):
 - Single LineageRecorder writes to topic_signal_lineage()
 - Segment key built from hmm_regime numeric prefix + timeframe
 - _LEAD_MAP: ES -> NQ lead resolution
 - Volume profile stub removed; VolumeZscorePlugin (Plan 06) replaces it
-- Pool comes from BaseGroupService._setup() only — no second pool
+- Pool comes from BaseSwarmCoordinator._setup() only — no second pool
 
 Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 - _shadow_registry_ensure_swarm(): idempotent enrollment per-agent loop
@@ -38,7 +38,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import Settings
-from src.core.ai.base_group_service import BaseGroupService
+from src.core.ai.base_group_service import BaseSwarmCoordinator
 from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
@@ -105,10 +105,10 @@ def _now_utc_iso() -> str:
     return format_iso_ts(datetime.now(UTC))
 
 
-class AlphaSwarmComputeAgent(BaseGroupService):
+class AlphaSwarmComputeAgent(BaseSwarmCoordinator):
     """Single service dispatching all alpha agents.
 
-    Per D-32: extends BaseGroupService, one bar consumer, one signal consumer,
+    Per D-32: extends BaseSwarmCoordinator, one bar consumer, one signal consumer,
     one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one SignalContextCache.
     Agents are pure compute, iterated per signal via asyncio.gather().
 
@@ -152,9 +152,9 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         return [topic_intelligence(self.settings.env_name)]
 
     async def _setup(self) -> None:
-        """Wire infrastructure beyond BaseGroupService defaults.
+        """Wire infrastructure beyond BaseSwarmCoordinator defaults.
 
-        POOL-FIX: pool is created once by super()._setup() in BaseGroupService.
+        POOL-FIX: pool is created once by super()._setup() in BaseSwarmCoordinator.
         LineageRecorder gets the Kafka producer from self._producer (set by super).
 
         Plan 80-07: construct all four Evaluator instances + semaphore.
@@ -248,7 +248,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                     agent._apply_shadow_mode_config()
 
     async def _graduation_loop(self) -> None:
-        """Override BaseGroupService stub: evaluate all agents every 15 min.
+        """Override BaseSwarmCoordinator stub: evaluate all agents every 15 min.
 
         Runs Spearman ρ on (multiplier vs pnl_r) per (agent_id, timeframe) from
         signal_lineage JOIN signal_ledger_full. UPSERTs swarm_agent_weights.
@@ -456,7 +456,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.logger.info("alpha_swarm.ml_models_reloaded_sigusr1")
 
     async def _teardown(self) -> None:
-        """Delegate to base teardown (lineage lifecycle owned by BaseGroupService)."""
+        """Delegate to base teardown (lineage lifecycle owned by BaseSwarmCoordinator)."""
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:

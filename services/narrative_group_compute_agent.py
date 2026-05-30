@@ -1,6 +1,6 @@
 """NarrativeGroupComputeAgent — per-signal market narrative generation service.
 
-Extends BaseGroupService (group_id="narrative"). Subscribes to i7 signals,
+Extends BaseSwarmCoordinator (group_id="narrative"). Subscribes to i7 signals,
 dispatches NarrativeSynthesizer for eligible timeframes (5m+), and publishes
 narrative AgentOutput to topic_narratives().
 
@@ -19,8 +19,8 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import Settings
-from src.core.ai.base_agent import BaseAIAgent
-from src.core.ai.base_group_service import BaseGroupService
+from src.core.ai.base_agent import BaseAIWorker
+from src.core.ai.base_group_service import BaseSwarmCoordinator
 from src.core.service_utils import is_signal_stale, parse_iso_ts, setup_service_logging
 from src.core.stream_keys import (
     topic_intelligence,
@@ -35,7 +35,7 @@ from src.observability.metrics import NARRATIVE_GENERATION_TOTAL
 logger = structlog.get_logger(__name__)
 
 
-class NarrativeGroupComputeAgent(BaseGroupService):
+class NarrativeGroupComputeAgent(BaseSwarmCoordinator):
     """Single-agent narrative group service.
 
     One NarrativeSynthesizer, one consumer group, one output topic.
@@ -50,7 +50,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
         self._narrative_agent: NarrativeSynthesizer | None = None
 
     @property
-    def agents(self) -> list[BaseAIAgent]:
+    def agents(self) -> list[BaseAIWorker]:
         return [self._narrative_agent] if self._narrative_agent else []
 
     @property

@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import message_key, topic_cross_asset, topic_intelligence
@@ -83,13 +83,13 @@ _PAIR_LEAD: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-class CrossAssetComputeAgent(BaseAgent):
+class CrossAssetComputeAgent(BaseDaemon):
     """Cross-asset intelligence microservice.
 
     Subscribes to intelligence topic, computes EQ_INDEX spread features,
     and publishes results to the cross_asset topic.
 
-    Migrated to BaseAgent for Renaissance-style observability (Phase 067-05).
+    Migrated to BaseDaemon for Renaissance-style observability (Phase 067-05).
     Inherits crash metrics, stall detection, and alert publishing.
     """
 
@@ -142,7 +142,7 @@ class CrossAssetComputeAgent(BaseAgent):
             "EQ_INDEX data quality score (fraction of fresh symbols)",
         )
 
-        # Initialize BaseAgent with metrics port and stall detection
+        # Initialize BaseDaemon with metrics port and stall detection
         # max_idle_seconds=300 (5 minutes) - no intelligence messages for 5min = stall
         super().__init__(
             name="CrossAssetComputeAgent",
@@ -153,7 +153,7 @@ class CrossAssetComputeAgent(BaseAgent):
         self.settings = settings
 
     # -----------------------------------------------------------------------
-    # BaseAgent lifecycle hooks
+    # BaseDaemon lifecycle hooks
     # -----------------------------------------------------------------------
 
     async def _setup(self) -> None:
@@ -182,7 +182,7 @@ class CrossAssetComputeAgent(BaseAgent):
         await self._consumer.start()
         await self._producer.start()
 
-        # Store producer for alert publishing (BaseAgent._send_alert)
+        # Store producer for alert publishing (BaseDaemon._send_alert)
         self._producer_client = self._producer
 
         self.logger.info(
@@ -196,7 +196,7 @@ class CrossAssetComputeAgent(BaseAgent):
         intelligence_topic = topic_intelligence(self.env_name)
         self.logger.info("agent.running", topic=intelligence_topic)
 
-        # lag_task created by BaseAgent.start() at line 155
+        # lag_task created by BaseDaemon.start() at line 155
         async for _topic, _key, payload in self._consumer.messages():
             if not self.running:
                 break
