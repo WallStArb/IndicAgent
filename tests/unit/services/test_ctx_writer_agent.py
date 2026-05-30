@@ -360,7 +360,7 @@ class TestCtxWriterFlushUsesAdd:
 class TestCtxWriterTeardownCallsSuper:
     """Regression: _teardown() must call super()._teardown() first.
 
-    Phase-105 HF-11: missing super()._teardown() means BaseWriterAgent's final
+    Phase-105 HF-11: missing super()._teardown() means BaseWriter's final
     flush and lifecycle cleanup never runs, leaving uncommitted messages.
     """
 
@@ -375,7 +375,7 @@ class TestCtxWriterTeardownCallsSuper:
         # The fixed version calls super()._teardown()
         assert "super()._teardown()" in source, (
             "CtxWriterAgent._teardown() must call super()._teardown() "
-            "to trigger BaseWriterAgent final flush and lifecycle cleanup"
+            "to trigger BaseWriter final flush and lifecycle cleanup"
         )
 
         # Also confirm it is the FIRST await (order matters: base cleanup before custom flush)
@@ -385,7 +385,7 @@ class TestCtxWriterTeardownCallsSuper:
         assert await_lines, "No await statements in _teardown()"
         assert await_lines[0] == "await super()._teardown()", (
             "super()._teardown() must be the FIRST await in _teardown() "
-            f"so BaseWriterAgent flush runs before custom buffer flush; got: {await_lines[0]!r}"
+            f"so BaseWriter flush runs before custom buffer flush; got: {await_lines[0]!r}"
         )
 
 

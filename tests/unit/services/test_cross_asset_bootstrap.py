@@ -1,6 +1,6 @@
-"""TDD tests for CrossAssetComputeAgent migration to BaseAgent.
+"""TDD tests for CrossAssetComputeAgent migration to BaseDaemon.
 
-Tests verify that BaseAgent observability metrics are emitted correctly:
+Tests verify that BaseDaemon observability metrics are emitted correctly:
 - agent_crash_total increments on _run() exception
 - agent_setup_success_total increments after successful _setup()
 - Stall detection exits process when max_idle_seconds exceeded
@@ -18,7 +18,7 @@ from services.cross_asset_service import CrossAssetComputeAgent
 
 
 def _mock_base_agent_attributes(agent):
-    """Set up BaseAgent attributes for __new__ bypass pattern."""
+    """Set up BaseDaemon attributes for __new__ bypass pattern."""
     agent.max_idle_seconds = 0
     agent._agent_label = agent.name.lower().replace(" ", "_")
     agent._crash_total = (
@@ -108,7 +108,7 @@ async def test_cross_asset_record_message_consumed_updates_timestamp():
     _mock_base_agent_attributes(agent)
     agent.max_idle_seconds = 300  # Override for long stall threshold
 
-    # Initialize tracking attributes from BaseAgent.__init__
+    # Initialize tracking attributes from BaseDaemon.__init__
     agent._last_message_ts = None
 
     # Before: no timestamp

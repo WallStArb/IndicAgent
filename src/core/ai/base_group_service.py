@@ -1,4 +1,4 @@
-"""BaseGroupService — shared dispatcher for agent groups."""
+"""BaseSwarmCoordinator — shared dispatcher for agent groups."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import structlog
 from opentelemetry.trace import StatusCode
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
-from src.core.ai.base_agent import BaseAIAgent
+from src.core.agent.base import BaseDaemon
+from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.context import AIContextCache
 from src.core.ai.lineage import LineageRecorder
 from src.core.ai.output import AgentOutput
@@ -26,11 +26,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class BaseGroupService(BaseAgent, ABC):
+class BaseSwarmCoordinator(BaseDaemon, ABC):
     """Shared dispatcher for agent groups (alpha, narrative, risk).
 
     Subclasses declare 3 abstract properties:
-      - agents: list[BaseAIAgent]
+      - agents: list[BaseAIWorker]
       - trigger_topics: list[str]  (Kafka topics that trigger dispatch)
       - output_topic: str          (Kafka topic for agent output fan-out)
 
@@ -48,7 +48,7 @@ class BaseGroupService(BaseAgent, ABC):
 
     @property
     @abstractmethod
-    def agents(self) -> list[BaseAIAgent]:
+    def agents(self) -> list[BaseAIWorker]:
         """List of agents managed by this group service."""
         ...
 
@@ -147,10 +147,10 @@ class BaseGroupService(BaseAgent, ABC):
         for agent in self.agents:
             agent._lineage = self._lineage
 
-        # D-19: BaseGroupService must call super()._setup() for forward compatibility
+        # D-19: BaseSwarmCoordinator must call super()._setup() for forward compatibility
         await super()._setup()
 
-    async def _shadow_registry_ensure_agents(self, agents: list[BaseAIAgent]) -> None:
+    async def _shadow_registry_ensure_agents(self, agents: list[BaseAIWorker]) -> None:
         """Idempotent enrollment of agents in shadow_registry as component_type='swarm_agent'.
 
         ON CONFLICT DO NOTHING preserves any manually-tuned gate params.

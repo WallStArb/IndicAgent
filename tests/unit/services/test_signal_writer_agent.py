@@ -92,7 +92,7 @@ class TestSignalWriterAgentStructure:
         assert CONSUMER_GROUP == "signal_writer_group"
 
     def test_batch_size_and_flush_interval_defined(self):
-        """BATCH_SIZE and FLUSH_INTERVAL_SECS are class-level on BaseWriterAgent subclass."""
+        """BATCH_SIZE and FLUSH_INTERVAL_SECS are class-level on BaseWriter subclass."""
         from services.signal_writer_agent import SignalWriterAgent
 
         assert SignalWriterAgent.BATCH_SIZE > 0
@@ -100,9 +100,9 @@ class TestSignalWriterAgentStructure:
 
     def test_inherits_base_writer_agent(self):
         from services.signal_writer_agent import SignalWriterAgent
-        from src.core.agent.base_writer import BaseWriterAgent
+        from src.core.agent.base_writer import BaseWriter
 
-        assert issubclass(SignalWriterAgent, BaseWriterAgent)
+        assert issubclass(SignalWriterAgent, BaseWriter)
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ class TestPayloadToLedgerEntries:
 
 
 # ---------------------------------------------------------------------------
-# Flush behavior (via _do_flush from BaseWriterAgent)
+# Flush behavior (via _do_flush from BaseWriter)
 # ---------------------------------------------------------------------------
 
 

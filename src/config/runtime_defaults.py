@@ -7,7 +7,7 @@ finding that returning None for numeric thresholds is unsafe.
 
 Phase 110 will:
   (a) migrate every call site (e.g., services/alpha_swarm_agent.py's
-      self.settings.SWARM_* references) to BaseAgent.get_config() with explicit
+      self.settings.SWARM_* references) to BaseDaemon.get_config() with explicit
       defaults at each call site, then
   (b) remove the corresponding fields from Settings, then
   (c) remove this module.

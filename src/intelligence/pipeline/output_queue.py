@@ -8,7 +8,7 @@ Usage::
     queue = OutputQueue(producer=kafka_producer, maxsize=500, drain_batch_size=10)
     # In _run():
     asyncio.create_task(queue.drain_loop(running_fn=lambda: self.running))
-    # ^ IMPORTANT: pass ``self.running`` (BaseAgent canonical property), NOT ``self._running``.
+    # ^ IMPORTANT: pass ``self.running`` (BaseDaemon canonical property), NOT ``self._running``.
     # In _teardown():
     await asyncio.wait_for(queue.join(), timeout=10.0)
 """
@@ -42,9 +42,9 @@ class OutputQueue:
 
     Note:
         ``drain_loop`` accepts a ``running_fn`` callable.  Always wire it as
-        ``running_fn=lambda: self.running`` (using BaseAgent's canonical
+        ``running_fn=lambda: self.running`` (using BaseDaemon's canonical
         ``running`` property).  Passing ``self._running`` directly is wrong —
-        BaseAgent does not guarantee that attribute exists.
+        BaseDaemon does not guarantee that attribute exists.
     """
 
     def __init__(
@@ -145,7 +145,7 @@ class OutputQueue:
 
         Args:
             running_fn: Zero-argument callable returning ``True`` while the agent
-                is running.  Wire as ``lambda: self.running`` (BaseAgent canonical
+                is running.  Wire as ``lambda: self.running`` (BaseDaemon canonical
                 property).  Do NOT pass ``lambda: self._running``.
 
         The loop drains remaining items after ``running_fn()`` returns ``False``
