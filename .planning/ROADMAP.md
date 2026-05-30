@@ -990,7 +990,6 @@ Plans:
 
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
-
 ### Phase 109: Config Foundation & Self-Healing Engine
 
 **Goal**: Unified config system with time-series audit trail and control-theory-based self-healing engine. Config changes propagate via Kafka with hot-reload. Automated remediation for common infrastructure issues.
@@ -1065,10 +1064,25 @@ Plans:
 **Plans**: 4 plans in 4 waves (sequential)
 
 Plans:
+**Wave 1**
+
 - [ ] 110-01-PLAN.md — Wave 1: rename 5 Ring 0 base classes (BaseAgent→BaseDaemon, etc.)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 110-02-PLAN.md — Wave 2: rename Ring 1 AI evaluation layer + move Evaluator to src/core/ai/evaluator.py
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 110-03-PLAN.md — Wave 3: rename 33 Ring 2 daemon classes (agent_id labels preserved)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 110-04-PLAN.md — Wave 4: file renames, systemd ExecStart, API/Tier3 fixes, dashboard, CLAUDE.md
+
+**Cross-cutting constraints:**
+
+- pytest tests/unit/ passes with zero failures; ruff check . passes
 
 ### Phase 095: Pydantic AI Agent Execution Layer
 
@@ -1425,4 +1439,3 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-
