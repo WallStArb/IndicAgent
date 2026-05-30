@@ -48,6 +48,7 @@ tzdata>=2025.1
 
 # LLM Platform
 litellm>=1.40.0,<2.0.0
+instructor>=1.0.0,<2.0.0
 
 # Development & Testing
 black>=26.1.0
