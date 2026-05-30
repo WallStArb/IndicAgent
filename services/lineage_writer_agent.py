@@ -10,14 +10,14 @@ import time
 import asyncpg
 
 from src.config.settings import Settings
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.ai.lineage import LineageEvent
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.service_utils import parse_iso_ts
 from src.core.stream_keys import topic_signal_lineage, topic_signal_lineage_dlq
 
 
-class LineageWriterAgent(BaseWriterAgent):
+class LineageWriterAgent(BaseWriter):
     """Consumes signal lineage events and persists to signal_lineage hypertable."""
 
     payload_model = LineageEvent

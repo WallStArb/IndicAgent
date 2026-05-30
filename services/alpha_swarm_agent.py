@@ -1,14 +1,14 @@
-"""alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseGroupService.
+"""alpha_swarm_agent.py -- AlphaSwarmComputeAgent extending BaseSwarmCoordinator.
 
-Per B+ architecture: one service, all alpha agents, extends BaseGroupService.
-group_id="alpha". Graduation dispatch via override detection in BaseGroupService.
+Per B+ architecture: one service, all alpha agents, extends BaseSwarmCoordinator.
+group_id="alpha". Graduation dispatch via override detection in BaseSwarmCoordinator.
 
 Plan 78-01 changes (D-01, D-04, D-08, D-35, D-36, D-37, D-38, POOL-FIX):
 - Single LineageRecorder writes to topic_signal_lineage()
 - Segment key built from hmm_regime numeric prefix + timeframe
 - _LEAD_MAP: ES -> NQ lead resolution
 - Volume profile stub removed; VolumeZscorePlugin (Plan 06) replaces it
-- Pool comes from BaseGroupService._setup() only — no second pool
+- Pool comes from BaseSwarmCoordinator._setup() only — no second pool
 
 Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 - _shadow_registry_ensure_swarm(): idempotent enrollment per-agent loop
@@ -16,7 +16,7 @@ Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 - _run_graduation_cycle(): iterates self._agents, per-(agent_id, timeframe) Spearman weight learning
 
 Plan 80-07 changes:
-- self._agents is list[BaseMultiplierAgent] with Skeptic, Correlation, RegimeCoherence, Counterfactual
+- self._agents is list[Evaluator] with Skeptic, Correlation, RegimeCoherence, Counterfactual
 - TF gate: SWARM_MIN_TF_MINUTES settings-driven (replaces frozenset lookup)
 - No schema version gate — all signals from the pipeline are accepted
 - Capacity semaphore: asyncio.Semaphore(SWARM_MAX_CONCURRENT_CALLS) — no timeout, Kafka lag-skip is the backpressure valve
@@ -38,9 +38,9 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import Settings
-from src.core.ai.base_group_service import BaseGroupService
-from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.base_group_service import BaseSwarmCoordinator
+from src.core.ai.context import SignalContext, Tier
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
@@ -48,11 +48,11 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_swarm_alpha,
 )
-from src.intelligence.ai.alpha.correlation_agent import CorrelationComputeAgent
-from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualComputeAgent
-from src.intelligence.ai.alpha.ml_scorer_agent import MLScorerMultiplierAgent
-from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceComputeAgent
-from src.intelligence.ai.alpha.skeptic_agent import SkepticComputeAgent
+from src.intelligence.ai.alpha.correlation_agent import CorrelationAnalyzer
+from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualEvaluator
+from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
+from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAnalyzer
+from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
@@ -105,15 +105,15 @@ def _now_utc_iso() -> str:
     return format_iso_ts(datetime.now(UTC))
 
 
-class AlphaSwarmComputeAgent(BaseGroupService):
+class AlphaSwarmComputeAgent(BaseSwarmCoordinator):
     """Single service dispatching all alpha agents.
 
-    Per D-32: extends BaseGroupService, one bar consumer, one signal consumer,
-    one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one AIContextCache.
+    Per D-32: extends BaseSwarmCoordinator, one bar consumer, one signal consumer,
+    one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one SignalContextCache.
     Agents are pure compute, iterated per signal via asyncio.gather().
 
     Plan 78-01: Write path is LineageRecorder -> topic_signal_lineage() -> LineageWriterAgent -> signal_lineage.
-    Plan 80-07: self._agents is list[BaseMultiplierAgent]; no direct signal_ledger writes.
+    Plan 80-07: self._agents is list[Evaluator]; no direct signal_ledger writes.
     """
 
     group_id = "alpha"
@@ -123,7 +123,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.settings = settings
         self._demotion_streak: int = 0  # consecutive negative-rho cycles (D-25)
         # Populated in _setup() after LLM chain is ready (CLAUDE.md pattern).
-        self._agents: list[BaseMultiplierAgent] = []
+        self._agents: list[Evaluator] = []
         self._semaphore: asyncio.Semaphore | None = None
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
@@ -148,29 +148,29 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         return topic_swarm_alpha(self.settings.env_name)
 
     def _bar_topics(self) -> list[str]:
-        """Intelligence topic carries IntelligenceEvent payloads for AIContextCache."""
+        """Intelligence topic carries IntelligenceEvent payloads for SignalContextCache."""
         return [topic_intelligence(self.settings.env_name)]
 
     async def _setup(self) -> None:
-        """Wire infrastructure beyond BaseGroupService defaults.
+        """Wire infrastructure beyond BaseSwarmCoordinator defaults.
 
-        POOL-FIX: pool is created once by super()._setup() in BaseGroupService.
+        POOL-FIX: pool is created once by super()._setup() in BaseSwarmCoordinator.
         LineageRecorder gets the Kafka producer from self._producer (set by super).
 
-        Plan 80-07: construct all four BaseMultiplierAgent instances + semaphore.
+        Plan 80-07: construct all four Evaluator instances + semaphore.
         """
         await super()._setup()
 
         # Agents require _llm_chain which is wired by super()._setup() — construct here.
         self._agents = [
-            SkepticComputeAgent(llm_chain=self._llm_chain),
-            CorrelationComputeAgent(llm_chain=self._llm_chain),
-            RegimeCoherenceComputeAgent(llm_chain=self._llm_chain),
-            CounterfactualComputeAgent(llm_chain=self._llm_chain),
+            SkepticEvaluator(llm_chain=self._llm_chain),
+            CorrelationAnalyzer(llm_chain=self._llm_chain),
+            RegimeCoherenceAnalyzer(llm_chain=self._llm_chain),
+            CounterfactualEvaluator(llm_chain=self._llm_chain),
         ]
-        # MLScorerMultiplierAgent: no LLM chain; uses pool for ModelRegistry.
+        # MLEvaluator: no LLM chain; uses pool for ModelRegistry.
         # Must be appended after super()._setup() so self._pool is available.
-        self._agents.append(MLScorerMultiplierAgent(pool=self._pool))
+        self._agents.append(MLEvaluator(pool=self._pool))
         await self._agents[-1]._setup_models()
 
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
@@ -248,7 +248,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
                     agent._apply_shadow_mode_config()
 
     async def _graduation_loop(self) -> None:
-        """Override BaseGroupService stub: evaluate all agents every 15 min.
+        """Override BaseSwarmCoordinator stub: evaluate all agents every 15 min.
 
         Runs Spearman ρ on (multiplier vs pnl_r) per (agent_id, timeframe) from
         signal_lineage JOIN signal_ledger_full. UPSERTs swarm_agent_weights.
@@ -456,7 +456,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.logger.info("alpha_swarm.ml_models_reloaded_sigusr1")
 
     async def _teardown(self) -> None:
-        """Delegate to base teardown (lineage lifecycle owned by BaseGroupService)."""
+        """Delegate to base teardown (lineage lifecycle owned by BaseSwarmCoordinator)."""
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:
@@ -540,7 +540,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         try:
             # Build per-agent contexts and run in parallel
             tasks = []
-            agents_with_context: list[BaseMultiplierAgent] = []
+            agents_with_context: list[Evaluator] = []
             for agent in self._agents:
                 agent_context = self._context_cache.build(
                     symbol=symbol,
@@ -667,8 +667,8 @@ class AlphaSwarmComputeAgent(BaseGroupService):
     async def _record_swarm_result(
         self,
         signal_id: Any,
-        enriched: AIContext,
-        agent: BaseMultiplierAgent,
+        enriched: SignalContext,
+        agent: Evaluator,
         result: Any,
     ) -> None:
         """Record swarm agent prediction via LineageRecorder -> topic_signal_lineage().
@@ -730,12 +730,12 @@ class AlphaSwarmComputeAgent(BaseGroupService):
             tf=enriched.timeframe,
         )
 
-    async def _enrich_context(self, ctx: AIContext) -> AIContext:
+    async def _enrich_context(self, ctx: SignalContext) -> SignalContext:
         """Pass-through (Phase 78 D-22).
 
         CorrelationAgent and VolumeAgent are deleted; their consumers (lead_context,
         volume_profile) no longer exist. Skeptic v2 reads volume_z_score and corr_z
-        directly from AIContext via _render_full_context iterating model_fields.
+        directly from SignalContext via _render_full_context iterating model_fields.
         """
         return ctx
 

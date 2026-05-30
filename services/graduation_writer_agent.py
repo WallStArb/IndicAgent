@@ -15,7 +15,7 @@ import time
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
@@ -44,7 +44,7 @@ _REQUIRED_KEYS = (
 )
 
 
-class GraduationWriterAgent(BaseWriterAgent):
+class GraduationWriterAgent(BaseWriter):
     """WriterAgent: topic_transform_graduation -> transform_graduation upserts."""
 
     BATCH_SIZE = 50

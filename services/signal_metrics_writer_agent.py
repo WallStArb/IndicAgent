@@ -16,7 +16,7 @@ The shim only activates for: track='market', regime_type='all', window_days=30.
 
 Version: 2.0.0
 Last Updated: 2026-05-17
-Status: Phase 085 Plan 04 — migrated to BaseWriterAgent
+Status: Phase 085 Plan 04 — migrated to BaseWriter
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from datetime import datetime
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import topic_signal_metrics
 from src.intelligence.schemas import SignalMetricsEvent
@@ -223,8 +223,8 @@ async def _handle_dq_failure(conn, event: dict) -> None:
     )
 
 
-class SignalMetricsWriterAgent(BaseWriterAgent):
-    """Consumes intelligence.signal_metrics and writes to DB via BaseWriterAgent."""
+class SignalMetricsWriterAgent(BaseWriter):
+    """Consumes intelligence.signal_metrics and writes to DB via BaseWriter."""
 
     BATCH_SIZE = 50
     FLUSH_INTERVAL_SECS = 5.0

@@ -1,4 +1,4 @@
-"""BaseMultiplierAgent — abstract base for Phase 80 swarm multiplier agents."""
+"""Evaluator — abstract base for Phase 80 swarm multiplier agents."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from typing import Any, ClassVar
 import structlog
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp, parse_llm_json
 
 logger = structlog.get_logger(__name__)
 
 
-class BaseMultiplierAgent(BaseAIWorker, ABC):
+class Evaluator(BaseAIWorker, ABC):
     """Abstract base for all multiplier-output swarm agents.
 
     Provides:
@@ -43,7 +43,7 @@ class BaseMultiplierAgent(BaseAIWorker, ABC):
 
     def _build_multiplier_output(
         self,
-        context: AIContext,
+        context: SignalContext,
         multiplier: float,
         confidence: float,
         payload: dict[str, Any],

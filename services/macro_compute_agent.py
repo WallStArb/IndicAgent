@@ -4,7 +4,7 @@
 Computes macro factors (yield curve, flight-to-quality, USD strength)
 from cross-asset bar data and publishes to macro_signals topic.
 
-Service lifecycle follows BaseAgent canonical pattern:
+Service lifecycle follows BaseDaemon canonical pattern:
   - __init__: configure settings, logging, metrics
   - _setup(): Kafka, DB, tracing
   - _run(): main loop — consume, compute, publish
@@ -22,7 +22,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import AGENT_CRASH_TOTAL, BaseAgent
+from src.core.agent.base import AGENT_CRASH_TOTAL, BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import message_key, topic_macro_signals, topic_market_bars
@@ -39,14 +39,14 @@ from src.observability.metrics import counter
 logger = structlog.get_logger(__name__)
 
 
-class MacroComputeAgent(BaseAgent):
-    """Macro factors microservice — extends BaseAgent.
+class MacroComputeAgent(BaseDaemon):
+    """Macro factors microservice — extends BaseDaemon.
 
     Subscribes to market_bars topic, computes macro factors from
     cross-asset instruments (rate futures, FX pairs, ETFs),
     publishes results to macro_signals topic.
 
-    Migrated to BaseAgent for Renaissance-style observability (Phase 071).
+    Migrated to BaseDaemon for Renaissance-style observability (Phase 071).
     Inherits crash metrics, stall detection, and alert publishing.
     """
 
@@ -93,7 +93,7 @@ class MacroComputeAgent(BaseAgent):
         )
 
     # -----------------------------------------------------------------------
-    # BaseAgent lifecycle hooks
+    # BaseDaemon lifecycle hooks
     # -----------------------------------------------------------------------
 
     async def _setup(self) -> None:

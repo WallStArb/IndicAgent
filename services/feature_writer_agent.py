@@ -9,7 +9,7 @@ No more i7/i8 two-phase UPSERT writes — every row is complete at insert time.
 
 Version: 3.0.0
 Last Updated: 2026-04-13
-Status: Phase 68 Plan 02 — migrated to BaseWriterAgent
+Status: Phase 68 Plan 02 — migrated to BaseWriter
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import (
@@ -215,7 +215,7 @@ def _record_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriterAgent(BaseWriterAgent):
+class FeatureWriterAgent(BaseWriter):
     """Async Kafka consumer agent: intelligence.record topic -> buffer -> batch INSERT.
 
     Phase 44.3: Consumes intelligence.record only. Performs a single atomic INSERT
@@ -453,7 +453,7 @@ class FeatureWriterAgent(BaseWriterAgent):
             enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
-        # Wire up BaseWriterAgent._consumer so _do_flush() can commit offsets
+        # Wire up BaseWriter._consumer so _do_flush() can commit offsets
         self._consumer = self._kafka_consumer
         self.logger.info(
             "Kafka consumer started",

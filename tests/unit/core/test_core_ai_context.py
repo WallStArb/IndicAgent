@@ -1,4 +1,4 @@
-"""Tests for AIContext, AIContextCache, and Tier enum."""
+"""Tests for SignalContext, SignalContextCache, and Tier enum."""
 
 import time
 import unittest.mock
@@ -9,9 +9,9 @@ from uuid import UUID
 import pytest
 
 from src.core.ai.context import (
-    AIContext,
-    AIContextCache,
     BarContext,
+    SignalContext,
+    SignalContextCache,
     Tier,
 )
 from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence
@@ -38,11 +38,11 @@ class TestTierEnum:
 
 
 class TestAIContext:
-    """Test suite for AIContext frozen model."""
+    """Test suite for SignalContext frozen model."""
 
     def test_ai_context_is_frozen(self):
         """Verify ConfigDict(frozen=True) prevents mutation."""
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -51,13 +51,13 @@ class TestAIContext:
             ctx.symbol = "NQ"
 
     def test_ai_context_self_referential_lead(self):
-        """Verify lead_context: AIContext | None works after model_rebuild()."""
-        lead = AIContext(
+        """Verify lead_context: SignalContext | None works after model_rebuild()."""
+        lead = SignalContext(
             symbol="ZN",
             timeframe="5m",
             ts=datetime.now(),
         )
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -68,7 +68,7 @@ class TestAIContext:
 
     def test_tier_contexts_conditionally_populated(self):
         """Verify tier contexts can be None or populated."""
-        ctx = AIContext(
+        ctx = SignalContext(
             symbol="ES",
             timeframe="5m",
             ts=datetime.now(),
@@ -86,11 +86,11 @@ class TestAIContext:
 
 
 class TestAIContextCache:
-    """Test suite for AIContextCache."""
+    """Test suite for SignalContextCache."""
 
     def test_context_cache_update_and_build(self):
-        """Verify update with mock event, build returns AIContext."""
-        cache = AIContextCache()
+        """Verify update with mock event, build returns SignalContext."""
+        cache = SignalContextCache()
 
         # Create mock event using SimpleNamespace with typed tier models
         event = SimpleNamespace(
@@ -128,7 +128,7 @@ class TestAIContextCache:
 
     def test_context_cache_ttl_expiry(self):
         """Verify cached entry expires after _TTL_SECONDS."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
 
         event = SimpleNamespace(
             symbol="ES",
@@ -168,7 +168,7 @@ class TestAIContextCache:
 
     def test_context_cache_get_lead(self):
         """Verify get_lead() returns lead context for valid lead_map entry (D-10 fix)."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
 
         # Add lead symbol (ZN) to cache
         lead_event = SimpleNamespace(
@@ -206,7 +206,7 @@ class TestAIContextCache:
 
     def test_context_cache_seed_from_db_row(self):
         """Verify seed_from_db_row works with asyncpg dict rows."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
 
         row = {
             "symbol": "ES",
@@ -235,7 +235,7 @@ class TestAIContextCache:
 
     def test_context_cache_build_with_signal(self):
         """Verify build populates i7 context when signal provided."""
-        cache = AIContextCache()
+        cache = SignalContextCache()
 
         event = SimpleNamespace(
             symbol="ES",

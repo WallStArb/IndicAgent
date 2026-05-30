@@ -285,7 +285,7 @@ class MLTrainingComputeAgent(BaseDaemon):
 
             # SHAP feature importance — JSON summary (not full per-sample matrices)
             # The "feature_cols" list in this artifact is the inference contract:
-            # Plan 04's MLScorerMultiplierAgent loads this in _setup_models() and uses
+            # Plan 04's MLEvaluator loads this in _setup_models() and uses
             # feature_cols to align inference feature ordering with training.
             n_shap = min(500, X_val.shape[0])
             explainer = shap.TreeExplainer(model)

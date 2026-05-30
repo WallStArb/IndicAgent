@@ -22,7 +22,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
@@ -67,7 +67,7 @@ ON CONFLICT (signal_id) DO UPDATE SET
 """
 
 
-class SwarmLedgerWriterAgent(BaseAgent):
+class SwarmLedgerWriterAgent(BaseDaemon):
     """Consumes swarm.alpha events and UPSERTs aggregate adjustments into signal_ai_enrichment.
 
     Writer responsibilities (D-07, AI-SEP-01):

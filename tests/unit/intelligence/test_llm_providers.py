@@ -23,7 +23,7 @@ class TestAlphaAgentSystemMessages:
     """
 
     def test_skeptic_no_think_prefix(self):
-        """SkepticComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
+        """SkepticEvaluator._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.skeptic_agent import _SYSTEM_MESSAGE
 
         assert not _SYSTEM_MESSAGE.startswith(
@@ -32,7 +32,7 @@ class TestAlphaAgentSystemMessages:
         assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_correlation_no_think_prefix(self):
-        """CorrelationComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
+        """CorrelationAnalyzer._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.correlation_agent import _SYSTEM_MESSAGE
 
         assert not _SYSTEM_MESSAGE.startswith(
@@ -41,7 +41,7 @@ class TestAlphaAgentSystemMessages:
         assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_regime_coherence_no_think_prefix(self):
-        """RegimeCoherenceComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
+        """RegimeCoherenceAnalyzer._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.regime_coherence_agent import _SYSTEM_MESSAGE
 
         assert not _SYSTEM_MESSAGE.startswith(
@@ -50,7 +50,7 @@ class TestAlphaAgentSystemMessages:
         assert "JSON" in _SYSTEM_MESSAGE, "System message must instruct JSON-only output"
 
     def test_counterfactual_no_think_prefix(self):
-        """CounterfactualComputeAgent._SYSTEM_MESSAGE must not start with /no_think."""
+        """CounterfactualEvaluator._SYSTEM_MESSAGE must not start with /no_think."""
         from src.intelligence.ai.alpha.counterfactual_agent import _SYSTEM_MESSAGE
 
         assert not _SYSTEM_MESSAGE.startswith(

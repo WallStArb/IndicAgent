@@ -26,7 +26,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import setup_service_logging
@@ -53,7 +53,7 @@ class MLOrchestrationState(TypedDict):
     last_error: str | None
 
 
-class MLOrchestratorComputeAgent(BaseAgent):
+class MLOrchestratorComputeAgent(BaseDaemon):
     """Weekly ML pipeline orchestrator using LangGraph StateGraph."""
 
     def __init__(self, settings: Settings) -> None:

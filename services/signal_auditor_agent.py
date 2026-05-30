@@ -21,7 +21,7 @@ import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import get_active_contracts
-from src.core.agent.base import BaseAgent
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import topic_signal_audit
@@ -76,7 +76,7 @@ _CIS_STDDEV = _sa_meter.create_up_down_counter(
 )
 
 
-class SignalAuditorAgent(BaseAgent):
+class SignalAuditorAgent(BaseDaemon):
     """Validates signal coverage and pipeline health via periodic audits.
 
     Runs a 5-minute audit loop during market hours (plus 30-min buffer).
@@ -92,7 +92,7 @@ class SignalAuditorAgent(BaseAgent):
         self._agent_attrs = {"agent": self.name}
 
     # ------------------------------------------------------------------
-    # BaseAgent interface
+    # BaseDaemon interface
     # ------------------------------------------------------------------
 
     @property
@@ -122,7 +122,7 @@ class SignalAuditorAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Audit on startup, then every _AUDIT_INTERVAL seconds during market hours."""
-        # lag_task created by BaseAgent.start() at line 155
+        # lag_task created by BaseDaemon.start() at line 155
         await self._run_audit()
 
         while self.running:
