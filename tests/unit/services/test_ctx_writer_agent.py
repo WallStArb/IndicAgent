@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.ctx_writer_agent import (
+from services.context_writer import (
     _ALLOWED_EVENT_TYPES,
     _MAX_PAYLOAD_BYTES,
     ContextWriter,
@@ -369,7 +369,7 @@ class TestCtxWriterTeardownCallsSuper:
         """_teardown() must invoke super()._teardown() (base lifecycle cleanup)."""
         import inspect
 
-        import services.ctx_writer_agent as mod
+        import services.context_writer as mod
 
         source = inspect.getsource(mod.ContextWriter._teardown)
         # The fixed version calls super()._teardown()
@@ -396,7 +396,7 @@ class TestFeatureWriterInsertIncludesCtx:
         import pathlib
 
         # Load module source to inspect SQL without executing any DB code
-        source_path = pathlib.Path("services/feature_writer_agent.py").resolve()
+        source_path = pathlib.Path("services/feature_writer.py").resolve()
 
         with open(source_path) as f:
             source = f.read()

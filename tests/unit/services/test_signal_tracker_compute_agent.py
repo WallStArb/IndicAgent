@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalState, SignalTracker
+from services.signal_tracker import SignalState, SignalTracker
 
 
 def _read_source() -> str:
     """Read the agent source file for structural assertions."""
     from pathlib import Path
 
-    return Path("services/signal_tracker_compute_agent.py").read_text()
+    return Path("services/signal_tracker.py").read_text()
 
 
 def _make_agent() -> SignalTracker:
@@ -452,7 +452,7 @@ class TestTemporalGuardWiring:
         bar = {"high": 5005.0, "low": 4999.0, "close": 5003.0}
 
         # Patch evaluate_signal to inspect the call
-        with patch("services.signal_tracker_compute_agent.evaluate_signal") as mock_eval:
+        with patch("services.signal_tracker.evaluate_signal") as mock_eval:
             mock_eval.return_value = None  # No transition for this test
             await agent._evaluate_bar("ESM6", "1m", bar, now)
 

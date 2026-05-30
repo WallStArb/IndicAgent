@@ -12,7 +12,7 @@ WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 Environment=INDICAGENT_ENV=development
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/lifecycle_writer_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/lifecycle_writer.py
 Restart=always
 TimeoutStopSec=30
 WatchdogSec=60

@@ -15,7 +15,7 @@ import pytest
 
 def _make_agent():
     """Build a minimal SignalWriter bypassing __init__."""
-    from services.signal_writer_agent import SignalWriter
+    from services.signal_writer import SignalWriter
 
     agent = SignalWriter.__new__(SignalWriter)
     agent.logger = MagicMock()
@@ -87,19 +87,19 @@ def _make_payload(n_signals: int = 2, winner_idx: int = 0) -> dict:
 
 class TestSignalWriterAgentStructure:
     def test_consumer_group_constant(self):
-        from services.signal_writer_agent import CONSUMER_GROUP
+        from services.signal_writer import CONSUMER_GROUP
 
         assert CONSUMER_GROUP == "signal_writer_group"
 
     def test_batch_size_and_flush_interval_defined(self):
         """BATCH_SIZE and FLUSH_INTERVAL_SECS are class-level on BaseWriter subclass."""
-        from services.signal_writer_agent import SignalWriter
+        from services.signal_writer import SignalWriter
 
         assert SignalWriter.BATCH_SIZE > 0
         assert SignalWriter.FLUSH_INTERVAL_SECS > 0
 
     def test_inherits_base_writer_agent(self):
-        from services.signal_writer_agent import SignalWriter
+        from services.signal_writer import SignalWriter
         from src.core.agent.base_writer import BaseWriter
 
         assert issubclass(SignalWriter, BaseWriter)
@@ -112,20 +112,20 @@ class TestSignalWriterAgentStructure:
 
 class TestPayloadToLedgerEntries:
     def test_returns_one_entry_per_signal(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=3)
         entries = _payload_to_ledger_entries(payload)
         assert len(entries) == 3
 
     def test_empty_signals_returns_empty(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         entries = _payload_to_ledger_entries({"symbol": "ES", "tf": "1m", "signals": []})
         assert entries == []
 
     def test_winner_entry_was_selected_true(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=2, winner_idx=0)
         entries = _payload_to_ledger_entries(payload)
@@ -133,7 +133,7 @@ class TestPayloadToLedgerEntries:
         assert entries[1].was_selected is False
 
     def test_regime_suppressed_status_mapped(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
         from src.persistence.repository.signal_ledger_repository import SignalStatus
 
         payload = _make_payload(n_signals=1)
@@ -142,7 +142,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].status == SignalStatus.REGIME_SUPPRESSED
 
     def test_pending_status_mapped(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
         from src.persistence.repository.signal_ledger_repository import SignalStatus
 
         payload = _make_payload(n_signals=1)
@@ -151,7 +151,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].status == SignalStatus.PENDING
 
     def test_missing_signal_id_gets_uuid(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         del payload["signals"][0]["signal_id"]
@@ -160,7 +160,7 @@ class TestPayloadToLedgerEntries:
         UUID(entries[0].signal_id)
 
     def test_bar_ts_parsed_as_utc_datetime(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         entries = _payload_to_ledger_entries(payload)
@@ -168,7 +168,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].timestamp.tzinfo is not None
 
     def test_symbol_tf_propagated(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         entries = _payload_to_ledger_entries(payload)
@@ -177,7 +177,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].feature_tf == "1m"
 
     def test_is_shadow_propagated(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         payload["signals"][0]["is_shadow"] = True
@@ -186,7 +186,7 @@ class TestPayloadToLedgerEntries:
 
     def test_cis_fields_wired_from_payload(self):
         """cis_score reads filtered_cis_score; bucket_scores/weights_version pass through."""
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         entries = _payload_to_ledger_entries(payload)
@@ -195,7 +195,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].weights_version == 3
 
     def test_cis_fields_none_when_absent(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = _make_payload(n_signals=1)
         for key in ("filtered_cis_score", "bucket_scores", "weights_version"):
@@ -206,7 +206,7 @@ class TestPayloadToLedgerEntries:
         assert entries[0].weights_version is None
 
     def test_definition_fields_populated(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = {
             "symbol": "ES",
@@ -238,7 +238,7 @@ class TestPayloadToLedgerEntries:
         assert e.entry_zone_high == 5105.0
 
     def test_definition_fields_none_when_absent(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         payload = {
             "symbol": "ES",
@@ -271,7 +271,7 @@ class TestPayloadToLedgerEntries:
 class TestSignalWriterAgentFlush:
     @pytest.mark.asyncio
     async def test_flush_calls_insert_signals(self):
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         agent = _make_agent()
         payload = _make_payload(n_signals=2)
@@ -291,7 +291,7 @@ class TestSignalWriterAgentFlush:
     async def test_flush_error_preserves_buffer(self):
         agent = _make_agent()
         agent._repo.insert_signals = AsyncMock(side_effect=Exception("db down"))
-        from services.signal_writer_agent import _payload_to_ledger_entries
+        from services.signal_writer import _payload_to_ledger_entries
 
         entries = _payload_to_ledger_entries(_make_payload(n_signals=1))
         agent._buffer.extend(entries)

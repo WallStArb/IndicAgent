@@ -15,7 +15,7 @@ import pytest
 
 
 def _make_agent():
-    from services.service_auditor_agent import ServiceAuditor
+    from services.service_auditor import ServiceAuditor
 
     agent = ServiceAuditor.__new__(ServiceAuditor)
     agent.name = "service_auditor_agent"
@@ -33,7 +33,7 @@ def _make_agent():
 
 
 def test_dag_order_covers_required_services():
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     required = {
         "indicagent-ibkr-provider",
@@ -62,13 +62,13 @@ def test_dag_order_covers_required_services():
 
 
 def test_dag_order_has_at_least_20_entries():
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     assert len(_DAG_ORDER) >= 20
 
 
 def test_dag_order_sources_before_sinks():
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     assert _DAG_ORDER["indicagent-ibkr-provider"] < _DAG_ORDER["indicagent-provider-merger"]
     assert _DAG_ORDER["indicagent-provider-merger"] < _DAG_ORDER["indicagent-bar-aggregator"]
@@ -80,21 +80,21 @@ def test_dag_order_sources_before_sinks():
 
 
 def test_parse_systemctl_show_active():
-    from services.service_auditor_agent import _parse_systemctl_show
+    from services.service_auditor import _parse_systemctl_show
 
     active, sub = _parse_systemctl_show("ActiveState=active\nSubState=running\n")
     assert active == "active" and sub == "running"
 
 
 def test_parse_systemctl_show_start_limit_hit():
-    from services.service_auditor_agent import _parse_systemctl_show
+    from services.service_auditor import _parse_systemctl_show
 
     active, sub = _parse_systemctl_show("ActiveState=failed\nSubState=start-limit-hit\n")
     assert active == "failed" and sub == "start-limit-hit"
 
 
 def test_parse_systemctl_show_empty():
-    from services.service_auditor_agent import _parse_systemctl_show
+    from services.service_auditor import _parse_systemctl_show
 
     assert _parse_systemctl_show("") == ("unknown", "unknown")
 
@@ -166,7 +166,7 @@ async def test_discover_services_strips_bullet_prefix_from_failed_units():
 
 def test_service_up_gauge_exists():
     """SERVICE_UP_GAUGE is a module-level OTel up_down_counter with .add() interface."""
-    from services.service_auditor_agent import SERVICE_UP_GAUGE
+    from services.service_auditor import SERVICE_UP_GAUGE
 
     # OTel up_down_counter has .add() method
     assert hasattr(SERVICE_UP_GAUGE, "add")
@@ -177,7 +177,7 @@ def test_service_up_gauge_exists():
 
 def test_all_live_services_in_dag_order():
     """9 services added in 106-02 are present in _DAG_ORDER with expected priorities."""
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     # Infrastructure sentinels: priority 0
     assert _DAG_ORDER["indicagent-redpanda-ready"] == 0
@@ -195,7 +195,7 @@ def test_all_live_services_in_dag_order():
 
 def test_intelligence_pipeline_priority_is_6():
     """intelligence-pipeline must be priority 6 (after cross-asset=5, before writers=7)."""
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     assert _DAG_ORDER["indicagent-intelligence-pipeline"] == 6
     # cross-asset/macro are 5 (upstream), feature-writer is 7 (downstream)
@@ -206,7 +206,7 @@ def test_intelligence_pipeline_priority_is_6():
 @pytest.mark.asyncio
 async def test_oneshot_units_not_restarted():
     """Oneshot services in _ONESHOT_UNITS are skipped in graduated-eval restart path."""
-    from services.service_auditor_agent import (
+    from services.service_auditor import (
         _ONESHOT_UNITS,
         ServiceState,
     )
@@ -246,8 +246,8 @@ def test_stall_loop_skips_oneshot_units():
     """Stall-loop restart path skips oneshot units — verified in production code."""
     import inspect
 
-    import services.service_auditor_agent as svc_mod
-    from services.service_auditor_agent import _ONESHOT_UNITS
+    import services.service_auditor as svc_mod
+    from services.service_auditor import _ONESHOT_UNITS
 
     source = inspect.getsource(svc_mod.ServiceAuditor._prometheus_check_loop)
     assert (
@@ -279,7 +279,7 @@ def test_lag_thresholds_cover_consumers():
 
 def test_agent_id_to_unit_feature_writer_key():
     """_AGENT_ID_TO_UNIT uses feature_writer_agent (not feature_writer) for feature-writer."""
-    from services.service_auditor_agent import _AGENT_ID_TO_UNIT
+    from services.service_auditor import _AGENT_ID_TO_UNIT
 
     assert _AGENT_ID_TO_UNIT["feature_writer_agent"] == "indicagent-feature-writer"
     assert "feature_writer" not in _AGENT_ID_TO_UNIT
@@ -291,7 +291,7 @@ def test_service_auditor_has_unique_highest_priority():
     Sharing a priority wave with monitored services means the auditor could be
     restarted mid-cascade alongside the services it is supposed to restart.
     """
-    from services.service_auditor_agent import _DAG_ORDER
+    from services.service_auditor import _DAG_ORDER
 
     auditor_priority = _DAG_ORDER["indicagent-service-auditor"]
     other_priorities = {k: v for k, v in _DAG_ORDER.items() if k != "indicagent-service-auditor"}
@@ -306,7 +306,7 @@ def test_redpanda_watchdog_in_oneshot_units():
     Without this, the auditor restarts it after every 2-min timer run when it
     transitions to inactive — competing with the systemd timer schedule.
     """
-    from services.service_auditor_agent import _ONESHOT_UNITS
+    from services.service_auditor import _ONESHOT_UNITS
 
     assert "indicagent-redpanda-watchdog" in _ONESHOT_UNITS
 
@@ -316,7 +316,7 @@ def test_redpanda_watchdog_in_oneshot_units():
 
 @pytest.mark.asyncio
 async def test_healthy_service_no_action():
-    from services.service_auditor_agent import ServiceState
+    from services.service_auditor import ServiceState
 
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
@@ -332,7 +332,7 @@ async def test_healthy_service_no_action():
 
 @pytest.mark.asyncio
 async def test_dead_service_triggers_restart():
-    from services.service_auditor_agent import ServiceState
+    from services.service_auditor import ServiceState
 
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
@@ -347,7 +347,7 @@ async def test_dead_service_triggers_restart():
 
 @pytest.mark.asyncio
 async def test_high_lag_degrades_after_two_checks():
-    from services.service_auditor_agent import ServiceState
+    from services.service_auditor import ServiceState
 
     agent = _make_agent()
     agent._service_states["indicagent-bar-writer"] = ServiceState()
@@ -372,7 +372,7 @@ async def test_high_lag_degrades_after_two_checks():
 
 @pytest.mark.asyncio
 async def test_escalates_after_three_restarts_in_window():
-    from services.service_auditor_agent import ServiceState
+    from services.service_auditor import ServiceState
 
     agent = _make_agent()
     now = datetime.now(UTC)
@@ -398,7 +398,7 @@ async def test_escalates_after_three_restarts_in_window():
 
 @pytest.mark.asyncio
 async def test_recovery_emits_recovered_event_with_duration():
-    from services.service_auditor_agent import ServiceState
+    from services.service_auditor import ServiceState
 
     agent = _make_agent()
     state = ServiceState()
@@ -456,7 +456,7 @@ async def test_emit_health_event_inserts_correct_schema():
 
 @pytest.mark.asyncio
 async def test_data_stoppage_fires_when_provider_alive_but_no_bars():
-    from services.service_auditor_agent import _SVC_DATA_PROVIDER, ServiceState
+    from services.service_auditor import _SVC_DATA_PROVIDER, ServiceState
 
     agent = _make_agent()
     agent._service_states[_SVC_DATA_PROVIDER] = ServiceState()

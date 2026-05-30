@@ -26,7 +26,7 @@ class TestBarAuditorAgentInit:
 
     def test_name(self):
         """BarAuditor sets name='bar_auditor_agent'."""
-        from services.bar_auditor_agent import BarAuditor
+        from services.bar_auditor import BarAuditor
 
         agent = BarAuditor.__new__(BarAuditor)
         agent.name = "bar_auditor_agent"
@@ -36,7 +36,7 @@ class TestBarAuditorAgentInit:
 
     def test_topics_consumed_returns_empty_list(self):
         """topics_consumed returns contract_update topic."""
-        from services.bar_auditor_agent import BarAuditor
+        from services.bar_auditor import BarAuditor
 
         agent = BarAuditor.__new__(BarAuditor)
         agent.settings = MagicMock(env_name="development")
@@ -47,7 +47,7 @@ class TestBarAuditorAgentInit:
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
-        from services.bar_auditor_agent import BarAuditor
+        from services.bar_auditor import BarAuditor
 
         agent = BarAuditor.__new__(BarAuditor)
         agent.settings = MagicMock(env_name="development")
@@ -104,7 +104,7 @@ class TestExpectedBarsForDate:
 
 def _make_agent_stub(env_name="development"):
     """Create a BarAuditor via __new__ with minimal attributes for unit tests."""
-    from services.bar_auditor_agent import BarAuditor
+    from services.bar_auditor import BarAuditor
 
     agent = BarAuditor.__new__(BarAuditor)
     agent.name = "bar_auditor_agent"
@@ -187,7 +187,7 @@ class TestDetectGaps:
         mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
         agent._db_pool = mock_pool
 
-        _date = "services.bar_auditor_agent.date"
+        _date = "services.bar_auditor.date"
         with patch(_date) as mock_date:
             # Make today() return a Sunday so lookback_days=1 gives Saturday
             mock_date.today.return_value = date(2026, 3, 22)  # Sunday
@@ -250,7 +250,7 @@ class TestRunAudit:
         mock_errors = MagicMock()
         with (
             patch.object(agent, "_detect_gaps", side_effect=RuntimeError("DB down")),
-            patch("services.bar_auditor_agent._AUDIT_ERRORS", mock_errors),
+            patch("services.bar_auditor._AUDIT_ERRORS", mock_errors),
         ):
             # Should NOT raise
             await agent._run_audit()
@@ -262,7 +262,7 @@ class TestRunAudit:
 # Constant contracts (merged from tests/unit/test_bar_auditor_agent.py)
 # ---------------------------------------------------------------------------
 
-from services.bar_auditor_agent import _COMPLETENESS_GATE, _HTF_TIMEFRAME_MINUTES
+from services.bar_auditor import _COMPLETENESS_GATE, _HTF_TIMEFRAME_MINUTES
 from src.core.stream_keys import topic_contract_updates
 
 
@@ -281,7 +281,7 @@ def test_htf_timeframe_minutes_constant():
 
 def test_topics_consumed_includes_contract_updates():
     """topics_consumed must include the contract_updates topic for cache invalidation."""
-    from services.bar_auditor_agent import BarAuditor
+    from services.bar_auditor import BarAuditor
 
     agent = BarAuditor.__new__(BarAuditor)
     agent.settings = MagicMock(env_name="")

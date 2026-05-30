@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTracker
+from services.signal_tracker import SignalTracker
 
 
 def _make_agent() -> SignalTracker:
@@ -129,7 +129,7 @@ class TestLoadSignalRejectsEmptyTimestamp:
 
         mock_invalid = MagicMock()
         with patch(
-            "services.signal_tracker_compute_agent.SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL",
+            "services.signal_tracker.SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL",
             mock_invalid,
         ):
             # Test timestamp="" rejection

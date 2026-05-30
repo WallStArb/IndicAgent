@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_metrics_writer_agent import _ensure_schema, _handle_metrics_computed
+from services.signal_metrics_writer import _ensure_schema, _handle_metrics_computed
 
 
 def _make_conn_with_transaction():

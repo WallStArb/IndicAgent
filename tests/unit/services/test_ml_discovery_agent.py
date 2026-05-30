@@ -10,7 +10,7 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_discovery_agent import MLDiscoveryAnalyzer
+    from services.ml_discovery_analyzer import MLDiscoveryAnalyzer
 
     agent = MLDiscoveryAnalyzer.__new__(MLDiscoveryAnalyzer)
     agent._pool = MagicMock()
@@ -62,8 +62,8 @@ async def test_discovery_run_completes_without_crash():
     agent._pool = _make_mock_pool_with_features(row_count=200)
 
     with (
-        patch("services.ml_discovery_agent.tsfresh", create=True) as mock_tsfresh,
-        patch("services.ml_discovery_agent.alphalens", create=True) as mock_alphalens,
+        patch("services.ml_discovery_analyzer.tsfresh", create=True) as mock_tsfresh,
+        patch("services.ml_discovery_analyzer.alphalens", create=True) as mock_alphalens,
     ):
         # Mock tsfresh to return a simple DataFrame
         import pandas as pd

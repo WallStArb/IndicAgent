@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.bar_replay_provider_agent import BarReplayProvider
+from services.bar_replay_provider import BarReplayProvider
 from src.core.stream_keys import topic_market_bars, topic_market_bars_htf
 
 
@@ -93,7 +93,7 @@ def test_bar_replay_ordering() -> None:
 def test_bar_replay_checkpoint_resume(tmp_path, monkeypatch) -> None:
     """_save_checkpoint persists; _load_checkpoint reloads on new instance."""
     ckpt_file = tmp_path / "ckpt.json"
-    monkeypatch.setattr("services.bar_replay_provider_agent.CHECKPOINT_PATH", ckpt_file)
+    monkeypatch.setattr("services.bar_replay_provider.CHECKPOINT_PATH", ckpt_file)
 
     agent = _make_agent()
 

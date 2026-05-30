@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTracker
+from services.signal_tracker import SignalTracker
 
 
 def _make_agent() -> SignalTracker:
@@ -79,7 +79,7 @@ class TestBackfillFastPathExpired:
         mock_fastpath = MagicMock()
         with (
             patch(
-                "services.signal_tracker_compute_agent.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
+                "services.signal_tracker.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
                 mock_fastpath,
             ),
             patch.object(
@@ -116,7 +116,7 @@ class TestBackfillCarriedForward:
         mock_fastpath = MagicMock()
         with (
             patch(
-                "services.signal_tracker_compute_agent.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
+                "services.signal_tracker.SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL",
                 mock_fastpath,
             ),
             patch.object(

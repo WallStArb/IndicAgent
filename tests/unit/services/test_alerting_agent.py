@@ -61,7 +61,7 @@ def mock_settings():
 @pytest.fixture
 def agent(mock_settings):
     """Create AlertMonitor instance with mocks."""
-    from services.alerting_agent import AlertMonitor
+    from services.alert_monitor import AlertMonitor
 
     # Use __new__ to bypass __init__
     agent = object.__new__(AlertMonitor)

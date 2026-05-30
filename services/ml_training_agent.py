@@ -3,7 +3,7 @@
 Invoked nightly by indicagent-ml-training.timer (03:00 UTC).
 Type=oneshot: runs once, exits.
 
-Mirrors services/ml_orchestrator_agent.py main() pattern.
+Mirrors services/ml_orchestrator.py main() pattern.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import asyncio
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
 from src.config.settings import Settings
-from src.intelligence.services.ml_training_compute_agent import MLTrainer
+from src.intelligence.services.ml_trainer import MLTrainer
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 
 

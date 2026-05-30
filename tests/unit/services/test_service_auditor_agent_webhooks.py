@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.service_auditor_agent import (
+from services.service_auditor import (
     _SVC_DATA_PROVIDER,
     ServiceAuditor,
     ServiceState,

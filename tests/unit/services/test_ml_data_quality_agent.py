@@ -8,7 +8,7 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_data_quality_agent import DataQualityAuditor
+    from services.data_quality_auditor import DataQualityAuditor
 
     agent = DataQualityAuditor.__new__(DataQualityAuditor)
     agent._pool = MagicMock()
