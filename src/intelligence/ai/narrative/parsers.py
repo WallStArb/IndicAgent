@@ -1,9 +1,9 @@
 """Pure parsing functions for BarIntelligenceRecord → typed dict.
 
-No I/O — extracts fields needed by NarrativeComputeAgent from the record.
+No I/O — extracts fields needed by NarrativeSynthesizer from the record.
 Returns None when direction=0 (no actionable signal to narrate).
 
-TODO: Update to work with AIContext instead of BarIntelligenceRecord (future plan).
+TODO: Update to work with SignalContext instead of BarIntelligenceRecord (future plan).
 """
 
 from __future__ import annotations

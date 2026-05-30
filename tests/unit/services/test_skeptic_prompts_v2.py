@@ -1,4 +1,4 @@
-"""Tests for skeptic_v2 prompt — typed AIContext rendering.
+"""Tests for skeptic_v2 prompt — typed SignalContext rendering.
 
 Plan 078-05, Task 2:
 - render_full_context iterates model_fields (open-ended, D-16)
@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
-from src.core.ai.context import AIContext, QuantSignalContext, render_full_context
+from src.core.ai.context import QuantSignalContext, SignalContext, render_full_context
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
@@ -31,8 +31,8 @@ def _make_ctx(
     i4: I4Context | None = None,
     i6: I6Confluence | None = None,
     i7: QuantSignalContext | None = None,
-) -> AIContext:
-    return AIContext(
+) -> SignalContext:
+    return SignalContext(
         symbol=symbol,
         timeframe=timeframe,
         ts=datetime.now(tz=UTC),
@@ -68,26 +68,26 @@ class TestRenderFullContext:
         assert "Pattern Recognition" not in result
 
     def test_open_ended_new_tier_automatically_appears(self) -> None:
-        """A new BaseModel tier added to AIContext auto-appears with no code change.
+        """A new BaseModel tier added to SignalContext auto-appears with no code change.
 
-        We test this by creating a patched AIContext subclass with an extra tier.
+        We test this by creating a patched SignalContext subclass with an extra tier.
         """
 
         class SyntheticTierModel(BaseModel):
             fancy_signal: float | None = 99.0
 
-        # Build an actual AIContext and then simulate an extra tier by patching
+        # Build an actual SignalContext and then simulate an extra tier by patching
         # model_fields at class level to include a synthetic entry.
         ctx = _make_ctx(i1=I1Indicators(rsi_14=55.0))
 
         # Patch model_fields to include a synthetic tier
-        original_fields = AIContext.model_fields.copy()
+        original_fields = SignalContext.model_fields.copy()
         import pydantic.fields
 
         fake_field = pydantic.fields.FieldInfo(annotation=SyntheticTierModel | None, default=None)
         patched_fields = dict(original_fields, synthetic_tier=fake_field)
 
-        with patch.object(AIContext, "model_fields", patched_fields):
+        with patch.object(SignalContext, "model_fields", patched_fields):
             # Add the attribute to the frozen model via object.__setattr__
             object.__setattr__(ctx, "synthetic_tier", SyntheticTierModel(fancy_signal=99.0))
             result = render_full_context(ctx)
@@ -140,7 +140,7 @@ class TestBuildSkepticPromptV2:
         """skeptic_v2 must reject dict input (was v1 contract)."""
         ctx_dict = {"symbol": "ESM6", "timeframe": "5m"}
         with patch("src.intelligence.ai.alpha.skeptic_prompts.ACTIVE_VERSION", "skeptic_v2"):
-            with pytest.raises(TypeError, match="skeptic_v2 requires AIContext"):
+            with pytest.raises(TypeError, match="skeptic_v2 requires SignalContext"):
                 build_skeptic_prompt(ctx_dict)  # type: ignore[arg-type]
 
 

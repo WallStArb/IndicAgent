@@ -14,7 +14,7 @@ from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
 from src.core.agent.base import BaseDaemon
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
 from src.observability.metrics import (
@@ -47,8 +47,8 @@ class IAIAgent(Protocol):
     shadow_only: bool
     latency_budget_ms: float
 
-    async def compute(self, context: AIContext) -> AgentOutput: ...
-    async def _compute(self, context: AIContext) -> AgentOutput: ...
+    async def compute(self, context: SignalContext) -> AgentOutput: ...
+    async def _compute(self, context: SignalContext) -> AgentOutput: ...
 
 
 class BaseAIWorker(BaseDaemon, ABC):
@@ -61,7 +61,7 @@ class BaseAIWorker(BaseDaemon, ABC):
     - Extension hooks (_on_error, _on_guardrail_violation, _audit_payload)
 
     Subclasses must implement:
-    - _compute(context: AIContext) -> AgentOutput
+    - _compute(context: SignalContext) -> AgentOutput
 
     Inherits from BaseDaemon for full lifecycle:
     - SIGTERM/SIGINT handling
@@ -89,7 +89,7 @@ class BaseAIWorker(BaseDaemon, ABC):
         self._llm: LLMProviderChain | None = None
         self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
 
-    async def compute(self, context: AIContext) -> AgentOutput:
+    async def compute(self, context: SignalContext) -> AgentOutput:
         """Run _compute() with timing capture + exception safety.
 
         Returns AgentOutput with latency_ms populated.
@@ -161,7 +161,7 @@ class BaseAIWorker(BaseDaemon, ABC):
         )
 
     @abstractmethod
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Implement the agent's core computation logic.
 
         Subclasses must override this method. Returns AgentOutput with
@@ -185,7 +185,9 @@ class BaseAIWorker(BaseDaemon, ABC):
             error=error,
         )
 
-    def _build_audit_context(self, context: AIContext, prompt: str, call_id: str) -> dict[str, Any]:
+    def _build_audit_context(
+        self, context: SignalContext, prompt: str, call_id: str
+    ) -> dict[str, Any]:
         """Build the base audit_context dict for an LLM call."""
         ctx: dict[str, Any] = {
             "call_id": call_id,
@@ -208,7 +210,7 @@ class BaseAIWorker(BaseDaemon, ABC):
 
     async def _llm_generate(
         self,
-        context: AIContext,
+        context: SignalContext,
         prompt: str,
         system: str,
         max_tokens: int,
@@ -261,7 +263,7 @@ class BaseAIWorker(BaseDaemon, ABC):
 
     async def _llm_generate_structured(
         self,
-        context: AIContext,
+        context: SignalContext,
         prompt: str,
         system: str,
         response_model: type[BaseModel],

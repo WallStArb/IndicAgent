@@ -1,7 +1,7 @@
 """correlation_prompts.py -- versioned prompt registry for CorrelationAgent.
 
 Per D-04: prompt version tracked in every alpha_multiplier_shadow row via features JSONB.
-Per D-16: render_full_context iterates AIContext.model_fields -- open-ended, future-proof.
+Per D-16: render_full_context iterates SignalContext.model_fields -- open-ended, future-proof.
 ACTIVE_VERSION = "correlation_v1" matches agent_id per D-04.
 """
 
@@ -57,15 +57,15 @@ Rules:
 
 
 def build_correlation_prompt(ctx: Any) -> str:
-    """Build the correlation prompt for CorrelationComputeAgent.
+    """Build the correlation prompt for CorrelationAnalyzer.
 
-    ctx must be a typed AIContext object (correlation_v1 path).
-    Raises TypeError if ctx is not an AIContext.
+    ctx must be a typed SignalContext object (correlation_v1 path).
+    Raises TypeError if ctx is not an SignalContext.
     """
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
 
-    if not isinstance(ctx, AIContext):
-        raise TypeError(f"correlation_v1 requires AIContext, got {type(ctx).__name__}")
+    if not isinstance(ctx, SignalContext):
+        raise TypeError(f"correlation_v1 requires SignalContext, got {type(ctx).__name__}")
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     i7 = ctx.i7
     return template.format(

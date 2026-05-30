@@ -1,10 +1,10 @@
 """NarrativeGroupComputeAgent — per-signal market narrative generation service.
 
 Extends BaseGroupService (group_id="narrative"). Subscribes to i7 signals,
-dispatches NarrativeComputeAgent for eligible timeframes (5m+), and publishes
+dispatches NarrativeSynthesizer for eligible timeframes (5m+), and publishes
 narrative AgentOutput to topic_narratives().
 
-TF gate: delegated to NarrativeComputeAgent._NARRATIVE_TFS.
+TF gate: delegated to NarrativeSynthesizer._NARRATIVE_TFS.
 Schema version gate: v0 signals skipped (contaminated zone data).
 No graduation loop — narrative text output has no pnl_r correlation axis.
 """
@@ -27,7 +27,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_narratives,
 )
-from src.intelligence.ai.narrative.narrative_agent import NarrativeComputeAgent
+from src.intelligence.ai.narrative.narrative_agent import NarrativeSynthesizer
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import NARRATIVE_GENERATION_TOTAL
@@ -38,7 +38,7 @@ logger = structlog.get_logger(__name__)
 class NarrativeGroupComputeAgent(BaseGroupService):
     """Single-agent narrative group service.
 
-    One NarrativeComputeAgent, one consumer group, one output topic.
+    One NarrativeSynthesizer, one consumer group, one output topic.
     Shadow registry enrollment on startup so the agent appears in the registry.
     """
 
@@ -47,7 +47,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
 
     def __init__(self, settings: Settings) -> None:
         super().__init__(settings=settings)
-        self._narrative_agent: NarrativeComputeAgent | None = None
+        self._narrative_agent: NarrativeSynthesizer | None = None
 
     @property
     def agents(self) -> list[BaseAIAgent]:
@@ -67,7 +67,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
     async def _setup(self) -> None:
         await super()._setup()
         # _llm_chain is wired by super()._setup() — construct agent here.
-        self._narrative_agent = NarrativeComputeAgent(llm_chain=self._llm_chain)
+        self._narrative_agent = NarrativeSynthesizer(llm_chain=self._llm_chain)
 
         if self._pool is not None:
             await self._shadow_registry_ensure_agents(self.agents)
@@ -92,7 +92,7 @@ class NarrativeGroupComputeAgent(BaseGroupService):
             return
 
         tf = raw_signal.get("tf") or raw_signal.get("timeframe", "")
-        if tf not in NarrativeComputeAgent._NARRATIVE_TFS:
+        if tf not in NarrativeSynthesizer._NARRATIVE_TFS:
             return
 
         # Quality gate: only winners passed the full 6-stage pipeline

@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.base_group_service import BaseSwarmCoordinator
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 
 # ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ class ConcreteAIAgent(BaseAIWorker):
     group = "alpha"
     tiers_needed = frozenset()
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         return AgentOutput(
             agent_id=self.agent_id,
             group=self.group,

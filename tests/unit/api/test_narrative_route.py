@@ -1,7 +1,7 @@
 """Tests for narrative API route — Phase 78 D-29/D-30.
 
 Covers: 200 (happy path), 200 (cached), 404, 422, 502 (LLM neutral), 500 (DB error),
-chain caching, and typed AIContext construction.
+chain caching, and typed SignalContext construction.
 """
 
 import uuid
@@ -147,7 +147,7 @@ class TestNarrativeRoute:
             agent_id="narrative_v1",
         )
         with patch(
-            "src.api.routes.narrative.NarrativeComputeAgent.compute",
+            "src.api.routes.narrative.NarrativeSynthesizer.compute",
             new_callable=AsyncMock,
             return_value=output,
         ):
@@ -199,7 +199,7 @@ class TestNarrativeRoute:
         assert resp.status_code == 422
 
     def test_502_llm_neutral(self, client, mock_db):
-        """NarrativeComputeAgent returns error or empty text."""
+        """NarrativeSynthesizer returns error or empty text."""
         signal_id = uuid.uuid4()
         row = _signal_row({"signal_id": signal_id})
 
@@ -222,7 +222,7 @@ class TestNarrativeRoute:
             agent_id="narrative_v1",
         )
         with patch(
-            "src.api.routes.narrative.NarrativeComputeAgent.compute",
+            "src.api.routes.narrative.NarrativeSynthesizer.compute",
             new_callable=AsyncMock,
             return_value=output,
         ):
@@ -283,7 +283,7 @@ class TestNarrativeRoute:
 
 
 class TestBuildContext:
-    """Verify typed AIContext construction — no dict[str, Any] escape."""
+    """Verify typed SignalContext construction — no dict[str, Any] escape."""
 
     def test_typed_context_from_row(self):
         from src.api.routes.narrative import _build_context_from_row

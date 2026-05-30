@@ -1,4 +1,4 @@
-"""narrative_prompts.py -- versioned prompt registry for NarrativeComputeAgent.
+"""narrative_prompts.py -- versioned prompt registry for NarrativeSynthesizer.
 
 Renaissance design principles:
   - Full tier context rendered via shared render_full_context() (no duplication)
@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.core.ai.context import AIContext
+    from src.core.ai.context import SignalContext
 
 from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, REGIME_LABELS, fmt
@@ -60,7 +60,7 @@ _MONITOR_INSTRUCTION = """Write exactly 2 sentences:
 2. (Monitor): Name what confirms this setup. Frame as 'watch' not 'enter'."""
 
 
-def build_narrative_prompt(context: AIContext) -> tuple[str, str]:
+def build_narrative_prompt(context: SignalContext) -> tuple[str, str]:
     """Build (system_prompt, user_prompt) for narrative generation.
 
     Segments by confidence: >=0.75 direct, 0.50-0.74 conditional, <0.50 monitor.

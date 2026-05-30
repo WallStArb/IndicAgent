@@ -1,4 +1,4 @@
-"""NarrativeComputeAgent -- LLM-driven market narrative generation.
+"""NarrativeSynthesizer -- LLM-driven market narrative generation.
 
 On-demand (not hot-path): instantiated per HTTP request, not managed by
 BaseSwarmCoordinator. Per D-35: TF gate rejects 1m bars (only 5m+ allowed).
@@ -18,7 +18,7 @@ from typing import Any
 import structlog
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.narrative.narrative_prompts import (
@@ -29,7 +29,7 @@ from src.intelligence.ai.narrative.narrative_prompts import (
 logger = structlog.get_logger(__name__)
 
 
-class NarrativeComputeAgent(BaseAIWorker):
+class NarrativeSynthesizer(BaseAIWorker):
     """Generate per-signal market narratives using LLM.
 
     Per D-35: TF gate rejects 1m bars (narrative only meaningful on higher TFs).
@@ -47,11 +47,11 @@ class NarrativeComputeAgent(BaseAIWorker):
     _NARRATIVE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="NarrativeComputeAgent", **kwargs)
+        super().__init__(name="NarrativeSynthesizer", **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
-        """Generate narrative text from AIContext via LLM chain."""
+    async def _compute(self, context: SignalContext) -> AgentOutput:
+        """Generate narrative text from SignalContext via LLM chain."""
         if context.timeframe not in self._NARRATIVE_TFS:
             return AgentOutput(
                 agent_id=self.agent_id,

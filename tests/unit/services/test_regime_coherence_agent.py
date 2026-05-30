@@ -1,4 +1,4 @@
-"""Unit tests for RegimeCoherenceComputeAgent and RegimeCoherenceResult."""
+"""Unit tests for RegimeCoherenceAnalyzer and RegimeCoherenceResult."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 
 from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.regime_coherence_agent import (
-    RegimeCoherenceComputeAgent,
+    RegimeCoherenceAnalyzer,
     RegimeCoherenceResult,
 )
 
@@ -87,13 +87,13 @@ def test_result_coerces_list_elements_to_str() -> None:
 
 def test_class_attributes() -> None:
     """Verify mandatory class attributes."""
-    assert RegimeCoherenceComputeAgent.agent_id == "regime_coherence_v1"
-    assert RegimeCoherenceComputeAgent.shadow_only is True
-    assert Tier.I4 in RegimeCoherenceComputeAgent.tiers_needed
-    assert Tier.I7 in RegimeCoherenceComputeAgent.tiers_needed
-    assert Tier.SMC in RegimeCoherenceComputeAgent.tiers_needed
-    assert RegimeCoherenceComputeAgent.latency_budget_ms == 120000.0
-    assert RegimeCoherenceComputeAgent.group == "alpha"
+    assert RegimeCoherenceAnalyzer.agent_id == "regime_coherence_v1"
+    assert RegimeCoherenceAnalyzer.shadow_only is True
+    assert Tier.I4 in RegimeCoherenceAnalyzer.tiers_needed
+    assert Tier.I7 in RegimeCoherenceAnalyzer.tiers_needed
+    assert Tier.SMC in RegimeCoherenceAnalyzer.tiers_needed
+    assert RegimeCoherenceAnalyzer.latency_budget_ms == 120000.0
+    assert RegimeCoherenceAnalyzer.group == "alpha"
 
 
 def test_multiplier_formula_semantics() -> None:

@@ -1,4 +1,4 @@
-"""MLScorerMultiplierAgent — LightGBM inference multiplier agent (Phase 070).
+"""MLEvaluator — LightGBM inference multiplier agent (Phase 070).
 
 No LLM dependency. Loads promoted models from ModelRegistry at startup and runs
 synchronous LightGBM inference to produce a multiplier in [0.0, 2.0].
@@ -27,7 +27,7 @@ import mlflow
 import numpy as np
 import structlog
 
-from src.core.ai.context import AIContext
+from src.core.ai.context import SignalContext
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp
@@ -71,7 +71,7 @@ _CATEGORICAL_KEYS: frozenset[str] = frozenset(
 )
 
 
-class MLScorerMultiplierAgent(Evaluator):
+class MLEvaluator(Evaluator):
     """LightGBM inference multiplier agent.
 
     Loads promoted models from ModelRegistry on startup.  Selects the
@@ -177,7 +177,7 @@ class MLScorerMultiplierAgent(Evaluator):
             feature_cols_len=len(self._feature_cols),
         )
 
-    def _select_model(self, context: AIContext) -> tuple[Any, str]:
+    def _select_model(self, context: SignalContext) -> tuple[Any, str]:
         """Select regime-specific or global model based on context.smc.hmm_regime.
 
         D-04: regime model presence in self._models implies n_regime >= 100 was met at
@@ -198,12 +198,12 @@ class MLScorerMultiplierAgent(Evaluator):
 
         return None, "none"
 
-    def _extract_features(self, context: AIContext) -> np.ndarray | None:
-        """Build a flat (1, N) feature vector from AIContext, projected onto self._feature_cols.
+    def _extract_features(self, context: SignalContext) -> np.ndarray | None:
+        """Build a flat (1, N) feature vector from SignalContext, projected onto self._feature_cols.
 
         Feature sources:
           1. SHADOW_FEATURE_KEYS from context.i7 (QuantSignalContext has no _shadow dict
-             directly — the features_snapshot is not on AIContext at inference time).
+             directly — the features_snapshot is not on SignalContext at inference time).
              At inference time we read shadow features from context.i6 + context.smc where
              available, defaulting missing numeric keys to 0.0 and categoricals to "unknown".
           2. Bar context keys from context.i1, context.i4, context.smc.
@@ -298,7 +298,7 @@ class MLScorerMultiplierAgent(Evaluator):
         )
         return feature_vector.reshape(1, -1)
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Run LightGBM inference and return a multiplier in [0.0, 2.0].
 
         Returns neutral(error="no_promoted_model") when no models are loaded —

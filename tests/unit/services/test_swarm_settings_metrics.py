@@ -1,4 +1,4 @@
-"""Tests for SWARM_* Settings, swarm Prometheus metrics, and AIContextCache.build() dict I7."""
+"""Tests for SWARM_* Settings, swarm Prometheus metrics, and SignalContextCache.build() dict I7."""
 
 from __future__ import annotations
 
@@ -61,17 +61,17 @@ def test_swarm_metrics_importable():
 
 
 def test_aicontext_build_accepts_dict_i7():
-    """AIContextCache.build() returns context with i7.winner_plugin when given dict I7 signal."""
+    """SignalContextCache.build() returns context with i7.winner_plugin when given dict I7 signal."""
     import time
     import types
     from datetime import UTC, datetime
 
-    from src.core.ai.context import AIContextCache, Tier
+    from src.core.ai.context import SignalContextCache, Tier
 
-    cache = AIContextCache()
+    cache = SignalContextCache()
 
     # Seed cache directly with a SimpleNamespace proxy (same pattern as seed_from_db_row)
-    # This mimics what AIContextCache.update() does with a full IntelligenceEvent
+    # This mimics what SignalContextCache.update() does with a full IntelligenceEvent
     proxy = types.SimpleNamespace(
         symbol="ES",
         tf="5m",

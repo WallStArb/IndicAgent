@@ -4,7 +4,7 @@ Per Phase 78 D-21 / P78-MATH-PLUGINS: replaces the LLM VolumeAgent with
 deterministic math that lives in the I1 tier of the pipeline. Computed
 once per bar, stored in intelligence_features.i1.volume_z_score, and
 consumed by every downstream agent (skeptic_v2 reads it automatically
-via _render_full_context iterating AIContext.model_fields).
+via _render_full_context iterating SignalContext.model_fields).
 
 Migrated to IncrementalMixin (Phase 100):
 - _compute_full_core: full z-score computation over entire history

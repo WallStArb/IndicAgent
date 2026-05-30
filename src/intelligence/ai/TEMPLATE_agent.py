@@ -20,7 +20,7 @@ from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.context import AIContext, Tier
+from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
@@ -54,7 +54,7 @@ class TemplateComputeAgent(Evaluator):
         super().__init__(name=self.__class__.__name__, **kwargs)
         self._llm = llm_chain
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
+    async def _compute(self, context: SignalContext) -> AgentOutput:
         """Build prompt -> call LLM -> parse -> return multiplier output.
 
         Contract:
