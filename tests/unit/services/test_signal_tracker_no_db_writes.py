@@ -1,4 +1,4 @@
-"""Static source-text assertion: SignalTrackerComputeAgent has no DB write statements.
+"""Static source-text assertion: SignalTracker has no DB write statements.
 
 ComputeAgent role: zero DB writes. This test reads the source file and
 asserts that none of the forbidden SQL/DB-write patterns are present.
@@ -19,7 +19,7 @@ class TestComputeAgentNoDbWrites:
 
     @pytest.mark.unit
     def test_compute_agent_no_db_writes(self):
-        """SignalTrackerComputeAgent source must not contain DB write statements."""
+        """SignalTracker source must not contain DB write statements."""
         source = Path("services/signal_tracker_compute_agent.py").read_text()
 
         forbidden_patterns = [
@@ -44,6 +44,6 @@ class TestComputeAgentNoDbWrites:
                 )
 
         assert not violations, (
-            "SignalTrackerComputeAgent contains forbidden DB-write patterns "
+            "SignalTracker contains forbidden DB-write patterns "
             "(ComputeAgent must be DB-ignorant):\n" + "\n".join(violations)
         )

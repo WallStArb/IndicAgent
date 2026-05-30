@@ -1,4 +1,4 @@
-"""Unit tests for MacroComputeAgent.
+"""Unit tests for MacroAnalyzer.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
 Tests _publish_macro_signal and _persist_to_db methods.
@@ -14,10 +14,10 @@ import pytest
 
 
 def _make_agent():
-    """Build a minimal MacroComputeAgent bypassing __init__."""
-    from services.macro_compute_agent import MacroComputeAgent
+    """Build a minimal MacroAnalyzer bypassing __init__."""
+    from services.macro_compute_agent import MacroAnalyzer
 
-    agent = MacroComputeAgent.__new__(MacroComputeAgent)
+    agent = MacroAnalyzer.__new__(MacroAnalyzer)
     agent._settings = MagicMock()
     agent._settings.env_name = "development"
     agent._settings.macro_window_bars = 10
@@ -39,7 +39,7 @@ def _make_agent():
 
 
 class TestPublishMacroSignal:
-    """Tests for MacroComputeAgent._publish_macro_signal()."""
+    """Tests for MacroAnalyzer._publish_macro_signal()."""
 
     @pytest.mark.asyncio
     async def test_publish_yield_curve_calls_producer(self):
@@ -148,7 +148,7 @@ class TestPublishMacroSignal:
 
 
 class TestPersistToDb:
-    """Tests for MacroComputeAgent._persist_to_db()."""
+    """Tests for MacroAnalyzer._persist_to_db()."""
 
     def _make_mock_pool_conn(self):
         """Create mock asyncpg connection accessed via pool.acquire() context manager."""

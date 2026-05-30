@@ -1,4 +1,4 @@
-"""OutputQueue — async output buffer extracted from IntelligencePipelineComputeAgent.
+"""OutputQueue — async output buffer extracted from IntelligencePipeline.
 
 Owns the asyncio.Queue, drain loop, enqueue (non-blocking), enqueue_blocking, and join.
 OTel metrics for drops, depth, and publish failures are owned here (D-16).

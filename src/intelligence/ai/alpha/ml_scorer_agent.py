@@ -97,8 +97,8 @@ class MLEvaluator(Evaluator):
         """Read ai.agent.<self.agent_id>.shadow_mode from config; fail-closed on miss.
 
         Called by:
-          - AlphaSwarmComputeAgent._setup() after agents are constructed (initial load)
-          - AlphaSwarmComputeAgent._on_config_message_received() on Kafka update
+          - AlphaSwarm._setup() after agents are constructed (initial load)
+          - AlphaSwarm._on_config_message_received() on Kafka update
             (hot-reload -- see alpha_swarm_agent.py Part B)
         """
         override = self.get_config(f"ai.agent.{self.agent_id}.shadow_mode", None)
@@ -119,7 +119,7 @@ class MLEvaluator(Evaluator):
         self._models: dict[str, Any] = {}
         # Post-encoding column list from MLflow shap_importance.json.
         # This is the training/inference column-alignment contract written by Plan 03's
-        # MLTrainingComputeAgent (mlflow.log_dict({"feature_cols": ...}, "shap_importance.json")).
+        # MLTrainer (mlflow.log_dict({"feature_cols": ...}, "shap_importance.json")).
         # Populated in _setup_models(); empty until first successful load.
         self._feature_cols: list[str] = []
 

@@ -1,10 +1,10 @@
 """Tests for feature_writer_agent — consumer group batch writer to intelligence_features.
 
-Updated for Phase 44.3: FeatureWriterAgent now consumes development.intelligence.record
+Updated for Phase 44.3: FeatureWriter now consumes development.intelligence.record
 only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7/i8
 two-phase write code removed.
 
-Updated for Phase 68-02: FeatureWriterAgent inherits from BaseWriter.
+Updated for Phase 68-02: FeatureWriter inherits from BaseWriter.
 """
 
 from datetime import UTC, datetime
@@ -94,9 +94,9 @@ def _make_valid_bar_intelligence_record():
 
 def test_parse_payload_returns_list_for_valid_record():
     """Valid BarIntelligenceRecord payload returns list with insert params."""
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
     svc._expiry_map = {}
@@ -115,9 +115,9 @@ def test_parse_payload_returns_list_for_valid_record():
 
 def test_parse_payload_returns_none_for_invalid_json():
     """Malformed payload returns None without crashing."""
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
     svc._expiry_map = {}
@@ -218,9 +218,9 @@ def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
 @pytest.mark.asyncio
 async def test_do_flush_calls_execute_batch():
     """_do_flush with buffered records calls _flush_batch which calls execute_batch."""
-    from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
+    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._last_flush = 0.0
     svc.batch_writes_total = MagicMock()
@@ -277,11 +277,11 @@ async def test_do_flush_time_based_calls_execute_batch():
 
     from services.feature_writer_agent import (
         FLUSH_INTERVAL_SECS,
-        FeatureWriterAgent,
+        FeatureWriter,
         _record_to_insert_params,
     )
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._last_flush = time.monotonic() - (FLUSH_INTERVAL_SECS + 1.0)
     svc.batch_writes_total = MagicMock()
@@ -321,9 +321,9 @@ async def test_should_flush_recent_events_no_call():
     """_should_flush returns False with recent events — no flush triggered."""
     import time
 
-    from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
+    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._last_flush = time.monotonic()
 
@@ -344,24 +344,20 @@ async def test_should_flush_recent_events_no_call():
 
 def test_removed_i7_i8_methods_absent():
     """_process_i7_message, _process_i8_message, _flush_i7_i8 must be absent."""
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    assert not hasattr(
-        FeatureWriterAgent, "_process_i7_message"
-    ), "_process_i7_message must be removed"
-    assert not hasattr(
-        FeatureWriterAgent, "_process_i8_message"
-    ), "_process_i8_message must be removed"
-    assert not hasattr(FeatureWriterAgent, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
+    assert not hasattr(FeatureWriter, "_process_i7_message"), "_process_i7_message must be removed"
+    assert not hasattr(FeatureWriter, "_process_i8_message"), "_process_i8_message must be removed"
+    assert not hasattr(FeatureWriter, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
 
 
 def test_topic_routing_only_handles_intelligence_record():
     """_process_loop source must contain intelligence_journal_topic routing."""
     import inspect
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    source = inspect.getsource(FeatureWriterAgent._process_loop)
+    source = inspect.getsource(FeatureWriter._process_loop)
     assert (
         "intelligence_journal_topic" in source
     ), "_process_loop must route intelligence_journal_topic"
@@ -377,9 +373,9 @@ async def test_graceful_shutdown_flushes_and_closes():
     """_shutdown flushes buffer and closes Kafka/DB connections."""
     import asyncio
 
-    from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
+    from services.feature_writer_agent import FeatureWriter, _record_to_insert_params
 
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     svc.logger = MagicMock()
     svc._stop_event = asyncio.Event()
     svc._last_flush = 0.0
@@ -423,11 +419,11 @@ async def test_graceful_shutdown_flushes_and_closes():
 
 
 def test_kafka_consumer_group_is_feature_writer_group():
-    """KAFKA-07: FeatureWriterAgent uses CONSUMER_GROUP='feature_writer_group'."""
-    from services.feature_writer_agent import CONSUMER_GROUP, FeatureWriterAgent
+    """KAFKA-07: FeatureWriter uses CONSUMER_GROUP='feature_writer_group'."""
+    from services.feature_writer_agent import CONSUMER_GROUP, FeatureWriter
 
     assert CONSUMER_GROUP == "feature_writer_group"
-    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    svc = FeatureWriter.__new__(FeatureWriter)
     assert not hasattr(
         svc, "redis_client"
     ), "redis_client must not be present after Kafka migration"
@@ -564,7 +560,7 @@ class TestComputeDaysToExpiry:
 
 
 class TestFeatureWriterAgentLifecycle:
-    """D-17: Lifecycle contract tests for FeatureWriterAgent.
+    """D-17: Lifecycle contract tests for FeatureWriter.
 
     Uses __new__ injection pattern (CLAUDE.md) to bypass __init__ and test
     lifecycle properties in isolation — no Kafka, DB, or I/O required.
@@ -573,9 +569,9 @@ class TestFeatureWriterAgentLifecycle:
     def setup_method(self):
         import asyncio
 
-        from services.feature_writer_agent import FeatureWriterAgent
+        from services.feature_writer_agent import FeatureWriter
 
-        self.agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+        self.agent = FeatureWriter.__new__(FeatureWriter)
         self.agent.name = "feature_writer_agent"
         self.agent._stop_event = asyncio.Event()
         self.agent.logger = MagicMock()
@@ -614,22 +610,22 @@ class TestFeatureWriterAgentLifecycle:
 
 
 def test_feature_writer_agent_inherits_base_writer_agent():
-    """FeatureWriterAgent must inherit from BaseWriter (and BaseDaemon)."""
-    from services.feature_writer_agent import FeatureWriterAgent
+    """FeatureWriter must inherit from BaseWriter (and BaseDaemon)."""
+    from services.feature_writer_agent import FeatureWriter
     from src.core.agent.base import BaseDaemon
     from src.core.agent.base_writer import BaseWriter
 
-    assert issubclass(FeatureWriterAgent, BaseWriter)
-    assert issubclass(FeatureWriterAgent, BaseDaemon)
+    assert issubclass(FeatureWriter, BaseWriter)
+    assert issubclass(FeatureWriter, BaseDaemon)
 
 
 def test_feature_writer_no_signal_signal_calls():
     """No sync signal.signal() calls must remain in the service file."""
     import inspect
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    source = inspect.getsource(FeatureWriterAgent)
+    source = inspect.getsource(FeatureWriter)
     assert (
         "signal.signal(" not in source
     ), "signal.signal() must not appear — use BaseDaemon._register_signal_handlers()"
@@ -654,9 +650,9 @@ async def test_connect_database_raises_on_db_failure() -> None:
     """
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    agent = FeatureWriter.__new__(FeatureWriter)
     agent.logger = MagicMock()
     agent.config = {
         "database": {"dsn": "postgresql://localhost:5432/test"},
@@ -692,14 +688,14 @@ async def test_connect_database_no_ghost_run_path() -> None:
     """
     import inspect
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    source = inspect.getsource(FeatureWriterAgent._connect_database)
+    source = inspect.getsource(FeatureWriter._connect_database)
 
     # The ghost-run line: 'self.db_manager = None' inside the except block
     # After the fix, this should not appear — the except block just re-raises.
     assert "self.db_manager = None" not in source, (
-        "FeatureWriterAgent._connect_database() must not set self.db_manager = None "
+        "FeatureWriter._connect_database() must not set self.db_manager = None "
         "on failure (ghost-run data loss pattern). The exception must be re-raised."
     )
 
@@ -737,9 +733,9 @@ def test_process_cross_asset_message_updates_cache_not_db():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from services.feature_writer_agent import FeatureWriterAgent
+    from services.feature_writer_agent import FeatureWriter
 
-    agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+    agent = FeatureWriter.__new__(FeatureWriter)
     agent._cross_asset_cache = {}
     agent.db_manager = MagicMock()
     agent.db_manager.execute_batch = AsyncMock()

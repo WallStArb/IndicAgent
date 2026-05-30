@@ -1,4 +1,4 @@
-"""Unit tests for MLDataQualityAuditorAgent. Uses __new__ pattern."""
+"""Unit tests for DataQualityAuditor. Uses __new__ pattern."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_data_quality_agent import MLDataQualityAuditorAgent
+    from services.ml_data_quality_agent import DataQualityAuditor
 
-    agent = MLDataQualityAuditorAgent.__new__(MLDataQualityAuditorAgent)
+    agent = DataQualityAuditor.__new__(DataQualityAuditor)
     agent._pool = MagicMock()
     agent._producer = MagicMock()
     agent._producer.publish = AsyncMock()

@@ -1,4 +1,4 @@
-"""Tests for CtxWriterAgent — validation, persistence, and JSONB safety.
+"""Tests for ContextWriter — validation, persistence, and JSONB safety.
 
 Tests cover:
 - Happy path: ctx_events INSERT on valid message
@@ -20,7 +20,7 @@ import pytest
 from services.ctx_writer_agent import (
     _ALLOWED_EVENT_TYPES,
     _MAX_PAYLOAD_BYTES,
-    CtxWriterAgent,
+    ContextWriter,
 )
 
 # ---------------------------------------------------------------------------
@@ -48,9 +48,9 @@ def _make_valid_message(
     return msg
 
 
-def _make_agent() -> CtxWriterAgent:
-    """Instantiate CtxWriterAgent without starting it (no DB, no Kafka)."""
-    agent = CtxWriterAgent.__new__(CtxWriterAgent)
+def _make_agent() -> ContextWriter:
+    """Instantiate ContextWriter without starting it (no DB, no Kafka)."""
+    agent = ContextWriter.__new__(ContextWriter)
     # Bootstrap parent state manually so tests can call _process_message directly.
     agent._event_buffer = []
     agent._snapshot_buffer = []
@@ -371,10 +371,10 @@ class TestCtxWriterTeardownCallsSuper:
 
         import services.ctx_writer_agent as mod
 
-        source = inspect.getsource(mod.CtxWriterAgent._teardown)
+        source = inspect.getsource(mod.ContextWriter._teardown)
         # The fixed version calls super()._teardown()
         assert "super()._teardown()" in source, (
-            "CtxWriterAgent._teardown() must call super()._teardown() "
+            "ContextWriter._teardown() must call super()._teardown() "
             "to trigger BaseWriter final flush and lifecycle cleanup"
         )
 

@@ -1,4 +1,4 @@
-"""Tests for ServiceAuditorAgent alert publishing via _send_alert (Plan 067-02).
+"""Tests for ServiceAuditor alert publishing via _send_alert (Plan 067-02).
 
 Tests invoke the real business logic that triggers _send_alert, not _send_alert directly.
 """
@@ -10,15 +10,15 @@ import pytest
 
 from services.service_auditor_agent import (
     _SVC_DATA_PROVIDER,
-    ServiceAuditorAgent,
+    ServiceAuditor,
     ServiceState,
 )
 
 
 @pytest.fixture
 def agent():
-    """Create ServiceAuditorAgent with mocked dependencies."""
-    agent = object.__new__(ServiceAuditorAgent)
+    """Create ServiceAuditor with mocked dependencies."""
+    agent = object.__new__(ServiceAuditor)
     settings = MagicMock()
     settings.telegram_bot_token = ""
     settings.telegram_chat_id = ""

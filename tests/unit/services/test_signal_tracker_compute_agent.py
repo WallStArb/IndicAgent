@@ -1,4 +1,4 @@
-"""Tests for SignalTrackerComputeAgent — DB-ignorant lifecycle evaluation agent.
+"""Tests for SignalTracker — DB-ignorant lifecycle evaluation agent.
 
 Uses __new__ pattern per CLAUDE.md to bypass __init__ and manually set
 instance attributes required by each test.
@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalState, SignalTrackerComputeAgent
+from services.signal_tracker_compute_agent import SignalState, SignalTracker
 
 
 def _read_source() -> str:
@@ -20,9 +20,9 @@ def _read_source() -> str:
     return Path("services/signal_tracker_compute_agent.py").read_text()
 
 
-def _make_agent() -> SignalTrackerComputeAgent:
-    """Create a SignalTrackerComputeAgent bypassing __init__."""
-    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
+def _make_agent() -> SignalTracker:
+    """Create a SignalTracker bypassing __init__."""
+    agent = SignalTracker.__new__(SignalTracker)
     agent.logger = MagicMock()
     agent._stop_event = MagicMock()
     agent._stop_event.is_set.return_value = False
@@ -58,7 +58,7 @@ class TestStructural:
 
     def test_class_name(self):
         src = _read_source()
-        assert "SignalTrackerComputeAgent" in src
+        assert "SignalTracker" in src
 
     def test_inherits_base_agent(self):
         src = _read_source()

@@ -1,4 +1,4 @@
-"""Unit tests for AlphaSwarmComputeAgent — Plan 78-01 + 78-03.
+"""Unit tests for AlphaSwarm — Plan 78-01 + 78-03.
 
 Tests verify:
 - Single LineageRecorder replaces ShadowRecorder + TransformRecorder
@@ -38,11 +38,11 @@ def _make_fake_producer() -> MagicMock:
 
 
 def _make_agent(hmm_regime: int = 1, tf: str = "5m"):
-    """Build AlphaSwarmComputeAgent bypassing __init__ (CLAUDE.md __new__ pattern)."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    """Build AlphaSwarm bypassing __init__ (CLAUDE.md __new__ pattern)."""
+    from services.alpha_swarm_agent import AlphaSwarm
     from src.core.ai.lineage import LineageRecorder
 
-    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock(env_name="test")
     agent.logger = MagicMock()
 
@@ -124,12 +124,12 @@ def test_lineage_recorder_in_module():
 
 
 def test_extract_volume_profile_not_in_module():
-    """_extract_volume_profile method must be removed from AlphaSwarmComputeAgent."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    """_extract_volume_profile method must be removed from AlphaSwarm."""
+    from services.alpha_swarm_agent import AlphaSwarm
 
     assert not hasattr(
-        AlphaSwarmComputeAgent, "_extract_volume_profile"
-    ), "_extract_volume_profile still present in AlphaSwarmComputeAgent"
+        AlphaSwarm, "_extract_volume_profile"
+    ), "_extract_volume_profile still present in AlphaSwarm"
 
 
 # ---------------------------------------------------------------------------
@@ -332,10 +332,10 @@ def _structlog_mock():
 
 
 def _make_graduation_agent():
-    """Build AlphaSwarmComputeAgent with mock DB pool for graduation tests."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    """Build AlphaSwarm with mock DB pool for graduation tests."""
+    from services.alpha_swarm_agent import AlphaSwarm
 
-    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock()
     agent.settings.swarm_graduation_interval_s = 0  # no sleep in tests
     agent.logger = _structlog_mock()
@@ -507,10 +507,10 @@ async def test_enrich_context_is_pass_through():
     """_enrich_context must be async and return the same context object (identity)."""
     from datetime import UTC, datetime
 
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from services.alpha_swarm_agent import AlphaSwarm
     from src.core.ai.context import SignalContext
 
-    svc = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    svc = AlphaSwarm.__new__(AlphaSwarm)
     svc.logger = MagicMock()
     # _context_cache needed by _enrich_context? No — pass-through needs nothing
     ctx = SignalContext(symbol="ESM6", timeframe="5m", ts=datetime.now(UTC))
@@ -524,15 +524,15 @@ async def test_enrich_context_is_pass_through():
 def test_lead_index_map_deleted():
     """_LEAD_INDEX_MAP, _find_lead_context, _extract_volume_profile must be absent."""
     import services.alpha_swarm_agent as m
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    from services.alpha_swarm_agent import AlphaSwarm
 
     assert not hasattr(m, "_LEAD_INDEX_MAP"), "_LEAD_INDEX_MAP still present in alpha_swarm_agent"
     assert not hasattr(
-        AlphaSwarmComputeAgent, "_find_lead_context"
-    ), "_find_lead_context still present on AlphaSwarmComputeAgent"
+        AlphaSwarm, "_find_lead_context"
+    ), "_find_lead_context still present on AlphaSwarm"
     assert not hasattr(
-        AlphaSwarmComputeAgent, "_extract_volume_profile"
-    ), "_extract_volume_profile still present on AlphaSwarmComputeAgent"
+        AlphaSwarm, "_extract_volume_profile"
+    ), "_extract_volume_profile still present on AlphaSwarm"
 
 
 def test_wave1_invariants_preserved():
@@ -555,10 +555,10 @@ def test_wave1_invariants_preserved():
 
 
 def _make_agent_with_mocks():  # type: ignore[return]
-    """Build AlphaSwarmComputeAgent with mocked dependencies for dispatch tests."""
-    from services.alpha_swarm_agent import AlphaSwarmComputeAgent
+    """Build AlphaSwarm with mocked dependencies for dispatch tests."""
+    from services.alpha_swarm_agent import AlphaSwarm
 
-    agent = AlphaSwarmComputeAgent.__new__(AlphaSwarmComputeAgent)
+    agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock(
         SWARM_MIN_TF_MINUTES=5,
         SWARM_MIN_CONFIDENCE=0.6,

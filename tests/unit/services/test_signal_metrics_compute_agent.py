@@ -1,15 +1,15 @@
-"""Tests for SignalMetricsComputeAgent."""
+"""Tests for SignalMetricsAnalyzer."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_metrics_compute_agent import SignalMetricsComputeAgent
+from services.signal_metrics_compute_agent import SignalMetricsAnalyzer
 
 
 class TestSignalMetricsComputeAgent:
     def _make_agent(self):
-        agent = SignalMetricsComputeAgent.__new__(SignalMetricsComputeAgent)
+        agent = SignalMetricsAnalyzer.__new__(SignalMetricsAnalyzer)
         agent.logger = MagicMock()
         agent._stop_event = MagicMock()
         agent._stop_event.is_set.return_value = False

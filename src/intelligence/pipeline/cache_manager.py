@@ -1,6 +1,6 @@
 """CacheManager — owns the 6 DB-loaded caches and their refresh schedule.
 
-Extracted from IntelligencePipelineComputeAgent as part of Phase 088 god-class
+Extracted from IntelligencePipeline as part of Phase 088 god-class
 decomposition. CacheManager has zero lateral references: it pushes data via
 properties and its own background loops. The orchestrator stores task handles,
 calls load_initial() eagerly, and calls update_hmm_regime() per bar.

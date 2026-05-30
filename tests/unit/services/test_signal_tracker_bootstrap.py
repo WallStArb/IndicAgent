@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.signal_tracker_compute_agent import SignalTrackerComputeAgent
+from services.signal_tracker_compute_agent import SignalTracker
 
 
 def _make_signal_row(signal_id, symbol="ES", timeframe="5m", status="pending", **kwargs):
@@ -78,7 +78,7 @@ def _make_db_mock(main_query_results, count=None):
 
 
 def _make_agent():
-    agent = SignalTrackerComputeAgent.__new__(SignalTrackerComputeAgent)
+    agent = SignalTracker.__new__(SignalTracker)
     agent.settings = MagicMock(env_name="dev")
     agent.settings.database_url = "postgresql://test"
     agent._signal_ids = set()

@@ -1,4 +1,4 @@
-"""Unit tests for FeatureValidationComputeAgent — Phase 82, Plan 05.
+"""Unit tests for FeatureValidationAnalyzer — Phase 82, Plan 05.
 
 Tests cover:
   1. test_skips_slices_below_n_threshold — n=10 → no INSERT on validation_results
@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 
 from src.intelligence.services.feature_validation_compute_agent import (
-    FeatureValidationComputeAgent,
+    FeatureValidationAnalyzer,
 )
 from tools.validate_i6_backtest import ValidationResults
 
@@ -93,11 +93,11 @@ def _make_pool_with_conn() -> tuple[MagicMock, MagicMock]:
     return pool, conn
 
 
-def _make_agent(pool: MagicMock) -> FeatureValidationComputeAgent:
+def _make_agent(pool: MagicMock) -> FeatureValidationAnalyzer:
     """Build agent with mocked settings and injected pool."""
     settings = MagicMock()
     settings.database_url = "postgresql://mock/test"
-    agent = FeatureValidationComputeAgent(settings)
+    agent = FeatureValidationAnalyzer(settings)
     agent._pool = pool
     return agent
 

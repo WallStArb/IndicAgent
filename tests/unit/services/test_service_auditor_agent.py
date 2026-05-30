@@ -1,4 +1,4 @@
-"""Unit tests for ServiceAuditorAgent -- TDD.
+"""Unit tests for ServiceAuditor -- TDD.
 
 Uses __new__ pattern (service test convention) to bypass __init__.
 Tests: DAG ordering, systemctl output parsing,
@@ -15,9 +15,9 @@ import pytest
 
 
 def _make_agent():
-    from services.service_auditor_agent import ServiceAuditorAgent
+    from services.service_auditor_agent import ServiceAuditor
 
-    agent = ServiceAuditorAgent.__new__(ServiceAuditorAgent)
+    agent = ServiceAuditor.__new__(ServiceAuditor)
     agent.name = "service_auditor_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
@@ -249,7 +249,7 @@ def test_stall_loop_skips_oneshot_units():
     import services.service_auditor_agent as svc_mod
     from services.service_auditor_agent import _ONESHOT_UNITS
 
-    source = inspect.getsource(svc_mod.ServiceAuditorAgent._prometheus_check_loop)
+    source = inspect.getsource(svc_mod.ServiceAuditor._prometheus_check_loop)
     assert (
         "if unit in _ONESHOT_UNITS" in source
     ), "_prometheus_check_loop must guard the stall restart path"

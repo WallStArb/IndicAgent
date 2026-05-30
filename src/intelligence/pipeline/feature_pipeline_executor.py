@@ -1,6 +1,6 @@
 """FeaturePipelineExecutor — 6th DAG node: I1-I6 compute + IntelligenceEvent construction.
 
-Extracted from IntelligencePipelineComputeAgent._run_i1_to_i6 as part of Phase 089
+Extracted from IntelligencePipeline._run_i1_to_i6 as part of Phase 089
 DAG decomposition (D-18). Owns all I1-I6 compute and dataframe construction; the
 orchestrator calls self._feature_pipeline.run(bar, cache_snapshot) and receives a
 FeaturePipelineResult without knowing any of the intermediate computation.

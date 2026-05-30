@@ -61,8 +61,8 @@ class SkepticEvaluator(Evaluator):
         """Read ai.agent.<self.agent_id>.shadow_mode from config; fail-closed on miss.
 
         Called by:
-          - AlphaSwarmComputeAgent._setup() after agents are constructed (initial load)
-          - AlphaSwarmComputeAgent._on_config_message_received() on Kafka update
+          - AlphaSwarm._setup() after agents are constructed (initial load)
+          - AlphaSwarm._on_config_message_received() on Kafka update
             (hot-reload -- see alpha_swarm_agent.py Part B)
         """
         override = self.get_config(f"ai.agent.{self.agent_id}.shadow_mode", None)

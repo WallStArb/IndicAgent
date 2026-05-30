@@ -1,4 +1,4 @@
-"""TDD tests for CrossAssetComputeAgent migration to BaseDaemon.
+"""TDD tests for CrossAssetAnalyzer migration to BaseDaemon.
 
 Tests verify that BaseDaemon observability metrics are emitted correctly:
 - agent_crash_total increments on _run() exception
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from services.cross_asset_service import CrossAssetComputeAgent
+from services.cross_asset_service import CrossAssetAnalyzer
 
 
 def _mock_base_agent_attributes(agent):
@@ -41,7 +41,7 @@ def _mock_base_agent_attributes(agent):
 @pytest.mark.asyncio
 async def test_cross_asset_emits_crash_metric_on_exception():
     """Verify agent_crash_total increments when _run() raises."""
-    agent = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
+    agent = CrossAssetAnalyzer.__new__(CrossAssetAnalyzer)
     agent.name = "cross_asset_compute_agent"
     _mock_base_agent_attributes(agent)
 
@@ -68,7 +68,7 @@ async def test_cross_asset_emits_crash_metric_on_exception():
 @pytest.mark.asyncio
 async def test_cross_asset_emits_setup_success_metric():
     """Verify agent_setup_success_total increments after successful _setup()."""
-    agent = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
+    agent = CrossAssetAnalyzer.__new__(CrossAssetAnalyzer)
     agent.name = "cross_asset_compute_agent"
     _mock_base_agent_attributes(agent)
 
@@ -85,7 +85,7 @@ async def test_cross_asset_emits_setup_success_metric():
 @pytest.mark.asyncio
 async def test_cross_asset_stall_detection_configured():
     """Verify stall detection is configured with max_idle_seconds."""
-    agent = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
+    agent = CrossAssetAnalyzer.__new__(CrossAssetAnalyzer)
     agent.name = "cross_asset_compute_agent"
     _mock_base_agent_attributes(agent)
     agent.max_idle_seconds = 1  # Override default for stall test
@@ -103,7 +103,7 @@ async def test_cross_asset_stall_detection_configured():
 @pytest.mark.asyncio
 async def test_cross_asset_record_message_consumed_updates_timestamp():
     """Verify _record_message_consumed updates the last message timestamp."""
-    agent = CrossAssetComputeAgent.__new__(CrossAssetComputeAgent)
+    agent = CrossAssetAnalyzer.__new__(CrossAssetAnalyzer)
     agent.name = "cross_asset_compute_agent"
     _mock_base_agent_attributes(agent)
     agent.max_idle_seconds = 300  # Override for long stall threshold

@@ -1,4 +1,4 @@
-"""Unit tests for SignalAuditorAgent.
+"""Unit tests for SignalAuditor.
 
 Tests verify:
 - Signal coverage gap detection and event emission
@@ -20,15 +20,15 @@ import pytest
 from services.signal_auditor_agent import (
     _COVERAGE_TFS,
     _LAG_P95_WARN_MS,
-    SignalAuditorAgent,
+    SignalAuditor,
 )
 from src.core.stream_keys import topic_signal_audit
 
 
 @pytest.fixture()
 def agent():
-    """Create SignalAuditorAgent without __init__ (bypasses DB/Kafka setup)."""
-    a = SignalAuditorAgent.__new__(SignalAuditorAgent)
+    """Create SignalAuditor without __init__ (bypasses DB/Kafka setup)."""
+    a = SignalAuditor.__new__(SignalAuditor)
     a.name = "signal_auditor_agent"
     a.logger = MagicMock()
     a.settings = MagicMock(env_name="dev")
@@ -58,7 +58,7 @@ def _make_instrument(symbol: str = "SPY", session_id: str = "nyse"):
 
     TradingSession is a frozen dataclass, so session_window_for_date cannot be
     patched directly on an instance. We return a MagicMock that mimics the fields
-    accessed by SignalAuditorAgent: instrument.symbol and
+    accessed by SignalAuditor: instrument.symbol and
     instrument.trading_session.session_window_for_date.
     """
     instrument = MagicMock()

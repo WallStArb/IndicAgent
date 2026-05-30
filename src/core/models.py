@@ -108,7 +108,7 @@ class TradingSession:
           day in local time; start = prev_day open_time in UTC, end = target_date
           close_time in UTC.
 
-        Used by BarAuditorAgent to compute expected bar count for completeness checks.
+        Used by BarAuditor to compute expected bar count for completeness checks.
         """
         if target_date.weekday() not in self.trading_days:
             return (None, None)
@@ -154,7 +154,7 @@ class TradingSession:
         Derives the count from session_window_for_date() minus break minutes.
         Returns 0 for non-trading days.
 
-        Used by BarAuditorAgent for completeness checks.
+        Used by BarAuditor for completeness checks.
         """
         window = self.session_window_for_date(target_date)
         if window[0] is None or window[1] is None:
@@ -169,7 +169,7 @@ class TradingSession:
         Returns the ratio of active trading minutes to total session window minutes.
         Sessions with no breaks return 1.0. Sessions with encoded breaks return < 1.0.
 
-        Used by BarAuditorAgent to set a realistic completeness ceiling rather than
+        Used by BarAuditor to set a realistic completeness ceiling rather than
         flagging break periods as missing bars.
         """
         if self.open_time == self.close_time:

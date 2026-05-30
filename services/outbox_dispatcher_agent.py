@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OutboxDispatcherAgent — publishes OPS config updates to Kafka.
+"""OutboxPublisher — publishes OPS config updates to Kafka.
 
 Polls config_outbox for pending rows, publishes to topic_config_updates,
 updates status with retry semantics. Transactional outbox pattern.
@@ -20,7 +20,7 @@ import asyncio
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.config.outbox_dispatcher import OutboxDispatcherAgent
+from src.config.outbox_dispatcher import OutboxPublisher
 
 if __name__ == "__main__":
-    asyncio.run(OutboxDispatcherAgent().start())
+    asyncio.run(OutboxPublisher().start())

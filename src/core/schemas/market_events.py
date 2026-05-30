@@ -1,6 +1,6 @@
 """Market event schemas for gap fill requests and contract updates.
 
-BarGapRequest is the typed contract published by BarAuditorAgent to topic_gap_requests.
+BarGapRequest is the typed contract published by BarAuditor to topic_gap_requests.
 ContractUpdateEvent is broadcast by roll_batch to topic_contract_updates.
 
 BarGapRequest design decisions (Phase 53.1):
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 
 class BarGapRequest(BaseModel):
-    """Gap fill request published by BarAuditorAgent to topic_gap_requests.
+    """Gap fill request published by BarAuditor to topic_gap_requests.
 
     DataProviderAgent consumes these and fetches historical bars from IBKR.
     request_id enables DLQ correlation. source identifies the requesting agent.
@@ -40,7 +40,7 @@ class BarGapRequest(BaseModel):
 class ContractUpdateEvent(BaseModel):
     """Broadcast when ContractMetadataWriterAgent promotes a new front-month contract.
 
-    Consumed by BarAuditorAgent (cache flush) and any service that caches contract
+    Consumed by BarAuditor (cache flush) and any service that caches contract
     state. Not required for correctness — TTL cache handles convergence — but reduces
     contract-switch latency from ~60s to ~1s.
 

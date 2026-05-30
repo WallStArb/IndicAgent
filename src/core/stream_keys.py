@@ -63,7 +63,7 @@ def topic_market_bars_htf(env_name: str) -> str:
 
 
 def topic_bar_aggregator_state(env_name: str) -> str:
-    """Kafka compacted topic for BarAggregatorComputeAgent state checkpoints.
+    """Kafka compacted topic for BarAggregator state checkpoints.
 
     Key format: {version}:{symbol}:{tf} (e.g., '1:ESM6:5m')
     Value: msgpack-encoded BarAccumulator state dict (_accumulators, _last_session_boundary_log)
@@ -74,7 +74,7 @@ def topic_bar_aggregator_state(env_name: str) -> str:
 
 
 def topic_gap_requests(env_name: str) -> str:
-    """Kafka topic for BarGapRequest gap-fill events from BarAuditorAgent."""
+    """Kafka topic for BarGapRequest gap-fill events from BarAuditor."""
     return f"{env_prefix(env_name)}market.events.gap_requests"
 
 
@@ -82,7 +82,7 @@ def topic_contract_updates(env_name: str) -> str:
     """Kafka topic for ContractUpdateEvent messages from ContractMetadataWriterAgent.
 
     Published after each successful front-month promotion.
-    Consumers (e.g. BarAuditorAgent) use this to invalidate contract caches.
+    Consumers (e.g. BarAuditor) use this to invalidate contract caches.
     Purpose: latency optimization — live services flush contract cache on receipt.
     NOT required for correctness; services converge within TTL cache cycle (60s).
     """
@@ -142,15 +142,15 @@ def topic_intelligence_journal(env_name: str) -> str:
 def topic_intelligence_i7_signals(env_name: str) -> str:
     """Kafka topic carrying all ranked I7 signals per bar (pre-ledger write).
 
-    Published by IntelligencePipelineComputeAgent after each bar's I7 run.
-    Consumed by SignalWriterAgent for signal_ledger persistence.
+    Published by IntelligencePipeline after each bar's I7 run.
+    Consumed by SignalWriter for signal_ledger persistence.
     Payload schema: {symbol, tf, bar_ts, computed_at, signals: list[dict]}
     """
     return f"{env_prefix(env_name)}intelligence.i7.signals"
 
 
 def topic_intelligence_shadow(env_name: str) -> str:
-    """Kafka topic for shadow rollout output from IntelligencePipelineComputeAgent.
+    """Kafka topic for shadow rollout output from IntelligencePipeline.
 
     Activated via INTELLIGENCE_PIPELINE_SHADOW=1 env var. The agent publishes
     here instead of the canonical intelligence topic while running in shadow mode.
@@ -170,7 +170,7 @@ def topic_market_bars_raw(env_name: str, provider: str) -> str:
 
 
 def topic_health_events(env_name: str) -> str:
-    """Service health state transitions published by ServiceAuditorAgent."""
+    """Service health state transitions published by ServiceAuditor."""
     return f"{env_prefix(env_name)}system.health.events"
 
 
@@ -201,9 +201,9 @@ def topic_signal_audit(env_name: str) -> str:
 
 
 def topic_signal_metrics(env_name: str) -> str:
-    """Kafka topic for SignalMetricsComputeAgent output events.
+    """Kafka topic for SignalMetricsAnalyzer output events.
 
-    Consumed by SignalMetricsWriterAgent to upsert signal_metrics,
+    Consumed by SignalMetricsWriter to upsert signal_metrics,
     signal_metrics_ic, and signal_metrics_dq_failures tables.
     """
     return f"{env_prefix(env_name)}intelligence.signal_metrics"
@@ -222,9 +222,9 @@ def topic_market_data_quality(env_name: str) -> str:
 def topic_lifecycle_transitions(env_name: str) -> str:
     """Kafka topic for signal lifecycle transition events.
 
-    Published by IntelligencePipelineComputeAgent on each signal state change
+    Published by IntelligencePipeline on each signal state change
     (activation, exit, MAE/MFE update, shadow outcome, chandelier update).
-    Consumed by LifecycleWriterAgent for atomic persistence to signal_ledger.
+    Consumed by LifecycleWriter for atomic persistence to signal_ledger.
     """
     return f"{env_prefix(env_name)}lifecycle.transitions"
 
@@ -232,8 +232,8 @@ def topic_lifecycle_transitions(env_name: str) -> str:
 def topic_transform_graduation(env_name: str) -> str:
     """Kafka topic for transform graduation evaluation results.
 
-    Published by GraduationComputeAgent on each evaluation event.
-    Consumed by GraduationWriterAgent for upsert into transform_graduation table.
+    Published by GraduationAnalyzer on each evaluation event.
+    Consumed by GraduationWriter for upsert into transform_graduation table.
     """
     return f"{env_prefix(env_name)}intelligence.transform.graduation"
 
@@ -244,7 +244,7 @@ def topic_transform_graduation(env_name: str) -> str:
 
 
 def topic_swarm_alpha(env_name: str) -> str:
-    """Unified alpha multiplier topic. Published by AlphaSwarmComputeAgent."""
+    """Unified alpha multiplier topic. Published by AlphaSwarm."""
     return f"{env_prefix(env_name)}swarm.alpha"
 
 
@@ -252,13 +252,13 @@ def topic_signal_lineage(env_name: str) -> str:
     """Unified signal lineage events (transform, agent_prediction, lifecycle).
 
     Published by LineageRecorder on hot path (Kafka-first DAG).
-    Consumed by LineageWriterAgent for TimescaleDB persistence.
+    Consumed by LineageWriter for TimescaleDB persistence.
     """
     return f"{env_prefix(env_name)}intelligence.signal_lineage"
 
 
 def topic_signal_lineage_dlq(env_name: str) -> str:
-    """DLQ for LineageWriterAgent — failed lineage event persistence."""
+    """DLQ for LineageWriter — failed lineage event persistence."""
     return f"{env_prefix(env_name)}intelligence.signal_lineage.dlq"
 
 
@@ -268,25 +268,25 @@ def topic_signal_lineage_dlq(env_name: str) -> str:
 
 
 def topic_ml_data_quality_alerts(env_name: str) -> str:
-    """MLDataQualityAuditorAgent publishes here when score < DATA_QUALITY_MIN_SCORE."""
+    """DataQualityAuditor publishes here when score < DATA_QUALITY_MIN_SCORE."""
     return f"{env_prefix(env_name)}ml.data_quality.alerts"
 
 
 def topic_ml_discovery_results(env_name: str) -> str:
-    """MLDiscoveryComputeAgent publishes top-IC feature summaries here."""
+    """MLDiscoveryAnalyzer publishes top-IC feature summaries here."""
     return f"{env_prefix(env_name)}ml.discovery.results"
 
 
 def topic_ml_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for MLOrchestratorComputeAgent — node failures."""
+    """DLQ for MLOrchestrator — node failures."""
     return f"{env_prefix(env_name)}ml.orchestrator.dlq"
 
 
 def topic_alert_requests(env_name: str) -> str:
-    """Alert requests from any agent to AlertingComputeAgent.
+    """Alert requests from any agent to AlertMonitor.
 
     Any agent can publish alert requests here via BaseDaemon._send_alert().
-    AlertingComputeAgent consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
+    AlertMonitor consumes and dispatches to Telegram (CRITICAL) or Discord (HIGH/MEDIUM).
     Consumer group: alerting_consumer
     """
     return f"{env_prefix(env_name)}alert.requests"
@@ -331,7 +331,7 @@ def topic_config_updates(env_name: str) -> str:
 def topic_gap_fill_dlq(env_name: str) -> str:
     """DLQ for gap-fill requests that exhausted retries in bar_auditor_agent.
 
-    BarAuditorAgent routes to this topic after 3 failed retry attempts.
+    BarAuditor routes to this topic after 3 failed retry attempts.
     Payload: {symbol, tf, start_ts, end_ts, retry_count, error}
     Consumer group: bar_auditor_gap_fill_consumer
     """
@@ -354,22 +354,22 @@ def topic_bar_aggregator_dlq(env_name: str) -> str:
 
 
 def topic_bar_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for BarWriterAgent unparseable payloads."""
+    """Dead letter queue for BarWriter unparseable payloads."""
     return f"{env_prefix(env_name)}bar.writer.dlq"
 
 
 def topic_feature_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for FeatureWriterAgent unparseable payloads."""
+    """Dead letter queue for FeatureWriter unparseable payloads."""
     return f"{env_prefix(env_name)}feature.writer.dlq"
 
 
 def topic_signal_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for SignalWriterAgent unparseable payloads."""
+    """Dead letter queue for SignalWriter unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.signal.writer.dlq"
 
 
 def topic_lifecycle_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for LifecycleWriterAgent unparseable payloads."""
+    """Dead letter queue for LifecycleWriter unparseable payloads."""
     return f"{env_prefix(env_name)}lifecycle.writer.dlq"
 
 
@@ -379,22 +379,22 @@ def topic_roll_dlq(env_name: str) -> str:
 
 
 def topic_intelligence_pipeline_dlq(env_name: str) -> str:
-    """Dead letter queue for IntelligencePipelineComputeAgent unparseable payloads."""
+    """Dead letter queue for IntelligencePipeline unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
 
 
 def topic_signal_tracker_dlq(env_name: str) -> str:
-    """Dead letter queue for SignalTrackerComputeAgent unparseable payloads."""
+    """Dead letter queue for SignalTracker unparseable payloads."""
     return f"{env_prefix(env_name)}signal.tracker.dlq"
 
 
 def topic_llm_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for LLMWriterAgent unparseable payloads."""
+    """Dead letter queue for LLMWriter unparseable payloads."""
     return f"{env_prefix(env_name)}llm.writer.dlq"
 
 
 def topic_transform_graduation_dlq(env_name: str) -> str:
-    """Dead letter queue for GraduationWriterAgent unparseable payloads."""
+    """Dead letter queue for GraduationWriter unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
@@ -402,7 +402,7 @@ def topic_ctx_snapshot(env_name: str) -> str:
     """Kafka topic for CTX qualitative context snapshot events.
 
     Published by external CTX providers (earnings, macro, news lanes — Phase 83+).
-    Consumed by CtxWriterAgent which persists to ctx_events + ctx_snapshots tables.
+    Consumed by ContextWriter which persists to ctx_events + ctx_snapshots tables.
     Topic naming: <env>.ctx.snapshot (dots only, no colons — CLAUDE.md rule).
     """
     return f"{env_prefix(env_name)}ctx.snapshot"
@@ -411,8 +411,8 @@ def topic_ctx_snapshot(env_name: str) -> str:
 def topic_macro_signals(env_name: str) -> str:
     """Kafka topic for macro factor signals.
 
-    Published by: MacroComputeAgent
-    Consumed by: IntelligencePipelineComputeAgent (frames["cross_asset"])
+    Published by: MacroAnalyzer
+    Consumed by: IntelligencePipeline (frames["cross_asset"])
     DataWriterAgent writes to: macro_features hypertable
 
     Topic naming: <env>.macro_signals (dots only, no colons)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IntelligencePipelineComputeAgent — Unified I1-I7 in-process pipeline.
+"""IntelligencePipeline — Unified I1-I7 in-process pipeline.
 
 Thin DAG router: constructs all 5 extracted classes and routes to 4 output topics.
 I1-I6 runs in _run_i1_to_i6; I7 runs in SignalProcessor.process().
@@ -93,11 +93,11 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 
 
 # ---------------------------------------------------------------------------
-# IntelligencePipelineComputeAgent
+# IntelligencePipeline
 # ---------------------------------------------------------------------------
 
 
-class IntelligencePipelineComputeAgent(BaseDaemon):
+class IntelligencePipeline(BaseDaemon):
     """Unified I1-I7 in-process pipeline agent — thin DAG router.
 
     Constructs all 5 extracted classes and routes to 4 output topics.
@@ -686,5 +686,5 @@ class IntelligencePipelineComputeAgent(BaseDaemon):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent = IntelligencePipelineComputeAgent()
+    agent = IntelligencePipeline()
     asyncio.run(agent.start())
