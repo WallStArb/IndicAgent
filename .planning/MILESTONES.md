@@ -1,5 +1,39 @@
 # Milestones
 
+## v2.7 Mathematical Correctness, Storage & Hardening (Shipped: 2026-05-29)
+
+**Phases completed:** 9 phases (093, 100, 100.5, 104, 105, 106, 107, 108, 109), 43 plans
+**Timeline:** 2026-05-20 → 2026-05-29 (10 days)
+
+**Key accomplishments:**
+
+1. **Mathematical correctness audit** — ATR Wilder bug fixed; all 28 I1 indicators validated against pandas-ta reference; Kalman/GARCH stateful invariant tests; edge case coverage; CI gate prevents merges with failing correctness tests (Phase 093)
+2. **Plugin shared infrastructure** — IncrementalMixin for 31 genuine incremental plugins; shared utilities (atr_utils, state_utils, confidence_utils, plugin_utils); PluginObserver + emit_signal() contract; 24 plugins migrated; CI hard-block on non-compliance (Phases 100, 100.5)
+3. **Storage architecture redesigned** — 9 hypertable retention policies, 6 Kafka byte caps; 13 GB freed (feature_snapshots_shadow dropped); intelligence_features columns renamed (i1–i8 → concept names); signal_ledger slimmed from 97 to ~38 columns; ml_signal_training hypertable (Phases 104, 105)
+4. **Foundation + hygiene (Renaissance)** — Dead code deleted (ShadowRecorder, GuardrailsValidator); DAG correctness (31→42+ services); 9/9 HYGIENE criteria verified; PluginCircuitBreaker wired; O(1) PluginStateManager; enqueue_blocking backpressure (Phases 106, 107)
+5. **Self-healing hardening** — WatchdogSec=60 on 39 daemons; DLQ quarantine (.dead-final); consumer stall detection; api_health gauge; oneshot job_completed_total counters; CLAUDE.md OTel SOP (Phase 108)
+6. **Config foundation + self-healing engine** — DB-backed OPS config (4 tables), ConfigService HTTP API (port 9001), Kafka transactional outbox, BaseAgent hot-reload, SelfHealingAgent (port 9002) with Alertmanager integration and remediation ledger (Phase 109)
+
+**Archive:** `.planning/milestones/v2.7-ROADMAP.md`, `.planning/milestones/v2.7-REQUIREMENTS.md`
+
+---
+
+## v2.6 Foundation Hardening & Signal Transform (Shipped: 2026-05-20)
+
+**Phases completed:** 9 phases (084–092), ~35 plans
+**Timeline:** 2026-05-16 → 2026-05-20 (4 days)
+
+**Key accomplishments:**
+
+1. **Base agent hardening** — Pydantic contracts on BaseWriterAgent, _setup_with_retry, OTel on BaseAIAgent._on_error, circuit breaker opt-in, dead-code cleanup (Phase 084)
+2. **Persistence writer migration** — All 6 writers adopt 084 contracts; lineage_writer silent data loss fixed; named params fleet migration (Phase 085)
+3. **Pipeline hardening** — PluginCircuitBreaker per-plugin; validate_signal() at I7 boundary; checkpoint fail-fast; output queue block/retry; /api/health/system Prometheus aggregation (Phase 086)
+4. **God class decomposition** — IntelligencePipelineComputeAgent 1928→763 lines via PluginExecutor, PluginStateManager, SignalProcessor, CacheManager, OutputQueue extraction (Phase 088)
+5. **Compute performance** — Per-bar allocation waste eliminated; plugin state race fixed; per-key concurrency via PerKeyWorkerManager (Phase 089)
+6. **Signal quality + registry** — Signal ledger thread safety (RLock); FX PK collision fix; pg_notify trigger; asyncpg LISTEN; soft-delete route; BarAuditorAgent gap-fill hardening (Phases 090, 091, 091.1, 092)
+
+---
+
 ## v2.5 Data Quality & Intelligence Completion (Shipped: 2026-05-16)
 
 **Phases completed:** 15 phases (69–83), ~61 plans

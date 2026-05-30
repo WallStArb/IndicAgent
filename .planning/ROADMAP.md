@@ -19,8 +19,8 @@
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
-- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-26; 108 shipped 2026-05-28, 109 in progress)
-- [ ] **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (not started)
+- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-29)
+- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (not started)
 
 ## Phases
 
@@ -533,7 +533,7 @@ Plans:
 </details>
 
 <details>
-<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109) — SHIPPED 2026-05-26 (108: 2026-05-28, 109: in progress)</summary>
+<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109) — SHIPPED 2026-05-29</summary>
 
 **Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). (4) Infrastructure hardening: architecture hotfixes, foundation hardening, infrastructure hygiene, self-healing hardening, config foundation. Phases 094-099 (AI platform) deferred to v2.8.
 
@@ -1392,7 +1392,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 106. Foundation Hardening | v2.7 | 6/6 | Complete | 2026-05-25 |
 | 107. Infrastructure Hygiene | v2.7 | 9/9 | Complete | 2026-05-25 |
 | 108. Self-Healing Hardening | v2.7 | 7/7 | Complete    | 2026-05-28 |
-| 109. Config Foundation & Self-Healing Engine | v2.8 | 5 plans planned | Revised | - |
+| 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 2 plans written/0 executed | Planned | - |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |

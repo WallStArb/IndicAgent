@@ -261,7 +261,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.8 — Infrastructure Hardening + AI Platform
+## Current Milestone: v2.8 — AI Platform & Evolvable Agents
 
 **Goal:** Close structural debt from v2.7 audit, audit and fix shadow graduation blockers, then execute the AI platform stack with measurable evidence gates at every layer — each dependency earns its place before the next is added.
 
