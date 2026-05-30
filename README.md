@@ -6,9 +6,9 @@
 
 ---
 
-IndicAgent is a passion project — built to learn real architecture, apply institutional thinking to software design, and improve by doing. The goal is a foundational platform rooted in the rigor of Renaissance Capital and Jim Simons: mathematical discipline applied to every layer, from how things are named to how evidence is evaluated to how models are promoted or rejected. Every refinement sharpens both the platform and the understanding behind it. They compound together.
+IndicAgent is built on the conviction that institutional-grade rigor belongs in every layer of a system — from how components are named to how evidence is evaluated to how models are promoted or rejected. The north star is the discipline of Renaissance Capital: mathematical precision as architecture, not decoration. Every design decision is held to that standard.
 
-The platform is designed to extend — quantitative intelligence today, fundamental and qualitative domains next, evolvable AI agents throughout. It is not a pipeline. It is an architecture that can carry any form of market intelligence through the same spine.
+The platform is designed to extend — quantitative intelligence today, fundamental and qualitative domains next, evolvable AI agents throughout. It is not a pipeline. It is a foundational architecture that can carry any form of market intelligence through the same spine.
 
 ---
 
