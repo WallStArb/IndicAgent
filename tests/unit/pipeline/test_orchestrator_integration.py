@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.intelligence.pipeline.signal_processor import SignalProcessorResult
-from tests.unit.pipeline_helpers import make_agent
+from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
 def _make_bar():

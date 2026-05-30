@@ -9,7 +9,7 @@ import pytest
 
 from services.intelligence_pipeline_agent import I7_PLUGINS
 from src.intelligence.register_plugins import TIER_I1
-from tests.unit.pipeline_helpers import make_agent
+from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
 def _mock_plugin(compute_result: dict):

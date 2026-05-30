@@ -10,7 +10,7 @@ The no-plugin_states assertion is the permanent contract (HIGH finding 5 regress
 
 from __future__ import annotations
 
-from tests.unit.pipeline_helpers import make_agent
+from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
 def test_assemble_checkpoint_extra_keys_are_exactly_cross_owned():
