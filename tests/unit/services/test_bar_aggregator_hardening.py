@@ -36,7 +36,7 @@ def _make_htf_bar(symbol: str, tf: str, ts: datetime) -> BarMessage:
 
 def _make_agent():
     """Create a BarAggregator bypassing __init__ Kafka setup."""
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
 
     agent = BarAggregator.__new__(BarAggregator)
     agent.name = "bar_aggregator_agent"
@@ -76,7 +76,7 @@ def _make_agent():
 @pytest.mark.asyncio
 async def test_malformed_bar_routes_to_dlq():
     """A bar payload that fails parsing must be sent to the DLQ, not silently dropped."""
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
 
     agent = _make_agent()
 

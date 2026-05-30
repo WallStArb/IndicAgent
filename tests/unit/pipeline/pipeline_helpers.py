@@ -14,7 +14,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, MagicMock
 
-from services.intelligence_pipeline_agent import IntelligencePipeline
+from services.intelligence_pipeline import IntelligencePipeline
 from src.core.bar_history import BarHistory
 from src.intelligence.pipeline.cache_manager import CacheManager
 from src.intelligence.pipeline.executor import PluginExecutor

@@ -23,7 +23,7 @@ import pytest
 
 hmmlearn = pytest.importorskip("hmmlearn")  # Skip module if hmmlearn not installed
 
-from src.intelligence.services.hmm_training_compute_agent import (  # noqa: E402
+from src.intelligence.services.hmm_trainer import (  # noqa: E402
     _PIPELINE_UNIT,
     HMMTrainer,
 )
@@ -94,7 +94,7 @@ def _make_agent(
     rows_below_threshold_for: str | None = None,
 ) -> HMMTrainer:
     """Construct agent, patching _CONFIG_DIR to tmp_path."""
-    import src.intelligence.services.hmm_training_compute_agent as _mod
+    import src.intelligence.services.hmm_trainer as _mod
 
     _mod._CONFIG_DIR = config_dir  # redirect writes to temp dir
     return HMMTrainer(
@@ -116,7 +116,7 @@ class TestQueryExcludesBackfillRows:
         rows = _make_synthetic_rows(_N_TRAIN_ROWS)
         db = _make_db_manager({tf: rows for tf in _TFS})
 
-        import src.intelligence.services.hmm_training_compute_agent as _mod
+        import src.intelligence.services.hmm_trainer as _mod
 
         original_config_dir = _mod._CONFIG_DIR
         _mod._CONFIG_DIR = tmp_path
@@ -175,7 +175,7 @@ def test_query_excludes_backfill_rows_grep() -> None:
     """Assert the literal SQL in _query_features contains is_backfill IS NOT TRUE."""
     import inspect
 
-    import src.intelligence.services.hmm_training_compute_agent as _mod
+    import src.intelligence.services.hmm_trainer as _mod
 
     source = inspect.getsource(_mod.HMMTrainer._query_features)
     assert (
@@ -193,7 +193,7 @@ def test_writes_per_tf_parameter_files(tmp_path: Path) -> None:
     rows = _make_synthetic_rows(_N_TRAIN_ROWS)
     db = _make_db_manager({tf: rows for tf in _TFS})
 
-    import src.intelligence.services.hmm_training_compute_agent as _mod
+    import src.intelligence.services.hmm_trainer as _mod
 
     original = _mod._CONFIG_DIR
     _mod._CONFIG_DIR = tmp_path
@@ -220,7 +220,7 @@ def test_parameter_file_schema(tmp_path: Path) -> None:
     rows = _make_synthetic_rows(_N_TRAIN_ROWS)
     db = _make_db_manager({"1m": rows})
 
-    import src.intelligence.services.hmm_training_compute_agent as _mod
+    import src.intelligence.services.hmm_trainer as _mod
 
     original = _mod._CONFIG_DIR
     _mod._CONFIG_DIR = tmp_path
@@ -266,7 +266,7 @@ def test_emit_sigusr1_invokes_systemctl() -> None:
     agent = HMMTrainer(db_manager=db, settings=_make_settings())
 
     with (
-        patch("src.intelligence.services.hmm_training_compute_agent.subprocess.run") as mock_run,
+        patch("src.intelligence.services.hmm_trainer.subprocess.run") as mock_run,
         patch.object(HMMTrainer, "_find_systemctl", return_value="/usr/bin/systemctl"),
     ):
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
@@ -299,7 +299,7 @@ def test_skip_when_insufficient_rows(tmp_path: Path) -> None:
     }
     db = _make_db_manager(rows_by_tf)
 
-    import src.intelligence.services.hmm_training_compute_agent as _mod
+    import src.intelligence.services.hmm_trainer as _mod
 
     original = _mod._CONFIG_DIR
     _mod._CONFIG_DIR = tmp_path

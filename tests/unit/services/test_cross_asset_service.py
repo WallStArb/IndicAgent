@@ -1,4 +1,4 @@
-"""Unit tests for services/cross_asset_service.py
+"""Unit tests for services/cross_asset_analyzer.py
 
 Uses CrossAssetAnalyzer.__new__ to bypass __init__ (no Kafka/DB required).
 Tests cover:
@@ -32,7 +32,7 @@ _MIN_NEEDED = _WINDOW + _SHORT  # 25
 
 def _make_service():
     """Construct CrossAssetAnalyzer without __init__ (no Kafka/DB calls)."""
-    from services.cross_asset_service import CrossAssetAnalyzer
+    from services.cross_asset_analyzer import CrossAssetAnalyzer
 
     svc = CrossAssetAnalyzer.__new__(CrossAssetAnalyzer)
     svc._stop_event = asyncio.Event()  # running property reads this
@@ -55,31 +55,31 @@ def _make_service():
 
 
 def test_extract_base_symbol_es():
-    from services.cross_asset_service import _extract_base_symbol
+    from services.cross_asset_analyzer import _extract_base_symbol
 
     assert _extract_base_symbol("ESM6") == "ES"
 
 
 def test_extract_base_symbol_nq():
-    from services.cross_asset_service import _extract_base_symbol
+    from services.cross_asset_analyzer import _extract_base_symbol
 
     assert _extract_base_symbol("NQM6") == "NQ"
 
 
 def test_extract_base_symbol_rty():
-    from services.cross_asset_service import _extract_base_symbol
+    from services.cross_asset_analyzer import _extract_base_symbol
 
     assert _extract_base_symbol("RTYM6") == "RTY"
 
 
 def test_extract_base_symbol_ym():
-    from services.cross_asset_service import _extract_base_symbol
+    from services.cross_asset_analyzer import _extract_base_symbol
 
     assert _extract_base_symbol("YMM6") == "YM"
 
 
 def test_extract_base_symbol_non_eq_index_returns_none():
-    from services.cross_asset_service import _extract_base_symbol
+    from services.cross_asset_analyzer import _extract_base_symbol
 
     # CL and GC are not in EQ_INDEX group
     assert _extract_base_symbol("CLM6") is None

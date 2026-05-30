@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pandas as pd
 import pytest
 
-from services.graduation_compute_agent import (
+from services.graduation_analyzer import (
     _EVAL_QUERY,
     CONSUMER_GROUP,
     GraduationAnalyzer,
@@ -205,7 +205,7 @@ async def test_evaluate_segment_publishes_to_kafka(monkeypatch):
         "expires_at": "2026-07-23T00:00:00Z",
     }
     monkeypatch.setattr(
-        "services.graduation_compute_agent.evaluate_all",
+        "services.graduation_analyzer.evaluate_all",
         lambda df, **kw: fake_result,
     )
 
@@ -231,7 +231,7 @@ async def test_evaluate_segment_skips_when_no_rows(monkeypatch):
     a._pool.acquire = MagicMock(return_value=_make_acquire_ctx(conn))
 
     eval_mock = MagicMock()
-    monkeypatch.setattr("services.graduation_compute_agent.evaluate_all", eval_mock)
+    monkeypatch.setattr("services.graduation_analyzer.evaluate_all", eval_mock)
 
     await a._evaluate_segment("hurst_quality", "v1", "trend.5m")
 

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.signal_auditor_agent import (
+from services.signal_auditor import (
     _COVERAGE_TFS,
     _LAG_P95_WARN_MS,
     SignalAuditor,
@@ -115,7 +115,7 @@ async def test_coverage_gap_when_zero_signals(agent):
         return_value=(session_start, session_end)
     )
 
-    with patch("services.signal_auditor_agent._SIGNAL_COVERAGE_PCT") as mock_cov:
+    with patch("services.signal_auditor._SIGNAL_COVERAGE_PCT") as mock_cov:
         gaps = await agent._check_coverage([instrument])
 
     assert len(gaps) == len(_COVERAGE_TFS)
@@ -147,7 +147,7 @@ async def test_no_gap_when_signals_present(agent):
         )
     )
 
-    with patch("services.signal_auditor_agent._SIGNAL_COVERAGE_PCT") as mock_cov:
+    with patch("services.signal_auditor._SIGNAL_COVERAGE_PCT") as mock_cov:
         gaps = await agent._check_coverage([instrument])
 
     assert gaps == []
@@ -208,8 +208,8 @@ async def test_cis_distribution_sets_gauges(agent):
     _set_db_pool(agent, conn)
 
     with (
-        patch("services.signal_auditor_agent._CIS_MEAN") as mock_mean,
-        patch("services.signal_auditor_agent._CIS_STDDEV") as mock_stddev,
+        patch("services.signal_auditor._CIS_MEAN") as mock_mean,
+        patch("services.signal_auditor._CIS_STDDEV") as mock_stddev,
     ):
         await agent._check_cis_distribution()
 
