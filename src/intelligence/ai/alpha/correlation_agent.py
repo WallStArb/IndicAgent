@@ -8,7 +8,7 @@ import structlog
 from pydantic import BaseModel, field_validator
 
 from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.correlation_prompts import (
@@ -52,7 +52,7 @@ class CorrelationResult(BaseModel):
         return str(v) if v is not None else ""
 
 
-class CorrelationComputeAgent(BaseMultiplierAgent):
+class CorrelationComputeAgent(Evaluator):
     """Cross-asset coherence — does ZN/VIX/ES/CL behavior support this signal?
 
     Per D-04: multiplier = coherence_score × confidence (discount-only, Phase 80).

@@ -8,7 +8,7 @@ import structlog
 from pydantic import BaseModel, field_validator
 
 from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.regime_coherence_prompts import (
@@ -52,7 +52,7 @@ class RegimeCoherenceResult(BaseModel):
         return str(v) if v is not None else ""
 
 
-class RegimeCoherenceComputeAgent(BaseMultiplierAgent):
+class RegimeCoherenceComputeAgent(Evaluator):
     """Setup TYPE vs regime fit — is mean-reversion firing in a strong trend?"""
 
     output_schema: ClassVar[dict] = {

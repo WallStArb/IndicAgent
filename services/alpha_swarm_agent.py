@@ -16,7 +16,7 @@ Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 - _run_graduation_cycle(): iterates self._agents, per-(agent_id, timeframe) Spearman weight learning
 
 Plan 80-07 changes:
-- self._agents is list[BaseMultiplierAgent] with Skeptic, Correlation, RegimeCoherence, Counterfactual
+- self._agents is list[Evaluator] with Skeptic, Correlation, RegimeCoherence, Counterfactual
 - TF gate: SWARM_MIN_TF_MINUTES settings-driven (replaces frozenset lookup)
 - No schema version gate — all signals from the pipeline are accepted
 - Capacity semaphore: asyncio.Semaphore(SWARM_MAX_CONCURRENT_CALLS) — no timeout, Kafka lag-skip is the backpressure valve
@@ -40,7 +40,7 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.base_group_service import BaseGroupService
 from src.core.ai.context import AIContext, Tier
-from src.core.ai.multiplier_agent import BaseMultiplierAgent
+from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
@@ -113,7 +113,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
     Agents are pure compute, iterated per signal via asyncio.gather().
 
     Plan 78-01: Write path is LineageRecorder -> topic_signal_lineage() -> LineageWriterAgent -> signal_lineage.
-    Plan 80-07: self._agents is list[BaseMultiplierAgent]; no direct signal_ledger writes.
+    Plan 80-07: self._agents is list[Evaluator]; no direct signal_ledger writes.
     """
 
     group_id = "alpha"
@@ -123,7 +123,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self.settings = settings
         self._demotion_streak: int = 0  # consecutive negative-rho cycles (D-25)
         # Populated in _setup() after LLM chain is ready (CLAUDE.md pattern).
-        self._agents: list[BaseMultiplierAgent] = []
+        self._agents: list[Evaluator] = []
         self._semaphore: asyncio.Semaphore | None = None
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
@@ -157,7 +157,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         POOL-FIX: pool is created once by super()._setup() in BaseGroupService.
         LineageRecorder gets the Kafka producer from self._producer (set by super).
 
-        Plan 80-07: construct all four BaseMultiplierAgent instances + semaphore.
+        Plan 80-07: construct all four Evaluator instances + semaphore.
         """
         await super()._setup()
 
@@ -540,7 +540,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         try:
             # Build per-agent contexts and run in parallel
             tasks = []
-            agents_with_context: list[BaseMultiplierAgent] = []
+            agents_with_context: list[Evaluator] = []
             for agent in self._agents:
                 agent_context = self._context_cache.build(
                     symbol=symbol,
@@ -668,7 +668,7 @@ class AlphaSwarmComputeAgent(BaseGroupService):
         self,
         signal_id: Any,
         enriched: AIContext,
-        agent: BaseMultiplierAgent,
+        agent: Evaluator,
         result: Any,
     ) -> None:
         """Record swarm agent prediction via LineageRecorder -> topic_signal_lineage().

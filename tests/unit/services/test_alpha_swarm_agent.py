@@ -463,7 +463,7 @@ async def test_graduation_loop_handles_nan_gracefully():
 
 
 def test_swarm_agents_are_four_typed_agents():
-    """Plan 80-07: _agents init list must declare list[BaseMultiplierAgent] with four agents.
+    """Plan 80-07: _agents init list must declare list[Evaluator] with four agents.
 
     Updated from Phase 78 single-skeptic assertion. Plan 80-07 adds
     Correlation, RegimeCoherence, Counterfactual alongside Skeptic.
@@ -480,10 +480,8 @@ def test_swarm_agents_are_four_typed_agents():
     assert not hasattr(
         m, "VolumeAgentComputeAgent"
     ), "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
-    # BaseMultiplierAgent must be the typed list element
-    assert hasattr(
-        m, "BaseMultiplierAgent"
-    ), "BaseMultiplierAgent not imported in alpha_swarm_agent"
+    # Evaluator must be the typed list element
+    assert hasattr(m, "Evaluator"), "Evaluator not imported in alpha_swarm_agent"
 
 
 def test_swarm_agent_to_transform_has_all_agents():

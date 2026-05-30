@@ -1,4 +1,4 @@
-"""Tests for src/core/ai/multiplier_agent — BaseMultiplierAgent."""
+"""Tests for src/core/ai/evaluator — Evaluator."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ UTC = UTC
 
 
 def _make_dummy_agent():
-    """Construct a minimal concrete subclass of BaseMultiplierAgent for testing."""
+    """Construct a minimal concrete subclass of Evaluator for testing."""
     from src.core.ai.context import AIContext
-    from src.core.ai.multiplier_agent import BaseMultiplierAgent
+    from src.core.ai.evaluator import Evaluator
 
-    class _DummyAgent(BaseMultiplierAgent):
+    class _DummyAgent(Evaluator):
         output_schema: ClassVar[dict] = {"score": float, "confidence": float}
         agent_id = "dummy_v1"
         group = "test"
@@ -112,12 +112,12 @@ def test_build_multiplier_output_prompt_version_in_payload():
     assert output.payload["prompt_version"] == "v1"
 
 
-def test_base_multiplier_agent_class_hierarchy():
-    """BaseMultiplierAgent is a subclass of BaseAIWorker and ABC."""
+def test_evaluator_class_hierarchy():
+    """Evaluator is a subclass of BaseAIWorker and ABC."""
     from src.core.ai.base_agent import BaseAIWorker
-    from src.core.ai.multiplier_agent import BaseMultiplierAgent
+    from src.core.ai.evaluator import Evaluator
 
-    assert issubclass(BaseMultiplierAgent, BaseAIWorker)
+    assert issubclass(Evaluator, BaseAIWorker)
 
 
 def test_output_schema_class_var():
