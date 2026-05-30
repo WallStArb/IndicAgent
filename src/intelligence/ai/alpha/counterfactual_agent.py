@@ -118,7 +118,10 @@ class CounterfactualComputeAgent(BaseMultiplierAgent):
                 "counterfactual_agent.structured_output_failed",
                 agent_id=self.agent_id,
             )
-            await self._report_parse_failure(call_id)
+            # Do NOT call _report_parse_failure here: the chain already published a failure
+            # audit row with succeeded=False/parse_success=False. _report_parse_failure is
+            # only for the _llm_generate (unstructured) path where the initial audit row
+            # records success and a corrective update is needed.
             return self._neutral(error="Structured output failed", latency_ms=0.0)
 
         plausibility = result.plausibility
