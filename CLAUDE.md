@@ -4,7 +4,7 @@ Version: 5.44.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105
 
 **Skill commands:** Always use `/gsd-<name>` syntax (e.g. `/gsd-plan-phase`). Never suggest `gsd:<name>` — that is the old convention.
 **Principles:** See `docs/principles.md` — instrument everything, shadow mode first, data quality over model complexity.
-**Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. **Layer rule:** `src/core/` = L1 generic infrastructure (no project prefix, no domain vocab — e.g. `LLMAdapter`, `AgentRuntime`); `src/intelligence/` = L2 domain (`BaseAIAgent`, `AIContext`); `services/` = L3 specific. Full table: `docs/foundation/naming-conventions.md`.
+**Naming:** Concept name (`snake_case`) derives all layer names — `alpha_signal` → `AlphaSignalService`, `indicagent-alpha-signal.service`, `topic_alpha_signal()`, `alpha_signals` table. Files: `*_service.py` / `*_agent.py` / `src/intelligence/trading/<name>.py`. Topics: dots only, via `stream_keys.py`. **Layer rule:** `src/core/` = L1 generic infrastructure (no project prefix, no domain vocab — e.g. `LLMAdapter`, `AgentContext`); `src/intelligence/` = L2 domain (`BaseAIAgent`, `AIContext`); `services/` = L3 specific. Full table: `docs/foundation/naming-conventions.md`.
 **Gotchas:** See `docs/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Agentic DAG:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics, DataWriterAgents manage persistence. Scaling: systemd + Prometheus lag monitoring (no Kubernetes HPA).
 
@@ -96,7 +96,8 @@ L10 service-auditor                      — meta: monitors + restarts all above
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseGroupService, AIContext, AgentOutput)
+- `src/core/ai/` — AI agent infrastructure (BaseAIAgent, BaseScorer, BaseGroupService, AIContext, AgentOutput). Phase 095 adds: AgentContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
+- **Pending renames (conventions established, code not yet updated):** `BaseMultiplierAgent`→`BaseScorer`, `SkepticComputeAgent`→`SkepticScorer`, `CorrelationComputeAgent`→`CorrelationScorer`, `CounterfactualComputeAgent`→`CounterfactualScorer`, `RegimeCoherenceComputeAgent`→`RegimeCoherenceScorer`, `MLScorerMultiplierAgent`→`MLScorer`, `NarrativeComputeAgent`→`NarrativeSynthesizer`. Use OLD names when reading/editing existing code until rename phase ships.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
