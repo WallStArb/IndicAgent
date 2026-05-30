@@ -15,7 +15,7 @@ import pytest
 
 def _make_agent():
     """Build a minimal MacroAnalyzer bypassing __init__."""
-    from services.macro_compute_agent import MacroAnalyzer
+    from services.macro_analyzer import MacroAnalyzer
 
     agent = MacroAnalyzer.__new__(MacroAnalyzer)
     agent._settings = MagicMock()

@@ -20,7 +20,7 @@ import asyncio
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 
-from src.config.outbox_dispatcher import OutboxPublisher
+from src.config.outbox_publisher import OutboxPublisher
 
 if __name__ == "__main__":
     asyncio.run(OutboxPublisher().start())

@@ -18,7 +18,7 @@ import pytest
 
 def _make_writer():
     """Build SwarmLedgerWriter bypassing __init__ (CLAUDE.md __new__ pattern)."""
-    from services.swarm_ledger_writer_agent import SwarmLedgerWriter
+    from services.swarm_ledger_writer import SwarmLedgerWriter
 
     w = SwarmLedgerWriter.__new__(SwarmLedgerWriter)
     w.settings = MagicMock(
@@ -83,7 +83,7 @@ def _mock_pool_always_fk_error(attempts: int) -> MagicMock:
 async def test_projection_success() -> None:
     w = _make_writer()
     w._pool = _mock_pool(["INSERT 1"])
-    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+    with patch("services.swarm_ledger_writer.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
         await w._apply_projection("sig-1", 0.8, 0.64, 4)
     # OTel counter: .add(1, {"status": "success"}) must have been called
     mock_c.add.assert_called_once_with(1, {"status": "success"})
@@ -94,10 +94,10 @@ async def test_projection_retry_then_success(monkeypatch) -> None:
     """First attempt raises ForeignKeyViolationError (FK race), second succeeds."""
     w = _make_writer()
     w._pool = _mock_pool_with_fk_errors(fk_error_count=1)
-    import services.swarm_ledger_writer_agent as mod
+    import services.swarm_ledger_writer as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
-    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+    with patch("services.swarm_ledger_writer.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
         await w._apply_projection("sig-2", 0.7, 0.56, 4)
     calls = [c.args for c in mock_c.add.call_args_list]
     assert (1, {"status": "retry"}) in calls
@@ -109,10 +109,10 @@ async def test_projection_miss_after_all_retries(monkeypatch) -> None:
     """All attempts raise ForeignKeyViolationError — exhausted retries -> miss."""
     w = _make_writer()
     w._pool = _mock_pool_always_fk_error(attempts=5)
-    import services.swarm_ledger_writer_agent as mod
+    import services.swarm_ledger_writer as mod
 
     monkeypatch.setattr(mod.asyncio, "sleep", AsyncMock())
-    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
+    with patch("services.swarm_ledger_writer.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL") as mock_c:
         await w._apply_projection("sig-3", 0.5, 0.4, 3)
     mock_c.add.assert_called_with(1, {"status": "miss"})
 
@@ -142,7 +142,7 @@ def test_consumer_constructed_with_auto_commit_disabled() -> None:
     """
     import inspect
 
-    import services.swarm_ledger_writer_agent as mod
+    import services.swarm_ledger_writer as mod
 
     source = inspect.getsource(mod.SwarmLedgerWriter._setup)
     assert "enable_auto_commit=False" in source, (
@@ -188,7 +188,7 @@ async def test_consumer_commit_called_after_successful_handle() -> None:
     # _apply_projection succeeds (returns True via _handle_event)
     w._pool = _mock_pool(["INSERT 1"])
 
-    with patch("services.swarm_ledger_writer_agent.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL"):
+    with patch("services.swarm_ledger_writer.SWARM_SIGNAL_LEDGER_UPDATE_TOTAL"):
         await w._run()
 
     # commit() must have been called after the successful _handle_event
@@ -238,7 +238,7 @@ async def test_consumer_commit_not_called_when_handle_raises() -> None:
 
 
 def test_original_confidence_column_untouched_in_sql() -> None:
-    src = pathlib.Path("services/swarm_ledger_writer_agent.py").read_text()
+    src = pathlib.Path("services/swarm_ledger_writer.py").read_text()
     # UPSERT must write the three AI enrichment columns
     assert "adjusted_confidence" in src
     assert "swarm_multiplier" in src

@@ -30,7 +30,7 @@ def _apply_publisher_normalization(
 ) -> list[dict]:
     """Replicate the publisher-side normalization from intelligence_pipeline_agent.
 
-    Extracted from services/intelligence_pipeline_agent.py _publish_signals_or_dlq.
+    Extracted from services/intelligence_pipeline.py _publish_signals_or_dlq.
     stamp_signal_id=True also replicates the signal_id setdefault added in the
     env-cleanup fix.
     """

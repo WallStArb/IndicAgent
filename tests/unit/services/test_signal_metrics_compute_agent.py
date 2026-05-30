@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_metrics_compute_agent import SignalMetricsAnalyzer
+from services.signal_metrics_analyzer import SignalMetricsAnalyzer
 
 
 class TestSignalMetricsComputeAgent:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 def test_inherits_base_provider_agent():
     """IBKRProvider must be a subclass of BaseProvider."""
-    from services.ibkr_provider_agent import IBKRProvider
+    from services.ibkr_provider import IBKRProvider
     from src.providers.base_provider_agent import BaseProvider
 
     assert issubclass(IBKRProvider, BaseProvider)
@@ -28,7 +28,7 @@ def test_create_adapter_returns_ibkr_adapter():
     """_create_adapter() must return an IBKRAdapter instance."""
     from unittest.mock import MagicMock
 
-    from services.ibkr_provider_agent import IBKRProvider
+    from services.ibkr_provider import IBKRProvider
     from src.providers.ibkr_adapter import IBKRAdapter
 
     agent = IBKRProvider.__new__(IBKRProvider)
@@ -48,7 +48,7 @@ def test_create_adapter_returns_ibkr_adapter():
 
 def test_agent_name():
     """_agent_name() must return 'ibkr_provider_agent'."""
-    from services.ibkr_provider_agent import IBKRProvider
+    from services.ibkr_provider import IBKRProvider
 
     agent = IBKRProvider.__new__(IBKRProvider)
     assert agent._agent_name() == "ibkr_provider_agent"
@@ -61,7 +61,7 @@ def test_agent_name():
 
 def test_provider_name():
     """_provider_name_str() must return 'ibkr'."""
-    from services.ibkr_provider_agent import IBKRProvider
+    from services.ibkr_provider import IBKRProvider
 
     agent = IBKRProvider.__new__(IBKRProvider)
     assert agent._provider_name_str() == "ibkr"

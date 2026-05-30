@@ -116,7 +116,7 @@ class ConfigConsumerMixin:
         IMPORTANT: KafkaConsumerClient takes the topic(s) as its FIRST positional
         argument at construction time. There is NO subscribe method — topics are
         bound at __init__. The correct Settings attribute is `kafka_bootstrap_servers`
-        (NOT `kafka_brokers`); see services/alerting_agent.py line 51.
+        (NOT `kafka_brokers`); see services/alert_monitor.py line 51.
         """
         if self._config_layer != "OPS":
             return

@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.intelligence.services.feature_validation_compute_agent import (
+from src.intelligence.services.feature_validation_analyzer import (
     FeatureValidationAnalyzer,
 )
 from tools.validate_i6_backtest import ValidationResults
@@ -32,7 +32,7 @@ from tools.validate_i6_backtest import ValidationResults
 # Helpers
 # ---------------------------------------------------------------------------
 
-_AGENT_MODULE = "src.intelligence.services.feature_validation_compute_agent"
+_AGENT_MODULE = "src.intelligence.services.feature_validation_analyzer"
 
 
 def _make_df(

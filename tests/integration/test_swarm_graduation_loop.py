@@ -31,7 +31,7 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
     import numpy as np
     from scipy.stats import spearmanr
 
-    from services.alpha_swarm_agent import AlphaSwarm
+    from services.alpha_swarm import AlphaSwarm
     from src.config.settings import Settings
     from src.core.database_manager import create_pool as create_db_pool
 

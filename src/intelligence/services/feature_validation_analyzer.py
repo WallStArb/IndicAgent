@@ -94,7 +94,7 @@ class FeatureValidationAnalyzer:
     async def start(self) -> None:
         """Orchestrate setup → run → teardown. Swallows top-level exceptions
         so systemd oneshot exits 0 and the timer fires again the next day."""
-        setup_service_logging("logs/feature_validation_compute_agent.log")
+        setup_service_logging("logs/feature_validation_analyzer.log")
         await self._setup()
         try:
             results = await self.run()

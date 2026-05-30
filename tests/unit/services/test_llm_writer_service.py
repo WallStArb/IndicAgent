@@ -1,9 +1,9 @@
 """TDD RED tests for llm_writer_service — stream key helpers and pure logic functions.
 
 Phase 16-01: Schema foundation. These tests define the expected behaviour of functions
-that will be implemented in services/llm_writer_service.py.
+that will be implemented in services/llm_writer.py.
 
-All imports from services.llm_writer_service will raise ImportError / ModuleNotFoundError
+All imports from services.llm_writer will raise ImportError / ModuleNotFoundError
 at this stage — that is the expected RED state confirming the contract before implementation.
 
 Stream key tests import from src.core.stream_keys (already implemented in this plan).
@@ -36,13 +36,13 @@ def test_llm_outcomes_stream_key_format():
 
 # ── Pure functions from llm_writer_service (NOT YET IMPLEMENTED — RED) ────────
 #
-# These imports will fail until services/llm_writer_service.py is created in Plan 16-02.
+# These imports will fail until services/llm_writer.py is created in Plan 16-02.
 # Failure mode: ModuleNotFoundError or ImportError — both are valid RED states.
 
 
 def test_parse_llm_call_fields_valid():
     """_parse_llm_call_fields returns a dict with all required keys for a full payload."""
-    from services.llm_writer_service import _parse_llm_call_fields  # type: ignore[import]
+    from services.llm_writer import _parse_llm_call_fields  # type: ignore[import]
 
     fields = {
         b"call_id": b"550e8400-e29b-41d4-a716-446655440000",
@@ -67,7 +67,7 @@ def test_parse_llm_call_fields_valid():
 
 def test_parse_llm_call_fields_missing_required_returns_none():
     """_parse_llm_call_fields returns None when call_id, called_at, or symbol is absent."""
-    from services.llm_writer_service import _parse_llm_call_fields  # type: ignore[import]
+    from services.llm_writer import _parse_llm_call_fields  # type: ignore[import]
 
     # Missing call_id
     fields_no_call_id = {
@@ -96,7 +96,7 @@ def test_parse_llm_call_fields_missing_required_returns_none():
 
 def test_parse_outcome_fields_valid():
     """_parse_outcome_fields returns dict with outcome keys for a full payload."""
-    from services.llm_writer_service import _parse_outcome_fields  # type: ignore[import]
+    from services.llm_writer import _parse_outcome_fields  # type: ignore[import]
 
     fields = {
         b"signal_id": b"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -117,7 +117,7 @@ def test_parse_outcome_fields_valid():
 
 def test_parse_outcome_fields_missing_signal_id_returns_none():
     """_parse_outcome_fields returns None when signal_id is absent."""
-    from services.llm_writer_service import _parse_outcome_fields  # type: ignore[import]
+    from services.llm_writer import _parse_outcome_fields  # type: ignore[import]
 
     fields = {
         b"outcome": b"stopped_in_trade",
@@ -131,7 +131,7 @@ def test_parse_outcome_fields_missing_signal_id_returns_none():
 
 def test_build_score_insert_params_below_min_n_not_significant():
     """With n < 30, is_significant must be False regardless of p_value."""
-    from services.llm_writer_service import _build_score_insert_params  # type: ignore[import]
+    from services.llm_writer import _build_score_insert_params  # type: ignore[import]
 
     # Simulate 10 rows, p_value would be irrelevant
     rows = [
@@ -160,7 +160,7 @@ def test_build_score_insert_params_below_min_n_not_significant():
 
 def test_build_score_insert_params_meets_gate_significant():
     """With n >= 30 and p < 0.05, is_significant must be True."""
-    from services.llm_writer_service import _build_score_insert_params  # type: ignore[import]
+    from services.llm_writer import _build_score_insert_params  # type: ignore[import]
 
     # 35 wins out of 35 — strong signal, p << 0.05
     rows = [{"pnl_r": 1.0, "win": True}] * 35
@@ -179,7 +179,7 @@ def test_build_score_insert_params_meets_gate_significant():
 
 def test_build_score_insert_params_high_p_not_significant():
     """With n >= 30 but p >= 0.05, is_significant must be False."""
-    from services.llm_writer_service import _build_score_insert_params  # type: ignore[import]
+    from services.llm_writer import _build_score_insert_params  # type: ignore[import]
 
     # 40 rows, exactly 50% win rate — p ≈ 1.0, clearly not significant
     rows = [{"pnl_r": 1.0, "win": True}] * 20 + [{"pnl_r": -1.0, "win": False}] * 20
@@ -200,7 +200,7 @@ def test_build_score_insert_params_high_p_not_significant():
 
 def test_upsert_i8_sql_is_upsert():
     """_UPSERT_I8_SQL must be an INSERT ... ON CONFLICT DO UPDATE targeting intelligence_ai_enrichment."""
-    from services.llm_writer_service import _UPSERT_I8_SQL  # type: ignore[import]
+    from services.llm_writer import _UPSERT_I8_SQL  # type: ignore[import]
 
     assert _UPSERT_I8_SQL.strip().startswith(
         "INSERT"
@@ -217,7 +217,7 @@ def test_process_i8_message_buffers_correctly():
     """
     import asyncio
 
-    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+    from services.llm_writer import LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = []
@@ -248,7 +248,7 @@ def test_process_i8_message_missing_ts_logs_warning():
     """_process_i8_message with no ts field should NOT append to _i8_buffer."""
     import asyncio
 
-    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+    from services.llm_writer import LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = []
@@ -275,7 +275,7 @@ def _make_llm_writer():
     import asyncio
     from unittest.mock import MagicMock
 
-    from services.llm_writer_service import LLMWriter
+    from services.llm_writer import LLMWriter
 
     w = LLMWriter.__new__(LLMWriter)
     w.name = "llm_writer_agent"
@@ -357,7 +357,7 @@ def test_llm_writer_no_self_pool_attribute() -> None:
     mock_db.execute_command.assert_awaited_once()
     call_args = mock_db.execute_command.await_args
     # First positional arg is the SQL string
-    from services.llm_writer_service import _UPDATE_PARSE_SQL
+    from services.llm_writer import _UPDATE_PARSE_SQL
 
     assert (
         call_args[0][0] == _UPDATE_PARSE_SQL
@@ -454,7 +454,7 @@ def test_llm_writer_kafka_setup_uses_earliest_and_no_auto_commit() -> None:
     """
     import inspect
 
-    import services.llm_writer_service as mod
+    import services.llm_writer as mod
 
     source = inspect.getsource(mod.LLMWriter._setup_kafka_clients)
     assert (
@@ -474,7 +474,7 @@ def test_llm_writer_subscribes_only_to_calls_topic() -> None:
     """
     import inspect
 
-    import services.llm_writer_service as mod
+    import services.llm_writer as mod
 
     source = inspect.getsource(mod.LLMWriter._setup_kafka_clients)
 
@@ -500,7 +500,7 @@ def test_process_i8_message_uses_parse_ts():
     import asyncio
     from datetime import datetime
 
-    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+    from services.llm_writer import LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = []
@@ -527,7 +527,7 @@ def test_i8_buffer_flushed_on_shutdown():
     from datetime import UTC, datetime
     from unittest.mock import AsyncMock, MagicMock
 
-    from services.llm_writer_service import _UPSERT_I8_SQL, LLMWriterService  # type: ignore[import]
+    from services.llm_writer import _UPSERT_I8_SQL, LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = [
@@ -569,14 +569,14 @@ class TestLlmModelScoresSymbol:
 
     def test_select_outcome_rows_includes_symbol(self):
         """_SELECT_OUTCOME_ROWS_SQL includes symbol in SELECT and GROUP BY."""
-        from services.llm_writer_service import _SELECT_OUTCOME_ROWS_SQL
+        from services.llm_writer import _SELECT_OUTCOME_ROWS_SQL
 
         assert "symbol" in _SELECT_OUTCOME_ROWS_SQL
         assert "GROUP BY model, regime, setup_type, call_type, symbol" in _SELECT_OUTCOME_ROWS_SQL
 
     def test_upsert_score_sql_includes_symbol(self):
         """_UPSERT_SCORE_SQL includes symbol column and ON CONFLICT with symbol."""
-        from services.llm_writer_service import _UPSERT_SCORE_SQL
+        from services.llm_writer import _UPSERT_SCORE_SQL
 
         assert "symbol" in _UPSERT_SCORE_SQL
         assert "ON CONFLICT (model, regime, setup_type, call_type, symbol)" in _UPSERT_SCORE_SQL
@@ -586,7 +586,7 @@ class TestLlmModelScoresSymbol:
         """_recompute_scores passes symbol from row as 5th param in upsert tuple."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from services.llm_writer_service import _UPSERT_SCORE_SQL, LLMWriterService
+        from services.llm_writer import _UPSERT_SCORE_SQL, LLMWriterService
 
         svc = LLMWriterService.__new__(LLMWriterService)
         svc.db_manager = AsyncMock()
@@ -628,7 +628,7 @@ class TestLlmModelScoresSymbol:
         """_recompute_scores defaults symbol to '*' when row has no symbol."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from services.llm_writer_service import LLMWriterService
+        from services.llm_writer import LLMWriterService
 
         svc = LLMWriterService.__new__(LLMWriterService)
         svc.db_manager = AsyncMock()
@@ -673,7 +673,7 @@ class TestCalibrationMetrics:
         """Brier score is 0.0 when confidence == outcome (perfect prediction)."""
         import numpy as np
 
-        from services.llm_writer_service import _brier_score
+        from services.llm_writer import _brier_score
 
         conf = np.array([0.0, 0.5, 1.0, 0.3, 0.8])
         outcome = np.array([0.0, 0.5, 1.0, 0.3, 0.8])
@@ -683,7 +683,7 @@ class TestCalibrationMetrics:
         """Brier score is 1.0 when confidence=0 but outcome=1 (worst possible)."""
         import numpy as np
 
-        from services.llm_writer_service import _brier_score
+        from services.llm_writer import _brier_score
 
         conf = np.array([0.0, 0.0, 0.0])
         outcome = np.array([1.0, 1.0, 1.0])
@@ -693,7 +693,7 @@ class TestCalibrationMetrics:
         """Calibration slope is approximately 1.0 for perfectly calibrated predictions."""
         import numpy as np
 
-        from services.llm_writer_service import _calibration_slope
+        from services.llm_writer import _calibration_slope
 
         rng = np.random.default_rng(42)
         conf = rng.uniform(0.1, 0.9, 50)
@@ -707,7 +707,7 @@ class TestCalibrationMetrics:
         """Calibration slope is None when all confidences are identical (zero variance)."""
         import numpy as np
 
-        from services.llm_writer_service import _calibration_slope
+        from services.llm_writer import _calibration_slope
 
         conf = np.full(20, 0.7)
         outcome = np.array([1.0, 0.0] * 10)
@@ -718,7 +718,7 @@ class TestCalibrationMetrics:
         """ECE is 0.0 when mean confidence in each bin equals mean accuracy."""
         import numpy as np
 
-        from services.llm_writer_service import _ece
+        from services.llm_writer import _ece
 
         # Build data where confidence == outcome within each bin
         # Use midpoints of each bin for both confidence and outcome
@@ -730,7 +730,7 @@ class TestCalibrationMetrics:
         """ECE is 0.9 when confidence=1.0 (all in top bin) but all outcomes are 0."""
         import numpy as np
 
-        from services.llm_writer_service import _ece
+        from services.llm_writer import _ece
 
         # All in last bin [0.9, 1.0], confidence mean = 1.0, outcome mean = 0.0
         # weight = N/N = 1.0, |1.0 - 0.0| = 1.0, but conf is 1.0 so it falls in last bin

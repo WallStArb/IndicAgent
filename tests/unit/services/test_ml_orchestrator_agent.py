@@ -8,7 +8,7 @@ import pytest
 
 
 def _make_agent():
-    from services.ml_orchestrator_agent import MLOrchestrator
+    from services.ml_orchestrator import MLOrchestrator
 
     agent = MLOrchestrator.__new__(MLOrchestrator)
     agent._pool = MagicMock()
@@ -23,7 +23,7 @@ def _make_agent():
 @pytest.mark.asyncio
 async def test_orchestrator_skips_discovery_on_low_quality_score():
     """When data_quality_score < threshold, DiscoveryNode must not run."""
-    from services.ml_orchestrator_agent import MLOrchestrationState
+    from services.ml_orchestrator import MLOrchestrationState
 
     agent = _make_agent()
     discovery_ran = []
@@ -82,7 +82,7 @@ async def test_orchestrator_runs_discovery_when_quality_high():
 @pytest.mark.asyncio
 async def test_training_node_is_noop():
     """TrainingNode must log 'awaiting Phase 67' and return state unchanged."""
-    from services.ml_orchestrator_agent import MLOrchestrator
+    from services.ml_orchestrator import MLOrchestrator
 
     agent = MLOrchestrator.__new__(MLOrchestrator)
     agent.logger = MagicMock()
@@ -104,7 +104,7 @@ async def test_training_node_is_noop():
 @pytest.mark.asyncio
 async def test_monitor_node_is_noop():
     """MonitorNode must log 'awaiting Phase 67' and return state unchanged."""
-    from services.ml_orchestrator_agent import MLOrchestrator
+    from services.ml_orchestrator import MLOrchestrator
 
     agent = MLOrchestrator.__new__(MLOrchestrator)
     agent.logger = MagicMock()

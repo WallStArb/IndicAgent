@@ -23,7 +23,7 @@ from src.core.schemas.bar_message import BarMessage, SessionType
 
 def _make_agent():
     """Build BarAggregator using __new__ (service test pattern)."""
-    from services.bar_aggregator_agent import BarAggregator, HealthMetrics
+    from services.bar_aggregator import BarAggregator, HealthMetrics
 
     agent = BarAggregator.__new__(BarAggregator)
     agent.name = "bar_aggregator_agent"
@@ -71,7 +71,7 @@ def _make_bar(ts: datetime, symbol: str = "ESM6", tf: str = "1m") -> dict:
 
 def test_inherits_base_agent():
     """BarAggregator must inherit BaseDaemon."""
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
     from src.core.agent.base import BaseDaemon
 
     assert issubclass(BarAggregator, BaseDaemon)
@@ -206,7 +206,7 @@ async def test_no_publish_for_mid_period_bar():
 
 def test_golden_signals_are_correct_types():
     """Golden Signals metrics are module-level OTel instruments."""
-    import services.bar_aggregator_agent as _mod
+    import services.bar_aggregator as _mod
 
     assert hasattr(_mod, "_BARS_PROCESSED")
     assert hasattr(_mod, "_AGGREGATION_LATENCY")
@@ -240,7 +240,7 @@ async def test_handle_unhealthy_state_only_sets_flag():
 
 def test_setup_retry_class_attributes():
     """BarAggregator uses base class retry defaults (no override)."""
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
 
     assert BarAggregator.SETUP_RETRY_ATTEMPTS == 3
     assert BarAggregator.SETUP_RETRY_BACKOFF_S == 2.0
@@ -249,7 +249,7 @@ def test_setup_retry_class_attributes():
 @pytest.mark.asyncio
 async def test_setup_single_attempt_success():
     """_setup() runs one attempt body; retries are delegated to BaseDaemon._setup_with_retry."""
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
 
     agent = BarAggregator.__new__(BarAggregator)
     agent.settings = MagicMock(env_name="dev")
@@ -270,8 +270,8 @@ async def test_setup_single_attempt_success():
     agent._restore_state_checkpoint = AsyncMock(return_value=True)
 
     with (
-        patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
-        patch("services.bar_aggregator_agent.KafkaConsumerClient", return_value=mock_consumer),
+        patch("services.bar_aggregator.KafkaProducerClient", return_value=mock_producer),
+        patch("services.bar_aggregator.KafkaConsumerClient", return_value=mock_consumer),
         patch("aiokafka.AIOKafkaConsumer", return_value=mock_lag_consumer),
     ):
         await agent._setup()
@@ -285,7 +285,7 @@ async def test_setup_propagates_exception():
     """_setup() must propagate exceptions so BaseDaemon._setup_with_retry can retry."""
     from aiokafka.errors import KafkaConnectionError
 
-    from services.bar_aggregator_agent import BarAggregator
+    from services.bar_aggregator import BarAggregator
 
     agent = BarAggregator.__new__(BarAggregator)
     agent.settings = MagicMock(env_name="dev")
@@ -300,7 +300,7 @@ async def test_setup_propagates_exception():
     mock_producer.start = AsyncMock(side_effect=KafkaConnectionError())
 
     with (
-        patch("services.bar_aggregator_agent.KafkaProducerClient", return_value=mock_producer),
+        patch("services.bar_aggregator.KafkaProducerClient", return_value=mock_producer),
         pytest.raises(KafkaConnectionError),
     ):
         await agent._setup()

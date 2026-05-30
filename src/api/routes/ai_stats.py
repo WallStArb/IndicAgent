@@ -160,9 +160,9 @@ async def get_ai_stats(
             },
         }
 
-    except Exception as exc:
-        logger.error("ai_stats.error", exc_info=exc)
-        raise HTTPException(status_code=500, detail="Failed to fetch AI stats") from exc
+    except Exception as error:
+        logger.error("ai_stats.error", exc_info=error)
+        raise HTTPException(status_code=500, detail="Failed to fetch AI stats") from error
 
 
 @router.get("/signals/{signal_id}/ai")
@@ -250,6 +250,6 @@ async def get_signal_ai(
 
     except HTTPException:
         raise
-    except Exception as exc:
-        logger.error("signal_ai.error", signal_id=str(signal_id), exc_info=exc)
-        raise HTTPException(status_code=500, detail="Failed to fetch signal AI data") from exc
+    except Exception as error:
+        logger.error("signal_ai.error", signal_id=str(signal_id), exc_info=error)
+        raise HTTPException(status_code=500, detail="Failed to fetch signal AI data") from error
