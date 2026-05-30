@@ -70,7 +70,7 @@ class SelfHealingEngine:
 
     def __init__(self, managed_pool: ManagedPool) -> None:
         self._managed_pool = managed_pool
-        self._ledger: RemediationLedger | None = None  # initialized in initialize()
+        self._ledger = RemediationLedger(managed_pool.pool)
         self._http_session: aiohttp.ClientSession | None = None
         # Engine-layer auth (defense-in-depth alongside HTTP-layer auth in 109-05)
         self._webhook_secret = os.getenv("CONFIG_WEBHOOK_SHARED_SECRET")
@@ -85,12 +85,12 @@ class SelfHealingEngine:
     async def initialize(self) -> None:
         """Create HTTP session for outbound calls (Prometheus, service auditor)."""
         self._http_session = aiohttp.ClientSession()
-        self._ledger = RemediationLedger(self._managed_pool.pool)
 
     async def close(self) -> None:
-        """Close HTTP session."""
+        """Close HTTP session and drain the managed DB pool."""
         if self._http_session:
             await self._http_session.close()
+        await self._managed_pool.close()
 
     async def handle_webhook(self, payload: dict[str, Any]) -> RemediationResult:
         """Entry point for Alertmanager webhook payloads.
