@@ -1,6 +1,6 @@
-"""LLMProviderChain — high-level facade over LLMChain.
+"""LLMProviderChain — high-level facade over LiteLLMBackend.
 
-Composes: SemanticCache → RateLimiter → LLMChain → Audit.
+Composes: SemanticCache → RateLimiter → LiteLLMBackend → Audit.
 Callers: `chain = LLMProviderChain(call_type="narrative"); text = await chain.generate(...)`.
 """
 
@@ -14,7 +14,7 @@ from opentelemetry.metrics import CallbackOptions
 from opentelemetry.metrics import Observation as _Observation
 from opentelemetry.trace import StatusCode
 
-from src.core.llm.providers import LLMChain, OllamaProvider, OpenRouterProvider
+from src.core.llm.litellm_backend import LiteLLMBackend
 from src.core.llm.rate_limiter import RateLimiter
 from src.core.llm.semantic_cache import SemanticCache
 from src.core.llm.token_budget import TokenBudget
@@ -70,44 +70,14 @@ class LLMProviderChain:
         self._settings = settings
         self._producer = producer
 
-        providers = self._build_providers(settings)
-        self._inner = LLMChain(providers)
+        self._inner = LiteLLMBackend(settings)
 
         self._rate_limiters: dict[str, RateLimiter] = self._make_rate_limiters(settings)
 
     @property
     def last_provider_id(self) -> str | None:
-        """Provider that served the last request — format: 'ollama:qwen3.5:4b'."""
+        """Provider that served the last request — format: 'ollama/nemotron-3-nano:4b'."""
         return self._inner.last_provider_id
-
-    def _build_providers(self, settings: Any) -> list:
-        """Build ordered provider list. LLMChain tries providers in order — first non-None wins.
-
-        When OLLAMA_ENABLED=false, Ollama is skipped and OpenRouter becomes primary.
-        """
-        if settings is None:
-            return [OllamaProvider(model="nemotron-3-nano:4b", num_ctx=4096)]
-
-        providers: list = []
-
-        if getattr(settings, "ollama_enabled", True):
-            providers.append(
-                OllamaProvider(
-                    model=settings.ollama_model,
-                    base_url=settings.ollama_base_url,
-                    num_ctx=settings.ollama_num_ctx,
-                )
-            )
-
-        if settings.openrouter_api_key:
-            for model in settings.openrouter_models.split(","):
-                model = model.strip()
-                if model:
-                    providers.append(
-                        OpenRouterProvider(model=model, api_key=settings.openrouter_api_key)
-                    )
-
-        return providers
 
     @staticmethod
     def _make_rate_limiters(settings: Any) -> dict[str, RateLimiter]:
@@ -122,10 +92,8 @@ class LLMProviderChain:
         return limiters
 
     async def close(self) -> None:
-        """Close any provider clients that hold persistent connections (e.g. httpx)."""
-        for provider in self._inner.providers:
-            if hasattr(provider, "close"):
-                await provider.close()
+        """No-op: LiteLLM manages its own HTTP connection pool internally."""
+        pass
 
     async def generate(
         self,
