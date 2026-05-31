@@ -190,7 +190,7 @@ class SignalTracker(BaseDaemon):
 
         total = sum(len(v) for v in self._active_index.values())
         self.logger.info(
-            "signal_tracker_compute.setup_complete",
+            "signal_tracker.setup_complete",
             bootstrapped_signals=total,
             active_symbols=len(self._active_symbols),
         )

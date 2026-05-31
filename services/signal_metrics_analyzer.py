@@ -129,7 +129,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
         )
         self._tick_sizes = {r["symbol"]: r["tick_size"] for r in rows if r.get("tick_size")}
         self.logger.info(
-            "signal_metrics_compute.tick_sizes_loaded",
+            "signal_metrics_analyzer.tick_sizes_loaded",
             instruments=len(self._tick_sizes),
         )
 
@@ -147,7 +147,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
         )
         self._published_dq_keys = {r["dq_key"] for r in rows}
         self.logger.info(
-            "signal_metrics_compute.dq_keys_loaded",
+            "signal_metrics_analyzer.dq_keys_loaded",
             existing_dq_keys=len(self._published_dq_keys),
         )
 
@@ -164,7 +164,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
         await asyncio.gather(self._load_tick_sizes(), self._load_published_dq_keys())
 
         self.logger.info(
-            "signal_metrics_compute.setup_complete",
+            "signal_metrics_analyzer.setup_complete",
             interval_seconds=self._interval_seconds,
             tick_sizes=len(self._tick_sizes),
         )
@@ -190,7 +190,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
             except Exception as exc:
                 _COMPUTE_ERRORS.add(1, _attrs)
                 self.logger.error(
-                    "signal_metrics_compute.cycle_failed",
+                    "signal_metrics_analyzer.cycle_failed",
                     error=str(exc),
                     exc_info=True,
                 )
@@ -210,13 +210,13 @@ class SignalMetricsAnalyzer(BaseDaemon):
 
         rows = await self._db.execute_query(_QUERY)
         if not rows:
-            self.logger.info("signal_metrics_compute.cycle rows=0 nothing_to_compute")
+            self.logger.info("signal_metrics_analyzer.cycle rows=0 nothing_to_compute")
             return
 
         delta = len(rows) - self._last_rows_count
         _ROWS_PROCESSED.add(delta, {"agent": self._agent_label})
         self._last_rows_count = len(rows)
-        self.logger.info("signal_metrics_compute.cycle rows=%d", len(rows))
+        self.logger.info("signal_metrics_analyzer.cycle rows=%d", len(rows))
 
         topic = topic_signal_metrics(self.settings.env_name)
         now_iso = datetime.now(UTC).isoformat()
@@ -347,7 +347,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
                 )
 
         self.logger.info(
-            "signal_metrics_compute.cycle_complete",
+            "signal_metrics_analyzer.cycle_complete",
             windows=list(WINDOWS),
             tracks="zone,market",
             new_dq_failures=new_dq_count,
@@ -369,7 +369,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
             ratio = 0.0
         SIGNAL_LEDGER_BACKFILL_RATIO.add(ratio)
         self.logger.info(
-            "signal_metrics_compute.backfill_ratio_updated",
+            "signal_metrics_analyzer.backfill_ratio_updated",
             backfill_ratio=ratio,
         )
 

@@ -130,7 +130,7 @@ class ProviderMerger(BaseDaemon):
         )
         await self._kafka_consumer.start()
         self.logger.info(
-            "provider_merger_agent.setup_complete",
+            "provider_merger.setup_complete",
             topics_consumed=raw_topics,
             topics_produced=self.topics_produced,
             providers=self._provider_raw_topics,
@@ -158,7 +158,7 @@ class ProviderMerger(BaseDaemon):
                 await self._send_to_dlq(payload, exc)
             except Exception as exc:
                 self.logger.error(
-                    "provider_merger_agent.processing_error",
+                    "provider_merger.processing_error",
                     topic=topic,
                     error=str(exc),
                     payload_preview=str(payload)[:200],
@@ -196,7 +196,7 @@ class ProviderMerger(BaseDaemon):
                 promoted_provider=authoritative,
             )
             self.logger.info(
-                "provider_merger_agent.recovery",
+                "provider_merger.recovery",
                 symbol=bar.symbol,
                 provider=provider,
             )
@@ -246,7 +246,7 @@ class ProviderMerger(BaseDaemon):
         )
 
         self.logger.debug(
-            "provider_merger_agent.bar_routed",
+            "provider_merger.bar_routed",
             symbol=bar.symbol,
             tf=bar.tf,
             provider=provider,
@@ -285,7 +285,7 @@ class ProviderMerger(BaseDaemon):
                 promoted_provider=secondary_provider,
             )
             self.logger.warning(
-                "provider_merger_agent.failover",
+                "provider_merger.failover",
                 symbol=symbol,
                 from_provider=primary_provider,
                 to_provider=secondary_provider,
