@@ -68,7 +68,7 @@ def _make_transition(
 # ---------------------------------------------------------------------------
 
 
-class TestLifecycleWriterAgentStructure:
+class TestLifecycleWriterStructure:
     def test_class_name(self):
         source = open("services/lifecycle_writer.py").read()
         assert "LifecycleWriter" in source

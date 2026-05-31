@@ -7,7 +7,7 @@ import pytest
 from services.signal_metrics_analyzer import SignalMetricsAnalyzer
 
 
-class TestSignalMetricsComputeAgent:
+class TestSignalMetricsAnalyzer:
     def _make_agent(self):
         agent = SignalMetricsAnalyzer.__new__(SignalMetricsAnalyzer)
         agent.logger = MagicMock()
