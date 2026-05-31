@@ -304,4 +304,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-29 — v2.7 complete (Phases 093-109). Phase 109 (config-foundation-self-healing-engine) complete: DB-backed OPS config, HTTP API, Kafka transactional outbox, BaseAgent hot-reload integration, self-healing engine with Alertmanager webhook and durable remediation ledger.*
+*Last updated: 2026-05-30 — Phase 111 (naming-alignment) complete. BaseDaemon auto-derives agent_id from class name; 5 service renames finished; 29 test files renamed; structlog event prefixes aligned; Ring 0 pre-commit enforcement hook added. All 4049 unit tests green.*
