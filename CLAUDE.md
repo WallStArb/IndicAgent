@@ -42,7 +42,7 @@ Run these steps in order when a coding session is complete, before pushing.
 ## Core Commands
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
-**Health check:** `systemctl list-units --all | grep indicagent` · **Logs:** `tail -20 logs/<service>_agent.log`
+**Health check:** `systemctl list-units --all | grep indicagent` · **Logs:** `tail -20 logs/<service>.log`
 **Dashboard:** `cd dashboard && npm run dev` (`:3000`)
 **API:** `uvicorn src.api.main:app` (`:8000`)
 **Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
@@ -177,7 +177,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 
 **Services**
 - **Logging**: `structlog` → `logs/<service>.log` via `setup_service_logging()`. NOT journald.
-- **Log file names**: `logs/<agent_snake_case>_agent.log` (e.g. `alpha_swarm_compute_agent.log`, not `alpha_swarm.log`). Check `logs/` for actual names.
+- **Log file names**: `logs/<snake_case_class_name>.log` (e.g. `alpha_swarm.log`, `bar_aggregator.log`). BaseDaemon auto-derives this from the class name.
 - **`setup_service_logging` requires full path**: `"logs/<name>.log"`, not bare name.
 - **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
 - **`intelligence_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).

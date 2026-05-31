@@ -14,17 +14,6 @@ from typing import Any
 
 import structlog
 
-# Batch size for concurrent tasks (prevents event loop overwhelm)
-_SEED_BATCH_SIZE = 8
-
-
-async def _gather_in_batches(tasks: list, batch_size: int = _SEED_BATCH_SIZE) -> None:
-    """Execute async tasks in batches to avoid overwhelming the event loop."""
-    for i in range(0, len(tasks), batch_size):
-        batch = tasks[i : i + batch_size]
-        await asyncio.gather(*batch)
-
-
 from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_symbols
 from src.core.bar_history import BarHistory
@@ -45,6 +34,16 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+
+# Batch size for concurrent tasks (prevents event loop overwhelm)
+_SEED_BATCH_SIZE = 8
+
+
+async def _gather_in_batches(tasks: list, batch_size: int = _SEED_BATCH_SIZE) -> None:
+    """Execute async tasks in batches to avoid overwhelming the event loop."""
+    for i in range(0, len(tasks), batch_size):
+        batch = tasks[i : i + batch_size]
+        await asyncio.gather(*batch)
 
 
 class BarHistorySeeder:

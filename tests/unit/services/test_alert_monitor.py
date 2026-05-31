@@ -67,7 +67,7 @@ def agent(mock_settings):
     agent = object.__new__(AlertMonitor)
     agent.settings = mock_settings
     agent.logger = MagicMock()
-    agent.name = "alerting_agent"
+    agent.name = "alert_monitor"
     agent._stop_event = MagicMock()
     agent._stop_event.is_set.return_value = True  # Exit after one message
     agent._http_session = MockAiohttpSession()
