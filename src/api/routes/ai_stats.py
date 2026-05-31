@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 _AGENT_DISPLAY = {
-    "skeptic_v1": "Skeptic",
+    "skeptic": "Skeptic",
     "correlation_v1": "Correlation",
     "regime_coherence_v1": "Regime Coherence",
     "counterfactual_v1": "Counterfactual",
