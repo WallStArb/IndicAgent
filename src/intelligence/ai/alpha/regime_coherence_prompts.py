@@ -56,27 +56,27 @@ Rules:
 }
 
 
-def build_regime_coherence_prompt(ctx: Any) -> str:
+def build_regime_coherence_prompt(context: Any) -> str:
     """Build the regime coherence prompt.
 
     Requires typed SignalContext (v1 only — no legacy dict path).
     """
     from src.intelligence.ai.context import SignalContext
 
-    if not isinstance(ctx, SignalContext):
+    if not isinstance(context, SignalContext):
         raise TypeError(
-            "build_regime_coherence_prompt requires SignalContext, got " f"{type(ctx).__name__}"
+            "build_regime_coherence_prompt requires SignalContext, got " f"{type(context).__name__}"
         )
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
-    i7 = ctx.i7
+    i7 = context.i7
     return template.format(
-        symbol=ctx.symbol,
-        timeframe=ctx.timeframe,
+        symbol=context.symbol,
+        timeframe=context.timeframe,
         winner_plugin=(i7.winner_plugin if i7 else None) or "unknown",
         winner_direction_label=DIRECTION_LABELS.get(
             (i7.winner_direction if i7 else 0) or 0, "UNKNOWN"
         ),
         winner_confidence=fmt(i7.winner_confidence if i7 else None, ".0%"),
-        full_context_block=render_full_context(ctx),
+        full_context_block=render_full_context(context),
     )
