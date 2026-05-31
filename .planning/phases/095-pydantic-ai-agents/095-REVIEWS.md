@@ -1,7 +1,7 @@
 ---
 phase: 095
-reviewers: [codex]
-reviewed_at: 2026-05-31T05:30:00Z
+reviewers: [codex, gemini]
+reviewed_at: 2026-05-31T08:25:00Z
 plans_reviewed:
   - 095-01-PLAN.md
   - 095-02-PLAN.md
@@ -16,187 +16,107 @@ plans_reviewed:
 
 **Summary**
 
-Overall, the phase plan is directionally strong and mostly aligned with the architecture decisions: `WorkerContext` keeps Ring 0 generic, `LLMAdapter` preserves the existing provider chain, `_run_typed()` is opt-in, and `SkepticEvaluator` is migrated without a parallel feature-gated path. The main risks are around exact Ring 0/Ring 1 placement, pydantic-ai model protocol details, and audit-context completeness. The pydantic-ai API assumptions are broadly correct: current docs use `Agent(..., output_type=...)` and `result.output`, not `result_type` / `result.data`.
-
----
-
-### PLAN 01: WorkerContext + Dependency
+The plans are directionally sound and match the phase goal: introduce a typed Pydantic AI execution path without migrating every agent. The main risks are in Plan 02 and Plan 05. Plan 02 assumes `LLMProviderChain.generate()` can accept `response_format`, but the current repo signature does not; without expanding the file scope, the adapter will fail at runtime. Plan 05 under-scopes the `skeptic_v1` rename: there are live references in API stats, alpha swarm tests, and an integration graduation test beyond the listed files. Pydantic AI API usage is mostly correct: current docs confirm `Agent(..., output_type=...)`, `result.output`, and FunctionModel-style `ModelResponse` usage.
 
 **Strengths**
 
-- Frozen dataclass is the right choice for a dependency container.
-- `signal_context: Any` preserves the Ring 0 boundary.
-- Tests explicitly cover immutability and runtime import isolation.
-- Dependency pin `pydantic-ai>=1.0,<2` matches the phase intent.
+- Wave ordering is good: dependency/context first, adapter next, real Agent integration before `BaseAIWorker`, then one concrete migration.
+- `WorkerContext.signal_context: Any` is the right compromise for the Ring 0/Ring 1 boundary.
+- Building the Pydantic AI agent per call is correct for fresh audit context and avoids stale symbol/signal metadata.
+- `RuntimeError` for missing `result_type` is a good fail-fast guard.
+- The Skeptic migration is intentionally straight-line and avoids a parallel feature-gated path.
+- The plan calls out the two important Pydantic AI 1.x API changes: `output_type=` and `result.output`.
 
 **Concerns**
 
-- **MEDIUM:** `llm_chain: LLMProviderChain` may still create a Ring violation if `LLMProviderChain` lives outside Ring 0 or imports domain code at import time.
-- **LOW:** "Importing WorkerContext does NOT import Ring 1 SignalContext" is good, but the test should also guard against accidental `src.intelligence` imports broadly.
-- **LOW:** `requirements.txt` pin alone may not be enough if the repo also has lock files, `pyproject.toml`, Docker images, or CI dependency manifests.
+- **HIGH: Plan 02 file scope is incomplete.** Current `src/core/llm/chain.py::generate()` and `src/core/llm/litellm_backend.py::generate()` do not accept `response_format`. Calling `chain.generate(..., response_format=schema)` will raise `TypeError` unless the chain/backend signatures are updated.
+- **HIGH: Adapter request shape is underspecified.** Pydantic AI model callbacks receive `ModelRequest` parts, not a plain `prompt`. The plan should specify how `ModelRequest` parts are converted into the prompt string sent to `LLMProviderChain.generate()`.
+- **HIGH: Retry audit semantics are unclear.** If Pydantic AI retries output validation, the adapter may call `chain.generate()` multiple times with the same prebuilt `call_id`. Audit trails should either allocate one `call_id` per physical LLM request or explicitly model retry attempts.
+- **HIGH: Plan 05 under-scopes the `skeptic_v1` rename.** Existing references also appear in `src/api/routes/ai_stats.py`, `tests/unit/services/test_alpha_swarm.py`, and `tests/integration/test_swarm_graduation_loop.py`. Leaving them unchanged may break tests or create split operational identity.
+- **MEDIUM: Pydantic AI output mode assumption needs a guard.** The plan assumes `model_request_parameters.output_tools[0]` exists. That is true only if Pydantic AI selects tool-style structured output. Tests should cover empty output tools with a clear error.
+- **MEDIUM: `LLMAdapter` protocol compliance may be fragile.** Using `FunctionModel` as a base may be safer than hand-implementing all required `Model` attributes and methods.
+- **MEDIUM: `max_tokens=None` conflicts with current chain API.** Current `generate()` requires `max_tokens: int`. `_run_typed()` should resolve `None` to `_default_max_tokens` before invoking the adapter/chain.
+- **MEDIUM: Failure behavior changes from structured path.** Current `generate_structured()` returns `None` after provider exhaustion; the new path raises. Acceptable if `compute()` neutralizes it, but tests should cover `None` responses and validation exhaustion.
+- **LOW: WorkerContext import isolation tests can be flaky.** If the test process already imported `SignalContext`, checking `sys.modules` directly may false-fail. Use a subprocess or clear module state carefully.
+- **LOW: "byte-for-byte unchanged" is too strict.** Better to assert unmigrated agent runtime behavior and avoid touching their files.
 
 **Suggestions**
 
-- Use `from __future__ import annotations`.
-- Put `LLMProviderChain` behind `TYPE_CHECKING` if its import is even slightly risky.
-- Add a test that snapshots `sys.modules` before/after importing `src.core.ai.worker_context` and asserts no `src.intelligence` modules appear.
-- Check all dependency entry points, not only `requirements.txt`.
-
-**Risk Assessment: LOW**
-
-This is a clean, narrow plan. Main risk is dependency metadata drift or an accidental Ring 1 import through `LLMProviderChain`.
-
----
-
-### PLAN 02: LLMAdapter
-
-**Strengths**
-
-- Correctly keeps routing through `LLMProviderChain.generate()`, preserving circuit breaking, failover, rate limiting, and audit behavior.
-- Thin bridge design is appropriate; pydantic-ai should own validation/retry behavior.
-- Testing happy path, response structure, and error propagation is the right core coverage.
-- Extracting schema from `model_request_parameters.output_tools[0]` matches the structured-output path.
-
-**Concerns**
-
-- **HIGH:** "Implements pydantic-ai Model protocol" may be underspecified. pydantic-ai model interfaces can require more than `request()` depending on whether you subclass/use `FunctionModel` or implement the protocol directly.
-- **HIGH:** Audit context completeness is under-tested. Core rules require `call_id`, `symbol`, `signal_id`, `regime`, `agent_id`, and `prompt_version`; Plan 02 only generally says audit injection.
-- **MEDIUM:** Prompt extraction from `messages` is not specified. The adapter must robustly handle `ModelRequest` parts, system/instructions, retries, and prior tool returns.
-- **MEDIUM:** `output_tools[0]` assumption should fail clearly if absent. It is valid for typed output, but the adapter should raise a useful error instead of an index error.
-- **MEDIUM:** `ToolCallPart(args=response_text)` may be fragile if pydantic-ai expects parsed args or accepts JSON strings depending on version. The integration test in Plan 03 is essential.
-- **LOW:** Timeout and max token passthrough should verify exact keyword names expected by the existing `LLMProviderChain.generate()`.
-
-**Suggestions**
-
-- Prefer using pydantic-ai's official custom model/function model extension point if available, rather than hand-implementing a partial protocol.
-- Add tests for:
-  - missing `output_tools`
-  - malformed/non-JSON provider response
-  - retry path receives a second request and preserves audit context
-  - full audit context forwarded exactly
-- Make audit construction either fully explicit in `_run_typed()` or carefully duck-typed in Ring 0 without importing Ring 1.
-- Give the adapter a stable `model_name`/profile if pydantic-ai requires one for telemetry or request metadata.
+- Expand Plan 02 file list to include `src/core/llm/chain.py`, `src/core/llm/litellm_backend.py`, and backend tests — or remove `response_format` from the adapter requirement and use a different structured output path.
+- Add a Plan 02 must-have: `LLMAdapter` handles `None` from `chain.generate()` by raising a typed exception so Pydantic AI can retry or fail cleanly.
+- Add a Plan 02/03 test for retry audit behavior: two validation failures must not publish duplicate audit rows with the same `call_id` unless intentional.
+- Make adapter extraction rules explicit: latest user prompt from `ModelRequest` parts, ignore or reject unsupported multipart content, keep caller-provided `system` as the system prompt.
+- Add a guard for `model_request_parameters.output_tools`: raise `RuntimeError("typed output tool schema missing")` with context if empty.
+- In `_run_typed()`, build audit context via `_build_audit_context(context, prompt, call_id)` to preserve `signal_id`, `regime`, `agent_id`, `prompt_version`, and prompt text consistently with `_llm_generate()`.
+- Update Plan 05 scope to include all `skeptic_v1` operational references — especially `src/api/routes/ai_stats.py` and graduation tests — or explicitly document that historical tests remain pinned to old IDs.
+- Add a regression test that `SkepticEvaluator.compute()` returns neutral on Pydantic validation failure, not only on mocked `_run_typed()` exceptions.
 
 **Risk Assessment: MEDIUM-HIGH**
 
-This is the most protocol-sensitive piece. The plan is conceptually right, but success depends on matching pydantic-ai's current `Model`/`FunctionModel` contract exactly.
+The architecture is coherent, but the adapter assumes a `response_format` capability that the current chain does not expose. The Pydantic AI surface is easy to get subtly wrong around output tools, retries, and message conversion. The Skeptic agent ID rename has broader blast radius than Plan 05 lists. Addressing the chain signature, retry/audit semantics, and rename scope would reduce this to MEDIUM.
 
 ---
 
-### PLAN 03: Agent Integration Test
+## Gemini Review
+
+**Summary**
+
+The plan is highly coherent and demonstrates a deep understanding of both the existing Ring 0/1 architectural constraints and the specific API nuances of pydantic-ai 1.0. The decision to use a lightweight `LLMAdapter` that implements the `Model` protocol as a bridge to the existing `LLMProviderChain` is technically sound, as it preserves the platform's established auditing, circuit-breaking, and rate-limiting infrastructure while enabling structured output. The proposed migration of `SkepticEvaluator` is appropriately direct, adhering to the principle of "straight replacement" rather than introducing unnecessary abstraction layers.
 
 **Strengths**
 
-- Excellent risk reducer for pydantic-ai API correctness.
-- Directly validates `output_type=` and `result.output`.
-- Proves the adapter is accepted by a real `Agent`, not only unit mocks.
-- Catches the most likely breakage around `ToolCallPart` shape.
+- **Architectural Integrity:** Excellent handling of the Ring 0/1 boundary by using `TYPE_CHECKING` for `SignalContext` in `WorkerContext` and maintaining it as a frozen dataclass.
+- **API Precision:** Correctly identifies the transition from 0.x to 1.0 conventions (`output_type=` instead of `result_type=`, `result.output` instead of `result.data`).
+- **Design for Auditability:** The per-call `Agent` instantiation pattern is crucial for maintaining accurate `audit_context` injection, which is a core requirement of the IndicAgent platform.
+- **Infrastructure Reuse:** Leveraging the existing `LLMProviderChain` via `LLMAdapter` prevents fragmentation of LLM provider logic (e.g., failover, circuit breaking).
 
 **Concerns**
 
-- **MEDIUM:** Marked parallel with Plan 02, but it depends on `LLMAdapter` existing. This can only run in parallel if Plan 02 first lands a minimal adapter skeleton/interface.
-- **MEDIUM:** "agent instantiated per-call not once at class level" cannot really be proven by an adapter integration test alone; that belongs in Plan 04 tests.
-- **LOW:** The test should pin behavior without being too coupled to pydantic-ai internals like exact tool names.
+- **MEDIUM: Error handling in LLMAdapter for non-structured errors.** If `LLMProviderChain` produces a protocol error or unexpected text that fails validation, the adapter may need to provide specific feedback to the pydantic-ai retry mechanism to ensure validation-based retries are effective.
+- **LOW: Gemma4 prose preambles.** Relying solely on the system message ("OUTPUT ONLY RAW JSON") might be insufficient. If structured output is strictly required, the system might need a robust parsing layer (e.g., regex extraction of the JSON block) if the model persists in including preamble text.
+- **LOW: ClassVar result_type only fails at runtime.** Consider if a metaclass or `__init_subclass__` check could enforce configuration at class-definition time instead of at the first `_run_typed()` call.
 
 **Suggestions**
 
-- Move "Agent instantiated per-call" assertion to `_run_typed()` tests.
-- Keep this test focused on real round trip: mock chain returns JSON, pydantic-ai validates into `SomeModel`, `result.output` is that model.
-- Add one negative integration test where mock chain returns invalid JSON and pydantic-ai retries or raises the expected validation/retry error.
-- Assert `output_tools` is present inside the fake chain/adapter call, but avoid depending on the exact output tool name unless needed.
+- In `LLMAdapter.request()`, consider implementing a simple fallback parser (search for the first `{` and last `}`) as a safety mechanism against model preambles, before passing text to the Pydantic validator.
+- Add a test in Plan 04 to verify that `result_type` ClassVar is correctly defined on `SkepticEvaluator` before the first call, perhaps adding an `__init_subclass__` check in `BaseAIWorker`.
+- Ensure that `WorkerContext` includes a mechanism for per-call `audit_context` fields (like `call_id`) that are generated per call, not just static ones like `agent_id`.
 
-**Risk Assessment: MEDIUM**
+**Risk Assessment: LOW**
 
-Very valuable test plan, but dependency ordering should be clarified.
-
----
-
-### PLAN 04: `_run_typed()` on BaseAIWorker
-
-**Strengths**
-
-- Correct opt-in via `result_type: ClassVar[type[BaseModel] | None] = None`.
-- Runtime error on missing `result_type` is the right failure mode.
-- Per-call `Agent` construction is correct for fresh audit context.
-- Timeout source is explicitly constrained to `self._timeout_s`.
-- Tracing span is a good fit for execution observability.
-
-**Concerns**
-
-- **HIGH:** File path says `src/core/ai/base_agent.py`, but project rules state `BaseAIWorker` is Ring 1 domain under `src/intelligence/`. If `BaseAIWorker` really lives in Ring 0, adding `SignalContext`, `BaseModel` result semantics, and agent domain behavior there may violate the architecture.
-- **HIGH:** `_run_typed(context: SignalContext, ...)` in Ring 0 would violate the Ring 0 "no domain vocab" rule unless `SignalContext` is TYPE_CHECKING-only and annotations are postponed.
-- **HIGH:** Audit context test only mentions `agent_id`; it must cover `call_id`, `symbol`, `signal_id`, `regime`, `agent_id`, and `prompt_version`.
-- **MEDIUM:** `WorkerContext` fields include `db_pool` and `memory_client`, but Plan 04 does not say how they are sourced from the worker instance.
-- **MEDIUM:** System prompt handling is split: `_run_typed()` receives `system`, adapter receives `system`, but pydantic-ai `Agent` also has instructions/system concepts. The plan should define one canonical path to avoid duplicate or missing system instructions.
-- **MEDIUM:** `_default_max_tokens` fallback should be explicitly tested when `max_tokens is None`.
-- **LOW:** Lazy imports are good, but should not hide import errors in tests.
-
-**Suggestions**
-
-- Reconcile the file path before implementation. If `BaseAIWorker` is Ring 1, put `_run_typed()` there and import Ring 0 adapter/context downward.
-- Build audit context in `BaseAIWorker`, where domain context is legal, then pass a plain dict into the Ring 0 adapter.
-- Add tests for complete audit context, default max tokens, explicit max tokens, timeout passthrough, and per-call `Agent` construction.
-- Ensure `_run_typed()` calls `Agent(adapter, output_type=self.result_type, retries=1)` and returns `result.output`.
-- Add a regression test that unmigrated agents still use `_llm_generate()` / existing paths unchanged.
-
-**Risk Assessment: HIGH**
-
-The behavior is right, but placement could break the Ring architecture. This should be resolved before coding.
-
----
-
-### PLAN 05: SkepticEvaluator Migration
-
-**Strengths**
-
-- Direct migration avoids a split implementation and feature-gate complexity.
-- `agent_id = "skeptic"` cleanup is explicit.
-- Transfer function preservation is called out clearly.
-- Neutral-on-failure behavior is important and covered.
-- Mocking `_run_typed()` for transfer-function tests keeps tests focused.
-
-**Concerns**
-
-- **HIGH:** Renaming `agent_id` from `skeptic_v1` to `skeptic` may affect persisted metrics, dashboards, alerting, feature-store consumers, or historical joins.
-- **MEDIUM:** `services/alpha_swarm.py` mapping is mentioned, but other references to `"skeptic_v1"` should be searched globally.
-- **MEDIUM:** The system message should include the raw JSON instruction noted in research, especially for `gemma4:e4b`.
-- **MEDIUM:** Neutral-on-failure depends on the existing `compute()` wrapper. Tests should confirm `_run_typed()` exceptions are caught at the right layer.
-- **LOW:** "No parallel class / no feature gate" is good, but remove dead imports/config/tests too.
-
-**Suggestions**
-
-- Run a repo-wide search for `skeptic_v1`, `ENABLE_PYDANTIC_SKEPTIC`, `SkepticPydanticEvaluator`, and `SkepticComputeAgentV2`.
-- Add a migration note or compatibility consideration for downstream consumers of `agent_id`.
-- Assert `SkepticResult` fields map exactly to the previous structured output fields.
-- Include a test that `_compute()` passes `max_tokens=500` and the expected `_SYSTEM_MESSAGE`.
-- Put `OUTPUT ONLY RAW JSON.` or equivalent at the start of the system prompt if local model behavior requires it.
-
-**Risk Assessment: MEDIUM**
-
-Implementation is straightforward after Plan 04, but the `agent_id` rename has integration and observability risk.
+The design aligns well with existing patterns, reuses existing robust infrastructure, and explicitly addresses the API changes in pydantic-ai 1.0. The primary risks (LLM formatting variability, configuration errors) are manageable and localized.
 
 ---
 
 ## Consensus Summary
 
-Only one external reviewer (Codex) was run; `-gemini` excluded Gemini and self is Claude Code (claude skipped for independence).
-
 ### Agreed Strengths
 
-- pydantic-ai API assumptions are correct: `output_type=` and `result.output` are right for 1.x
-- Thin-bridge LLMAdapter design preserves circuit breaking / audit trail
-- Per-call Agent construction (not class-level) is correctly identified as critical
-- `_run_typed` RuntimeError on misconfiguration is loud failure — correct
+- pydantic-ai 1.x API assumptions are correct: `output_type=` and `result.output` are right
+- Thin-bridge LLMAdapter design preserving LLMProviderChain (circuit breaking / audit trail) is right
+- Per-call Agent construction (not class-level) is correct for fresh audit context
+- `WorkerContext.signal_context: Any` correctly preserves Ring 0 boundary
+- `RuntimeError` on missing `result_type` is the right fail-fast pattern
 - SkepticEvaluator direct migration (no parallel class, no feature gate) is right
 
-### Top Concerns (Priority Order)
+### Agreed Concerns
 
-1. **HIGH — Ring boundary for `BaseAIWorker` placement** — Plans 04 tasks reference `src/core/ai/base_agent.py` but CONTEXT.md says BaseAIWorker is Ring 1 (`src/intelligence/`). `_run_typed` takes `context: SignalContext` which is domain vocab — this is legal in Ring 1, illegal in Ring 0. Verify the actual file path before coding.
-2. **HIGH — pydantic-ai Model protocol completeness** — LLMAdapter must implement the full FunctionModel contract, not just `request()`. `output_tools[0]` access needs a guard, and `ToolCallPart(args=...)` JSON string vs parsed object must be verified by Plan 03.
-3. **HIGH — `agent_id` rename observability blast radius** — `skeptic_v1` → `skeptic` may break OTel metrics, Grafana dashboards, `llm_calls` historical joins, and `shadow_registry`. Search repo-wide before Plan 05 lands.
-4. **HIGH — Audit context completeness in tests** — Plan 04 test spec only checks `agent_id` but the audit invariant requires `call_id`, `symbol`, `signal_id`, `regime`, `agent_id`, and `prompt_version` all present.
-5. **MEDIUM — System prompt canonical path** — `_run_typed()` passes `system=`, adapter passes it to chain, but pydantic-ai `Agent` also has an `instructions=` parameter. Confirm only one path delivers the system message or they interoperate correctly.
+1. **Audit context completeness** — Both reviewers flag that `call_id` must be generated per-call and flow through the full chain; it cannot be static on WorkerContext.
+2. **LLMAdapter error path clarity** — Both flag that the adapter's behavior when `chain.generate()` fails or returns unexpected output needs to be explicit so pydantic-ai's retry loop gets actionable feedback.
 
 ### Divergent Views
 
-N/A — single reviewer.
+**Codex (MEDIUM-HIGH) vs Gemini (LOW)** — significant disagreement on overall risk. The divergence is explained by scope: Codex checked the actual `chain.generate()` signature and found `response_format` is not accepted — a concrete runtime failure. Gemini reviewed the design in isolation and found it architecturally sound. Codex's finding takes precedence here because it is grounded in the live codebase.
+
+**Codex-only critical findings (not flagged by Gemini):**
+- `chain.generate()` / `litellm_backend.generate()` do not accept `response_format` — Plan 02 file scope must be expanded or the approach changed
+- `skeptic_v1` rename blast radius extends to `src/api/routes/ai_stats.py`, `test_alpha_swarm.py`, `test_swarm_graduation_loop.py`
+- Retry audit semantics: multiple `chain.generate()` calls per pydantic-ai validation cycle may create duplicate/ambiguous `llm_calls` rows
+
+### Top Actions Before Execution
+
+1. Verify `chain.generate()` signature — add `response_format` kwarg or change LLMAdapter to embed schema in the prompt instead
+2. Specify how `ModelRequest` parts are decoded into the plain string prompt the chain expects
+3. Decide retry `call_id` policy: one per physical LLM request, or one per `_run_typed()` invocation
+4. Run `grep -r "skeptic_v1" .` before Plan 05 to find all rename targets
+5. Guard `model_request_parameters.output_tools` access with a clear error if empty
