@@ -64,7 +64,7 @@ def _make_agent(hmm_regime: int = 1, tf: str = "5m"):
 
     # Mock agents
     mock_swarm_agent = MagicMock()
-    mock_swarm_agent.agent_id = "skeptic_v1"
+    mock_swarm_agent.agent_id = "skeptic"
     mock_swarm_agent.shadow_only = True
     mock_swarm_agent.tiers_needed = frozenset()
     agent._agents = [mock_swarm_agent]
@@ -150,14 +150,14 @@ async def test_record_swarm_result_publishes_to_signal_lineage():
         smc=smc_ctx,
     )
     result = AgentOutput(
-        agent_id="skeptic_v1",
+        agent_id="skeptic",
         group="alpha",
         payload={"multiplier": 1.05, "confidence": 0.8},
         shadow_only=True,
     )
     signal_id = uuid4()
     # Plan 80-07: _record_swarm_result now takes agent as 3rd arg (before result)
-    mock_agent = MagicMock(agent_id="skeptic_v1", group="alpha", shadow_only=True)
+    mock_agent = MagicMock(agent_id="skeptic", group="alpha", shadow_only=True)
     await agent._record_swarm_result(signal_id, enriched, mock_agent, result)
 
     # Flush buffered records
@@ -187,13 +187,13 @@ async def test_record_swarm_result_segment_key_numeric():
         smc=smc_ctx,
     )
     result = AgentOutput(
-        agent_id="skeptic_v1",
+        agent_id="skeptic",
         group="alpha",
         payload={"multiplier": 0.9},
         shadow_only=True,
     )
     signal_id = uuid4()
-    mock_agent = MagicMock(agent_id="skeptic_v1", group="alpha", shadow_only=True)
+    mock_agent = MagicMock(agent_id="skeptic", group="alpha", shadow_only=True)
     await agent._record_swarm_result(signal_id, enriched, mock_agent, result)
     await agent._lineage.flush()
 
@@ -222,13 +222,13 @@ async def test_record_swarm_result_missing_hmm_regime_uses_sentinel():
         smc=smc_ctx,
     )
     result = AgentOutput(
-        agent_id="skeptic_v1",
+        agent_id="skeptic",
         group="alpha",
         payload={"multiplier": 1.0},
         shadow_only=True,
     )
     signal_id = uuid4()
-    mock_agent = MagicMock(agent_id="skeptic_v1", group="alpha", shadow_only=True)
+    mock_agent = MagicMock(agent_id="skeptic", group="alpha", shadow_only=True)
     await agent._record_swarm_result(signal_id, enriched, mock_agent, result)
     await agent._lineage.flush()
 
@@ -288,14 +288,14 @@ async def test_segment_key_uses_numeric_regime():
         smc=smc_ctx,
     )
     result = AgentOutput(
-        agent_id="skeptic_v1",
+        agent_id="skeptic",
         group="alpha",
         payload={"multiplier": 1.1},
         shadow_only=True,
     )
     signal_id = uuid4()
 
-    mock_agent = MagicMock(agent_id="skeptic_v1", group="alpha", shadow_only=True)
+    mock_agent = MagicMock(agent_id="skeptic", group="alpha", shadow_only=True)
     await agent._record_swarm_result(signal_id, enriched, mock_agent, result)
     await agent._lineage.flush()
 
@@ -384,7 +384,7 @@ async def test_graduation_cycle_iterates_agents_and_calls_reload():
 
     # Add two mock agents
     agent._agents = [
-        MagicMock(agent_id="skeptic_v1"),
+        MagicMock(agent_id="skeptic"),
         MagicMock(agent_id="correlation_v1"),
     ]
 
@@ -393,7 +393,7 @@ async def test_graduation_cycle_iterates_agents_and_calls_reload():
     # _evaluate_agent called once per agent
     assert agent._evaluate_agent.call_count == 2
     called_ids = [c.args[0] for c in agent._evaluate_agent.call_args_list]
-    assert "skeptic_v1" in called_ids
+    assert "skeptic" in called_ids
     assert "correlation_v1" in called_ids
     # reload + refresh called at end
     agent._reload_agent_weights.assert_awaited_once()
@@ -408,14 +408,14 @@ async def test_graduation_cycle_continues_on_agent_error():
 
     async def _side_effect(agent_id: str) -> None:
         call_count[0] += 1
-        if agent_id == "skeptic_v1":
+        if agent_id == "skeptic":
             raise RuntimeError("db error")
 
     agent._evaluate_agent = _side_effect
     agent._reload_agent_weights = AsyncMock()
     agent._refresh_shadow_state_from_registry = AsyncMock()
     agent._agents = [
-        MagicMock(agent_id="skeptic_v1"),
+        MagicMock(agent_id="skeptic"),
         MagicMock(agent_id="correlation_v1"),
     ]
 
@@ -450,7 +450,7 @@ async def test_graduation_loop_handles_nan_gracefully():
     # Mock _evaluate_agent to simulate the NaN scenario silently passing
     agent._evaluate_agent = AsyncMock()  # no-op — NaN handling tested in evaluate_agent tests
 
-    agent._agents = [MagicMock(agent_id="skeptic_v1")]
+    agent._agents = [MagicMock(agent_id="skeptic")]
 
     # Should not raise
     await agent._run_graduation_cycle()
@@ -493,7 +493,7 @@ def test_swarm_agent_to_transform_has_all_agents():
     ), "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
     mapping = m._SWARM_AGENT_TO_TRANSFORM
     expected = {
-        "skeptic_v1": ("swarm_skeptic", 6),
+        "skeptic": ("swarm_skeptic", 6),
         "correlation_v1": ("swarm_correlation", 6),
         "regime_coherence_v1": ("swarm_regime_coherence", 6),
         "counterfactual_v1": ("swarm_counterfactual", 6),
@@ -648,7 +648,7 @@ async def test_shadow_enrollment_loops_all_agents() -> None:
     """_shadow_registry_ensure_agents inserts each agent_id in self._agents."""
     agent = _make_agent_with_mocks()
     agents = [
-        MagicMock(agent_id="skeptic_v1"),
+        MagicMock(agent_id="skeptic"),
         MagicMock(agent_id="correlation_v1"),
         MagicMock(agent_id="regime_coherence_v1"),
         MagicMock(agent_id="counterfactual_v1"),
@@ -667,7 +667,7 @@ async def test_shadow_enrollment_loops_all_agents() -> None:
     assert "correlation_v1" in called_ids
     assert "regime_coherence_v1" in called_ids
     assert "counterfactual_v1" in called_ids
-    assert "skeptic_v1" in called_ids
+    assert "skeptic" in called_ids
 
 
 @pytest.mark.asyncio
@@ -676,7 +676,7 @@ async def test_tf_gate_skips_signals_below_min_minutes() -> None:
     agent = _make_agent_with_mocks()
     # Set semaphore so we'd know if it was acquired
     agent._semaphore = asyncio.Semaphore(8)
-    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
+    mock_agent = AsyncMock(agent_id="skeptic", shadow_only=True, tiers_needed=frozenset())
     agent._agents = [mock_agent]
 
     raw_signal = {
@@ -700,7 +700,7 @@ async def test_schema_gate_skips_v0_signals() -> None:
     agent._semaphore = asyncio.Semaphore(8)
     # Mock _context_cache so the method doesn't crash if it reaches that point
     agent._context_cache = MagicMock()
-    mock_agent = AsyncMock(agent_id="skeptic_v1", shadow_only=True, tiers_needed=frozenset())
+    mock_agent = AsyncMock(agent_id="skeptic", shadow_only=True, tiers_needed=frozenset())
     agent._agents = [mock_agent]
 
     raw_signal = {
@@ -746,7 +746,7 @@ async def test_semaphore_blocks_then_proceeds() -> None:
     agent._enrich_context = AsyncMock(side_effect=lambda ctx: ctx)
 
     mock_agent = AsyncMock(
-        agent_id="skeptic_v1",
+        agent_id="skeptic",
         group="alpha",
         shadow_only=True,
         tiers_needed=frozenset(),
@@ -755,7 +755,7 @@ async def test_semaphore_blocks_then_proceeds() -> None:
     from src.core.ai.output import AgentOutput
 
     mock_agent.compute = AsyncMock(
-        return_value=AgentOutput(agent_id="skeptic_v1", group="alpha", payload={"multiplier": 1.0})
+        return_value=AgentOutput(agent_id="skeptic", group="alpha", payload={"multiplier": 1.0})
     )
     agent._agents = [mock_agent]
     agent._lineage = MagicMock()
