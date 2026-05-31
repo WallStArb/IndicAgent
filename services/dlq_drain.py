@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DLQDrainAgent — continuous consumer of all DLQ topics, writes to dlq_events.
+"""DLQDrain — continuous consumer of all DLQ topics, writes to dlq_events.
 
 Subscribes to all 15 active DLQ topics as a single consumer group. Parses each
 message as a DLQPayload, then inserts into the dlq_events hypertable. All events
@@ -74,7 +74,7 @@ VALUES
 """
 
 
-class DLQDrainAgent(BaseDaemon):
+class DLQDrain(BaseDaemon):
     """Continuous Kafka consumer draining all 15 DLQ topics into dlq_events.
 
     Follows BaseDaemon lifecycle contract (setup/_run/stop). No timer loop -
@@ -82,7 +82,7 @@ class DLQDrainAgent(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="dlq_drain_agent", max_idle_seconds=600)
+        super().__init__(max_idle_seconds=600)
 
         self._pool: asyncpg.Pool | None = None
         self._consumer: KafkaConsumerClient | None = None
@@ -261,8 +261,8 @@ class DLQDrainAgent(BaseDaemon):
 
 
 async def main() -> None:
-    setup_service_logging("logs/dlq_drain_agent.log")
-    agent = DLQDrainAgent()
+    setup_service_logging("logs/dlq_drain.log")
+    agent = DLQDrain()
     await agent.start()
 
 

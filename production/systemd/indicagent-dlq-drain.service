@@ -12,7 +12,7 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/dlq_drain_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/dlq_drain.py
 Restart=always
 WatchdogSec=60
 NotifyAccess=main
