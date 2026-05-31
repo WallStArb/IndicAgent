@@ -122,7 +122,7 @@ services:
 
   # Prometheus: scrapes IndicAgent service /metrics (ports 9109, 9112–9116 on host)
   prometheus:
-    image: prom/prometheus:v2.47.0
+    image: prom/prometheus:v3.12.0
     container_name: indicagent-prometheus
     restart: unless-stopped
     command:
@@ -143,7 +143,7 @@ services:
   # Grafana: dashboards and alerts; add Prometheus (and optionally PostgreSQL) as data sources
   # Port 3001 to avoid conflict with IndicAgent dashboard (Next.js on 3000)
   grafana:
-    image: grafana/grafana:10.2.0
+    image: grafana/grafana:13.0.1-security-01
     container_name: indicagent-grafana
     restart: unless-stopped
     ports:
@@ -159,7 +159,7 @@ services:
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
 
   tempo:
-    image: grafana/tempo:2.10.3
+    image: grafana/tempo:3.0.0
     container_name: indicagent-tempo
     restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yaml"]
@@ -168,7 +168,7 @@ services:
       - tempo-data:/var/tempo
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.102.0
+    image: otel/opentelemetry-collector-contrib:0.153.0
     container_name: indicagent-otel-collector
     restart: unless-stopped
     command: ["--config=/etc/otelcol/config.yaml"]
@@ -188,7 +188,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.32.1
     container_name: indicagent-alertmanager
     restart: unless-stopped
     ports:
@@ -199,7 +199,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   loki:
-    image: grafana/loki:2.9.6
+    image: grafana/loki:3.7.2
     container_name: indicagent-loki
     restart: unless-stopped
     ports:
