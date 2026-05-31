@@ -22,7 +22,7 @@ import asyncpg
 import structlog
 
 from src.config.settings import Settings
-from src.core.agent.base import AGENT_CRASH_TOTAL, BaseDaemon
+from src.core.agent.base import BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import message_key, topic_macro_signals, topic_market_bars
@@ -190,7 +190,6 @@ class MacroAnalyzer(BaseDaemon):
             raise
         except Exception as e:
             logger.exception("macro_analyzer.error", error=str(e))
-            AGENT_CRASH_TOTAL.add(1, {"agent": self.agent_id})
             raise
 
     # -----------------------------------------------------------------------

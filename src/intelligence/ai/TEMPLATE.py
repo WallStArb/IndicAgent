@@ -51,7 +51,7 @@ class TemplateEvaluator(Evaluator):
     shadow_only = True  # start in shadow; graduation loop promotes if rho>0, p<0.05, n>=100
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name=self.__class__.__name__, **kwargs)
+        super().__init__(**kwargs)
         self._llm = llm_chain
 
     async def _compute(self, context: SignalContext) -> AgentOutput:

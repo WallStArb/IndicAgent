@@ -71,7 +71,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
         ...
 
     def __init__(self, settings: Settings, *args: Any, **kwargs: Any) -> None:
-        super().__init__(name=self.__class__.__name__, max_idle_seconds=0, settings=settings)
+        super().__init__(max_idle_seconds=0, settings=settings)
         self.settings = settings
         self._context_cache = SignalContextCache()
         self._bar_consumer: KafkaConsumerClient | None = None

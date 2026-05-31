@@ -405,7 +405,7 @@ class BaseWriter(BaseDaemon, abc.ABC):
         Writer agents accumulate unflushed records in self._buffer.
         Lag = buffer size (records waiting to be flushed to DB).
         """
-        attrs = {"agent_id": self.name}
+        attrs = self._consumer_lag_attrs
         while not self._stop_event.is_set():
             PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), attrs)
             await asyncio.sleep(15)

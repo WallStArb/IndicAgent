@@ -112,7 +112,7 @@ class MLEvaluator(Evaluator):
         # Unknown type - keep fail-closed (do nothing)
 
     def __init__(self, pool: Any, **kwargs: Any) -> None:
-        super().__init__(name=self.__class__.__name__, **kwargs)
+        super().__init__(**kwargs)
         self._pool = pool
         self._registry = ModelRegistry(pool)
         # segment_key -> loaded MLflow pyfunc model

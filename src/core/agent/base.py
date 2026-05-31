@@ -135,8 +135,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             name = _to_snake_case(self.__class__.__name__)
         # Configure logging BEFORE creating logger using convention-over-configuration
         # Convert PascalCase agent names to snake_case for log files
-        log_name = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
-        log_path = f"logs/{log_name}.log"
+        log_path = f"logs/{name}.log"
         # Guard: only configure if this exact path has not already been set up.
         # Multiple agent instantiations (e.g., in tests) would otherwise redirect
         # all logging to the most recently instantiated agent's log file.
