@@ -154,9 +154,9 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
-    "config-service": "indicagent-config-service",
-    "outbox-dispatcher": "indicagent-outbox-dispatcher",
-    "self-healing-agent": "indicagent-self-healing-agent",
+    "config_service": "indicagent-config-service",
+    "outbox_dispatcher_agent": "indicagent-outbox-dispatcher",
+    "self_healer": "indicagent-self-healing-agent",
 }
 
 # Timer-triggered oneshot services — ML batch services inactive (dead) between runs is correct

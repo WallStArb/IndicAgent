@@ -70,7 +70,7 @@ class GraduationWriter(BaseWriter):
             "graduation_writer_write_errors_total",
             "Failed batch writes",
         )
-        self._batch_latency_attrs = {"agent_id": "graduation_writer_agent"}
+        self._batch_latency_attrs = {"agent_id": self._agent_label}
 
     def _topic_name(self) -> str:
         return topic_transform_graduation(self.settings.env_name)

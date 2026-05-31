@@ -75,7 +75,7 @@ class SignalWriter(BaseWriter):
             "signal_writer_write_errors_total",
             "Failed batch inserts",
         )
-        self._batch_latency_attrs = {"agent_id": "signal_writer_agent"}
+        self._batch_latency_attrs = {"agent_id": self._agent_label}
 
     def _topic_name(self) -> str:
         return topic_intelligence_i7_signals(self.settings.env_name)
