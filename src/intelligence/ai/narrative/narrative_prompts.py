@@ -13,10 +13,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
-from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, REGIME_LABELS, fmt
+from src.intelligence.ai.context import render_full_context
 
 ACTIVE_VERSION = "narrative_v1"
 

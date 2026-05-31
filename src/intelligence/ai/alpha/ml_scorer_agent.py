@@ -27,11 +27,11 @@ import mlflow
 import numpy as np
 import structlog
 
-from src.core.ai.context import SignalContext
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp
 from src.core.ml.registry import ModelRegistry
+from src.intelligence.ai.context import SignalContext
 from src.intelligence.ml.feature_builder import SHADOW_FEATURE_KEYS
 
 logger = structlog.get_logger(__name__)

@@ -20,9 +20,9 @@ from uuid import uuid4
 
 import pytest
 
-from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 from src.core.stream_keys import topic_signal_lineage
+from src.intelligence.ai.context import SignalContext
 from src.intelligence.schemas import SMCContext
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ def test_lineage_recorder_in_module():
     AlphaSwarmAgent inherits it from the base; no direct import needed here."""
     import inspect
 
-    from src.core.ai.base_group_service import BaseSwarmCoordinator
+    from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
 
     src = inspect.getsource(BaseSwarmCoordinator._setup)
     assert "LineageRecorder" in src, "LineageRecorder must be wired in BaseSwarmCoordinator._setup"
@@ -508,7 +508,7 @@ async def test_enrich_context_is_pass_through():
     from datetime import UTC, datetime
 
     from services.alpha_swarm import AlphaSwarm
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
     svc = AlphaSwarm.__new__(AlphaSwarm)
     svc.logger = MagicMock()
@@ -732,7 +732,7 @@ async def test_semaphore_blocks_then_proceeds() -> None:
 
     from datetime import UTC, datetime
 
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
     from src.intelligence.schemas import SMCContext
 
     mock_context = SignalContext(

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.intelligence.ai.context import render_full_context
 
 ACTIVE_VERSION = "correlation_v1"
 
@@ -56,25 +56,25 @@ Rules:
 }
 
 
-def build_correlation_prompt(ctx: Any) -> str:
+def build_correlation_prompt(context: Any) -> str:
     """Build the correlation prompt for CorrelationAnalyzer.
 
     ctx must be a typed SignalContext object (correlation_v1 path).
     Raises TypeError if ctx is not an SignalContext.
     """
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
-    if not isinstance(ctx, SignalContext):
-        raise TypeError(f"correlation_v1 requires SignalContext, got {type(ctx).__name__}")
+    if not isinstance(context, SignalContext):
+        raise TypeError(f"correlation_v1 requires SignalContext, got {type(context).__name__}")
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
-    i7 = ctx.i7
+    i7 = context.i7
     return template.format(
-        symbol=ctx.symbol,
-        timeframe=ctx.timeframe,
+        symbol=context.symbol,
+        timeframe=context.timeframe,
         winner_plugin=(i7.winner_plugin if i7 else None) or "unknown",
         winner_direction_label=DIRECTION_LABELS.get(
             (i7.winner_direction if i7 else 0) or 0, "UNKNOWN"
         ),
         winner_confidence=fmt(i7.winner_confidence if i7 else None, ".0%"),
-        full_context_block=render_full_context(ctx),
+        full_context_block=render_full_context(context),
     )

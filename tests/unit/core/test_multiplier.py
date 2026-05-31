@@ -10,8 +10,8 @@ UTC = UTC
 
 def _make_dummy_agent():
     """Construct a minimal concrete subclass of Evaluator for testing."""
-    from src.core.ai.context import SignalContext
     from src.core.ai.evaluator import Evaluator
+    from src.intelligence.ai.context import SignalContext
 
     class _DummyAgent(Evaluator):
         output_schema: ClassVar[dict] = {"score": float, "confidence": float}
@@ -29,7 +29,7 @@ def _make_dummy_agent():
 
 def _make_context():
     """Build a minimal SignalContext for testing."""
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
     return SignalContext(
         signal_id=None,

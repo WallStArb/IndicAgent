@@ -19,7 +19,12 @@ from __future__ import annotations
 
 from opentelemetry import metrics as otel_metrics
 
-from src.intelligence.tier_aliases import tier_to_functional
+
+def _tier_to_functional(tier_code: str) -> str:
+    # ring0-ok: lazy import to avoid circular import (src.core.__init__ -> database_manager -> metrics)
+    from src.core.tier_aliases import tier_to_functional  # noqa: PLC0415
+
+    return tier_to_functional(tier_code)
 
 
 def flush_and_shutdown_metrics(timeout_millis: int = 5000) -> None:
@@ -60,7 +65,7 @@ def format_tier_label(tier_code: str) -> str:
     Example:
         PLUGIN_DURATION_MS.record(42.5, {"plugin": "rsi", "tier": format_tier_label("I1")})
     """
-    functional_name = tier_to_functional(tier_code)
+    functional_name = _tier_to_functional(tier_code)
     return f"{tier_code}:{functional_name}"
 
 

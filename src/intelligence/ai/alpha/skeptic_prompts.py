@@ -11,8 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.intelligence.ai.context import render_full_context
 
 ACTIVE_VERSION = "skeptic_v2"
 
@@ -128,54 +128,56 @@ class SkepticResult(BaseModel):
         return str(v) if v is not None else ""
 
 
-def build_skeptic_prompt(ctx: Any) -> str:
+def build_skeptic_prompt(context: Any) -> str:
     """Build the skeptic prompt.
 
     v1 path: ctx is a dict (legacy 24-field flat dict from _context_to_dict).
     v2 path: ctx is the typed SignalContext object -- full pipeline tiers rendered.
     """
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     if ACTIVE_VERSION == "skeptic_v2":
-        if not isinstance(ctx, SignalContext):
-            raise TypeError("skeptic_v2 requires SignalContext, got " f"{type(ctx).__name__}")
-        i7 = ctx.i7
+        if not isinstance(context, SignalContext):
+            raise TypeError("skeptic_v2 requires SignalContext, got " f"{type(context).__name__}")
+        i7 = context.i7
         return template.format(
-            symbol=ctx.symbol,
-            timeframe=ctx.timeframe,
+            symbol=context.symbol,
+            timeframe=context.timeframe,
             winner_plugin=(i7.winner_plugin if i7 else None) or "unknown",
             winner_direction_label=DIRECTION_LABELS.get(
                 (i7.winner_direction if i7 else 0) or 0, "UNKNOWN"
             ),
             winner_confidence=fmt(i7.winner_confidence if i7 else None, ".0%"),
-            full_context_block=render_full_context(ctx),
+            full_context_block=render_full_context(context),
         )
 
     # v1 legacy path -- dict-input formatting verbatim
     return template.format(
-        symbol=ctx.get("symbol", "N/A"),
-        timeframe=ctx.get("timeframe", "N/A"),
-        winner_plugin=ctx.get("winner_plugin") or "unknown",
+        symbol=context.get("symbol", "N/A"),
+        timeframe=context.get("timeframe", "N/A"),
+        winner_plugin=context.get("winner_plugin") or "unknown",
         winner_direction_label=DIRECTION_LABELS.get(
-            ctx.get("winner_direction", 0),
+            context.get("winner_direction", 0),
             "UNKNOWN",
         ),
-        winner_confidence=fmt(ctx.get("winner_confidence"), ".0%"),
-        price=fmt(ctx.get("price"), ".2f"),
-        volume=fmt(ctx.get("volume"), ".0f"),
-        atr=fmt(ctx.get("atr"), ".2f"),
-        rsi=fmt(ctx.get("rsi"), ".1f"),
-        adx=fmt(ctx.get("adx"), ".1f"),
-        hmm_regime=str(ctx.get("hmm_regime")) if ctx.get("hmm_regime") is not None else "N/A",
-        trend_regime=fmt(ctx.get("trend_regime"), ".2f"),
-        vol_regime=fmt(ctx.get("vol_regime"), ".2f"),
-        garch_vol_ratio=fmt(ctx.get("garch_vol_ratio"), ".2f"),
-        ctf_trend_alignment=fmt(ctx.get("ctf_trend_alignment"), ".2f"),
-        ctf_regime_agreement=fmt(ctx.get("ctf_regime_agreement"), ".2f"),
-        ctf_fvg_alignment=fmt(ctx.get("ctf_fvg_alignment"), ".2f"),
-        ctf_ob_alignment=fmt(ctx.get("ctf_ob_alignment"), ".2f"),
-        vwap=fmt(ctx.get("vwap"), ".2f"),
-        poc_price=fmt(ctx.get("poc_price"), ".2f"),
-        poc_price_rolling=fmt(ctx.get("poc_price_rolling"), ".2f"),
+        winner_confidence=fmt(context.get("winner_confidence"), ".0%"),
+        price=fmt(context.get("price"), ".2f"),
+        volume=fmt(context.get("volume"), ".0f"),
+        atr=fmt(context.get("atr"), ".2f"),
+        rsi=fmt(context.get("rsi"), ".1f"),
+        adx=fmt(context.get("adx"), ".1f"),
+        hmm_regime=(
+            str(context.get("hmm_regime")) if context.get("hmm_regime") is not None else "N/A"
+        ),
+        trend_regime=fmt(context.get("trend_regime"), ".2f"),
+        vol_regime=fmt(context.get("vol_regime"), ".2f"),
+        garch_vol_ratio=fmt(context.get("garch_vol_ratio"), ".2f"),
+        ctf_trend_alignment=fmt(context.get("ctf_trend_alignment"), ".2f"),
+        ctf_regime_agreement=fmt(context.get("ctf_regime_agreement"), ".2f"),
+        ctf_fvg_alignment=fmt(context.get("ctf_fvg_alignment"), ".2f"),
+        ctf_ob_alignment=fmt(context.get("ctf_ob_alignment"), ".2f"),
+        vwap=fmt(context.get("vwap"), ".2f"),
+        poc_price=fmt(context.get("poc_price"), ".2f"),
+        poc_price_rolling=fmt(context.get("poc_price_rolling"), ".2f"),
     )

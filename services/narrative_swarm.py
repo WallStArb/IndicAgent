@@ -20,13 +20,13 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.base_group_service import BaseSwarmCoordinator
 from src.core.service_utils import is_signal_stale, parse_iso_ts
 from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7_signals,
     topic_narratives,
 )
+from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
 from src.intelligence.ai.narrative.narrative_agent import NarrativeSynthesizer
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
