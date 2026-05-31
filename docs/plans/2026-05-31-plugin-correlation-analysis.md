@@ -35,8 +35,17 @@ shadow_registry (existing table, new column)
   └── correlation_suppressed boolean NOT NULL DEFAULT false
       — owned exclusively by correlation batch; performance logic never touches it
 
-aggregator (no changes)
-  — already respects promoted flag in shadow_registry; respects correlation_suppressed via same path
+shadow_registry_active (new VIEW)
+  └── WHERE promoted = true AND NOT correlation_suppressed
+      — single interface for all consumers; future suppression types extend the view, not the consumers
+
+intelligence_pipeline (minimal change)
+  └── checks shadow_registry_active before calling _compute() on each I7 plugin
+      — suppressed plugins are skipped at inference, not just at aggregation
+      — inference is not free; do not run models whose output will be discarded
+
+aggregator (minimal change)
+  └── queries shadow_registry_active instead of shadow_registry directly
 ```
 
 ---
@@ -130,7 +139,15 @@ History kept (1 row per weekly run, ~52 rows/year). Cheap. Enables effective-N t
 ```sql
 ALTER TABLE shadow_registry
     ADD COLUMN correlation_suppressed boolean NOT NULL DEFAULT false;
+
+CREATE VIEW shadow_registry_active AS
+    SELECT *
+    FROM shadow_registry
+    WHERE promoted = true
+      AND NOT correlation_suppressed;
 ```
+
+All consumers query `shadow_registry_active`. Never the base table directly. Future suppression types (e.g. `regime_suppressed`) extend the view definition only.
 
 ---
 
@@ -152,9 +169,10 @@ ALTER TABLE shadow_registry
 - **Canonical ordering:** always store with `plugin_a < plugin_b`. Enforced by `CHECK` constraint and batch code.
 - **Idempotency:** all writes are UPSERT or INSERT with conflict handling. Re-running produces identical output.
 - **Bootstrap gate:** `co_fire_count >= 30` for pairs table; `>= 100` for suppression. Same statistical discipline as shadow_registry.
-- **Suppression is reversible:** batch clears `correlation_suppressed` when correlation drops below threshold. No manual re-activation needed.
-- **No aggregator changes:** aggregator already gates on `promoted` in shadow_registry. Adding `AND NOT correlation_suppressed` to that query is the only required change — and it may already be implicit if the aggregator filters on `promoted = true` and suppressed plugins retain their promoted status.
-- **Suppression vs demotion:** `correlation_suppressed` is orthogonal to `promoted`. A plugin can be `promoted=true, correlation_suppressed=true` — it passed the performance gate but is redundant. The aggregator must check both.
+- **Suppression is reversible — and self-expiring:** when a plugin is suppressed, it stops running, so `co_fire_count` stops accumulating new data. After ~13 weeks the pair drops below the `co_fire_count >= 30` gate, the batch automatically clears `correlation_suppressed`, and the plugin re-activates. Data starvation IS the expiry mechanism. No manual re-activation needed.
+- **Shadow mode vs suppression are distinct:** shadow mode = plugin runs, signals marked `is_shadow=true`, deliberate data collection. Suppressed = plugin does not run, inference suspended. Inference is not free — do not run models to produce output that will be discarded.
+- **Single query surface:** all consumers use `shadow_registry_active` view. A plugin can be `promoted=true, correlation_suppressed=true` (passed performance gate, but redundant). The view hides this distinction from consumers.
+- **Pipeline check point:** intelligence_pipeline loads `shadow_registry_active` at startup (same as existing shadow_registry load). Suppressed plugins are excluded from the execution set before any `_compute()` call.
 
 ---
 
