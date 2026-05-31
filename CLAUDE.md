@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.45.0 | Status: v2.8 next — v2.7 complete (093, 100, 100.5, 104, 105, 106, 107 shipped 2026-05-26). v2.8: 094-099 (AI platform), 101-103 (evolvable agents). Phase 108 SOP added. Phase 110 complete: renaissance rename (BaseDaemon, BaseWriter, BaseAIWorker, BaseSwarmCoordinator, NarrativeSwarm, SignalContext).
+Version: 5.45.0
 
 **Project nature:** Passion/learning project — not a production system, not relied upon. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking over operational caution. Renaissance Capital / Jim Simons principles are the north star. The platform and the builder improve together — every refinement compounds. When giving advice, do not hedge around operational risk that doesn't apply; apply the same rigor you would to a system built to last.
 
@@ -42,7 +42,7 @@ Run these steps in order when a coding session is complete, before pushing.
 ## Core Commands
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · **Lint:** `.venv/bin/ruff check . --fix` · **Format:** `.venv/bin/black .`
-**Health check:** `systemctl list-units --all | grep indicagent` · **DB freshness:** `psql -U postgres -d indicagent -c "SELECT symbol, tf, MAX(ts) FROM intelligence_features GROUP BY symbol, tf ORDER BY MAX(ts) DESC LIMIT 5"` · **Logs:** `tail -20 logs/<service>_agent.log`
+**Health check:** `systemctl list-units --all | grep indicagent` · **Logs:** `tail -20 logs/<service>_agent.log`
 **Dashboard:** `cd dashboard && npm run dev` (`:3000`)
 **API:** `uvicorn src.api.main:app` (`:8000`)
 **Consumer lag:** `docker exec redpanda rpk group describe feature_pipeline -t`
@@ -71,20 +71,6 @@ IBKR TWS → intelligence_pipeline (I1-I7 unified, in-process) →
 Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintain a parallel list here.
 **Live state:** `systemctl list-units --all | grep indicagent` · **Monitoring:** Grafana `:3001`
 
-```
-L1  ibkr-provider, bar-replay            — data ingestion + bar replay
-L2  provider-merger                      — stream merge
-L3  bar-aggregator, bar-auditor          — bar processing
-L4  bar-writer                           — OHLCV persistence
-L5  intelligence-pipeline, cross-asset, macro-compute — I1-I7 compute + context
-L6  feature-writer, signal-writer, signal-tracker-compute, lifecycle-writer,
-    lineage-writer, ctx-writer — persistence writers (parallel)
-L7  alpha-swarm, narrative-compute, llm-writer, swarm-ledger-writer — AI/LLM layer
-L8  signal-metrics-compute, signal-metrics-writer, graduation-compute,
-    graduation-writer, feature-snapshot-writer, ml-training — analytics
-L9  signal-auditor, signal-replay, parity-auditor, alerting-agent — audit, parity, alerting
-L10 service-auditor                      — meta: monitors + restarts all above
-```
 
 **ML batch services (timer-triggered, not daemons):** `inactive (dead)` between runs is correct — do not treat as failures.
 - `ml-training` (nightly 11pm), `ml-orchestrator`/`ml-data-quality`/`ml-discovery` (weekly Mon). Design: `docs/ideas/ai-02-ml-agent-architecture.md`
@@ -93,7 +79,7 @@ L10 service-auditor                      — meta: monitors + restarts all above
 ## Core Runtime Files
 
 - **DB queries:** `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "..."`. Plain `psql -U postgres` fails.
-- **Pipeline capacity:** sequential bar processing (`await _process_bar`), per-bar latency measured by `intelligence_pipeline_pipeline_latency_ms` gauge at `:8000/metrics`. 132 plugins across 6 stages, 12 thread-pool workers (GIL cap). Backfill replay throttled to 10 bps (`BAR_REPLAY_BARS_PER_SEC`) — not representative of pipeline ceiling.
+- **Pipeline capacity:** sequential bar processing (`await _process_bar`), latency at `intelligence_pipeline_pipeline_latency_ms` gauge (`:8000/metrics`). Backfill replay throttled (`BAR_REPLAY_BARS_PER_SEC`) — not representative of live ceiling.
 - **Historical backfill:** `historical_backfill.py --client-id 40` (provider uses 35; default 56 exceeds `_MAX_CLIENT_ID=50`). Gotchas: `docs/gotchas.md`.
 - **Lifecycle replay:** `lifecycle_replay.py` — re-run picks up where it left off. Gotchas: `docs/gotchas.md`.
 - `src/core/stream_keys.py` — all stream/topic key construction
@@ -173,9 +159,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed in Phase 83). Call patterns: counters → `.add(1, {"label": val})`, histograms → `.record(val, {"label": val})`, up-down gauges (`create_up_down_counter`) → `.add(delta, {"label": val})`, point gauges (`create_gauge` / `point_gauge()`) → `.set(value, {"label": val})`. Never import `prometheus_client`.
 - **Spans**: use `observed_span(name, attributes={...})` from `src/observability/spans.py` for new spans — auto-records ERROR status + exception on raise. Use ATTR_* constants from same module instead of raw strings.
-- **Alpha swarm agent timeouts**: all LLM agents (correlation, regime_coherence, counterfactual, skeptic) have 120s `latency_budget_ms`. `ml_scorer_v1` is 50ms (local model, no LLM calls). With nemotron-3-nano:4b, p50 latency is ~47-52s — well within budget.
 - **Documentation accuracy**: Docs may contain fabricated content (forward-looking specs never implemented). Verify against code before trusting.
-- **`CircuitBreaker` manual-tracking** (`src/observability/circuit_breaker.py`): `record_failure()` opens the breaker but `OPEN→HALF_OPEN` recovery only fires inside `call()`. For manual tracking outside `call()`, use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (resets failures, closes from HALF_OPEN) — both added in Phase 086.
 - **`BaseWriter._parse_payload` return contract**: returning `None` triggers `_maybe_route_to_dlq` on the whole payload. When doing per-signal validation, return `[]` for the all-invalid case to prevent the base writer from double-DLQ-ing the payload; only return `None` for a truly empty/unparseable payload with no signals at all.
 - **`BaseWriter.__init__` requires `name: str`** (non-optional, unlike BaseDaemon post-Phase-111): when removing `name=` from any writer service, also update `BaseWriter.__init__` to accept `name: str | None = None` with pass-through to super.
 - **Oneshot `_agent.py` exceptions (not daemons, not rename targets):** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — thin entrypoints for timer-triggered scripts; `_agent` suffix intentionally preserved.
@@ -221,7 +205,6 @@ Every new daemon that inherits BaseDaemon MUST emit these five OTel signals; non
 - `consumer_stall_detected_total` rate > 0 -> warning
 - Any oneshot `job_completed_total{status="failure"}` increment -> warning; `time_since_last_success{job=X} > 25h` -> page
 
-**Phase 108 closed HEAL-01, HEAL-03, HEAL-04. HEAL-02 (DB backup) is deferred - see `.planning/phases/108-self-healing-hardening/108-HEAL-02-DEFERRAL.md`.**
 
 ## Infrastructure
 
@@ -231,9 +214,8 @@ Every new daemon that inherits BaseDaemon MUST emit these five OTel signals; non
 - **Redpanda**: Kafka-compatible. Topic naming: dots not colons. Via `stream_keys.py` always. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Daemon reads contracts at startup; restart on futures expiry.
 - **Roll flow:** Nightly `roll-batch` timer (`production/scripts/roll_batch.py`) runs at 8pm, detects calendar-based rolls, promotes front-month contracts in `contract_metadata` table, and broadcasts updates via Kafka. Provider picks up changes on next `get_active_contracts()` call. See `docs/ideas/futures-roll-simplification.md` for architecture analysis.
-- **Roll monitoring:** `systemctl list-timers --all | grep roll-batch` to verify timer is active. `journalctl -u indicagent-roll-batch` for run logs.
 - **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
-- **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Check VRAM: `cat /sys/class/drm/card1/device/mem_info_vram_total`. Benchmark: `curl -s http://localhost:11434/api/generate -d '{"model":"...","prompt":"...","stream":false}'`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.
+- **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.
 
 > Sudo, INDICAGENT_ENV debug, more: `docs/operations/infrastructure-reference.md`
