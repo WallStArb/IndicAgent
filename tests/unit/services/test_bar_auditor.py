@@ -21,7 +21,7 @@ from src.core.schemas.market_events import BarGapRequest
 from src.core.stream_keys import topic_gap_requests
 
 
-class TestBarAuditorAgentInit:
+class TestBarAuditorInit:
     """Test constructor attributes and property contracts."""
 
     def test_name(self):

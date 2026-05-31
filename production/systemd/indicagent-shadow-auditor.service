@@ -6,7 +6,7 @@ Requires=indicagent-infrastructure.target
 [Service]
 Type=oneshot
 WorkingDirectory=/home/bg/dev/indicagent
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/shadow_auditor_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/shadow_auditor.py
 Environment=PYTHONUNBUFFERED=1
 Environment=INDICAGENT_ENV=development
 

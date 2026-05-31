@@ -16,7 +16,7 @@ Environment=METRICS_PORT=9007
 # Environment=CONFIG_WEBHOOK_SHARED_SECRET=... (set via override or EnvironmentFile)
 # Environment=PROMETHEUS_URL=http://localhost:9090
 # EnvironmentFile=-/etc/indicagent/self-healing.env
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/self_healing_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/self_healer.py
 Restart=always
 WatchdogSec=60
 NotifyAccess=main

@@ -1,4 +1,4 @@
-"""TEMPLATE_agent.py — canonical skeleton for Phase 80 multiplier agents.
+"""TEMPLATE.py — canonical skeleton for Phase 80 multiplier agents.
 
 Copy this file when adding a new swarm agent. Required steps:
 1. Pick a unique agent_id ending in _v1 (lowercase, underscored).
@@ -34,17 +34,17 @@ _SYSTEM_MESSAGE = (
 )
 
 
-class TemplateComputeAgent(Evaluator):
-    """One-line description of what this agent decides and why."""
+class TemplateEvaluator(Evaluator):
+    """One-line description of what this evaluator decides and why."""
 
-    # Required class attributes — every multiplier agent MUST set these six.
+    # Required class attributes — every multiplier evaluator MUST set these six.
     output_schema: ClassVar[dict] = {
         "score": float,  # agent-specific key (rename per agent)
         "confidence": float,  # always required
         "reasoning": str,  # always required
     }
 
-    agent_id = "template_v1"  # MUST match shadow_registry.component_name
+    agent_id = "template_evaluator"  # MUST match shadow_registry.component_name
     group = "alpha"  # one of: "alpha", "narrative", "risk"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6})  # tiers consumed
     latency_budget_ms = 5000.0  # asyncio.wait_for in BaseAIWorker.compute
