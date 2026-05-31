@@ -7,8 +7,8 @@ Phase 80 D-06: counterfactual reasoning -- validation/invalidation conditions.
 
 from __future__ import annotations
 
-from src.core.ai.context import SignalContext, render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.intelligence.ai.context import SignalContext, render_full_context
 
 ACTIVE_VERSION = "counterfactual_v1"
 

@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Callable
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
 from src.core.ai.prompt_utils import clamp, parse_llm_json
+
+if TYPE_CHECKING:
+    from src.intelligence.ai.context import (  # ring0-ok: TYPE_CHECKING only, not at runtime
+        SignalContext,
+    )
 
 logger = structlog.get_logger(__name__)
 

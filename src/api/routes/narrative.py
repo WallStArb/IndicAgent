@@ -22,10 +22,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ...config.settings import Settings
-from ...core.ai.context import BarContext, QuantSignalContext, SignalContext
-from ...core.ai.context import Tier as _Tier
 from ...core.database_manager import DatabaseManager
 from ...core.llm.chain import LLMProviderChain
+from ...intelligence.ai.context import BarContext, QuantSignalContext, SignalContext
+from ...intelligence.ai.context import Tier as _Tier
 from ...intelligence.ai.narrative.narrative_agent import NarrativeSynthesizer
 from ...intelligence.schemas import (
     I1Indicators,

@@ -11,9 +11,9 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.base_group_service import BaseSwarmCoordinator
-from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
+from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
+from src.intelligence.ai.context import SignalContext
 
 # ---------------------------------------------------------------------------
 # Minimal test doubles

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.intelligence.ai.context import render_full_context
 
 ACTIVE_VERSION = "regime_coherence_v1"
 
@@ -61,7 +61,7 @@ def build_regime_coherence_prompt(ctx: Any) -> str:
 
     Requires typed SignalContext (v1 only — no legacy dict path).
     """
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
     if not isinstance(ctx, SignalContext):
         raise TypeError(

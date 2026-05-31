@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.core.plugin_validator import build_synthetic_frames
+from src.intelligence.plugin_validator import build_synthetic_frames
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     TIER_I1,

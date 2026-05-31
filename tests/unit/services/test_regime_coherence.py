@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.regime_coherence_agent import (
     RegimeCoherenceAnalyzer,
     RegimeCoherenceResult,
 )
+from src.intelligence.ai.context import Tier
 
 
 def test_result_accepts_valid_payload() -> None:

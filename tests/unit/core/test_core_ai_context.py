@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from src.core.ai.context import (
+from src.intelligence.ai.context import (
     BarContext,
     SignalContext,
     SignalContextCache,
@@ -155,7 +155,7 @@ class TestAIContextCache:
         assert ctx is not None
 
         # Patch _ttl_for_tf to return 0 so the entry expires immediately
-        import src.core.ai.context as ctx_module
+        import src.intelligence.ai.context as ctx_module
 
         with unittest.mock.patch.object(ctx_module, "_ttl_for_tf", return_value=0):
             time.sleep(0.1)  # Small delay to ensure monotonic time advances

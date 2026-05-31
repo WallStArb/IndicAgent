@@ -11,8 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-from src.core.ai.context import render_full_context
 from src.core.ai.prompt_utils import DIRECTION_LABELS, fmt
+from src.intelligence.ai.context import render_full_context
 
 ACTIVE_VERSION = "skeptic_v2"
 
@@ -134,7 +134,7 @@ def build_skeptic_prompt(ctx: Any) -> str:
     v1 path: ctx is a dict (legacy 24-field flat dict from _context_to_dict).
     v2 path: ctx is the typed SignalContext object -- full pipeline tiers rendered.
     """
-    from src.core.ai.context import SignalContext
+    from src.intelligence.ai.context import SignalContext
 
     template = PROMPT_REGISTRY[ACTIVE_VERSION]
     if ACTIVE_VERSION == "skeptic_v2":
