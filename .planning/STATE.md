@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-stopped_at: Completed 095-pydantic-ai-agents-05-PLAN.md
-last_updated: "2026-05-31T13:31:49.254Z"
-last_activity: 2026-05-31 -- Phase 095 planning complete
+stopped_at: Phase 095 complete (5/5 plans)
+last_updated: "2026-05-31T13:35:00.000Z"
+last_activity: 2026-05-31 -- Phase 095 complete (pydantic-ai agent execution layer)
 progress:
   total_phases: 22
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 19
-  completed_plans: 15
-  percent: 14
+  completed_plans: 16
+  percent: 18
 ---
 
 # Project State
@@ -25,12 +25,10 @@ See: .planning/PROJECT.md
 
 ## Current Position
 
-Phase: 111
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-31 -- Phase 095 planning complete
-
-**Sequencing decision (2026-05-30):** Phase 110 (rename) executes before Phase 095. Phase 095 touches Ring 0 infrastructure being renamed and must write new evaluators with correct names from day one. See design spec Section 11.
+Phase: 095
+Plan: Complete (5/5)
+Status: Phase complete — ready for next phase
+Last activity: 2026-05-31 -- Phase 095 complete (pydantic-ai agent execution layer)
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
@@ -49,7 +47,7 @@ Last activity: 2026-05-31 -- Phase 095 planning complete
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 094 | LiteLLM + Instructor Structured Output | LLM-INFRA-01–05, STRUCT-OUT-01–04 | 0/TBD plans (2 written from v2.7) |
-| 095 | Pydantic AI Agent Execution Layer | AGENT-EXEC-01–05 | 0/5 plans (8 written from v2.7) |
+| 095 | Pydantic AI Agent Execution Layer | AGENT-EXEC-01–05 | Complete (5/5 plans, 2026-05-31) |
 | 096 | Agent Registry | AGENT-REG-01–04 | 0/TBD plans |
 | 097 | Zep Episodic Memory | MEM-01–04 | 0/TBD plans |
 | 098 | DSPy Offline Optimizer | OPT-01–04 | 0/TBD plans |
