@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-stopped_at: Phase 095 context gathered
-last_updated: "2026-05-31T12:46:09.758Z"
+stopped_at: Completed 095-01-PLAN.md
+last_updated: "2026-05-31T13:03:11.426Z"
 last_activity: 2026-05-31 -- Phase 095 planning complete
 progress:
-  total_phases: 21
+  total_phases: 22
   completed_phases: 3
   total_plans: 19
-  completed_plans: 11
+  completed_plans: 12
   percent: 14
 ---
 
@@ -94,6 +94,7 @@ Last activity: 2026-05-31 -- Phase 095 planning complete
 - All new AI agent behavior runs shadow_only=True; no auto-promotion; operator must confirm fitness gate.
 - No new Kafka topics without named producer-consumer pair; no new systemd daemons without justification.
 - **Phase 107 Renaissance design (2026-05-25):** Expanded from 4 to 9 criteria based on architectural weakness assessment. 3-wave structure: Service Consistency (BaseAgent adoption, DatabaseManager standardization, Agent ID labels), Silent Failure Elimination (writer flush spans, metric types, data loss), Complexity Reduction (DAG correctness, dead code, shadow integrity). Measurement-driven with binary SQL verification query.
+- [Phase 095-pydantic-ai-agents]: WorkerContext: frozen dataclass not Pydantic BaseModel; signal_context typed Any for Ring 0 boundary; db_pool/memory_client reserved as None for Phase 097
 
 ### Analysis Docs
 
@@ -117,8 +118,8 @@ Last activity: 2026-05-31 -- Phase 095 planning complete
 
 ## Session Continuity
 
-Last session: 2026-05-31T05:08:25.160Z
-Stopped at: Phase 095 context gathered
+Last session: 2026-05-31T13:03:11.422Z
+Stopped at: Completed 095-01-PLAN.md
 Resume: `/gsd-execute-phase 110` — execute the rename phase (atomic branch `rename/phase-110`)
 
 **Phase 110 planning complete (2026-05-30):** 4 plans in 4 sequential waves. Key findings: AgentContext/AgentProtocol don't exist yet (Phase 095 deliverables — scoped OUT of Wave 1). FeatureValidationComputeAgent added to scope (Wave 3+4). SignalContext file-move to Ring 1 deferred to Phase 095. Dashboard display strings preserved (operational exception — agent_id metric label). Commit: 1e01ab6e.
@@ -141,3 +142,4 @@ Resume: `/gsd-execute-phase 110` — execute the rename phase (atomic branch `re
 | Phase 091-instrument-registry P05 | 3 | 4 tasks | 1 files |
 | Phase 104 P03 | 45 | 3 tasks | 16 files |
 | Phase 107 P00 | 469 | 5 tasks | 6 files |
+| Phase 095-pydantic-ai-agents P01 | 8 | 3 tasks | 3 files |
