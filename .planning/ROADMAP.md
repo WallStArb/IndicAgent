@@ -1102,7 +1102,7 @@ Plans:
 
 - [x] 111-01-PLAN.md — Wave 1: BaseDaemon auto-derive; remove name= overrides; remove logging overrides; delete _AGENT_NAME constants; fix metric label; update _AGENT_ID_TO_UNIT; Grafana + alertmanager
 - [x] 111-02-PLAN.md — Wave 2: 5 missing service renames + TEMPLATE rename; systemd ExecStart; 29 test file renames; 9 test class renames
-- [ ] 111-03-PLAN.md — Wave 3: structlog event string prefix replacement across 20 files
+- [x] 111-03-PLAN.md — Wave 3: structlog event string prefix replacement across 20 files
 - [ ] 111-04-PLAN.md — Wave 4: Ring 0 pre-commit hook; ctx → audit_context/context cleanup; CLAUDE.md updates
 
 **Cross-cutting constraints:**
@@ -1456,7 +1456,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
 | 110. Renaissance Rename | v2.8 | 4/4 | Complete   | 2026-05-30 |
-| 111. Full Naming Alignment | v2.8 | 2/4 | In Progress|  |
+| 111. Full Naming Alignment | v2.8 | 3/4 | In Progress|  |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
