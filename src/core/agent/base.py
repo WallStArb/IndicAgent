@@ -268,7 +268,8 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
 
         setup_otlp_logging(service_name=self.name)
 
-        self.logger.info("agent.starting", agent=self.name)
+        # Base-class infra events use the "daemon." role prefix (not a per-service agent_id) — intentional exception to the {derived_agent_id}.action convention.
+        self.logger.info("daemon.starting", agent=self.name)
 
         try:
             setup_start = time.monotonic()
@@ -279,7 +280,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             try:
                 await self._pre_setup_config_load()
             except Exception:
-                self.logger.warning("agent.config_pre_load_unexpected_error", agent=self.name)
+                self.logger.warning("daemon.config_pre_load_unexpected_error", agent=self.name)
 
             if self.circuit_breaker:
                 try:
@@ -295,14 +296,14 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             try:
                 await self._setup_config_consumer()
             except Exception:
-                self.logger.warning("agent.config_consumer_unexpected_error", agent=self.name)
+                self.logger.warning("daemon.config_consumer_unexpected_error", agent=self.name)
 
             setup_duration = time.monotonic() - setup_start
             AGENT_SETUP_LATENCY_SECONDS.record(setup_duration, self._setup_latency_attrs)
             AGENT_SETUP_SUCCESS_TOTAL.add(1, self._setup_success_attrs)
         except Exception as exc:
             # Log setup failure AND track metric
-            self.logger.exception("agent.setup_failed")
+            self.logger.exception("daemon.setup_failed")
             AGENT_SETUP_FAILURE_TOTAL.add(
                 1, {"agent": self._agent_label, "error_type": type(exc).__name__}
             )
@@ -315,7 +316,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             await self._run()
         except Exception:
             # Log run failure AND track crash metric
-            self.logger.exception("agent.run_failed")
+            self.logger.exception("daemon.run_failed")
             AGENT_CRASH_TOTAL.add(1, self._crash_attrs)
             raise
         finally:
@@ -333,7 +334,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
 
     async def stop(self) -> None:
         """Lifecycle teardown. Override to add flush/drain logic."""
-        self.logger.info("agent.stopped", agent=self.name)
+        self.logger.info("daemon.stopped", agent=self.name)
 
     async def _setup(self) -> None:  # noqa: B027
         """Override to connect Kafka, seed history, etc. Called before _run().
@@ -424,7 +425,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             idle_secs = time.monotonic() - self._last_message_ts
             if idle_secs > self.max_idle_seconds:
                 self.logger.error(
-                    "agent.stall_detected",
+                    "daemon.stall_detected",
                     agent=self.name,
                     idle_seconds=int(idle_secs),
                     max_idle_seconds=self.max_idle_seconds,
@@ -478,7 +479,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         if dlq_topic is None:
             # No DLQ configured — log and discard
             self.logger.error(
-                "agent.dlq_discard",
+                "daemon.dlq_discard",
                 agent=self.name,
                 error=str(error),
                 payload_keys=list(payload.keys()) if isinstance(payload, dict) else None,
@@ -505,7 +506,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
                     {"agent": self.name, "topic": dlq_topic, "error_type": type(error).__name__},
                 )
                 self.logger.info(
-                    "agent.dlq_routed",
+                    "daemon.dlq_routed",
                     agent=self.name,
                     topic=dlq_topic,
                     error_type=type(error).__name__,
@@ -513,14 +514,14 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             else:
                 # No producer available — log and discard
                 self.logger.warning(
-                    "agent.dlq_no_producer",
+                    "daemon.dlq_no_producer",
                     agent=self.name,
                     topic=dlq_topic,
                     error=str(error),
                 )
         except Exception as exc:
             self.logger.error(
-                "agent.dlq_route_failed",
+                "daemon.dlq_route_failed",
                 agent=self.name,
                 topic=dlq_topic,
                 error=str(exc),
@@ -590,7 +591,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
                 backoff = self.SETUP_RETRY_BACKOFF_S * (2**attempt)
                 AGENT_SETUP_RETRIES_TOTAL.add(1, self._cb_attrs)
                 self.logger.warning(
-                    "agent.setup_retry",
+                    "daemon.setup_retry",
                     attempt=attempt + 1,
                     max_attempts=self.SETUP_RETRY_ATTEMPTS,
                     backoff_seconds=backoff,
