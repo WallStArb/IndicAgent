@@ -2,8 +2,11 @@
 
 import asyncio
 from datetime import datetime
+from typing import ClassVar
+from unittest.mock import MagicMock
 
 import pytest
+from pydantic import BaseModel
 
 from src.core.ai.base_agent import BaseAIWorker, IAIAgent
 from src.core.ai.output import AgentOutput
@@ -186,3 +189,197 @@ class TestIAIAgentProtocol:
         assert agent.group == "alpha"
         assert agent.shadow_only is True
         assert agent.latency_budget_ms == 5000.0
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures and helpers for _run_typed tests
+# ---------------------------------------------------------------------------
+
+
+class _Result(BaseModel):
+    """Minimal result model for _run_typed tests."""
+
+    value: float
+
+
+def _make_typed_agent() -> BaseAIWorker:
+    """Build a concrete BaseAIWorker subclass with result_type = _Result."""
+
+    class TypedWorker(ConcreteAgent):
+        agent_id = "typed_worker"
+        result_type: ClassVar[type[BaseModel]] = _Result
+
+    return TypedWorker()
+
+
+def _make_ctx() -> SignalContext:
+    """Build a minimal SignalContext for tests."""
+    return SignalContext(
+        symbol="ES",
+        timeframe="5m",
+        ts=datetime.now(),
+        signal_id=None,
+        smc=None,
+    )
+
+
+class TestRunTyped:
+    """Tests for BaseAIWorker._run_typed() and __init_subclass__ guard."""
+
+    def test_happy_path_returns_result_type_instance(self, monkeypatch):
+        """_run_typed() returns validated result_type instance; Agent got correct kwargs."""
+        agent = _make_typed_agent()
+        ctx = _make_ctx()
+
+        captured_adapter_kwargs: dict = {}
+        sentinel_adapter = object()
+        captured_agent_kwargs: dict = {}
+
+        def fake_make_llm_adapter(**kwargs):
+            captured_adapter_kwargs.update(kwargs)
+            return sentinel_adapter
+
+        expected_result = _Result(value=0.5)
+
+        class FakeAgent:
+            def __init__(self, model, **kwargs):
+                captured_agent_kwargs.update(kwargs)
+                captured_agent_kwargs["model"] = model
+
+            async def run(self, prompt):
+                obj = MagicMock()
+                obj.output = expected_result
+                return obj
+
+        monkeypatch.setattr("src.core.ai.llm_adapter.make_llm_adapter", fake_make_llm_adapter)
+        # Monkeypatch pydantic_ai.Agent used inside the lazy import in _run_typed.
+        import pydantic_ai
+
+        monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+        async def run():
+            return await agent._run_typed(ctx, prompt="p", system="s")
+
+        result = asyncio.run(run())
+
+        assert result == expected_result
+        assert captured_agent_kwargs.get("output_type") is _Result
+        assert captured_agent_kwargs.get("retries") == 1
+        assert captured_agent_kwargs.get("model") is sentinel_adapter
+
+    def test_runtime_error_when_result_type_is_none(self):
+        """_run_typed() raises RuntimeError immediately if result_type is None."""
+
+        class NoTypedWorker(ConcreteAgent):
+            agent_id = "no_typed"
+            # result_type stays None (base class default)
+
+        agent = NoTypedWorker()
+        ctx = _make_ctx()
+
+        async def run():
+            await agent._run_typed(ctx, prompt="p", system="s")
+
+        with pytest.raises(RuntimeError, match="result_type is None"):
+            asyncio.run(run())
+
+    def test_timeout_derived_from_timeout_s(self, monkeypatch):
+        """make_llm_adapter is called with timeout == worker._timeout_s."""
+        agent = _make_typed_agent()
+        ctx = _make_ctx()
+        captured: dict = {}
+
+        def fake_make_llm_adapter(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        class FakeAgent:
+            def __init__(self, model, **kwargs):
+                pass
+
+            async def run(self, prompt):
+                obj = MagicMock()
+                obj.output = _Result(value=1.0)
+                return obj
+
+        monkeypatch.setattr("src.core.ai.llm_adapter.make_llm_adapter", fake_make_llm_adapter)
+        import pydantic_ai
+
+        monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+        asyncio.run(agent._run_typed(ctx, prompt="p", system="s"))
+
+        assert captured["timeout"] == agent._timeout_s
+
+    def test_max_tokens_none_resolves_to_default(self, monkeypatch):
+        """max_tokens=None is resolved to _default_max_tokens (an int, never None)."""
+        agent = _make_typed_agent()
+        ctx = _make_ctx()
+        captured: dict = {}
+
+        def fake_make_llm_adapter(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        class FakeAgent:
+            def __init__(self, model, **kwargs):
+                pass
+
+            async def run(self, prompt):
+                obj = MagicMock()
+                obj.output = _Result(value=1.0)
+                return obj
+
+        monkeypatch.setattr("src.core.ai.llm_adapter.make_llm_adapter", fake_make_llm_adapter)
+        import pydantic_ai
+
+        monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+        # Call without max_tokens — should default to 2048
+        asyncio.run(agent._run_typed(ctx, prompt="p", system="s"))
+        assert captured["max_tokens"] == 2048
+        assert isinstance(captured["max_tokens"], int)
+
+        # Call with explicit max_tokens=500
+        captured.clear()
+        asyncio.run(agent._run_typed(ctx, prompt="p", system="s", max_tokens=500))
+        assert captured["max_tokens"] == 500
+
+    def test_audit_context_carries_agent_id_and_placeholder_call_id(self, monkeypatch):
+        """audit_context passed to make_llm_adapter has correct agent_id and call_id=""."""
+        agent = _make_typed_agent()
+        ctx = _make_ctx()
+        captured: dict = {}
+
+        def fake_make_llm_adapter(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        class FakeAgent:
+            def __init__(self, model, **kwargs):
+                pass
+
+            async def run(self, prompt):
+                obj = MagicMock()
+                obj.output = _Result(value=1.0)
+                return obj
+
+        monkeypatch.setattr("src.core.ai.llm_adapter.make_llm_adapter", fake_make_llm_adapter)
+        import pydantic_ai
+
+        monkeypatch.setattr(pydantic_ai, "Agent", FakeAgent)
+
+        asyncio.run(agent._run_typed(ctx, prompt="p", system="s"))
+
+        audit = captured["audit_context"]
+        assert audit["agent_id"] == agent.agent_id
+        assert audit["call_id"] == "", "adapter must mint the real call_id, not _run_typed"
+
+    def test_init_subclass_guard_raises_type_error_on_non_basemodel(self):
+        """Defining a subclass with a non-BaseModel result_type raises TypeError at class-definition time."""
+        with pytest.raises(TypeError, match="result_type must be a pydantic BaseModel subclass"):
+            type(
+                "_BadWorker",
+                (ConcreteAgent,),
+                {"result_type": int, "agent_id": "bad", "group": "alpha"},
+            )
