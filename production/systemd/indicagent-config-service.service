@@ -13,7 +13,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=METRICS_PORT=9005
 # CONFIG_API_TOKEN must be set in /etc/indicagent/config.env or via systemd override
 # EnvironmentFile=-/etc/indicagent/config.env
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/config_service_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/config_service.py
 Restart=always
 WatchdogSec=60
 NotifyAccess=main
