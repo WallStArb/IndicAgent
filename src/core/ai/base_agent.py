@@ -123,8 +123,9 @@ class BaseAIWorker(BaseDaemon, ABC):
                 span.record_exception(exc)
                 span.set_attribute("status", "timeout")
                 span.set_attribute("latency_ms", round(latency_ms, 1))
+                # Base-class infra events use the "ai_worker." role prefix (not a per-service agent_id) — intentional exception to the {derived_agent_id}.action convention.
                 logger.warning(
-                    "ai_agent.timeout",
+                    "ai_worker.timeout",
                     agent_id=self.agent_id,
                     timeout_s=self._timeout_s,
                     latency_ms=round(latency_ms, 1),
@@ -142,7 +143,7 @@ class BaseAIWorker(BaseDaemon, ABC):
                 span.set_attribute("status", "error")
                 span.set_attribute("error", str(exc)[:200])
                 logger.exception(
-                    "ai_agent.exception",
+                    "ai_worker.exception",
                     agent_id=self.agent_id,
                     error=str(exc),
                 )

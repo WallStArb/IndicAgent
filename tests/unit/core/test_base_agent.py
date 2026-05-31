@@ -194,7 +194,7 @@ async def test_exception_capture_logs_and_reraises() -> None:
 
     mock_logger.exception.assert_called_once()
     call_args = mock_logger.exception.call_args
-    assert call_args[0][0] == "agent.run_failed"
+    assert call_args[0][0] == "daemon.run_failed"
 
 
 @pytest.mark.asyncio
@@ -318,8 +318,8 @@ async def test_setup_failure_logs_agent_setup_failed() -> None:
 
     logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
     assert (
-        "agent.setup_failed" in logged_events
-    ), "Expected agent.setup_failed to be logged via logger.exception when _setup() raises"
+        "daemon.setup_failed" in logged_events
+    ), "Expected daemon.setup_failed to be logged via logger.exception when _setup() raises"
 
 
 @pytest.mark.asyncio
@@ -342,8 +342,8 @@ async def test_setup_failure_does_not_log_run_failed() -> None:
 
     logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
     assert (
-        "agent.run_failed" not in logged_events
-    ), "agent.run_failed must not be logged when _setup() fails — _run() was never called"
+        "daemon.run_failed" not in logged_events
+    ), "daemon.run_failed must not be logged when _setup() fails — _run() was never called"
 
 
 # ---------------------------------------------------------------------------
