@@ -3,7 +3,7 @@ FROM timescale/timescaledb:latest-pg15
 USER root
 
 RUN apk add --no-cache --virtual .build-deps git build-base clang15 llvm15 postgresql15-dev \
-    && git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+    && git clone --branch v0.8.2 https://github.com/pgvector/pgvector.git /tmp/pgvector \
     && cd /tmp/pgvector && make && make install \
     && rm -rf /tmp/pgvector \
     && apk del .build-deps
