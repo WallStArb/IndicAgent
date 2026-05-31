@@ -87,7 +87,6 @@ class MacroAnalyzer(BaseDaemon):
         )
 
         super().__init__(
-            name="MacroComputeAgent",
             max_idle_seconds=300,  # 5 minutes stall detection
             settings=settings,
         )

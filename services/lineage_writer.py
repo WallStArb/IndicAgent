@@ -26,7 +26,7 @@ class LineageWriter(BaseWriter):
     flush_interval_s = 2.0
 
     def __init__(self, **kwargs):
-        super().__init__(name="lineage_writer_agent", **kwargs)
+        super().__init__(**kwargs)
         self._pool: asyncpg.Pool | None = None
 
     async def _setup(self) -> None:
@@ -96,10 +96,7 @@ class LineageWriter(BaseWriter):
 
 
 def main() -> None:
-    from src.core.service_utils import setup_service_logging
-
     settings = Settings()
-    setup_service_logging("logs/lineage_writer_agent.log")
 
     agent = LineageWriter(settings=settings)
     asyncio.run(agent.start())

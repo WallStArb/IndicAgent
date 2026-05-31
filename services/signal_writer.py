@@ -53,7 +53,6 @@ class SignalWriter(BaseWriter):
 
     def __init__(self) -> None:
         super().__init__(
-            name="signal_writer_agent",
             max_idle_seconds=300,
         )
 

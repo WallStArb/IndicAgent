@@ -68,7 +68,6 @@ _DQ_FAILURES = _smc_meter.create_counter(
     description="Data quality gate failures by reason",
 )
 
-_AGENT_NAME = "signal_metrics_compute"
 _INTERVAL_SECONDS = 900  # 15 minutes
 _LOOKBACK_DAYS = 90  # max window — query covers full 90d
 
@@ -113,7 +112,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name=_AGENT_NAME)
+        super().__init__()
         self._db: DatabaseManager | None = None
         self._producer: KafkaProducerClient | None = None
         self._interval_seconds = _INTERVAL_SECONDS
@@ -181,7 +180,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
         """Timer loop: run compute cycle every 15 minutes until stop event."""
         import time as _time
 
-        _attrs = {"agent": _AGENT_NAME}
+        _attrs = {"agent": self._agent_label}
         # lag_task created by BaseDaemon.start() at line 155
         while not self._stop_event.is_set():
             _t0 = _time.monotonic()
@@ -215,7 +214,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
             return
 
         delta = len(rows) - self._last_rows_count
-        _ROWS_PROCESSED.add(delta, {"agent": _AGENT_NAME})
+        _ROWS_PROCESSED.add(delta, {"agent": self._agent_label})
         self._last_rows_count = len(rows)
         self.logger.info("signal_metrics_compute.cycle rows=%d", len(rows))
 
@@ -243,7 +242,7 @@ class SignalMetricsAnalyzer(BaseDaemon):
                     continue  # already published in a previous cycle
                 self._published_dq_keys.add(dq_key)
                 new_dq_count += 1
-                _DQ_FAILURES.add(1, {"agent": _AGENT_NAME, "reason_code": vr.reason_code})
+                _DQ_FAILURES.add(1, {"agent": self._agent_label, "reason_code": vr.reason_code})
                 await self._producer.publish(
                     topic,
                     msg={

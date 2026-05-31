@@ -94,7 +94,7 @@ class GraduationAnalyzer(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="GraduationComputeAgent")
+        super().__init__()
 
         # Kafka clients (initialized in _setup)
         self._consumer: KafkaConsumerClient | None = None

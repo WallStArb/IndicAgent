@@ -207,6 +207,9 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             return m.create_up_down_counter(name.lstrip("_"))
         if name == "_plugin_circuit_breakers":
             return {}
+        # Phase 111: _agent_label derived from class name when tests bypass __init__.
+        if name == "_agent_label":
+            return _to_snake_case(type(self).__name__)
         # Phase 109: config consumer attrs — tests that bypass __init__ via __new__ need these.
         if name == "_config_cache":
             return {}

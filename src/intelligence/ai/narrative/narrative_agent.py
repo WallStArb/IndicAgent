@@ -47,7 +47,7 @@ class NarrativeSynthesizer(BaseAIWorker):
     _NARRATIVE_TFS = frozenset({"5m", "15m", "1h", "4h", "1d"})
 
     def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
-        super().__init__(name="NarrativeSynthesizer", **kwargs)
+        super().__init__(**kwargs)
         self._llm = llm_chain
 
     async def _compute(self, context: SignalContext) -> AgentOutput:
