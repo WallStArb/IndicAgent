@@ -21,7 +21,7 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.base_group_service import BaseSwarmCoordinator
-from src.core.service_utils import is_signal_stale, parse_iso_ts, setup_service_logging
+from src.core.service_utils import is_signal_stale, parse_iso_ts
 from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7_signals,
@@ -168,7 +168,6 @@ class NarrativeSwarm(BaseSwarmCoordinator):
 
 
 def main() -> None:
-    setup_service_logging("logs/narrative_group_compute_agent.log")
     settings = Settings()
     service = NarrativeSwarm(settings)
     asyncio.run(service.start())

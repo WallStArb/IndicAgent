@@ -35,7 +35,7 @@ class AlertMonitor(BaseDaemon):
 
     def __init__(self) -> None:
         settings = get_settings()
-        super().__init__(name="alerting_agent", settings=settings)
+        super().__init__(settings=settings)
         self._http_session: aiohttp.ClientSession | None = None
         self._consumer: KafkaConsumerClient | None = None
 

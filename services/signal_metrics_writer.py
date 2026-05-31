@@ -31,7 +31,6 @@ from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import topic_signal_metrics
 from src.intelligence.schemas import SignalMetricsEvent
 
-_AGENT_NAME = "signal_metrics_writer"
 _CONSUMER_GROUP = "signal_metrics_writer_consumer"
 
 
@@ -231,7 +230,7 @@ class SignalMetricsWriter(BaseWriter):
     payload_model = SignalMetricsEvent
 
     def __init__(self) -> None:
-        super().__init__(name=_AGENT_NAME)
+        super().__init__()
         self._db: DatabaseManager | None = None
 
     def _topic_name(self) -> str:

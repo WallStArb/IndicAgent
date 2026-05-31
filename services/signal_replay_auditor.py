@@ -55,7 +55,7 @@ class SignalReplayAuditor(BaseDaemon):
     agent_id = "signal_replay_auditor"
 
     def __init__(self) -> None:
-        super().__init__(name="signal_replay_auditor", max_idle_seconds=600)
+        super().__init__(max_idle_seconds=600)
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
         self._last_unresolved_count: int = 0

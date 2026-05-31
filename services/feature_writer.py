@@ -230,7 +230,6 @@ class FeatureWriter(BaseWriter):
 
         config = self._load_config(config_file)
         super().__init__(
-            name="feature_writer_agent",
             max_idle_seconds=300,
         )
         self.config = config
@@ -270,7 +269,7 @@ class FeatureWriter(BaseWriter):
             "feature_writer_db_connected",
             description="DB connection state (1=connected, 0=disconnected)",
         )
-        self._batch_latency_attrs = {"agent_id": "feature_writer_agent"}
+        self._batch_latency_attrs = {"agent_id": self._agent_label}
 
         self._total_events = 0
         self._total_batches = 0
@@ -342,7 +341,7 @@ class FeatureWriter(BaseWriter):
             self._total_batches += 1
             self.events_buffered_gauge.set(0)
             # Single authoritative lag update after flush (not duplicated before + after)
-            PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": "feature_writer_agent"})
+            PERSISTENCE_CONSUMER_LAG.set(0, {"agent_id": self._agent_label})
             self.logger.debug("Flushed intelligence_features batch", rows=len(batch))
 
             span.set_attribute(ATTR_BATCH_SIZE, len(batch))
@@ -532,9 +531,7 @@ class FeatureWriter(BaseWriter):
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
-                PERSISTENCE_CONSUMER_LAG.set(
-                    len(self._buffer), {"agent_id": "feature_writer_agent"}
-                )
+                PERSISTENCE_CONSUMER_LAG.set(len(self._buffer), {"agent_id": self._agent_label})
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",
