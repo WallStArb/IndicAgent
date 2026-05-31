@@ -1295,7 +1295,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
 
   1. `plugin_correlation_pairs` table exists with CHECK (plugin_a < plugin_b); `plugin_correlation_batch.py` runs idempotently, UPSERTs pairs with directional_r and co_fire_count, skipping pairs below co_fire_count >= 30; oneshot emits `job_completed_total{job="plugin-correlation-batch", status}` on exit (D-06)
-  2. `shadow_registry` has `correlation_suppressed boolean NOT NULL DEFAULT false`; `shadow_registry_active` VIEW filters WHERE promoted=true AND NOT correlation_suppressed; `intelligence_pipeline` and `aggregator` query the view, not the base table
+  2. `shadow_registry` has `correlation_suppressed boolean NOT NULL DEFAULT false`; `shadow_registry_active` VIEW filters WHERE NOT is_shadow AND NOT correlation_suppressed; suppressed plugins excluded from I7 executor loop before any `_compute()` call (D-16 satisfied by executor skip gate — aggregator has no direct shadow_registry query)
   3. Auto-suppression runs for pairs meeting all three gates (directional_r >= 0.80, co_fire_count >= 100, inferior plugin has lower bootstrap_ci_lower); suppression is reversible — pairs that decay below threshold are cleared on next run
   4. `effective_plugin_count` gauge emitted at batch completion and via Prometheus scrape of API (reads latest plugin_correlation_summary row); `plugin_correlation_suppressed_total` gauge emitted
   5. `plugin_correlation_summary` history kept (1 row per weekly run); systemd timer unit fires Monday alongside ml-discovery
