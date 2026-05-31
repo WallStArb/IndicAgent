@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-stopped_at: context exhaustion at 75% (2026-05-31)
-last_updated: "2026-05-31T13:10:47.577Z"
+stopped_at: Completed 095-pydantic-ai-agents-05-PLAN.md
+last_updated: "2026-05-31T13:31:49.254Z"
 last_activity: 2026-05-31 -- Phase 095 planning complete
 progress:
   total_phases: 22
   completed_phases: 3
   total_plans: 19
-  completed_plans: 13
+  completed_plans: 15
   percent: 14
 ---
 
@@ -96,6 +96,8 @@ Last activity: 2026-05-31 -- Phase 095 planning complete
 - **Phase 107 Renaissance design (2026-05-25):** Expanded from 4 to 9 criteria based on architectural weakness assessment. 3-wave structure: Service Consistency (BaseAgent adoption, DatabaseManager standardization, Agent ID labels), Silent Failure Elimination (writer flush spans, metric types, data loss), Complexity Reduction (DAG correctness, dead code, shadow integrity). Measurement-driven with binary SQL verification query.
 - [Phase 095-pydantic-ai-agents]: response_format forwarded to acompletion() via conditional dict insert, not unconditional kwarg - preserves byte-for-byte default path
 - [Phase 095-pydantic-ai-agents]: Semantic cache skipped for structured calls (response_format not None) on both get and put paths
+- [Phase 095-pydantic-ai-agents]: Move LLMProviderChain to TYPE_CHECKING in skeptic_agent - from __future__ annotations makes it safe and avoids instructor/mistral import error in unit tests
+- [Phase 095-pydantic-ai-agents]: No parallel class or feature gate for SkepticEvaluator typed migration - straight replacement per D-14, D-15, D-16; shadow_only is the containment mechanism
 
 ### Analysis Docs
 
@@ -119,8 +121,8 @@ Last activity: 2026-05-31 -- Phase 095 planning complete
 
 ## Session Continuity
 
-Last session: 2026-05-31T13:10:47.571Z
-Stopped at: context exhaustion at 75% (2026-05-31)
+Last session: 2026-05-31T13:31:49.248Z
+Stopped at: Completed 095-pydantic-ai-agents-05-PLAN.md
 Resume: `/gsd-execute-phase 110` — execute the rename phase (atomic branch `rename/phase-110`)
 
 **Phase 110 planning complete (2026-05-30):** 4 plans in 4 sequential waves. Key findings: AgentContext/AgentProtocol don't exist yet (Phase 095 deliverables — scoped OUT of Wave 1). FeatureValidationComputeAgent added to scope (Wave 3+4). SignalContext file-move to Ring 1 deferred to Phase 095. Dashboard display strings preserved (operational exception — agent_id metric label). Commit: 1e01ab6e.
@@ -144,3 +146,4 @@ Resume: `/gsd-execute-phase 110` — execute the rename phase (atomic branch `re
 | Phase 104 P03 | 45 | 3 tasks | 16 files |
 | Phase 107 P00 | 469 | 5 tasks | 6 files |
 | Phase 095-pydantic-ai-agents P02 | 12 | 3 tasks | 3 files |
+| Phase 095-pydantic-ai-agents P05 | 7 | 3 tasks | 7 files |
