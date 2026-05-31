@@ -145,11 +145,18 @@ class LiteLLMBackend:
         system: str,
         max_tokens: int,
         timeout: float,
+        response_format: dict | None = None,
     ) -> str | None:
         """Call each provider in order; return first non-None result or None.
 
         Resets last_provider_id and last_token_usage at the start of each call.
         Sets them only on a successful response.
+
+        Args:
+            response_format: Optional JSON schema dict forwarded to acompletion() only
+                when non-None. Enables grammar-constrained structured output (e.g. Ollama).
+                When None (default), omitted entirely so the default path is byte-for-byte
+                unchanged.
         """
         self.last_provider_id = None
         self.last_token_usage = None
@@ -160,6 +167,8 @@ class LiteLLMBackend:
                 continue
             try:
                 extra = self._build_extra_kwargs(provider)
+                if response_format is not None:
+                    extra["response_format"] = response_format
                 response = await acompletion(
                     model=provider,
                     messages=[
