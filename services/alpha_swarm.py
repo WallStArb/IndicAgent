@@ -72,7 +72,7 @@ _GRAD_DEMOTION_STREAK = 3  # consecutive negative-rho cycles to trigger demotion
 # Agent-to-transform mapping for LineageRecorder attribution (D-22).
 # Maps agent_id -> (transform_name, tier_level) for all four swarm agents.
 _SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
-    "skeptic_v1": ("swarm_skeptic", 6),
+    "skeptic": ("swarm_skeptic", 6),
     "correlation_v1": ("swarm_correlation", 6),
     "regime_coherence_v1": ("swarm_regime_coherence", 6),
     "counterfactual_v1": ("swarm_counterfactual", 6),

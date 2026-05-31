@@ -17,14 +17,14 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
+async def test_graduation_loop_promotes_skeptic_end_to_end() -> None:
     """Insert 100 lineage + ledger rows with positive correlation → promote to live.
 
     End-to-end test:
-    1. Ensure skeptic_v1 is enrolled in shadow_registry
+    1. Ensure skeptic is enrolled in shadow_registry
     2. Insert 100 signal_lineage rows (agent_prediction) + signal_ledger rows (positive pnl_r)
     3. Run one graduation cycle
-    4. Assert shadow_registry.is_shadow=FALSE for skeptic_v1
+    4. Assert shadow_registry.is_shadow=FALSE for skeptic
 
     Cleans up inserted rows after the test.
     """
@@ -38,18 +38,18 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
     settings = Settings()
     pool = await create_db_pool(settings.database_url, min_size=1, max_size=3)
 
-    # Ensure skeptic_v1 enrolled (idempotent)
+    # Ensure skeptic enrolled (idempotent)
     async with pool.acquire() as conn:
         await conn.execute(
             """
             INSERT INTO shadow_registry (component_name, component_type, is_shadow)
-            VALUES ('skeptic_v1', 'swarm_agent', TRUE)
+            VALUES ('skeptic', 'swarm_agent', TRUE)
             ON CONFLICT (component_name) DO NOTHING
             """,
         )
         # Force back to shadow for this test
         await conn.execute(
-            "UPDATE shadow_registry SET is_shadow=TRUE WHERE component_name='skeptic_v1'",
+            "UPDATE shadow_registry SET is_shadow=TRUE WHERE component_name='skeptic'",
         )
 
     # Generate 100 strongly correlated (prediction, pnl_r) pairs
@@ -89,7 +89,7 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
                 """
                 INSERT INTO signal_lineage
                     (ts, signal_id, event_type, source, prediction, symbol, tf)
-                VALUES ($1, $2, 'agent_prediction', 'skeptic_v1', $3::jsonb, 'ESM6', '5m')
+                VALUES ($1, $2, 'agent_prediction', 'skeptic', $3::jsonb, 'ESM6', '5m')
                 """,
                 now,
                 uuid.UUID(sig_id),
@@ -111,10 +111,10 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
         # Assert promotion happened
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT is_shadow FROM shadow_registry WHERE component_name='skeptic_v1'"
+                "SELECT is_shadow FROM shadow_registry WHERE component_name='skeptic'"
             )
 
-        assert row is not None, "skeptic_v1 not found in shadow_registry"
+        assert row is not None, "skeptic not found in shadow_registry"
         assert (
             row["is_shadow"] is False
         ), f"Expected is_shadow=FALSE after promotion, got {row['is_shadow']}"
@@ -131,6 +131,6 @@ async def test_graduation_loop_promotes_skeptic_v1_end_to_end() -> None:
                 )
             # Reset back to shadow after test
             await conn.execute(
-                "UPDATE shadow_registry SET is_shadow=TRUE WHERE component_name='skeptic_v1'"
+                "UPDATE shadow_registry SET is_shadow=TRUE WHERE component_name='skeptic'"
             )
         await pool.close()
