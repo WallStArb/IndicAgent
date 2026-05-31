@@ -1111,18 +1111,25 @@ Plans:
 
 ### Phase 095: Pydantic AI Agent Execution Layer
 
-**Goal**: Build a generic, inheritable Pydantic AI foundation at the base class level — `IndicAgentModel` bridge, `result_type` ClassVar on `BaseMultiplierAgent`, `AgentDeps` typed container — so every new AI agent gets typed structured output, auto-retry, tool calling, and audit trail for free. `SkepticComputeAgentV2` is the reference shadow implementation proving the pattern.
-**Depends on**: Phase 094
+**Goal**: Add a typed, validated LLM execution path to `BaseAIWorker` — a `WorkerContext` frozen dep container, an `LLMAdapter` (pydantic-ai `FunctionModel`) that routes through `LLMProviderChain` preserving circuit breaking and the `llm_calls` audit trail, and a `_run_typed()` method plus `result_type: ClassVar` opt-in — so every AI agent gets pydantic-ai's grammar-constrained structured output, validation, and retry for free. `SkepticEvaluator` is migrated straight to `_run_typed()` as the reference implementation (no parallel class, no feature gate).
+**Depends on**: Phase 094 (and sequenced after Phase 110 rename)
 **Requirements**: AGENT-EXEC-01, AGENT-EXEC-02, AGENT-EXEC-03, AGENT-EXEC-04, AGENT-EXEC-05
 **Success Criteria** (what must be TRUE):
 
-  1. `IndicAgentModel` exists as a custom Pydantic AI `Model` wrapping `LiteLLMModel`; `BaseMultiplierAgent` has `result_type: ClassVar` and `_run_typed()`; calling `self._run_typed(context, prompt, system)` produces the same `AgentOutput` as the legacy `_llm_generate()` path, verified by a test using `SkepticComputeAgentV2`
-  2. `AgentDeps` frozen dataclass at `src/core/ai/agent_deps.py` carries `signal_context`, `llm_chain`, `db_pool`, and optional `memory_client`; passed as `deps` to `pydantic_ai.Agent.run()` enabling tool calling in future phases
-  3. `SkepticComputeAgentV2` (shadow_only=True) runs via `_run_typed()` with `result_type=SkepticResult`; all other agents remain on `BaseAIAgent`/`_llm_generate()` unchanged
-  4. After >= 100 inferences, `calibrated_confidence` delta between `SkepticComputeAgentV2` and `SkepticComputeAgent` baseline is logged via structlog; tracked by inference counter in `shadow_registry`; no automatic promotion
-  5. `BaseAIAgent` class is unchanged; `_llm_generate()` signature and behavior unmodified; unmigrated agents pass all existing tests
+  1. `LLMAdapter` (`make_llm_adapter()`) is a pydantic-ai `FunctionModel` whose `request()` routes through `LLMProviderChain.generate()`, passing the `result_type` JSON schema as `response_format` and the audit_context; circuit breaking and the `llm_calls` trail are preserved (AGENT-EXEC-01)
+  2. `WorkerContext` frozen dataclass at `src/core/ai/worker_context.py` carries `signal_context`, `llm_chain`, `db_pool`, `memory_client`; Ring 0 boundary preserved via TYPE_CHECKING + `Any` (AGENT-EXEC-02)
+  3. `BaseAIWorker` has `result_type: ClassVar` and `_run_typed()` using pydantic-ai 1.0 API (`output_type=`, `result.output`), timeout from `self._timeout_s`, RuntimeError when `result_type is None` (AGENT-EXEC-03)
+  4. `SkepticEvaluator` runs via `_run_typed()` with `result_type=SkepticResult` and `agent_id="skeptic"`; transfer function and AlphaSwarm wiring unchanged; no `SkepticPydanticEvaluator`, no `ENABLE_PYDANTIC_SKEPTIC` gate (AGENT-EXEC-04)
+  5. `BaseAIWorker._llm_generate()` / `_llm_generate_structured()` are unmodified; unmigrated agents pass all existing tests (AGENT-EXEC-05)
 
-**Plans**: 5 plans in 3 waves
+**Plans**: 5 plans in 4 waves
+
+Plans:
+- [ ] 095-01-PLAN.md — pydantic-ai dependency + WorkerContext frozen dataclass (Wave 1)
+- [ ] 095-02-PLAN.md — response_format threading through chain.generate() + LiteLLMBackend (Wave 1)
+- [ ] 095-03-PLAN.md — LLMAdapter FunctionModel bridge through LLMProviderChain (Wave 2)
+- [ ] 095-04-PLAN.md — _run_typed() + result_type ClassVar on BaseAIWorker (Wave 3)
+- [ ] 095-05-PLAN.md — SkepticEvaluator straight migration + alpha_swarm mapping (Wave 4)
 
 ### Phase 096: Agent Registry
 
