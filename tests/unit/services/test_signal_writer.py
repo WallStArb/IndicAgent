@@ -85,7 +85,7 @@ def _make_payload(n_signals: int = 2, winner_idx: int = 0) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class TestSignalWriterAgentStructure:
+class TestSignalWriterStructure:
     def test_consumer_group_constant(self):
         from services.signal_writer import CONSUMER_GROUP
 
@@ -268,7 +268,7 @@ class TestPayloadToLedgerEntries:
 # ---------------------------------------------------------------------------
 
 
-class TestSignalWriterAgentFlush:
+class TestSignalWriterFlush:
     @pytest.mark.asyncio
     async def test_flush_calls_insert_signals(self):
         from services.signal_writer import _payload_to_ledger_entries

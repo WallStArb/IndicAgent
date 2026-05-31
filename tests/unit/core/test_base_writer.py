@@ -66,7 +66,7 @@ class StubWriterAgent(BaseWriter):
 # ---------------------------------------------------------------------------
 
 
-class TestBaseWriterAgentAbstract:
+class TestBaseWriterAbstract:
     """Test 1: BaseWriter is abstract — cannot be instantiated directly."""
 
     def test_cannot_instantiate_directly(self):

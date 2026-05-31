@@ -1,4 +1,4 @@
-"""MLSignalTrainingMaterializeAgent — nightly materialization of ML training data (Phase 104).
+"""MLSignalTrainingMaterializer — nightly materialization of ML training data (Phase 104).
 
 Systemd Type=oneshot service invoked by indicagent-ml-signal-training-materialize.timer
 (nightly 02:00 UTC, runs before ML training at 03:00).
@@ -37,8 +37,8 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 logger = structlog.get_logger(__name__)
 
 
-class MLSignalTrainingMaterializeAgent(BaseDaemon):
-    """Nightly ML training data materialization agent.
+class MLSignalTrainingMaterializer(BaseDaemon):
+    """Nightly ML training data materialization service.
 
     Runs as a systemd Type=oneshot service, materializing flat typed rows from
     intelligence_features.trading_signals + signal_ledger into ml_signal_training
@@ -46,7 +46,7 @@ class MLSignalTrainingMaterializeAgent(BaseDaemon):
     """
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__("MLSignalTrainingMaterializeAgent")
+        super().__init__()
         self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._meter = _otel_metrics.get_meter("indicagent")

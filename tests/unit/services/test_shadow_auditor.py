@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 
-from services.shadow_auditor_agent import (
+from services.shadow_auditor import (
     TAIL_GATE_MIN_RECOVERY,
     TAIL_GATE_MIN_SKEWNESS,
     _check_promotion,
@@ -168,7 +168,7 @@ def test_promotion_query_filters_is_shadow_true():
     """
     import inspect
 
-    import services.shadow_auditor_agent as mod
+    import services.shadow_auditor as mod
 
     source = inspect.getsource(mod._check_promotion)
     # Must contain is_shadow = TRUE (the shadow row filter for shadow signal observations)
@@ -191,7 +191,7 @@ def test_demotion_query_filters_is_shadow_false():
     """
     import inspect
 
-    import services.shadow_auditor_agent as mod
+    import services.shadow_auditor as mod
 
     source = inspect.getsource(mod._check_demotion)
     # Must contain is_shadow = FALSE (live-only observations for demotion gate)
@@ -215,7 +215,7 @@ def test_run_audit_skips_swarm_agent_rows():
     import asyncio
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from services.shadow_auditor_agent import _run_audit
+    from services.shadow_auditor import _run_audit
 
     # Build a mock registry with one swarm_agent and one i7_plugin
     swarm_row = {
@@ -277,8 +277,8 @@ def test_run_audit_skips_swarm_agent_rows():
         check_demotion_calls.append(row["component_name"])
 
     with (
-        patch("services.shadow_auditor_agent._check_promotion", side_effect=fake_check_promotion),
-        patch("services.shadow_auditor_agent._check_demotion", side_effect=fake_check_demotion),
+        patch("services.shadow_auditor._check_promotion", side_effect=fake_check_promotion),
+        patch("services.shadow_auditor._check_demotion", side_effect=fake_check_demotion),
     ):
         asyncio.run(_run_audit(pool_mock, "test"))
 
@@ -324,14 +324,14 @@ def test_check_promotion_fails_open_when_tail_gate_db_query_raises():
     pool_mock.acquire = MagicMock(return_value=acquire_cm)
 
     with (
-        patch("services.shadow_auditor_agent.SHADOW_TAIL_GATE_DB_ERROR") as mock_db_err_counter,
-        patch("services.shadow_auditor_agent.SHADOW_TAIL_RISK_BLOCKED") as mock_blocked_counter,
-        patch("services.shadow_auditor_agent.SHADOW_N_RESOLVED"),
-        patch("services.shadow_auditor_agent.SHADOW_WIN_RATE"),
-        patch("services.shadow_auditor_agent.SHADOW_EV_R"),
-        patch("services.shadow_auditor_agent.SHADOW_EV_CI_LOWER"),
-        patch("services.shadow_auditor_agent.SHADOW_DAYS_TO_GATE"),
-        patch("services.shadow_auditor_agent.SHADOW_PROMOTION_READY"),
+        patch("services.shadow_auditor.SHADOW_TAIL_GATE_DB_ERROR") as mock_db_err_counter,
+        patch("services.shadow_auditor.SHADOW_TAIL_RISK_BLOCKED") as mock_blocked_counter,
+        patch("services.shadow_auditor.SHADOW_N_RESOLVED"),
+        patch("services.shadow_auditor.SHADOW_WIN_RATE"),
+        patch("services.shadow_auditor.SHADOW_EV_R"),
+        patch("services.shadow_auditor.SHADOW_EV_CI_LOWER"),
+        patch("services.shadow_auditor.SHADOW_DAYS_TO_GATE"),
+        patch("services.shadow_auditor.SHADOW_PROMOTION_READY"),
     ):
         # Must not raise
         asyncio.run(_check_promotion(pool_mock, "test", registry_row))

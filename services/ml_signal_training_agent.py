@@ -11,19 +11,19 @@ import asyncio
 import _path_bootstrap  # noqa: F401
 
 from src.config.settings import Settings
-from src.intelligence.services.ml_signal_training_materialize_agent import (
-    MLSignalTrainingMaterializeAgent,
+from src.intelligence.services.ml_signal_training_materializer import (
+    MLSignalTrainingMaterializer,
 )
 
 
 def main() -> None:
     """Create agent, run materialization, exit cleanly.
 
-    MLSignalTrainingMaterializeAgent catches all exceptions and logs them,
+    MLSignalTrainingMaterializer catches all exceptions and logs them,
     so asyncio.run() always completes cleanly (systemd oneshot exit code 0).
     """
     settings = Settings()
-    agent = MLSignalTrainingMaterializeAgent(settings)
+    agent = MLSignalTrainingMaterializer(settings)
     asyncio.run(agent.start())
 
 
