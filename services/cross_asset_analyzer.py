@@ -145,7 +145,6 @@ class CrossAssetAnalyzer(BaseDaemon):
         # Initialize BaseDaemon with metrics port and stall detection
         # max_idle_seconds=300 (5 minutes) - no intelligence messages for 5min = stall
         super().__init__(
-            name="CrossAssetComputeAgent",
             max_idle_seconds=300,
         )
 

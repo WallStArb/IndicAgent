@@ -123,34 +123,34 @@ _DAG_ORDER: dict[str, int] = {
 # by production/migrations/109_config_foundation.sql (Phase 109 Plan 05 Task 3).
 
 # Maps persistence_consumer_lag agent_id label -> systemd unit name.
-# Keys MUST match the name= argument in each service's super().__init__() call
+# Keys MUST match the auto-derived agent_id from BaseDaemon._to_snake_case(ClassName)
 # because that becomes the agent_id label on PERSISTENCE_CONSUMER_LAG in base.py.
 _AGENT_ID_TO_UNIT: dict[str, str] = {
-    "bar_writer_agent": "indicagent-bar-writer",
-    "bar_aggregator_agent": "indicagent-bar-aggregator",
-    "intelligence_pipeline_agent": "indicagent-intelligence-pipeline",
-    "feature_writer_agent": "indicagent-feature-writer",
-    "SignalTrackerComputeAgent": "indicagent-signal-tracker-compute",
-    "signal_writer_agent": "indicagent-signal-writer",
-    "llm_writer_agent": "indicagent-llm-writer",
-    "CrossAssetComputeAgent": "indicagent-cross-asset",
-    "bar_auditor_agent": "indicagent-bar-auditor",
-    "provider_merger_agent": "indicagent-provider-merger",
-    "lifecycle_writer_agent": "indicagent-lifecycle-writer",
-    "lineage_writer_agent": "indicagent-lineage-writer",
-    "signal_metrics_compute": "indicagent-signal-metrics-compute",
+    "bar_writer": "indicagent-bar-writer",
+    "bar_aggregator": "indicagent-bar-aggregator",
+    "intelligence_pipeline": "indicagent-intelligence-pipeline",
+    "feature_writer": "indicagent-feature-writer",
+    "signal_tracker": "indicagent-signal-tracker-compute",
+    "signal_writer": "indicagent-signal-writer",
+    "llm_writer": "indicagent-llm-writer",
+    "cross_asset_analyzer": "indicagent-cross-asset",
+    "bar_auditor": "indicagent-bar-auditor",
+    "provider_merger": "indicagent-provider-merger",
+    "lifecycle_writer": "indicagent-lifecycle-writer",
+    "lineage_writer": "indicagent-lineage-writer",
+    "signal_metrics_analyzer": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
-    "AlphaSwarmComputeAgent": "indicagent-alpha-swarm",
-    "NarrativeGroupComputeAgent": "indicagent-narrative-compute",
+    "alpha_swarm": "indicagent-alpha-swarm",
+    "narrative_swarm": "indicagent-narrative-compute",
     "swarm_ledger_writer": "indicagent-swarm-ledger-writer",
-    "MacroComputeAgent": "indicagent-macro-compute",
-    "signal_auditor_agent": "indicagent-signal-auditor",
-    "GraduationComputeAgent": "indicagent-graduation-compute",
-    "graduation_writer_agent": "indicagent-graduation-writer",
-    "ctx_writer_agent": "indicagent-ctx-writer",
+    "macro_analyzer": "indicagent-macro-compute",
+    "signal_auditor": "indicagent-signal-auditor",
+    "graduation_analyzer": "indicagent-graduation-compute",
+    "graduation_writer": "indicagent-graduation-writer",
+    "context_writer": "indicagent-ctx-writer",
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
-    "dlq_drain_agent": "indicagent-dlq-drain",
+    "dlq_drain": "indicagent-dlq-drain",
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
