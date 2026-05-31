@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import structlog
+from pydantic import BaseModel
 
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
@@ -46,8 +47,9 @@ class SkepticEvaluator(Evaluator):
         "risk_factors": list,
         "reasoning": str,
     }
+    result_type: ClassVar[type[BaseModel]] = SkepticResult
 
-    agent_id = "skeptic_v1"
+    agent_id = "skeptic"
     prompt_version = ACTIVE_VERSION
     group = "alpha"
     tiers_needed = frozenset({Tier.I1, Tier.I4, Tier.I6, Tier.I7, Tier.SMC})
@@ -92,25 +94,9 @@ class SkepticEvaluator(Evaluator):
         else:
             prompt = build_skeptic_prompt(_context_to_dict(context))
 
-        result, call_id = await self._llm_generate_structured(
-            context,
-            prompt=prompt,
-            system=_SYSTEM_MESSAGE,
-            response_model=SkepticResult,
-            max_tokens=500,
-            timeout=self.latency_budget_ms / 1000.0,
+        result = await self._run_typed(  # type: ignore[assignment]
+            context, prompt=prompt, system=_SYSTEM_MESSAGE, max_tokens=500
         )
-
-        if result is None:
-            logger.warning(
-                "skeptic_agent.structured_output_failed",
-                agent_id=self.agent_id,
-            )
-            # Do NOT call _report_parse_failure here: the chain already published a failure
-            # audit row with succeeded=False/parse_success=False. _report_parse_failure is
-            # only for the _llm_generate (unstructured) path where the initial audit row
-            # records success and a corrective update is needed.
-            return self._neutral(error="Structured output failed", latency_ms=0.0)
 
         failure_probability = result.failure_probability
         llm_confidence = result.confidence
