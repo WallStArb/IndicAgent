@@ -280,7 +280,7 @@ class ServiceAuditor(BaseDaemon):
         # by _pre_setup_config_load before _setup is called).
         await self._load_lag_thresholds()
         self.logger.info(
-            "service_auditor_agent.setup_complete",
+            "service_auditor.setup_complete",
             env=self.env_name,
             lag_threshold_count=len(self._lag_thresholds),
         )

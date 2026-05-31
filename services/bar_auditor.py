@@ -150,7 +150,7 @@ class BarAuditor(BaseDaemon):
         )
         await self._contract_consumer.start()
         self.logger.info(
-            "bar_auditor_agent.setup_complete",
+            "bar_auditor.setup_complete",
             topics_produced=self.topics_produced,
             topics_consumed=self.topics_consumed,
         )
@@ -215,14 +215,14 @@ class BarAuditor(BaseDaemon):
                 self._record_message_consumed()  # Track liveness for stall detection
                 invalidate_active_contracts_cache()
                 self.logger.info(
-                    "bar_auditor_agent.contract_update_received",
+                    "bar_auditor.contract_update_received",
                     count=count,
                 )
         except TimeoutError:
             pass  # Expected — no messages available
         except Exception as exc:
             self.logger.debug(
-                "bar_auditor_agent.contract_drain_error",
+                "bar_auditor.contract_drain_error",
                 error=str(exc),
             )
 
@@ -298,7 +298,7 @@ class BarAuditor(BaseDaemon):
                 sym = w.instrument.symbol
                 if self._is_roll_suppressed(sym):
                     self.logger.debug(
-                        "bar_auditor_agent.gap_suppressed_post_roll",
+                        "bar_auditor.gap_suppressed_post_roll",
                         symbol=sym,
                         date=str(w.target_date),
                     )
@@ -333,7 +333,7 @@ class BarAuditor(BaseDaemon):
                     )
                     if should_emit:
                         self.logger.warning(
-                            "bar_auditor_agent.gap_detected",
+                            "bar_auditor.gap_detected",
                             symbol=sym,
                             date=str(w.target_date),
                             actual=actual,
@@ -361,7 +361,7 @@ class BarAuditor(BaseDaemon):
                     )
                     if completeness_htf < threshold:
                         self.logger.warning(
-                            "bar_auditor_agent.htf_gap_detected",
+                            "bar_auditor.htf_gap_detected",
                             symbol=sym,
                             tf=tf_name,
                             date=str(w.target_date),
@@ -395,14 +395,14 @@ class BarAuditor(BaseDaemon):
 
             _AUDITS_RUN.add(1, self._agent_attrs)
             self.logger.info(
-                "bar_auditor_agent.audit_complete",
+                "bar_auditor.audit_complete",
                 gap_requests_published=len(gap_requests),
             )
 
         except Exception as exc:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
-                "bar_auditor_agent.audit_error",
+                "bar_auditor.audit_error",
                 error=str(exc),
             )
             # Do not re-raise — audit loop must continue on transient failures
@@ -578,7 +578,7 @@ class BarAuditor(BaseDaemon):
         )
         self._gap_fill_dlq_depth.add(1)
         self.logger.warning(
-            "bar_auditor_agent.gap_fill_dlq",
+            "bar_auditor.gap_fill_dlq",
             symbol=symbol,
             tf=tf,
             retry_count=retry_count,

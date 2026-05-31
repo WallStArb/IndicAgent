@@ -193,7 +193,7 @@ class BarWriter(BaseWriter):
                 _BARS_WRITTEN.add(1, self._bars_written_attrs[tf])
 
         self.logger.debug(
-            "bar_writer_agent.flush_complete",
+            "bar_writer.flush_complete",
             batch_size=len(batch),
             latency_ms=round((time.monotonic() - t0) * 1000, 2),
         )
@@ -212,13 +212,13 @@ class BarWriter(BaseWriter):
             except Exception as exc:
                 if _attempt == _cache_attempts - 1:
                     self.logger.error(
-                        "bar_writer_agent.contract_cache_load_failed",
+                        "bar_writer.contract_cache_load_failed",
                         attempts=_cache_attempts,
                         error=str(exc),
                     )
                     raise
                 self.logger.warning(
-                    "bar_writer_agent.contract_cache_retry",
+                    "bar_writer.contract_cache_retry",
                     attempt=_attempt + 1,
                     backoff_seconds=_cache_backoff,
                     error=str(exc),
@@ -235,7 +235,7 @@ class BarWriter(BaseWriter):
         await self._kafka_consumer.start()
         self._last_flush = time.monotonic()
         self.logger.info(
-            "bar_writer_agent.setup_complete",
+            "bar_writer.setup_complete",
             topics_consumed=self.topics_consumed,
             contracts_cached=len(self._contract_cache),
         )
@@ -264,7 +264,7 @@ class BarWriter(BaseWriter):
                 _EVENTS_CONSUMED.add(1, self._events_consumed_attrs)
             except Exception as exc:
                 self.logger.warning(
-                    "bar_writer_agent.parse_failed",
+                    "bar_writer.parse_failed",
                     error=str(exc),
                     payload_preview=str(payload)[:200],
                 )
@@ -303,13 +303,13 @@ class BarWriter(BaseWriter):
 
         if cache_size == 0:
             self.logger.warning(
-                "bar_writer_agent.contract_cache_empty",
+                "bar_writer.contract_cache_empty",
                 reason="ContractMetadataWriterAgent may not have seeded yet "
                 "— futures fall back to contract code as base symbol",
             )
         else:
             self.logger.info(
-                "bar_writer_agent.contract_cache_loaded",
+                "bar_writer.contract_cache_loaded",
                 count=cache_size,
             )
 
@@ -325,7 +325,7 @@ class BarWriter(BaseWriter):
         try:
             event = ContractUpdateEvent.model_validate(payload)
             self.logger.info(
-                "bar_writer_agent.contract_update_received",
+                "bar_writer.contract_update_received",
                 base_symbol=event.base_symbol,
                 old_contract=event.old_contract,
                 new_contract=event.new_contract,
@@ -336,14 +336,14 @@ class BarWriter(BaseWriter):
             _CONTRACT_CACHE_SIZE.set(len(self._contract_cache), self._contract_cache_size_attrs)
             _CONTRACT_CACHE_RELOADS.add(1, self._contract_cache_reloads_attrs)
             self.logger.info(
-                "bar_writer_agent.contract_cache_updated",
+                "bar_writer.contract_cache_updated",
                 old_contract=event.old_contract,
                 new_contract=event.new_contract,
                 cache_size=len(self._contract_cache),
             )
         except Exception as exc:
             self.logger.error(
-                "bar_writer_agent.contract_update_handler_failed",
+                "bar_writer.contract_update_handler_failed",
                 error=str(exc),
             )
             # Do not crash — existing cache remains valid for outgoing contract
@@ -391,7 +391,7 @@ class BarWriter(BaseWriter):
             )
         except Exception as exc:
             self.logger.warning(
-                "bar_writer_agent.parse_failed",
+                "bar_writer.parse_failed",
                 error=str(exc),
                 payload_preview=str(payload)[:200],
             )
