@@ -8,7 +8,7 @@ Validation dimensions (per src.intelligence.swarm.graduation):
   - Value-add: Sharpe ratio improvement from high-confidence filter
 
 Usage:
-    python scripts/validate_skeptic.py --agent skeptic_v1 [--days 90] [--symbol-filter ESM6]
+    python scripts/validate_skeptic.py --agent skeptic [--days 90] [--symbol-filter ESM6]
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ async def fetch_validation_data(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Statistical validation gate for swarm agents.")
-    parser.add_argument("--agent", required=True, help="Agent ID to validate (e.g. skeptic_v1)")
+    parser.add_argument("--agent", required=True, help="Agent ID to validate (e.g. skeptic)")
     parser.add_argument(
         "--days", type=int, default=90, help="Days of history to query (default: 90)"
     )
