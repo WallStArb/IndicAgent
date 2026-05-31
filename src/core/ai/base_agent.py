@@ -193,7 +193,7 @@ class BaseAIWorker(BaseDaemon, ABC):
         self, context: SignalContext, prompt: str, call_id: str
     ) -> dict[str, Any]:
         """Build the base audit_context dict for an LLM call."""
-        ctx: dict[str, Any] = {
+        audit_context: dict[str, Any] = {
             "call_id": call_id,
             "called_at": format_iso_ts(datetime.now(UTC)),
             "symbol": context.symbol,
@@ -209,8 +209,8 @@ class BaseAIWorker(BaseDaemon, ABC):
         if context.smc is not None:
             regime = getattr(context.smc, "hmm_regime", None)
             if regime is not None:
-                ctx["regime"] = str(int(regime))
-        return ctx
+                audit_context["regime"] = str(int(regime))
+        return audit_context
 
     async def _llm_generate(
         self,
