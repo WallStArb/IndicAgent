@@ -3,7 +3,7 @@
 
 import pytest
 
-from src.core.plugin_validator import PluginValidator
+from src.intelligence.plugin_validator import PluginValidator
 from src.intelligence.register_plugins import (
     TIER_I7,
     register_all_plugins,
@@ -108,7 +108,7 @@ def test_fails_when_i7_plugin_missing_regime_type():
 
 def test_fails_when_trend_setups_contains_unregistered_name():
     """TREND_SETUPS contains name not in TIER_I7 -> RuntimeError matching 'TREND_SETUPS'."""
-    import src.core.plugin_validator as pv_mod
+    import src.intelligence.plugin_validator as pv_mod
 
     register_all_plugins()
     validator = PluginValidator()

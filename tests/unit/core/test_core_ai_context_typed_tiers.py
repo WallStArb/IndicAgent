@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from src.core.ai.context import SignalContext, SignalContextCache, Tier
+from src.intelligence.ai.context import SignalContext, SignalContextCache, Tier
 from src.intelligence.schemas import (
     I1Indicators,
     I2Events,
@@ -161,7 +161,7 @@ class TestSparseClassesDeleted:
     """D-10: I1Context, I4Context(TierContext), I6Context must not exist in context module."""
 
     def test_no_i1context_local_class(self) -> None:
-        import src.core.ai.context as ctx_mod
+        import src.intelligence.ai.context as ctx_mod
 
         assert not hasattr(
             ctx_mod, "I1Context"
@@ -172,13 +172,13 @@ class TestSparseClassesDeleted:
         schemas.I4Context may be imported but should not be exposed as a local class
         that shadows the schemas import.
         """
-        import src.core.ai.context as ctx_mod
+        import src.intelligence.ai.context as ctx_mod
 
         # Check that if I4Context exists in module it's the schemas type
         i4 = getattr(ctx_mod, "I4Context", None)
         if i4 is not None:
             # Must be the schemas version, not TierContext subclass
-            from src.core.ai.context import TierContext
+            from src.intelligence.ai.context import TierContext
 
             assert not issubclass(i4, TierContext), (
                 "Sparse I4Context(TierContext) must be deleted per D-10; "
@@ -186,7 +186,7 @@ class TestSparseClassesDeleted:
             )
 
     def test_no_i6context_local_class(self) -> None:
-        import src.core.ai.context as ctx_mod
+        import src.intelligence.ai.context as ctx_mod
 
         assert not hasattr(
             ctx_mod, "I6Context"
@@ -196,13 +196,13 @@ class TestSparseClassesDeleted:
         """File-level grep check: no 'class I1Context' in context.py."""
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         assert "class I1Context" not in content
 
     def test_grep_no_class_i6context(self) -> None:
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         assert "class I6Context" not in content
 
 
@@ -212,7 +212,7 @@ class TestNoEscapeHatch:
     def test_no_full_features_field(self) -> None:
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         assert "full_features" not in content
 
     def test_aicontext_i1_type_is_not_dict(self) -> None:
@@ -246,7 +246,7 @@ class TestSchemaImports:
 
     def test_i1indicators_importable_from_context_module(self) -> None:
         """I1Indicators must be accessible (used in type annotations)."""
-        from src.core.ai.context import SignalContext  # noqa: F401
+        from src.intelligence.ai.context import SignalContext  # noqa: F401
 
         # Verify I1Indicators is the type used for i1 field
         field = SignalContext.model_fields.get("i1")
@@ -255,12 +255,12 @@ class TestSchemaImports:
     def test_schemas_import_present(self) -> None:
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         assert "from src.intelligence.schemas import" in content
 
     def test_i1indicators_i2events_in_content(self) -> None:
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         for cls in ["I1Indicators", "I2Events", "I3Structure", "I5Patterns", "I6Confluence"]:
             assert cls in content, f"{cls} must be imported in context.py"

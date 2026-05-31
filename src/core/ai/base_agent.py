@@ -14,7 +14,6 @@ from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
 from src.core.agent.base import BaseDaemon
-from src.core.ai.context import SignalContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
 from src.observability.metrics import (
@@ -29,6 +28,10 @@ from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
 if TYPE_CHECKING:
     from src.core.ai.lineage import LineageRecorder
     from src.core.llm.chain import LLMProviderChain
+    from src.intelligence.ai.context import (  # ring0-ok: TYPE_CHECKING only, not at runtime
+        SignalContext,
+        Tier,
+    )
 
 logger = structlog.get_logger(__name__)
 

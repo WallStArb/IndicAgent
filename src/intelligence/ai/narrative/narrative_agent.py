@@ -18,9 +18,9 @@ from typing import Any
 import structlog
 
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import SignalContext, Tier
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
+from src.intelligence.ai.context import SignalContext, Tier
 from src.intelligence.ai.narrative.narrative_prompts import (
     ACTIVE_VERSION,
     build_narrative_prompt,

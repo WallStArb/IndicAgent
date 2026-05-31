@@ -117,7 +117,7 @@ class PluginValidator:
 
     def __init__(self) -> None:
         # Lazy import to avoid circular import
-        from ..intelligence.plugins import registry
+        from src.intelligence.plugins import registry
 
         self.registry = registry
         setup_service_logging("logs/plugin_validator.log")

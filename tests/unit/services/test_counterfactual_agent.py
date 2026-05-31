@@ -2,11 +2,11 @@
 
 import pytest
 
-from src.core.ai.context import Tier
 from src.intelligence.ai.alpha.counterfactual_agent import (
     CounterfactualEvaluator,
     CounterfactualResult,
 )
+from src.intelligence.ai.context import Tier
 
 
 def test_result_accepts_valid_payload():

@@ -63,7 +63,7 @@ def test_result_coerces_non_list_contradicting_assets() -> None:
 
 
 def test_class_attributes() -> None:
-    from src.core.ai.context import Tier
+    from src.intelligence.ai.context import Tier
 
     assert CorrelationAnalyzer.agent_id == "correlation_v1"
     assert CorrelationAnalyzer.group == "alpha"

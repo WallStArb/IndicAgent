@@ -118,7 +118,7 @@ def _ensure_default_models_registered() -> None:
         return
     _default_models_registered = True
     try:
-        from src.intelligence.schemas import (
+        from src.intelligence.schemas import (  # ring0-ok: lazy import, not at module boundary
             I1Indicators,
             I2Events,
             I3Structure,

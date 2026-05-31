@@ -14,12 +14,12 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 
-from src.core.ai.context import QuantSignalContext, SignalContext, render_full_context
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     PROMPT_REGISTRY,
     build_skeptic_prompt,
 )
+from src.intelligence.ai.context import QuantSignalContext, SignalContext, render_full_context
 from src.intelligence.schemas import I1Indicators, I4Context, I6Confluence
 
 
@@ -99,7 +99,7 @@ class TestRenderFullContext:
         """The implementation must reference model_fields, not a hardcoded tier list."""
         import pathlib
 
-        content = pathlib.Path("src/core/ai/context.py").read_text()
+        content = pathlib.Path("src/intelligence/ai/context.py").read_text()
         assert (
             "model_fields" in content
         ), "render_full_context must iterate ctx.__class__.model_fields"
