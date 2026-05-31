@@ -64,12 +64,12 @@ class DataQualityAuditor(BaseDaemon):
 
     async def _run(self) -> None:
         """One-shot entry point: run checks, emit metrics, exit."""
-        self.logger.info("ml_data_quality.starting")
+        self.logger.info("data_quality_auditor.starting")
         score = await self._compute_quality_score()
         await self._write_score(score)
         await self._emit_metric(score)
         await self._maybe_publish_alert(score)
-        self.logger.info("ml_data_quality.complete", score=round(score, 4))
+        self.logger.info("data_quality_auditor.complete", score=round(score, 4))
 
     async def _compute_quality_score(self) -> float:
         """Run all 4 checks and return composite score [0.0, 1.0]."""
@@ -85,7 +85,7 @@ class DataQualityAuditor(BaseDaemon):
             + _W_OUTLIERS * outlier_score
         )
         self.logger.info(
-            "ml_data_quality.scores",
+            "data_quality_auditor.scores",
             cis=round(cis_score, 3),
             coverage=round(coverage_score, 3),
             gaps=round(gap_score, 3),
@@ -180,7 +180,7 @@ class DataQualityAuditor(BaseDaemon):
                 datetime.now(UTC),
                 round(score, 4),
             )
-        self.logger.info("ml_data_quality.score_written", score=round(score, 4))
+        self.logger.info("data_quality_auditor.score_written", score=round(score, 4))
 
     async def _emit_metric(self, score: float) -> None:
         """Update Prometheus gauge."""
@@ -189,7 +189,7 @@ class DataQualityAuditor(BaseDaemon):
 
             DATA_QUALITY_SCORE.set(score)
         except Exception as exc:
-            self.logger.warning("ml_data_quality.metric_emit_failed", error=str(exc))
+            self.logger.warning("data_quality_auditor.metric_emit_failed", error=str(exc))
 
     async def _maybe_publish_alert(self, score: float) -> None:
         """Publish alert to Kafka if score below threshold."""
@@ -206,7 +206,9 @@ class DataQualityAuditor(BaseDaemon):
                     ),
                 },
             )
-            self.logger.warning("ml_data_quality.alert_published", score=score, threshold=min_score)
+            self.logger.warning(
+                "data_quality_auditor.alert_published", score=score, threshold=min_score
+            )
 
 
 def main() -> None:

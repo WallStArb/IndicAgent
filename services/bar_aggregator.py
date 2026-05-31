@@ -225,7 +225,7 @@ class BarAggregator(BaseDaemon):
             self.logger.info("bar_aggregator.state.checkpoint_miss — starting fresh")
 
         self.logger.info(
-            "bar_aggregator_agent.setup_complete",
+            "bar_aggregator.setup_complete",
             topics_consumed=self.topics_consumed,
             topics_produced=self.topics_produced,
         )
@@ -451,7 +451,7 @@ class BarAggregator(BaseDaemon):
                                     _HTF_BARS_EMITTED.add(1, {"agent": self.name, "tf": htf_bar.tf})
                                     self._health_metrics.record_htf_bar()
                                     self.logger.debug(
-                                        "bar_aggregator_agent.htf_bar_published",
+                                        "bar_aggregator.htf_bar_published",
                                         symbol=htf_bar.symbol,
                                         tf=htf_bar.tf,
                                         ts=htf_bar.ts.isoformat(),
@@ -656,7 +656,7 @@ class BarAggregator(BaseDaemon):
         except Exception as exc:
             self._last_skip_reason = "parse_exception"
             self.logger.warning(
-                "bar_aggregator_agent.parse_failed",
+                "bar_aggregator.parse_failed",
                 error=str(exc),
                 payload_preview=str(payload)[:200],
             )

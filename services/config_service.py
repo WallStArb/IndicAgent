@@ -69,14 +69,14 @@ async def lifespan(app: FastAPI):
     config_service = ConfigService(database_url=settings.database_url)
     await config_service.initialize()
     logger.info(
-        "config_service_agent.startup",
+        "config_service.startup",
         port=9001,
         auth_enabled=CONFIG_API_TOKEN is not None,
     )
     yield
     if config_service is not None:
         await config_service.close()
-    logger.info("config_service_agent.shutdown")
+    logger.info("config_service.shutdown")
 
 
 app = FastAPI(

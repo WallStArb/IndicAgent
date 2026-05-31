@@ -110,7 +110,7 @@ class SignalAuditor(BaseDaemon):
         )
         await self._kafka_producer.start()
         self.logger.info(
-            "signal_auditor_agent.setup_complete",
+            "signal_auditor.setup_complete",
             topics_produced=self.topics_produced,
         )
 
@@ -171,14 +171,14 @@ class SignalAuditor(BaseDaemon):
 
             _AUDITS_RUN.add(1, self._agent_attrs)
             self.logger.info(
-                "signal_auditor_agent.audit_complete",
+                "signal_auditor.audit_complete",
                 coverage_gaps_published=len(gap_events),
             )
 
         except Exception as exc:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
-                "signal_auditor_agent.audit_error",
+                "signal_auditor.audit_error",
                 error=str(exc),
             )
 
@@ -232,7 +232,7 @@ class SignalAuditor(BaseDaemon):
 
                     if count == 0:
                         self.logger.warning(
-                            "signal_auditor_agent.coverage_gap",
+                            "signal_auditor.coverage_gap",
                             symbol=instrument.symbol,
                             tf=tf,
                             session_date=str(yesterday),
@@ -291,7 +291,7 @@ class SignalAuditor(BaseDaemon):
 
                     if p95 > _LAG_P95_WARN_MS:
                         self.logger.warning(
-                            "signal_auditor_agent.lag_threshold_exceeded",
+                            "signal_auditor.lag_threshold_exceeded",
                             symbol=instrument.symbol,
                             tf=tf,
                             p95_ms=round(p95, 1),
