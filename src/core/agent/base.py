@@ -25,6 +25,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import os
+import re
 import signal
 import sys
 import time
@@ -86,6 +87,19 @@ AGENT_SETUP_LATENCY_SECONDS = _base_meter.create_histogram(
 _tracing_initialized: bool = False
 
 
+def _to_snake_case(name: str) -> str:
+    """Convert PascalCase/CamelCase to snake_case.
+
+    Examples:
+        BarAggregator -> bar_aggregator
+        MLDiscoveryAnalyzer -> ml_discovery_analyzer
+        SignalTracker -> signal_tracker
+    """
+    s1 = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+    s2 = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1)
+    return s2.lower()
+
+
 class BaseDaemon(abc.ABC, ConfigConsumerMixin):
     """Abstract base for all pipeline agents.
 
@@ -113,14 +127,14 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
 
     def __init__(
         self,
-        name: str,
+        name: str | None = None,
         max_idle_seconds: int = 0,
         settings: Settings | None = None,
     ) -> None:
+        if name is None:
+            name = _to_snake_case(self.__class__.__name__)
         # Configure logging BEFORE creating logger using convention-over-configuration
         # Convert PascalCase agent names to snake_case for log files
-        import re
-
         log_name = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
         log_path = f"logs/{log_name}.log"
         # Guard: only configure if this exact path has not already been set up.
@@ -193,6 +207,9 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             return m.create_up_down_counter(name.lstrip("_"))
         if name == "_plugin_circuit_breakers":
             return {}
+        # Phase 111: _agent_label derived from class name when tests bypass __init__.
+        if name == "_agent_label":
+            return _to_snake_case(type(self).__name__)
         # Phase 109: config consumer attrs — tests that bypass __init__ via __new__ need these.
         if name == "_config_cache":
             return {}

@@ -25,7 +25,6 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_swarm_alpha
 from src.observability.metrics import SWARM_SIGNAL_LEDGER_UPDATE_TOTAL
 
@@ -81,8 +80,7 @@ class SwarmLedgerWriter(BaseDaemon):
     agent_id = "swarm_ledger_writer"
 
     def __init__(self, **kwargs) -> None:
-        setup_service_logging("logs/swarm_ledger_writer_agent.log")
-        super().__init__(name="swarm_ledger_writer", **kwargs)
+        super().__init__(**kwargs)
         self._pool: asyncpg.Pool | None = None
         self._consumer: KafkaConsumerClient | None = None
 

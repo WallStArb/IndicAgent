@@ -46,7 +46,7 @@ class BarReplayProvider(BaseDaemon):
     agent_id = "bar_replay_provider"
 
     def __init__(self) -> None:
-        super().__init__(name="bar_replay_provider", max_idle_seconds=300)
+        super().__init__(max_idle_seconds=300)
         self._producer: KafkaProducerClient | None = None
         self._pool: asyncpg.Pool | None = None
         self._last_replayed_ts: datetime | None = None

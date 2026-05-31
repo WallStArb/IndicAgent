@@ -163,7 +163,7 @@ class BarAggregator(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="bar_aggregator_agent", max_idle_seconds=300)
+        super().__init__(max_idle_seconds=300)
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None

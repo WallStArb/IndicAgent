@@ -106,7 +106,7 @@ class BarWriter(BaseWriter):
     FLUSH_INTERVAL_SECS = 5.0
 
     def __init__(self) -> None:
-        super().__init__(name="bar_writer_agent")
+        super().__init__()
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 

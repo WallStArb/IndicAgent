@@ -18,7 +18,6 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import (
     topic_transform_graduation,
     topic_transform_graduation_dlq,
@@ -53,7 +52,6 @@ class GraduationWriter(BaseWriter):
 
     def __init__(self) -> None:
         super().__init__(
-            name="graduation_writer_agent",
             max_idle_seconds=300,
         )
         self._db: DatabaseManager | None = None
@@ -105,7 +103,6 @@ class GraduationWriter(BaseWriter):
         self.logger.info("graduation_writer.flushed", count=len(batch))
 
     async def _setup(self) -> None:
-        setup_service_logging("logs/graduation_writer_agent.log")
         self._db = DatabaseManager(self.settings.database_url)
         await self._db.initialize()
         self._repo = TransformGraduationRepository(self._db)

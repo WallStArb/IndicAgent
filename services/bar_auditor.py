@@ -110,7 +110,7 @@ class BarAuditor(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="bar_auditor_agent", max_idle_seconds=300)
+        super().__init__(max_idle_seconds=300)
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None

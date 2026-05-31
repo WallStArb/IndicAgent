@@ -119,7 +119,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(persistence_batch_latency_seconds_bucket{agent_id=\"feature_writer_agent\"}[5m]))",
+          "expr": "histogram_quantile(0.95, rate(persistence_batch_latency_seconds_bucket{agent_id=\"feature_writer\"}[5m]))",
           "refId": "A",
           "legendFormat": "feature_writer p95"
         }
@@ -240,7 +240,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(provider_bars_produced_total{agent=\"bar_aggregator_agent\"}[5m]) * 300",
+          "expr": "rate(provider_bars_produced_total{agent=\"bar_aggregator\"}[5m]) * 300",
           "refId": "A",
           "legendFormat": "htf bars/5m"
         }

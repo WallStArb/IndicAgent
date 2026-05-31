@@ -29,7 +29,6 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_ml_orchestrator_dlq
 
 logger = structlog.get_logger(__name__)
@@ -57,8 +56,7 @@ class MLOrchestrator(BaseDaemon):
     """Weekly ML pipeline orchestrator using LangGraph StateGraph."""
 
     def __init__(self, settings: Settings) -> None:
-        setup_service_logging("logs/ml_orchestrator_agent.log")
-        super().__init__("MLOrchestratorComputeAgent")
+        super().__init__()
         self.settings = settings
         self._pool: asyncpg.Pool | None = None
         self._producer = KafkaProducerClient(
