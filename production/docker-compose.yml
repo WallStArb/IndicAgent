@@ -29,7 +29,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      - timescale-data:/var/lib/postgresql
       - ./:/workspace:rw
 
   redpanda:
