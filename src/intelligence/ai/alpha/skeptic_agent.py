@@ -6,20 +6,22 @@ No Kafka, no DB, no infrastructure -- all owned by dispatch layer.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 from pydantic import BaseModel
 
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
-from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.skeptic_prompts import (
     ACTIVE_VERSION,
     SkepticResult,
     build_skeptic_prompt,
 )
 from src.intelligence.ai.context import SignalContext, Tier
+
+if TYPE_CHECKING:
+    from src.core.llm.chain import LLMProviderChain
 
 logger = structlog.get_logger(__name__)
 
