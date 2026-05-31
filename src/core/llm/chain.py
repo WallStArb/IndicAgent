@@ -110,6 +110,7 @@ class LLMProviderChain:
         timeout: float,
         model: str = "default",
         audit_context: dict | None = None,
+        response_format: dict | None = None,
     ) -> str | None:
         """Generate a response. Returns None if all providers fail or guardrails reject."""
         with _tracer.start_as_current_span(
@@ -118,7 +119,7 @@ class LLMProviderChain:
         ) as span:
             try:
                 return await self._generate_inner(
-                    span, prompt, system, max_tokens, timeout, model, audit_context
+                    span, prompt, system, max_tokens, timeout, model, audit_context, response_format
                 )
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
@@ -134,8 +135,9 @@ class LLMProviderChain:
         timeout: float,
         model: str,
         audit_context: dict | None,
+        response_format: dict | None = None,
     ) -> str | None:
-        if self._cache_ttl > 0:
+        if self._cache_ttl > 0 and response_format is None:
             cached = _cache.get(system=system, prompt=prompt, model=model)
             if cached is not None:
                 LLM_CACHE_HITS.add(1, {"call_type": self._call_type})
@@ -155,7 +157,7 @@ class LLMProviderChain:
 
         t0 = time.monotonic()
         response = await self._inner.generate(
-            prompt, system, max_tokens=max_tokens, timeout=timeout
+            prompt, system, max_tokens=max_tokens, timeout=timeout, response_format=response_format
         )
         latency_s = time.monotonic() - t0
         provider_id = self._inner.last_provider_id or "unknown"
@@ -192,7 +194,7 @@ class LLMProviderChain:
 
         record_llm_call(provider_id, self._call_type, latency_s, tokens=tokens)
 
-        if self._cache_ttl > 0:
+        if self._cache_ttl > 0 and response_format is None:
             _cache.put(
                 system=system, prompt=prompt, model=model, response=response, ttl=self._cache_ttl
             )
