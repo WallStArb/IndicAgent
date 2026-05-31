@@ -278,11 +278,11 @@ def test_lag_thresholds_cover_consumers():
 
 
 def test_agent_id_to_unit_feature_writer_key():
-    """_AGENT_ID_TO_UNIT uses feature_writer_agent (not feature_writer) for feature-writer."""
+    """_AGENT_ID_TO_UNIT uses the auto-derived key feature_writer (not stale feature_writer_agent)."""
     from services.service_auditor import _AGENT_ID_TO_UNIT
 
-    assert _AGENT_ID_TO_UNIT["feature_writer_agent"] == "indicagent-feature-writer"
-    assert "feature_writer" not in _AGENT_ID_TO_UNIT
+    assert _AGENT_ID_TO_UNIT["feature_writer"] == "indicagent-feature-writer"
+    assert "feature_writer_agent" not in _AGENT_ID_TO_UNIT
 
 
 def test_service_auditor_has_unique_highest_priority():

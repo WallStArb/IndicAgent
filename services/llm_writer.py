@@ -403,7 +403,6 @@ class LLMWriter(BaseWriter):
         self.config = self._load_config(config_file)
 
         super().__init__(
-            name="llm_writer_agent",
             max_idle_seconds=300,
         )
 

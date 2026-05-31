@@ -113,7 +113,6 @@ class IntelligencePipeline(BaseDaemon):
 
         _settings = get_settings()
         super().__init__(
-            name="intelligence_pipeline_agent",
             max_idle_seconds=300,
             settings=_settings,
         )

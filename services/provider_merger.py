@@ -66,7 +66,7 @@ class ProviderMerger(BaseDaemon):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="provider_merger_agent")
+        super().__init__()
         self._provider_raw_topics: list[str] = self.settings.provider_raw_topics
         if not self._provider_raw_topics:
             raise ValueError("provider_raw_topics must be non-empty")

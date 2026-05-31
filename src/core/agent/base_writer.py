@@ -85,7 +85,7 @@ class BaseWriter(BaseDaemon, abc.ABC):
 
     def __init__(
         self,
-        name: str,
+        name: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(name=name, **kwargs)
@@ -101,38 +101,39 @@ class BaseWriter(BaseDaemon, abc.ABC):
         self._alert_threshold: float = self.BUFFER_ALERT_PCT * self.MAX_BUFFER_SIZE
 
         # Metrics — safe registration via module-level cache (test safety)
-        agent_snake = name.lower().replace(" ", "_")
+        # Use self.name (resolved by BaseDaemon auto-derive) rather than the local name arg
+        agent_snake = self.name.lower().replace(" ", "_")
         self._buffer_depth_gauge = _get_or_create_gauge(
             f"{agent_snake}_buffer_depth",
-            f"Current buffer depth for {name}",
+            f"Current buffer depth for {self.name}",
         )
         self._buffer_overflow_total = _get_or_create_counter(
             f"{agent_snake}_buffer_overflow_total",
-            f"Rows dropped due to buffer overflow in {name}",
+            f"Rows dropped due to buffer overflow in {self.name}",
         )
 
         # Write-path observability metrics
         self._flush_latency = _get_or_create_histogram(
             f"{agent_snake}_flush_latency_seconds",
-            f"DB batch write latency for {name}",
+            f"DB batch write latency for {self.name}",
             [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
         )
         self._commit_latency = _get_or_create_histogram(
             f"{agent_snake}_commit_latency_seconds",
-            f"Kafka offset commit latency for {name}",
+            f"Kafka offset commit latency for {self.name}",
             [0.0001, 0.001, 0.005, 0.01, 0.05, 0.1],
         )
         self._parse_failures_total = _get_or_create_counter(
             f"{agent_snake}_parse_failures_total",
-            f"Payload parse failures (routed to DLQ) in {name}",
+            f"Payload parse failures (routed to DLQ) in {self.name}",
         )
         self._flush_errors_total = _get_or_create_counter(
             f"{agent_snake}_flush_errors_total",
-            f"Batch flush failures in {name}",
+            f"Batch flush failures in {self.name}",
         )
         self._commit_errors_total = _get_or_create_counter(
             f"{agent_snake}_commit_errors_total",
-            f"Offset commit failures in {name}",
+            f"Offset commit failures in {self.name}",
         )
 
     @abc.abstractmethod

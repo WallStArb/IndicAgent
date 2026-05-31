@@ -73,7 +73,6 @@ class LifecycleWriter(BaseWriter):
 
     def __init__(self) -> None:
         super().__init__(
-            name="lifecycle_writer_agent",
             max_idle_seconds=300,
         )
 
