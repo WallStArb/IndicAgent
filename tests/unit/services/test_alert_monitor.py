@@ -74,7 +74,7 @@ def agent(mock_settings):
     return agent
 
 
-class TestAlertingAgentRouting:
+class TestAlertMonitorRouting:
     """Verify alert routing by severity."""
 
     @pytest.mark.asyncio
@@ -102,7 +102,7 @@ class TestAlertingAgentRouting:
         assert agent._http_session.call_count == 1
 
 
-class TestAlertingAgentEmptyCredentials:
+class TestAlertMonitorEmptyCredentials:
     """Verify graceful handling of empty credentials."""
 
     @pytest.mark.asyncio
@@ -138,7 +138,7 @@ class TestAlertingAgentEmptyCredentials:
         assert agent._http_session.call_count == 0
 
 
-class TestAlertingAgentHTTPErrors:
+class TestAlertMonitorHTTPErrors:
     """Verify HTTP errors are logged, not raised."""
 
     @pytest.mark.asyncio
@@ -190,7 +190,7 @@ class TestAlertingAgentHTTPErrors:
         assert agent.logger.warning.call_count >= 1
 
 
-class TestAlertingAgentRunRouting:
+class TestAlertMonitorRunRouting:
     """Verify _run() routes severity correctly from Kafka payload."""
 
     @pytest.mark.asyncio

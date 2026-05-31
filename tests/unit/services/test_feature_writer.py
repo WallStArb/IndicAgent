@@ -559,7 +559,7 @@ class TestComputeDaysToExpiry:
 # ── Lifecycle contract tests (D-17) ──────────────────────────────────────────
 
 
-class TestFeatureWriterAgentLifecycle:
+class TestFeatureWriterLifecycle:
     """D-17: Lifecycle contract tests for FeatureWriter.
 
     Uses __new__ injection pattern (CLAUDE.md) to bypass __init__ and test
