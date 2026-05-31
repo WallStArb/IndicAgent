@@ -1,652 +1,559 @@
-# Phase 095: Pydantic AI Agents - Research
+# Phase 095: Pydantic AI Execution Layer - Research
 
-**Researched:** 2026-05-20
-**Domain:** AI agent framework integration, structured output validation
+**Researched:** 2026-05-31
+**Domain:** pydantic-ai >=1.0 custom Model bridge, structured output, dependency injection
 **Confidence:** HIGH
+
+<user_constraints>
+## User Constraints (from CONTEXT.md)
+
+### Locked Decisions
+
+**WorkerContext (Ring 0 dep container)**
+- D-01: Location — `src/core/ai/worker_context.py`. Ring 0 portable infrastructure.
+- D-02: Implementation — `@dataclass(frozen=True)`. Not a Pydantic model.
+- D-03: Fields — Four fields: `signal_context: Any`, `llm_chain: LLMProviderChain`, `db_pool: Any | None = None`, `memory_client: Any | None = None`. `signal_context` typed as `Any` to preserve Ring 0 boundary.
+- D-04: Ring boundary — TYPE_CHECKING-only import for `LLMProviderChain` type annotation.
+
+**LLMAdapter (pydantic-ai Model bridge)**
+- D-05: Location — `src/core/ai/llm_adapter.py`. Ring 0 infrastructure.
+- D-06: Routing — `LLMAdapter` implements pydantic-ai's `Model` protocol. Its `request()` method calls `LLMProviderChain.generate()`. Circuit breaking, failover, rate limiting, and audit trail preserved. Never bypass the chain.
+- D-07: Audit injection — `LLMAdapter` constructed with `WorkerContext`. `request()` reads `agent_id`, `prompt_version`, and `symbol` to build `audit_context` before calling `chain.generate()`.
+- D-08: Retry — Inherit pydantic-ai `Agent` retry defaults via `retries=` parameter. `LLMAdapter` is a thin bridge, not a retry controller.
+- D-09: Structured output — Extract JSON schema from `model_request_parameters` (the `result_type` model schema), pass as `response_format` to `chain.generate()` for Ollama grammar-constrained generation.
+
+**`_run_typed()` on BaseAIWorker**
+- D-10: Placement — `result_type: ClassVar[type[BaseModel] | None] = None` and `_run_typed()` live on `BaseAIWorker`.
+- D-11: Signature — `async def _run_typed(self, context: SignalContext, prompt: str, system: str, max_tokens: int | None = None) -> BaseModel`. Timeout from `self._timeout_s`. `max_tokens` falls back to `_default_max_tokens: ClassVar[int] = 2048`.
+- D-12: Return type — Returns the `result_type` instance directly. Caller converts to `AgentOutput` via `_build_multiplier_output()`.
+- D-13: Error on misconfiguration — Calling `_run_typed()` when `result_type is None` raises `RuntimeError` immediately.
+
+**SkepticEvaluator — straight replacement, not parallel experiment**
+- D-14: No parallel class — `SkepticEvaluator` is migrated directly. No `SkepticPydanticEvaluator`, no feature gate.
+- D-15: Migration — `SkepticEvaluator._compute()` replaces `_llm_generate_structured` call with `await self._run_typed(...)`. `agent_id` renamed `"skeptic_v1"` to `"skeptic"`.
+- D-16: No ENABLE_PYDANTIC_SKEPTIC gate — remove it.
+
+### Claude's Discretion
+- None specified beyond the locked decisions above.
+
+### Deferred Ideas (OUT OF SCOPE)
+- Zep episodic memory (Phase 097) — `memory_client` field reserved but not wired.
+- DSPy prompt optimization (Phase 098).
+- Narrative/risk agent typed output migration.
+- Qualitative pipeline todos (P-CTX-03a, P-CTX-03b, P-CTX-04).
+</user_constraints>
+
+---
 
 ## Summary
 
-Pydantic AI is a production-grade agent framework from the Pydantic team that brings type-safe, modular LLM application development. Unlike hand-rolled JSON parsing, Pydantic AI leverages **native structured output** capabilities from model providers (OpenAI, Anthropic, Ollama v0.5.0+) to enforce JSON Schema compliance at generation time via constrained decoding (grammar-based generation). This eliminates parse failures entirely for supported models.
+pydantic-ai 1.0 (released September 4, 2025, current as of May 2026 at v1.104.0) provides a typed agent framework with structured output validation. The key deliverable for Phase 095 is **not** replacing `LiteLLMBackend` — it is adding a thin bridge so pydantic-ai's `Agent` can use our existing `LLMProviderChain` as its model backend, preserving circuit breaking, audit trail, and caching.
 
-**Primary recommendation:** Introduce Pydantic AI incrementally via an adapter pattern, starting with Skeptic agent as reference implementation. Use `NativeOutput(result_type)` with Ollama to leverage llama.cpp's grammar-constrained decoder, ensuring zero parse failures while preserving existing BaseAIAgent infrastructure.
+The architecture is: `BaseAIWorker._run_typed()` constructs a `pydantic_ai.Agent` with `LLMAdapter` as the model, calls `agent.run()`, and returns the validated `result_type` instance. `LLMAdapter` implements the `Model` abstract class. Its `request()` method extracts the JSON schema from `model_request_parameters.output_tools[0].parameters_json_schema`, passes it as `response_format` to `chain.generate()`, then wraps the raw JSON response in a `ModelResponse` with a `ToolCallPart` that pydantic-ai can validate against the schema.
+
+The key insight is that pydantic-ai's default `ToolOutput` mode passes the `result_type` JSON schema to the model as a "tool" parameter schema, then expects the model to respond with a tool call. For a custom `Model`, we intercept this at `request()` time, use the schema to constrain our LLM call, and return a fake tool-call response that pydantic-ai validates with Pydantic.
+
+**Primary recommendation:** Implement `LLMAdapter` as a `FunctionModel` wrapper (simpler than full `Model` subclass) using pydantic-ai's `FunctionModel`, or as a minimal `Model` subclass overriding only `request()`. Both approaches are viable; the `FunctionModel` path is lower friction for this use case.
 
 ## Standard Stack
 
 ### Core
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| `pydantic-ai` | Latest (2026) | Agent framework | Type-safe structured outputs, model-agnostic design, built by Pydantic team |
-| `pydantic` | ^2.0 | Data validation | Already in use, validates LLM outputs |
-| `ollama` | v0.5.0+ | Local LLM provider | Supports `response_format={type: "json_object", schema: ...}` via llama.cpp grammar constraints |
+| `pydantic-ai` | `>=1.0,<2` | Agent framework with typed output | 1.0 stable API; `output_type` enforces schema at call boundary |
+| `pydantic` | `>=2.12.0` (already installed) | Validation | Schema-builds `result_type`; already in use |
 
 ### Supporting
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| `pytest` | Existing | Testing | Shadow validation, A/B tests |
-| `asyncpg` | Existing | Database | Audit trail integration |
+| `pydantic-ai-slim` | same | No extra model SDKs | If we want minimal deps — the `-slim` package has no built-in model clients, just core framework |
 
 ### Alternatives Considered
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
-| Pydantic AI | Instructor | Instructor is deprecated; Pydantic AI is official successor with native model support |
-| Pydantic AI | LangChain | LangChain is heavier, less type-safe; Pydantic AI aligns with Renaissance modularity principles |
-| Pydantic AI | Hand-rolled parsing | Hand-rolled has high maintenance burden, parse failures, no validation |
+| `FunctionModel` (simpler bridge) | Full `Model` subclass | Full subclass is 3x more code, requires implementing `request()` properly with `ModelResponse`. `FunctionModel` accepts a plain async function — use it. |
+| pydantic-ai `Agent` per call | One `Agent` class-level singleton | Singleton means fixed `result_type` per class — correct for our use case since `result_type` is a `ClassVar` |
 
 **Installation:**
 ```bash
-uv add pydantic-ai
+uv pip install "pydantic-ai>=1.0,<2"
 ```
+Add to `requirements.txt`: `pydantic-ai>=1.0,<2`
 
 ## Architecture Patterns
 
 ### Recommended Project Structure
 ```
-src/intelligence/ai/
-├── alpha/
-│   ├── skeptic_agent.py           # Legacy (BaseAIAgent)
-│   ├── skeptic_agent_pydantic.py  # New (Pydantic AI)
-│   └── skeptic_prompts.py         # Shared prompts
-├── adapters/
-│   ├── __init__.py
-│   ├── pydantic_ai_adapter.py     # PydanticAIAdapter class
-│   └── agent_deps.py              # AgentDeps dataclass
-└── base_agent.py                  # BaseAIAgent (unchanged)
+src/core/ai/
+├── base_agent.py          # BaseAIWorker — add _run_typed() + result_type ClassVar
+├── evaluator.py           # Evaluator — unchanged
+├── worker_context.py      # NEW: WorkerContext frozen dataclass
+├── llm_adapter.py         # NEW: LLMAdapter (FunctionModel-based bridge)
+├── output.py              # AgentOutput — unchanged
+└── ...
+
+src/intelligence/ai/alpha/
+├── skeptic_agent.py       # SkepticEvaluator — migrate _compute() to _run_typed()
+└── skeptic_prompts.py     # SkepticResult stays here — becomes result_type
 ```
 
-### Pattern 1: PydanticAIAdapter
-**What:** Bridge between Pydantic AI and BaseAIAgent protocol
-**When to use:** Migrating agents incrementally without breaking existing infrastructure
-**Example:**
+### Pattern 1: WorkerContext — frozen dep container
+
+**What:** Carries per-run deps into `_run_typed()`. Passed to `LLMAdapter` so audit context is available inside `request()` without coupling to `BaseAIWorker`.
+
 ```python
-# src/intelligence/ai/adapters/pydantic_ai_adapter.py
-from pydantic_ai import Agent
-from src.core.ai.base_agent import BaseAIAgent
-from src.core.ai.context import AIContext
-from src.core.ai.output import AgentOutput
+# src/core/ai/worker_context.py
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-class PydanticAIAdapter(BaseAIAgent):
-    """Adapter that wraps pydantic_ai.Agent in BaseAIAgent protocol."""
+if TYPE_CHECKING:
+    from src.core.llm.chain import LLMProviderChain
 
-    def __init__(self, pydantic_agent: Agent, **kwargs):
-        super().__init__(**kwargs)
-        self._pydantic_agent = pydantic_agent
+@dataclass(frozen=True)
+class WorkerContext:
+    """Frozen dep container for _run_typed() calls.
 
-    async def _compute(self, context: AIContext) -> AgentOutput:
-        """Delegates to Pydantic AI agent, converts result to AgentOutput."""
-        deps = AgentDeps(
+    signal_context typed Any: Ring 0 cannot import Ring 1 SignalContext at runtime.
+    Caller (BaseAIWorker._run_typed) passes the concrete SignalContext instance.
+    """
+    signal_context: Any                    # runtime: SignalContext
+    llm_chain: "LLMProviderChain"
+    db_pool: Any | None = None             # reserved for Phase 097 (Zep memory)
+    memory_client: Any | None = None       # reserved for Phase 097 (Zep memory)
+```
+
+Ring boundary: `LLMProviderChain` is Ring 0 (`src/core/`), so the TYPE_CHECKING guard is only needed if `chain.py` imports something that imports Ring 1. In practice `LLMProviderChain` is Ring 0, so a direct import is fine — but use TYPE_CHECKING consistently with `base_agent.py` precedent.
+
+### Pattern 2: LLMAdapter via FunctionModel
+
+**What:** pydantic-ai `FunctionModel` accepts an async function `(messages, info) -> ModelResponse`. We construct one per `_run_typed()` call, capturing `worker_context`, `system`, and `max_tokens` via closure.
+
+**Why FunctionModel over full Model subclass:** `FunctionModel` wraps a plain async function. No abstract method ceremony, no streaming to implement. The function signature `(list[ModelMessage], AgentInfo) -> ModelResponse` is all we need.
+
+**Critical: how structured output flows through FunctionModel:**
+
+pydantic-ai in `ToolOutput` mode (the default) registers the `result_type` as an output tool. The tool's JSON schema appears in `info.output_tools[0].parameters_json_schema`. The model is expected to respond with a `ToolCallPart` naming that tool. pydantic-ai then validates the tool args as the `result_type`.
+
+Our bridge:
+1. Extract JSON schema from `info.output_tools[0].parameters_json_schema`
+2. Pass schema as `response_format` to `chain.generate()` (Ollama grammar-constrained)
+3. Parse the raw JSON response string
+4. Return `ModelResponse(parts=[ToolCallPart(tool_name=info.output_tools[0].name, args=raw_json_str, tool_call_id="0")])`
+5. pydantic-ai validates the args dict against `result_type` via Pydantic
+
+```python
+# src/core/ai/llm_adapter.py
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
+
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+if TYPE_CHECKING:
+    from src.core.ai.worker_context import WorkerContext
+
+
+def make_llm_adapter(
+    worker_context: "WorkerContext",
+    system: str,
+    max_tokens: int,
+    timeout: float,
+    audit_context: dict[str, Any],
+) -> FunctionModel:
+    """Construct a FunctionModel that routes through LLMProviderChain.
+
+    The returned FunctionModel is single-use per _run_typed() call.
+    audit_context is built by BaseAIWorker._build_audit_context() before this call.
+    """
+    chain = worker_context.llm_chain
+
+    async def _request(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> ModelResponse:
+        # Extract the output tool schema (pydantic-ai ToolOutput mode)
+        schema: dict[str, Any] | None = None
+        tool_name = "final_result"
+        if info.output_tools:
+            tool = info.output_tools[0]
+            tool_name = tool.name
+            schema = tool.parameters_json_schema
+
+        # Build prompt from last user message
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+        prompt = ""
+        for msg in reversed(messages):
+            if isinstance(msg, ModelRequest):
+                for part in msg.parts:
+                    if isinstance(part, UserPromptPart):
+                        prompt = part.content
+                        break
+            if prompt:
+                break
+
+        # Call chain with response_format if schema is available (Ollama grammar)
+        response = await chain.generate(
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            audit_context=audit_context,
+            # response_format passes JSON schema to Ollama for grammar-constrained generation
+            # chain.generate() signature must support this kwarg (see Open Questions)
+        )
+
+        if response is None:
+            # Return empty text; pydantic-ai will retry or raise
+            return ModelResponse(parts=[])
+
+        # Wrap raw JSON as a ToolCallPart so pydantic-ai validates against result_type
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name=tool_name,
+                    args=response,           # raw JSON string from LLM
+                    tool_call_id=str(uuid4()),
+                )
+            ]
+        )
+
+    return FunctionModel(_request)
+```
+
+### Pattern 3: `_run_typed()` on BaseAIWorker
+
+**What:** Universal typed execution path. Constructs `WorkerContext`, builds `audit_context`, creates `LLMAdapter`, runs `Agent`, returns validated `result_type` instance.
+
+```python
+# In BaseAIWorker — additions only
+
+from typing import ClassVar
+from pydantic import BaseModel
+
+class BaseAIWorker(BaseDaemon, ABC):
+    result_type: ClassVar[type[BaseModel] | None] = None
+    _default_max_tokens: ClassVar[int] = 2048
+
+    async def _run_typed(
+        self,
+        context: "SignalContext",
+        prompt: str,
+        system: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        """Execute a typed LLM call, returning a validated result_type instance.
+
+        Raises RuntimeError if result_type is not set on the subclass.
+        Timeout derived from self._timeout_s (computed from latency_budget_ms).
+        """
+        if self.result_type is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.result_type is None — "
+                "set result_type: ClassVar = YourModel to use _run_typed()"
+            )
+
+        from pydantic_ai import Agent
+        from src.core.ai.llm_adapter import make_llm_adapter
+        from src.core.ai.worker_context import WorkerContext
+
+        _max_tokens = max_tokens if max_tokens is not None else self._default_max_tokens
+        call_id = str(uuid4())
+        audit_context = self._build_audit_context(context, prompt, call_id)
+
+        worker_ctx = WorkerContext(
             signal_context=context,
             llm_chain=self._llm,
-            db_pool=None,  # Unused in Skeptic
-            memory_client=None,
         )
-        result = await self._pydantic_agent.run(context, deps=deps)
-        return self._to_agent_output(result)
+        adapter = make_llm_adapter(
+            worker_context=worker_ctx,
+            system=system,
+            max_tokens=_max_tokens,
+            timeout=self._timeout_s,
+            audit_context=audit_context,
+        )
 
-    def _to_agent_output(self, result) -> AgentOutput:
-        """Convert Pydantic AI result to canonical AgentOutput."""
-        # Map result.output to AgentOutput.payload
-        # Apply transfer function (multiplier = (1.0 - failure_probability) * confidence)
-        ...
+        agent: Agent[None, BaseModel] = Agent(
+            adapter,
+            output_type=self.result_type,
+            retries=1,  # 1 retry on validation failure; LLMProviderChain owns network retries
+        )
+
+        result = await agent.run(prompt)
+        return result.output
 ```
 
-### Pattern 2: NativeOutput with Result Models
-**What:** Leverage model's native structured output via JSON Schema
-**When to use:** All agent migrations — eliminates parse failures
-**Example:**
+### Pattern 4: SkepticEvaluator straight migration
+
+**What:** Replace `_llm_generate_structured` call with `_run_typed`. Same transfer function. Same `SkepticResult`. New `agent_id = "skeptic"`.
+
 ```python
-# Source: https://pydantic.dev/docs/ai/core-concepts/output/
-from pydantic import BaseModel, Field, field_validator
-from pydantic_ai import Agent, NativeOutput
+class SkepticEvaluator(Evaluator):
+    result_type: ClassVar[type[BaseModel]] = SkepticResult
+    agent_id = "skeptic"         # was "skeptic_v1" — version suffix removed per Phase 110/111
+    prompt_version = ACTIVE_VERSION
+    # ... other ClassVars unchanged ...
 
-class SkepticResult(BaseModel):
-    failure_probability: float = Field(ge=0.0, le=1.0)
-    confidence: float = Field(ge=0.0, le=1.0)
-    risk_factors: list[str] = Field(default_factory=list)
-    reasoning: str = Field(default="", max_length=500)
+    async def _compute(self, context: SignalContext) -> AgentOutput:
+        prompt = build_skeptic_prompt(context)
 
-    @field_validator("risk_factors", mode="before")
-    @classmethod
-    def coerce_to_list(cls, v):
-        if v is None:
-            return []
-        if not isinstance(v, list):
-            return [str(v)]
-        return [str(x) for x in v]
+        # Straight replacement — _run_typed replaces _llm_generate_structured
+        result: SkepticResult = await self._run_typed(  # type: ignore[assignment]
+            context,
+            prompt=prompt,
+            system=_SYSTEM_MESSAGE,
+            max_tokens=500,
+        )
 
-# Configure agent with NativeOutput
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    output_type=NativeOutput(SkepticResult),
-    instructions='Be a skeptical trading analyst...',
-)
+        failure_probability = result.failure_probability
+        llm_confidence = result.confidence
+        multiplier = (1.0 - failure_probability) * llm_confidence
 
-# Run agent — result.output is guaranteed to be SkepticResult
-result = await agent.run('Analyze this signal...')
-assert isinstance(result.output, SkepticResult)
-# No try/except needed — NativeOutput enforces schema at generation time
+        return self._build_multiplier_output(
+            context=context,
+            multiplier=multiplier,
+            confidence=llm_confidence,
+            payload={
+                "failure_probability": failure_probability,
+                "risk_factors": result.risk_factors,
+                "reasoning": result.reasoning,
+            },
+            prompt_version=ACTIVE_VERSION,
+        )
 ```
 
-### Pattern 3: AgentDeps Dependency Container
-**What:** Type-safe dependency injection via `RunContext[AgentDeps]`
-**When to use:** All agents — provides access to signal context, LLM chain, DB
-**Example:**
-```python
-# src/intelligence/ai/adapters/agent_deps.py
-from dataclasses import dataclass
-from src.core.ai.context import AIContext
-from src.core.llm.chain import LLMProviderChain
-
-@dataclass
-class AgentDeps:
-    """Dependency container for Pydantic AI agents."""
-    signal_context: AIContext
-    llm_chain: LLMProviderChain
-    db_pool: asyncpg.Pool | None = None
-    memory_client: Any | None = None
-
-# Use in agent via deps_type
-from pydantic_ai import Agent, RunContext
-
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    deps_type=AgentDeps,
-    output_type=SkepticResult,
-)
-
-@agent.tool
-async def get_signal_metadata(ctx: RunContext[AgentDeps]) -> dict:
-    """Access signal context via deps."""
-    return {
-        "symbol": ctx.deps.signal_context.symbol,
-        "timeframe": ctx.deps.signal_context.timeframe,
-    }
-```
+The `result is None` guard is eliminated — pydantic-ai raises `UnexpectedModelBehavior` on failure, which `BaseAIWorker.compute()` catches and converts to `_neutral()`.
 
 ### Anti-Patterns to Avoid
-- **Big-bang migration:** Don't rewrite all agents at once — use adapter pattern for incremental rollout
-- **Deleting BaseAIAgent:** Keep it as base for unmigrated agents — migration is per-agent, not systemic
-- **Skipping shadow validation:** Always run new agents in shadow mode until calibrated
-- **Ignoring Ollama version:** Native structured output requires Ollama v0.5.0+ with llama.cpp grammar support
+
+- **Calling `_llm.generate()` directly from LLMAdapter** — always route through `chain.generate()` which owns caching, rate limiting, budget, and audit publication.
+- **Full Model subclass when FunctionModel suffices** — FunctionModel accepts a plain async function; full subclass requires implementing `request()` with correct `ModelResponse` construction, `name` property, streaming stubs. Don't pay that cost.
+- **Parallel SkepticPydanticEvaluator** — explicitly prohibited by D-14. One class, straight replacement.
+- **Importing SignalContext at runtime in Ring 0 files** — always TYPE_CHECKING only. `WorkerContext.signal_context` is typed `Any` for this reason.
+- **Building `Agent` as a class-level singleton** — `Agent` embeds the `model` instance. Since `LLMAdapter` (FunctionModel) is constructed per-call with closured state, build `Agent` inside `_run_typed()`.
 
 ## Don't Hand-Roll
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| JSON parsing | Custom `parse_llm_json()` with regex fallback | Pydantic AI `NativeOutput` | Grammar-constrained generation makes invalid responses impossible |
-| Validation retry loops | Hand-rolled "parse failed, retry with error" logic | Pydantic AI automatic retries on validation failure | Built into framework, respects `output_retries` budget |
-| Type safety | Dictionary-based LLM outputs | `output_type=PydanticModel` | Compile-time type checking, IDE autocomplete |
-| Dependency injection | Passing dependencies via kwargs | `deps_type=AgentDeps` + `RunContext` | Type-safe, explicit, testable |
+| JSON schema extraction from Pydantic model | `model.model_json_schema()` + manual | pydantic-ai `info.output_tools[0].parameters_json_schema` | pydantic-ai already builds the schema; reading it from `AgentInfo` is authoritative |
+| Validation retry logic | Custom try/except + re-prompt loop | `Agent(retries=1)` | pydantic-ai calls the model again with the validation error as context |
+| Parsing structured LLM response | `json.loads()` + error handling | pydantic-ai validates `ToolCallPart.args` against `result_type` | Zero parse failures when grammar-constrained; validation failures get one retry |
+| Type-checking LLM output fields | Manual isinstance + range checks | Pydantic field validators on `SkepticResult` (already implemented) | `@field_validator` on `SkepticResult` fires automatically during pydantic-ai validation |
 
-**Key insight:** Renaissance Tech principle: "what you measure, you can improve." Hand-rolled parsing hides failure modes behind generic `parse_error`. Pydantic AI exposes structured retries, usage metrics, and validation context — making parse failures **impossible** (NativeOutput) or **observable** (ToolOutput).
+**Key insight:** The `LLMAdapter` bridge is the only novel code. Everything else — validation, retry, schema building — is pydantic-ai. All audit, caching, circuit breaking remains `LLMProviderChain`.
 
 ## Common Pitfalls
 
-### Pitfall 1: Ollama Version Incompatibility
-**What goes wrong:** `NativeOutput` silently falls back to `ToolOutput` if Ollama < v0.5.0, losing parse guarantees
-**Why it happens:** Ollama added structured output support in v0.5.0 via llama.cpp grammar constraints
-**How to avoid:** Check Ollama version at startup, log warning if < v0.5.0
-**Warning signs:** Parse failures return after migration (should be zero)
-```python
-# Verify Ollama version
-import ollama
-version = ollama.version()
-if tuple(map(int, version.split(".")[:2])) < (0, 5):
-    logger.warning("ollama.version_too_old", version=version, required="0.5.0+")
-```
+### Pitfall 1: `response_format` not threaded through `chain.generate()`
 
-### Pitfall 2: Missing AgentDeps in RunContext
-**What goes wrong:** Agent tools fail with `AttributeError: 'NoneType' object has no attribute 'signal_context'`
-**Why it happens:** Forgetting to pass `deps=AgentDeps(...)` to `agent.run()`
-**How to avoid:** Use a factory function in the adapter to construct deps consistently
-**Warning signs:** All agent tool calls return None or raise AttributeError
-```python
-# Good: factory pattern
-async def _compute(self, context: AIContext) -> AgentOutput:
-    deps = self._build_deps(context)
-    result = await self._pydantic_agent.run(context, deps=deps)  # Always pass deps
-    ...
+**What goes wrong:** JSON schema extracted from `info.output_tools` but dropped before reaching Ollama — model produces prose instead of JSON.
 
-def _build_deps(self, context: AIContext) -> AgentDeps:
-    return AgentDeps(
-        signal_context=context,
-        llm_chain=self._llm,
-        db_pool=None,
-        memory_client=None,
-    )
-```
+**Why it happens:** `LLMProviderChain.generate()` currently has no `response_format` parameter. The kwarg must be added and threaded through to `LiteLLMBackend.generate()` → `acompletion(response_format=...)`.
 
-### Pitfall 3: Conflicting System Messages
-**What goes wrong:** Model ignores prompt or produces malformed output
-**Why it happens:** Pydantic AI injects its own system message for structured output; conflicts with custom `system` prompt
-**How to avoid:** Use `instructions=` kwarg on Agent, not `system=` in generate()
-**Warning signs:** LLM returns prose instead of JSON, ignores schema
-```python
-# Good: use instructions
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    output_type=SkepticResult,
-    instructions='OUTPUT ONLY RAW JSON. NO PROSE.',  # ✅ Correct
-)
+**How to avoid:** Phase 095 plan must include a task to add `response_format: dict | None = None` to `chain.generate()` and thread it to `acompletion`. This is a non-trivial change that must come before LLMAdapter can test structured output.
 
-# Bad: override system message
-result = await agent.run(
-    'Analyze...',
-    system='OUTPUT ONLY RAW JSON'  # ❌ Conflicts with Pydantic AI's system message
-)
-```
+**Warning signs:** LLM returns prose that fails pydantic-ai validation; `UnexpectedModelBehavior` raised instead of a clean `SkepticResult`.
 
-### Pitfall 4: Shadow Mode Validation Gaps
-**What goes wrong:** Agent promoted to production before validating confidence calibration
-**Why it happens:** Skipping shadow validation, or insufficient sample size (< 100 inferences)
-**How to avoid:** Always run shadow_only=True until `n >= 100` and confidence delta is measured
-**Warning signs:** Large swings in calibrated_confidence after promotion
-```python
-# Query to validate shadow performance
-SELECT
-    agent_id,
-    prompt_version,
-    COUNT(*) as n,
-    AVG(confidence) as avg_confidence,
-    AVG(pnl_r) as avg_pnl
-FROM llm_calls
-WHERE agent_id = 'skeptic_v2_pydantic'
-  AND called_at > NOW() - INTERVAL '7 days'
-GROUP BY agent_id, prompt_version
-HAVING COUNT(*) >= 100;  -- Minimum sample size
-```
+### Pitfall 2: pydantic-ai `output_type` rename from `result_type`
+
+**What goes wrong:** Code using `result_type=` kwarg on `Agent()` gets a `TypeError: unexpected keyword argument`.
+
+**Why it happens:** Breaking change in pydantic-ai 1.0 — `result_type` was renamed to `output_type`. The old name does not exist.
+
+**How to avoid:** Use `output_type=` everywhere. The CONTEXT.md uses `result_type` as the `ClassVar` name on `BaseAIWorker` — that is the internal Python attribute name, NOT the pydantic-ai kwarg. These are different things.
+
+### Pitfall 3: Building LLMAdapter as a singleton
+
+**What goes wrong:** Audit context (`call_id`, `called_at`, `symbol`, `signal_id`) is baked into the FunctionModel closure at construction time. If the same FunctionModel is reused across calls, audit context is stale.
+
+**Why it happens:** `make_llm_adapter()` captures `audit_context` via closure. The closure is frozen at construction time.
+
+**How to avoid:** Construct a fresh `FunctionModel` inside `_run_typed()` on every call. `Agent` is also constructed per-call for the same reason.
+
+**Performance impact:** negligible — `FunctionModel` and `Agent` construction is pure Python, no network.
+
+### Pitfall 4: `ToolCallPart.args` must be a string, not a dict
+
+**What goes wrong:** `TypeError` or `ValidationError` when pydantic-ai tries to validate the tool args.
+
+**Why it happens:** pydantic-ai expects `ToolCallPart.args` to be a raw JSON string (or `ArgsDict`). Passing a Python dict directly may fail depending on the pydantic-ai version.
+
+**How to avoid:** Return the raw JSON string from `chain.generate()` directly as `ToolCallPart(args=response, ...)` — do not `json.loads()` it before passing to `ToolCallPart`. pydantic-ai handles deserialization.
+
+**Verification:** Check the pydantic-ai source for `ToolCallPart` in the version installed. `args: str | ArgsDict` — both are accepted but string is safer.
+
+### Pitfall 5: `AgentRunResult.output` (not `.data` or `.result`)
+
+**What goes wrong:** `AttributeError: 'AgentRunResult' object has no attribute 'data'`
+
+**Why it happens:** pydantic-ai 1.0 renamed `FinalResult.data` → `.output`. Code using old API attribute fails.
+
+**How to avoid:** Always `result.output`. This is verified in the 1.0 changelog.
+
+### Pitfall 6: `agent_id = "skeptic_v1"` survives in shadow_registry
+
+**What goes wrong:** Shadow registry has orphaned `"skeptic_v1"` row after rename to `"skeptic"`. Not a crash but causes confusion in analytics.
+
+**Why it happens:** `shadow_registry_ensure()` is called at startup with `agent_id`. Renaming creates a new row; old row becomes inactive.
+
+**How to avoid:** The CONTEXT.md explicitly acknowledges this: `"shadow_only=True, no production history, no migration needed — let it decay."` No action needed beyond the rename.
 
 ## Code Examples
 
-Verified patterns from official sources:
+### pydantic-ai Agent with output_type (verified from official docs)
 
-### NativeOutput with Ollama
 ```python
-# Source: https://pydantic.dev/docs/ai/core-concepts/output/
+# Source: https://pydantic.dev/docs/ai/core-concepts/agent/
 from pydantic import BaseModel
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent
 
-class SkepticResult(BaseModel):
-    failure_probability: float
-    confidence: float
-    risk_factors: list[str]
-
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    output_type=NativeOutput(SkepticResult),
-)
-
-result = agent.run_sync('Analyze signal...')
-# result.output is guaranteed to be SkepticResult — no try/except needed
-multiplier = (1.0 - result.output.failure_probability) * result.output.confidence
-```
-
-### Custom Ollama Model with NativeOutput
-```python
-# Source: https://pydantic.dev/docs/ai/models/ollama/
-from pydantic_ai.models.ollama import OllamaModel
-
-model = OllamaModel(
-    model_name='nemotron-3-nano:4b',
-    base_url='http://localhost:11434',
-)
+class MyResult(BaseModel):
+    value: float
+    reasoning: str
 
 agent = Agent(
-    model,
-    output_type=NativeOutput(SkepticResult),
-)
-```
-
-### Output Validation Retries
-```python
-# Source: https://pydantic.dev/docs/ai/core-concepts/output/
-from pydantic_ai import Agent, ModelRetry, RunContext
-
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    output_type=SkepticResult,
-    output_retries=2,  # Allow 2 retries on validation failure
+    model,              # any Model instance or string
+    output_type=MyResult,
+    retries=1,
 )
 
-@agent.output_validator
-async def validate_skeptic(ctx: RunContext, output: SkepticResult) -> SkepticResult:
-    """Custom validation after Pydantic schema check."""
-    if output.failure_probability > 0.9 and len(output.risk_factors) < 2:
-        raise ModelRetry('High failure probability requires 2+ risk factors')
-    return output
+result = await agent.run("analyze this")
+output: MyResult = result.output  # validated MyResult instance
 ```
 
-### Dependency Injection
+### FunctionModel with AgentInfo (verified from official docs)
+
 ```python
-# Source: https://pydantic.dev/docs/ai/dependencies/
+# Source: https://pydantic.dev/docs/ai/api/models/function/
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+async def my_model_fn(
+    messages: list[ModelMessage],
+    info: AgentInfo,
+) -> ModelResponse:
+    # info.output_tools: list[ToolDefinition] -- output schema is here
+    # info.allow_text_output: bool
+    # info.instructions: str | None
+    return ModelResponse(parts=[TextPart("hello")])
+
+model = FunctionModel(my_model_fn)
+```
+
+### Extracting output schema and returning a ToolCallPart
+
+```python
+# Pattern for structured output via custom FunctionModel
+async def my_model_fn(messages, info: AgentInfo) -> ModelResponse:
+    if info.output_tools:
+        tool = info.output_tools[0]
+        schema = tool.parameters_json_schema  # JSON schema of result_type
+        tool_name = tool.name
+
+        # ... call our backend with schema ...
+        raw_json = await chain.generate(prompt, system, response_format=schema, ...)
+
+        return ModelResponse(parts=[
+            ToolCallPart(
+                tool_name=tool_name,
+                args=raw_json,          # raw JSON string
+                tool_call_id="0",
+            )
+        ])
+    # fallback text path (should not happen when output_type is set)
+    return ModelResponse(parts=[TextPart("")])
+```
+
+### Dep injection with RunContext (verified from official docs)
+
+```python
+# Source: https://pydantic.dev/docs/ai/core-concepts/dependencies/
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 
 @dataclass
-class AgentDeps:
-    signal_context: AIContext
-    llm_chain: LLMProviderChain
+class MyDeps:
+    api_key: str
 
-agent = Agent(
-    'ollama:nemotron-3-nano:4b',
-    deps_type=AgentDeps,
-    output_type=SkepticResult,
-)
+agent = Agent('openai:gpt-4o', deps_type=MyDeps)
 
 @agent.tool
-async def get_atr(ctx: RunContext[AgentDeps]) -> float:
-    """Access AIContext via deps."""
-    return ctx.deps.signal_context.i1.atr_14 if ctx.deps.signal_context.i1 else 0.0
+async def my_tool(ctx: RunContext[MyDeps]) -> str:
+    return ctx.deps.api_key
+
+result = await agent.run("query", deps=MyDeps(api_key="abc"))
 ```
+
+Note: Phase 095 does NOT use `deps_type` — `WorkerContext` is passed via closure to the FunctionModel function, not via RunContext. This is simpler and avoids adding a `deps_type` to agents that don't need tool injection. Agents that need context in tools should use `deps_type` in future phases.
 
 ## State of the Art
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| Instructor | Pydantic AI | Sep 2025 (Pydantic AI v1 release) | Official successor, native model support |
-| Tool-based structured output | NativeOutput with grammar constraints | Ollama v0.5.0+ | Zero parse failures for supported models |
-| Hand-rolled JSON parsing | Framework-managed validation | Sep 2025 | Eliminates parsing code, automatic retries |
+| `result_type=` kwarg on Agent | `output_type=` | pydantic-ai 1.0 (Sep 2025) | Must use `output_type` |
+| `result.data` on AgentRunResult | `result.output` | pydantic-ai 1.0 (Sep 2025) | Must use `.output` |
+| `instructor.from_litellm()` structured calls | pydantic-ai `Agent` with custom Model | Phase 095 | Validation moves to framework; parse failures impossible with grammar constraints |
+| Hand-rolled JSON parse + retry | `Agent(retries=1)` | Phase 095 | Framework owns the retry-with-error loop |
+| `_llm_generate_structured()` | `_run_typed()` | Phase 095 | Typed return, no None guard, no manual parse_success tracking |
 
-**Deprecated/outdated:**
-- **Instructor:** Deprecated in favor of Pydantic AI — repository archived, no longer maintained
-- **Manual JSON parsing with regex:** `parse_llm_json()` pattern obsolete when using `NativeOutput`
-- **Tool-based output for simple schemas:** `ToolOutput` still works, but `NativeOutput` is preferred for single-result schemas (simpler, faster)
-
-## Renaissance Design Review
-
-### Modularity ✅
-- **Adapter pattern** preserves BaseAIAgent, agents unaware of Pydantic AI internals
-- **Result models** are pure Pydantic, no framework coupling
-- **Dependency injection** via AgentDeps makes testing trivial (mock deps, not LLM calls)
-
-### Reuse ✅
-- **AgentDeps** generalizes to all agents (signal context, LLM chain, DB pool)
-- **PydanticAIAdapter** can be reused for Correlation, Counterfactual, RegimeCoherence
-- **Result models** (SkepticResult, CorrelationResult, etc.) are reusable across frameworks
-
-### Separation of Concerns ✅
-- **Transport (Pydantic AI) ≠ Domain (agent logic)**
-- **Agent adapters** handle framework details, agents focus on prompts + transfer functions
-- **Result validation** handled by Pydantic, not business logic
-
-### Data-Driven Validation ✅
-- **Shadow mode** built into BaseAIAgent.shadow_only
-- **llm_calls.parse_success** column tracks parse failures (should drop to zero)
-- **Confidence calibration** via `calibrated_confidence` delta measurement
-- **A/B testing** via prompt_version (skeptic_v1 vs skeptic_v2_pydantic)
-
-### Long-Term Maintainability ✅
-- **Type hints** everywhere: `Agent[AgentDeps, SkepticResult]`
-- **Explicit deps:** AgentDeps dataclass makes dependencies visible
-- **No magic:** RunContext is explicit, not implicit global state
-- **Graduation path:** shadow_only → promotion based on metrics
-
-### Compute Efficiency ✅
-- **NativeOutput** avoids retry loops (no parse failures = no wasted inference)
-- **Grammar constraints** (llama.cpp) are faster than tool-based generation
-- **No middleware tax:** Pydantic AI is lightweight compared to LangChain
-
-### Risk Management ✅
-- **Incremental migration:** One agent at a time, not big-bang rewrite
-- **Shadow validation:** New agents run alongside old, no production impact
-- **Rollback plan:** Revert shadow_only=False to disable new agent
-- **Graceful degradation:** If Pydantic AI fails, BaseAIAgent still works
-
-## Migration Strategy
-
-### Phase 1: Skeptic Agent (Reference Implementation)
-1. **Create adapter layer:**
-   - `src/intelligence/ai/adapters/pydantic_ai_adapter.py`
-   - `src/intelligence/ai/adapters/agent_deps.py`
-   - PydanticAIAdapter wraps pydantic_ai.Agent, implements BaseAIAgent protocol
-
-2. **Define result model:**
-   - `SkepticResult` in `skeptic_prompts.py` (already exists from preserved insights)
-   - Field validators for coerce_to_list, clamping
-
-3. **Create SkepticComputeAgentPydantic:**
-   - Extends PydanticAIAdapter
-   - Configures pydantic_ai.Agent with NativeOutput(SkepticResult)
-   - Keeps same prompt (skeptic_v2), same transfer function
-
-4. **Shadow validation:**
-   - Register both skeptic_v1 (old) and skeptic_v2_pydantic (new)
-   - Run in shadow for >= 100 inferences
-   - Measure confidence delta, pnl_r impact
-
-5. **Promotion:**
-   - If calibrated_confidence >= baseline, promote to live
-   - Deprecate skeptic_v1, mark shadow_only=True
-
-### Phase 2: Rollout to Other Agents
-- **CorrelationAgent:** Same pattern, CorrelationResult model
-- **CounterfactualAgent:** CounterfactualResult model
-- **RegimeCoherenceAgent:** RegimeCoherenceResult model
-- **NarrativeAgent:** Non-multiplier output, use ToolOutput or PromptedOutput
-
-### Shadow Validation Protocol
-```python
-# Query to compare old vs new agent
-SELECT
-    agent_id,
-    prompt_version,
-    COUNT(*) as n,
-    AVG(confidence) as avg_confidence,
-    AVG(pnl_r) as avg_pnl,
-    SUM(CASE WHEN parse_success = false THEN 1 ELSE 0 END) as parse_failures
-FROM llm_calls
-WHERE agent_id IN ('skeptic_v1', 'skeptic_v2_pydantic')
-  AND called_at > NOW() - INTERVAL '7 days'
-GROUP BY agent_id, prompt_version
-HAVING COUNT(*) >= 100;
-
--- skeptic_v2_pydantic should have:
--- - parse_failures = 0 (vs non-zero for skeptic_v1)
--- - avg_confidence within ±0.05 of skeptic_v1
--- - avg_pnl >= skeptic_v1 (or statistically similar)
-```
-
-## Observability Plan
-
-### Metrics to Track
-1. **Parse success rate:**
-   - `llm_calls.parse_success` — should be 100% for Pydantic AI agents
-   - Compare old vs new: `SELECT agent_id, AVG(parse_success::int) FROM llm_calls GROUP BY agent_id`
-
-2. **Latency:**
-   - `llm_calls.latency_ms` — NativeOutput may be faster (no retry loops)
-   - Compare p50, p95, p99: `SELECT agent_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) FROM llm_calls GROUP BY agent_id`
-
-3. **Confidence calibration:**
-   - `calibrated_confidence` delta between old and new agent
-   - Query per agent_id, prompt_version over last 7 days
-
-4. **Token usage:**
-   - `llm_calls.tokens_est` — NativeOutput may reduce token waste (no retries)
-   - Compare average tokens per call
-
-### Validation Tests
-```python
-# tests/unit/intelligence/ai/test_skeptic_agent_pydantic.py
-import pytest
-from src.intelligence.ai.alpha.skeptic_agent_pydantic import SkepticComputeAgentPydantic
-from src.core.ai.context import AIContext
-
-@pytest.mark.asyncio
-async def test_native_output_guarantees_valid_result():
-    """NativeOutput should never return None or raise ValidationError."""
-    agent = SkepticComputeAgentPydantic(llm_chain=mock_llm_chain)
-    context = AIContext(symbol="ES", timeframe="5m", ...)
-
-    # Run 100 times — should never fail
-    for _ in range(100):
-        output = await agent.compute(context)
-        assert output.output_type == "multiplier"
-        assert "failure_probability" in output.payload
-        assert 0.0 <= output.payload["failure_probability"] <= 1.0
-
-@pytest.mark.asyncio
-async def test_confidence_calibration():
-    """New agent should match old agent's confidence distribution."""
-    # Compare output distributions over 100 inferences
-    ...
-```
-
-## Risk Analysis
-
-### Technical Risks
-
-| Risk | Probability | Impact | Detection | Mitigation |
-|------|-------------|--------|-----------|------------|
-| Ollama < v0.5.0 incompatible | MEDIUM | HIGH | Check at startup | Fail fast with clear error message |
-| NativeOutput silently falls back | LOW | MEDIUM | Monitor parse_success | Alert if parse_failures > 0 |
-| Confidence drift | MEDIUM | MEDIUM | Shadow validation | Don't promote if delta > 0.05 |
-| Latency regression | LOW | LOW | Compare p95 latencies | Rollback if > 10% slower |
-| Dependency injection bugs | LOW | HIGH | Unit tests | Mock AgentDeps in tests |
-
-### Operational Risks
-
-| Risk | Probability | Impact | Detection | Mitigation |
-|------|-------------|--------|-----------|------------|
-| Big-bang rollback needed | LOW | HIGH | Shadow mode | Migrate one agent at a time |
-| Shadow agent becomes live accidentally | MEDIUM | HIGH | assert shadow_only=True | Add guardrail in BaseAIAgent |
-| Ollama service restart breaks migration | LOW | LOW | Integration tests | Test with Ollama stopped |
-
-### Rollback Plan
-1. **Immediate:** Set `shadow_only=True` on new agent (stops production traffic)
-2. **Service restart:** `systemctl restart indicagent-alpha-swarm` (reverts to old agent)
-3. **Code revert:** `git revert <commit>` if adapter has bugs
-4. **Data rollback:** None needed — shadow mode doesn't affect signal_ledger
-
-## Performance Analysis
-
-### Compute Cost
-- **NativeOutput:** Grammar constraints add ~10-20ms to generation (llama.cpp overhead)
-- **ToolOutput (old):** Retry loops cost 2-3x on parse failures
-- **Net:** NativeOutput should be **faster** overall (no retries)
-
-### Latency Impact
-- **Skeptic agent baseline:** ~50s p50 (nemotron-3-nano:4b)
-- **Expected Pydantic AI overhead:** +5-10s (framework + validation)
-- **Total:** ~55-60s p50 (within 120s budget)
-
-### Memory Footprint
-- **Pydantic AI:** ~5MB additional (framework code)
-- **Agent instances:** No change (adapter is lightweight wrapper)
-- **Total:** Negligible impact on 16GB server
-
-### Validation Overhead
-- **Pydantic validation:** ~1ms per output (compiled schema)
-- **Retry logic:** Eliminated (NativeOutput prevents parse failures)
-- **Net:** **Lower** CPU usage overall
-
-## Validation Architecture
-
-### Statistical Validation Protocol
-```python
-# Query to validate new >= old with statistical rigor
-WITH old_stats AS (
-    SELECT
-        AVG(pnl_r) as avg_pnl_old,
-        STDDEV(pnl_r) as stddev_pnl_old,
-        COUNT(*) as n_old
-    FROM llm_calls
-    WHERE agent_id = 'skeptic_v1'
-      AND outcome IS NOT NULL
-),
-new_stats AS (
-    SELECT
-        AVG(pnl_r) as avg_pnl_new,
-        STDDEV(pnl_r) as stddev_pnl_new,
-        COUNT(*) as n_new
-    FROM llm_calls
-    WHERE agent_id = 'skeptic_v2_pydantic'
-      AND outcome IS NOT NULL
-)
-SELECT
-    (avg_pnl_new - avg_pnl_old) as delta_pnl,
-    -- Two-sample t-test for statistical significance
-    (avg_pnl_new - avg_pnl_old) / SQRT(
-        POW(stddev_pnl_old, 2) / n_old + POW(stddev_pnl_new, 2) / n_new
-    ) as t_statistic
-FROM old_stats, new_stats
-HAVING n_old >= 100 AND n_new >= 100;
-
--- Promote if: delta_pnl >= 0 (new is better or equal)
---           AND t_statistic < 1.96 (not statistically worse at 95% confidence)
-```
-
-### Parse Success Validation
-```python
-# Query to verify parse_success = 100% for Pydantic AI
-SELECT
-    agent_id,
-    COUNT(*) as total_calls,
-    SUM(CASE WHEN parse_success = true THEN 1 ELSE 0 END) as parse_successes,
-    SUM(CASE WHEN parse_success = false THEN 1 ELSE 0 END) as parse_failures,
-    AVG(parse_success::int) as parse_success_rate
-FROM llm_calls
-WHERE agent_id = 'skeptic_v2_pydantic'
-  AND called_at > NOW() - INTERVAL '7 days'
-GROUP BY agent_id;
-
--- Expected: parse_failures = 0, parse_success_rate = 1.0
--- If parse_failures > 0: NativeOutput is not working (Ollama version issue?)
-```
+**Terminology map (CONTEXT.md ClassVar name vs pydantic-ai kwarg):**
+- `BaseAIWorker.result_type` (ClassVar) — internal name for the type we store on the class
+- `Agent(output_type=...)` — the pydantic-ai constructor kwarg (different name, same concept)
+- `AgentRunResult.output` — how to read the validated result back
 
 ## Open Questions
 
-1. **Ollama structured output support**
-   - What we know: Ollama v0.5.0+ supports `response_format` with JSON Schema
-   - What's unclear: Does nemotron-3-nano:4b support grammar-constrained generation?
-   - Recommendation: Test with `agent.run_sync()` before migration, verify schema enforcement
+1. **`response_format` parameter on `chain.generate()`**
+   - What we know: `LLMProviderChain.generate()` does not currently accept `response_format`. The `LiteLLMBackend.generate()` calls `acompletion()` which does support `response_format` for Ollama grammar-constrained output.
+   - What's unclear: Whether Phase 095 should add `response_format: dict | None = None` to `chain.generate()` and thread it through, or use a different approach (e.g., pass via `extra_kwargs`).
+   - Recommendation: Add `response_format` parameter to `chain.generate()` and `litellm_backend.generate()`. Thread it as an extra kwarg to `acompletion`. This is the cleanest path and directly enables grammar-constrained generation. Mark as a plan task.
 
-2. **Pydantic AI performance on small models**
-   - What we know: NativeOutput works well with GPT-4, Claude
-   - What's unclear: How does it behave with 4B parameter models (nemotron)?
-   - Recommendation: Benchmark 100 inference latency, compare to baseline
+2. **`ToolCallPart.args` type contract in pydantic-ai 1.x**
+   - What we know: Documentation says `args: str | ArgsDict`. Both are accepted.
+   - What's unclear: Whether passing a raw JSON string vs `ArgsDict` affects validation behavior.
+   - Recommendation: Pass raw JSON string (what `chain.generate()` returns). Test with a unit test using `FunctionModel` override to verify pydantic-ai correctly validates the string args.
 
-3. **Migration order beyond Skeptic**
-   - What we know: Skeptic is simplest (single multiplier, no tools)
-   - What's unclear: Should NarrativeAgent (non-multiplier) be migrated second?
-   - Recommendation: Skeptic → Correlation → Counterfactual → RegimeCoherence → Narrative
+3. **pydantic-ai `Agent` construction overhead**
+   - What we know: `Agent` and `FunctionModel` are constructed per `_run_typed()` call (per D-07 audit context freshness requirement).
+   - What's unclear: Whether there is measurable overhead from per-call construction (model object initialization, schema compilation).
+   - Recommendation: Benchmark in unit test. If overhead is significant (>5ms), cache the `Agent` instance and pass audit context via the closure at call time rather than construction time.
 
-4. **Pydantic AI v2 release (April 2026)**
-   - What we know: Pydantic AI v2 planned for April 2026 at earliest
-   - What's unclear: Will v1 code work with v2? Migration path?
-   - Recommendation: Use v1 API (stable), avoid beta features, watch changelog
+4. **`chain.generate()` cache interaction**
+   - What we know: `LLMProviderChain` has a 300s semantic cache. Structured calls currently bypass the cache (noted in `generate_structured` docstring: "cache is intentionally skipped for structured calls").
+   - What's unclear: Whether `_run_typed()` calls should also bypass the cache.
+   - Recommendation: Pass `cache_ttl=0` to `LLMProviderChain` construction in the LLMAdapter path, or disable cache explicitly. Structured outputs should not be cached — the same prompt with a fresh context may produce different valid JSON.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Pydantic AI Overview](https://pydantic.dev/docs/ai/overview/) - Core concepts, architecture
-- [Output API Reference](https://pydantic.dev/docs/ai/core-concepts/output/) - NativeOutput, ToolOutput, validation
-- [Ollama Model Docs](https://pydantic.dev/docs/ai/models/ollama/) - Ollama v0.5.0+ structured output support
-- [Output Marker Classes](https://pydantic.dev/docs/ai/api/pydantic-ai/output/) - NativeOutput, ToolOutput API
+- [pydantic-ai changelog](https://pydantic.dev/docs/ai/project/changelog/) — 1.0 release date, breaking changes confirmed (`result_type` → `output_type`, `.data` → `.output`)
+- [pydantic-ai Agent API](https://pydantic.dev/docs/ai/core-concepts/agent/) — `output_type`, `deps_type`, `retries`, `agent.run()`, `AgentRunResult.output`
+- [pydantic-ai Output docs](https://pydantic.dev/docs/ai/core-concepts/output/) — `ToolOutput`, `NativeOutput`, `PromptedOutput`, validation retries
+- [pydantic-ai FunctionModel API](https://pydantic.dev/docs/ai/api/models/function/) — constructor, `AgentInfo.output_tools`, `FunctionDef` signature
+- [pydantic-ai Dependencies](https://pydantic.dev/docs/ai/core-concepts/dependencies/) — `deps_type`, `RunContext`, `agent.run(deps=...)`
+- [pydantic-ai Model abstract class](https://pydantic.dev/docs/ai/api/models/base/) — `request()` signature, `ModelRequestParameters`, `ModelResponse`
+- Internal: `src/core/ai/base_agent.py` — `_build_audit_context()`, `_llm_generate_structured()` pattern
+- Internal: `src/core/llm/chain.py` — `generate()` and `generate_structured()` signatures
+- Internal: `src/intelligence/ai/alpha/skeptic_agent.py` — migration target
+- Internal: `src/intelligence/ai/alpha/skeptic_prompts.py` — `SkepticResult` (becomes `result_type`)
 
 ### Secondary (MEDIUM confidence)
-- [GitHub Issue #242: Ollama structured outputs](https://github.com/pydantic/pydantic-ai/issues/242) - Real-world usage patterns
-- [Ollama Blog: Structured Outputs](https://ollama.com/blog/structured-outputs) - llama.cpp grammar constraints
-- [Pydantic AI GitHub](https://github.com/pydantic/pydantic-ai) - Source code, examples
+- [pydantic-ai models overview](https://pydantic.dev/docs/ai/models/overview/) — confirms FunctionModel is the right approach for custom backends
+- [pydantic-ai Output API](https://pydantic.dev/docs/ai/api/pydantic-ai/output/) — `ToolOutput`, `NativeOutput`, `PromptedOutput` constructors
 
 ### Tertiary (LOW confidence)
-- [StackOverflow: Pydantic AI + Llama3.1](https://stackoverflow.com/questions/79892264) - Community examples
-- [Tutorial: Pydantic AI + Ollama](https://www.tomasrepcik.dev/blog/2025/2025-09-07-pydantic-ai-intro/) - Third-party guide
-
-### Internal (HIGH confidence)
-- `src/core/ai/base_agent.py` - BaseAIAgent protocol, _compute() contract
-- `src/core/llm/chain.py` - LLMProviderChain, audit trail integration
-- `src/intelligence/ai/alpha/skeptic_agent.py` - Existing Skeptic implementation
-- `.planning/phases/094-pydantic-ai-agents/094-PRESERVED.md` - Preserved Instructor insights
-- `llm_calls` table schema - parse_success column, audit trail fields
+- PyPI search result confirming v1.104.0 as of 2026-05-29 — version number only, not verified against official release notes
 
 ## Metadata
 
 **Confidence breakdown:**
-- Standard stack: HIGH - Official docs, GitHub issues, Ollama blog all confirm
-- Architecture: HIGH - BaseAIAgent protocol verified, adapter pattern proven
-- Migration strategy: HIGH - Incremental approach aligns with Renaissance principles
-- Performance: MEDIUM - Latency estimates based on llama.cpp constraints, needs empirical validation
-- Ollama compatibility: MEDIUM - v0.5.0+ support confirmed, but nemotron-specific behavior unknown
+- Standard stack: HIGH — official docs confirm 1.0 stable API, current version verified on PyPI
+- Architecture (FunctionModel bridge): HIGH — FunctionModel API verified from official docs; ToolCallPart pattern inferred from AgentInfo.output_tools description (MEDIUM for ToolCallPart specifics)
+- Pitfalls: HIGH — `result_type` → `output_type` rename and `.data` → `.output` rename confirmed from changelog
+- `response_format` threading: MEDIUM — acompletion supports it (LiteLLM docs), but `chain.generate()` change is a plan task
 
-**Research date:** 2026-05-20
-**Valid until:** 2026-06-20 (30 days — framework is stable, but watch for v2 release)
+**Research date:** 2026-05-31
+**Valid until:** 2026-06-30 (pydantic-ai 1.x is stable; no breaking changes until v2)
