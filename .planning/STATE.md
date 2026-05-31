@@ -4,8 +4,8 @@ milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
 stopped_at: Phase 095 context gathered
-last_updated: "2026-05-31T12:41:51.060Z"
-last_activity: 2026-05-31 -- Phase 112 planning complete
+last_updated: "2026-05-31T12:46:09.758Z"
+last_activity: 2026-05-31 -- Phase 095 planning complete
 progress:
   total_phases: 21
   completed_phases: 3
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md
 Phase: 111
 Plan: Not started
 Status: Ready to execute
-Last activity: 2026-05-31 -- Phase 112 planning complete
+Last activity: 2026-05-31 -- Phase 095 planning complete
 
 **Sequencing decision (2026-05-30):** Phase 110 (rename) executes before Phase 095. Phase 095 touches Ring 0 infrastructure being renamed and must write new evaluators with correct names from day one. See design spec Section 11.
 
