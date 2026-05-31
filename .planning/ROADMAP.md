@@ -1302,7 +1302,10 @@ Plans:
 
 **Spec**: `docs/plans/2026-05-31-plugin-correlation-analysis.md`
 
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 112-01-PLAN.md — Schema foundation: correlation tables, shadow_registry column, shadow_registry_active VIEW, metric gauges
+- [ ] 112-02-PLAN.md — Weekly correlation batch script (direction matrix, effective_n, auto-suppression) + systemd timer
+- [ ] 112-03-PLAN.md — Pipeline integration: suppressed_plugins skip gate in the I7 executor
 
 ## Backlog
 
@@ -1482,4 +1485,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 112. Plugin Correlation Analysis | standalone | 0/TBD | Not started | - |
+| 112. Plugin Correlation Analysis | standalone | 0/3 | Planned | - |
