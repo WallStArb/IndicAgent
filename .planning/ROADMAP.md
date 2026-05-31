@@ -1287,6 +1287,23 @@ Plans:
 
 </details>
 
+### Phase 112: Plugin Correlation Analysis & Automated Pruning
+
+**Goal**: Measure effective independence across 132 I7 plugins, auto-suppress redundant pairs using directional correlation, and surface effective-N as a production metric. Close the gap in shadow_registry that allows positively-performing-but-redundant plugins to survive undetected.
+**Depends on**: Phase 111
+**Requirements**: CORR-01, CORR-02, CORR-03, CORR-04, CORR-05
+**Success Criteria** (what must be TRUE):
+
+  1. `plugin_correlation_pairs` table exists with CHECK (plugin_a < plugin_b); `plugin_correlation_batch.py` runs idempotently, UPSERTs pairs with directional_r and co_fire_count, skipping pairs below co_fire_count >= 30; oneshot emits `job_completed_total{job="plugin-correlation-batch", status}` on exit (D-06)
+  2. `shadow_registry` has `correlation_suppressed boolean NOT NULL DEFAULT false`; `shadow_registry_active` VIEW filters WHERE promoted=true AND NOT correlation_suppressed; `intelligence_pipeline` and `aggregator` query the view, not the base table
+  3. Auto-suppression runs for pairs meeting all three gates (directional_r >= 0.80, co_fire_count >= 100, inferior plugin has lower bootstrap_ci_lower); suppression is reversible — pairs that decay below threshold are cleared on next run
+  4. `effective_plugin_count` gauge emitted at batch completion and via Prometheus scrape of API (reads latest plugin_correlation_summary row); `plugin_correlation_suppressed_total` gauge emitted
+  5. `plugin_correlation_summary` history kept (1 row per weekly run); systemd timer unit fires Monday alongside ml-discovery
+
+**Spec**: `docs/plans/2026-05-31-plugin-correlation-analysis.md`
+
+**Plans**: TBD
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -1456,7 +1473,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 109. Config Foundation & Self-Healing Engine | v2.7 | 5/5 | Complete | 2026-05-29 |
 | 094. LiteLLM + Instructor Structured Output | v2.8 | 3/3 | Complete    | 2026-05-30 |
 | 110. Renaissance Rename | v2.8 | 4/4 | Complete   | 2026-05-30 |
-| 111. Full Naming Alignment | v2.8 | 4/4 | Complete   | 2026-05-31 |
+| 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
 | 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
@@ -1465,3 +1482,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
+| 112. Plugin Correlation Analysis | standalone | 0/TBD | Not started | - |
