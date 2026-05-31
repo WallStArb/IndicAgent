@@ -117,7 +117,7 @@ class MacroAnalyzer(BaseDaemon):
         await self._producer.start()
 
         logger.info(
-            "macro_compute_agent.setup",
+            "macro_analyzer.setup",
             window_bars=self._window_bars,
             rate_futures=list(MACRO_RATE_FUTURES),
         )
@@ -130,11 +130,11 @@ class MacroAnalyzer(BaseDaemon):
             await self._producer.stop()
         if self._db_manager:
             await self._db_manager.close()
-        logger.info("macro_compute_agent.teardown")
+        logger.info("macro_analyzer.teardown")
 
     async def _run(self) -> None:
         """Main loop — consume bars, compute macro, publish signals."""
-        logger.info("macro_compute_agent.started")
+        logger.info("macro_analyzer.started")
 
         if not self._consumer:
             raise RuntimeError("Consumer not initialized in _setup")
@@ -186,10 +186,10 @@ class MacroAnalyzer(BaseDaemon):
                     )
 
         except asyncio.CancelledError:
-            logger.info("macro_compute_agent.shutdown")
+            logger.info("macro_analyzer.shutdown")
             raise
         except Exception as e:
-            logger.exception("macro_compute_agent.error", error=str(e))
+            logger.exception("macro_analyzer.error", error=str(e))
             AGENT_CRASH_TOTAL.add(1, {"agent": self.agent_id})
             raise
 

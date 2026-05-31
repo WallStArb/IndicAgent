@@ -73,7 +73,7 @@ class NarrativeSwarm(BaseSwarmCoordinator):
             await self._shadow_registry_ensure_agents(self.agents)
 
         self.logger.info(
-            "narrative_group.started",
+            "narrative_swarm.started",
             agent_id=self._narrative_agent.agent_id,
         )
 
@@ -107,7 +107,7 @@ class NarrativeSwarm(BaseSwarmCoordinator):
                 signal_ts, tf, now, self._STALENESS_MULTIPLIER
             ):
                 self.logger.debug(
-                    "narrative_group.stale_skip",
+                    "narrative_swarm.stale_skip",
                     symbol=raw_signal.get("symbol"),
                     tf=tf,
                 )
@@ -116,7 +116,7 @@ class NarrativeSwarm(BaseSwarmCoordinator):
         try:
             signal = signal_dict_to_ranked(raw_signal)
         except Exception as exc:
-            self.logger.warning("narrative_group.invalid_signal", exc_info=exc)
+            self.logger.warning("narrative_swarm.invalid_signal", exc_info=exc)
             return
 
         symbol = signal.symbol
@@ -132,20 +132,20 @@ class NarrativeSwarm(BaseSwarmCoordinator):
             signal_id=signal_id,
         )
         if context is None:
-            self.logger.warning("narrative_group.no_context", symbol=symbol, tf=signal.tf)
+            self.logger.warning("narrative_swarm.no_context", symbol=symbol, tf=signal.tf)
             return
 
         try:
             result = await self._narrative_agent.compute(context)
         except Exception as exc:
             NARRATIVE_GENERATION_TOTAL.add(1, {"status": "exception"})
-            self.logger.error("narrative_group.compute_error", exc_info=exc)
+            self.logger.error("narrative_swarm.compute_error", exc_info=exc)
             return
 
         if result.error:
             NARRATIVE_GENERATION_TOTAL.add(1, {"status": "agent_error"})
             self.logger.warning(
-                "narrative_group.agent_error",
+                "narrative_swarm.agent_error",
                 error=result.error,
                 symbol=symbol,
                 tf=signal.tf,
@@ -153,7 +153,7 @@ class NarrativeSwarm(BaseSwarmCoordinator):
             return
 
         self.logger.info(
-            "narrative_group.generated",
+            "narrative_swarm.generated",
             signal_id=str(signal_id),
             symbol=symbol,
             tf=signal.tf,

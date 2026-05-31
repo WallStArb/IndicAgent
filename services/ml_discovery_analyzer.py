@@ -41,7 +41,7 @@ try:
 
     _TSFRESH_AVAILABLE = True
 except ImportError:
-    logger.warning("ml_discovery.tsfresh_not_installed", msg="pip install tsfresh")
+    logger.warning("ml_discovery_analyzer.tsfresh_not_installed", msg="pip install tsfresh")
     _TSFRESH_AVAILABLE = False
 
 try:
@@ -49,7 +49,9 @@ try:
 
     _ALPHALENS_AVAILABLE = True
 except ImportError:
-    logger.warning("ml_discovery.alphalens_not_installed", msg="pip install alphalens-reloaded")
+    logger.warning(
+        "ml_discovery_analyzer.alphalens_not_installed", msg="pip install alphalens-reloaded"
+    )
     _ALPHALENS_AVAILABLE = False
 
 _INSERT_SQL = """
@@ -76,7 +78,7 @@ class MLDiscoveryAnalyzer(BaseDaemon):
         self._pool = await create_db_pool(self.settings.database_url)
         self._query = TrainingDataQuery(self._pool)
         await self._producer.start()
-        self.logger.info("ml_discovery.starting")
+        self.logger.info("ml_discovery_analyzer.starting")
         try:
             for symbol in get_active_contracts(self.settings):
                 sym = symbol if isinstance(symbol, str) else symbol.symbol
@@ -105,11 +107,13 @@ class MLDiscoveryAnalyzer(BaseDaemon):
                 timeout=timeout_s,
             )
         except TimeoutError:
-            self.logger.warning("ml_discovery.timeout", symbol=symbol, tf=tf, regime=regime)
+            self.logger.warning(
+                "ml_discovery_analyzer.timeout", symbol=symbol, tf=tf, regime=regime
+            )
             return {"top_features": [], "ic_scores": {}, "feature_count": 0, "status": "partial"}
         except Exception as exc:
             self.logger.exception(
-                "ml_discovery.error", symbol=symbol, tf=tf, regime=regime, error=str(exc)
+                "ml_discovery_analyzer.error", symbol=symbol, tf=tf, regime=regime, error=str(exc)
             )
             return None
 
@@ -130,7 +134,7 @@ class MLDiscoveryAnalyzer(BaseDaemon):
             return {"top_features": [], "ic_scores": {}, "feature_count": 0, "status": "complete"}
 
         if not _TSFRESH_AVAILABLE or not _ALPHALENS_AVAILABLE:
-            self.logger.warning("ml_discovery.libs_unavailable")
+            self.logger.warning("ml_discovery_analyzer.libs_unavailable")
             return {"top_features": [], "ic_scores": {}, "feature_count": 0, "status": "complete"}
 
         # Convert polars -> pandas for tsfresh
@@ -212,7 +216,7 @@ class MLDiscoveryAnalyzer(BaseDaemon):
                     abs(feat["ic"]), {"feature_name": feat["name"], "regime": str(regime)}
                 )
         except Exception as exc:
-            self.logger.warning("ml_discovery.metric_update_failed", error=str(exc))
+            self.logger.warning("ml_discovery_analyzer.metric_update_failed", error=str(exc))
 
         # Publish summary to Kafka
         await self._producer.publish(
@@ -227,7 +231,7 @@ class MLDiscoveryAnalyzer(BaseDaemon):
             },
         )
         self.logger.info(
-            "ml_discovery.run_written",
+            "ml_discovery_analyzer.run_written",
             symbol=symbol,
             tf=tf,
             regime=regime,

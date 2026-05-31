@@ -182,7 +182,7 @@ async def test_pipeline_lag_warns_when_p95_exceeds_threshold(agent):
 
     agent.logger.warning.assert_called()
     warn_call = agent.logger.warning.call_args
-    assert warn_call.args[0] == "signal_auditor_agent.lag_threshold_exceeded"
+    assert warn_call.args[0] == "signal_auditor.lag_threshold_exceeded"
     assert warn_call.kwargs["p95_ms"] == 650.0
     assert warn_call.kwargs["threshold_ms"] == _LAG_P95_WARN_MS
 

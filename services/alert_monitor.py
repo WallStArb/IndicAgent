@@ -75,7 +75,7 @@ class AlertMonitor(BaseDaemon):
             elif severity in ("HIGH", "MEDIUM"):
                 await self._dispatch_discord(message, source, severity)
             else:
-                self.logger.debug("alerting.unknown_severity", severity=severity)
+                self.logger.debug("alert_monitor.unknown_severity", severity=severity)
 
     async def _dispatch_telegram(self, message: str, source: str) -> bool:
         """Dispatch alert to Telegram bot API.
@@ -109,13 +109,13 @@ class AlertMonitor(BaseDaemon):
                     ALERTING_DISPATCH_TOTAL.add(
                         1, {"channel": "telegram", "severity": "CRITICAL", "status": "failure"}
                     )
-                    self.logger.warning("alerting.telegram_failed", status=resp.status)
+                    self.logger.warning("alert_monitor.telegram_failed", status=resp.status)
                     return False
         except Exception as exc:
             ALERTING_DISPATCH_TOTAL.add(
                 1, {"channel": "telegram", "severity": "CRITICAL", "status": "failure"}
             )
-            self.logger.error("alerting.telegram_error", error=str(exc))
+            self.logger.error("alert_monitor.telegram_error", error=str(exc))
             return False
 
     async def _dispatch_discord(self, message: str, source: str, severity: str) -> bool:
@@ -148,13 +148,13 @@ class AlertMonitor(BaseDaemon):
                     ALERTING_DISPATCH_TOTAL.add(
                         1, {"channel": "discord", "severity": severity, "status": "failure"}
                     )
-                    self.logger.warning("alerting.discord_failed", status=resp.status)
+                    self.logger.warning("alert_monitor.discord_failed", status=resp.status)
                     return False
         except Exception as exc:
             ALERTING_DISPATCH_TOTAL.add(
                 1, {"channel": "discord", "severity": severity, "status": "failure"}
             )
-            self.logger.error("alerting.discord_error", error=str(exc))
+            self.logger.error("alert_monitor.discord_error", error=str(exc))
             return False
 
 
