@@ -6,7 +6,7 @@ import asyncio
 import time
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 import structlog
@@ -82,6 +82,14 @@ class BaseAIWorker(BaseDaemon, ABC):
     latency_budget_ms: float = 5000.0  # D-51: default ceiling, tuned per agent
     prompt_version: str = ""  # override in subclass, e.g. "skeptic_v2"
 
+    # D-10: Universal typed-output opt-in. Subclasses set result_type to a
+    # pydantic BaseModel subclass to enable _run_typed(). None = opted out.
+    result_type: ClassVar[type[BaseModel] | None] = None
+
+    # D-12: Conservative token ceiling used when _run_typed() caller passes
+    # max_tokens=None. Matches compute-cost discipline from CONTEXT.md.
+    _default_max_tokens: ClassVar[int] = 2048
+
     def __init__(self, name: str | None = None, *args: Any, **kwargs: Any) -> None:
         # If name not provided, use class name or agent_id
         if name is None:
@@ -91,6 +99,21 @@ class BaseAIWorker(BaseDaemon, ABC):
         self._lineage: LineageRecorder | None = None
         self._llm: LLMProviderChain | None = None
         self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Validate result_type at class-definition time (REVIEWS LOW item 10).
+
+        Fails immediately when a subclass sets result_type to a non-BaseModel value,
+        catching misconfiguration before the first _run_typed() call.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls.result_type is not None and not (
+            isinstance(cls.result_type, type) and issubclass(cls.result_type, BaseModel)
+        ):
+            raise TypeError(
+                f"{cls.__name__}.result_type must be a pydantic BaseModel subclass or None,"
+                f" got {cls.result_type!r}"
+            )
 
     async def compute(self, context: SignalContext) -> AgentOutput:
         """Run _compute() with timing capture + exception safety.
@@ -314,6 +337,80 @@ class BaseAIWorker(BaseDaemon, ABC):
                     span.set_attribute("llm.empty_response", True)
                     LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
                 return result, call_id
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                raise
+
+    async def _run_typed(
+        self,
+        context: SignalContext,
+        prompt: str,
+        system: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        """Execute a typed LLM call, returning a validated result_type instance.
+
+        Universal opt-in path for agents that declare result_type (D-10 through D-13).
+        Constructs a single-use WorkerContext + LLMAdapter per call, runs a
+        pydantic_ai.Agent with output_type=result_type, and returns the validated
+        result_type instance. Caller is responsible for converting to AgentOutput.
+
+        Timeout is always derived from self._timeout_s (computed from latency_budget_ms)
+        so the latency budget is impossible to forget (D-11).
+
+        max_tokens=None is resolved to self._default_max_tokens before the adapter is
+        built so chain.generate() always receives an int (REVIEWS MEDIUM fix).
+
+        Raises RuntimeError immediately if result_type is None — subclass must declare
+        result_type: ClassVar = YourModel to use this method (D-13).
+        """
+        if self.result_type is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__}.result_type is None - "
+                "set result_type: ClassVar = YourModel to use _run_typed()"
+            )
+
+        # Lazy imports: avoid module-load cost and circular import chains.
+        from pydantic_ai import Agent  # noqa: PLC0415
+
+        from src.core.ai.llm_adapter import make_llm_adapter  # noqa: PLC0415
+        from src.core.ai.worker_context import WorkerContext  # noqa: PLC0415
+
+        # Resolve max_tokens before adapter construction — chain.generate() requires int.
+        _max_tokens = max_tokens if max_tokens is not None else self._default_max_tokens
+
+        # Build audit base with placeholder call_id. The LLMAdapter stamps a fresh
+        # call_id per physical request, so retries produce distinct llm_calls rows.
+        audit_context = self._build_audit_context(context, prompt, call_id="")
+
+        worker_ctx = WorkerContext(signal_context=context, llm_chain=self._llm)
+        adapter = make_llm_adapter(
+            worker_context=worker_ctx,
+            system=system,
+            max_tokens=_max_tokens,
+            timeout=self._timeout_s,  # D-11: always from self._timeout_s
+            audit_context=audit_context,
+        )
+
+        with self.tracer.start_as_current_span(
+            "agent.run_typed",
+            attributes={
+                ATTR_AGENT_ID: self.agent_id,
+                ATTR_SYMBOL: context.symbol,
+                ATTR_TF: context.timeframe,
+            },
+        ) as span:
+            try:
+                # output_type= is the pydantic-ai 1.0 kwarg (Pitfall 2: not result_type=).
+                # Single-use agent per call (Pitfall 3: adapter closures fresh audit base).
+                agent: Agent[None, BaseModel] = Agent(
+                    adapter,
+                    output_type=self.result_type,
+                    retries=1,
+                )
+                result = await agent.run(prompt)
+                return result.output  # Pitfall 5: .output not .data
             except Exception as exc:
                 span.set_status(StatusCode.ERROR, str(exc))
                 span.record_exception(exc)
