@@ -572,7 +572,7 @@ class TestFeatureWriterLifecycle:
         from services.feature_writer import FeatureWriter
 
         self.agent = FeatureWriter.__new__(FeatureWriter)
-        self.agent.name = "feature_writer_agent"
+        self.agent.name = "feature_writer"
         self.agent._stop_event = asyncio.Event()
         self.agent.logger = MagicMock()
         self.agent.tracer = MagicMock()

@@ -39,7 +39,7 @@ def _make_agent():
     from services.bar_aggregator import BarAggregator
 
     agent = BarAggregator.__new__(BarAggregator)
-    agent.name = "bar_aggregator_agent"
+    agent.name = "bar_aggregator"
     agent._stop_event = asyncio.Event()
     agent._env_name = "dev"
 

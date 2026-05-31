@@ -6,8 +6,8 @@ from datetime import datetime
 import pytest
 
 from src.core.ai.base_agent import BaseAIWorker, IAIAgent
-from src.core.ai.context import SignalContext
 from src.core.ai.output import AgentOutput
+from src.intelligence.ai.context import SignalContext
 
 
 class ConcreteAgent(BaseAIWorker):

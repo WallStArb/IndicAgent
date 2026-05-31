@@ -12,11 +12,11 @@ from opentelemetry.trace import StatusCode
 from src.config.settings import Settings
 from src.core.agent.base import BaseDaemon
 from src.core.ai.base_agent import BaseAIWorker
-from src.core.ai.context import SignalContextCache
 from src.core.ai.lineage import LineageRecorder
 from src.core.ai.output import AgentOutput
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.llm.chain import LLMProviderChain
+from src.intelligence.ai.context import SignalContextCache
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.spans import ATTR_GROUP_ID, ATTR_SYMBOL, ATTR_TF
 

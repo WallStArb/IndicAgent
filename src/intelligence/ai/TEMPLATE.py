@@ -20,10 +20,10 @@ from typing import Any, ClassVar
 
 import structlog
 
-from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.llm.chain import LLMProviderChain
+from src.intelligence.ai.context import SignalContext, Tier
 
 logger = structlog.get_logger(__name__)
 

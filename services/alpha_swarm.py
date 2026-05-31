@@ -38,8 +38,6 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
 from src.config.settings import Settings
-from src.core.ai.base_group_service import BaseSwarmCoordinator
-from src.core.ai.context import SignalContext, Tier
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
 from src.core.service_utils import format_iso_ts
@@ -53,6 +51,8 @@ from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualEvaluat
 from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
 from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAnalyzer
 from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
+from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
+from src.intelligence.ai.context import SignalContext, Tier
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (

@@ -26,7 +26,7 @@ def _make_agent():
     from services.bar_aggregator import BarAggregator, HealthMetrics
 
     agent = BarAggregator.__new__(BarAggregator)
-    agent.name = "bar_aggregator_agent"
+    agent.name = "bar_aggregator"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
@@ -42,7 +42,7 @@ def _make_agent():
     agent._last_emitted = {}  # AGG-EMIT-ONCE guard
     agent._consumer_restart_needed = False
     agent._processing_semaphore = asyncio.Semaphore(200)  # AGG-BACKPRESSURE
-    agent._agent_attrs = {"agent": "bar_aggregator_agent"}
+    agent._agent_attrs = {"agent": "bar_aggregator"}
     return agent
 
 
@@ -258,7 +258,7 @@ async def test_setup_single_attempt_success():
     agent._kafka_producer = None
     agent._kafka_consumer = None
     agent._lag_consumer = None
-    agent.name = "bar_aggregator_agent"
+    agent.name = "bar_aggregator"
 
     mock_producer = AsyncMock()
     mock_producer.start = AsyncMock(return_value=None)
@@ -294,7 +294,7 @@ async def test_setup_propagates_exception():
     agent._kafka_producer = None
     agent._kafka_consumer = None
     agent._lag_consumer = None
-    agent.name = "bar_aggregator_agent"
+    agent.name = "bar_aggregator"
 
     mock_producer = AsyncMock()
     mock_producer.start = AsyncMock(side_effect=KafkaConnectionError())

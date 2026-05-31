@@ -55,7 +55,7 @@ def _make_agent(
     from services.provider_merger import ProviderMerger
 
     agent = ProviderMerger.__new__(ProviderMerger)
-    agent.name = "provider_merger_agent"
+    agent.name = "provider_merger"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()

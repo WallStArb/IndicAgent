@@ -140,7 +140,7 @@ class IntelligencePipeline(BaseDaemon):
         ):
             registry.validate_tier(tier_list, tier_name)
 
-        from src.core.plugin_validator import PluginValidator
+        from src.intelligence.plugin_validator import PluginValidator
 
         PluginValidator().validate_all()
 
@@ -362,7 +362,9 @@ class IntelligencePipeline(BaseDaemon):
 
     async def _seed_bar_history_from_db(self) -> None:
         try:
-            from src.core.bar_history_seeder import BarHistorySeeder  # noqa: PLC0415
+            from src.intelligence.services.bar_history_seeder import (
+                BarHistorySeeder,  # noqa: PLC0415
+            )
 
             config = {"service": {"timeframes": list(self._timeframes)}}
             seeder = BarHistorySeeder(self.settings, config, self._kafka_producer)

@@ -66,7 +66,7 @@ def test_aicontext_build_accepts_dict_i7():
     import types
     from datetime import UTC, datetime
 
-    from src.core.ai.context import SignalContextCache, Tier
+    from src.intelligence.ai.context import SignalContextCache, Tier
 
     cache = SignalContextCache()
 
