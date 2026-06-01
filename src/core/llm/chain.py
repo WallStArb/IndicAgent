@@ -324,6 +324,7 @@ class LLMProviderChain:
                     "tokens_est": tokens,
                     "model": model,
                     "latency_ms": int(latency_s * 1000),
+                    "succeeded": audit_context.get("succeeded", bool(response)),
                 },
             )
         except Exception:
