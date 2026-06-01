@@ -73,7 +73,8 @@ class BarHistorySeeder:
     async def seed(self, bar_history: BarHistory) -> None:
         """Seed bar_history from DB, then close the DB connection.
 
-        Falls back silently if DB is unavailable.
+        Retries DB init up to len(_SEED_INIT_DELAYS) times with exponential backoff.
+        Raises on all-retries-exhausted — a cold pipeline is a real failure.
         """
         if not self._db_url:
             self.logger.warning("DB seed skipped — no database_url configured")
@@ -88,10 +89,12 @@ class BarHistorySeeder:
                 break
             except Exception as e:
                 if attempt >= len(_SEED_INIT_DELAYS):
-                    self.logger.warning(
-                        "DB init failed after retries — skipping seed", error=str(e)
+                    self.logger.error(
+                        "db_pool_init_failed",
+                        attempts=len(_SEED_INIT_DELAYS),
+                        error=str(e),
                     )
-                    return
+                    raise
                 self.logger.warning(
                     "DB init failed — retrying",
                     attempt=attempt + 1,
