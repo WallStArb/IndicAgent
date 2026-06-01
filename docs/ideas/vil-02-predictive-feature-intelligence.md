@@ -166,7 +166,7 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 |---|---|
 | `vil-01` (VIL substrate) | Foundation beneath. All embedding, retrieval, and table infrastructure is defined there. |
 | `vil-03` (Scoring Engine) | Consumer above. Reads vil-02's `list[AnalogResult]` + `feature_ic_stats` and transforms them into the Score Object. vil-02 produces; vil-03 scores. |
-| `vil-04` (plugin correlation) | Sibling application of VIL. Shares the embedding pipeline and substrate. Different question: plugin independence rather than forward price prediction. |
+| `vil-04` (Correlation Intelligence) | Sibling measurement layer. vil-02 measures prediction (IC); vil-04 measures independence (effective-N) — the two orthogonal questions about any signal source. Shares the embedding pipeline and substrate. |
 | `shadow_registry` | A decision table (plugin-grain EV + correlation suppression). vil-02 does **not** write to it — it produces IC facts a governance consumer may act on. The reuse with shadow_registry is conceptual (a future IC governance consumer could mirror its flag + self-expiry pattern), not a write path from the factory. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `outcome_labels.ret_N` is directly comparable to `pnl_r` — same unit, same meaning. |
 | `BaseAIWorker` | Analog Finder exposed as `_find_analogs(k, scope, regime)` — grounded historical context injected into LLM prompts. |

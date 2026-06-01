@@ -1,26 +1,33 @@
-# Correlation Intelligence Layer — Signal Independence Across Plugins, Features, and Signals
+# Correlation Intelligence Layer — Independence Measurement Across the Stack
 
 **Version:** 1.5
 **Status:** under-review
 **Priority:** high
 **Last Updated:** 2026-05-31
-**Tags:** pgvector, plugin-correlation, feature-correlation, similarity, shadow-registry, effective-n, reuse, vil
+**Tags:** pgvector, independence, effective-n, correlation, plugin-correlation, signal-independence, agent-decorrelation, feature-redundancy, shadow-registry, vil
 
 ---
 
 ## Foundation
 
-This document is an application of the **Vector Intelligence Layer** (`vil-01-vector-intelligence-layer.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Correlation Intelligence Layer**: the specific application of VIL to measuring redundancy and independence across any entity level — plugins, features, signals.
+This document is an application of the **Vector Intelligence Layer** (`vil-01-vector-intelligence-layer.md`). VIL is the shared substrate — embed and retrieve. This document defines the **Correlation Intelligence Layer**: the platform's **independence measurement layer**.
 
-Do not read this as a standalone design. VIL owns the embedding infrastructure, the pgvector storage, and the cosine similarity primitive. This layer owns the redundancy question built on top of it.
+It is the counterpart to vil-02. The two measure the orthogonal questions you ask of any signal source:
+
+- **vil-02** measures **prediction** — does this predict price? → IC
+- **vil-04** measures **independence** — is this redundant with that? → effective-N / correlation
+
+The measurement is entity-agnostic: embed any set of entities' histories, take pairwise cosine similarity, derive effective-N (how many are truly independent) and the redundant pairs. **Plugin correlation is the flagship application — the first and most fully specified — but it is one application of a general capability, not the whole layer.** Independence is the scarce resource in this whole system: Renaissance's edge is *independent* bets, and this layer is where independence is measured, at every level it matters.
+
+Do not read this as a standalone design. VIL owns the embedding infrastructure, the pgvector storage, and the cosine similarity primitive. This layer owns the redundancy question built on top of it — generically, with plugins as the worked example.
 
 ---
 
-## The General Idea
+## The General Idea (told through plugins, the flagship case)
 
 The shadow registry tracks 132 plugins individually — is this plugin's EV positive? What it cannot see is whether those 132 represent 132 independent observations of the market, or 20 observations counted 6 times each because many plugins measure the same phenomenon.
 
-This is the redundancy question. It is a fundamentally different question from "is this plugin good?" A plugin can have strong positive EV and still be redundant — contributing no independent information beyond what another plugin already sees.
+This is the redundancy question. It is a fundamentally different question from "is this plugin good?" A plugin can have strong positive EV and still be redundant — contributing no independent information beyond what another plugin already sees. The same question, unchanged, applies to live signals, swarm agents, features, and instruments (see "What This Layer Measures Independence Of" below) — plugins are simply where it was first noticed and first solved.
 
 The solution is to embed each plugin's signal history as a vector and measure pairwise similarity using pgvector. Cosine distance over L2-normalized vectors gives `signed_r` — the [-1, 1] signed correlation metric needed to compute effective-N via eigenvalue decomposition. A pair of plugins that consistently fire in the same direction have high cosine similarity. A pair that consistently disagree have negative similarity — they are more independent than two uncorrelated plugins, not neutral.
 
@@ -91,20 +98,24 @@ With pgvector, `signed_r` is not a derived field — it falls out naturally from
 
 ---
 
-## Effective-N Is Not Just for Plugins
+## What This Layer Measures Independence Of
 
-The eigenvalue/participation-ratio computation cares nothing about *what* it counts — it answers "how many independent things are in this set?" for any set of embedded entities. Plugins are the first application because that is where the inflation was first noticed, but the identical math generalizes up the stack, and the question it answers gets more valuable the higher you go:
+This is the layer's true scope, and plugins are one row of it. The eigenvalue/participation-ratio computation cares nothing about *what* it counts — it answers "how many independent things are in this set?" and "which pairs are redundant?" for any set of embedded entities. The math is fixed; only the `entity_type` and the consumer change. The question gets more valuable the higher up the stack you ask it:
 
-| Level | Entity | Question effective-N answers | Consumer |
+| Entity | Question it answers | Redundancy means | Consumer |
 |---|---|---|---|
-| **Plugin** (this doc) | I7 plugins | how many independent signal *sources*? | aggregator confidence, suppression |
-| **Signal** | live signals | how many independent *reads* are firing right now? | vil-05 (the conviction bound) |
-| **Agent** | swarm agents | how many independent *opinions*, vs echoes of one? | eAI decorrelation fitness |
-| **Position** (future) | live exposures | how many independent *bets* are actually on? | risk / sizing, if ever built |
+| **Plugin** (flagship) | how many independent signal *sources*? | two plugins read the same phenomenon | aggregator confidence; suppression governance |
+| **Signal** | how many independent *reads* firing now? | two live signals are the same bet | vil-05's conviction bound |
+| **Agent** | how many independent *opinions* vs echoes? | an agent just restates another | eAI decorrelation fitness |
+| **Feature** | RSI vs MACD — same momentum twice? | two features encode the same information | feature selection / dimensionality reduction |
+| **Instrument** | which assets move together? | two instruments share a common factor | cross-asset structure, risk concentration |
+| **Position** (future) | how many independent *bets* actually on? | two exposures are one underlying bet | risk / sizing, if ever built |
 
-Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. The signal-level effective-N is the most immediately useful extension: it is the number vil-05's conviction bound depends on, and it carries the same data-starvation caveat as any sparse set (gate on co-occurrence before trusting a pair; signals co-occur far less than plugin outputs do).
+Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. Two applications are immediately useful: **signal-level** effective-N is the number vil-05's conviction bound depends on, and **feature-level** redundancy is what tells the embedding spec (vil-01) and the IC Factory (vil-02) which features are duplicates rather than independent evidence.
 
-This is the compounding payoff of putting the independence question on the shared substrate: solve it once for plugins, and signals/agents/positions are the same query.
+Every application inherits the same data-starvation caveat: gate on co-occurrence before trusting a pair (signals, agents, and positions co-occur far less than plugin outputs do — sparse sets give noisy correlations). And the measurement is always just measurement — *what to do* with a redundant pair (suppress a plugin, bound the combiner, drop a feature, flag an agent) is the application's policy, decided by its consumer, never by this layer.
+
+This is the compounding payoff of putting the independence question on the shared substrate: solve it once for plugins, and signals, agents, features, instruments, and positions are the same query.
 
 ---
 

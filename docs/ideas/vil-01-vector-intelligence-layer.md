@@ -72,7 +72,7 @@ Every VIL implementation obeys this separation. Collapsing any two layers produc
 |---|---|---|
 | **Representation** | What does this entity's history look like as a mathematical object? | Stored in `embeddings` (per the serialization spec below) |
 | **Similarity computation** | How do we measure distance between two representations? | Delegated to pgvector (`<=>` operator) |
-| **Domain threshold** | What constitutes "similar enough" in trading terms? | Application code only (vil-04/11/12) |
+| **Domain threshold** | What constitutes "similar enough" in trading terms? | Application code only (vil-02/03/04) |
 
 Application code never re-implements similarity math. pgvector never makes domain decisions. Representations are stored — not computed on the fly at query time.
 
@@ -244,7 +244,7 @@ VIL reads from existing tables. It adds nothing to the intelligence pipeline's h
 
 ## Consumers of VIL Output
 
-VIL's direct consumers are the application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* vil-03/13, not by querying VIL directly.
+VIL's direct consumers are the application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* vil-03/05, not by querying VIL directly.
 
 | Consumer | What it reads from VIL | What it does with it |
 |---|---|---|
@@ -253,7 +253,7 @@ VIL's direct consumers are the application layers. End consumers (I7 governance,
 | **vil-05** (Signal Combiner) | via vil-03 scores + vil-04 correlation | Combines the live edge set into one independent-conviction view (terminal layer) |
 | **vil-04** (Correlation) | `embeddings` + `similarity_pairs` (`entity_type='plugin'`) | Effective-N and redundancy suppression |
 | **vil-06** (platform ideas) | the fabric, scoped to new entities/questions | Holding doc: regime discovery, lead-lag, hypothesis backtester, episodic memory, decay observatory, cost-aware scoring |
-| **End consumers** (I7 gov, swarm, eAI, Superset) | vil-03/13 outputs — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
+| **End consumers** (I7 gov, swarm, eAI, Superset) | vil-03/05 outputs — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
 
 ---
 
@@ -290,13 +290,13 @@ All retrievals are SQL — they appear in `pg_stat_statements`, EXPLAIN ANALYZE,
 > - **vil-01** substrate — extension, tables, `bar` serialization, `retrieve()`
 > - **vil-02** Predictive Feature Intelligence — Outcome Labeler + IC Factory + Analog Finder (measures prediction)
 > - **vil-03** Scoring Engine — consumes vil-02's analog set + IC facts (scores each edge)
-> - **vil-04** Plugin Correlation — effective-N / independence; consumes the substrate, independent of vil-02/03
+> - **vil-04** Correlation Intelligence — effective-N / independence across the stack (plugins are the flagship); consumes the substrate, independent of vil-02/03
 > - **vil-05** Signal Combiner — the capstone; consumes vil-02 (trust), vil-03 (scores), vil-04 (independence). Built last.
 > - **vil-06** Platform Ideas — holding doc; substrate-enabled extensions not yet promoted
 >
 > A consumer never builds before the substrate it reads. vil-02 and vil-04 are independent measurement siblings; vil-05 sits on top of everything. This ordering holds regardless of which milestone eventually receives the work.
 
-VIL ships the substrate; the application layers (vil-04/11/12) ship on top.
+VIL ships the substrate; the application layers (vil-02/03/04) ship on top.
 
 **Phase 1 — Substrate (prerequisite for everything)**
 - `CREATE EXTENSION vector` (binary already in image; extension not yet enabled)
@@ -324,7 +324,7 @@ Scoring (the granularity dial, distributions, composite, surface) is **not** a V
 
 ## Relationship to Existing Work
 
-- **vil-04 (plugin correlation):** Consumer. Writes/reads `entity_type='plugin'` rows in VIL's `embeddings`/`similarity_pairs`; owns effective-N and suppression. Supersedes the archived Phase 112 hand-rolled matrix.
+- **vil-04 (Correlation Intelligence):** Consumer — the independence measurement layer, generic over `entity_type`. Plugin correlation is its flagship application (writes/reads `entity_type='plugin'` rows in VIL's `embeddings`/`similarity_pairs`; owns effective-N and suppression), and supersedes the archived Phase 112 hand-rolled matrix. Generalizes to signals, agents, features, instruments.
 - **vil-02 (Predictive Feature Intelligence):** Consumer/sibling, not subsumed. Owns the Outcome Labeler, IC Factory, and the Analog Finder retrieval wrapper. Produces `outcome_labels` and `feature_ic_stats`.
 - **vil-03 (Scoring Engine):** The scoring layer. Consumes `list[AnalogResult]` + IC weights, produces the Score Object and owns `score_cache`. Everything VIL used to claim about "scores" lives here.
 - **Phase 112 (archived):** Operational detail (systemd schedule, asyncpg patterns, suppression gating, OTel metrics) preserved in `.planning/phases/archive/112-plugin-correlation/`. Remains valid for vil-04 implementation.

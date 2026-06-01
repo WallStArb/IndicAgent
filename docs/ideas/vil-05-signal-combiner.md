@@ -28,7 +28,7 @@ This document is the capstone of the Vector Intelligence stack. It introduces no
 
 vil-05 answers the question those three set up but none of them asks: **across all live edges at once, accounting for trust and overlap together, how much independent conviction does the set actually carry, and which edges contribute genuinely new information versus duplicate it?**
 
-Do not read this as standalone. Without vil-04/11/12 beneath it, there is nothing to combine.
+Do not read this as standalone. Without vil-02/03/04 beneath it, there is nothing to combine.
 
 > **This is the terminal idea in the stack — recorded now, built last.** It earns implementation only after the layers below it produce IC-validated outputs *and* a consumer exists that does something with a combined conviction. As an idea it belongs on record (it is where the edge would live); as a build it is dead last, gated behind everything below being real. Sequencing it ahead of its inputs would be building the roof before the walls.
 
@@ -221,7 +221,7 @@ _Structure is designed from principle above; these constants come from evidence,
 | Principle | How vil-05 satisfies it |
 |---|---|
 | **Modularity** | One job: combine. No measuring, scoring, or retrieving — those are the three layers below. |
-| **Reuse** | Consumes vil-04/11/12 outputs directly. Decorrelation reuses vil-04's correlation fabric; the conviction bound reuses its effective-N; the shrinkage reuses vil-02's IC. |
+| **Reuse** | Consumes vil-02/03/04 outputs directly. Decorrelation reuses vil-04's correlation fabric; the conviction bound reuses its effective-N; the shrinkage reuses vil-02's IC. |
 | **Separation of concerns** | Independence (vil-04), trust (vil-02), per-edge score (vil-03), combination (vil-05), action (a future consumer) are all distinct. |
 | **Compute efficiency** | Live but cheap — operates on dozens of live edges; the expensive inputs are pre-computed weekly. |
 | **Shadow mode first** | Produces an observational view; takes no action until a consumer is deliberately wired. |
