@@ -50,32 +50,30 @@ export interface ObservabilityData {
 // ── Service layer map ────────────────────────────────────────────────────────
 
 const SERVICE_LAYERS: Array<{ layer: number; name: string; units: string[] }> = [
-  { layer: 1, name: "Data Ingestion", units: ["indicagent-ibkr-provider", "indicagent-bar-replay"] },
+  { layer: 1, name: "Data Ingestion", units: ["indicagent-ibkr-provider"] },
   { layer: 2, name: "Stream Merge",   units: ["indicagent-provider-merger"] },
   { layer: 3, name: "Bar Processing", units: ["indicagent-bar-aggregator", "indicagent-bar-auditor"] },
   { layer: 4, name: "OHLCV Persist",  units: ["indicagent-bar-writer"] },
   { layer: 5, name: "Intelligence",   units: ["indicagent-intelligence-pipeline", "indicagent-cross-asset", "indicagent-macro-compute"] },
-  { layer: 6, name: "Feature Writers",units: ["indicagent-feature-writer", "indicagent-signal-writer", "indicagent-signal-tracker-compute", "indicagent-lifecycle-writer", "indicagent-lineage-writer", "indicagent-contract-metadata-writer", "indicagent-ctx-writer"] },
+  { layer: 6, name: "Feature Writers",units: ["indicagent-feature-writer", "indicagent-signal-writer", "indicagent-signal-tracker-compute", "indicagent-lifecycle-writer", "indicagent-lineage-writer", "indicagent-ctx-writer"] },
   { layer: 7, name: "AI / LLM",       units: ["indicagent-alpha-swarm", "indicagent-narrative-compute", "indicagent-llm-writer", "indicagent-swarm-ledger-writer"] },
-  { layer: 8, name: "Analytics",      units: ["indicagent-roll-compute", "indicagent-signal-metrics-compute", "indicagent-signal-metrics-writer", "indicagent-graduation-compute", "indicagent-graduation-writer", "indicagent-feature-snapshot-writer", "indicagent-ml-training"] },
-  { layer: 9, name: "Audit",          units: ["indicagent-signal-auditor", "indicagent-signal-replay", "indicagent-parity-auditor", "indicagent-alerting-agent"] },
+  { layer: 8, name: "Analytics",      units: ["indicagent-signal-metrics-compute", "indicagent-signal-metrics-writer", "indicagent-graduation-compute", "indicagent-graduation-writer", "indicagent-dlq-drain", "indicagent-ml-training"] },
+  { layer: 9, name: "Audit",          units: ["indicagent-signal-auditor", "indicagent-signal-replay", "indicagent-alerting-agent"] },
   { layer: 10, name: "Meta",          units: ["indicagent-service-auditor"] },
 ];
 
-// These string values are Prometheus `agent` label values (agent_id), preserved
-// verbatim under the Phase 110 operational exception (naming-system.md Section 10).
-// They intentionally retain old class-name form because the metric label is unchanged.
+// Maps systemd unit names to the agent_id label value in agent_last_message_timestamp_seconds.
+// Only services that emit that metric are listed here.
 const UNIT_TO_AGENT: Record<string, string> = {
-  "indicagent-intelligence-pipeline":   "intelligence_pipeline_agent",
-  "indicagent-bar-aggregator":          "bar_aggregator_agent",
-  "indicagent-signal-tracker-compute":  "SignalTrackerComputeAgent",
-  "indicagent-alpha-swarm":             "AlphaSwarmComputeAgent",
-  "indicagent-cross-asset":             "CrossAssetComputeAgent",
-  "indicagent-graduation-compute":      "GraduationComputeAgent",
-  "indicagent-feature-writer":          "feature_writer_agent",
-  "indicagent-lifecycle-writer":        "lifecycle_writer_agent",
-  "indicagent-lineage-writer":          "lineage_writer_agent",
-  "indicagent-signal-writer":           "signal_writer_agent",
+  "indicagent-signal-tracker-compute":  "signal_tracker",
+  "indicagent-alpha-swarm":             "alpha_swarm",
+  "indicagent-cross-asset":             "cross_asset_analyzer",
+  "indicagent-macro-compute":           "macro_analyzer",
+  "indicagent-graduation-compute":      "graduation_analyzer",
+  "indicagent-lifecycle-writer":        "lifecycle_writer",
+  "indicagent-lineage-writer":          "lineage_writer",
+  "indicagent-signal-writer":           "signal_writer",
+  "indicagent-llm-writer":              "llm_writer",
 };
 
 const GRAFANA = {
@@ -208,13 +206,11 @@ export function useObservabilityStream(): ObservabilityData {
       const now = Date.now() / 1000;
       const agentAge: Record<string, number> = {};
       for (const r of agentTimestamps) {
-        const name = r.labels["agent"] ?? r.labels["exported_instance"];
+        const name = r.labels["agent_id"];
         if (name) agentAge[name] = now - r.value;
       }
 
-      // AI tier health: alpha swarm age
-      const swarmAge = agentAge["AlphaSwarmComputeAgent"] ?? null;
-      const intelAge  = agentAge["intelligence_pipeline_agent"] ?? null;
+      const swarmAge = agentAge["alpha_swarm"] ?? null;
 
       // ── Build nodes ───────────────────────────────────────────────────────
 
@@ -252,12 +248,7 @@ export function useObservabilityStream(): ObservabilityData {
             { label: "Workers",  value: threadWorkers  !== null ? String(Math.round(threadWorkers)) : "—" },
             { label: "Buffer",   value: intelBuffer    !== null ? String(Math.round(intelBuffer))   : "—" },
           ],
-          health: (() => {
-            if (intelErrors !== null && intelErrors > 0.01) return "degraded";
-            if (intelAge !== null && intelAge < 300) return intelRate !== null && intelRate > 0 ? "active" : "stale";
-            if (intelAge !== null && intelAge < 1800) return "stale";
-            return "unknown";
-          })(),
+          health: nodeHealth(intelRate, intelErrors, null),
           grafanaDashboard: GRAFANA.plugins,
         },
         {

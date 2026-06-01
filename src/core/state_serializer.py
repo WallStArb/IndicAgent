@@ -78,6 +78,8 @@ def _tag_value(obj: Any) -> Any:
         return {str(k): _tag_value(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_tag_value(item) for item in obj]
+    if isinstance(obj, np.generic):
+        return obj.item()
     return obj
 
 

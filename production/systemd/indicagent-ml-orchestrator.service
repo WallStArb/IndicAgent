@@ -8,7 +8,6 @@ Type=oneshot
 WorkingDirectory=/home/bg/dev/indicagent
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_orchestrator.py
 Environment=PYTHONUNBUFFERED=1
-Environment=INDICAGENT_ENV=development
 TimeoutStartSec=7200
 
 [Install]

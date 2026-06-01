@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { PipelineAnimation } from "./pipeline-animation";
 
 interface HeroSectionProps {
@@ -19,7 +17,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
   return (
     <section
       className="relative"
-      style={{ minHeight: "68vh", background: "#080b11" }}
+      style={{ background: "#080b11" }}
     >
       {/* Background layers */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -61,9 +59,9 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
         />
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-16 sm:pb-20">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10 pb-8 sm:pb-10">
         {/* Status bar */}
-        <div className="flex items-center gap-2 sm:gap-3 mb-10 sm:mb-14">
+        <div className="flex items-center gap-2 sm:gap-3 mb-6 sm:mb-8">
           <span
             className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
             style={{ background: "var(--accent-cyan)" }}
@@ -147,9 +145,9 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
         </p>
 
         {/* Outcome stats */}
-        <div className="flex flex-wrap gap-6 sm:gap-8 mt-8 sm:mt-10 mb-8 sm:mb-10">
+        <div className="flex flex-wrap gap-6 sm:gap-8 mt-6 sm:mt-8">
           {OUTCOME_STATS.map(({ value, label }) => (
-            <div key={label} className="flex flex-col gap-1">
+            <div key={label} className="flex flex-col gap-0.5">
               <span
                 style={{
                   fontFamily: "var(--font-jetbrains)",
@@ -177,36 +175,6 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
           ))}
         </div>
 
-        {/* CTA */}
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-3 group"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "0.85rem",
-            fontWeight: 700,
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "var(--accent-cyan)",
-            transition: "opacity 0.2s",
-          }}
-        >
-          Open Dashboard
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "2.2rem",
-              height: "2.2rem",
-              borderRadius: "50%",
-              border: "1.5px solid var(--accent-cyan)",
-              flexShrink: 0,
-            }}
-          >
-            <ArrowRight size={14} />
-          </span>
-        </Link>
       </div>
     </section>
   );

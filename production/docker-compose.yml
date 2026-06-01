@@ -19,7 +19,8 @@ services:
       "postgres",
       "-c", "max_locks_per_transaction=16384",
       "-c", "wal_buffers=8192",
-      "-c", "log_min_duration_statement=1000"
+      "-c", "log_min_duration_statement=1000",
+      "-c", "work_mem=32MB"
     ]
     environment:
       - POSTGRES_USER=postgres

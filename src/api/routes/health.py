@@ -118,7 +118,7 @@ async def system_health() -> dict:
 
         if isinstance(hb_items, list):
             for item in hb_items:
-                agent_key = item["metric"].get("agent", "unknown")
+                agent_key = item["metric"].get("agent_id", "unknown")
                 ts = float(item["value"][1])
                 result["agent_heartbeats"][agent_key] = datetime.fromtimestamp(
                     ts, tz=UTC

@@ -8,7 +8,6 @@ Type=oneshot
 WorkingDirectory=/home/bg/dev/indicagent
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_discovery_analyzer.py
 Environment=PYTHONUNBUFFERED=1
-Environment=INDICAGENT_ENV=development
 TimeoutStartSec=1800
 
 [Install]

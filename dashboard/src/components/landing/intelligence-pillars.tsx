@@ -23,17 +23,29 @@ const pillars = [
     tag: "IntelligenceEvent schema · Stream-native · API-first",
     body: "Every output at every tier is encoded into a versioned IntelligenceEvent schema and published to the stream bus. Producers publish. Consumers subscribe. No service calls another directly. A new consumer (alert engine, execution system, ML scorer) subscribes to the existing stream without changing the producers. The bus is the API. Extension is additive.",
   },
+  {
+    num: "05",
+    title: "Shadow-First Governance",
+    tag: "Shadow registry · Statistical gate · No silent corruption",
+    body: "Every new plugin and agent enters shadow mode at startup — outputs are computed and logged but carry zero production influence. Promotion requires statistical proof: n ≥ 100 signals and a positive bootstrapped CI lower bound on P&L. Demotion is automatic when edge decays. New code cannot corrupt live signals by default; influence must be earned from evidence.",
+  },
+  {
+    num: "06",
+    title: "Compute Ignorant of Persistence",
+    tag: "DB-ignorant compute · Hot path isolation · Kafka as sink",
+    body: "Compute agents have no database access — by design, not by convention. I1–I7 runs entirely in-memory and publishes to Kafka. WriterAgents consume from Kafka and own all DB writes. When the database slows or goes offline, the hot path continues unaffected. Backpressure from persistence never reaches the pipeline. The two concerns cannot interfere because they share no code path.",
+  },
 ];
 
 export function IntelligencePillars() {
   return (
     <section
-      className="px-6 py-14 border-t"
+      className="px-6 py-10 border-t"
       style={{ borderColor: "var(--border-subtle)" }}
     >
       <div className="max-w-7xl mx-auto">
         {/* Section header */}
-        <div className="flex items-end gap-6 mb-12">
+        <div className="flex items-end gap-6 mb-8">
           <div>
             <p
               className="mb-1"
