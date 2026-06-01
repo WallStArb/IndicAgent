@@ -30,9 +30,9 @@ That is the full scope of VIL. It returns analog sets. **It does not score them.
 The boundary, stated plainly:
 
 - VIL answers: *"what are the K historical states most similar to now, at this scope, and what did price do after each?"* — a `list[AnalogResult]`, nothing more
-- Turning that analog set into a score — directional hit rate, return distribution, composite, conviction, percentile rank — is owned by the **Scoring Engine** (`intel-12`)
-- Labeling outcomes and measuring which features predict (IC) is owned by **Predictive Feature Intelligence** (`intel-11`)
-- I7 governance, eAI fitness, and the LLM swarm consume `intel-12` scores, not VIL directly
+- Turning that analog set into a score — directional hit rate, return distribution, composite, conviction, percentile rank — is owned by the **Scoring Engine** (`vil-03`)
+- Labeling outcomes and measuring which features predict (IC) is owned by **Predictive Feature Intelligence** (`vil-02`)
+- I7 governance, eAI fitness, and the LLM swarm consume `vil-03` scores, not VIL directly
 
 This boundary is what keeps VIL focused, testable, and reusable. Any system that needs "find the states most similar to these" uses VIL and gets the same shape back: neighbors, distances, and their outcomes. What you conclude from them is never VIL's concern.
 
@@ -42,7 +42,7 @@ This boundary is what keeps VIL focused, testable, and reusable. Any system that
 
 **Given a query vector at a given scope, what are the K nearest historical neighbors and what did price do after each — at T+5, T+10, T+20?**
 
-Retrieval is *scoped* — the `scope` column lets the same query run at plugin, TF, symbol, or cross-asset resolution. But VIL only supports scoped retrieval; it does not define what each scope *means* for scoring or how scores aggregate across them. That hierarchy (Levels 0–3) is `intel-12`'s. VIL hands back neighbors; intel-12 decides what a neighbor set at a given scope implies.
+Retrieval is *scoped* — the `scope` column lets the same query run at plugin, TF, symbol, or cross-asset resolution. But VIL only supports scoped retrieval; it does not define what each scope *means* for scoring or how scores aggregate across them. That hierarchy (Levels 0–3) is `vil-03`'s. VIL hands back neighbors; vil-03 decides what a neighbor set at a given scope implies.
 
 ---
 
@@ -72,7 +72,7 @@ Every VIL implementation obeys this separation. Collapsing any two layers produc
 |---|---|---|
 | **Representation** | What does this entity's history look like as a mathematical object? | Stored in `embeddings` (per the serialization spec below) |
 | **Similarity computation** | How do we measure distance between two representations? | Delegated to pgvector (`<=>` operator) |
-| **Domain threshold** | What constitutes "similar enough" in trading terms? | Application code only (intel-10/11/12) |
+| **Domain threshold** | What constitutes "similar enough" in trading terms? | Application code only (vil-04/11/12) |
 
 Application code never re-implements similarity math. pgvector never makes domain decisions. Representations are stored — not computed on the fly at query time.
 
@@ -91,7 +91,7 @@ The naive approach (flatten the ~50–100 numerical fields of `intelligence_feat
 ### The serialization law (per `entity_type`)
 
 1. **Per-feature standardization before concatenation.** Each numeric feature is mapped to its **rolling, point-in-time z-score** (or rolling percentile rank) over a trailing window. This is what makes "RSI reads like this" comparable to "volume reads like this" — every feature in standardized units. The choice between z-score and percentile rank is per-feature (percentile for bounded/non-normal features, z-score for roughly-symmetric ones).
-2. **Point-in-time only.** The trailing window uses data available at or before bar T's close. Global or full-history normalization is look-ahead and silently invalidates every downstream study — the same hard gate `intel-11` enforces for IC. The normalization statistics themselves must be reproducible as-of T.
+2. **Point-in-time only.** The trailing window uses data available at or before bar T's close. Global or full-history normalization is look-ahead and silently invalidates every downstream study — the same hard gate `vil-02` enforces for IC. The normalization statistics themselves must be reproducible as-of T.
 3. **Categoricals are retrieval filters, not vector dimensions.** Regime, structure type, and session are excluded from the vector and applied as hard or soft filters at retrieval time (this *is* regime-conditioned retrieval). One-hot encoding them into the vector pollutes the cosine geometry.
 4. **Stable, versioned feature ordering.** The ordered list of features is a contract: a fixed registry maps `feature_name → vector index`. The vector is meaningless without it.
 5. **L2-normalize the final concatenated vector** so cosine equals inner product and distances map to `signed_r`.
@@ -111,7 +111,7 @@ Dimension `N` is fixed **per `entity_type`**, not globally. Bar, plugin, and sig
 
 ## What Simons Would Demand of Retrieval
 
-These are retrieval-level demands. The score-level demands (distributions, horizon profiles, composite, percentile rank) live in `intel-12`.
+These are retrieval-level demands. The score-level demands (distributions, horizon profiles, composite, percentile rank) live in `vil-03`.
 
 **1. Distance-weighted neighbor sets.** A neighbor at cosine distance 0.02 is more analogous than one at 0.18. VIL returns the distance with every neighbor so the consumer can weight by proximity. Equal-weighting K neighbors discards the information distance carries — VIL never throws distance away.
 
@@ -139,7 +139,7 @@ This reuses machinery that already exists: it is the null-result path (demand #2
 
 ## The Schema
 
-Three tables. VIL owns all three. (`score_cache` — the pre-computed score surface — is owned and defined by `intel-12`, not here.)
+Three tables. VIL owns all three. (`score_cache` — the pre-computed score surface — is owned and defined by `vil-03`, not here.)
 
 ```sql
 -- Embedding registry: one vector per named entity per scope per time
@@ -200,11 +200,11 @@ class AnalogResult:
 
 `retrieve(query_vector, scope, k, candidate_k=None, regime=None, max_distance=None) -> list[AnalogResult]`
 
-That is the entire VIL interface. The null result is `[]` (or a flagged empty set) when nothing falls within `max_distance`. Scoped retrieval is supported via the `scope` argument; the meaning of each scope level and any aggregation across them is `intel-12`'s concern, not VIL's.
+That is the entire VIL interface. The null result is `[]` (or a flagged empty set) when nothing falls within `max_distance`. Scoped retrieval is supported via the `scope` argument; the meaning of each scope level and any aggregation across them is `vil-03`'s concern, not VIL's.
 
-**`candidate_k` supports IC-weighted re-ranking by consumers.** VIL's HNSW similarity is plain cosine — every dimension equal. A consumer that wants an IC-weighted metric (intel-12 weights similarity by feature IC Sharpe) asks for a generous `candidate_k` (e.g. 200) by plain cosine, then re-ranks to its final K with its own distance. This keeps VIL's index simple and current — the alternative (baking IC weights into stored vectors) would force a full re-embed on every weekly IC refresh. ANN for recall in VIL; exact weighted re-rank in the consumer.
+**`candidate_k` supports IC-weighted re-ranking by consumers.** VIL's HNSW similarity is plain cosine — every dimension equal. A consumer that wants an IC-weighted metric (vil-03 weights similarity by feature IC Sharpe) asks for a generous `candidate_k` (e.g. 200) by plain cosine, then re-ranks to its final K with its own distance. This keeps VIL's index simple and current — the alternative (baking IC weights into stored vectors) would force a full re-embed on every weekly IC refresh. ANN for recall in VIL; exact weighted re-rank in the consumer.
 
-This same primitive is exposed on `BaseAIWorker` as `_find_analogs(k, scope, regime)` (implemented by `intel-11`'s Analog Finder) so the scoring engine and swarm agents share one retrieval path.
+This same primitive is exposed on `BaseAIWorker` as `_find_analogs(k, scope, regime)` (implemented by `vil-02`'s Analog Finder) so the scoring engine and swarm agents share one retrieval path.
 
 ---
 
@@ -223,10 +223,10 @@ This same primitive is exposed on `BaseAIWorker` as `_find_analogs(k, scope, reg
 └─────────────────────────────────────────────────────┘
         │                                      ▲
         ▼                                      │
-   intel-11 (label + IC)  →  intel-12 (score)  →  consumers
+   vil-02 (label + IC)  →  vil-03 (score)  →  consumers
 ```
 
-VIL returns analogs and stops. intel-11 labels and calibrates; intel-12 scores; consumers act. Each is a distinct system, and VIL's indifference to what happens above it is what makes it reusable across all of them.
+VIL returns analogs and stops. vil-02 labels and calibrates; vil-03 scores; consumers act. Each is a distinct system, and VIL's indifference to what happens above it is what makes it reusable across all of them.
 
 ---
 
@@ -244,16 +244,16 @@ VIL reads from existing tables. It adds nothing to the intelligence pipeline's h
 
 ## Consumers of VIL Output
 
-VIL's direct consumers are the application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* intel-12/13, not by querying VIL directly.
+VIL's direct consumers are the application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* vil-03/13, not by querying VIL directly.
 
 | Consumer | What it reads from VIL | What it does with it |
 |---|---|---|
-| **intel-11** (Predictive Feature Intelligence) | retrieval results + `outcome_labels` | Labels outcomes (Outcome Labeler); measures feature IC (IC Factory); wraps retrieval (Analog Finder) |
-| **intel-12** (Scoring Engine) | `list[AnalogResult]` from retrieval | Transforms analogs into the Score Object (distribution, sub-scores, composite, conviction) |
-| **intel-13** (Signal Combiner) | via intel-12 scores + intel-10 correlation | Combines the live edge set into one independent-conviction view (terminal layer) |
-| **intel-10** (Correlation) | `embeddings` + `similarity_pairs` (`entity_type='plugin'`) | Effective-N and redundancy suppression |
-| **intel-14** (platform ideas) | the fabric, scoped to new entities/questions | Holding doc: regime discovery, lead-lag, hypothesis backtester, episodic memory, decay observatory, cost-aware scoring |
-| **End consumers** (I7 gov, swarm, eAI, Superset) | intel-12/13 outputs — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
+| **vil-02** (Predictive Feature Intelligence) | retrieval results + `outcome_labels` | Labels outcomes (Outcome Labeler); measures feature IC (IC Factory); wraps retrieval (Analog Finder) |
+| **vil-03** (Scoring Engine) | `list[AnalogResult]` from retrieval | Transforms analogs into the Score Object (distribution, sub-scores, composite, conviction) |
+| **vil-05** (Signal Combiner) | via vil-03 scores + vil-04 correlation | Combines the live edge set into one independent-conviction view (terminal layer) |
+| **vil-04** (Correlation) | `embeddings` + `similarity_pairs` (`entity_type='plugin'`) | Effective-N and redundancy suppression |
+| **vil-06** (platform ideas) | the fabric, scoped to new entities/questions | Holding doc: regime discovery, lead-lag, hypothesis backtester, episodic memory, decay observatory, cost-aware scoring |
+| **End consumers** (I7 gov, swarm, eAI, Superset) | vil-03/13 outputs — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
 
 ---
 
@@ -286,14 +286,17 @@ All retrievals are SQL — they appear in `pg_stat_statements`, EXPLAIN ANALYZE,
 
 ## Implementation Phases
 
-> **Dependency order across the doc-set (a design invariant, independent of when any of this is scheduled):**
-> 1. **vil-01 substrate** — extension, tables, `bar` serialization, `retrieve()`
-> 2. **intel-11** (Outcome Labeler + IC Factory + Analog Finder) and **intel-10** (plugin embeddings → effective-N) — both consume the substrate; independent of each other
-> 3. **intel-12** (scoring engine) — consumes intel-11's analog set + IC facts
+> **The doc-set numbering is the dependency order** (a design invariant, independent of when any of this is scheduled):
+> - **vil-01** substrate — extension, tables, `bar` serialization, `retrieve()`
+> - **vil-02** Predictive Feature Intelligence — Outcome Labeler + IC Factory + Analog Finder (measures prediction)
+> - **vil-03** Scoring Engine — consumes vil-02's analog set + IC facts (scores each edge)
+> - **vil-04** Plugin Correlation — effective-N / independence; consumes the substrate, independent of vil-02/03
+> - **vil-05** Signal Combiner — the capstone; consumes vil-02 (trust), vil-03 (scores), vil-04 (independence). Built last.
+> - **vil-06** Platform Ideas — holding doc; substrate-enabled extensions not yet promoted
 >
-> A consumer never builds before the substrate it reads. This ordering holds regardless of which milestone eventually receives the work.
+> A consumer never builds before the substrate it reads. vil-02 and vil-04 are independent measurement siblings; vil-05 sits on top of everything. This ordering holds regardless of which milestone eventually receives the work.
 
-VIL ships the substrate; the application layers (intel-10/11/12) ship on top.
+VIL ships the substrate; the application layers (vil-04/11/12) ship on top.
 
 **Phase 1 — Substrate (prerequisite for everything)**
 - `CREATE EXTENSION vector` (binary already in image; extension not yet enabled)
@@ -302,9 +305,9 @@ VIL ships the substrate; the application layers (intel-10/11/12) ship on top.
 - Nightly batch: bar embedding computation + outcome labeling (forward returns in R-multiples at T+5/10/20/60)
 - The `retrieve()` primitive + an API endpoint returning `list[AnalogResult]`
 
-**Phase 2 — Plugin embeddings (enables intel-10)**
+**Phase 2 — Plugin embeddings (enables vil-04)**
 - Plugin history vectors → `embeddings` (`entity_type='plugin'`) + `similarity_pairs`
-- (Effective-N and suppression are intel-10's, built on this)
+- (Effective-N and suppression are vil-04's, built on this)
 
 **Phase 3 — Retrieval features**
 - Regime-conditioned retrieval (filter)
@@ -315,23 +318,23 @@ VIL ships the substrate; the application layers (intel-10/11/12) ship on top.
 - HNSW index tuning as bar history accumulates
 - Separate indexes per `entity_type` vector space
 
-Scoring (the granularity dial, distributions, composite, surface) is **not** a VIL phase — it is `intel-12`.
+Scoring (the granularity dial, distributions, composite, surface) is **not** a VIL phase — it is `vil-03`.
 
 ---
 
 ## Relationship to Existing Work
 
-- **intel-10 (plugin correlation):** Consumer. Writes/reads `entity_type='plugin'` rows in VIL's `embeddings`/`similarity_pairs`; owns effective-N and suppression. Supersedes the archived Phase 112 hand-rolled matrix.
-- **intel-11 (Predictive Feature Intelligence):** Consumer/sibling, not subsumed. Owns the Outcome Labeler, IC Factory, and the Analog Finder retrieval wrapper. Produces `outcome_labels` and `feature_ic_stats`.
-- **intel-12 (Scoring Engine):** The scoring layer. Consumes `list[AnalogResult]` + IC weights, produces the Score Object and owns `score_cache`. Everything VIL used to claim about "scores" lives here.
-- **Phase 112 (archived):** Operational detail (systemd schedule, asyncpg patterns, suppression gating, OTel metrics) preserved in `.planning/phases/archive/112-plugin-correlation/`. Remains valid for intel-10 implementation.
-- **eAI (ai-03, ai-11, eai-phase-recommendations):** Measures its fitness dimensions against intel-12 scores, which rest on VIL retrieval. VIL is the foundation of that ground truth, two layers down.
+- **vil-04 (plugin correlation):** Consumer. Writes/reads `entity_type='plugin'` rows in VIL's `embeddings`/`similarity_pairs`; owns effective-N and suppression. Supersedes the archived Phase 112 hand-rolled matrix.
+- **vil-02 (Predictive Feature Intelligence):** Consumer/sibling, not subsumed. Owns the Outcome Labeler, IC Factory, and the Analog Finder retrieval wrapper. Produces `outcome_labels` and `feature_ic_stats`.
+- **vil-03 (Scoring Engine):** The scoring layer. Consumes `list[AnalogResult]` + IC weights, produces the Score Object and owns `score_cache`. Everything VIL used to claim about "scores" lives here.
+- **Phase 112 (archived):** Operational detail (systemd schedule, asyncpg patterns, suppression gating, OTel metrics) preserved in `.planning/phases/archive/112-plugin-correlation/`. Remains valid for vil-04 implementation.
+- **eAI (ai-03, ai-11, eai-phase-recommendations):** Measures its fitness dimensions against vil-03 scores, which rest on VIL retrieval. VIL is the foundation of that ground truth, two layers down.
 
 ---
 
 ## Alternatives Considered
 
-**IC-weighted similarity: re-rank vs baked-in weights (rejected the latter).** The obvious way to get IC-weighted similarity is to multiply each feature by its IC weight before storing, so plain pgvector cosine does the weighted thing for free. Rejected: the weekly IC Factory refresh would then force a full re-embed of all history every week, and every weight change would bump `embedding_version` and shrink the comparable window. Chosen instead: VIL stores raw L2-normalized vectors and serves a generous `candidate_k` by plain cosine; the consumer (intel-12) re-ranks with current IC weights in memory. ANN for recall here, exact weighted distance in the consumer. If someone later asks "why not just weight the stored vector?" — this is why.
+**IC-weighted similarity: re-rank vs baked-in weights (rejected the latter).** The obvious way to get IC-weighted similarity is to multiply each feature by its IC weight before storing, so plain pgvector cosine does the weighted thing for free. Rejected: the weekly IC Factory refresh would then force a full re-embed of all history every week, and every weight change would bump `embedding_version` and shrink the comparable window. Chosen instead: VIL stores raw L2-normalized vectors and serves a generous `candidate_k` by plain cosine; the consumer (vil-03) re-ranks with current IC weights in memory. ANN for recall here, exact weighted distance in the consumer. If someone later asks "why not just weight the stored vector?" — this is why.
 
 ---
 
@@ -357,7 +360,7 @@ Build the substrate once. Every retrieval problem is already solved.
 
 - **One table or many:** does mixing `entity_type`s in one `embeddings` table (with `vector(N)` fixed per type) work with a single HNSW index, or do bar/plugin/signal each need their own table because `N` differs? Probably separate indexes; confirm whether that forces separate tables before schema finalization.
 - **Rolling-window length for standardization:** how long a trailing window for the per-feature z-score/percentile? Long enough to be stable, short enough to track regime change. Needs empirical calibration.
-- ~~**Regime-conditioned retrieval gate:** hard or soft?~~ **Resolved:** default to a **hard regime filter** (only same-regime neighbors). intel-12 then treats residual `regime_purity` (from analogs near a regime boundary) as a conviction cap, never a composite multiplier. Soft retrieval remains available where a consumer explicitly wants the cross-regime breakdown.
+- ~~**Regime-conditioned retrieval gate:** hard or soft?~~ **Resolved:** default to a **hard regime filter** (only same-regime neighbors). vil-03 then treats residual `regime_purity` (from analogs near a regime boundary) as a conviction cap, never a composite multiplier. Soft retrieval remains available where a consumer explicitly wants the cross-regime breakdown.
 - **Null result threshold:** what cosine distance defines "no close analogs"? Needs calibration against the first 90 days of bar embeddings.
 - **Embedding-version migration policy:** on a version bump, re-embed all history (expensive, full comparability) or carry forward and let the comparable window grow from the bump date?
 
@@ -369,7 +372,7 @@ Build the substrate once. Every retrieval problem is already solved.
 |---|---|
 | **Instrument everything** | All retrievals are SQL. EXPLAIN ANALYZE, query logs, and pgstats cover them automatically. |
 | **Data quality over model complexity** | VIL makes no parametric assumptions. It retrieves what history shows. The null result is surfaced honestly rather than filled. The embedding serialization spec enforces representational rigor at the foundation. |
-| **Separation of concerns** | VIL: embed + retrieve. intel-11: label + measure IC. intel-12: score. intel-10: correlation. Each is a distinct system; VIL never scores. |
+| **Separation of concerns** | VIL: embed + retrieve. vil-02: label + measure IC. vil-03: score. vil-04: correlation. Each is a distinct system; VIL never scores. |
 | **Modularity** | Three tables, one retrieval primitive. Adding a new entity type (e.g. `'macro_indicator'`) is a new batch job writing the same tables — no schema change. |
 | **Reuse** | Plugin correlation, analog retrieval, eAI novelty, cross-TF dedup — all use the same tables and the same k-NN primitive. |
 | **Compounding** | Every bar added to `embeddings` makes every future retrieval more accurate. The substrate gets better with age. The older the system, the more valuable it becomes. |

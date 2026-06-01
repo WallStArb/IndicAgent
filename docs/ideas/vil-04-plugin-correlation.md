@@ -98,11 +98,11 @@ The eigenvalue/participation-ratio computation cares nothing about *what* it cou
 | Level | Entity | Question effective-N answers | Consumer |
 |---|---|---|---|
 | **Plugin** (this doc) | I7 plugins | how many independent signal *sources*? | aggregator confidence, suppression |
-| **Signal** | live signals | how many independent *reads* are firing right now? | intel-13 (the conviction bound) |
+| **Signal** | live signals | how many independent *reads* are firing right now? | vil-05 (the conviction bound) |
 | **Agent** | swarm agents | how many independent *opinions*, vs echoes of one? | eAI decorrelation fitness |
 | **Position** (future) | live exposures | how many independent *bets* are actually on? | risk / sizing, if ever built |
 
-Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. The signal-level effective-N is the most immediately useful extension: it is the number intel-13's conviction bound depends on, and it carries the same data-starvation caveat as any sparse set (gate on co-occurrence before trusting a pair; signals co-occur far less than plugin outputs do).
+Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. The signal-level effective-N is the most immediately useful extension: it is the number vil-05's conviction bound depends on, and it carries the same data-starvation caveat as any sparse set (gate on co-occurrence before trusting a pair; signals co-occur far less than plugin outputs do).
 
 This is the compounding payoff of putting the independence question on the shared substrate: solve it once for plugins, and signals/agents/positions are the same query.
 
@@ -188,7 +188,7 @@ Correlation is a VIL application — it depends on the VIL substrate (extension 
 
 - **VIL substrate (`vil-01`):** Owns the `embeddings` and `similarity_pairs` tables, the embedding serialization spec, and the k-NN/cosine primitive. Correlation is a consumer — it writes `entity_type='plugin'` rows and reads them back for effective-N.
 - **Phase 112 plans:** Archived (`.planning/phases/archive/112-plugin-correlation/`). They used a hand-rolled direction matrix; this doc supersedes them with a VIL-substrate design. The concrete operational detail (exact systemd timing, cache wiring, OTel call patterns, regression assertions) lives in those archived plans and is intentionally left there — this doc keeps the design intent, not the implementation commands.
-- **intel-11 (Predictive Feature Intelligence):** Sibling VIL application. Shares the weekly batch cadence and the same substrate; different question (forward prediction vs independence).
+- **vil-02 (Predictive Feature Intelligence):** Sibling VIL application. Shares the weekly batch cadence and the same substrate; different question (forward prediction vs independence).
 - **`shadow_registry`:** Unchanged. Suppression flags live there. Similarity computation is a separate concern.
 - **`shadow_registry_active` VIEW:** `WHERE NOT is_shadow AND NOT correlation_suppressed` — single interface for active-set consumers. Cache loaders read the base table (documented exception above).
 
