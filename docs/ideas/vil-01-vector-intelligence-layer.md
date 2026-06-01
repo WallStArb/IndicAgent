@@ -232,6 +232,28 @@ VIL returns analogs and stops. vil-02 labels and calibrates; vil-03 scores; cons
 
 ---
 
+## Where VIL Sits in the Data Flow (hot / warm / cold)
+
+VIL is a **cold/warm analytical layer** — it reads the sinks the hot path already populates and writes its own analytical state to tables. It is *off the hot path by design*, and that is not a limitation but the correct placement: VIL is pgvector-heavy (every retrieval is a DB round-trip) and history-heavy (90-day embeddings, IC over months), so it physically cannot live on the sub-ms tick/bar flow without violating the DAG invariants.
+
+| Tier | VIL here? | What runs |
+|---|---|---|
+| **Hot** (TWS → Redpanda → services, sub-ms) | **No** | VIL never touches the live tick/bar flow |
+| **Warm** (<10ms pipeline / AI inference) | **Read-only, AI workers only** | Analog Finder k-NN during LLM inference — already a slow path (LLM latency dominates); the worker reuses the feature vector it already holds in memory |
+| **Cold** (batch → TimescaleDB) | **Yes — VIL's home** | Embedding, outcome labeling, IC, correlation — nightly/weekly batch, same pattern as `ml-training` / `roll-batch` |
+
+**This respects the existing DAG invariants, not by exception but by kind:**
+- *"I1–I7 runs in-process; Kafka is a sink, not an inter-stage pipe"* — VIL reads the sinks; it never inserts itself as a pipeline stage.
+- *"No analyzer or pipeline daemon touches the DB — only writers/trackers/auditors"* — VIL's batch jobs are oneshot timer services (like `ml-training`), not real-time pipeline analyzers, so the real-time pipeline still never touches the DB.
+- *"Kafka is transport, not a state store; bar history → TimescaleDB"* — VIL needs history, which lives in TimescaleDB (Kafka retention is minimal and cannot serve 90 days).
+
+### Kafka: consume-where-convenient, never produce
+
+- **Input:** read TimescaleDB in batch. Do **not** stream embeddings off Kafka — it can't serve the history VIL needs, and a stateful streaming consumer is moving parts and maintenance for freshness VIL does not require (historical similarity need not be sub-second fresh). The one live touchpoint reuses what exists: an AI worker is already consuming the intelligence stream and holds the current feature vector — it serializes that for its analog query. No new topic, no extra read.
+- **Output:** analytical *state* → tables (`embeddings`, `outcome_labels`, `similarity_pairs`, `feature_ic_stats`, `score_cache`); *metrics/alerts* (OOD rate, effective-N) → OTel → Grafana. **VIL produces nothing to Kafka and needs no new topics** — its outputs are state (which belongs in TimescaleDB) or signals-to-humans (which belong in the existing observability fabric).
+
+The efficiency argument is the same as the architectural one: keeping a DB-bound layer off a sub-ms path is what *makes* the hot path fast. Measurement is asynchronous to execution — the fabric never slows the live pipeline. Automation is the existing pattern: systemd timers with `Persistent=true` (a missed run fires on next boot), zero manual steps.
+
 ## Producers (feed INTO VIL)
 
 VIL reads from existing tables. It adds nothing to the intelligence pipeline's hot path.
