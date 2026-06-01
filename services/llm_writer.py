@@ -59,14 +59,14 @@ INSERT INTO llm_calls (
     latency_ms, tokens_est, succeeded,
     regime, session, entry_price, stop_loss, target_price,
     confidence, cis_score, entry_zone_low, entry_zone_high, setup_type,
-    agent_id, prompt_version, parse_success
+    agent_id, prompt_version, parse_success, failure_reason
 ) VALUES (
     $1, $2::timestamptz, $3, $4::uuid, $5,
     $6, $7, $8, $9, $10, $11,
     $12, $13, $14,
     $15, $16, $17, $18, $19,
     $20, $21, $22, $23, $24,
-    $25, $26, $27
+    $25, $26, $27, $28
 ) ON CONFLICT (call_id, called_at) DO NOTHING
 """
 
@@ -229,6 +229,7 @@ def _parse_llm_call_fields(fields: dict) -> dict | None:
         "agent_id": _dec("agent_id"),
         "prompt_version": _dec("prompt_version"),
         "parse_success": _bool("parse_success"),
+        "failure_reason": _dec("failure_reason"),
     }
 
 
@@ -679,6 +680,7 @@ class LLMWriter(BaseWriter):
             parsed["agent_id"],  # $25 agent_id
             parsed["prompt_version"],  # $26 prompt_version
             parsed["parse_success"],  # $27 parse_success
+            parsed["failure_reason"],  # $28 failure_reason
         )
 
     async def _process_calls_message(self, payload: dict, source_topic: str = "") -> bool:

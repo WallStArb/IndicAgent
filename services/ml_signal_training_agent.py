@@ -14,6 +14,9 @@ from src.config.settings import Settings
 from src.intelligence.services.ml_signal_training_materializer import (
     MLSignalTrainingMaterializer,
 )
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
+
+_JOB = "ml-signal-training-materialize"
 
 
 def main() -> None:
@@ -24,7 +27,14 @@ def main() -> None:
     """
     settings = Settings()
     agent = MLSignalTrainingMaterializer(settings)
-    asyncio.run(agent.start())
+    try:
+        asyncio.run(agent.start())
+        JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"})
+    except Exception:
+        JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "failure"})
+        raise
+    finally:
+        flush_and_shutdown_metrics()
 
 
 if __name__ == "__main__":

@@ -173,6 +173,7 @@ class DLQDrain(BaseDaemon):
             if self._stop_event.is_set():
                 break
 
+            self._record_message_consumed()
             await self._drain_message(dlq_topic, payload)
 
     async def _drain_message(self, dlq_topic: str, raw: dict) -> None:

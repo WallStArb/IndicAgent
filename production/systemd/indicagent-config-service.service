@@ -15,7 +15,6 @@ Environment=METRICS_PORT=9005
 # EnvironmentFile=-/etc/indicagent/config.env
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/config_service.py
 Restart=always
-WatchdogSec=60
 NotifyAccess=main
 RestartSec=10
 
