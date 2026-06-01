@@ -304,3 +304,8 @@ AGENTS.md
 CURSOR.md
 COPILOT.md
 .worktrees/
+
+# GSD session artifacts — ephemeral, never committed
+.planning/agent-history.json
+.planning/HANDOFF.json
+.planning/.continue-here*.md
