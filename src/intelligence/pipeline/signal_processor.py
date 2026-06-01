@@ -476,6 +476,13 @@ class SignalProcessor:
         )
 
         winner_payload = winner if success else None
+        if winner_payload is not None:
+            # winner_selector returns dict(min(...)) — a copy not in ranked — so
+            # prepare_signals_or_dlq's timestamp stamp doesn't propagate to it.
+            winner_payload["timestamp"] = format_iso_ts(bar.ts)
+            winner_payload["is_backfill"] = (
+                datetime.now(UTC) - bar.ts
+            ).total_seconds() > TF_SECONDS.get(tf, 60)
 
         return SignalProcessorResult(
             success=success,
