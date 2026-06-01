@@ -82,6 +82,8 @@ Application code never re-implements similarity math. pgvector never makes domai
 
 **This is the single determinant of retrieval quality.** Everything else — the indexes, the operators, the scoring on top — is worthless if the embedding does not faithfully represent state. Garbage embedding → meaningless neighbors → worthless scores. A Renaissance quant treats this as the first-class deliverable, not an afterthought.
 
+**It is also the rigid seam of the whole architecture — the hardest thing to evolve.** Every layer above depends on the embedding, so it has the highest blast radius: a change to the serialization invalidates stored history (versioning handles it, but at the cost of re-embedding or carrying a version split — see `embedding_version`). Everything else in this stack extends cheaply (new `entity_type`, new consumer, new measurement sibling); the embedding does not. Treat it accordingly — scrutinize it hardest, change it least, and validate it on real data before building layers on top.
+
 The naive approach (flatten the ~50–100 numerical fields of `intelligence_features` directly) is **wrong** and must not be implemented:
 
 - Mixed scales: RSI (0–100), volume (millions), price (thousands), z-scores (−3…3) on one axis → cosine distance is dominated by the high-magnitude fields; RSI similarity is drowned by price magnitude
@@ -297,6 +299,8 @@ All retrievals are SQL — they appear in `pg_stat_statements`, EXPLAIN ANALYZE,
 > A consumer never builds before the substrate it reads. vil-02 and vil-04 are independent measurement siblings; vil-05 sits on top of everything. This ordering holds regardless of which milestone eventually receives the work.
 
 VIL ships the substrate; the application layers (vil-02/03/04) ship on top.
+
+> **Evidence before more design (the architecture's own shadow-mode discipline).** This doc-set is *designed*-extensible, not yet *proven*-extensible — no data has flowed through any layer boundary. The cleanest-looking seam can be wrong until real bars run through it. So the highest-value next step is not another design doc — it is to **build vil-01 and validate the embedding spec on real data**, then let evidence confirm the boundaries before designing further on top. Apply to the architecture the same rule the architecture applies to signals: shadow first, trust on evidence.
 
 **Phase 1 — Substrate (prerequisite for everything)**
 - `CREATE EXTENSION vector` (binary already in image; extension not yet enabled)
