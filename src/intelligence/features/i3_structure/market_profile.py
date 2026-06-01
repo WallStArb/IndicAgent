@@ -161,7 +161,9 @@ class MarketProfilePlugin(IncrementalMixin):
         if tick_size is None or tick_size <= 0:
             return {}
 
-        volume_buckets: dict[float, float] = state.get("volume_buckets", {})
+        volume_buckets: dict[float, float] = {
+            float(k): v for k, v in state.get("volume_buckets", {}).items()
+        }
 
         # Distribute this bar's TPO count incrementally
         bucket_low = round(bar_low - (bar_low % tick_size), 10)

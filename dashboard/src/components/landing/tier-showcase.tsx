@@ -9,35 +9,35 @@ const LAYERS = [
       "Institutional real-time tick + bar ingestion",
       "1m → 5m / 15m / 1h / 4h / 1d aggregation",
       "Redpanda stream distribution",
-      "24 instruments · 6 timeframes",
+      "Futures, forex, crypto · 6 timeframes",
     ],
     example: "< 10ms pipeline latency  ·  feed-provider bound, not processing bound",
   },
   {
     layer: "02",
     name: "Mathematical Intelligence",
-    subtitle: "58 plugins",
+    subtitle: "Indicators · Structure · Context",
     accent: false,
     tierBadges: ["I1", "I2", "I3", "I4"],
     items: [
-      "I1: RSI, MACD, ATR, VWAP, OBV, Supertrend, Bollinger Bands, CVD, OFI (28)",
-      "I2: MACD/RSI/stoch events, exhaustion score, momentum accel (10)",
-      "I3: Swing H/L, S/R, anchored VWAP, Fibonacci zones, market profile (8)",
-      "I4: GARCH, Kalman, HMM, session context, VIX regime, cross-asset (12)",
+      "I1: RSI, MACD, ATR, VWAP, OBV, Supertrend, Bollinger Bands, CVD, OFI",
+      "I2: MACD/RSI/stoch events, exhaustion score, momentum acceleration",
+      "I3: Swing H/L, S/R, anchored VWAP, Fibonacci zones, market profile",
+      "I4: GARCH, Kalman, HMM, session context, VIX regime, cross-asset",
     ],
     example: "RSI 67.4 · MACD bullish crossover · GARCH: vol elevated · regime: trend",
   },
   {
     layer: "03",
     name: "Pattern Intelligence",
-    subtitle: "74 plugins + 2 aggregators",
+    subtitle: "Patterns · SMC · Confluence · Signals",
     accent: true,
     tierBadges: ["I5", "I6", "I7"],
     items: [
-      "I5: RSI/CMF/MACD divergence, squeeze, chart patterns (16)",
-      "I6: BOS/CHoCH, FVG, order blocks, killzones, AMD cycles, CTF confluence (32)",
-      "I7: 36 setup plugins: trend, mean-rev, SMC, session extremes",
-      "CIS: 6-bucket convergence gate · score ±0.35 · 3/6 buckets required",
+      "I5: RSI/CMF/MACD divergence, squeeze, chart patterns",
+      "I6: BOS/CHoCH, FVG, order blocks, killzones, AMD cycles, CTF confluence",
+      "I7: Setup plugins — trend, mean-reversion, SMC, session extremes",
+      "CIS: 6-bucket convergence gate · score ±0.35 · 3 of 6 required",
     ],
     example: "BOS confirmed · unfilled FVG 5235–5238 · CIS +0.71 · CHoCHReversal fired",
   },
@@ -72,7 +72,7 @@ export function TierShowcase() {
             4 Layers of Intelligence
           </h2>
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            132 plugins · I1 → I8 · each layer builds on the layer below
+            I1 → I8 · each layer builds on the layer below
           </span>
         </div>
 
