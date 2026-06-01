@@ -10,7 +10,6 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=INDICAGENT_ENV=development
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_validation_agent.py
 TimeoutStartSec=3600
 

@@ -48,7 +48,7 @@ interface AiStats {
 }
 
 const AGENT_COLORS: Record<string, string> = {
-  skeptic_v1: "var(--red)",
+  skeptic: "var(--red)",
   correlation_v1: "var(--accent-cyan)",
   regime_coherence_v1: "var(--purple)",
   counterfactual_v1: "var(--orange)",

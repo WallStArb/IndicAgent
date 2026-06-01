@@ -84,6 +84,8 @@ class BaseAIWorker(BaseDaemon, ABC):
 
     # D-10: Universal typed-output opt-in. Subclasses set result_type to a
     # pydantic BaseModel subclass to enable _run_typed(). None = opted out.
+    # TODO: narrow _run_typed() to a TypedOutputMixin so the None guard is enforced
+    # by the type system instead of at call time, and non-typed agents don't inherit it.
     result_type: ClassVar[type[BaseModel] | None] = None
 
     # D-12: Conservative token ceiling used when _run_typed() caller passes
@@ -382,6 +384,10 @@ class BaseAIWorker(BaseDaemon, ABC):
 
         # Build audit base with placeholder call_id. The LLMAdapter stamps a fresh
         # call_id per physical request, so retries produce distinct llm_calls rows.
+        # TODO: _build_audit_context also sets called_at=datetime.now() here, but
+        # llm_adapter._request() overwrites it with a fresh timestamp. The first
+        # timestamp is discarded. Low cost (one datetime.now()), but the intent is
+        # unclear — consider omitting called_at from the base dict for this path.
         audit_context = self._build_audit_context(context, prompt, call_id="")
 
         worker_ctx = WorkerContext(signal_context=context, llm_chain=self._llm)
@@ -393,6 +399,10 @@ class BaseAIWorker(BaseDaemon, ABC):
             audit_context=audit_context,
         )
 
+        # TODO: this try/except span pattern is identical to _llm_generate and
+        # _llm_generate_structured, and to what observed_span() does automatically.
+        # Once observed_span's "pipeline-only" restriction is lifted, consolidate
+        # all three methods to use observed_span for consistent error recording.
         with self.tracer.start_as_current_span(
             "agent.run_typed",
             attributes={

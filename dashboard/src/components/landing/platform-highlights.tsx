@@ -46,12 +46,12 @@ const HIGHLIGHTS: { label: string; value: string; desc: string; accent: "cyan" |
 export function PlatformHighlights() {
   return (
     <section
-      className="px-6 py-14 border-t"
+      className="px-6 py-10 border-t"
       style={{ borderColor: "var(--border-subtle)", background: "rgba(0,0,0,0.2)" }}
     >
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-end gap-6 mb-12">
+        <div className="flex items-end gap-6 mb-8">
           <div>
             <p
               style={{
@@ -63,7 +63,7 @@ export function PlatformHighlights() {
                 marginBottom: "4px",
               }}
             >
-              Platform
+              Design
             </p>
             <h2
               style={{
@@ -76,7 +76,7 @@ export function PlatformHighlights() {
                 lineHeight: 1,
               }}
             >
-              How It Works
+              Platform Design
             </h2>
           </div>
           <div className="flex-1 h-px mb-1" style={{ background: "var(--border-subtle)" }} />

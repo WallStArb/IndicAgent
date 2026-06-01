@@ -39,7 +39,7 @@ const STEPS = [
 export function SignalJourney() {
   return (
     <section
-      className="px-6 py-14 border-b"
+      className="px-6 py-10 border-b"
       style={{ borderColor: "var(--border-subtle)", background: "var(--surface-base)" }}
     >
       <div className="max-w-7xl mx-auto">

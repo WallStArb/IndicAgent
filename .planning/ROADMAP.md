@@ -1294,26 +1294,6 @@ Plans:
 
 </details>
 
-### Phase 112: Plugin Correlation Analysis & Automated Pruning
-
-**Goal**: Measure effective independence across 132 I7 plugins, auto-suppress redundant pairs using directional correlation, and surface effective-N as a production metric. Close the gap in shadow_registry that allows positively-performing-but-redundant plugins to survive undetected.
-**Depends on**: Phase 111
-**Requirements**: CORR-01, CORR-02, CORR-03, CORR-04, CORR-05
-**Success Criteria** (what must be TRUE):
-
-  1. `plugin_correlation_pairs` table exists with CHECK (plugin_a < plugin_b); `plugin_correlation_batch.py` runs idempotently, UPSERTs pairs with directional_r and co_fire_count, skipping pairs below co_fire_count >= 30; oneshot emits `job_completed_total{job="plugin-correlation-batch", status}` on exit (D-06)
-  2. `shadow_registry` has `correlation_suppressed boolean NOT NULL DEFAULT false`; `shadow_registry_active` VIEW filters WHERE NOT is_shadow AND NOT correlation_suppressed; suppressed plugins excluded from I7 executor loop before any `_compute()` call (D-16 satisfied by executor skip gate — aggregator has no direct shadow_registry query)
-  3. Auto-suppression runs for pairs meeting all three gates (directional_r >= 0.80, co_fire_count >= 100, inferior plugin has lower bootstrap_ci_lower); suppression is reversible — pairs that decay below threshold are cleared on next run
-  4. `effective_plugin_count` gauge emitted at batch completion and via Prometheus scrape of API (reads latest plugin_correlation_summary row); `plugin_correlation_suppressed_total` gauge emitted
-  5. `plugin_correlation_summary` history kept (1 row per weekly run); systemd timer unit fires Monday alongside ml-discovery
-
-**Spec**: `docs/plans/2026-05-31-plugin-correlation-analysis.md`
-
-**Plans**: 3 plans
-- [ ] 112-01-PLAN.md — Schema foundation: correlation tables, shadow_registry column, shadow_registry_active VIEW, metric gauges
-- [ ] 112-02-PLAN.md — Weekly correlation batch script (direction matrix, effective_n, auto-suppression) + systemd timer
-- [ ] 112-03-PLAN.md — Pipeline integration: suppressed_plugins skip gate in the I7 executor
-
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -1492,4 +1472,3 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 112. Plugin Correlation Analysis | standalone | 0/3 | Planned | - |

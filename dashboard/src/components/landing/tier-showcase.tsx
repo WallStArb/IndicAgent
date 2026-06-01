@@ -44,14 +44,14 @@ const LAYERS = [
   {
     layer: "04",
     name: "AI Intelligence",
-    subtitle: "AI agent swarm · Ollama inference",
+    subtitle: "Adversarial swarm · eAI · Self-generating alpha",
     accent: false,
     tierBadges: ["I8"],
     items: [
-      "4-agent swarm: skeptic, correlation, regime_coherence, counterfactual",
-      "Local Ollama inference (gemma4:e4b default · configurable via .env)",
-      "Full audit trail: per-agent latency, parse rate, token burn, outcome scoring",
-      "Cross-asset narrative synthesis (6 groups, 1m–1h timeframes)",
+      "4-agent swarm: Skeptic, Correlation, Regime Coherence, Counterfactual — runs on every signal",
+      "eAI breeds new agents: genomes evolve via mutation, recombination, and LLM-directed search",
+      "New agents discover new alpha — the system expands its own edge without manual intervention",
+      "Shadow incubation gates every agent: statistical proof required before production influence",
     ],
     example: "\"Bullish 5m ES setup: trend + SMC confluence. FVG entry 5236, target 5258, stop 5229.\"",
   },
@@ -60,7 +60,7 @@ const LAYERS = [
 export function TierShowcase() {
   return (
     <section
-      className="px-6 py-10 border-b"
+      className="px-6 py-8 border-b"
       style={{ borderColor: "var(--border-subtle)" }}
     >
       <div className="max-w-7xl mx-auto">

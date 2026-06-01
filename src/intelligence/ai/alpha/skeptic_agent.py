@@ -43,6 +43,9 @@ class SkepticEvaluator(Evaluator):
     Pure compute class -- dispatch layer owns infrastructure.
     """
 
+    # TODO: output_schema duplicates what result_type = SkepticResult already enforces via
+    # Pydantic. Once all Evaluator subclasses migrate to _run_typed(), retire output_schema
+    # from Evaluator and rely solely on result_type for structural contract.
     output_schema: ClassVar[dict] = {
         "failure_probability": float,
         "confidence": float,

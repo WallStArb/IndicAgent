@@ -9,7 +9,6 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=INDICAGENT_ENV=development
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ml_signal_training_agent.py
 StandardOutput=append:/home/bg/dev/indicagent/logs/ml_signal_training_materializer.log
 StandardError=append:/home/bg/dev/indicagent/logs/ml_signal_training_materializer.log
