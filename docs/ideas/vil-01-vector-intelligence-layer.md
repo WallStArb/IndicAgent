@@ -123,6 +123,20 @@ These are retrieval-level demands. The score-level demands (distributions, horiz
 
 ---
 
+## The Out-of-Distribution Monitor
+
+The null result (demand #2) is treated above as a per-query edge case. Promote it to a **live, aggregate risk signal** — because it is one of the most valuable things this substrate can produce for almost no cost.
+
+When the *current* bar has no analogs within the distance threshold, the market is in a state the historical record has never seen. Every model downstream — every score, every IC weight, every analog distribution — is then extrapolating out-of-sample, where confidence collapses. A Renaissance desk's response to "we are out of distribution" is reflexive: reduce conviction, reduce size, widen intervals. You cannot react to a regime break you are not measuring.
+
+So VIL exposes an **OOD monitor**: the running rate and severity of null/near-null results across live retrievals (distance to nearest neighbor, fraction of recent bars with no close analog). A spike is an early warning that the current environment has decoupled from history — often *before* a parametric regime classifier catches it, because "nothing looks like this" precedes "this looks like regime X."
+
+Consistent with VIL's boundary, the monitor **measures and surfaces; it does not act.** It emits the signal (instrumentation + a queryable series); a consumer decides what to do with it — shrink conviction, widen the combiner's intervals, alert research. VIL's job is to make "we have not seen conditions like these" impossible to miss, not to decide the response.
+
+This reuses machinery that already exists: it is the null-result path (demand #2) plus the nearest-neighbor distance VIL already returns, aggregated over time. No new retrieval, no new table — an observability series over the same queries.
+
+---
+
 ## The Schema
 
 Three tables. VIL owns all three. (`score_cache` — the pre-computed score surface — is owned and defined by `intel-12`, not here.)
@@ -230,14 +244,16 @@ VIL reads from existing tables. It adds nothing to the intelligence pipeline's h
 
 ## Consumers of VIL Output
 
-VIL's direct consumers are the three application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* intel-12 scores, not by querying VIL directly.
+VIL's direct consumers are the application layers. End consumers (I7 governance, swarm, eAI, dashboard) reach VIL *through* intel-12/13, not by querying VIL directly.
 
 | Consumer | What it reads from VIL | What it does with it |
 |---|---|---|
 | **intel-11** (Predictive Feature Intelligence) | retrieval results + `outcome_labels` | Labels outcomes (Outcome Labeler); measures feature IC (IC Factory); wraps retrieval (Analog Finder) |
 | **intel-12** (Scoring Engine) | `list[AnalogResult]` from retrieval | Transforms analogs into the Score Object (distribution, sub-scores, composite, conviction) |
+| **intel-13** (Signal Combiner) | via intel-12 scores + intel-10 correlation | Combines the live edge set into one independent-conviction view (terminal layer) |
 | **intel-10** (Correlation) | `embeddings` + `similarity_pairs` (`entity_type='plugin'`) | Effective-N and redundancy suppression |
-| **End consumers** (I7 gov, swarm, eAI, Superset) | intel-12 scores — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
+| **intel-14** (platform ideas) | the fabric, scoped to new entities/questions | Holding doc: regime discovery, lead-lag, hypothesis backtester, episodic memory, decay observatory, cost-aware scoring |
+| **End consumers** (I7 gov, swarm, eAI, Superset) | intel-12/13 outputs — *not* VIL directly | Governance, prompt grounding, fitness, visualization |
 
 ---
 
@@ -253,6 +269,9 @@ Every VIL implementation must instrument these signals. This is how the substrat
 
 **Null result contract:**
 When no analogs exist within the distance threshold, this is a named, surfaced event — not a silent fallback. `vil_null_result_total` increments and `retrieve()` returns an empty/flagged set. Consumers must handle it explicitly; silent fallback to "nearest available regardless of distance" is not permitted.
+
+**OOD monitor signal:**
+The out-of-distribution monitor (above) is an aggregate over the null-result path: `vil_ood_rate` — the rolling fraction of live retrievals returning null/near-null — plus the nearest-neighbor distance already carried on every result. A rising `vil_ood_rate` is the "we have not seen conditions like these" early warning, alertable in Grafana. VIL emits it; a consumer decides the response.
 
 **Embedding-version contract:**
 Retrieval must never mix `embedding_version` values. A query at version V retrieves only version-V vectors. A version bump without a backfill shrinks the comparable history — that shrinkage is surfaced via `vil_analog_count`, not hidden.
