@@ -51,7 +51,7 @@ Run these steps in order when a coding session is complete, before pushing.
 ## Architecture Overview
 
 ```
-Layer 4: AI Intelligence (I8)              -> LLM analysis, local Ollama (default gemma4:e4b, .env may override)
+Layer 4: AI Intelligence (I8)              -> LLM analysis, local Ollama (default nemotron-3-nano:4b, set via OLLAMA_MODEL in .env)
 Layer 3: Pattern Intelligence (I5-I7)      -> Pattern detection, confluence, trading signals
 Layer 2: Mathematical Intelligence (I1-I4) -> Technical indicators, context classification
 Layer 1: Data Foundation                   -> HF collection, aggregation, typed event bus
@@ -85,7 +85,7 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintai
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, BaseSwarmCoordinator, SignalContext, AgentOutput). Phase 095 adds: WorkerContext (frozen run context), LLMAdapter (Pydantic AI Model bridge), AgentProtocol (replaces IAIAgent).
+- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, BaseSwarmCoordinator, SignalContext, AgentOutput, WorkerContext, LLMAdapter, AgentProtocol).
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
@@ -165,7 +165,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 - **Oneshot `_agent.py` exceptions (not daemons, not rename targets):** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — thin entrypoints for timer-triggered scripts; `_agent` suffix intentionally preserved.
 - **API health router prefix is `/health`** not `/api/health`: `app.include_router(health.router, prefix="/health", ...)` at `src/api/main.py:131`. Routes are `/health/system`, `/health/database`, etc.
 - **`agent_last_message_timestamp_seconds` label key is `agent_id`**: `self._last_msg_ts_attrs = {"agent_id": name}` in `src/core/agent/base.py`. Use `r["metric"].get("agent_id")` when querying this metric from Prometheus.
-- **gemma4:e4b JSON enforcement:** outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt. `_strip_thinking_tags` only removes `<think>` tags — does not catch prose.
+- **Ollama JSON enforcement (nemotron-3-nano:4b):** outputs prose preamble without an explicit system message starting with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Also add `"Begin your response with { and end with }."` at end of user prompt. `_strip_thinking_tags` only removes `<think>` tags — does not catch prose.
 - **Swarm raw signal confidence field:** `calibrated_confidence` is null in Kafka signal payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.
 
 **Signal Logic**

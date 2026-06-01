@@ -52,11 +52,11 @@ All live in `src/intelligence/trading/`:
 
 **Token usage:** `LiteLLMBackend.last_token_usage` populated from litellm response; `chain.last_token_usage` propagated to callers.
 
-**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default gemma4:e4b; `.env` may override `OLLAMA_MODEL`).
+**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default nemotron-3-nano:4b; set via `OLLAMA_MODEL` in `.env`).
 
 **NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
 
-**Backend:** `LiteLLMBackend` (Phase 094) — `litellm.acompletion()` unified interface. `OllamaProvider`/`LLMChain` classes removed. Provider configured via `OLLAMA_MODEL` in `.env` (default gemma4:e4b). `chain.last_provider_id` = which succeeded.
+**Backend:** `LiteLLMBackend` — `litellm.acompletion()` unified interface. `OllamaProvider`/`LLMChain` classes removed. Provider configured via `OLLAMA_MODEL` in `.env` (default nemotron-3-nano:4b). `chain.last_provider_id` = which succeeded.
 - Adding providers: configure via litellm model string (e.g., `"openai/gpt-4o"`) and API key env vars; see `src/core/llm/litellm_backend.py`.
 - Keys in `.env`: `OLLAMA_MODEL` (overrides default).
 
@@ -76,7 +76,7 @@ All live in `src/intelligence/trading/`:
 ## Gotchas
 
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
-- **Local Ollama models**: default gemma4:e4b; `.env` may set different model (Docker `:11434`).
+- **Local Ollama models**: default nemotron-3-nano:4b; also available qwen3.5:4b. Set via `OLLAMA_MODEL` in `.env` (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
