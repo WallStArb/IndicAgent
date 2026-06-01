@@ -48,17 +48,17 @@ All live in `src/intelligence/trading/`:
 
 **Unified pipeline:** cache -> rate limit -> LLM call -> guardrails -> tokens -> budget record (log only) -> metrics -> cache put -> audit. Single code path, no budget fork.
 
-**Audit trail:** every call publishes to `llm.calls` Kafka with call_id, symbol, signal_id, regime, agent_id, prompt_version. Agents MUST use `BaseAIAgent._llm_generate()` which auto-injects all audit fields. Never call `self._llm.generate()` directly.
+**Audit trail:** every call publishes to `llm.calls` Kafka with call_id, symbol, signal_id, regime, agent_id, prompt_version. Agents MUST use `BaseAIWorker._llm_generate()` which auto-injects all audit fields. Never call `self._llm.generate()` directly.
 
-**Token usage:** provider instance `_last_usage` propagated by `LLMChain.generate()`, falls back to `len/4` estimate.
+**Token usage:** `LiteLLMBackend.last_token_usage` populated from litellm response; `chain.last_token_usage` propagated to callers.
 
 **AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default gemma4:e4b; `.env` may override `OLLAMA_MODEL`).
 
 **NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
 
-Single provider: `OllamaProvider` → gemma4:e4b (default; `.env` may override via `OLLAMA_MODEL`). `LLMProviderChain` in `chain.py` builds the provider list; `LLMChain` in `providers.py` tries in order and returns the first non-None response. `chain.last_provider_id` = which succeeded.
-- Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `OLLAMA_MODEL` (overrides default). OpenRouter, DeepSeek, OllamaCloud providers removed.
+**Backend:** `LiteLLMBackend` (Phase 094) — `litellm.acompletion()` unified interface. `OllamaProvider`/`LLMChain` classes removed. Provider configured via `OLLAMA_MODEL` in `.env` (default gemma4:e4b). `chain.last_provider_id` = which succeeded.
+- Adding providers: configure via litellm model string (e.g., `"openai/gpt-4o"`) and API key env vars; see `src/core/llm/litellm_backend.py`.
+- Keys in `.env`: `OLLAMA_MODEL` (overrides default).
 
 **LLM audit streams**: every call -> `llm.calls` (Kafka); every signal exit -> `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Per-agent scoring via `agent_id` + `prompt_version` columns. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n>=30), it moves to position 0 in the provider chain for that `agent_id + regime` combination.
 
