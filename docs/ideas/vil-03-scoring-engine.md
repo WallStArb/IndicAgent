@@ -4,19 +4,19 @@
 **Status:** under-review
 **Priority:** high
 **Last Updated:** 2026-05-31
-**Tags:** pgvector, scoring, ic-calibration, composite, percentile-rank, analog-finder, vil, intel-11
+**Tags:** pgvector, scoring, ic-calibration, composite, percentile-rank, analog-finder, vil, vil-02
 
 ---
 
 ## Foundation
 
-This document is an application of the **Vector Intelligence Layer** (`vil-01-vector-intelligence-layer.md`) and builds directly on the machinery defined in **Predictive Feature Intelligence** (`intel-11-predictive-feature-intelligence.md`). Do not read this as a standalone design.
+This document is an application of the **Vector Intelligence Layer** (`vil-01-vector-intelligence-layer.md`) and builds directly on the machinery defined in **Predictive Feature Intelligence** (`vil-02-predictive-feature-intelligence.md`). Do not read this as a standalone design.
 
 - VIL-01 owns the substrate: embed, retrieve, four tables, pgvector primitives
-- intel-11 owns the production machinery: Outcome Labeler, IC Factory, Analog Finder
-- **intel-12 owns the transformation**: takes intel-11's outputs and produces a clean, multi-representation Score Object
+- vil-02 owns the production machinery: Outcome Labeler, IC Factory, Analog Finder
+- **vil-03 owns the transformation**: takes vil-02's outputs and produces a clean, multi-representation Score Object
 
-The scoring engine does not retrieve. It does not label. It does not calibrate features. Its input contract is exactly intel-11's output: a `list[AnalogResult]` (neighbor id, cosine distance, forward returns per horizon, regime) plus the current `feature_ic_stats` (IC Sharpe weights). It transforms those into a Score Object every consumer can use without understanding the machinery underneath.
+The scoring engine does not retrieve. It does not label. It does not calibrate features. Its input contract is exactly vil-02's output: a `list[AnalogResult]` (neighbor id, cosine distance, forward returns per horizon, regime) plus the current `feature_ic_stats` (IC Sharpe weights). It transforms those into a Score Object every consumer can use without understanding the machinery underneath.
 
 It is a pure compute/transform layer — it reads, computes, and writes Score Objects to its own table (`score_cache`). It takes no live action and has no blast radius; the calibration-and-action gate lives entirely with the consumer that would wire a score to the live lever, never here.
 
@@ -49,7 +49,7 @@ Renaissance's edge is not in having better signals — it is in measuring every 
 The k-NN retrieval is the expensive step. All score representations — sub-scores, composite, percentile rank, calibrated probability — are computed from the same analog set in one pass. Redundant retrieval for different views is waste that compounds at bar frequency.
 
 **2. IC Sharpe-weighted, not manually weighted.**
-Sub-score weights in the composite are derived empirically from intel-11's IC Factory output. A feature whose IC is unstable (low IC Sharpe) contributes less to the composite. A feature with IC Sharpe 0.8 contributes more than one with IC Sharpe 0.2. No human tunes these weights — the data does.
+Sub-score weights in the composite are derived empirically from vil-02's IC Factory output. A feature whose IC is unstable (low IC Sharpe) contributes less to the composite. A feature with IC Sharpe 0.8 contributes more than one with IC Sharpe 0.2. No human tunes these weights — the data does.
 
 **3. Cross-sectional ranking is the headline.**
 Absolute scores are hard to compare across symbols, timeframes, and setups. A percentile rank — "ES 1m is 87th percentile among all current opportunities" — is comparable across everything. This is how you answer "which opportunity has the most edge right now?"
@@ -185,16 +185,16 @@ Computed only at Level 2 by aggregating Level 1 scores per TF. Not applicable at
 
 ## The Composite Z-Score
 
-The naive framing — "IC Sharpe-weighted composite" — is a category error, and naming it forced the fix. IC Sharpe is measured **per feature** (intel-11). The four sub-scores are **aggregations over analog outcomes**. A sub-score is not a feature, so you cannot weight a sub-score by a feature's IC Sharpe. Two different weighting questions were being conflated. Separating them is the whole solution.
+The naive framing — "IC Sharpe-weighted composite" — is a category error, and naming it forced the fix. IC Sharpe is measured **per feature** (vil-02). The four sub-scores are **aggregations over analog outcomes**. A sub-score is not a feature, so you cannot weight a sub-score by a feature's IC Sharpe. Two different weighting questions were being conflated. Separating them is the whole solution.
 
 ### Where feature IC Sharpe legitimately enters: the metric, not the blend
 
 A feature with zero IC should not influence *which bars count as similar* — otherwise retrieval matches neighbors on noise and every downstream score inherits it. So feature IC Sharpe weights the **distance metric**, upstream of the sub-scores:
 
 - Plain cosine over the embedding treats every dimension equally. We want high-IC features to dominate similarity and zero-IC features to contribute nothing.
-- pgvector only does plain cosine, and baking IC weights into the stored vector would force a full re-embed every time the weekly IC Factory reweights. Instead: **candidate-retrieve then IC-weighted re-rank.** VIL's HNSW returns a generous candidate set (e.g. 200) by plain cosine; intel-12 re-ranks to the final K by an IC-Sharpe-weighted distance, using the current `feature_ic_stats`. ANN for recall, exact IC-weighted distance for precision — weights are always current, no re-embed churn.
+- pgvector only does plain cosine, and baking IC weights into the stored vector would force a full re-embed every time the weekly IC Factory reweights. Instead: **candidate-retrieve then IC-weighted re-rank.** VIL's HNSW returns a generous candidate set (e.g. 200) by plain cosine; vil-03 re-ranks to the final K by an IC-Sharpe-weighted distance, using the current `feature_ic_stats`. ANN for recall, exact IC-weighted distance for precision — weights are always current, no re-embed churn.
 
-This is where intel-11's feature IC Sharpe does real work: it shapes the analog set itself. By the time sub-scores are computed, they are computed over an IC-clean set.
+This is where vil-02's feature IC Sharpe does real work: it shapes the analog set itself. By the time sub-scores are computed, they are computed over an IC-clean set.
 
 ### Where the blend weighting comes from: each sub-score's own IC Sharpe
 
@@ -202,7 +202,7 @@ The four sub-scores are themselves predictors. Treat each as a feature and measu
 
 This removes the category error cleanly: **the same IC Sharpe tool is applied at two levels** — feature level (weights the metric) and sub-score level (weights the blend).
 
-**Shared computation, separate ownership.** The IC math is identical for a feature or a sub-score, so it is one stateless utility both layers call — never two copies, never a shared mutable table. But the two are different *grains*: feature IC is keyed `feature × horizon × regime`; sub-score IC is keyed `sub-score × scope × level × horizon`. Collapsing them into one table would mean a null-union schema (a feature has no `level`, a sub-score has no `feature_name`) and would leak intel-12's concern into intel-11's store. So they live in **separate tables, each owned by the layer whose outputs it measures** — feature IC in intel-11, sub-score IC in intel-12 — sharing only the computation utility. intel-12 measures how well its own sub-scores predict; that is its concern, in its table.
+**Shared computation, separate ownership.** The IC math is identical for a feature or a sub-score, so it is one stateless utility both layers call — never two copies, never a shared mutable table. But the two are different *grains*: feature IC is keyed `feature × horizon × regime`; sub-score IC is keyed `sub-score × scope × level × horizon`. Collapsing them into one table would mean a null-union schema (a feature has no `level`, a sub-score has no `feature_name`) and would leak vil-03's concern into vil-02's store. So they live in **separate tables, each owned by the layer whose outputs it measures** — feature IC in vil-02, sub-score IC in vil-03 — sharing only the computation utility. vil-03 measures how well its own sub-scores predict; that is its concern, in its table.
 
 **One automated batch, negligible extra cost.** Both measurements run on the same weekly cadence as part of the same IC fabric — one timer, one failure surface, no second job to maintain and no manual step. The batch is generic over what it measures; each predictor declares its own grain and sink. The marginal compute is trivial: a handful of sub-scores against ~100 features.
 
@@ -214,13 +214,13 @@ The sub-scores are correlated by construction — high `directional_hr` usually 
 
 Zero-mean / unit-variance over a rolling 90-day window of historical composites at the same scope and level. A composite of +1.4 means the same thing this week as last month. Both IC-weight sets (feature and sub-score) refresh weekly from the IC Factory — no manual tuning; the composite degrades gracefully as edges decay.
 
-> **Calibration gate — a contract on consumers, not a self-restraint here.** This section specifies the composite's *structure*, not its *constants*. The blend weights, orthogonalization, `ε`/`δ`, and the coherence scale are all open (see Open Questions). intel-12 computing and writing the composite to `score_cache` is harmless — it actions nothing. The gate lives at the *action boundary*: any consumer that wires `score_cache` → the I7 raise/suppress lever must **not** do so until those constants are empirically validated against accumulated history. Structure now; the consumer acts only after calibration. The discipline belongs where the harm could occur, not on the compute layer.
+> **Calibration gate — a contract on consumers, not a self-restraint here.** This section specifies the composite's *structure*, not its *constants*. The blend weights, orthogonalization, `ε`/`δ`, and the coherence scale are all open (see Open Questions). vil-03 computing and writing the composite to `score_cache` is harmless — it actions nothing. The gate lives at the *action boundary*: any consumer that wires `score_cache` → the I7 raise/suppress lever must **not** do so until those constants are empirically validated against accumulated history. Structure now; the consumer acts only after calibration. The discipline belongs where the harm could occur, not on the compute layer.
 
 ---
 
 ## The Three Output Representations
 
-Percentile rank answers two genuinely different questions, and collapsing them into one number is dishonest. So intel-12 carries **both**:
+Percentile rank answers two genuinely different questions, and collapsing them into one number is dishonest. So vil-03 carries **both**:
 
 **Temporal percentile (primary):** where this composite sits among the trailing 90-day history of composites at the *same* scope/level/horizon. "Is this a strong reading for ES 1m by ES 1m's own standards?" Always well-populated (thousands of historical bars), so it is a genuine smooth percentile. The composite z-score already *is* the temporal standardization; the temporal percentile is its rank form, on a friendlier 0–100 scale. This is the reliable magnitude-of-conviction signal.
 
@@ -273,7 +273,7 @@ The character is not just a label — **it tells the consumer which horizon to a
 
 The profile is metadata on the Score Object — displayed in the dashboard and injected into LLM prompts as context for what kind of setup this is. It is not a component of the composite.
 
-IC at horizon and the underlying T+5/10/20 outcome labels are owned by intel-11. The profile characterization is intel-12's derived output from those inputs.
+IC at horizon and the underlying T+5/10/20 outcome labels are owned by vil-02. The profile characterization is vil-03's derived output from those inputs.
 
 ---
 
@@ -370,7 +370,7 @@ TF alignment (ES):  0.74  [1m↑  5m↑  15m↑  1h→]
 
 ## Persistence: `score_cache`
 
-intel-12 owns the `score_cache` table (VIL owns the embedding/retrieval tables; this is the scoring layer's output store). One row per scope × level × predictor × horizon, overwritten each refresh — it is the queryable surface for the dashboard, Superset, and the percentile-rank universe.
+vil-03 owns the `score_cache` table (VIL owns the embedding/retrieval tables; this is the scoring layer's output store). One row per scope × level × predictor × horizon, overwritten each refresh — it is the queryable surface for the dashboard, Superset, and the percentile-rank universe.
 
 ```sql
 CREATE TABLE score_cache (
@@ -422,7 +422,7 @@ The Score Object is the interface. Consumers choose their representation — non
 
 ```
 ┌─────────────┐   ┌─────────────────────┐   ┌─────────────────────────────┐
-│   VIL-01    │   │      intel-11        │   │          intel-12            │
+│   VIL-01    │   │      vil-02        │   │          vil-03            │
 │             │   │                     │   │                              │
 │ embed       │→  │ Outcome Labeler      │→  │ Sub-scores                   │
 │ retrieve    │   │   (T+5/10/20 labels) │   │   (directional_hr, E[R],     │
@@ -444,7 +444,7 @@ Intel-12 receives analog sets and IC weights. It produces Score Objects. It has 
 
 | Step | Cadence | Cost |
 |---|---|---|
-| k-NN retrieval (VIL/intel-11) | Per-bar at inference | Dominant cost — pgvector query |
+| k-NN retrieval (VIL/vil-02) | Per-bar at inference | Dominant cost — pgvector query |
 | Sub-score computation | Per-bar, in-memory | Negligible — math over K floats |
 | Composite z-score | Per-bar, in-memory | Negligible — weighted sum + normalization |
 | Percentile rank lookup | Per-bar | One `score_cache` read |
@@ -460,10 +460,10 @@ All four representations are derived from the same k-NN result. No additional re
 | Component | Relationship |
 |---|---|
 | `vil-01` | Substrate. Provides k-NN retrieval and table infrastructure. |
-| `intel-11` | Produces all three inputs: analog set (Analog Finder), IC Sharpe weights (IC Factory), outcome labels (Outcome Labeler). |
-| `intel-13` (Signal Combiner) | Set-level consumer above. Each live Score Object is a candidate edge it combines; intel-13 adds the cross-edge decorrelation intel-12 deliberately does not do. |
-| `intel-10` | Sibling. Plugin correlation uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
-| `intel-14` (cost-aware net scoring) | Folds a cost transform into intel-12's `expected_r` → `expected_r_net`, the number intel-13 consumes. |
+| `vil-02` | Produces all three inputs: analog set (Analog Finder), IC Sharpe weights (IC Factory), outcome labels (Outcome Labeler). |
+| `vil-05` (Signal Combiner) | Set-level consumer above. Each live Score Object is a candidate edge it combines; vil-05 adds the cross-edge decorrelation vil-03 deliberately does not do. |
+| `vil-04` | Sibling. Plugin correlation uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
+| `vil-06` (cost-aware net scoring) | Folds a cost transform into vil-03's `expected_r` → `expected_r_net`, the number vil-05 consumes. |
 | `shadow_registry` | Intel-12 is not a governance system. Governance consumers read Score Objects and decide independently whether to set flags in shadow_registry. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `expected_r` is directly comparable to `pnl_r`. |
 | CIS (`ctf_*` sub-scores) | Direct analogy. CIS blends tier sub-scores into a confluence signal; the scoring engine blends analog sub-scores into a composite. Same pattern, different substrate. |
@@ -495,13 +495,13 @@ Decisions recorded so they are not silently reopened or misread later.
 
 ## Principles Alignment
 
-| Principle | How intel-12 satisfies it |
+| Principle | How vil-03 satisfies it |
 |---|---|
 | **Modularity** | One job: transform analog set → Score Object. No retrieval, no labeling, no governance. |
 | **Reuse** | CIS blending pattern reused from I7 aggregation. R-multiple convention shared with signal_ledger. IC Sharpe weights shared from IC Factory. |
-| **Separation of concerns** | Production (intel-11), transformation (intel-12), governance (consumers) are fully independent. |
+| **Separation of concerns** | Production (vil-02), transformation (vil-03), governance (consumers) are fully independent. |
 | **Compute efficiency** | One k-NN query, all representations derived in-memory from that result. Zero marginal retrieval cost per additional representation. |
 | **Instrument everything** | Score Object written to score_cache — full history of what the engine believed at every point. Queryable in Superset. |
-| **No action, no blast radius** | intel-12 is a pure transform: it computes Score Objects and writes them to `score_cache`. It actions nothing — it informs. The calibration-and-action gate is the consumer's, at the boundary where a score would drive the live lever. |
+| **No action, no blast radius** | vil-03 is a pure transform: it computes Score Objects and writes them to `score_cache`. It actions nothing — it informs. The calibration-and-action gate is the consumer's, at the boundary where a score would drive the live lever. |
 | **Data quality over model complexity** | No parametric model. IC Sharpe weighting enforces empirical rigor. Null result surfaces uncertainty honestly. |
 | **Compounding** | Every bar added to embeddings improves analog retrieval. IC Factory improves with history. Score quality compounds with age. |

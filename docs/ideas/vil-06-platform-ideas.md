@@ -20,15 +20,15 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 ## 1. Cost-Aware Net Scoring
 
-**Idea.** intel-12's E[R] is gross. Make expected return *net of modeled transaction cost* before anything consumes it. A cost model (spread + slippage as a function of size and liquidity) is subtracted from the raw analog-distribution mean.
+**Idea.** vil-03's E[R] is gross. Make expected return *net of modeled transaction cost* before anything consumes it. A cost model (spread + slippage as a function of size and liquidity) is subtracted from the raw analog-distribution mean.
 
 **Why it's real.** At the short horizons this system targets, cost is frequently larger than the edge. A gross +0.2R that costs 0.25R to capture is a losing trade dressed as a winner. Renaissance treats cost modeling as *part* of the edge, not an afterthought.
 
-**Reuses.** Nothing new — it is a transform on intel-12's existing `expected_r`. The combiner (intel-13) explicitly consumes the net number.
+**Reuses.** Nothing new — it is a transform on vil-03's existing `expected_r`. The combiner (vil-05) explicitly consumes the net number.
 
 **Caveats / open.** Slippage is regime- and size-dependent; the model itself needs calibration against realized fills (which this system may not yet have). Start with a conservative static spread+slippage estimate; refine when fill data exists.
 
-**Where it lands.** A transform in intel-12's pipeline (`E[R] → E[R]_net`) plus a flag that the score is cost-adjusted. Likely folds into intel-12 rather than graduating to its own doc.
+**Where it lands.** A transform in vil-03's pipeline (`E[R] → E[R]_net`) plus a flag that the score is cost-adjusted. Likely folds into vil-03 rather than graduating to its own doc.
 
 ---
 
@@ -52,7 +52,7 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 **Reuses.** Per-symbol embeddings already stored. The new ingredient is *time-shifted* outcome joining (A at T vs B at T+k) — a variation on the outcome-label join, not new infrastructure.
 
-**Caveats / open.** Lead-lag is notoriously unstable and prone to spurious discovery across many instrument pairs — FDR correction (intel-11) is mandatory here, not optional. Few instruments today (~handful), so the cross-section is thin; this grows in value as the instrument set expands.
+**Caveats / open.** Lead-lag is notoriously unstable and prone to spurious discovery across many instrument pairs — FDR correction (vil-02) is mandatory here, not optional. Few instruments today (~handful), so the cross-section is thin; this grows in value as the instrument set expands.
 
 ---
 
@@ -62,7 +62,7 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 **Why it's real.** It answers "is this edge real?" for any hypothesis a researcher (or an LLM agent) can express as a feature state, without building or maintaining a parametric backtester. The outcome distribution speaks for itself, with conviction (analog count, distance) attached.
 
-**Reuses.** Exactly the intel-11 Analog Finder + intel-12 distribution, with a hand-constructed query vector. Zero new infrastructure.
+**Reuses.** Exactly the vil-02 Analog Finder + vil-03 distribution, with a hand-constructed query vector. Zero new infrastructure.
 
 **Caveats / open.** Garbage hypotheses retrieve garbage analogs; the null result (no close analogs) must be surfaced honestly as "untestable from history" rather than filled. Look-ahead in hypothesis construction is the usual trap — the query must be expressible point-in-time.
 
@@ -74,7 +74,7 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 **Why it's real.** Agents currently reason from pattern intuition in a vacuum. Grounding them in "the last time you saw conditions like these, here is what happened" is the difference between recall and improvisation — and it is the same retrieval the scoring stack already uses.
 
-**Reuses.** `signal_context` embeddings + the `_find_analogs` retrieval path already specified in intel-11. The memory *is* the VIL fabric scoped to one agent's history.
+**Reuses.** `signal_context` embeddings + the `_find_analogs` retrieval path already specified in vil-02. The memory *is* the VIL fabric scoped to one agent's history.
 
 **Caveats / open.** Memory of bad past decisions can entrench bad behavior (a feedback loop) — retrieval should be grounded in *outcomes*, not the agent's prior *opinions*, so the agent learns from what happened, not from what it previously thought.
 
@@ -82,11 +82,11 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 ## 6. Plugin / Feature Decay Observatory
 
-**Idea.** A research surface that fuses intel-11's IC decay with intel-10's correlation drift: which plugins/features are losing predictive power, which are becoming redundant, in which regimes — over time. Queryable in Superset.
+**Idea.** A research surface that fuses vil-02's IC decay with vil-04's correlation drift: which plugins/features are losing predictive power, which are becoming redundant, in which regimes — over time. Queryable in Superset.
 
-**Why it's real.** Edges have half-lives; the firm's job is to notice decay before it costs money. Today IC decay (intel-11) and redundancy (intel-10) are measured separately. Fused over time, they answer the research question that actually matters: "what is dying, and what is crowding?"
+**Why it's real.** Edges have half-lives; the firm's job is to notice decay before it costs money. Today IC decay (vil-02) and redundancy (vil-04) are measured separately. Fused over time, they answer the research question that actually matters: "what is dying, and what is crowding?"
 
-**Reuses.** Pure read layer over `feature_ic_stats` (intel-11) and the correlation history (intel-10). No new computation — a Superset view and the queries behind it.
+**Reuses.** Pure read layer over `feature_ic_stats` (vil-02) and the correlation history (vil-04). No new computation — a Superset view and the queries behind it.
 
 **Caveats / open.** Observational only; it informs human research and does not act. The value is in surfacing trends early, so the cadence of the underlying batches (weekly) bounds how fresh the observatory can be.
 
@@ -96,7 +96,7 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 
 Rough order, by value-per-effort:
 
-1. **Cost-aware net scoring** — cheapest, and intel-13 already depends on it. Likely folds into intel-12 rather than standing alone.
+1. **Cost-aware net scoring** — cheapest, and vil-05 already depends on it. Likely folds into vil-03 rather than standing alone.
 2. **Agent episodic memory** — high value (grounds the whole swarm), and the retrieval already exists.
 3. **Non-parametric hypothesis backtester** — turns the substrate into a research tool with near-zero new code.
 4. **Decay observatory** — pure read layer, high research value, trivial to build.
@@ -109,10 +109,10 @@ Rough order, by value-per-effort:
 | Component | Relationship |
 |---|---|
 | `vil-01` | The fabric every idea here reuses. Each is the embed/retrieve primitive scoped to a new entity or question. |
-| `intel-11` | Source of IC, the Analog Finder, and FDR correction — load-bearing for backtester, lead-lag, decay observatory. |
-| `intel-12` | Cost-aware net scoring folds in here; the backtester reuses its distribution. |
-| `intel-13` | Consumes cost-aware net scoring directly. |
-| `intel-10` | Source of correlation history for the decay observatory. |
+| `vil-02` | Source of IC, the Analog Finder, and FDR correction — load-bearing for backtester, lead-lag, decay observatory. |
+| `vil-03` | Cost-aware net scoring folds in here; the backtester reuses its distribution. |
+| `vil-05` | Consumes cost-aware net scoring directly. |
+| `vil-04` | Source of correlation history for the decay observatory. |
 
 ---
 
