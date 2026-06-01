@@ -12,7 +12,7 @@
 
 This is a holding doc. The Vector Intelligence Layer is not infrastructure for three specific applications — it is a general **similarity-and-outcome fabric**: embed any entity, retrieve its analogs, know what followed. A large fraction of the research questions this firm asks are exactly that shape. This document collects the substrate-enabled ideas that are *good and real* but do not yet warrant their own doc — each reuses the VIL fabric near-free or constitutes a measurable edge, but none is developed enough (or urgent enough) to stand alone.
 
-The bar to graduate from this doc to its own `intel-NN`: the idea is being actively built or is large enough that a standalone design adds value. Until then it lives here, one section each, kept at idea altitude.
+The bar to graduate from this doc to its own `vil-NN`: the idea is being actively built or is large enough that a standalone design adds value. Until then it lives here, one section each, kept at idea altitude.
 
 **The pruning rule (applied to everything below).** An idea earns a place only if it (a) reuses the substrate cheaply — compounding, not new infrastructure — or (b) is a genuine measurable edge. Anything that is neither was cut. "Embeddings for everything," text-embedding models, and parametric prediction models did not make it.
 
@@ -89,6 +89,30 @@ The bar to graduate from this doc to its own `intel-NN`: the idea is being activ
 **Reuses.** Pure read layer over `feature_ic_stats` (vil-02) and the correlation history (vil-04). No new computation — a Superset view and the queries behind it.
 
 **Caveats / open.** Observational only; it informs human research and does not act. The value is in surfacing trends early, so the cadence of the underlying batches (weekly) bounds how fresh the observatory can be.
+
+---
+
+## 7. Entity / Predictor Registry (architecture hardening)
+
+**Idea.** A small registry that maps each `entity_type` to its embedding spec, vector dimension, batch job, and consumers — and each predictor to its grain and IC sink. Adding a new entity (regime, instrument, macro) or predictor becomes a *registration*, not a doc edit and a scatter of bespoke code.
+
+**Why it's real.** The stack's best extensibility property — generic over `entity_type` and over predictor — is currently a *convention* held together by discipline. A registry makes it *structural*: the open/closed principle enforced, not just described. New capability slots in by declaring itself.
+
+**Reuses.** Formalizes patterns already latent in vil-02 ("the IC Factory is generic over predictor") and vil-04 ("effective-N is generic over entity"). No new measurement — a declaration layer over existing machinery.
+
+**Caveats / open.** Don't build it before there are enough entity types to justify it (YAGNI — two or three is not yet a registry). It earns its place once adding entities becomes repetitive.
+
+---
+
+## 8. Pinned Inter-Layer Contracts (architecture hardening)
+
+**Idea.** One authoritative definition of the contracts between layers — `AnalogResult` and the five tables (`embeddings`, `outcome_labels`, `similarity_pairs`, `feature_ic_stats`, `score_cache`) — so a layer can swap its internals freely as long as the contract holds.
+
+**Why it's real.** Right now the inter-layer interfaces are table schemas: decoupled (good) but weakly enforced (no type-checker, manual versioning, silent drift). Pinning them turns "what this column means" from tribal knowledge into a stable interface — the thing that lets the architecture evolve without cross-layer surprises.
+
+**Reuses.** The contracts already exist as illustrative DDL scattered across the docs; this consolidates them into one referenced source of truth (and, at build time, schema/contract tests).
+
+**Caveats / open.** Keep it a thin interface definition, not a second copy of the design. The risk is a contracts doc that drifts from the docs it summarizes — single source of truth or don't bother.
 
 ---
 
