@@ -191,7 +191,7 @@ def get_roll_window(base_symbol: str, ref_date: date) -> tuple[date, date] | Non
     Raises:
         ValueError: If base_symbol is not in FUTURES_ROLL_CYCLES.
     """
-    chain = derive_roll_chain(base_symbol)
+    chain = derive_roll_chain(base_symbol, ref_year=ref_date.year, ref_month=ref_date.month)
     if not chain:
         return None
 

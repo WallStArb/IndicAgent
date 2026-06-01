@@ -18,7 +18,6 @@ Environment=METRICS_PORT=9007
 # EnvironmentFile=-/etc/indicagent/self-healing.env
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/self_healer.py
 Restart=always
-WatchdogSec=60
 NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
