@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-stopped_at: Phase 095 complete (5/5 plans)
-last_updated: "2026-05-31T13:35:00.000Z"
-last_activity: 2026-05-31 -- Phase 095 complete (pydantic-ai agent execution layer)
+stopped_at: Bug-fix sweep complete (9/9 tasks)
+last_updated: "2026-06-01T23:30:00.000Z"
+last_activity: 2026-06-01 -- Bug-fix sweep complete; 5 defects fixed, migration 096 applied, pushed 648a11c2
 progress:
   total_phases: 22
   completed_phases: 4

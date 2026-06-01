@@ -17,6 +17,7 @@ services:
       start_period: 30s
     command: [
       "postgres",
+      "-c", "max_connections=300",
       "-c", "max_locks_per_transaction=16384",
       "-c", "wal_buffers=8192",
       "-c", "log_min_duration_statement=1000",
