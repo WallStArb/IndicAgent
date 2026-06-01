@@ -180,7 +180,7 @@ class MarketProfilePlugin(IncrementalMixin):
         if not volume_buckets:
             return {}
 
-        sorted_prices = sorted(volume_buckets.keys())
+        sorted_prices = sorted(float(k) for k in volume_buckets.keys())
         sorted_counts = [volume_buckets[p] for p in sorted_prices]
         total_tpo = sum(sorted_counts)
 

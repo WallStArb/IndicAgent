@@ -37,6 +37,8 @@ from src.intelligence.schemas import (
 
 # Batch size for concurrent tasks (prevents event loop overwhelm)
 _SEED_BATCH_SIZE = 8
+# Backoff delays (seconds) between DB init retry attempts on startup
+_SEED_INIT_DELAYS = (2, 4, 8)
 
 
 async def _gather_in_batches(tasks: list, batch_size: int = _SEED_BATCH_SIZE) -> None:
@@ -78,11 +80,24 @@ class BarHistorySeeder:
             return
 
         db = DatabaseManager(self._db_url)
-        try:
-            await db.initialize()
-        except Exception as e:
-            self.logger.warning("DB init failed — skipping seed", error=str(e))
-            return
+        for attempt, backoff in enumerate((0, *_SEED_INIT_DELAYS)):
+            if backoff:
+                await asyncio.sleep(backoff)
+            try:
+                await db.initialize()
+                break
+            except Exception as e:
+                if attempt >= len(_SEED_INIT_DELAYS):
+                    self.logger.warning(
+                        "DB init failed after retries — skipping seed", error=str(e)
+                    )
+                    return
+                self.logger.warning(
+                    "DB init failed — retrying",
+                    attempt=attempt + 1,
+                    retry_in_sec=_SEED_INIT_DELAYS[attempt],
+                    error=str(e),
+                )
 
         try:
             await self._run_seed(db, bar_history)
