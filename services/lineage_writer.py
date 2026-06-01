@@ -1,4 +1,4 @@
-"""lineage_writer_agent.py — persists signal lineage events from Kafka to TimescaleDB.
+"""lineage_writer.py — persists signal lineage events from Kafka to TimescaleDB.
 
 Consumes topic_signal_lineage() published by LineageRecorder.
 Replaces GraduationWriter's write path and swarm_writer_agent's shadow write path.
