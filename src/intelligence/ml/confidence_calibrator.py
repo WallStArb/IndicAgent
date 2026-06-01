@@ -72,11 +72,11 @@ async def run_calibration_update(db_manager: Any) -> None:
     """
     try:
         rows = await db_manager.execute_query("""
-            SELECT setup_plugin, timeframe, confidence, outcome
-            FROM signal_ledger
+            SELECT setup_plugin, timeframe, cis_score AS confidence, outcome
+            FROM signal_ledger_full
             WHERE outcome IS NOT NULL
               AND is_shadow = FALSE
-            ORDER BY computed_at DESC
+            ORDER BY signal_computed_at DESC
             LIMIT 50000
             """)
         if not rows:

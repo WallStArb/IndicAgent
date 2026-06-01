@@ -83,6 +83,20 @@ def _tag_value(obj: Any) -> Any:
     return obj
 
 
+def _restore_key(k: str) -> int | float | str:
+    """Restore numeric dict keys that were stringified during encode."""
+    try:
+        as_int = int(k)
+        if str(as_int) == k:
+            return as_int
+    except (ValueError, TypeError):
+        pass
+    try:
+        return float(k)
+    except (ValueError, TypeError):
+        return k
+
+
 def _untag_value(obj: Any) -> Any:
     """Recursively reconstruct tagged types from msgpack deserialization."""
     if isinstance(obj, dict):
@@ -102,7 +116,7 @@ def _untag_value(obj: Any) -> Any:
                 [_untag_value(item) for item in obj["data"]],
                 maxlen=obj.get("maxlen"),
             )
-        return {k: _untag_value(v) for k, v in obj.items()}
+        return {_restore_key(k): _untag_value(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_untag_value(item) for item in obj]
     return obj
