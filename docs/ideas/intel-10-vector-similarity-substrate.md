@@ -91,6 +91,23 @@ With pgvector, `signed_r` is not a derived field — it falls out naturally from
 
 ---
 
+## Effective-N Is Not Just for Plugins
+
+The eigenvalue/participation-ratio computation cares nothing about *what* it counts — it answers "how many independent things are in this set?" for any set of embedded entities. Plugins are the first application because that is where the inflation was first noticed, but the identical math generalizes up the stack, and the question it answers gets more valuable the higher you go:
+
+| Level | Entity | Question effective-N answers | Consumer |
+|---|---|---|---|
+| **Plugin** (this doc) | I7 plugins | how many independent signal *sources*? | aggregator confidence, suppression |
+| **Signal** | live signals | how many independent *reads* are firing right now? | intel-13 (the conviction bound) |
+| **Agent** | swarm agents | how many independent *opinions*, vs echoes of one? | eAI decorrelation fitness |
+| **Position** (future) | live exposures | how many independent *bets* are actually on? | risk / sizing, if ever built |
+
+Each is the same `entity_type`-generic computation over VIL's `similarity_pairs`, scoped to a different entity. Nothing new is built — a new level is a new `entity_type` filter and an eigenvalue call. The signal-level effective-N is the most immediately useful extension: it is the number intel-13's conviction bound depends on, and it carries the same data-starvation caveat as any sparse set (gate on co-occurrence before trusting a pair; signals co-occur far less than plugin outputs do).
+
+This is the compounding payoff of putting the independence question on the shared substrate: solve it once for plugins, and signals/agents/positions are the same query.
+
+---
+
 ## Plugin Correlation on the VIL Substrate
 
 Infrastructure prerequisites (pgvector installation, L2-normalization law, operator reference, HNSW index guidance) are defined in `vil-01` and not repeated here. This section covers what is specific to plugin correlation.

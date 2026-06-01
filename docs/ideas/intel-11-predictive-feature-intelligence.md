@@ -176,7 +176,8 @@ The Analog Finder is non-parametric. No functional form assumed. It answers exac
 
 ## What This Is Not
 
-- **Not a new signal plugin.** The outputs are observational. intel-11 does not emit I7 signals directly. Downstream use of high-IC features as signal inputs is a separate decision.
+- **Not an action layer.** intel-11 is a compute/transform agent: it reads data, computes IC, and writes facts to its own table. It takes no live action and has no blast radius — so the calibration-and-action gate lives entirely with the consumer, never here.
+- **Not a new signal plugin.** The outputs are facts, not signals — intel-11 emits no I7 signals and takes no action. Downstream use of high-IC features as signal inputs is a separate decision, made by a consumer.
 - **Not a replacement for shadow governance.** Shadow registry governs plugin EV. IC Factory *measures* feature predictiveness — it does not govern anything. These are different things — a plugin can have high EV and low IC (consistent small wins, direction not proportional to reading strength) or vice versa — and only EV governance acts; IC is a fact a consumer may choose to act on.
 - **Not a model.** The Analog Finder is retrieval, not parametric prediction. It provides empirical context for LLM inference, not a mechanical trading rule.
 
@@ -202,6 +203,6 @@ _Embedding serialization (what makes two states "similar"), vector dimension/PCA
 | **Reuse** | Builds entirely on VIL substrate. The IC *measurement* machinery is generic over predictor (feature or sub-score — intel-12's second client). Shares R-multiple convention with signal_ledger. Hands one retrieval path (`_find_analogs`) to both intel-12 and swarm agents. |
 | **Separation of concerns** | Labeling (Outcome Labeler), discovery (IC Factory), and retrieval (Analog Finder) are distinct jobs. Scoring is a separate concern entirely — owned by intel-12, not conflated here. |
 | **Instrument everything** | IC stats, IC Sharpe, IC decay, FDR p-values, k-NN query latency — all stored as facts and Grafana/Superset visible. No decision events here; those are emitted by whatever consumer acts on the facts. |
-| **Shadow mode first** | Score primitive operates in analytical/observational mode. No live pipeline action until I7 governance consumer is explicitly wired. |
+| **No action, no blast radius** | intel-11 is a pure compute layer: it reads, measures, and writes facts to `feature_ic_stats`. It actions nothing and feeds no live lever, so there is no operational risk to guard against here — the decision to act on any fact is the consumer's, gated at the consumer's boundary. |
 | **Data quality over model complexity** | IC Sharpe and FDR correction enforce rigor. Probability spectrum surfaces uncertainty honestly rather than collapsing to a point estimate. |
 | **Compounding** | Every bar added to embeddings improves analog retrieval. IC Factory improves with more history. The substrate compounds in value with age. |

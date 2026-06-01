@@ -18,6 +18,8 @@ This document is an application of the **Vector Intelligence Layer** (`vil-01-ve
 
 The scoring engine does not retrieve. It does not label. It does not calibrate features. Its input contract is exactly intel-11's output: a `list[AnalogResult]` (neighbor id, cosine distance, forward returns per horizon, regime) plus the current `feature_ic_stats` (IC Sharpe weights). It transforms those into a Score Object every consumer can use without understanding the machinery underneath.
 
+It is a pure compute/transform layer — it reads, computes, and writes Score Objects to its own table (`score_cache`). It takes no live action and has no blast radius; the calibration-and-action gate lives entirely with the consumer that would wire a score to the live lever, never here.
+
 ---
 
 ## The Question Intel-12 Answers
@@ -212,7 +214,7 @@ The sub-scores are correlated by construction — high `directional_hr` usually 
 
 Zero-mean / unit-variance over a rolling 90-day window of historical composites at the same scope and level. A composite of +1.4 means the same thing this week as last month. Both IC-weight sets (feature and sub-score) refresh weekly from the IC Factory — no manual tuning; the composite degrades gracefully as edges decay.
 
-> **Guardrail — composite stays shadow-only until calibrated.** This section specifies the composite's *structure*, not its *constants*. The blend weights, orthogonalization, `ε`/`δ`, and the coherence scale are all open (see Open Questions). The composite must run in shadow/observational mode — written to `score_cache`, surfaced to research — and must **not** drive the I7 governance lever until those constants are empirically validated against accumulated history. Structure now; live action only after calibration.
+> **Calibration gate — a contract on consumers, not a self-restraint here.** This section specifies the composite's *structure*, not its *constants*. The blend weights, orthogonalization, `ε`/`δ`, and the coherence scale are all open (see Open Questions). intel-12 computing and writing the composite to `score_cache` is harmless — it actions nothing. The gate lives at the *action boundary*: any consumer that wires `score_cache` → the I7 raise/suppress lever must **not** do so until those constants are empirically validated against accumulated history. Structure now; the consumer acts only after calibration. The discipline belongs where the harm could occur, not on the compute layer.
 
 ---
 
@@ -459,7 +461,9 @@ All four representations are derived from the same k-NN result. No additional re
 |---|---|
 | `vil-01` | Substrate. Provides k-NN retrieval and table infrastructure. |
 | `intel-11` | Produces all three inputs: analog set (Analog Finder), IC Sharpe weights (IC Factory), outcome labels (Outcome Labeler). |
+| `intel-13` (Signal Combiner) | Set-level consumer above. Each live Score Object is a candidate edge it combines; intel-13 adds the cross-edge decorrelation intel-12 deliberately does not do. |
 | `intel-10` | Sibling. Plugin correlation uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
+| `intel-14` (cost-aware net scoring) | Folds a cost transform into intel-12's `expected_r` → `expected_r_net`, the number intel-13 consumes. |
 | `shadow_registry` | Intel-12 is not a governance system. Governance consumers read Score Objects and decide independently whether to set flags in shadow_registry. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `expected_r` is directly comparable to `pnl_r`. |
 | CIS (`ctf_*` sub-scores) | Direct analogy. CIS blends tier sub-scores into a confluence signal; the scoring engine blends analog sub-scores into a composite. Same pattern, different substrate. |
@@ -471,7 +475,7 @@ All four representations are derived from the same k-NN result. No additional re
 - **Minimum analog gate:** Below what `analog_count` does `conviction=NULL` fire? Needs empirical calibration against the first 90 days of bar embeddings.
 - **Distance-weighting formula:** Inverse distance, Gaussian kernel, or rank-based? All valid — pick one, measure calibration, revisit.
 - **Normalization window:** 90-day rolling for z-score normalization? Needs enough history to be stable but short enough to track regime changes.
-- **Sub-score meta-IC cold-start:** sub-score IC needs accumulated `score_cache` history before it is meaningful (unlike feature IC, whose `intelligence_features` history already exists). Open: the composite equal-weights its sub-scores until that history clears a floor — what `n_obs` floor, and does the equal-weight phase run shadow-only by definition? (Grain/ownership is resolved: shared IC utility, separate layer-owned tables — see The Composite Z-Score.)
+- **Sub-score meta-IC cold-start:** sub-score IC needs accumulated `score_cache` history before it is meaningful (unlike feature IC, whose `intelligence_features` history already exists). Open: the composite equal-weights its sub-scores until that history clears a floor — what `n_obs` floor, and should a consumer treat the equal-weight cold-start phase as not-yet-actionable? (Grain/ownership is resolved: shared IC utility, separate layer-owned tables — see The Composite Z-Score.)
 - **Coherence scale constant:** what normalizer turns weighted-std of per-TF `z` into a clean [0,1] `coherence`? Calibrate against observed cross-TF dispersion.
 - **Horizon-character constants:** are `ε=0.3` (flatness) and `δ=0.4` (decay) the right defaults, or do they need per-regime calibration?
 
@@ -483,7 +487,7 @@ _Resolved during gap-fill: the composite weighting knot (two-level IC), percenti
 
 Decisions recorded so they are not silently reopened or misread later.
 
-**Composite: deferred vs designed-now (a deliberate reversal).** An earlier framing held that "a single distilled composite is a future concern — build the primitive first; the composite emerges from validation, not design." This document reverses that *for the structure* and preserves it *for the calibration*. We design the composite's mechanism now (two-level IC weighting, orthogonalization) because the structure is derivable from principle; we defer every constant (weights, `ε`, `δ`, coherence scale) to empirical validation, enforced by the shadow-only guardrail above. The original instinct was right about not fabricating weights from nothing — it was wrong to imply the *architecture* couldn't be reasoned out in advance.
+**Composite: deferred vs designed-now (a deliberate reversal).** An earlier framing held that "a single distilled composite is a future concern — build the primitive first; the composite emerges from validation, not design." This document reverses that *for the structure* and preserves it *for the calibration*. We design the composite's mechanism now (two-level IC weighting, orthogonalization) because the structure is derivable from principle; we defer every constant (weights, `ε`, `δ`, coherence scale) to empirical validation, enforced at the consumer's action boundary (see the calibration gate above), not by restraining the compute layer. The original instinct was right about not fabricating weights from nothing — it was wrong to imply the *architecture* couldn't be reasoned out in advance.
 
 **IC-at-horizon: weight, not sub-score.** Earlier drafts listed IC-at-horizon as one of four score measures. It is not a thing being blended — it is how features and sub-scores *get* their blend weight. Promoting it to the weighting layer (and replacing it in the sub-score slot with `alignment_z`) is intentional. IC-at-horizon was not dropped; it moved up a level. Re-adding it as a sub-score would double-count it.
 
@@ -498,6 +502,6 @@ Decisions recorded so they are not silently reopened or misread later.
 | **Separation of concerns** | Production (intel-11), transformation (intel-12), governance (consumers) are fully independent. |
 | **Compute efficiency** | One k-NN query, all representations derived in-memory from that result. Zero marginal retrieval cost per additional representation. |
 | **Instrument everything** | Score Object written to score_cache — full history of what the engine believed at every point. Queryable in Superset. |
-| **Shadow mode first** | Score Object is observational. I7 governance is one consumer of it — the Score Object does not act; it informs. |
+| **No action, no blast radius** | intel-12 is a pure transform: it computes Score Objects and writes them to `score_cache`. It actions nothing — it informs. The calibration-and-action gate is the consumer's, at the boundary where a score would drive the live lever. |
 | **Data quality over model complexity** | No parametric model. IC Sharpe weighting enforces empirical rigor. Null result surfaces uncertainty honestly. |
 | **Compounding** | Every bar added to embeddings improves analog retrieval. IC Factory improves with history. Score quality compounds with age. |
