@@ -215,7 +215,7 @@ def _parse_llm_call_fields(fields: dict) -> dict | None:
         "response": _dec("response"),
         "latency_ms": _int("latency_ms"),
         "tokens_est": _int("tokens_est"),
-        "succeeded": _bool("succeeded"),
+        "succeeded": _bool("succeeded") or False,
         "regime": _dec("regime"),
         "session": _dec("session"),
         "entry_price": _float("entry_price"),
