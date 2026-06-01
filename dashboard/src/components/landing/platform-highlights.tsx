@@ -1,44 +1,44 @@
 const HIGHLIGHTS: { label: string; value: string; desc: string; accent: "cyan" | "amber" }[] = [
   {
-    label: "Agentic Swarm Architecture",
-    value: "Asynchronous Intelligence",
+    label: "Event-Native Architecture",
+    value: "Decoupled by Design",
     desc:
-      "Our swarm of agents functions as a unified, high-performance intelligence engine. By decoupling every component through a durable, replayable event bus, the system scales effortlessly, allowing our intelligence capabilities to evolve in lockstep with the market’s complexity.",
+      "Every stage publishes to a durable stream and consumes from it. Producers and consumers never call each other directly. A new subscriber — alert engine, execution system, ML scorer — connects to existing streams without touching the producers. Extension is additive.",
     accent: "cyan",
   },
   {
-    label: "Validated Alpha Lifecycle",
-    value: "8-Class Hypothesis Tracking",
+    label: "Signal Lifecycle Tracking",
+    value: "8-Class Outcome Model",
     desc:
-      "Every signal is treated as a data-proven hypothesis. We track performance from the moment of activation through to final resolution, recording granular MAE/MFE metrics against an 8-class outcome model to turn every market move into a labeled training sample.",
+      "Every signal is a hypothesis. The system tracks it from emission through activation and exit, recording MAE, MFE, bars-in-trade, and outcome class. Eight outcome labels — from never_activated to target_full — create a labeled training set from every market move.",
     accent: "amber",
   },
   {
-    label: "Regime-Aware Predictive Modeling",
+    label: "Regime Context",
     value: "Multi-Model Consensus",
     desc:
-      "Our system dynamically adapts to the current market environment by synthesizing GARCH volatility modeling, Kalman filters, HMM state detection, and BOCPD changepoint identification. This provides a multi-dimensional view of market regime, ensuring our intelligence is always contextually relevant.",
+      "HMM state detection, GARCH volatility modeling, Kalman trend filtering, and VIX regime classification run on every bar. Setup plugins declare a regime type; the aggregator suppresses misaligned setups before anything reaches the convergence gate.",
     accent: "cyan",
   },
   {
-    label: "Self-Optimizing Alpha Loop",
-    value: "Evidence-Gated Feedback",
+    label: "Self-Optimizing Feedback Loop",
+    value: "Evidence-Gated Weights",
     desc:
-      "The loop from outcome to optimization is closed. System performance multipliers are automatically adjusted based on verified PnL and Sharpe ratio roll-ups, allowing our agentic intelligence to self-sharpen its edge without requiring manual code changes.",
+      "Outcome data writes back. Setup performance multipliers update from verified PnL and Sharpe roll-ups once 30+ samples are available. The pipeline improves from its own track record — no manual tuning required.",
     accent: "amber",
   },
   {
-    label: "Predictive AI Narrative",
-    value: "Multi-Agent Swarm Synthesis",
+    label: "Full Audit Trail",
+    value: "Nothing Is a Black Box",
     desc:
-      "Beyond technical triggers, our I8 intelligence layer runs a swarm of specialized AI agents—skeptic, correlation, regime_coherence, and counterfactual—each contributing a scored multiplier to the signal. Full audit trail records per-agent latency, parse rate, and outcome to drive adaptive routing.",
+      "Every LLM call, every signal emission, every outcome is logged with full context — agent ID, prompt version, parse rate, token burn, latency. Adaptive routing promotes models that demonstrate statistical edge. The system is inspectable at every layer.",
     accent: "cyan",
   },
   {
-    label: "Ground-Truth Feature Store",
-    value: "Universal Intelligence Vector",
+    label: "Feature Store",
+    value: "Ground-Truth Persistence",
     desc:
-      "Our feature store is the backbone of our Alpha generation. It maintains a persistent record of every instrument's state across every timeframe and tier, creating a labeled, high-resolution dataset that ensures every output acts as a training sample for the next iteration.",
+      "Every bar’s full feature vector is written to a TimescaleDB hypertable — all 132 plugin outputs, tagged with the weight version that produced them. Signal outcomes JOIN back to their originating feature vector. The history is queryable and replayable.",
     accent: "amber",
   },
 ];

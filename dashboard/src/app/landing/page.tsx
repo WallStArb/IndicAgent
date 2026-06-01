@@ -6,6 +6,8 @@ import { useMarketStream } from "@/hooks/use-market-stream";
 import { symbolConfig } from "@/lib/symbol-config";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { HeroSection } from "@/components/landing/hero-section";
+import { SignalJourney } from "@/components/landing/signal-journey";
+import { AiEnrichment } from "@/components/landing/ai-enrichment";
 import { TierShowcase } from "@/components/landing/tier-showcase";
 import { PlatformHighlights } from "@/components/landing/platform-highlights";
 import { IntelligencePillars } from "@/components/landing/intelligence-pillars";
@@ -128,6 +130,8 @@ export default function LandingPage() {
     <div className="min-h-screen">
       <LandingNav />
       <HeroSection activeSignalCount={filteredSignals.length} />
+      <SignalJourney />
+      <AiEnrichment />
       <TierShowcase />
       <PlatformHighlights />
       <IntelligencePillars />
