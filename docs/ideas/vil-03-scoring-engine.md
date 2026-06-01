@@ -462,7 +462,7 @@ All four representations are derived from the same k-NN result. No additional re
 | `vil-01` | Substrate. Provides k-NN retrieval and table infrastructure. |
 | `vil-02` | Produces all three inputs: analog set (Analog Finder), IC Sharpe weights (IC Factory), outcome labels (Outcome Labeler). |
 | `vil-05` (Signal Combiner) | Set-level consumer above. Each live Score Object is a candidate edge it combines; vil-05 adds the cross-edge decorrelation vil-03 deliberately does not do. |
-| `vil-04` | Sibling. Plugin correlation uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
+| `vil-04` | Sibling measurement layer (independence). It uses `similarity_pairs` from VIL; scoring engine uses `embeddings` + `outcome_labels`. Independent concerns. |
 | `vil-06` (cost-aware net scoring) | Folds a cost transform into vil-03's `expected_r` → `expected_r_net`, the number vil-05 consumes. |
 | `shadow_registry` | Intel-12 is not a governance system. Governance consumers read Score Objects and decide independently whether to set flags in shadow_registry. |
 | `signal_ledger.pnl_r` | R-multiple convention shared. `expected_r` is directly comparable to `pnl_r`. |
