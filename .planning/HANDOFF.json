@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-06-02T08:45:01-04:00",
+  "phase": "096",
+  "phase_name": "agent-registry",
+  "phase_dir": ".planning/phases/096-agent-registry",
+  "plan": 1,
+  "task": 0,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [],
+  "remaining_tasks": [
+    {"id": 1, "name": "Plan 01 - AgentDependencies + AgentRegistry + BaseAIWorker __init_subclass__", "status": "not_started"},
+    {"id": 2, "name": "Plan 02 - AgentRegistry.build integration into BaseGroupCoordinator + agents.yaml", "status": "not_started"},
+    {"id": 3, "name": "Plan 03 - Wire AlphaSwarm + NarrativeSwarm + validation gate", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "Signal/lifecycle architectural review completed this session — 6 bugs fixed and pushed to main (commit f6a44b45)", "rationale": "Pre-phase quality work; signal pipeline integrity is prerequisite for alpha quality", "phase": "pre-096"},
+    {"decision": "Phase 096 plans are written and reviewed, ready to execute — no discussion or planning needed", "rationale": "3 plans exist in .planning/phases/096-agent-registry/", "phase": "096"}
+  ],
+  "uncommitted_files": [
+    ".claude.local.md",
+    ".planning/STATE.md",
+    ".planning/phases/096-agent-registry/096-01-PLAN.md",
+    ".planning/phases/096-agent-registry/096-02-PLAN.md",
+    ".planning/phases/096-agent-registry/096-03-PLAN.md",
+    ".planning/phases/096-agent-registry/096-CONTEXT.md",
+    ".planning/phases/096-agent-registry/096-PATTERNS.md",
+    "docs/foundation/naming-system.md"
+  ],
+  "next_action": "Execute Phase 096 Plan 01: create src/core/ai/agent_dependencies.py and src/core/ai/registry.py per 096-01-PLAN.md truths",
+  "context_notes": "Session was signal/lifecycle bug review — not Phase 096. All 6 priority bugs fixed and pushed. Phase 096 plans are fully written and reviewed. Next session should run /gsd-execute-phase to execute all 3 plans in wave order."
+}
