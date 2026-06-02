@@ -42,7 +42,17 @@ class TestMTFVolatilityIndependence:
     def test_no_squeeze_active_key_needed(self):
         """compute_full with no squeeze_active key returns valid output."""
         plugin = MTFVolatilityPlugin()
-        frames = {"features": {}, "intel_15m": {}, "intel_1h": {}}
+        frames = {
+            "i1": {},
+            "i2": {},
+            "i3": {},
+            "i4": {},
+            "i5": {},
+            "smc": {},
+            "i6": {},
+            "intel_15m": {},
+            "intel_1h": {},
+        }
         result = plugin.compute_full(frames)
         assert result["squeeze_within_expansion"] == 0.0
         assert "mtf_vol_expansion_15m" in result
@@ -54,7 +64,43 @@ class TestMTFVolatilityIndependence:
         plugin = MTFVolatilityPlugin()
         # BB inside KC = squeeze condition
         frames = {
-            "features": {
+            "i1": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "i2": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "i3": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "i4": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "i5": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "smc": {
+                "bb_20_2_upper": 100.5,
+                "bb_20_2_lower": 99.5,
+                "keltner_upper": 101.0,
+                "keltner_lower": 99.0,
+            },
+            "i6": {
                 "bb_20_2_upper": 100.5,
                 "bb_20_2_lower": 99.5,
                 "keltner_upper": 101.0,

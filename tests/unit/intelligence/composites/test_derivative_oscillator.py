@@ -13,8 +13,8 @@ from src.intelligence.composites.derivative_oscillator import DerivativeOscillat
 def make_frames(rsi: float | None) -> dict:
     """Build a minimal frames dict with the given RSI value."""
     if rsi is None:
-        return {"features": {}}
-    return {"features": {"rsi_14": rsi}}
+        return {"i1": {}}
+    return {"i1": {"rsi_14": rsi}}
 
 
 def feed_bars(plugin: DerivativeOscillatorPlugin, rsi_values: list[float | None]) -> list[dict]:
@@ -50,7 +50,7 @@ def test_missing_rsi():
     """frames with no rsi_14 key → plugin returns {}."""
     plugin = DerivativeOscillatorPlugin()
     plugin._state = {}
-    result = plugin.compute_full({"features": {}})
+    result = plugin.compute_full({"i1": {}})
     assert result == {}
 
 
@@ -58,7 +58,7 @@ def test_non_numeric_rsi():
     """rsi_14 = 'bad' (non-numeric) → plugin returns {}."""
     plugin = DerivativeOscillatorPlugin()
     plugin._state = {}
-    result = plugin.compute_full({"features": {"rsi_14": "bad"}})
+    result = plugin.compute_full({"i1": {"rsi_14": "bad"}})
     assert result == {}
 
 

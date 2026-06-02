@@ -32,16 +32,16 @@ class AccelerationRegimePlugin:
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum", "regime"}))
-    inputs: tuple = ()  # reads from frames["features"] only
+    inputs: tuple = ()  # reads from typed tier frames
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-
-        rsi_curvature = features.get("rsi_curvature")
-        macd_hist_slope = features.get("macd_hist_slope")
-        price_accel = features.get("price_accel")
-        hma_accel = features.get("hma_accel")
+        # rsi_curvature/macd_hist_slope/price_accel/hma_accel produced by MomentumAccel (i2)
+        i2 = frames.get("i2") or {}
+        rsi_curvature = i2.get("rsi_curvature")
+        macd_hist_slope = i2.get("macd_hist_slope")
+        price_accel = i2.get("price_accel")
+        hma_accel = i2.get("hma_accel")
 
         # Sign-vote each input: +1 positive, -1 negative, 0 unavailable/zero
         def _vote(x: Any) -> int:

@@ -22,7 +22,7 @@ class TestMarketProfile:
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
         features = {"atr_14": 10.0, "close": float(close[-1])}
-        result = MarketProfilePlugin().compute_full({"main": df, "features": features})
+        result = MarketProfilePlugin().compute_full({"main": df, "i1": features})
         poc = result.get("poc_level")
         assert poc is None or (5000 <= poc <= 5100)
 
@@ -31,7 +31,7 @@ class TestMarketProfile:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = MarketProfilePlugin().compute_full({"main": df, "features": {}})
+        result = MarketProfilePlugin().compute_full({"main": df, "i1": {}})
         va_high = result.get("va_high")
         va_low = result.get("va_low")
         if va_high is not None and va_low is not None:
@@ -43,7 +43,7 @@ class TestMarketProfile:
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
         features = {"atr_14": 10.0, "close": float(close[-1])}
-        result = MarketProfilePlugin().compute_full({"main": df, "features": features})
+        result = MarketProfilePlugin().compute_full({"main": df, "i1": features})
         if result.get("poc_level") is not None:
             assert result.get("poc_dist_atr") is not None
             assert result["poc_dist_atr"] >= 0.0
@@ -53,7 +53,7 @@ class TestMarketProfile:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = MarketProfilePlugin().compute_full({"main": df, "features": {}})
+        result = MarketProfilePlugin().compute_full({"main": df, "i1": {}})
         if result:
             total = (
                 result.get("price_in_va", 0)
@@ -72,7 +72,7 @@ class TestMarketProfile:
 
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
-        assert MarketProfilePlugin().compute_full({"main": df, "features": {}}) == {}
+        assert MarketProfilePlugin().compute_full({"main": df, "i1": {}}) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ class TestSessionLevels:
         close = np.linspace(5000, 5100, 200)
         df = make_ohlcv(close)
         features = {"atr_14": 10.0, "close": float(close[-1])}
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": features})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": features})
         pivot = result.get("weekly_pivot")
         if pivot is not None:
             assert 4000 < pivot < 6000
@@ -98,7 +98,7 @@ class TestSessionLevels:
         # 800 bars so prior session (390) exists and week_df can be formed
         close = np.linspace(5000, 5200, 800)
         df = make_ohlcv(close)
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": {}})
         # prior session should be populated
         assert result.get("prior_session_high") is not None
         assert result.get("prior_session_low") is not None
@@ -108,7 +108,7 @@ class TestSessionLevels:
 
         close = np.linspace(5000, 5200, 800)
         df = make_ohlcv(close)
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": {}})
         wp = result.get("weekly_pivot")
         r1 = result.get("weekly_r1")
         s1 = result.get("weekly_s1")
@@ -147,7 +147,7 @@ class TestSessionLevels:
                 "timestamp": timestamps,
             }
         )
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": {}})
         assert result.get("asian_session_high") == pytest.approx(9999.0)
         assert result.get("asian_session_low") == pytest.approx(1.0)
 
@@ -156,7 +156,7 @@ class TestSessionLevels:
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)  # no timestamp column
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": {}})
         assert result.get("asian_session_high") is None
         assert result.get("asian_session_low") is None
 
@@ -180,7 +180,7 @@ class TestSessionLevels:
                 "timestamp": timestamps,
             }
         )
-        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        result = SessionLevelsPlugin().compute_full({"main": df, "i1": {}})
         assert result.get("asian_session_high") is None
         assert result.get("asian_session_low") is None
 
@@ -196,7 +196,7 @@ class TestAnchoredVWAP:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = AnchoredVWAPPlugin().compute_full({"main": df, "features": {}})
+        result = AnchoredVWAPPlugin().compute_full({"main": df, "i1": {}})
         vwap = result.get("session_vwap")
         if vwap is not None:
             assert 5000 <= vwap <= 5100
@@ -207,7 +207,7 @@ class TestAnchoredVWAP:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = AnchoredVWAPPlugin().compute_full({"main": df, "features": {}})
+        result = AnchoredVWAPPlugin().compute_full({"main": df, "i1": {}})
         for key in ("above_session_vwap", "above_swing_vwap", "above_weekly_vwap"):
             val = result.get(key)
             if val is not None:
@@ -218,7 +218,7 @@ class TestAnchoredVWAP:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = AnchoredVWAPPlugin().compute_full({"main": df, "features": {}})
+        result = AnchoredVWAPPlugin().compute_full({"main": df, "i1": {}})
         score = result.get("vwap_alignment_score")
         if score is not None:
             assert 0.0 <= score <= 1.0
@@ -229,7 +229,7 @@ class TestAnchoredVWAP:
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
         features = {"swing_high_idx": 10.0, "swing_low_idx": 5.0}
-        result = AnchoredVWAPPlugin().compute_full({"main": df, "features": features})
+        result = AnchoredVWAPPlugin().compute_full({"main": df, "i3": features})
         assert "swing_vwap" in result
 
     def test_empty_returns_empty(self):
@@ -250,7 +250,7 @@ class TestFibonacciZones:
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
         features = {"swing_high": 5200.0, "swing_low": 5000.0, "atr_14": 10.0, "close": 5130.0}
-        result = FibonacciZonesPlugin().compute_full({"main": df, "features": features})
+        result = FibonacciZonesPlugin().compute_full({"main": df, "i3": features})
         fib618 = result.get("fib_618")
         if fib618 is not None:
             assert abs(fib618 - (5000 + 0.618 * 200)) < 1.0
@@ -261,7 +261,7 @@ class TestFibonacciZones:
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
         features = {"swing_high": 5200.0, "swing_low": 5000.0, "close": 5100.0}
-        result = FibonacciZonesPlugin().compute_full({"main": df, "features": features})
+        result = FibonacciZonesPlugin().compute_full({"main": df, "i3": features})
         for key in ("fib_236", "fib_382", "fib_500", "fib_618", "fib_786"):
             level = result.get(key)
             if level is not None:
@@ -273,7 +273,7 @@ class TestFibonacciZones:
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
         features = {"swing_high": 5200.0, "swing_low": 5000.0, "close": 5100.0}
-        result = FibonacciZonesPlugin().compute_full({"main": df, "features": features})
+        result = FibonacciZonesPlugin().compute_full({"main": df, "i3": features})
         ratio = result.get("nearest_fib_ratio")
         if ratio is not None:
             assert ratio in (0.236, 0.382, 0.500, 0.618, 0.786)
@@ -285,7 +285,7 @@ class TestFibonacciZones:
         df = make_ohlcv(close)
         # Close at 5100 = 50% of 5000–5200 range
         features = {"swing_high": 5200.0, "swing_low": 5000.0, "close": 5100.0}
-        result = FibonacciZonesPlugin().compute_full({"main": df, "features": features})
+        result = FibonacciZonesPlugin().compute_full({"main": df, "i3": features})
         assert result.get("in_fib_discount_zone") == 1.0
 
     def test_fallback_when_no_swing_features(self):
@@ -293,7 +293,7 @@ class TestFibonacciZones:
 
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
-        result = FibonacciZonesPlugin().compute_full({"main": df, "features": {}})
+        result = FibonacciZonesPlugin().compute_full({"main": df, "i1": {}})
         # Should compute from rolling high/low fallback — not crash
         assert isinstance(result, dict)
 

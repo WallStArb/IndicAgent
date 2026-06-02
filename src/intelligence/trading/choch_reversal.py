@@ -56,7 +56,15 @@ class CHoCHReversalPlugin:
             return no_signal()
         open_, high, low, close = result
 
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+            **(frames.get("i6") or {}),
+        }
 
         choch_detected = float(features.get("choch_detected", 0.0))
         if choch_detected != 1.0:

@@ -27,7 +27,13 @@ def _make_frames_hl(high_val, low_val, volume_val, features=None, symbol="ES", t
 
     return {
         "main": df,
-        "features": features or {},
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features or {},
         "__symbol__": symbol,
         "__timeframe__": tf,
     }
@@ -282,7 +288,18 @@ def test_insufficient_lookback_returns_empty():
     plugin = VCPPlugin()
     close = np.full(5, 5050.0)
     df = make_ohlcv(close)
-    frames = {"main": df, "features": _base_features(), "__symbol__": "ES", "__timeframe__": "1m"}
+    frames = {
+        "main": df,
+        "i1": _base_features(),
+        "i2": _base_features(),
+        "i3": _base_features(),
+        "i4": _base_features(),
+        "i5": _base_features(),
+        "smc": _base_features(),
+        "i6": _base_features(),
+        "__symbol__": "ES",
+        "__timeframe__": "1m",
+    }
     result = plugin.compute_full(frames)
     assert result["signal_type"] == "none"
     assert result["direction"] == 0

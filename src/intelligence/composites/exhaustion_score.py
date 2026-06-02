@@ -32,15 +32,16 @@ class ExhaustionScorePlugin:
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum"}))
-    inputs: tuple = ()  # reads from frames["features"] only
+    inputs: tuple = ()  # reads from typed tier frames
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
+        i1 = frames.get("i1") or {}
+        i2 = frames.get("i2") or {}
 
-        rsi = features.get("rsi_14")
-        curvature = features.get("rsi_curvature")
-        hist_slope = features.get("macd_hist_slope")
+        rsi = i1.get("rsi_14")
+        curvature = i2.get("rsi_curvature")  # produced by MomentumAccel (I2 Wave A)
+        hist_slope = i2.get("macd_hist_slope")  # produced by MomentumAccel (I2 Wave A)
 
         # Determine active side from RSI extreme — curvature/slope conditions
         # are evaluated only within the context of the active RSI side.

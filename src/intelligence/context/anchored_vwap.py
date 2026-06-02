@@ -52,12 +52,11 @@ class AnchoredVWAPPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
         volume = df["volume"].to_numpy(dtype=float)
-        current_close = float(features.get("close") or close[-1])
+        current_close = float(close[-1])
 
         typical = (high + low + close) / 3.0
         tpv = typical * volume
@@ -82,9 +81,12 @@ class AnchoredVWAPPlugin:
             session_vwap_deviation_sigma = 0.0
 
         # --- Swing VWAP ---
+        # swing_high_idx/swing_low_idx from I3 SwingDetector; atr_14 from I1
+        i3 = frames.get("i3") or {}
+        i1_tier = frames.get("i1") or {}
         swing_vwap = None
-        shi = features.get("swing_high_idx")
-        sli = features.get("swing_low_idx")
+        shi = i3.get("swing_high_idx")
+        sli = i3.get("swing_low_idx")
         anchor_idx = None
         n = len(df)
 
@@ -142,7 +144,7 @@ class AnchoredVWAPPlugin:
 
         # above_weekly_vwap: compute deviation from weekly VWAP, use ATR if available
         weekly_dev = current_close - weekly_vwap
-        atr_val = features.get("atr_14")
+        atr_val = i1_tier.get("atr_14")
         if isinstance(atr_val, (int, float)) and atr_val > 0:
             above_weekly = linear_ramp(weekly_dev / float(atr_val), -2.0, 2.0)
         elif weekly_vwap > 0:

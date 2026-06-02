@@ -34,8 +34,7 @@ class RSIEventsPlugin:
     _RSI_MID: float = 50.0
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-        rsi = features.get("rsi_14")
+        rsi = (frames.get("i1") or {}).get("rsi_14")
         if not is_num(rsi):
             return {}
 

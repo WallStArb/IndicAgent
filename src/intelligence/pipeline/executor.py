@@ -148,15 +148,37 @@ class PluginExecutor:
     """
 
     # Wave-based tier execution — tiers within each wave run in parallel.
-    # Dependency analysis (violations resolved via sub-waves):
-    #   Wave 1: I2-WaveA(8) + I3(8) + SMC-WaveA(10) — independent, need I1 only
-    #   Wave 2: I2-WaveB(2) + SMC-WaveB(3) + I4-WaveA(11) — I4 now has I3 data
-    #   Wave 3: I4-WaveB(1) + I5(16) — kalman after garch; I5 reads I1-I4
-    #   Wave 4: I6(1) — cross-timeframe confluence
+    # Each wave documents which prior-tier FRAME KEYS it legitimately reads.
+    # This contract is regression-tested by test_wave_isolation.py (task 4-2).
+    #
+    # Wave 1: I2-WaveA(8) + I3(8) + SMC-WaveA(10)
+    #   Reads: frames["i1"] (all indicator fields from I1Indicators)
+    #   Does NOT read: i2, i3, smc, i4, i5, i6 (not yet computed)
+    #
+    # Wave 2: I2-WaveB(2) + SMC-WaveB(3) + I4-WaveA(11)
+    #   Reads: frames["i1"], frames["i3"] (I4 context uses I3 swing/sr/trend data)
+    #   Does NOT read: i2 (wave-A outputs), smc (wave-A outputs) in this wave
+    #   NOTE: I4-WaveA context plugins (GARCHVolatility, TrendRegime, VolumeProfile, etc.)
+    #   read I1 indicators + I3 structure. I2-WaveB and SMC-WaveB read I1 only.
+    #
+    # Wave 3: I4-WaveB(1) + I5(16)
+    #   Reads: frames["i1"], frames["i2"], frames["i3"], frames["i4"] (partial),
+    #          frames["smc"] (partial from wave-A SMC plugins)
+    #   KalmanTrend (I4-WaveB) must run after GARCHVolatility (I4-WaveA).
+    #   I5 patterns read I1-I4 and SMC-A.
+    #
+    # Wave 4: I6(1)
+    #   Reads: frames["i1"], frames["i2"], frames["i3"], frames["i4"],
+    #          frames["i5"], frames["smc"]
+    #   Cross-timeframe confluence reads all prior tiers.
     _ANALYSIS_WAVES: ClassVar[tuple[_AnalysisWave, ...]] = (
+        # Wave 1 — reads: i1 only
         (("i2", I2_WAVE_A), ("i3", TIER_I3), ("smc", SMC_WAVE_A)),
+        # Wave 2 — reads: i1, i3
         (("i2", I2_WAVE_B), ("smc", SMC_WAVE_B), ("i4", I4_WAVE_A)),
+        # Wave 3 — reads: i1, i2, i3, i4 (partial), smc (partial)
         (("i4", I4_WAVE_B), ("i5", TIER_I5)),
+        # Wave 4 — reads: i1, i2, i3, i4, i5, smc (all prior tiers)
         (("i6", TIER_I6),),
     )
 
@@ -229,7 +251,7 @@ class PluginExecutor:
         """Get or create a CircuitBreaker for the named plugin (lazy-init)."""
         cb = self._plugin_circuit_breakers.get(plugin_name)
         if cb is None:
-            cb = CircuitBreaker(failure_threshold=3, timeout_sec=300, enabled=False)
+            cb = CircuitBreaker(failure_threshold=10, timeout_sec=60, enabled=True)
             self._plugin_circuit_breakers[plugin_name] = cb
         return cb
 
@@ -562,10 +584,6 @@ class PluginExecutor:
                     tiered[tier_key] = tier_output
                 frames[tier_key] = tiered[tier_key]
                 FEATURES_COMPUTED_TOTAL.add(1, {"tier": tier_key})
-                # Dual-write: keyed frames[tier_key] for typed tier access;
-                # flat frames["features"] for plugins that use the legacy flat dict.
-                features = frames.setdefault("features", {})
-                features.update(tier_output)
 
         return tiered, all_state_updates
 

@@ -83,7 +83,18 @@ class TestCandlestickPatternDetection:
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == 1
         assert "long" in result["signal_type"]
 
@@ -92,7 +103,18 @@ class TestCandlestickPatternDetection:
         df, features = base_features(engulfing_bear=1.0, trend_regime=-0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == -1
         assert "short" in result["signal_type"]
 
@@ -104,14 +126,36 @@ class TestCandlestickPatternDetection:
         df, features = base_features(hammer_detected=1.0, trend_regime=0.7)
         # NOTE: no volume injection, no has_sr_proximity — hammer self-confirms S/R
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == 1
 
     def test_shooting_star_fires_without_extra_confirm(self):
         """shooting_star + bearish trend, no volume boost, no S/R -> signal fires."""
         df, features = base_features(shooting_star_detected=1.0, trend_regime=-0.7)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == -1
 
 
@@ -128,7 +172,18 @@ class TestCandlestickConfluenceGating:
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.3)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
 
     def test_bullish_pattern_in_bearish_trend(self):
@@ -136,7 +191,18 @@ class TestCandlestickConfluenceGating:
         df, features = base_features(engulfing_bull=1.0, trend_regime=-0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
 
     def test_bearish_pattern_in_bullish_trend(self):
@@ -144,7 +210,18 @@ class TestCandlestickConfluenceGating:
         df, features = base_features(engulfing_bear=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
 
     def test_pin_bar_no_volume_no_sr_blocked(self):
@@ -154,7 +231,18 @@ class TestCandlestickConfluenceGating:
         """
         df, features = base_features(pin_bar_bull=1.0, trend_regime=0.7)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
 
     def test_pin_bar_with_volume_fires(self):
@@ -162,7 +250,18 @@ class TestCandlestickConfluenceGating:
         df, features = base_features(pin_bar_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == 1
 
     def test_priority_hammer_over_engulfing(self):
@@ -177,7 +276,18 @@ class TestCandlestickConfluenceGating:
             trend_regime=0.7,
         )
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "candlestick_hammer_long"
 
 
@@ -194,7 +304,18 @@ class TestCandlestickSignalFields:
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         required_fields = {
             "signal_type",
             "direction",
@@ -213,7 +334,18 @@ class TestCandlestickSignalFields:
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["stop_loss"] < result["entry_price"]
 
     def test_short_stop_above_entry(self):
@@ -221,7 +353,18 @@ class TestCandlestickSignalFields:
         df, features = base_features(engulfing_bear=1.0, trend_regime=-0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["stop_loss"] > result["entry_price"]
 
     def test_confidence_clamped_in_range(self):
@@ -229,7 +372,18 @@ class TestCandlestickSignalFields:
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert 0.10 <= result["confidence"] <= 0.90
 
 
@@ -246,7 +400,18 @@ class TestCandlestickNoSignal:
         df = make_candlestick_df(n=10)
         _, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
         assert result["direction"] == 0
 
@@ -254,7 +419,18 @@ class TestCandlestickNoSignal:
         """Regime gate returns {'signal_type': 'none', ...}, not {}."""
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.3)
         plugin = CandlestickPatternSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
         assert result["direction"] == 0
         assert "confidence" in result

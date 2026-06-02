@@ -22,7 +22,7 @@ class MomentumContextPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features")
+        features = frames.get("i1") or {}
         if not features:
             return {}
 

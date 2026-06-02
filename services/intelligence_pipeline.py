@@ -54,6 +54,11 @@ from src.intelligence.pipeline import (
     PluginStateManager,
     SignalProcessor,
 )
+from src.intelligence.pipeline.output_queue import PRIORITY_HIGH, PRIORITY_LOW
+from src.intelligence.pipeline.per_key_worker_manager import (
+    _WORKER_COUNT_GAUGE,
+    _WORKER_QUEUE_DEPTH_GAUGE,
+)
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
@@ -267,6 +272,7 @@ class IntelligencePipeline(BaseDaemon):
             producer=self._kafka_producer,
             maxsize=_OUTPUT_QUEUE_MAXSIZE,
             drain_batch_size=self.settings.intelligence_output_drain_batch_size,
+            drain_ratio=self.settings.output_queue_drain_ratio,
         )
 
         _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -554,7 +560,11 @@ class IntelligencePipeline(BaseDaemon):
             topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
         )
         await self._out_queue.enqueue_blocking(
-            intel_topic, msg_key, {"event": fp_result.event.model_dump_json()}, timeout_sec=5.0
+            intel_topic,
+            msg_key,
+            {"event": fp_result.event.model_dump_json()},
+            timeout_sec=5.0,
+            priority=PRIORITY_HIGH,
         )
         # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
         i7_start = time.perf_counter()
@@ -576,18 +586,30 @@ class IntelligencePipeline(BaseDaemon):
             raw_signals=raw_signals,
             cache_snapshot=cache_snapshot,
         )
-        # 4-way routing
+        # 4-way routing (all high priority — journal is low priority, enqueued below)
         if result.success and result.signals_payload:
             await self._out_queue.enqueue_blocking(
-                topic_intelligence_i7_signals(env), msg_key, result.signals_payload, timeout_sec=5.0
+                topic_intelligence_i7_signals(env),
+                msg_key,
+                result.signals_payload,
+                timeout_sec=5.0,
+                priority=PRIORITY_HIGH,
             )
         elif result.dlq_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signal_dlq(env), msg_key, result.dlq_payload, timeout_sec=5.0
+                topic_signal_dlq(env),
+                msg_key,
+                result.dlq_payload,
+                timeout_sec=5.0,
+                priority=PRIORITY_HIGH,
             )
         if result.winner_payload:
             await self._out_queue.enqueue_blocking(
-                topic_signals_aggregated(env), msg_key, result.winner_payload, timeout_sec=5.0
+                topic_signals_aggregated(env),
+                msg_key,
+                result.winner_payload,
+                timeout_sec=5.0,
+                priority=PRIORITY_HIGH,
             )
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
@@ -665,16 +687,37 @@ class IntelligencePipeline(BaseDaemon):
             i7_computed_at=i7_computed_at,
             pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
+        # Journal is LOW priority — on timeout, silently dropped (never stalls pipeline)
         await self._out_queue.enqueue_blocking(
             topic_intelligence_journal(self.settings.env_name),
             msg_key,
             record.model_dump(mode="json"),
             timeout_sec=5.0,
+            priority=PRIORITY_LOW,
         )
 
     async def _health_monitor_loop(self) -> None:
+        """Emit per-key worker queue gauges every 10 seconds.
+
+        Gauges are DEFINED in per_key_worker_manager.py (single source of truth, D-25).
+        This loop IMPORTS and reuses them — it does NOT create new gauge objects.
+        """
         while self.running:
             await asyncio.sleep(10)
+            try:
+                mgr = getattr(self, "_worker_manager", None)
+                if mgr is None:
+                    continue
+                queues = getattr(mgr, "_queues", {})
+                depth_max = max((q.qsize() for q in queues.values()), default=0)
+                worker_count = len(queues)
+                _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
+                _WORKER_COUNT_GAUGE.set(worker_count, {})
+            except Exception as exc:
+                self.logger.warning(
+                    "health_monitor.gauge_emit_failed",
+                    error=str(exc),
+                )
 
     async def _handle_system_event(self, payload: dict) -> None:
         event_type = payload.get("type", "")

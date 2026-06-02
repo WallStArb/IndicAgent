@@ -95,7 +95,7 @@ def plugin():
 @pytest.fixture
 def frames_simple(plugin):
     df = _make_df(n=150)
-    return {"main": df, "features": {"atr_14": 2.0, "close": float(df["close"].iloc[-1])}}
+    return {"main": df, "i1": {"atr_14": 2.0}}
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def test_compute_full_returns_all_18_keys(plugin, frames_simple):
 def test_poc_is_highest_volume_bucket(plugin):
     df = _make_concentrated_df(n=100, poc_price=105.0)
     features = {"atr_14": 1.0, "close": float(df["close"].iloc[-1])}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
     assert result.get("poc_price") is not None
     # POC should be near the high-volume cluster (within 2 price units of 105.0)
     assert (
@@ -190,7 +190,7 @@ def test_value_area_70_percent_rule(plugin):
     """VAH and VAL should enclose at least 70% of total volume."""
     df = _make_df(n=200)
     features = {"atr_14": 2.0, "close": float(df["close"].iloc[-1])}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
 
     vah = result.get("vah")
     val = result.get("val")
@@ -207,12 +207,12 @@ def test_value_area_70_percent_rule(plugin):
 
 def test_price_in_value_area_when_inside(plugin):
     df = _make_concentrated_df(n=100, poc_price=105.0)
-    close_inside = 105.0  # should be inside value area
-    features = {"atr_14": 1.0, "close": close_inside}
-    result = plugin.compute_full({"main": df, "features": features})
+    # close is now read from df["close"].iloc[-1]; concentrated df has close near poc_price
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": 1.0}})
     vah = result.get("vah")
     val = result.get("val")
-    if vah is not None and val is not None and val <= close_inside <= vah:
+    actual_close = float(df["close"].iloc[-1])
+    if vah is not None and val is not None and val <= actual_close <= vah:
         assert result["price_in_value_area"] == 1.0
 
 
@@ -220,14 +220,16 @@ def test_price_in_value_area_outside(plugin):
     df = _make_concentrated_df(n=100, poc_price=105.0)
     # Get actual val/vah first
     base_features = {"atr_14": 1.0, "close": 105.0}
-    base_result = plugin.compute_full({"main": df, "features": base_features})
+    base_result = plugin.compute_full(
+        {"main": df, "i1": {"atr_14": base_features.get("atr_14", 1.0)}}
+    )
     val = base_result.get("val")
     if val is not None and val > 95.0:
         close_outside = 90.0  # far below val
         features = {"atr_14": 1.0, "close": close_outside}
         df2 = df.copy()
         # Override close for last row
-        result = plugin.compute_full({"main": df2, "features": features})
+        result = plugin.compute_full({"main": df2, "i1": {"atr_14": features.get("atr_14", 1.0)}})
         assert result["price_in_value_area"] == 0.0
 
 
@@ -277,7 +279,7 @@ def test_distance_to_vah_val_atr(plugin, frames_simple):
 def test_nearest_hvn_above_is_lowest_hvn_above_close(plugin):
     df = _make_concentrated_df(n=150, poc_price=105.0)
     features = {"atr_14": 1.0, "close": 103.0}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
     hvn_above = result.get("nearest_hvn_above")
     if hvn_above is not None:
         assert hvn_above > 103.0, f"HVN above close should be > 103.0, got {hvn_above}"
@@ -286,7 +288,7 @@ def test_nearest_hvn_above_is_lowest_hvn_above_close(plugin):
 def test_nearest_hvn_below_is_highest_hvn_below_close(plugin):
     df = _make_concentrated_df(n=150, poc_price=100.0)
     features = {"atr_14": 1.0, "close": 103.0}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
     hvn_below = result.get("nearest_hvn_below")
     if hvn_below is not None:
         assert hvn_below <= 103.0, f"HVN below close should be <= 103.0, got {hvn_below}"
@@ -325,7 +327,7 @@ def test_rolling_track_with_short_data(plugin):
     """With fewer than 480 bars, rolling track uses all available bars."""
     df = _make_df(n=50)
     features = {"atr_14": 1.5, "close": float(df["close"].iloc[-1])}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
     # Should compute without error
     assert result.get("poc_price_rolling") is not None
 
@@ -336,7 +338,7 @@ def test_rolling_track_differs_from_session_with_many_bars(plugin):
     ts_start = datetime(2026, 3, 17, 9, 0, 0, tzinfo=UTC)  # 4am ET
     df = _make_df(n=600, with_timestamp=True, ts_start=ts_start)
     features = {"atr_14": 2.0, "close": float(df["close"].iloc[-1])}
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": features.get("atr_14", 1.0)}})
     # Both tracks should compute
     assert result.get("poc_price") is not None
     assert result.get("poc_price_rolling") is not None
@@ -377,12 +379,12 @@ def test_legacy_in_lvn_is_0_or_1(plugin, frames_simple):
 
 def test_fewer_than_min_lookback_returns_empty(plugin):
     df = _make_df(n=5)  # less than min_lookback=20
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full({"main": df, "i1": {}})
     assert result == {}
 
 
 def test_none_main_returns_empty(plugin):
-    result = plugin.compute_full({"main": None, "features": {}})
+    result = plugin.compute_full({"main": None, "i1": {}})
     assert result == {}
 
 
@@ -396,5 +398,5 @@ def test_zero_price_range_returns_empty(plugin):
             "volume": [100.0] * 50,
         }
     )
-    result = plugin.compute_full({"main": df, "features": {"atr_14": 1.0, "close": 100.0}})
+    result = plugin.compute_full({"main": df, "i1": {"atr_14": 1.0}})
     assert result == {}

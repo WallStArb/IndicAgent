@@ -43,7 +43,7 @@ def _make_frames(n: int = 50, seed: int = 42) -> dict:
             "volume": volume,
         }
     )
-    return {"main": df, "features": {}}
+    return {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
 
 
 def _make_frames_single_bar(close_price: float, prev_high: float, prev_low: float) -> dict:

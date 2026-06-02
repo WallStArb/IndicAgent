@@ -39,10 +39,10 @@ class TrendRegimePlugin:
         close = df["close"].to_numpy(dtype=float)
         price = float(close[-1])
 
-        # Prefer upstream SMA values from I1 MovingAverages plugin
-        features = frames.get("features")
-        sma20 = features.get("sma_20") if isinstance(features, dict) else None
-        sma50 = features.get("sma_50") if isinstance(features, dict) else None
+        # Prefer upstream SMA values from I1 MovingAverages plugin (i1 tier)
+        i1 = frames.get("i1") or {}
+        sma20 = i1.get("sma_20")
+        sma50 = i1.get("sma_50")
 
         # Fall back to direct computation if upstream unavailable
         if not isinstance(sma20, (int, float)):
@@ -73,16 +73,13 @@ class TrendRegimePlugin:
         # Normalise MA signal to [-1, 1] for blending
         ma_norm = ma_signal / 2.0
 
-        # Try to blend with I3 structure data
-        has_structure = (
-            isinstance(features, dict)
-            and "trend_direction" in features
-            and "trend_strength" in features
-        )
+        # Try to blend with I3 structure data (trend_direction/trend_strength from I3 tier)
+        i3 = frames.get("i3") or {}
+        has_structure = "trend_direction" in i3 and "trend_strength" in i3
 
         if has_structure:
-            td = float(features["trend_direction"])
-            ts = float(features["trend_strength"])
+            td = float(i3["trend_direction"])
+            ts = float(i3["trend_strength"])
             structure_signal = td * ts  # [-1, +1] range
             blended = 0.5 * ma_norm + 0.5 * structure_signal
 

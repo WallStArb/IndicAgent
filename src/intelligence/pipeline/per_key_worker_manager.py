@@ -14,8 +14,25 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from src.observability.metrics import point_gauge
+
 if TYPE_CHECKING:
     from src.core.schemas.bar_message import BarMessage
+
+# ---------------------------------------------------------------------------
+# Module-level gauge definitions (single source of truth — D-25 OTel duplicate prevention)
+# intelligence_pipeline.py IMPORTS these; it MUST NOT create new gauges with the same names.
+# ---------------------------------------------------------------------------
+
+_WORKER_QUEUE_DEPTH_GAUGE = point_gauge(
+    "intelligence_pipeline_worker_queue_depth_max",
+    "Max per-key worker queue depth across all active (symbol, tf) keys",
+)
+
+_WORKER_COUNT_GAUGE = point_gauge(
+    "intelligence_pipeline_per_key_worker_count",
+    "Number of active per-key (symbol, tf) worker queues",
+)
 
 
 class PerKeyWorkerManager:
@@ -40,6 +57,8 @@ class PerKeyWorkerManager:
         self._background_tasks: set[asyncio.Task] = set()
         self._stop_event = asyncio.Event()
         self._logger = structlog.get_logger(__name__)
+        # Gauge emission counter: emit every 10th enqueue to avoid per-message overhead
+        self._enqueue_count: int = 0
 
     def start_per_key_workers(self) -> None:
         """No-op at startup — workers are lazily spawned on first enqueue per key.
@@ -59,6 +78,12 @@ class PerKeyWorkerManager:
         if key not in self._queues:
             self._spawn_worker(key)
         await self._queues[key].put(bar)
+        # Emit queue-depth and worker-count gauges every 10th enqueue (low overhead)
+        self._enqueue_count += 1
+        if self._enqueue_count % 10 == 0:
+            depth_max = max((q.qsize() for q in self._queues.values()), default=0)
+            _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
+            _WORKER_COUNT_GAUGE.set(len(self._queues), {})
 
     def _spawn_worker(self, key: tuple[str, str]) -> None:
         queue: asyncio.Queue = asyncio.Queue(maxsize=self._queue_maxsize)

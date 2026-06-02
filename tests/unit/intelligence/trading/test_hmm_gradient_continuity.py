@@ -66,7 +66,67 @@ class TestHMMGradientContinuity:
         r_70 = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i2": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i3": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i4": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i5": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "smc": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.70,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i6": {
                     "in_demand_zone": 1.0,
                     "in_supply_zone": 0.0,
                     "demand_freshness": 0.70,
@@ -81,7 +141,67 @@ class TestHMMGradientContinuity:
         r_60 = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i2": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i3": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i4": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i5": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "smc": {
+                    "in_demand_zone": 1.0,
+                    "in_supply_zone": 0.0,
+                    "demand_freshness": 0.60,
+                    "demand_strength": 0.5,
+                    "nearest_demand_high": 5010.0,
+                    "nearest_demand_low": 4990.0,
+                    "atr_14": 10.0,
+                    "price_in_premium": 0.0,
+                },
+                "i6": {
                     "in_demand_zone": 1.0,
                     "in_supply_zone": 0.0,
                     "demand_freshness": 0.60,
@@ -117,7 +237,43 @@ class TestHMMGradientContinuity:
         r_high = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_trending_up": 0.9,
                     "hmm_prob_trending_down": 0.05,
@@ -128,7 +284,43 @@ class TestHMMGradientContinuity:
         r_mid = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_trending_up": 0.5,
+                    "hmm_prob_trending_down": 0.3,
+                    "hmm_prob_ranging": 0.2,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_trending_up": 0.5,
                     "hmm_prob_trending_down": 0.3,
@@ -168,7 +360,18 @@ class TestHMMGradientContinuity:
             "hmm_prob_ranging": 0.1,
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         if result.get("direction") == 1:
             # With trending probability at 0.8 and regime_agrees=True:
             # regime_score = 0.2 + 0.6 * max(0.8, 0.1) = 0.2 + 0.48 = 0.68
@@ -191,7 +394,43 @@ class TestHMMGradientContinuity:
         r_strong = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_trending_up": 0.9,
+                    "hmm_prob_trending_down": 0.05,
+                    "hmm_prob_ranging": 0.05,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_trending_up": 0.9,
                     "hmm_prob_trending_down": 0.05,
@@ -202,7 +441,43 @@ class TestHMMGradientContinuity:
         r_weak = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_trending_up": 0.2,
+                    "hmm_prob_trending_down": 0.5,
+                    "hmm_prob_ranging": 0.3,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_trending_up": 0.2,
                     "hmm_prob_trending_down": 0.5,
@@ -230,7 +505,43 @@ class TestHMMGradientContinuity:
         r_ranging = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_ranging": 0.9,
+                    "hmm_prob_trending_up": 0.05,
+                    "hmm_prob_trending_down": 0.05,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_ranging": 0.9,
                     "hmm_prob_trending_up": 0.05,
@@ -241,7 +552,43 @@ class TestHMMGradientContinuity:
         r_trending = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "i2": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "i3": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "i4": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "i5": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "smc": {
+                    **base,
+                    "hmm_prob_ranging": 0.1,
+                    "hmm_prob_trending_up": 0.6,
+                    "hmm_prob_trending_down": 0.3,
+                },
+                "i6": {
                     **base,
                     "hmm_prob_ranging": 0.1,
                     "hmm_prob_trending_up": 0.6,
@@ -269,7 +616,49 @@ class TestHMMGradientContinuity:
         result = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "i2": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "i3": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "i4": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "i5": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "smc": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                    "swing_pattern": 1.0,
+                    "trend_regime": 0.5,
+                },
+                "i6": {
                     "hmm_regime": 0.0,
                     "hmm_regime_prob": 0.9,
                     "atr_14": 10.0,
@@ -291,7 +680,37 @@ class TestHMMGradientContinuity:
         result = plugin.compute_full(
             {
                 "main": df,
-                "features": {
+                "i1": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "i2": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "i3": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "i4": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "i5": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "smc": {
+                    "hmm_regime": 0.0,
+                    "hmm_regime_prob": 0.9,
+                    "atr_14": 10.0,
+                },
+                "i6": {
                     "hmm_regime": 0.0,
                     "hmm_regime_prob": 0.9,
                     "atr_14": 10.0,

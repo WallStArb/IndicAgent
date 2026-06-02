@@ -30,7 +30,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=0.5, swing_high=5010.0)
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "momentum_breakout_long"
         assert result.get("direction") == 1
@@ -53,7 +64,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=-0.5, swing_low=4990.0)
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "momentum_breakout_short"
         assert result.get("direction") == -1
@@ -70,7 +92,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=0.1, swing_high=5010.0)  # 0.1 < 0.3 threshold
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -85,7 +118,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=0.5, swing_high=5010.0)
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -100,7 +144,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=0.5, swing_high=5010.0)
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -116,7 +171,18 @@ class TestMomentumBreakout:
         features = _base_features(roc=0.5, swing_high=5010.0, swing_low=4990.0)
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -135,7 +201,18 @@ class TestMomentumBreakout:
         features = {"swing_high": 5010.0, "swing_low": 4990.0, "trend_regime": 0.0, "atr_14": 8.0}
 
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "momentum_breakout_long"
 
@@ -150,10 +227,28 @@ class TestMomentumBreakout:
         df = make_ohlcv(close, volume)
 
         r_small = plugin.compute_full(
-            {"main": df, "features": _base_features(roc=0.35, swing_high=5010.0)}
+            {
+                "main": df,
+                "i1": _base_features(roc=0.35, swing_high=5010.0),
+                "i2": _base_features(roc=0.35, swing_high=5010.0),
+                "i3": _base_features(roc=0.35, swing_high=5010.0),
+                "i4": _base_features(roc=0.35, swing_high=5010.0),
+                "i5": _base_features(roc=0.35, swing_high=5010.0),
+                "smc": _base_features(roc=0.35, swing_high=5010.0),
+                "i6": _base_features(roc=0.35, swing_high=5010.0),
+            }
         )
         r_large = plugin.compute_full(
-            {"main": df, "features": _base_features(roc=1.0, swing_high=5010.0)}
+            {
+                "main": df,
+                "i1": _base_features(roc=1.0, swing_high=5010.0),
+                "i2": _base_features(roc=1.0, swing_high=5010.0),
+                "i3": _base_features(roc=1.0, swing_high=5010.0),
+                "i4": _base_features(roc=1.0, swing_high=5010.0),
+                "i5": _base_features(roc=1.0, swing_high=5010.0),
+                "smc": _base_features(roc=1.0, swing_high=5010.0),
+                "i6": _base_features(roc=1.0, swing_high=5010.0),
+            }
         )
 
         assert r_small.get("signal_type") == "momentum_breakout_long"
@@ -167,5 +262,7 @@ class TestMomentumBreakout:
         close = np.array([5000.0, 5005.0, 5010.0])
         df = make_ohlcv(close)
         plugin = MomentumBreakoutPlugin()
-        result = plugin.compute_full({"main": df, "features": {}})
+        result = plugin.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {} or result.get("signal_type", "none") == "none"

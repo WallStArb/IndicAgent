@@ -46,7 +46,16 @@ def _sweep_frames(
         "exhaustion_side": exhaustion_side,
         "exhaustion_bars": exhaustion_bars,
     }
-    return {"main": df, "features": features}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+    }
 
 
 def _hunt_frames(
@@ -77,7 +86,16 @@ def _hunt_frames(
         "exhaustion_side": exhaustion_side,
         "exhaustion_bars": exhaustion_bars,
     }
-    return {"main": df, "features": features}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+    }
 
 
 def _breakout_frames(
@@ -101,7 +119,16 @@ def _breakout_frames(
         "exhaustion_side": exhaustion_side,
         "exhaustion_bars": exhaustion_bars,
     }
-    return {"main": df, "features": features}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+    }
 
 
 def _trend_frames(
@@ -126,7 +153,16 @@ def _trend_frames(
         "exhaustion_side": exhaustion_side,
         "exhaustion_bars": exhaustion_bars,
     }
-    return {"main": df, "features": features}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+    }
 
 
 # ─── LiquiditySweepReclaim boost tests ────────────────────────────────────────
@@ -321,6 +357,17 @@ def test_trend_following_guard_suppresses_signal_when_confidence_drops_too_low()
         "exhaustion_bars": 5.0,
     }
     plugin = TrendFollowingPlugin()
-    result = plugin.compute_full({"main": df, "features": features})
+    result = plugin.compute_full(
+        {
+            "main": df,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
+        }
+    )
     # After penalty, low-confidence signal should be suppressed
     assert result.get("signal_type") == "none" or result.get("direction") == 0
