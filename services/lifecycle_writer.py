@@ -127,13 +127,14 @@ UPDATE signal_outcomes
        exit_at = $3,
        exit_price = $4,
        exit_reason = $5,
-       pnl_r = $6,
-       pnl_dollars = $7,
-       signal_quality = $8,
-       mae = $9,
-       mfe = $10,
-       bars_in_trade = $11,
-       outcome = $12
+       pnl_ticks = $6,
+       pnl_r = $7,
+       pnl_dollars = $8,
+       signal_quality = $9,
+       mae = $10,
+       mfe = $11,
+       bars_in_trade = $12,
+       outcome = $13
  WHERE signal_id = $1::uuid
    AND exit_at IS NULL
 """
@@ -149,13 +150,14 @@ UPDATE signal_outcomes
             entry.get("exit_at"),  # $3 exit_at::timestamptz
             entry.get("exit_price"),  # $4 exit_price::numeric
             entry.get("exit_reason"),  # $5 exit_reason::text
-            entry.get("pnl_r"),  # $6 pnl_r::numeric
-            entry.get("pnl_dollars"),  # $7 pnl_dollars::numeric
-            entry.get("signal_quality"),  # $8 signal_quality::numeric
-            entry.get("mae"),  # $9 mae::numeric
-            entry.get("mfe"),  # $10 mfe::numeric
-            entry.get("bars_in_trade"),  # $11 bars_in_trade::integer
-            entry.get("outcome"),  # $12 outcome::text
+            entry.get("pnl_ticks"),  # $6 pnl_ticks::numeric
+            entry.get("pnl_r"),  # $7 pnl_r::numeric
+            entry.get("pnl_dollars"),  # $8 pnl_dollars::numeric
+            entry.get("signal_quality"),  # $9 signal_quality::numeric
+            entry.get("mae"),  # $10 mae::numeric
+            entry.get("mfe"),  # $11 mfe::numeric
+            entry.get("bars_in_trade"),  # $12 bars_in_trade::integer
+            entry.get("outcome"),  # $13 outcome::text
         )
 
     async def _flush_exit_items(self, items: list[dict]) -> None:

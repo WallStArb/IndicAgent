@@ -222,7 +222,11 @@ def evaluate_signal(
     direction = signal["direction"]
     entry = signal["entry_price"]
     stop = signal["stop_loss"]
-    targets = signal.get("targets") or []
+    # Normalize targets: proximal-to-distal (ascending for longs, descending for shorts).
+    # Guards against plugins emitting targets in arbitrary order, which would corrupt
+    # the target_index → outcome mapping and mis-credit P&L.
+    raw_targets = signal.get("targets") or []
+    targets = sorted(raw_targets, reverse=(direction == -1))
     ttl = signal.get("ttl_bars", 10)
     bars = signal.get("bars_elapsed", 0)
     point_value = signal.get("point_value", 1.0)
@@ -544,7 +548,8 @@ def evaluate_market_entry(
     sid = signal["signal_id"]
     direction = signal["direction"]
     stop = signal["stop_loss"]
-    targets = signal.get("targets") or []
+    raw_targets = signal.get("targets") or []
+    targets = sorted(raw_targets, reverse=(direction == -1))
     ttl = signal.get("ttl_bars", 10)
     bars = signal.get("bars_elapsed", 0)
     risk = abs(market_entry_price - stop)
