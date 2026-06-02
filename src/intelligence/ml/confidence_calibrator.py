@@ -71,8 +71,11 @@ async def run_calibration_update(db_manager: Any) -> None:
     confidence_calibration row deleted so callers never see stale curves.
     """
     try:
+        # This table holds CIS-level calibration curves keyed by ("_cis_", tf),
+        # not per-plugin confidence curves.  Alias as x_input to avoid confusion
+        # with per-plugin confidence values.
         rows = await db_manager.execute_query("""
-            SELECT setup_plugin, timeframe, cis_score AS confidence, outcome
+            SELECT setup_plugin, timeframe, cis_score AS x_input, outcome
             FROM signal_ledger_full
             WHERE outcome IS NOT NULL
               AND is_shadow = FALSE
@@ -96,7 +99,7 @@ async def run_calibration_update(db_manager: Any) -> None:
             if n < _MIN_SAMPLE_SIZE:
                 continue
 
-            confidences = [float(r["confidence"]) for r in group_rows]
+            confidences = [float(r["x_input"]) for r in group_rows]
             win_labels = [1.0 if r["outcome"] in _WIN_OUTCOMES else 0.0 for r in group_rows]
             breakpoints, values, ece = _fit_curve(confidences, win_labels)
 
