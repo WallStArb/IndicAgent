@@ -129,7 +129,13 @@ class TestNoSignalNonEQIndex:
         """CLM6 (crude oil) must return _no_signal — not in EQ_INDEX group."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="CLM6"),
+            "i1": _base_features(symbol="CLM6"),
+            "i2": _base_features(symbol="CLM6"),
+            "i3": _base_features(symbol="CLM6"),
+            "i4": _base_features(symbol="CLM6"),
+            "i5": _base_features(symbol="CLM6"),
+            "smc": _base_features(symbol="CLM6"),
+            "i6": _base_features(symbol="CLM6"),
             "cross_asset": _base_xa(es_nq_z=3.5),
             "main": _make_df(),
         }
@@ -141,7 +147,13 @@ class TestNoSignalNonEQIndex:
         """GCM6 (gold) must return _no_signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="GCM6"),
+            "i1": _base_features(symbol="GCM6"),
+            "i2": _base_features(symbol="GCM6"),
+            "i3": _base_features(symbol="GCM6"),
+            "i4": _base_features(symbol="GCM6"),
+            "i5": _base_features(symbol="GCM6"),
+            "smc": _base_features(symbol="GCM6"),
+            "i6": _base_features(symbol="GCM6"),
             "cross_asset": _base_xa(es_nq_z=3.5),
             "main": _make_df(),
         }
@@ -152,7 +164,13 @@ class TestNoSignalNonEQIndex:
         """Empty symbol must return _no_signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": {"symbol": "", "atr_14": 10.0},
+            "i1": {"symbol": "", "atr_14": 10.0},
+            "i2": {"symbol": "", "atr_14": 10.0},
+            "i3": {"symbol": "", "atr_14": 10.0},
+            "i4": {"symbol": "", "atr_14": 10.0},
+            "i5": {"symbol": "", "atr_14": 10.0},
+            "smc": {"symbol": "", "atr_14": 10.0},
+            "i6": {"symbol": "", "atr_14": 10.0},
             "cross_asset": _base_xa(es_nq_z=3.5),
             "main": _make_df(),
         }
@@ -163,7 +181,13 @@ class TestNoSignalNonEQIndex:
         """ESM6 must be accepted as an EQ_INDEX symbol."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="ESM6"),
+            "i1": _base_features(symbol="ESM6"),
+            "i2": _base_features(symbol="ESM6"),
+            "i3": _base_features(symbol="ESM6"),
+            "i4": _base_features(symbol="ESM6"),
+            "i5": _base_features(symbol="ESM6"),
+            "smc": _base_features(symbol="ESM6"),
+            "i6": _base_features(symbol="ESM6"),
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }
@@ -178,7 +202,13 @@ class TestNoSignalNonEQIndex:
         """NQM6 accepted."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="NQM6"),
+            "i1": _base_features(symbol="NQM6"),
+            "i2": _base_features(symbol="NQM6"),
+            "i3": _base_features(symbol="NQM6"),
+            "i4": _base_features(symbol="NQM6"),
+            "i5": _base_features(symbol="NQM6"),
+            "smc": _base_features(symbol="NQM6"),
+            "i6": _base_features(symbol="NQM6"),
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }
@@ -193,7 +223,13 @@ class TestNoSignalNonEQIndex:
         """RTYM6 accepted."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="RTYM6"),
+            "i1": _base_features(symbol="RTYM6"),
+            "i2": _base_features(symbol="RTYM6"),
+            "i3": _base_features(symbol="RTYM6"),
+            "i4": _base_features(symbol="RTYM6"),
+            "i5": _base_features(symbol="RTYM6"),
+            "smc": _base_features(symbol="RTYM6"),
+            "i6": _base_features(symbol="RTYM6"),
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }
@@ -208,7 +244,13 @@ class TestNoSignalNonEQIndex:
         """YMM6 accepted."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="YMM6"),
+            "i1": _base_features(symbol="YMM6"),
+            "i2": _base_features(symbol="YMM6"),
+            "i3": _base_features(symbol="YMM6"),
+            "i4": _base_features(symbol="YMM6"),
+            "i5": _base_features(symbol="YMM6"),
+            "smc": _base_features(symbol="YMM6"),
+            "i6": _base_features(symbol="YMM6"),
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }
@@ -230,7 +272,13 @@ class TestNoSignalNotReady:
         """Missing cross_asset key returns _no_signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "main": _make_df(),
         }
         result = p.compute_full(frames)
@@ -240,7 +288,13 @@ class TestNoSignalNotReady:
         """cross_asset with ready=False returns _no_signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(ready=False),
             "main": _make_df(),
         }
@@ -251,7 +305,13 @@ class TestNoSignalNotReady:
         """Empty cross_asset dict returns _no_signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": {},
             "main": _make_df(),
         }
@@ -269,7 +329,13 @@ class TestNoSignalBelowThreshold:
         """|spread_z| == 2.0 does NOT fire (strict >)."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=2.0),
             "main": _make_df(),
         }
@@ -280,7 +346,13 @@ class TestNoSignalBelowThreshold:
         """spread_z = 1.5 does NOT fire."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=1.5),
             "main": _make_df(),
         }
@@ -291,7 +363,13 @@ class TestNoSignalBelowThreshold:
         """spread_z = -1.9 does NOT fire."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=-1.9),
             "main": _make_df(),
         }
@@ -302,7 +380,13 @@ class TestNoSignalBelowThreshold:
         """spread_z = 2.001 fires."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=2.001),
             "main": _make_df(),
         }
@@ -324,7 +408,13 @@ class TestLowVolFlagSuppression:
         """low_vol_flag=True suppresses signal even with high spread_z."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=5.0, low_vol_flag=True),
             "main": _make_df(),
         }
@@ -335,7 +425,13 @@ class TestLowVolFlagSuppression:
         """low_vol_flag=False allows signal."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=3.0, low_vol_flag=False),
             "main": _make_df(),
         }
@@ -364,7 +460,13 @@ class TestDirectionLogic:
             es_nq_z=spread_z,
         )
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": xa,
             "main": _make_df(),
         }
@@ -417,7 +519,13 @@ class TestDirectionLogic:
         features.pop("hmm_regime", None)
         features["hmm_regime_prob"] = 0.0
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }
@@ -441,7 +549,13 @@ class TestActivePairRouting:
         p = CrossAssetDivergencePlugin()
         # es_nq_z below threshold but es_rty_z above — active_pair=ES_RTY should fire
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(
                 es_nq_z=1.5,  # below threshold
                 es_rty_z=3.0,  # above threshold
@@ -460,7 +574,13 @@ class TestActivePairRouting:
         """When active_pair=ES_NQ and es_nq_z <= 2.0, does NOT fire even if es_rty_z is high."""
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(
                 es_nq_z=1.8,  # below threshold
                 es_rty_z=5.0,  # high but not the active pair
@@ -484,7 +604,13 @@ class TestConfidenceFormula:
         p = CrossAssetDivergencePlugin()
         f = features or _base_features()
         frames = {
-            "features": f,
+            "i1": f,
+            "i2": f,
+            "i3": f,
+            "i4": f,
+            "i5": f,
+            "smc": f,
+            "i6": f,
             "cross_asset": xa,
             "main": _make_df(),
         }
@@ -575,7 +701,13 @@ class TestConfidenceFormula:
         features["hmm_regime_prob"] = 0.0
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": xa,
             "cross_asset_5m": xa_5m,
             "main": _make_df(),
@@ -605,7 +737,13 @@ class TestConfidenceFormula:
         features["hmm_regime_prob"] = 0.0
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": xa,
             "cross_asset_5m": xa_5m,
             "main": _make_df(),
@@ -634,7 +772,13 @@ class TestConfidenceFormula:
         features["hmm_regime_prob"] = 0.90
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": xa,
             "cross_asset_5m": xa_5m,
             "main": _make_df(),
@@ -654,7 +798,13 @@ class TestConfidenceFormula:
         features = _base_features()
         features["hmm_regime_prob"] = 0.0
         frames = {
-            "features": features,
+            "i1": features,
+            "i2": features,
+            "i3": features,
+            "i4": features,
+            "i5": features,
+            "smc": features,
+            "i6": features,
             "cross_asset": xa,
             "main": _make_df(),
         }
@@ -676,7 +826,13 @@ class TestSupportingFactors:
         # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=3.0, active_pair="ES_NQ"),
             "main": _make_df(),
         }
@@ -695,7 +851,13 @@ class TestSupportingFactors:
         # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=3.5, es_rty_z=1.2),
             "main": _make_df(),
         }
@@ -712,7 +874,13 @@ class TestSupportingFactors:
         # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(),
+            "i1": _base_features(),
+            "i2": _base_features(),
+            "i3": _base_features(),
+            "i4": _base_features(),
+            "i5": _base_features(),
+            "smc": _base_features(),
+            "i6": _base_features(),
             "cross_asset": _base_xa(es_nq_z=3.0, pairs_confirming=2),
             "main": _make_df(),
         }
@@ -737,7 +905,13 @@ class TestComputeNext:
     def test_compute_next_delegates(self):
         p = CrossAssetDivergencePlugin()
         frames = {
-            "features": _base_features(symbol="CLM6"),  # non-EQ_INDEX, will return _no_signal
+            "i1": _base_features(symbol="CLM6"),
+            "i2": _base_features(symbol="CLM6"),
+            "i3": _base_features(symbol="CLM6"),
+            "i4": _base_features(symbol="CLM6"),
+            "i5": _base_features(symbol="CLM6"),
+            "smc": _base_features(symbol="CLM6"),
+            "i6": _base_features(symbol="CLM6"),  # non-EQ_INDEX, will return _no_signal
             "cross_asset": _base_xa(es_nq_z=3.0),
             "main": _make_df(),
         }

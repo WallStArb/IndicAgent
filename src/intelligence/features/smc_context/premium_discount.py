@@ -41,7 +41,14 @@ class PremiumDiscountPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=10),)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
 
         swing_high = features.get("swing_high")
         swing_low = features.get("swing_low")

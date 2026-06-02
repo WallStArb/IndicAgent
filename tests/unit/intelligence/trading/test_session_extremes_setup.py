@@ -50,7 +50,16 @@ def make_frames(
     if asian_low is not None:
         features["asian_session_low"] = asian_low
 
-    return {"main": df, "features": features}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +401,18 @@ class TestEdgeCases:
             "asian_session_low": ASIAN_LOW,
             "session_london": 1.0,
         }
-        result = SessionExtremesSetupPlugin().compute_full({"main": df, "features": features})
+        result = SessionExtremesSetupPlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result == {}
 
     def test_tight_asian_range_picks_closer_extreme(self):

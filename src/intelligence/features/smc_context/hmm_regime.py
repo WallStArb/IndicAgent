@@ -193,7 +193,14 @@ class HMMRegimePlugin(IncrementalMixin):
             return {}
 
         # Determine feature dimensions
-        features = frames.get("features")
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         n_dims = self._resolve_dims(features)
 
         # Initialize state and process all bars through forward algorithm
@@ -229,7 +236,14 @@ class HMMRegimePlugin(IncrementalMixin):
         if len(returns) < self.vol_window:
             return {}
 
-        features = frames.get("features")
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         n_dims = self._resolve_dims(features)
 
         hmm_state = self._make_initial_state(n_dims)
@@ -264,7 +278,14 @@ class HMMRegimePlugin(IncrementalMixin):
         ret = math.log(current_close / prev_close)
         state["return_buffer"].append(ret)
 
-        features = windows.get("features")
+        features = {
+            **(windows.get("i1") or {}),
+            **(windows.get("i2") or {}),
+            **(windows.get("i3") or {}),
+            **(windows.get("i4") or {}),
+            **(windows.get("i5") or {}),
+            **(windows.get("smc") or {}),
+        }
         n_dims = self._resolve_dims(features)
         state["n_dims"] = n_dims
         buf = list(state["return_buffer"])

@@ -14,7 +14,13 @@ def _make_frames(close_arr, features=None, symbol="ES", tf="1m", open_arr=None):
         df["open"] = np.array(open_arr, dtype=float)
     return {
         "main": df,
-        "features": features or {},
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features or {},
         "__symbol__": symbol,
         "__timeframe__": tf,
     }

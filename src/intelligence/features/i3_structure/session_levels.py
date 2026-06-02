@@ -60,9 +60,9 @@ class SessionLevelsPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = frames.get("i1") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
         n = len(df)
 
         # Session window: most recent ~1 trading day
@@ -185,7 +185,7 @@ class SessionLevelsPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
+        i1 = frames.get("i1") or {}
         n = len(df)
         sess_n = min(_SESSION_BARS, n)
         session = df.iloc[-sess_n:]
@@ -297,9 +297,9 @@ class SessionLevelsPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = windows.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = windows.get("i1") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
         n = len(df)
 
         bar = df.iloc[-1]

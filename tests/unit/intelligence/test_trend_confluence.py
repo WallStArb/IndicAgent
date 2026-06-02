@@ -17,7 +17,17 @@ class TestTrendConfluence:
             "trend_regime": 0.8,
         }
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["trend_confluence_score"] > 0.5
         assert result["trend_confluence_agreement"] > 0.8
         assert result["trend_confluence_n_signals"] == 6
@@ -35,7 +45,17 @@ class TestTrendConfluence:
             "trend_regime": -0.8,
         }
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["trend_confluence_score"] < -0.5
         assert result["trend_confluence_agreement"] > 0.8
 
@@ -52,7 +72,17 @@ class TestTrendConfluence:
             "trend_regime": 0.5,
         }
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["trend_confluence_agreement"] < 0.8
 
     def test_adx_below_20_skipped(self):
@@ -64,7 +94,17 @@ class TestTrendConfluence:
             "macd_histogram_12_26_9": 0.5,
         }
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         # Only MACD should count (ADX skipped due to weak trend)
         assert result["trend_confluence_n_signals"] == 1
 
@@ -72,7 +112,17 @@ class TestTrendConfluence:
         """Should work with only some signals available."""
         features = {"supertrend_dir": 1, "trend_regime": 0.5}
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["trend_confluence_n_signals"] == 2
         assert result["trend_confluence_score"] > 0
 
@@ -83,7 +133,9 @@ class TestTrendConfluence:
 
     def test_empty_features_returns_empty(self):
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": {}})
+        result = plugin.compute_full(
+            {"i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {}
 
     def test_strength_output(self):
@@ -94,7 +146,17 @@ class TestTrendConfluence:
             "trend_regime": 1.0,
         }
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         expected_strength = (
             abs(result["trend_confluence_score"]) * result["trend_confluence_agreement"]
         )
@@ -103,7 +165,17 @@ class TestTrendConfluence:
     def test_output_keys(self):
         features = {"supertrend_dir": 1}
         plugin = TrendConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert "trend_confluence_score" in result
         assert "trend_confluence_n_signals" in result
         assert "trend_confluence_agreement" in result

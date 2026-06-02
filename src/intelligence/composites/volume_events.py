@@ -35,22 +35,24 @@ class VolumeEventsPlugin:
     _WALK_BARS: int = 3
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-        close = features.get("close")
-        volume = features.get("volume")
-        bb_upper = features.get("bb_20_2_upper")
-        bb_lower = features.get("bb_20_2_lower")
-        bb_mid = features.get("bb_20_2_mid")
+        i1 = frames.get("i1") or {}
+        df = frames.get("main")
+        # close/volume from DataFrame; BB fields from I1 indicators
+        close = float(df["close"].iloc[-1]) if df is not None and len(df) else None
+        volume = float(df["volume"].iloc[-1]) if df is not None and len(df) else None
+        bb_upper = i1.get("bb_20_2_upper")
+        bb_lower = i1.get("bb_20_2_lower")
+        bb_mid = i1.get("bb_20_2_mid")
         if bb_mid is None:
-            bb_mid = features.get("bb_mid")
+            bb_mid = i1.get("bb_mid")
         if not is_num(close):
             return {}
 
         out: dict[str, Any] = {}
 
         # Volume spike / drying — gradient intensity
-        vol_sma = features.get("volume_sma_20")
-        vol_std = features.get("volume_std_20")
+        vol_sma = i1.get("volume_sma_20")
+        vol_std = i1.get("volume_std_20")
         if is_num(volume) and is_num(vol_sma) and vol_sma > 0:
             if is_num(vol_std) and vol_std > 0:
                 z = (volume - vol_sma) / vol_std

@@ -31,7 +31,14 @@ class TrendConfluencePlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features")
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         if not features:
             return {}
 

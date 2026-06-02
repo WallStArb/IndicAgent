@@ -35,12 +35,12 @@ def _make_frames(n: int = 50, swing_high_idx: int = 20, swing_low_idx: int = 30)
     low = close - rng.uniform(0.1, 0.5, n)
     volume = rng.uniform(1000, 5000, n)
     df = pd.DataFrame({"high": high, "low": low, "close": close, "volume": volume})
-    features = {
-        "close": float(close[-1]),
+    # swing_high_idx/swing_low_idx are I3 SwingDetector outputs (tier key "i3")
+    i3 = {
         "swing_high_idx": swing_high_idx,
         "swing_low_idx": swing_low_idx,
     }
-    return {"main": df, "features": features}
+    return {"main": df, "i3": i3}
 
 
 class TestAnchoredVWAPPluginMetadata:
@@ -103,7 +103,16 @@ class TestAnchoredVWAPComputeFull:
         low = close - 0.3
         volume = np.ones(n) * 1000.0
         df = pd.DataFrame({"high": high, "low": low, "close": close, "volume": volume})
-        frames = {"main": df, "features": {"close": float(close[-1])}}
+        frames = {
+            "main": df,
+            "i1": {"close": float(close[-1])},
+            "i2": {"close": float(close[-1])},
+            "i3": {"close": float(close[-1])},
+            "i4": {"close": float(close[-1])},
+            "i5": {"close": float(close[-1])},
+            "smc": {"close": float(close[-1])},
+            "i6": {"close": float(close[-1])},
+        }
 
         result = plugin.compute_full(frames)
 
@@ -128,7 +137,16 @@ class TestAnchoredVWAPComputeFull:
         low = close - 0.2
         volume = np.ones(n) * 1000.0
         df = pd.DataFrame({"high": high, "low": low, "close": close, "volume": volume})
-        frames = {"main": df, "features": {"close": float(close[-1])}}
+        frames = {
+            "main": df,
+            "i1": {"close": float(close[-1])},
+            "i2": {"close": float(close[-1])},
+            "i3": {"close": float(close[-1])},
+            "i4": {"close": float(close[-1])},
+            "i5": {"close": float(close[-1])},
+            "smc": {"close": float(close[-1])},
+            "i6": {"close": float(close[-1])},
+        }
 
         result = plugin.compute_full(frames)
 
@@ -186,7 +204,7 @@ class TestAnchoredVWAPComputeFull:
                 "volume": [1000.0, 1200.0, 800.0],
             }
         )
-        frames = {"main": df, "features": {}}
+        frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
         result = plugin.compute_full(frames)
         assert result == {}
 
@@ -201,7 +219,16 @@ class TestAnchoredVWAPComputeFull:
         low = close - 0.5
         volume = np.ones(n) * 2000.0
         df = pd.DataFrame({"high": high, "low": low, "close": close, "volume": volume})
-        frames = {"main": df, "features": {"close": float(close[-1])}}
+        frames = {
+            "main": df,
+            "i1": {"close": float(close[-1])},
+            "i2": {"close": float(close[-1])},
+            "i3": {"close": float(close[-1])},
+            "i4": {"close": float(close[-1])},
+            "i5": {"close": float(close[-1])},
+            "smc": {"close": float(close[-1])},
+            "i6": {"close": float(close[-1])},
+        }
 
         result = plugin.compute_full(frames)
 
@@ -222,7 +249,7 @@ class TestAnchoredVWAPComputeFull:
         low = close - 0.5
         volume = np.ones(n) * 2000.0
         df = pd.DataFrame({"high": high, "low": low, "close": close, "volume": volume})
-        frames = {"main": df, "features": {}}
+        frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
 
         result = plugin.compute_full(frames)
         assert result["swing_vwap"] is None

@@ -88,7 +88,15 @@ class ORB30Plugin:
             return no_signal()
 
         df = frames.get("main")
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+            **(frames.get("i6") or {}),
+        }
         symbol = frames.get("__symbol__", "")
         tf = frames.get("__timeframe__", "")
 

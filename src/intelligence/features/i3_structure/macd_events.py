@@ -34,10 +34,10 @@ class MACDEventsPlugin:
     _SUPPORT_ATR_THRESHOLD: float = 1.0
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-        macd = features.get("macd_12_26_9")
-        signal = features.get("macd_signal_12_26_9")
-        hist = features.get("macd_histogram_12_26_9")
+        i1 = frames.get("i1") or {}
+        macd = i1.get("macd_12_26_9")
+        signal = i1.get("macd_signal_12_26_9")
+        hist = i1.get("macd_histogram_12_26_9")
         if not all(is_num(v) for v in [macd, signal, hist]):
             return {}
 
@@ -72,9 +72,12 @@ class MACDEventsPlugin:
         )
 
         # Negative support test: MACD hist negative + price near support
-        nearest_support = features.get("nearest_support")
-        close = features.get("close")
-        atr = features.get("atr_14")
+        # nearest_support from I3 SupportResistance; atr_14 from I1; close from DataFrame
+        i3 = frames.get("i3") or {}
+        df = frames.get("main")
+        nearest_support = i3.get("nearest_support")
+        close = float(df["close"].iloc[-1]) if df is not None and len(df) else None
+        atr = i1.get("atr_14")
         neg_support = 0
         if hist < 0 and is_num(nearest_support) and is_num(close) and is_num(atr) and atr > 0:
             dist = abs(close - nearest_support) / atr

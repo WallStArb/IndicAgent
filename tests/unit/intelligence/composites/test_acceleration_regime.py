@@ -23,13 +23,14 @@ def make_frames(
     The plugin derives accel_score via sign-voting over the 4 acceleration
     measures.  Pass controlled values to get deterministic accel_score outcomes.
     """
-    features: dict = {
+    # rsi_curvature/macd_hist_slope/price_accel/hma_accel are produced by MomentumAccel (i2 tier)
+    i2: dict = {
         "rsi_curvature": rsi_curvature,
         "macd_hist_slope": macd_hist_slope,
         "price_accel": price_accel,
         "hma_accel": hma_accel,
     }
-    return {"features": features, "prev_features": {}}
+    return {"i2": i2, "prev_features": {}}
 
 
 # ── regime state tests ────────────────────────────────────────────────────────

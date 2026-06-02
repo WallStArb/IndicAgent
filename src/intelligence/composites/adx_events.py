@@ -33,10 +33,10 @@ class ADXEventsPlugin:
     _ADX_RANGE_THRESHOLD: float = 20.0
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-        adx = features.get("adx_14")
-        plus_di = features.get("plus_di_14")
-        minus_di = features.get("minus_di_14")
+        i1 = frames.get("i1") or {}
+        adx = i1.get("adx_14")
+        plus_di = i1.get("plus_di_14")
+        minus_di = i1.get("minus_di_14")
         if not all(is_num(v) for v in [adx, plus_di, minus_di]):
             return {}
 

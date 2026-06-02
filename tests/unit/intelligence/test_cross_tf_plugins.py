@@ -7,6 +7,7 @@ Tests cover:
 - Missing data fallback (all-empty frames)
 """
 
+import pandas as pd
 import pytest
 
 from src.intelligence.confluence.cross_tf_orderflow_alignment import (
@@ -62,7 +63,9 @@ class TestCrossTFSRConfluencePlugin:
     def test_gradient_range(self, p: CrossTFSRConfluencePlugin) -> None:
         """Output must be in [-1, +1]."""
         frames = {
-            "features": {"close": 100.4},
+            "main": pd.DataFrame(
+                {"close": [100.4], "high": [100.4], "low": [100.4], "volume": [1000]}
+            ),
             "intel_1h": {"nearest_resistance": 100.5, "nearest_support": 99.5, "atr_14": 0.5},
             "intel_4h": {"nearest_resistance": 101.0, "nearest_support": 99.0, "atr_14": 1.0},
             "intel_5m": {"nearest_resistance": 100.1, "nearest_support": 99.9, "atr_14": 0.1},
@@ -74,7 +77,9 @@ class TestCrossTFSRConfluencePlugin:
     def test_near_resistance_positive(self, p: CrossTFSRConfluencePlugin) -> None:
         """Price near resistance on all TFs -> positive confluence."""
         frames = {
-            "features": {"close": 100.1},
+            "main": pd.DataFrame(
+                {"close": [100.1], "high": [100.1], "low": [100.1], "volume": [1000]}
+            ),
             "intel_1h": {"nearest_resistance": 100.2, "nearest_support": 98.0, "atr_14": 1.0},
             "intel_4h": {"nearest_resistance": 100.3, "nearest_support": 97.0, "atr_14": 1.5},
             "intel_5m": {"nearest_resistance": 100.15, "nearest_support": 99.0, "atr_14": 0.5},

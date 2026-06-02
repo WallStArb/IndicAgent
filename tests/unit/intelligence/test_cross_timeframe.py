@@ -11,6 +11,7 @@ def plugin():
 
 
 def _bullish_intel() -> dict:
+    """Intel dict for use both as cross-TF cached intel and as tier dicts."""
     return {
         "trend_direction": 1.0,
         "swing_pattern": 1.0,
@@ -39,12 +40,31 @@ def _neutral_intel() -> dict:
     }
 
 
+def _make_frames(current_intel: dict, **intel_tfs: dict) -> dict:
+    """Build frames dict distributing current_intel across all tier keys.
+
+    cross_timeframe.py now merges i1+i2+i3+i4+i5+smc into local features.
+    Pass the same intel into all tiers so helper functions can find fields
+    regardless of their producing tier.
+    """
+    frames = {
+        "main": None,
+        "i1": current_intel,
+        "i2": current_intel,
+        "i3": current_intel,
+        "i4": current_intel,
+        "i5": current_intel,
+        "smc": current_intel,
+    }
+    frames.update(intel_tfs)
+    return frames
+
+
 class TestCrossTimeframeConfluence:
     def test_all_timeframes_bullish(self, plugin):
         """All cached intel agrees bullish → high positive ctf_score."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames(_bullish_intel()),
             "intel_5m": _bullish_intel(),
             "intel_15m": _bullish_intel(),
             "intel_1h": _bullish_intel(),
@@ -58,8 +78,7 @@ class TestCrossTimeframeConfluence:
     def test_all_timeframes_bearish(self, plugin):
         """All cached intel agrees bearish → negative ctf_score."""
         frames = {
-            "main": None,
-            "features": _bearish_intel(),
+            **_make_frames(_bearish_intel()),
             "intel_5m": _bearish_intel(),
             "intel_15m": _bearish_intel(),
         }
@@ -71,8 +90,7 @@ class TestCrossTimeframeConfluence:
     def test_mixed_timeframes(self, plugin):
         """1m bullish but 5m bearish → low/mixed ctf_score."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames({}),
             "intel_5m": _bearish_intel(),
             "intel_15m": _bearish_intel(),
         }
@@ -85,7 +103,6 @@ class TestCrossTimeframeConfluence:
         """No other TF data available → empty dict."""
         frames = {
             "main": None,
-            "features": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
         assert result == {}
@@ -94,14 +111,12 @@ class TestCrossTimeframeConfluence:
         """Verify trend alignment weight contributes to score direction."""
         # All bullish
         frames_bull = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames(_bullish_intel()),
             "intel_5m": _bullish_intel(),
         }
         # All bearish
         frames_bear = {
-            "main": None,
-            "features": _bearish_intel(),
+            **_make_frames(_bearish_intel()),
             "intel_5m": _bearish_intel(),
         }
         r_bull = plugin.compute_full(frames_bull)
@@ -113,7 +128,7 @@ class TestCrossTimeframeConfluence:
         """Matching swing patterns boost structure alignment."""
         frames = {
             "main": None,
-            "features": {"swing_pattern": 1.0, "trend_direction": 1.0},
+            "i3": {"swing_pattern": 1.0, "trend_direction": 1.0},
             "intel_5m": {"swing_pattern": 1.0, "trend_direction": 1.0},
             "intel_15m": {"swing_pattern": -1.0, "trend_direction": -1.0},
         }
@@ -125,7 +140,8 @@ class TestCrossTimeframeConfluence:
         """Matching momentum regimes boost regime score."""
         frames = {
             "main": None,
-            "features": {"momentum_bias": 0.7, "trend_direction": 1.0},
+            "i3": {"trend_direction": 1.0},
+            "i4": {"momentum_bias": 0.7},
             "intel_5m": {"momentum_bias": 0.5, "trend_direction": 1.0},
             "intel_15m": {"momentum_bias": 0.3, "trend_direction": 1.0},
         }
@@ -136,8 +152,7 @@ class TestCrossTimeframeConfluence:
     def test_single_higher_tf_available(self, plugin):
         """Only 5m cached, no 15m/1h → partial score based on 1 TF."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames(_bullish_intel()),
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -148,8 +163,7 @@ class TestCrossTimeframeConfluence:
     def test_empty_features(self, plugin):
         """Empty features dict with intel → still produces output from other TF data."""
         frames = {
-            "main": None,
-            "features": {},
+            **_make_frames({}),
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -160,8 +174,7 @@ class TestCrossTimeframeConfluence:
     def test_compute_next_delegates(self, plugin):
         """compute_next should delegate to compute_full."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames({}),
             "intel_5m": _bullish_intel(),
         }
         full = plugin.compute_full(frames)
@@ -171,8 +184,7 @@ class TestCrossTimeframeConfluence:
     def test_output_keys_present(self, plugin):
         """All declared output keys should be present in result."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames({}),
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -182,8 +194,7 @@ class TestCrossTimeframeConfluence:
     def test_score_clamped_to_range(self, plugin):
         """ctf_score should always be in [-1, +1]."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames(_bullish_intel()),
             "intel_5m": _bullish_intel(),
             "intel_15m": _bullish_intel(),
             "intel_1h": _bullish_intel(),
@@ -194,8 +205,7 @@ class TestCrossTimeframeConfluence:
     def test_stale_intel_has_less_weight(self, plugin):
         """Fresh 5m bullish intel should outweigh stale 1h bearish intel."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames(_bullish_intel()),
             "intel_5m": _bullish_intel(),  # fresh: bars_since=0 → weight=1.0
             "intel_1h": _bearish_intel(),  # stale: bars_since=10 → weight≈0.09
             "intel_5m_bars_since": 0,
@@ -209,8 +219,7 @@ class TestCrossTimeframeConfluence:
     def test_smc_bos_alignment_present_in_output(self, plugin):
         """i6_smc_bos_alignment and SMC alignment fields appear in output."""
         frames = {
-            "main": None,
-            "features": _bullish_intel(),
+            **_make_frames({}),
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -230,7 +239,14 @@ class TestCrossTimeframeConfluence:
         features["stoch_cross_bullish"] = 1.0
         frames = {
             "main": None,
-            "features": features,
+            "i2": {
+                k: v
+                for k, v in features.items()
+                if k in ("macd_cross_bullish", "rsi_crossed_30_up", "stoch_cross_bullish")
+            },
+            "i3": {k: v for k, v in features.items() if k in ("trend_direction", "swing_pattern")},
+            "i4": {k: v for k, v in features.items() if k in ("momentum_bias", "vol_expansion")},
+            "smc": {k: v for k, v in features.items() if k in ("bos_direction",)},
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -241,7 +257,7 @@ class TestCrossTimeframeConfluence:
         """No I2 events → i2_event_score == 0.0."""
         frames = {
             "main": None,
-            "features": _bullish_intel(),  # no I2 event keys
+            # no I2 event keys
             "intel_5m": _bullish_intel(),
         }
         result = plugin.compute_full(frames)
@@ -249,9 +265,22 @@ class TestCrossTimeframeConfluence:
 
     def test_fvg_alignment_nonzero_when_fvg_present(self, plugin):
         """FVG on higher TF matching current bar direction → non-zero positive alignment."""
+        import pandas as pd
+
+        close_price = 101.0
+        main_df = pd.DataFrame(
+            {
+                "close": [close_price],
+                "high": [close_price + 1],
+                "low": [close_price - 1],
+                "volume": [1000],
+            }
+        )
         frames = {
+            "main": main_df,
             "timeframe": "1m",
-            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "i1": {"atr_14": 2.0},
+            "i3": {"trend_direction": 1.0},
             "intel_5m": {
                 "fvg_type": 1.0,
                 "fvg_top": 105.0,
@@ -267,7 +296,8 @@ class TestCrossTimeframeConfluence:
         """No FVG on higher TF (fvg_type=0.0) → alignment score is 0.0."""
         frames = {
             "timeframe": "1m",
-            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "i1": {"atr_14": 2.0},
+            "i3": {"trend_direction": 1.0},
             "intel_5m": {
                 "fvg_type": 0.0,
                 "trend_direction": 1.0,
@@ -278,9 +308,22 @@ class TestCrossTimeframeConfluence:
 
     def test_ob_alignment_nonzero_when_ob_present(self, plugin):
         """OB on higher TF matching current bar direction → non-zero positive alignment."""
+        import pandas as pd
+
+        close_price = 101.0
+        main_df = pd.DataFrame(
+            {
+                "close": [close_price],
+                "high": [close_price + 1],
+                "low": [close_price - 1],
+                "volume": [1000],
+            }
+        )
         frames = {
+            "main": main_df,
             "timeframe": "1m",
-            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "i1": {"atr_14": 2.0},
+            "i3": {"trend_direction": 1.0},
             "intel_5m": {
                 "ob_type": 1.0,
                 "ob_top": 105.0,
@@ -296,7 +339,8 @@ class TestCrossTimeframeConfluence:
         """Bearish FVG on higher TF but bullish current bar → negative or zero score."""
         frames = {
             "timeframe": "1m",
-            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "i1": {"atr_14": 2.0},
+            "i3": {"trend_direction": 1.0},
             "intel_5m": {
                 "fvg_type": -1.0,
                 "fvg_top": 105.0,

@@ -10,7 +10,7 @@ def _frames(close: float, d_high: float, d_mid: float, d_low: float) -> dict:
     )
     return {
         "main": df,
-        "features": {
+        "i1": {
             "donchian_high_20": d_high,
             "donchian_mid_20": d_mid,
             "donchian_low_20": d_low,
@@ -34,6 +34,6 @@ def test_price_at_mid_returns_zero():
 
 
 def test_missing_donchian_returns_zero():
-    frames = {"main": pd.DataFrame({"close": [5000.0]}), "features": {}}
+    frames = {"main": pd.DataFrame({"close": [5000.0]}), "i1": {}}
     out = plugin.compute_full(frames)
     assert out["donchian_position_20"] == 0.0
