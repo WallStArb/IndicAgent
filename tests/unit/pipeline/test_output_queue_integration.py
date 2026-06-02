@@ -36,23 +36,23 @@ def make_output_queue(maxsize: int = 5) -> OutputQueue:
 async def test_enqueue_non_blocking_drops_on_full() -> None:
     """enqueue() must silently drop when queue is at maxsize, not raise."""
     q = make_output_queue(maxsize=3)
-    # Fill queue to capacity
+    # Fill HIGH queue to capacity (default priority=HIGH)
     for i in range(3):
         q.enqueue("topic", "key", {"i": i})
-    assert q._queue.qsize() == 3
+    assert q._high_queue.qsize() == 3
     # This must not raise
     q.enqueue("topic", "key", {"overflow": True})
     # Queue size must still be maxsize (overflow item dropped)
-    assert q._queue.qsize() == 3
+    assert q._high_queue.qsize() == 3
 
 
 @pytest.mark.asyncio
 async def test_enqueue_blocking_awaits_on_full() -> None:
     """enqueue_blocking() must block (not drop) when queue is full."""
     q = make_output_queue(maxsize=1)
-    # Fill queue
+    # Fill HIGH queue
     q.enqueue("topic", "key", {"first": True})
-    assert q._queue.full()
+    assert q._high_queue.full()
 
     # Start a blocking enqueue in a background task
     enqueue_task = asyncio.create_task(q.enqueue_blocking("topic", "key", {"second": True}))
@@ -62,14 +62,14 @@ async def test_enqueue_blocking_awaits_on_full() -> None:
     assert not enqueue_task.done(), "enqueue_blocking should not complete while queue is full"
 
     # Drain the queue to unblock the blocked enqueue
-    item = await asyncio.wait_for(q._queue.get(), timeout=1.0)
-    q._queue.task_done()
+    item = await asyncio.wait_for(q._high_queue.get(), timeout=1.0)
+    q._high_queue.task_done()
     assert item[2] == {"first": True}
 
     # Now the blocking enqueue should complete
     await asyncio.wait_for(enqueue_task, timeout=1.0)
     assert enqueue_task.done()
-    assert q._queue.qsize() == 1
+    assert q._high_queue.qsize() == 1
 
 
 @pytest.mark.asyncio
@@ -84,8 +84,8 @@ async def test_drain_loop_publishes_via_producer_msg_kwarg() -> None:
     def running_fn() -> bool:
         nonlocal call_count
         call_count += 1
-        # True on first call so loop runs; False after queue is empty
-        return not q._queue.empty()
+        # True on first call so loop runs; False after both queues are empty
+        return not q._high_queue.empty() or not q._low_queue.empty()
 
     await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
 
@@ -106,14 +106,14 @@ async def test_drain_loop_calls_task_done_on_publish_exception() -> None:
 
     # Loop runs once (True while non-empty), then stops
     def running_fn() -> bool:
-        return not q._queue.empty()
+        return not q._high_queue.empty() or not q._low_queue.empty()
 
     with pytest.raises(RuntimeError, match="kafka down"):
         await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
 
     # Queue should be fully drained (task_done called before exception surfaced)
     # If task_done was NOT called, join() would hang forever
-    await asyncio.wait_for(q._queue.join(), timeout=1.0)
+    await asyncio.wait_for(q._high_queue.join(), timeout=1.0)
 
 
 @pytest.mark.asyncio
@@ -182,10 +182,10 @@ async def test_join_returns_when_drained() -> None:
     q = make_output_queue()
     q.enqueue("t", "k", {"x": 1})
 
-    # Manually drain the item and call task_done
-    item = await asyncio.wait_for(q._queue.get(), timeout=1.0)
+    # Manually drain the item from the HIGH queue and call task_done
+    item = await asyncio.wait_for(q._high_queue.get(), timeout=1.0)
     assert item[2] == {"x": 1}
-    q._queue.task_done()
+    q._high_queue.task_done()
 
-    # join() should return immediately now
+    # join() should return immediately now (both queues empty)
     await asyncio.wait_for(q.join(), timeout=1.0)
