@@ -806,6 +806,12 @@ class I6Confluence(BaseModel):
     ctf_orderflow_regime: str | None = None
 
 
+FEATURE_SCHEMA_VERSION: int = 2
+"""Version integer stamped on every freshly-produced row in intelligence_features
+and signal_ledger.  Pre-fix rows remain NULL.  Downstream training queries filter
+with WHERE feature_schema_version >= 2 to exclude contaminated data."""
+
+
 class IntelligenceEvent(BaseModel):
     """Canonical typed intelligence event published to intelligence:SYMBOL:TF Redis stream.
 
@@ -849,6 +855,14 @@ class IntelligenceEvent(BaseModel):
     # None during transition period (backward compat for pre-68-03 events).
     # Phase 68-03 — end-to-end bar traceability.
     bar_id: UUID | None = None
+
+    # Contamination boundary marker (Phase 112).  Every freshly-produced event
+    # carries FEATURE_SCHEMA_VERSION = 2 via the field default.
+    # feature_writer persists this into intelligence_features.feature_schema_version;
+    # signal_ledger_repository persists it into signal_ledger.feature_schema_version.
+    # Downstream training queries filter WHERE feature_schema_version >= 2 to exclude
+    # pre-fix contaminated rows (which remain NULL in the DB, written before this deploy).
+    feature_schema_version: int = FEATURE_SCHEMA_VERSION
 
 
 class RankedSignal(BaseModel):

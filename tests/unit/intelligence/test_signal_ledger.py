@@ -55,8 +55,9 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry._to_row()
 
-        # New fire-time-only schema: 27 params (lifecycle columns moved to signal_outcomes)
-        assert len(params) == 28
+        # New fire-time-only schema: 28 params (lifecycle columns moved to signal_outcomes)
+        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
+        assert len(params) == 29
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -84,7 +85,7 @@ class TestLedgerEntry:
         )
         params = entry._to_row()
 
-        assert len(params) == 28
+        assert len(params) == 29
         assert params[23] == pytest.approx(0.47)  # cis_score at $24 (index 23)
         # index 24 = bucket_scores as dict (asyncpg serializes to jsonb)
         bucket_scores = params[24]
@@ -125,8 +126,8 @@ class TestLedgerEntryNewFields:
             was_selected=True,
         )
         params = entry._to_row()
-        # New fire-time-only schema: 27 params (lifecycle columns moved to signal_outcomes)
-        assert len(params) == 28
+        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
+        assert len(params) == 29
 
 
 # ---------------------------------------------------------------------------
@@ -437,8 +438,8 @@ class TestIsShadowField:
 
     def test_to_insert_params_length_64(self):
         entry = _make_entry()
-        # New fire-time-only schema: 27 params
-        assert len(entry._to_row()) == 28
+        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
+        assert len(entry._to_row()) == 29
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)

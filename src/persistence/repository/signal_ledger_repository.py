@@ -87,6 +87,7 @@ class LedgerEntry:
     weights_version: int | None = None
     pipeline_lag_ms: float | None = None
     expires_at: datetime | None = None
+    feature_schema_version: int | None = None
     # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
     status: SignalStatus = SignalStatus.PENDING
 
@@ -120,6 +121,7 @@ class LedgerEntry:
             self.weights_version,  # $26
             self.pipeline_lag_ms,  # $27
             self.expires_at,  # $28
+            self.feature_schema_version,  # $29 (contamination boundary)
         )
 
 
@@ -139,7 +141,8 @@ INSERT INTO signal_ledger (
     entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
     market_entry_price,
     cis_score, bucket_scores, weights_version,
-    pipeline_lag_ms, expires_at
+    pipeline_lag_ms, expires_at,
+    feature_schema_version
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
@@ -151,7 +154,8 @@ INSERT INTO signal_ledger (
     $18, $19, $20::jsonb, $21, $22,
     $23,
     $24, $25::jsonb, $26,
-    $27, $28
+    $27, $28,
+    $29
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """
