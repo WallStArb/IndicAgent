@@ -82,45 +82,52 @@ async def test_graduation_loop_promotes_skeptic_end_to_end() -> None:
                 now,
             )
 
-    # Insert signal_lineage rows (agent_prediction)
+    # Insert signal_lineage rows (agent_prediction) — multiplier is the column
+    # _evaluate_agent queries (sl.multiplier IS NOT NULL); prediction is not queried.
     async with pool.acquire() as conn:
         for sig_id, pred_score in zip(signal_ids, predictions):
             await conn.execute(
                 """
                 INSERT INTO signal_lineage
-                    (ts, signal_id, event_type, source, prediction, symbol, tf)
-                VALUES ($1, $2, 'agent_prediction', 'skeptic', $3::jsonb, 'ESM6', '5m')
+                    (ts, signal_id, event_type, source, multiplier, symbol, tf)
+                VALUES ($1, $2, 'agent_prediction', 'skeptic', $3, 'ESM6', '5m')
                 """,
                 now,
                 uuid.UUID(sig_id),
-                {"score": float(pred_score)},
+                float(pred_score),
             )
 
-    # Build agent with the live pool
+    # Build agent with the live pool — __new__ bypasses __init__ so set required attrs.
     agent = AlphaSwarm.__new__(AlphaSwarm)
     agent.settings = MagicMock()
     agent.settings.swarm_graduation_interval_s = 0
+    agent.settings.SWARM_WEIGHT_MIN_SAMPLES = 10
+    agent.settings.SWARM_WEIGHT_FLOOR = 0.05
     agent.logger = MagicMock()
     agent._pool = pool
     agent._demotion_streak = 0
+    agent._agents = [MagicMock(agent_id="skeptic")]
+    agent._agent_weights = {}
 
     try:
         # Run a single evaluation cycle
         await agent._run_graduation_cycle()
 
-        # Assert promotion happened
+        # Assert weight was learned — graduation writes swarm_agent_weights, not
+        # shadow_registry (is_shadow is shadow_auditor's responsibility).
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT is_shadow FROM shadow_registry WHERE component_name='skeptic'"
+                "SELECT weight, sample_size FROM swarm_agent_weights "
+                "WHERE agent_id='skeptic' AND timeframe='5m'"
             )
 
-        assert row is not None, "skeptic not found in shadow_registry"
+        assert row is not None, "swarm_agent_weights not populated for skeptic/5m"
+        assert row["sample_size"] >= 10, f"Expected >=10 samples, got {row['sample_size']}"
         assert (
-            row["is_shadow"] is False
-        ), f"Expected is_shadow=FALSE after promotion, got {row['is_shadow']}"
+            row["weight"] > 0.5
+        ), f"Expected weight > 0.5 for positively correlated agent, got {row['weight']}"
 
     finally:
-        # Cleanup: remove test rows, reset shadow state
         async with pool.acquire() as conn:
             for sig_id in signal_ids:
                 await conn.execute(
@@ -129,8 +136,7 @@ async def test_graduation_loop_promotes_skeptic_end_to_end() -> None:
                 await conn.execute(
                     "DELETE FROM signal_ledger WHERE signal_id=$1", uuid.UUID(sig_id)
                 )
-            # Reset back to shadow after test
             await conn.execute(
-                "UPDATE shadow_registry SET is_shadow=TRUE WHERE component_name='skeptic'"
+                "DELETE FROM swarm_agent_weights WHERE agent_id='skeptic' AND timeframe='5m'"
             )
         await pool.close()

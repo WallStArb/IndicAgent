@@ -257,6 +257,11 @@ class BaseAIWorker(BaseDaemon, ABC):
         Returns (response, call_id). call_id is used by agents to publish
         corrective parse_success=False updates via _report_parse_failure().
         """
+        if self._llm is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__} ({self.agent_id}): _llm is None — "
+                "agent must be constructed inside _setup() after super()._setup()"
+            )
         with self.tracer.start_as_current_span(
             "agent.llm_generate",
             attributes={
@@ -309,6 +314,11 @@ class BaseAIWorker(BaseDaemon, ABC):
         Returns (result, call_id). result is None when instructor exhausts retries.
         Caller must invoke _report_parse_failure(call_id) on None result.
         """
+        if self._llm is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__} ({self.agent_id}): _llm is None — "
+                "agent must be constructed inside _setup() after super()._setup()"
+            )
         with self.tracer.start_as_current_span(
             "agent.llm_generate_structured",
             attributes={

@@ -38,9 +38,9 @@ def test_swarm_metrics_no_duplicate_on_reimport():
     m2 = _importlib.import_module("src.observability.metrics")
     assert m2 is m  # Same module object (Python caches imports)
 
-    # OTel API: .add() for counters, .add() for up_down_counters
+    # OTel API: .add() for counters, .set() for point gauges
     m.SWARM_INVOCATIONS_TOTAL.add(1, {"agent_id": "x", "timeframe": "5m", "status": "ok"})
-    m.SWARM_AGENT_WEIGHT.add(0.7, {"agent_id": "x", "timeframe": "5m"})
+    m.SWARM_AGENT_WEIGHT.set(0.7, {"agent_id": "x", "timeframe": "5m"})
 
 
 def test_swarm_metrics_importable():

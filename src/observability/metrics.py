@@ -681,9 +681,9 @@ SWARM_AGGREGATED_MULTIPLIER = _meter.create_histogram(
     "swarm_aggregated_multiplier",
     description="Final combined multiplier distribution per timeframe",
 )
-SWARM_AGENT_WEIGHT = _meter.create_up_down_counter(
+SWARM_AGENT_WEIGHT = point_gauge(
     "swarm_agent_weight",
-    description="Per-agent learned weight by timeframe — key Renaissance health signal",
+    "Per-agent learned weight by timeframe — key Renaissance health signal",
 )
 SWARM_SIGNAL_LEDGER_UPDATE_TOTAL = _meter.create_counter(
     "swarm_signal_ledger_update_total",

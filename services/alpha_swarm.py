@@ -366,7 +366,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
                     rho,
                     cal_err,
                 )
-                SWARM_AGENT_WEIGHT.add(weight, {"agent_id": agent_id, "timeframe": tf})
+                SWARM_AGENT_WEIGHT.set(weight, {"agent_id": agent_id, "timeframe": tf})
 
     async def _reload_agent_weights(self) -> None:
         """Reload self._agent_weights cache from swarm_agent_weights table.
@@ -617,7 +617,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
         SWARM_AGGREGATED_MULTIPLIER.record(final_multiplier, {"timeframe": tf})
 
         # Compute adjusted confidence
-        original_confidence = signal_dict.get("calibrated_confidence") or signal_dict.get(
+        original_confidence = signal_dict.get("confidence") or signal_dict.get(
             "pre_quality_confidence", 0.5
         )
         if not isinstance(original_confidence, (int, float)):
