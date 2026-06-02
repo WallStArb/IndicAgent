@@ -651,7 +651,7 @@ Plans:
 
   1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)` interface; agents receive it via `AgentDeps.memory_client`
   2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
-  3. Memory is gated behind `ZEP_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
+  3. Memory is gated behind `AGENT_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
   4. Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
 
 **Plans:** 6 plans in 3 waves
@@ -1169,7 +1169,7 @@ Plans:
 
   1. `ZepMemoryClient` provides `recall(context: AIContext) -> list[Episode]` and `store(episode: Episode)`; agents receive it via `AgentDeps.memory_client`
   2. Memory recall is scoped by `(regime_type, symbol, setup_type)` to surface contextually relevant past setups
-  3. `ZEP_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
+  3. `AGENT_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
   4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
 
 **Plans:** 7 plans in 3 waves
