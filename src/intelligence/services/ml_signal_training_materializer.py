@@ -176,6 +176,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 ON sl.signal_id::text = tf_sig.value->>'signal_id'
             WHERE f.ts >= (date_trunc('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '1 day')
                 AND f.ts < date_trunc('day', NOW() AT TIME ZONE 'UTC')
+                AND f.feature_schema_version >= 2
             ON CONFLICT (ts, signal_id) DO NOTHING
             """
 
@@ -253,6 +254,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 ON sl.signal_id::text = tf_sig.value->>'signal_id'
             WHERE f.ts >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '30 days')
                 AND f.ts < date_trunc('day', NOW() AT TIME ZONE 'UTC')
+                AND f.feature_schema_version >= 2
             ON CONFLICT (ts, signal_id) DO UPDATE SET
                 pnl_r = EXCLUDED.pnl_r,
                 win_label = (EXCLUDED.pnl_r > 0),
