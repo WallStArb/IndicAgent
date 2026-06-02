@@ -167,7 +167,8 @@ UPDATE signal_outcomes
         vs. live tracker) is always a safe no-op.  When asyncpg returns
         "UPDATE 0" the skip counter is incremented and a warning logged.
         """
-        assert self._db is not None
+        if self._db is None:
+            raise RuntimeError("LifecycleWriter._db not initialized — _setup() not called")
         for entry in items:
             result: str = await self._db.execute_command(
                 self._EXIT_IDEMPOTENT_SQL,
@@ -184,7 +185,8 @@ UPDATE signal_outcomes
     async def _flush_batch(self, batch: list) -> None:
         """Group buffered transitions by type, batch-write each group."""
         t0 = time.perf_counter()
-        assert self._repo is not None
+        if self._repo is None:
+            raise RuntimeError("LifecycleWriter._repo not initialized — _setup() not called")
 
         groups: dict[str, list[dict]] = defaultdict(list)
         for item in batch:

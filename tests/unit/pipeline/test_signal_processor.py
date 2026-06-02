@@ -293,50 +293,23 @@ async def test_process_returns_signal_processor_result_with_all_payloads_on_succ
     assert result.i7_result is not None  # HIGH finding 4 — journal data
 
 
-@pytest.mark.asyncio
-async def test_process_handles_cis_none_defensively():
-    """process() treats cis_score=None as 0.0 (defensive fallback for scorer contract violation).
+def test_cis_result_rejects_none_cis_score():
+    """CISResult.__post_init__ enforces the float contract — None raises TypeError.
 
-    Phase 112 removed the DLQ early-exit for None CIS — CISScorer.score() always returns
-    float per its type contract.  If a scorer implementation error produces None, the processor
-    coerces to 0.0 and continues; the direction=0 result means no winner is selected.
+    The invariant lives at the producer (CISResult) not scattered across consumers.
+    CISScorer.score() always returns round(float, 4); this test guards against
+    a future scorer regression that returns None.
     """
-    proc = _make_processor()
-
     from src.intelligence.trading.cis_scorer import CISResult
 
-    # Simulate a scorer implementation error that produces cis_score=None
-    null_cis_result = CISResult(
-        cis_score=None,
-        direction=0,
-        bucket_scores={},
-        weights_version=0,
-        buckets_agreeing=0,
-    )
-    proc._cis_scorer.score = MagicMock(return_value=null_cis_result)
-
-    bar = _make_bar()
-    snapshot = _make_snapshot()
-    raw_signal = {
-        "setup_plugin": "X",
-        "direction": 1,
-        "confidence": 0.5,
-        "symbol": "ES",
-        "tf": "1m",
-    }
-
-    with patch(
-        "src.intelligence.pipeline.signal_processor.build_flat_features",
-        return_value={},
-    ):
-        # Must not raise (None coerced to 0.0)
-        result = await proc.process(
-            MagicMock(), {}, bar, "ES", "1m", raw_signals=[raw_signal], cache_snapshot=snapshot
+    with pytest.raises(TypeError, match="cis_score must be float"):
+        CISResult(
+            cis_score=None,
+            direction=0,
+            bucket_scores={},
+            weights_version=0,
+            buckets_agreeing=0,
         )
-
-    # direction=0 → no winner selected; process() succeeds with no signals payload
-    assert result.dlq_payload is None
-    assert result.winner_payload is None
 
 
 @pytest.mark.asyncio

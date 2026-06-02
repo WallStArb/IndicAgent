@@ -50,6 +50,14 @@ from src.observability.metrics import (
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 
+# Quality gate absent-feature defaults.
+# 1.0 = neutral pass-through: when a feature is not yet computed for this bar
+# (e.g. insufficient bars for Hurst, cold-start), treat as no degradation rather
+# than penalizing. This is intentional — a missing feature is not evidence of
+# poor quality; it is evidence of insufficient history.
+_QUALITY_FEATURE_ABSENT: float = 1.0
+_DRIFT_PENALTY_ABSENT: float = 1.0  # no penalty when symbol has no drift history
+
 # Alpha decay half-life bars
 # Note: _I1_ALIAS_MAP, _HMM_REGIME_LABEL, and build_flat_features are imported from
 # feature_flattening (moved in Plan 05 to prevent circular import with
@@ -282,10 +290,7 @@ class SignalProcessor:
             sig.get("setup_plugin", ""): sig for sig in raw_signals if sig.get("direction", 0) != 0
         }
         cis_result = self._cis_scorer.score(features, plugin_outputs, tf=tf, symbol=symbol)
-        # CISScorer.score() always returns float per its type contract; treat None defensively
-        # as zero in case of a scorer implementation error.  Zero CIS is handled by the
-        # direction==0 path downstream (no signals pass quality/regime gates).
-        raw_cis: float = float(cis_result.cis_score if cis_result.cis_score is not None else 0.0)
+        raw_cis: float = cis_result.cis_score  # float enforced by CISResult.__post_init__
 
         # Design B: filtered_cis and calibrated_cis are now computed inside CISScorer.score().
         # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.
@@ -310,9 +315,9 @@ class SignalProcessor:
         quality_gated = await apply_quality_gate(
             raw_signals,
             {
-                "hurst_quality": features.get("hurst_trend_quality", 1.0),
-                "entropy_quality": features.get("entropy_quality", 1.0),
-                "drift_penalty": cache_snapshot.drift_penalties.get(symbol, 1.0),
+                "hurst_quality": features.get("hurst_trend_quality", _QUALITY_FEATURE_ABSENT),
+                "entropy_quality": features.get("entropy_quality", _QUALITY_FEATURE_ABSENT),
+                "drift_penalty": cache_snapshot.drift_penalties.get(symbol, _DRIFT_PENALTY_ABSENT),
             },
             tf=tf,
             recorder=self._transform_recorder,

@@ -37,6 +37,10 @@ from src.observability.metrics import counter, point_gauge
 PRIORITY_HIGH = "high"
 PRIORITY_LOW = "low"
 
+# Consecutive all-fail batches before the drain loop backs off.
+_DRAIN_BACKOFF_THRESHOLD = 3
+_DRAIN_BACKOFF_SECONDS = 5.0
+
 
 class OutputQueue:
     """Async output buffer for Kafka publish — two-queue weighted-fair drain.
@@ -242,6 +246,10 @@ class OutputQueue:
         """
         # Track how many HIGH items have been drained since the last LOW item
         high_drained_since_low = 0
+        # Consecutive drain iterations where every item in the batch failed to publish.
+        # When this hits _DRAIN_BACKOFF_THRESHOLD the loop backs off to avoid flooding
+        # logs and burning CPU while Kafka is unavailable.
+        consecutive_all_fail_batches = 0
 
         while running_fn() or not self._high_queue.empty() or not self._low_queue.empty():
             # Try to get the first item: prefer HIGH queue, fall back to LOW
@@ -316,6 +324,7 @@ class OutputQueue:
 
             # Publish all items with per-item error isolation.
             handled = 0
+            batch_failures = 0
 
             try:
                 for item, priority in batch:
@@ -324,6 +333,7 @@ class OutputQueue:
                         await self._publish_one(item)
                     except Exception as exc:
                         self._publish_failures.add(1)
+                        batch_failures += 1
                         self._logger.error(
                             "output.publish_failed",
                             error=str(exc),
@@ -349,7 +359,16 @@ class OutputQueue:
                         )
                 raise
 
-            # Intentionally do NOT re-raise first_exc here.
-            # The _publish_failures counter and error log above provide observability.
-            # Re-raising would terminate the drain loop on the first publish failure,
-            # silently dropping all remaining queued items.
+            # Track consecutive all-fail batches to detect sustained Kafka outages.
+            # After _DRAIN_BACKOFF_THRESHOLD failures back off to avoid log flooding.
+            if batch_failures == len(batch):
+                consecutive_all_fail_batches += 1
+                if consecutive_all_fail_batches >= _DRAIN_BACKOFF_THRESHOLD:
+                    self._logger.warning(
+                        "output_queue.drain_backoff",
+                        consecutive_all_fail_batches=consecutive_all_fail_batches,
+                        backoff_sec=_DRAIN_BACKOFF_SECONDS,
+                    )
+                    await asyncio.sleep(_DRAIN_BACKOFF_SECONDS)
+            else:
+                consecutive_all_fail_batches = 0

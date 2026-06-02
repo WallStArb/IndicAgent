@@ -22,6 +22,15 @@ from typing import TYPE_CHECKING, Any, ClassVar
 if TYPE_CHECKING:
     from src.intelligence.pipeline.signal_processor import CacheSnapshot
 
+# ---------------------------------------------------------------------------
+# Circuit breaker defaults — single source of truth used by
+# _build_plugin_circuit_breakers() (intelligence_pipeline) and _get_plugin_cb() (here).
+#
+# Shadow mode (default): CBs record failure data but never trip (enabled=False).
+# Live mode: set PLUGIN_CB_ENABLED=1 to enable tripping after failure_threshold failures.
+# ---------------------------------------------------------------------------
+import os as _os
+
 import structlog
 
 from src.core.service_utils import should_skip_plugin
@@ -46,15 +55,11 @@ from src.observability.metrics import (
 )
 from src.observability.plugin_observer import NoOpPluginObserver, PluginObserver
 
-# ---------------------------------------------------------------------------
-# Shadow-mode circuit breaker defaults — single source of truth used by
-# _build_plugin_circuit_breakers() (intelligence_pipeline) and _get_plugin_cb() (here).
-# ---------------------------------------------------------------------------
-
+_PLUGIN_CB_ENABLED: bool = _os.environ.get("PLUGIN_CB_ENABLED", "0") == "1"
 _SHADOW_CB_DEFAULTS: dict[str, object] = {
     "failure_threshold": 3,
     "timeout_sec": 300,
-    "enabled": False,
+    "enabled": _PLUGIN_CB_ENABLED,
 }
 
 # ---------------------------------------------------------------------------
@@ -280,9 +285,9 @@ class PluginExecutor:
     def _get_plugin_cb(self, plugin_name: str) -> CircuitBreaker:
         """Get or create a CircuitBreaker for the named plugin (lazy-init).
 
-        Uses shadow-mode defaults (enabled=False, failure_threshold=3, timeout_sec=300)
-        to match _build_plugin_circuit_breakers() in intelligence_pipeline.py, so any
-        plugin discovered post-deploy also starts in shadow mode.
+        Uses _SHADOW_CB_DEFAULTS so any plugin discovered post-deploy gets the same
+        mode (shadow or live) as plugins pre-populated at startup.
+        Set PLUGIN_CB_ENABLED=1 to enable live circuit breaking.
         """
         cb = self._plugin_circuit_breakers.get(plugin_name)
         if cb is None:
