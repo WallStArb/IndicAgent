@@ -32,6 +32,7 @@ from src.core.bar_history import BarHistory
 from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.pipeline.executor import PluginExecutor
+from src.intelligence.pipeline.feature_flattening import build_flat_features
 from src.intelligence.pipeline.signal_processor import CacheSnapshot
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.schemas import (
@@ -319,6 +320,11 @@ class FeaturePipelineExecutor:
         # Persist event for cross-tf context reads on subsequent bars
         self._last_events[key] = event
 
+        # 3-E: Precompute flat feature dict once per bar — avoids per-signal model_dump()
+        # in SignalProcessor.process(). Both signal_processor and feature_pipeline_executor
+        # import build_flat_features from feature_flattening (neutral module, no circular dep).
+        flat_features = build_flat_features(event)
+
         # Extract HMM regime from smc tier output for CacheManager (D-25)
         # hmm_regime lives in SMCContext (produced by smc_HMMRegime plugin, tier key "smc")
         hmm_val = frames.get("smc", {}).get("hmm_regime")
@@ -329,4 +335,5 @@ class FeaturePipelineExecutor:
             tiered=tiered,
             main_df=main_df,
             hmm_regime=hmm_regime,
+            flat_features=flat_features,
         )

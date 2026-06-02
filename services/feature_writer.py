@@ -489,8 +489,10 @@ class FeatureWriter(BaseWriter):
                     continue
                 symbol, timeframe = parts
 
-                # SAFETY: Skip raw intelligence events — these have {"event": "..."} wrapper
-                if isinstance(payload, dict) and "event" in payload:
+                # SAFETY: Skip raw intelligence events — these have tier keys like "i1", "i2", etc.
+                # Plan 05 serialization fix: intel events are now flat dicts (model_dump mode="json"),
+                # not {"event": "<json_string>"}. Check for tier key presence instead.
+                if isinstance(payload, dict) and "i1" in payload:
                     continue
 
                 if kafka_topic == intelligence_journal_topic:

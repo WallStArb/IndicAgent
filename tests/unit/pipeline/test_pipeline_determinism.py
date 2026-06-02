@@ -139,7 +139,7 @@ class TestPipelineDeterminism:
         results = []
         with (
             patch(
-                "src.intelligence.pipeline.signal_processor._build_features_from_event",
+                "src.intelligence.pipeline.signal_processor.build_flat_features",
                 return_value={},
             ),
             patch(
