@@ -128,7 +128,7 @@ class TestTrendRegime:
         df = make_ohlcv(close)
         features = {"trend_direction": 1.0, "trend_strength": 0.8}
         plugin = TrendRegimePlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full({"main": df, "i1": features})
 
         assert result["trend_confidence"] > 0
         assert result["trend_regime"] > 0
@@ -160,7 +160,7 @@ class TestTrendRegimeFeatureConsumption:
         features = {"sma_20": known_sma20, "sma_50": known_sma50}
 
         plugin = TrendRegimePlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full({"main": df, "i1": features})
 
         # Should use the injected values, producing strong bullish if price > sma20 > sma50
         assert result["ma_alignment"] == 2.0  # strong bullish
@@ -194,7 +194,7 @@ class TestMomentumContext:
             "cci_14": 80,
         }
         plugin = MomentumContextPlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full({"i1": features})
 
         assert result["momentum_bias"] > 0.3
         assert result["momentum_strength"] > 0.3
@@ -212,7 +212,7 @@ class TestMomentumContext:
             "cci_14": -80,
         }
         plugin = MomentumContextPlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full({"i1": features})
 
         assert result["momentum_bias"] < -0.3
         assert result["momentum_strength"] > 0.3
@@ -229,7 +229,7 @@ class TestMomentumContext:
             "cci_14": -80,  # bearish
         }
         plugin = MomentumContextPlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full({"i1": features})
 
         assert result["momentum_agreement"] < 1.0
 
@@ -239,7 +239,7 @@ class TestMomentumContext:
 
         plugin = MomentumContextPlugin()
         assert plugin.compute_full({}) == {}
-        assert plugin.compute_full({"features": {}}) == {}
+        assert plugin.compute_full({"i1": {}}) == {}
 
 
 # ─── Registration ──────────────────────────────────────────────

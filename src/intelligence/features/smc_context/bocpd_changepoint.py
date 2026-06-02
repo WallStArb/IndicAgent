@@ -245,7 +245,14 @@ class BOCPDChangePointPlugin(IncrementalMixin):
 
     def _compute_confirmation(self, df: pd.DataFrame, frames: dict[str, Any]) -> float:
         """Score feature confirmation from I1 outputs (0-1)."""
-        features = frames.get("features")
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         if not isinstance(features, dict):
             return 0.5  # No features available -- neutral
 

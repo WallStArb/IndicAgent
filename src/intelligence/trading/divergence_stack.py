@@ -95,7 +95,15 @@ class DivergenceStackPlugin:
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+            **(frames.get("i6") or {}),
+        }
         if df is None or len(df) < 20:
             return no_signal()
 

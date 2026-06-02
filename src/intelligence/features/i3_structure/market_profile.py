@@ -51,9 +51,9 @@ class MarketProfilePlugin(IncrementalMixin):
 
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
-        features = frames.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = frames.get("i1") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
 
         price_range = float(high.max() - low.min())
         if price_range <= 0:
@@ -149,9 +149,9 @@ class MarketProfilePlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = windows.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = windows.get("i1") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
 
         bar = df.iloc[-1]
         bar_high = float(bar["high"])

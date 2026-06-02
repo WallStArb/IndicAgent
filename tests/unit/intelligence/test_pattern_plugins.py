@@ -194,7 +194,17 @@ class TestConfluence:
             "cci_14": 150.0,  # Overbought
         }
         plugin = ConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result["confluence_n_signals"] == 4.0
         # RSI=-1, MACD=+1, Stoch=-1, CCI=-1 → avg = -0.5
@@ -213,7 +223,17 @@ class TestConfluence:
             "cci_14": -150.0,  # Oversold → bullish
         }
         plugin = ConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result["confluence_score"] > 0.5
         assert result["confluence_n_signals"] == 3.0
@@ -226,7 +246,17 @@ class TestConfluence:
 
         features = {"rsi_14": 45.0, "cci_14": -50.0}
         plugin = ConfluencePlugin()
-        result = plugin.compute_full({"features": features})
+        result = plugin.compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result["confluence_n_signals"] == 2.0
 
@@ -235,7 +265,12 @@ class TestConfluence:
 
         plugin = ConfluencePlugin()
         assert plugin.compute_full({}) == {}
-        assert plugin.compute_full({"features": {}}) == {}
+        assert (
+            plugin.compute_full(
+                {"i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+            )
+            == {}
+        )
 
 
 # ─── Registration ────────────────────────────────────────────────

@@ -68,7 +68,7 @@ class SwingMomentumPlugin:
         n_bars = len(high)
 
         # --- ATR-14: use pre-computed value from I1 pipeline -----------
-        atr = float(frames.get("features", {}).get("atr_14") or 0.0)
+        atr = float((frames.get("i1") or {}).get("atr_14") or 0.0)
 
         # --- Extreme detection (full-frame rebuild each call) ----------
         extremes = self._detect_extremes(high, low, n_bars)

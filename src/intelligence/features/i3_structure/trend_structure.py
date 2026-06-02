@@ -88,9 +88,9 @@ class TrendStructurePlugin:
         strength = max(bullish_legs, bearish_legs) / total_legs if total_legs > 0 else 0.0
 
         # ATR normalisation if available
-        features = frames.get("features")
-        if isinstance(features, dict) and "atr_14" in features:
-            atr = features["atr_14"]
+        i1 = frames.get("i1")
+        if isinstance(i1, dict) and "atr_14" in i1:
+            atr = i1["atr_14"]
             if atr > 0:
                 price_range = float(np.max(high[-20:]) - np.min(low[-20:]))
                 strength = min(1.0, strength * (price_range / atr) / 5.0)

@@ -32,9 +32,9 @@ class StochasticEventsPlugin:
     _STOCH_OVERBOUGHT: float = 80.0
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
-        k = features.get("stoch_k_14_3")
-        d = features.get("stoch_d_14_3")
+        i1 = frames.get("i1") or {}
+        k = i1.get("stoch_k_14_3")
+        d = i1.get("stoch_d_14_3")
         if not is_num(k) or not is_num(d):
             return {}
 

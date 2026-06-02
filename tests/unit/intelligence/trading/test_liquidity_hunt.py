@@ -90,7 +90,18 @@ class TestLiquidityHunt:
         df = make_ohlcv(close)
         features = self._features_bsl_swept(significance=0.45)
         plugin = LiquidityHuntPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result.get("direction", 0) == 0
         assert result.get("signal_type", "none") == "none"
 
@@ -103,7 +114,18 @@ class TestLiquidityHunt:
         features = self._features_bsl_swept()
         features["sweep_reclaimed"] = 0.0
         plugin = LiquidityHuntPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result.get("signal_type", "none") == "none"
 
     def test_confidence_higher_for_pwh_than_pdh(self):
@@ -166,5 +188,7 @@ class TestLiquidityHunt:
 
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = LiquidityHuntPlugin()
-        result = plugin.compute_full({"main": df, "features": {}})
+        result = plugin.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("signal_type", "none") == "none"

@@ -28,7 +28,18 @@ class TestMeanReversion:
             "ctf_score": 0.0,
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "reversion_long"
         assert result.get("direction") == 1
@@ -60,7 +71,18 @@ class TestMeanReversion:
             "ctf_score": 0.0,
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "reversion_short"
         assert result.get("direction") == -1
@@ -84,7 +106,18 @@ class TestMeanReversion:
             "ctf_score": 0.0,
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -107,7 +140,18 @@ class TestMeanReversion:
             "kalman_price_position": 0.5,  # < 1.0 — near fair value
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -130,7 +174,18 @@ class TestMeanReversion:
             "kalman_price_position": -1.5,  # displaced 1.5σ below fair value
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("direction") == 1  # long reversion
         assert result.get("signal_type") == "reversion_long"
@@ -153,7 +208,18 @@ class TestMeanReversion:
             # no kalman_price_position — gate must be skipped
         }
         plugin = MeanReversionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         # Should still fire (same as existing test_bullish_reversion_at_support)
         assert result.get("direction") == 1

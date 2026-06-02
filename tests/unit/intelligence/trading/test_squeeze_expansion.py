@@ -30,7 +30,18 @@ class TestSqueezeExpansion:
             "volume_sma_20": 1000.0,
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "squeeze_long"
         assert result.get("direction") == 1
@@ -48,7 +59,18 @@ class TestSqueezeExpansion:
             "atr_14": 8.0,
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -71,7 +93,18 @@ class TestSqueezeExpansion:
             "volume_sma_20": 1000.0,
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -100,7 +133,18 @@ class TestSqueezeExpansion:
             "garch_vol_regime": 3,  # extreme vol — should block
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -130,7 +174,18 @@ class TestSqueezeExpansion:
             "garch_vol_regime": 2,  # high but not extreme — should pass
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("direction") == 1
         assert result.get("signal_type") == "squeeze_long"
@@ -160,6 +215,17 @@ class TestSqueezeExpansion:
             # no garch_vol_regime — backward compat
         }
         plugin = SqueezeExpansionPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("direction") == 1

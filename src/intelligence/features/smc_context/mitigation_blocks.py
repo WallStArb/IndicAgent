@@ -41,7 +41,14 @@ class MitigationBlocksPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         ob_top = features.get("ob_top")
         ob_bottom = features.get("ob_bottom")
         ob_mitigated = features.get("ob_mitigated")

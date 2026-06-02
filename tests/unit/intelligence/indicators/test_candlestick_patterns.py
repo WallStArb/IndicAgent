@@ -37,7 +37,16 @@ def test_harami_bull_valid():
         lows=[90, 94.2, 96],
         closes=[94, 95.3, 98.5],  # pp bearish, p bullish (95.3>95), p inside pp body
     )
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("harami_bull") == 1.0
 
@@ -50,7 +59,16 @@ def test_harami_bull_not_fired_p_bearish():
         lows=[90, 94.2, 96],
         closes=[94, 94.8, 98.5],  # p bearish (94.8 < 95)
     )
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("harami_bull") == 0.0
 
@@ -68,7 +86,16 @@ def test_harami_bear_valid():
         lows=[99, 104.2, 102],
         closes=[108, 104.5, 102.5],  # pp bullish, p bearish inside
     )
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("harami_bear") == 1.0
 
@@ -86,7 +113,16 @@ def test_abandoned_baby_bull_valid():
         lows=[94, 101.5, 101.5],
         closes=[94.5, 101.58, 105.5],  # pp bearish, p doji, c bullish
     )
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("abandoned_baby_bull") == 1.0
 
@@ -104,7 +140,16 @@ def test_abandoned_baby_bear_valid():
         lows=[99.5, 97.5, 93],
         closes=[105, 98.08, 93.5],  # pp bullish, p doji, c bearish
     )
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("abandoned_baby_bear") == 1.0
 
@@ -120,7 +165,16 @@ def test_tweezer_top_valid():
         lows=[95, 100, 100],
         closes=[108, 103, 104],
     )
-    frames = {"main": df, "features": {"atr_14": 1.0}}  # 0.1*ATR = 0.1, 0.03 < 0.1
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 1.0},
+        "i2": {"atr_14": 1.0},
+        "i3": {"atr_14": 1.0},
+        "i4": {"atr_14": 1.0},
+        "i5": {"atr_14": 1.0},
+        "smc": {"atr_14": 1.0},
+        "i6": {"atr_14": 1.0},
+    }  # 0.1*ATR = 0.1, 0.03 < 0.1
     result = plugin.compute_full(frames)
     assert result.get("tweezer_top") == 1.0
 
@@ -136,7 +190,16 @@ def test_tweezer_bottom_valid():
         lows=[90, 90.04, 90],  # p and c lows within 0.04
         closes=[92, 97, 99],
     )
-    frames = {"main": df, "features": {"atr_14": 1.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 1.0},
+        "i2": {"atr_14": 1.0},
+        "i3": {"atr_14": 1.0},
+        "i4": {"atr_14": 1.0},
+        "i5": {"atr_14": 1.0},
+        "smc": {"atr_14": 1.0},
+        "i6": {"atr_14": 1.0},
+    }
     result = plugin.compute_full(frames)
     assert result.get("tweezer_bottom") == 1.0
 
@@ -154,7 +217,7 @@ def test_belt_hold_bull_valid():
         lows=[95, 100, 104],
         closes=[104, 103, 109],  # c bullish, body 91% of range, upper wick 9%
     )
-    frames = {"main": df, "features": {}}
+    frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
     result = plugin.compute_full(frames)
     assert result.get("belt_hold_bull") == 1.0
 
@@ -172,7 +235,7 @@ def test_belt_hold_bear_valid():
         lows=[95, 95.5, 90],
         closes=[96, 97, 90.5],  # c bearish, body 92% of range, lower wick 8%
     )
-    frames = {"main": df, "features": {}}
+    frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
     result = plugin.compute_full(frames)
     assert result.get("belt_hold_bear") == 1.0
 
@@ -190,7 +253,7 @@ def test_kicker_bull_valid():
         lows=[95, 92, 105.5],
         closes=[94, 95, 111],  # c: body=5, range=6, upper_wick=0.5
     )
-    frames = {"main": df, "features": {}}
+    frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
     result = plugin.compute_full(frames)
     assert result.get("kicker_bull") == 1.0
 
@@ -208,7 +271,7 @@ def test_kicker_bear_valid():
         lows=[95, 100, 87],
         closes=[106, 105, 88],  # c: body=5, range=7, lower_wick=1
     )
-    frames = {"main": df, "features": {}}
+    frames = {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
     result = plugin.compute_full(frames)
     assert result.get("kicker_bear") == 1.0
 
@@ -216,7 +279,16 @@ def test_kicker_bear_valid():
 def test_all_patterns_zero_with_insufficient_bars():
     """All patterns return 0.0 with fewer than 3 bars."""
     df = _make_ohlc_frame([100], [105], [95], [104])
-    frames = {"main": df, "features": {"atr_14": 5.0}}
+    frames = {
+        "main": df,
+        "i1": {"atr_14": 5.0},
+        "i2": {"atr_14": 5.0},
+        "i3": {"atr_14": 5.0},
+        "i4": {"atr_14": 5.0},
+        "i5": {"atr_14": 5.0},
+        "smc": {"atr_14": 5.0},
+        "i6": {"atr_14": 5.0},
+    }
     result = plugin.compute_full(frames)
     new_patterns = [
         "harami_bull",

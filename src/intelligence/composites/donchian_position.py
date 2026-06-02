@@ -26,12 +26,12 @@ class DonchianPositionPlugin(PatternPlugin):
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features", {})
+        i1 = frames.get("i1") or {}
         df = frames.get("main")
 
-        d_high = features.get("donchian_high_20")
-        d_mid = features.get("donchian_mid_20")
-        d_low = features.get("donchian_low_20")
+        d_high = i1.get("donchian_high_20")
+        d_mid = i1.get("donchian_mid_20")
+        d_low = i1.get("donchian_low_20")
 
         if df is None or d_high is None or d_mid is None or d_low is None:
             return {"donchian_position_20": 0.0}

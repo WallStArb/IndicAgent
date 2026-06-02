@@ -41,12 +41,15 @@ class FibonacciZonesPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = frames.get("i1") or {}
+        i3 = frames.get("i3") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
 
-        swing_high = features.get("swing_high")
-        swing_low = features.get("swing_low")
+        # swing_high/swing_low from I3 SwingDetector; fallback to rolling high/low when
+        # running in the same wave (parallel plugins can't read each other's outputs)
+        swing_high = i3.get("swing_high")
+        swing_low = i3.get("swing_low")
 
         # Fallback to rolling high/low when swing levels not available
         if not isinstance(swing_high, (int, float)) or not isinstance(swing_low, (int, float)):

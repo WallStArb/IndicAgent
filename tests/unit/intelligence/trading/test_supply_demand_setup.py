@@ -104,7 +104,18 @@ class TestSupplyDemandSetup:
         df = make_ohlcv(close)
         features = self._demand_features(in_zone=0.0)
         plugin = SupplyDemandSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result.get("signal_type", "none") == "none"
 
     def test_no_signal_mitigated_zone(self):
@@ -115,7 +126,18 @@ class TestSupplyDemandSetup:
         df = make_ohlcv(close)
         features = self._demand_features(freshness=0.1)
         plugin = SupplyDemandSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result.get("signal_type", "none") == "none"
 
     def test_fresh_zone_higher_confidence_than_tested(self):
@@ -177,5 +199,7 @@ class TestSupplyDemandSetup:
 
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = SupplyDemandSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": {}})
+        result = plugin.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("signal_type", "none") == "none"

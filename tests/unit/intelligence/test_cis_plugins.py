@@ -23,14 +23,23 @@ def _frames(n: int = 30, close_val: float = 5000.0, features: dict | None = None
     """Build frames dict with n-bar OHLCV and optional features overlay."""
     close = np.full(n, close_val, dtype=float)
     df = make_ohlcv(close)
-    return {"main": df, "features": features or {}}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features or {},
+    }
 
 
 def _frames_short(n: int = 5) -> dict:
     """Build an under-minimum-lookback frames dict."""
     close = np.full(n, 5000.0, dtype=float)
     df = make_ohlcv(close)
-    return {"main": df, "features": {}}
+    return {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
 
 
 # ---------------------------------------------------------------------------

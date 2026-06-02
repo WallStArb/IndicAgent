@@ -12,7 +12,7 @@ def _frames(closes: list[float], volumes: list[float]) -> dict:
             "low": [c - 1 for c in closes],
         }
     )
-    return {"main": df, "features": {}}
+    return {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
 
 
 def test_rising_obv_returns_positive():

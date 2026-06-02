@@ -33,7 +33,7 @@ class MomentumAccelPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
+        features = frames.get("i1") or {}
         prev = frames.get("prev_features") or {}
         df = frames.get("main")
 

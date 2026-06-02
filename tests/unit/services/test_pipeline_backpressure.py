@@ -66,7 +66,7 @@ def test_intel_and_journal_use_blocking_enqueue():
 
 @pytest.mark.asyncio
 async def test_enqueue_blocking_puts_on_queue():
-    """enqueue_blocking puts the item onto the queue (no drop)."""
+    """enqueue_blocking puts the item onto the HIGH queue (no drop, default priority=HIGH)."""
     from src.intelligence.pipeline.output_queue import OutputQueue
 
     producer = AsyncMock()
@@ -74,14 +74,14 @@ async def test_enqueue_blocking_puts_on_queue():
 
     await queue.enqueue_blocking("topic.test", "key1", {"data": 1})
 
-    assert queue._queue.qsize() == 1
+    assert queue._high_queue.qsize() == 1
 
 
 @pytest.mark.asyncio
 async def test_enqueue_blocking_awaits_on_full_queue():
     """enqueue_blocking suspends (back-pressure) rather than dropping on full queue.
 
-    Strategy: fill the queue to maxsize, then call enqueue_blocking in a task.
+    Strategy: fill the HIGH queue to maxsize, then call enqueue_blocking in a task.
     The task must NOT complete before we drain one slot — proving it awaits.
     """
     from src.intelligence.pipeline.output_queue import OutputQueue
@@ -90,13 +90,13 @@ async def test_enqueue_blocking_awaits_on_full_queue():
     maxsize = 3
     queue = OutputQueue(producer=producer, maxsize=maxsize, drain_batch_size=10)
 
-    # Fill the queue to capacity using non-blocking puts
+    # Fill the HIGH queue to capacity using non-blocking puts
     for i in range(maxsize):
-        await queue._queue.put(("topic", f"k{i}", {"i": i}))
+        await queue._high_queue.put(("topic", f"k{i}", {"i": i}))
 
-    assert queue._queue.full()
+    assert queue._high_queue.full()
 
-    # Attempt to enqueue_blocking — should suspend since queue is full
+    # Attempt to enqueue_blocking (HIGH priority, default) — should suspend since queue is full
     task = asyncio.create_task(
         queue.enqueue_blocking("topic.test", "blocked_key", {"blocked": True})
     )
@@ -106,15 +106,15 @@ async def test_enqueue_blocking_awaits_on_full_queue():
     assert not task.done(), "enqueue_blocking returned immediately on full queue — should block"
 
     # Drain one item so enqueue_blocking can proceed
-    item = queue._queue.get_nowait()
-    queue._queue.task_done()
+    item = queue._high_queue.get_nowait()
+    queue._high_queue.task_done()
 
     # Now the blocking enqueue should complete
     await asyncio.wait_for(task, timeout=1.0)
     assert task.done()
 
     # Item was enqueued (queue has maxsize items again: maxsize-1 originals + 1 new)
-    assert queue._queue.qsize() == maxsize
+    assert queue._high_queue.qsize() == maxsize
 
 
 @pytest.mark.asyncio
@@ -129,15 +129,15 @@ async def test_non_blocking_enqueue_drops_on_full_queue():
     maxsize = 2
     queue = OutputQueue(producer=producer, maxsize=maxsize, drain_batch_size=5)
 
-    # Fill queue
+    # Fill HIGH queue (default priority)
     for i in range(maxsize):
-        await queue._queue.put(("topic", f"k{i}", {}))
+        await queue._high_queue.put(("topic", f"k{i}", {}))
 
     # Non-blocking enqueue on full queue — should drop (no await)
     queue.enqueue("topic.drop", "dropped_key", {"dropped": True})
 
     # Queue size unchanged (dropped)
-    assert queue._queue.qsize() == maxsize
+    assert queue._high_queue.qsize() == maxsize
 
 
 @pytest.mark.asyncio
@@ -154,9 +154,9 @@ async def test_enqueue_blocking_drop_counter_only_on_actual_drop():
     maxsize = 1
     queue = OutputQueue(producer=producer, maxsize=maxsize, drain_batch_size=5)
 
-    # Fill the queue to capacity
-    await queue._queue.put(("topic", "existing", {}))
-    assert queue._queue.full()
+    # Fill the HIGH queue to capacity
+    await queue._high_queue.put(("topic", "existing", {}))
+    assert queue._high_queue.full()
 
     drop_calls: list = []
     original_add = queue._drops.add
@@ -170,8 +170,8 @@ async def test_enqueue_blocking_drop_counter_only_on_actual_drop():
     # Drain one slot so the blocking put can succeed
     async def drain_one():
         await asyncio.sleep(0.01)
-        queue._queue.get_nowait()
-        queue._queue.task_done()
+        queue._high_queue.get_nowait()
+        queue._high_queue.task_done()
 
     asyncio.create_task(drain_one())
     await queue.enqueue_blocking("topic", "new_key", {}, timeout_sec=1.0)

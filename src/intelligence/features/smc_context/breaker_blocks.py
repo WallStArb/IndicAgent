@@ -43,7 +43,14 @@ class BreakerBlocksPlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
         close = float(df["close"].iloc[-1])
         atr = features.get("atr_14")
 

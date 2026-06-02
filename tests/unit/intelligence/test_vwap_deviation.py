@@ -31,7 +31,18 @@ class TestVWAPDeviation:
         features = _features(price=4975.0)
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "vwap_reversion_long"
         assert result.get("direction") == 1
@@ -52,7 +63,18 @@ class TestVWAPDeviation:
         features = _features(price=5025.0)
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "vwap_reversion_short"
         assert result.get("direction") == -1
@@ -70,7 +92,18 @@ class TestVWAPDeviation:
         features = _features(price=5005.0)
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -84,7 +117,18 @@ class TestVWAPDeviation:
         features = _features(price=4970.0, vwap_std=0.0)
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -114,10 +158,28 @@ class TestVWAPDeviation:
         close_high = np.full(50, 5030.0)
 
         r_low = plugin.compute_full(
-            {"main": make_ohlcv(close_low), "features": _features(price=4970.0)}
+            {
+                "main": make_ohlcv(close_low),
+                "i1": _features(price=4970.0),
+                "i2": _features(price=4970.0),
+                "i3": _features(price=4970.0),
+                "i4": _features(price=4970.0),
+                "i5": _features(price=4970.0),
+                "smc": _features(price=4970.0),
+                "i6": _features(price=4970.0),
+            }
         )
         r_high = plugin.compute_full(
-            {"main": make_ohlcv(close_high), "features": _features(price=5030.0)}
+            {
+                "main": make_ohlcv(close_high),
+                "i1": _features(price=5030.0),
+                "i2": _features(price=5030.0),
+                "i3": _features(price=5030.0),
+                "i4": _features(price=5030.0),
+                "i5": _features(price=5030.0),
+                "smc": _features(price=5030.0),
+                "i6": _features(price=5030.0),
+            }
         )
 
         assert r_low.get("regime_context") == "vwap_extended_low"
@@ -130,7 +192,9 @@ class TestVWAPDeviation:
         close = np.array([4975.0, 4974.0, 4973.0])
         df = make_ohlcv(close)
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": {}})
+        result = plugin.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {} or result.get("signal_type", "none") == "none"
 
     def test_no_signal_in_high_vol_at_exactly_2sigma(self):
@@ -147,7 +211,18 @@ class TestVWAPDeviation:
         features["garch_vol_regime"] = 2  # high vol — threshold raised to 2.5σ
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -165,7 +240,18 @@ class TestVWAPDeviation:
         features["garch_vol_regime"] = 2
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("direction") == 1
         assert result.get("signal_type") == "vwap_reversion_long"
@@ -183,7 +269,18 @@ class TestVWAPDeviation:
         features["garch_vol_regime"] = 3  # extreme vol — threshold raised to 3.0σ
 
         plugin = VWAPDeviationPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0

@@ -34,7 +34,18 @@ class TestLiquiditySweepReclaim:
             "ctf_score": 0.4,
         }
         plugin = LiquiditySweepReclaimPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "sweep_reclaim_long"
         assert result.get("direction") == 1
@@ -53,7 +64,18 @@ class TestLiquiditySweepReclaim:
             "atr_14": 12.0,
         }
         plugin = LiquiditySweepReclaimPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -65,6 +87,17 @@ class TestLiquiditySweepReclaim:
         df = make_ohlcv(close)
         features = {"sweep_detected": 0.0, "atr_14": 12.0}
         plugin = LiquiditySweepReclaimPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"

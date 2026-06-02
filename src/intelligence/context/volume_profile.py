@@ -179,9 +179,9 @@ class VolumeProfilePlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
+        i1 = frames.get("i1") or {}
+        close = float(df["close"].iloc[-1])
+        atr_14 = i1.get("atr_14")
         atr_valid = isinstance(atr_14, (int, float)) and atr_14 > 0
 
         # ----------------------------------------------------------------
