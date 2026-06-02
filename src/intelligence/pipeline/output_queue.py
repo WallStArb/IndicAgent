@@ -352,5 +352,7 @@ class OutputQueue:
                         )
                 raise
 
-            if first_exc is not None:
-                raise first_exc
+            # Intentionally do NOT re-raise first_exc here.
+            # The _publish_failures counter and error log above provide observability.
+            # Re-raising would terminate the drain loop on the first publish failure,
+            # silently dropping all remaining queued items.
