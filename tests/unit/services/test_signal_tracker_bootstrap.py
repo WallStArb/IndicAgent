@@ -86,6 +86,7 @@ def _make_agent():
     agent._active_symbols = set()
     agent._signal_states = {}
     agent._point_values = {}
+    agent._regime_cache = {}
     agent.logger = MagicMock()
     return agent
 
