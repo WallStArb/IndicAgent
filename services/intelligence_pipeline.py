@@ -55,6 +55,10 @@ from src.intelligence.pipeline import (
     SignalProcessor,
 )
 from src.intelligence.pipeline.output_queue import PRIORITY_HIGH, PRIORITY_LOW
+from src.intelligence.pipeline.per_key_worker_manager import (
+    _WORKER_COUNT_GAUGE,
+    _WORKER_QUEUE_DEPTH_GAUGE,
+)
 from src.intelligence.pipeline.state_manager import _CHECKPOINT_PATH
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
@@ -693,8 +697,27 @@ class IntelligencePipeline(BaseDaemon):
         )
 
     async def _health_monitor_loop(self) -> None:
+        """Emit per-key worker queue gauges every 10 seconds.
+
+        Gauges are DEFINED in per_key_worker_manager.py (single source of truth, D-25).
+        This loop IMPORTS and reuses them — it does NOT create new gauge objects.
+        """
         while self.running:
             await asyncio.sleep(10)
+            try:
+                mgr = getattr(self, "_worker_manager", None)
+                if mgr is None:
+                    continue
+                queues = getattr(mgr, "_queues", {})
+                depth_max = max((q.qsize() for q in queues.values()), default=0)
+                worker_count = len(queues)
+                _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
+                _WORKER_COUNT_GAUGE.set(worker_count, {})
+            except Exception as exc:
+                self.logger.warning(
+                    "health_monitor.gauge_emit_failed",
+                    error=str(exc),
+                )
 
     async def _handle_system_event(self, payload: dict) -> None:
         event_type = payload.get("type", "")
