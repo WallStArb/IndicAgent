@@ -4,8 +4,8 @@ milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
 stopped_at: context exhaustion at 76% (2026-06-02)
-last_updated: "2026-06-02T15:14:24.905Z"
-last_activity: 2026-06-02 -- Phase 112 planning complete
+last_updated: "2026-06-02T15:52:02.320Z"
+last_activity: 2026-06-02 -- Phase 112 execution started
 progress:
   total_phases: 21
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Milestone complete
+**Current focus:** Phase 112 — intelligence-pipeline-signal-integrity
 
 ## Current Position
 
-Phase: 095
-Plan: Complete (5/5)
-Status: Ready to execute
-Last activity: 2026-06-02 -- Phase 112 planning complete
+Phase: 112 (intelligence-pipeline-signal-integrity) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 112
+Last activity: 2026-06-02 -- Phase 112 execution started
 
 ## v2.7 Shipped Phases (COMPLETE — shipped 2026-05-26)
 
