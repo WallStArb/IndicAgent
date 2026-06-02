@@ -47,6 +47,11 @@ class Settings(BaseSettings):
         alias="INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE",
         description="Max items drained per OutputQueue iteration (PERF-06, Plan 03). Increased from 10→20 (Phase 107) to reduce output_queue.full_blocking warnings during high throughput.",
     )
+    output_queue_drain_ratio: int = Field(
+        default=5,
+        alias="OUTPUT_QUEUE_DRAIN_RATIO",
+        description="Weighted-fair drain ratio: drain up to RATIO high-priority items per 1 low-priority item (Phase 112 task 4-3). Default 5 prevents journal traffic from starving signals.",
+    )
     intelligence_pipeline_queue_maxsize: int = Field(
         default=100,
         alias="INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE",
