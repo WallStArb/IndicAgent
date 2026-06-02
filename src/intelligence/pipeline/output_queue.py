@@ -364,11 +364,14 @@ class OutputQueue:
             if batch_failures == len(batch):
                 consecutive_all_fail_batches += 1
                 if consecutive_all_fail_batches >= _DRAIN_BACKOFF_THRESHOLD:
-                    self._logger.warning(
-                        "output_queue.drain_backoff",
-                        consecutive_all_fail_batches=consecutive_all_fail_batches,
-                        backoff_sec=_DRAIN_BACKOFF_SECONDS,
-                    )
+                    if consecutive_all_fail_batches == _DRAIN_BACKOFF_THRESHOLD:
+                        self._logger.warning(
+                            "output_queue.drain_backoff",
+                            consecutive_all_fail_batches=consecutive_all_fail_batches,
+                            backoff_sec=_DRAIN_BACKOFF_SECONDS,
+                        )
                     await asyncio.sleep(_DRAIN_BACKOFF_SECONDS)
             else:
+                if consecutive_all_fail_batches >= _DRAIN_BACKOFF_THRESHOLD:
+                    self._logger.info("output_queue.drain_recovered")
                 consecutive_all_fail_batches = 0

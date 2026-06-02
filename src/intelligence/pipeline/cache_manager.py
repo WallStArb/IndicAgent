@@ -576,22 +576,23 @@ class CacheManager:
         try:
             import numpy as np
 
-            base = "SELECT setup_plugin, symbol, curve_data FROM calibration_curves"
+            base = "SELECT setup_plugin, timeframe, symbol, curve_data FROM calibration_curves"
             if self._symbol_filter is not None:
+                # Always include symbol='*' rows (global CIS fallback) regardless of filter.
                 rows = await self._db.execute_query(
-                    f"{base} WHERE symbol = ANY($1::text[])", list(self._symbol_filter)
+                    f"{base} WHERE (symbol = ANY($1::text[]) OR symbol = '*')",
+                    list(self._symbol_filter),
                 )
             else:
                 rows = await self._db.execute_query(base)
             curves: dict = {}
             for r in rows:
                 curve_data = r.get("curve_data") or {}
-                tf_val = curve_data.get("timeframe")
                 bp = curve_data.get("breakpoints")
                 vals = curve_data.get("values")
-                if not tf_val or not bp or not vals:
+                if not bp or not vals:
                     continue
-                key = (r["setup_plugin"], tf_val, r["symbol"] or "*")
+                key = (r["setup_plugin"], r["timeframe"], r["symbol"] or "*")
                 curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
             self._calibration_curves = curves
         except Exception as exc:
