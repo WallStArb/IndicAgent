@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import signal as _signal
+import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -69,35 +70,8 @@ logger = structlog.get_logger(__name__)
 _GRAD_MIN_N = 100  # minimum resolved signals before Spearman is computed
 _GRAD_DEMOTION_STREAK = 3  # consecutive negative-rho cycles to trigger demotion
 
-# Agent-to-transform mapping for LineageRecorder attribution (D-22).
-# Maps agent_id -> (transform_name, tier_level) for all four swarm agents.
-_SWARM_AGENT_TO_TRANSFORM: dict[str, tuple[str, int]] = {
-    "skeptic": ("swarm_skeptic", 6),
-    "correlation_v1": ("swarm_correlation", 6),
-    "regime_coherence_v1": ("swarm_regime_coherence", 6),
-    "counterfactual_v1": ("swarm_counterfactual", 6),
-    "ml_scorer_v1": ("swarm_ml_scorer", 6),
-}
-
-# Lead index mapping: ES -> NQ (per D-36 / D-37)
-# ES equities all route to NQ as the lead index.
-# Any symbol NOT in this map is its own lead (self-lead default).
-_LEAD_MAP: dict[str, str] = {"ES": "NQ"}
-
 # TF name -> minutes mapping for SWARM_MIN_TF_MINUTES gate.
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
-
-
-def _resolve_lead(symbol: str) -> str:
-    """Resolve the lead index for a given base symbol.
-
-    Args:
-        symbol: Base symbol (e.g. 'ES', 'NQ', 'CL')
-
-    Returns:
-        Lead base symbol. Returns symbol itself for unmapped symbols (self-lead).
-    """
-    return _LEAD_MAP.get(symbol, symbol)
 
 
 def _now_utc_iso() -> str:
@@ -311,6 +285,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
                   AND sl.source = $1
                   AND sl.multiplier IS NOT NULL
                   AND ledger.outcome IS NOT NULL
+                  AND ledger.pnl_r IS NOT NULL
                   AND sl.ts > NOW() - INTERVAL '30 days'
                 """,
                 agent_id,
@@ -331,13 +306,17 @@ class AlphaSwarm(BaseSwarmCoordinator):
                 multipliers = [g["multiplier"] for g in group]
                 pnl_rs = [g["pnl_r"] for g in group]
                 try:
-                    rho_result = stats.spearmanr(multipliers, pnl_rs)
-                    rho = (
-                        float(rho_result.correlation) if rho_result.correlation is not None else 0.0
+                    rho = float(stats.spearmanr(multipliers, pnl_rs).statistic)
+                except Exception as exc:
+                    self.logger.warning(
+                        "graduation.spearman_failed",
+                        agent_id=agent_id,
+                        tf=tf,
+                        n=n,
+                        error=str(exc),
                     )
-                except Exception:
                     rho = 0.0
-                if rho != rho:  # NaN guard
+                if rho != rho:  # NaN guard for constant inputs
                     rho = 0.0
                 weight = max(floor, 0.5 + rho)
 
@@ -491,16 +470,15 @@ class AlphaSwarm(BaseSwarmCoordinator):
             return
 
         # Confidence gate — skip low-quality signals to preserve LLM budget
-        signal_confidence = float(
-            raw_signal.get("confidence") or raw_signal.get("pre_quality_confidence") or 0.0
-        )
+        _conf = raw_signal.get("confidence")
+        if _conf is None:
+            _conf = raw_signal.get("pre_quality_confidence")
+        signal_confidence = float(_conf) if _conf is not None else 0.0
         if signal_confidence < self.settings.SWARM_MIN_CONFIDENCE:
             return
 
         symbol = raw_signal.get("symbol", "")
-        import time as _time
-
-        _dispatch_t0 = _time.monotonic()
+        _dispatch_t0 = time.monotonic()
 
         try:
             signal = signal_dict_to_ranked(raw_signal)
@@ -617,9 +595,9 @@ class AlphaSwarm(BaseSwarmCoordinator):
         SWARM_AGGREGATED_MULTIPLIER.record(final_multiplier, {"timeframe": tf})
 
         # Compute adjusted confidence
-        original_confidence = signal_dict.get("confidence") or signal_dict.get(
-            "pre_quality_confidence", 0.5
-        )
+        original_confidence = signal_dict.get("confidence")
+        if original_confidence is None:
+            original_confidence = signal_dict.get("pre_quality_confidence", 0.5)
         if not isinstance(original_confidence, (int, float)):
             original_confidence = 0.5
         adjusted_confidence = float(original_confidence) * final_multiplier
@@ -661,7 +639,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
             agent_count=agent_count,
         )
         SWARM_DISPATCH_SECONDS.record(
-            _time.monotonic() - _dispatch_t0, {"symbol": symbol, "timeframe": tf}
+            time.monotonic() - _dispatch_t0, {"symbol": symbol, "timeframe": tf}
         )
 
     async def _record_swarm_result(
@@ -700,7 +678,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
         else:
             segment_key = f"{int(hmm_regime)}.{enriched.timeframe}"
         is_error = not isinstance(result, AgentOutput) or bool(result.error)
-        multiplier = None if is_error else result.payload.get("multiplier", 1.0)
+        multiplier = None if is_error else result.payload.get("multiplier")
 
         self._lineage.record(
             signal_id=signal_id,
