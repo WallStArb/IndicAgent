@@ -92,11 +92,15 @@ Rings and the I1–I8 tiers are orthogonal. Rings describe portability. Tiers de
 - Ring 0 infrastructure bases keep `Base*`: `BaseDaemon`, `BaseWriter`, `BaseProvider`. They are shared implementation foundations.
 - Mathematical abstract types drop `Base*`: the abstract class IS the type. `Evaluator`, not `BaseEvaluator`.
 
-### `Agent` Is Fully Retired
+### `Agent` Retirement Rule
 
-Including from infrastructure base class names. No exceptions in class or file names.
+`Agent` is retired as a *mechanism word* — when it describes how something works rather than what it IS. `ComputeAgent`, `DataAgent`, `ProcessAgent`, `HelperAgent` all fail because they describe mechanism, not role.
 
-**`agent_id` operational exception:** The metric label `agent_id` and structlog field `agent_id` are preserved for compatibility with existing Grafana dashboards and OTel pipelines. This is a one-time legacy exception. All new metric labels and log fields use role-specific identifiers.
+`Agent` is **correct** when the object genuinely IS an autonomous AI agent: an LLM-driven worker that acts on its own judgment to produce a scored output. `AgentRegistry` (the registry of AI agents), `AgentSpec` (the YAML spec for an AI agent), `self._agents` (the list of AI agents in a group coordinator), and `agent_id` are all correct because the things they name are or directly describe AI agents.
+
+The test: can you replace "agent" with a more specific mathematical role name (`Evaluator`, `Synthesizer`, `Analyzer`) without losing meaning? If yes — use the specific name. If no — the object IS an agent and `agent` is appropriate.
+
+**`agent_id` operational note:** The metric label `agent_id` and structlog field `agent_id` are preserved for compatibility with existing Grafana dashboards and OTel pipelines.
 
 ---
 
@@ -180,9 +184,12 @@ taxonomy:
     rings: [2]
     inherits: BaseDaemon
   infrastructure_bases:
-    classes: [BaseDaemon, BaseWriter, BaseProvider, BaseAIWorker, BaseSwarmCoordinator]
-    rings: [0]
+    classes: [BaseDaemon, BaseWriter, BaseProvider, BaseAIWorker, BaseGroupCoordinator]
+    rings: [0, 1]
     base_prefix: permitted
+    note: >
+      BaseGroupCoordinator lives in Ring 1 (src/intelligence/ai/group_coordinator.py) because
+      it carries domain-specific shadow_registry and LLM chain wiring. All others are Ring 0.
   behavioral_mixins:
     suffix: Mixin
     rings: [0, 1]
@@ -388,7 +395,8 @@ src/core/
     BaseProvider           ingestion pattern: reconnect, gap detection
   ai/
     BaseAIWorker           LLM generation, audit trail, typed output
-    BaseSwarmCoordinator   group coordinator for parallel evaluator dispatch
+    BaseGroupCoordinator   group coordinator for parallel evaluator dispatch
+    AgentDependencies      typed DI container for AI agent construction
     WorkerContext          frozen execution context for one evaluator run
     LLMAdapter             Pydantic AI Model protocol bridge
     AIWorkerProtocol       protocol interface for AI workers
@@ -472,7 +480,7 @@ These do not change as part of any rename or refactor:
 - **DB column quant codes** — `ts`, `tf`, `pnl_r`, `mae`, `mfe` stay
 - **Plugin naming** — `PascalCasePlugin` stays
 - **Intelligence tier codes** — `I1`–`I8` stay in code, docs, metrics, and directory names
-- **Ring 0 `Base*` prefix** — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseSwarmCoordinator` keep `Base*`
+- **Ring 0/1 `Base*` prefix** — `BaseDaemon`, `BaseWriter`, `BaseProvider`, `BaseAIWorker`, `BaseGroupCoordinator` keep `Base*`
 - **`agent_id` metric label and structlog field** — stays for operational compatibility
 - **Systemd unit names** — updated mechanically when class/file names change, never independently
 
