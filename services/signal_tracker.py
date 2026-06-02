@@ -80,7 +80,15 @@ def _as_float(value: Any) -> float | None:
 
 @dataclass
 class SignalState:
-    """Per-signal in-memory tracking state for lifecycle evaluation."""
+    """Per-signal in-memory tracking state for lifecycle evaluation.
+
+    Mutable lifecycle fields (status, market_entry_price) live here so canonical
+    dicts in _active_index are read-only after ingestion (CONCERN-02 fix).
+    """
+
+    # Lifecycle state — mutated during evaluation; canonical dict is immutable
+    status: str = "pending"
+    market_entry_price: float = 0.0
 
     mae: float = 0.0
     mfe: float = 0.0
@@ -491,8 +499,13 @@ class SignalTracker(BaseDaemon):
             if pv is not None:
                 self._point_values[symbol] = float(pv)
 
-        state = SignalState()
-        if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
+        state = SignalState(
+            # Seed mutable lifecycle fields from canonical so they start correct.
+            # Canonical dict is NOT mutated after this point (CONCERN-02 fix).
+            status=str(canonical.get("status") or "pending"),
+            market_entry_price=float(canonical.get("market_entry_price") or 0.0),
+        )
+        if state.status == SignalStatus.ACTIVE and canonical.get("activated_at"):
             state.activated_at = canonical["activated_at"]
             # Restore chandelier state persisted in signal_outcomes (CONCERN-01 fix).
             # trailing_stop_price is a JSONB dict stored by _publish_chandelier_update.
@@ -608,14 +621,18 @@ class SignalTracker(BaseDaemon):
 
         for sig in list(signals):
             sid = str(sig.get("signal_id", ""))
-            status = sig.get("status")
-
-            # Skip already-expired signals
-            if status == SignalStatus.EXPIRED:
-                continue
 
             state = self._signal_states.get(sid)
             if state is None:
+                continue
+
+            # Read lifecycle status from SignalState — canonical dict is immutable
+            # after ingestion (CONCERN-02 fix). state.status is the authoritative
+            # mutable status; sig.get("status") is the fire-time snapshot only.
+            status = state.status
+
+            # Skip already-expired signals
+            if status == SignalStatus.EXPIRED:
                 continue
 
             # Active-bar counting: only count bars with actual price range (high != low).
@@ -628,17 +645,20 @@ class SignalTracker(BaseDaemon):
                     state.bars_since_activation += 1
             computed_bars = state.active_bars_elapsed
 
+            # Build evaluation dict — inject mutable state fields here so
+            # evaluate_signal() sees current status/market_entry_price WITHOUT
+            # modifying the canonical sig dict.
             sig_with_extras = {
                 **sig,
+                "status": state.status,
+                "market_entry_price": state.market_entry_price,
                 "point_value": point_value,
                 "bars_elapsed": computed_bars,
             }
 
             # --- Market-entry dual track (evaluate on EVERY bar) ---
-            try:
-                market_entry_price = float(sig.get("market_entry_price") or 0)
-            except (TypeError, ValueError):
-                market_entry_price = 0.0
+            # Read from state.market_entry_price — state is the sole mutable store
+            market_entry_price = state.market_entry_price
             if market_entry_price > 0:
                 try:
                     mkt = evaluate_market_entry(
@@ -654,7 +674,8 @@ class SignalTracker(BaseDaemon):
                         await self._publish_market_resolution(mkt, bar_time)
                         state.market_mae = 0.0
                         state.market_mfe = 0.0
-                        sig["market_entry_price"] = 0
+                        # Clear market entry price via state — never mutate canonical dict
+                        state.market_entry_price = 0.0
                     else:
                         pnl_now = (float(bar["close"]) - market_entry_price) * int(sig["direction"])
                         risk_m = abs(
@@ -754,8 +775,8 @@ class SignalTracker(BaseDaemon):
                 state.mae = 0.0
                 state.mfe = 0.0
                 state.bars_since_activation = 0
-                # Update signal status in index for future evaluations
-                sig["status"] = SignalStatus.ACTIVE
+                # Update status via SignalState — never mutate canonical dict (CONCERN-02)
+                state.status = SignalStatus.ACTIVE
 
             elif transition.exit_reason:
                 # Compute bars_in_trade if available
