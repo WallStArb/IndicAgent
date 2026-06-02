@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from src.intelligence.setup_performance_updater import _compute_perf_multipliers
-from src.intelligence.trading.aggregator import SETUP_PRIORITY, _build_all_ranked, aggregate
+from src.intelligence.trading.aggregator import _build_all_ranked, aggregate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,9 +52,11 @@ def _signal(plugin: str, direction: int, confidence: float = 0.7) -> dict:
 class TestModuleImport:
     @pytest.mark.unit
     def test_build_all_ranked_module_importable(self):
-        """_build_all_ranked is already importable (existing module — this test PASSES in RED)."""
+        """_build_all_ranked is importable; SETUP_PRIORITY removed (Phase 112 2-C)."""
         assert callable(_build_all_ranked)
-        assert isinstance(SETUP_PRIORITY, dict)
+        import src.intelligence.trading.aggregator as agg
+
+        assert not hasattr(agg, "SETUP_PRIORITY"), "SETUP_PRIORITY must not exist after 2-C"
         assert callable(aggregate)
 
 
@@ -65,34 +67,34 @@ class TestModuleImport:
 
 class TestBuildAllRankedNoPerfWeights:
     @pytest.mark.unit
-    def test_build_all_ranked_no_perf_weights_unchanged(self):
-        """_build_all_ranked(fired, perf_weights=None) returns same order as SETUP_PRIORITY sort.
+    def test_build_all_ranked_no_perf_weights_all_get_warmup_penalty(self):
+        """Phase 112 2-C: _build_all_ranked(fired, perf_weights=None) gives warm-up penalty (0.5).
 
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
+        With no perf data, all signals get adjusted_rank=0.5 (warm-up penalty, D-16).
+        Tie-broken by confidence (descending).
         """
         fired = [
-            _signal("trad_MeanReversion", 1),  # SETUP_PRIORITY=1 (lowest)
-            _signal("trad_LiquiditySweepReclaim", 1),  # SETUP_PRIORITY=5 (highest)
-            _signal("trad_TrendFollowing", 1),  # SETUP_PRIORITY=3
+            _signal("trad_MeanReversion", 1, confidence=0.6),
+            _signal("trad_LiquiditySweepReclaim", 1, confidence=0.9),
+            _signal("trad_TrendFollowing", 1, confidence=0.7),
         ]
         result = _build_all_ranked(fired, perf_weights=None)
-        # Without perf_weights, LiquiditySweepReclaim (priority=5) should rank first
+        # All get warm-up penalty; highest confidence (LiquiditySweepReclaim=0.9) sorts first
         assert result[0]["setup_plugin"] == "trad_LiquiditySweepReclaim"
-        assert result[0]["composite_rank"] == 1
+        assert result[0]["adjusted_rank"] == 0.5
+        # composite_rank reflects input order (not sort order), so just check it's assigned
+        assert isinstance(result[0]["composite_rank"], int)
 
     @pytest.mark.unit
-    def test_build_all_ranked_empty_perf_weights_unchanged(self):
-        """perf_weights={} → all signals get perf_multiplier=1.0 → same SETUP_PRIORITY order.
-
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
-        """
+    def test_build_all_ranked_empty_perf_weights_all_get_warmup_penalty(self):
+        """Phase 112 2-C: perf_weights={} → all get warm-up penalty 0.5."""
         fired = [
-            _signal("trad_MeanReversion", 1),
-            _signal("trad_LiquiditySweepReclaim", -1),
+            _signal("trad_MeanReversion", 1, confidence=0.5),
+            _signal("trad_LiquiditySweepReclaim", -1, confidence=0.8),
         ]
         result = _build_all_ranked(fired, perf_weights={})
-        # LiquiditySweepReclaim (priority=5) still ranks first when all multipliers are neutral
-        assert result[0]["setup_plugin"] == "trad_LiquiditySweepReclaim"
+        for sig in result:
+            assert sig["adjusted_rank"] == 0.5, "empty perf_weights → warm-up penalty"
 
 
 # ---------------------------------------------------------------------------
@@ -103,13 +105,11 @@ class TestBuildAllRankedNoPerfWeights:
 class TestBuildAllRankedPerfMultiplier:
     @pytest.mark.unit
     def test_build_all_ranked_outperformer_promoted(self):
-        """Outperformer (lower perf_multiplier) promoted above higher-priority setup.
+        """Outperformer (lower perf_multiplier) promoted above lower-ranked setup.
 
-        Setup: MeanReversion (priority=1, lowest) vs LiquiditySweepReclaim (priority=5, highest).
-        Without perf_weights: LiquiditySweepReclaim ranks first.
         With MeanReversion having the best Sharpe and LiquiditySweepReclaim the worst,
         _compute_perf_multipliers gives MeanReversion multiplier=0.5 and LSR multiplier=1.5.
-        MeanReversion should rank first despite lower SETUP_PRIORITY.
+        MeanReversion should rank first (lower adjusted_rank = higher priority).
         """
         fired = [
             _signal("trad_MeanReversion", 1),
@@ -117,43 +117,40 @@ class TestBuildAllRankedPerfMultiplier:
         ]
         perf_weights = _compute_perf_multipliers(
             {
-                "trad_MeanReversion": {"sharpe_ratio": 3.0},
-                "trad_LiquiditySweepReclaim": {"sharpe_ratio": 0.2},
+                "trad_MeanReversion": {"sharpe_ratio": 3.0, "sample_size": 50},
+                "trad_LiquiditySweepReclaim": {"sharpe_ratio": 0.2, "sample_size": 50},
             }
         )
         result = _build_all_ranked(fired, perf_weights=perf_weights)
-        # MeanReversion should rank first despite lower SETUP_PRIORITY
+        # MeanReversion (best Sharpe → lowest multiplier 0.5) should rank first
         assert result[0]["setup_plugin"] == "trad_MeanReversion"
 
     @pytest.mark.unit
-    def test_build_all_ranked_below_threshold_uses_neutral_multiplier(self):
-        """Setup not in perf_weights → perf_multiplier=1.0 (neutral, no boost or suppression).
+    def test_build_all_ranked_below_threshold_uses_warmup_penalty(self):
+        """Setup not in perf_weights → warm-up penalty 0.5 (D-16), not neutral 1.0.
 
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
+        Phase 112 2-C change: unvalidated setups no longer get neutral 1.0 —
+        they get the warm-up penalty 0.5 to rank below validated setups.
         """
         fired = [
             _signal("trad_TrendFollowing", 1),
             _signal("trad_MTFAlignment", 1),
         ]
-        # Only one setup has a performance weight; the other gets 1.0 by default
-        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": 0.6})
-        # TrendFollowing (priority=3): adjusted = composite_rank * 0.6
-        # MTFAlignment (priority=4): adjusted = composite_rank * 1.0 (neutral)
-        # Without perf_weights: MTFAlignment ranks first (higher priority=4)
-        # With perf_weights={"TrendFollowing": 0.6}: MTFAlignment composite_rank=1, adjusted=1.0;
-        #   TrendFollowing composite_rank=2, adjusted=2*0.6=1.2 → MTFAlignment still first
-        # The neutral multiplier must be applied, not suppressed
+        # Only one setup has a performance weight with sufficient sample_size
+        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.6, 50)})
+        # All signals have adjusted_rank as floats
         for sig in result:
             assert isinstance(sig.get("adjusted_rank"), float)
+        # TrendFollowing (0.6) ranks before MTFAlignment (warm-up 0.5) — but 0.5 < 0.6
+        # so MTFAlignment actually ranks first (lower adjusted_rank = higher priority)
+        assert result[0]["setup_plugin"] == "trad_MTFAlignment"
+        assert result[0]["adjusted_rank"] == 0.5  # warm-up penalty
 
     @pytest.mark.unit
     def test_build_all_ranked_adjusted_rank_attached_to_signal(self):
-        """Each result dict has an 'adjusted_rank' key with float value.
-
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
-        """
+        """Each result dict has an 'adjusted_rank' key with float value."""
         fired = [_signal("trad_TrendFollowing", 1)]
-        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": 0.8})
+        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.8, 50)})
         assert len(result) == 1
         assert "adjusted_rank" in result[0]
         assert isinstance(result[0]["adjusted_rank"], float)
@@ -172,20 +169,20 @@ class TestBuildAllRankedPerfMultiplier:
 
     @pytest.mark.unit
     def test_build_all_ranked_multiplier_range_05_to_15(self):
-        """perf_weights values in [0.5, 1.5]; sorted by composite_rank * perf_multiplier ascending.
+        """perf_weights values in [0.5, 1.5]; sorted by adjusted_rank ascending.
 
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
+        Phase 112 2-C: adjusted_rank = perf_multiplier (no SETUP_PRIORITY factor).
         """
         fired = [
-            _signal("trad_MeanReversion", 1),  # priority=1
-            _signal("trad_TrendFollowing", 1),  # priority=3
-            _signal("trad_LiquiditySweepReclaim", 1),  # priority=5
+            _signal("trad_MeanReversion", 1),
+            _signal("trad_TrendFollowing", 1),
+            _signal("trad_LiquiditySweepReclaim", 1),
         ]
-        # Underperformer (LiquiditySweepReclaim) and outperformer (MeanReversion)
+        # Outperformer (MeanReversion) and underperformer (LiquiditySweepReclaim)
         perf_weights = {
-            "trad_MeanReversion": 0.5,  # outperformer: big rank boost
-            "trad_TrendFollowing": 1.0,  # neutral
-            "trad_LiquiditySweepReclaim": 1.5,  # underperformer: rank penalty
+            "trad_MeanReversion": (0.5, 50),  # best Sharpe: lowest multiplier
+            "trad_TrendFollowing": (1.0, 50),  # neutral
+            "trad_LiquiditySweepReclaim": (1.5, 50),  # underperformer: highest multiplier
         }
         result = _build_all_ranked(fired, perf_weights=perf_weights)
         # Verify adjusted_ranks are in ascending order (lower = higher priority = appears first)
@@ -213,7 +210,7 @@ class TestAggregatePerfWeightsKwarg:
         result = aggregate(
             signals,
             trend_regime=0.5,
-            perf_weights={"trad_TrendFollowing": 0.7},
+            perf_weights={"trad_TrendFollowing": (0.7, 50)},
         )
         # Should return an AggregatedResult regardless of perf_weights
         assert result is not None

@@ -3,7 +3,6 @@
 import pytest
 
 from src.intelligence.trading.aggregator import (
-    SETUP_PRIORITY,
     TREND_SETUPS,
     AggregatedResult,
     _build_all_ranked,
@@ -72,22 +71,27 @@ class TestAggregateSoleSignal:
 
 class TestAggregateSameDirection:
     @pytest.mark.unit
-    def test_priority_wins_among_same_direction(self):
-        """Multiple longs -> highest priority setup wins."""
+    def test_confidence_wins_among_same_direction_no_perf_data(self):
+        """Phase 112 2-C: Multiple longs with no perf data -> highest confidence setup wins.
+
+        Without perf_weights (SETUP_PRIORITY removed), all setups get warm-up penalty (0.5).
+        Tiebreak is confidence descending — highest confidence wins.
+        """
         trend = _signal("trad_TrendFollowing", 1, confidence=0.9)
         mean_rev = _signal("trad_MeanReversion", 1, confidence=0.95)
         result = aggregate([trend, mean_rev], trend_regime=0.6)
-        assert result.selected_signal["setup_plugin"] == "trad_TrendFollowing"
-        assert result.resolution_method == "priority"
+        # Both get warm-up penalty 0.5; MeanReversion wins by confidence (0.95 > 0.9)
+        assert result.selected_signal["setup_plugin"] == "trad_MeanReversion"
         assert result.num_agreeing == 2
 
     @pytest.mark.unit
-    def test_liq_sweep_wins_over_all(self):
-        """LiquiditySweepReclaim has highest priority."""
+    def test_higher_confidence_wins_over_lower_confidence_no_perf_data(self):
+        """Phase 112 2-C: Without perf data, confidence tiebreak determines winner."""
         liq = _signal("trad_LiquiditySweepReclaim", 1, confidence=0.6)
         mtf = _signal("trad_MTFAlignment", 1, confidence=0.9)
         result = aggregate([liq, mtf], trend_regime=0.6)
-        assert result.selected_signal["setup_plugin"] == "trad_LiquiditySweepReclaim"
+        # Both get warm-up penalty 0.5; MTFAlignment wins by confidence (0.9 > 0.6)
+        assert result.selected_signal["setup_plugin"] == "trad_MTFAlignment"
 
     @pytest.mark.unit
     def test_confidence_boosted_by_agreement(self):
@@ -164,18 +168,14 @@ class TestAggregatedResultMetadata:
 
 class TestSetupPriority:
     @pytest.mark.unit
-    def test_priority_order(self):
-        """Core setups have correct relative priority: LiqSweep > MTF > Trend > Squeeze > MeanRev."""
-        p = SETUP_PRIORITY
-        assert p["trad_LiquiditySweepReclaim"] > p["trad_MTFAlignment"]
-        assert p["trad_MTFAlignment"] > p["trad_TrendFollowing"]
-        assert p["trad_TrendFollowing"] > p["trad_SqueezeExpansion"]
-        assert p["trad_SqueezeExpansion"] > p["trad_MeanReversion"]
-        # All 36 TIER_I7 plugins must be present
-        from src.intelligence.register_plugins import TIER_I7
+    def test_priority_removed(self):
+        """Phase 112 2-C: SETUP_PRIORITY removed. Verify it no longer exists on aggregator."""
+        import src.intelligence.trading.aggregator as agg_module
 
-        missing = [name for name in TIER_I7 if name not in p]
-        assert missing == [], f"Plugins missing from SETUP_PRIORITY: {missing}"
+        assert not hasattr(agg_module, "SETUP_PRIORITY"), (
+            "SETUP_PRIORITY should not exist after Phase 112 2-C removal. "
+            "Ranking is now fully data-driven via perf_multiplier."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -264,13 +264,14 @@ class TestAggregateCISIntegration:
             assert result.selected_signal["direction"] == 1
 
     @pytest.mark.unit
-    def test_aggregate_falls_back_to_priority_when_cis_neutral(self):
-        """When features=None, fallback to winner-pick; existing behavior preserved."""
+    def test_aggregate_falls_back_to_confidence_when_cis_neutral(self):
+        """Phase 112 2-C: When features=None, fallback to confidence tiebreak (SETUP_PRIORITY removed)."""
         trend = _signal("trad_TrendFollowing", 1, confidence=0.9)
         mean_rev = _signal("trad_MeanReversion", 1, confidence=0.95)
         result = aggregate([trend, mean_rev], trend_regime=0.6, features=None)
-        # Without features, falls back to priority-pick
-        assert result.selected_signal["setup_plugin"] == "trad_TrendFollowing"
+        # Without features and no perf_weights, both get warm-up penalty 0.5.
+        # MeanReversion wins by confidence tiebreak (0.95 > 0.9).
+        assert result.selected_signal["setup_plugin"] == "trad_MeanReversion"
         assert result.resolution_method in ("priority", "sole")
 
     @pytest.mark.unit
