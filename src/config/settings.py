@@ -52,6 +52,23 @@ class Settings(BaseSettings):
         alias="OUTPUT_QUEUE_DRAIN_RATIO",
         description="Weighted-fair drain ratio: drain up to RATIO high-priority items per 1 low-priority item (Phase 112 task 4-3). Default 5 prevents journal traffic from starving signals.",
     )
+    tier_budget_ms: dict[str, float] = Field(
+        default_factory=lambda: {
+            "i1": 50.0,  # I1 indicators: 28 plugins, mostly fast numpy; 50ms budget
+            "i2": 30.0,  # I2 composite events: 10 plugins; 30ms budget
+            "i3": 30.0,  # I3 structure: 8 plugins; 30ms budget
+            "i4": 60.0,  # I4 context: 12 plugins (GARCH/Kalman are stateful); 60ms budget
+            "i5": 40.0,  # I5 patterns: 16 plugins; 40ms budget
+            "smc": 50.0,  # SMC: 16 plugins (HMM regime is stateful); 50ms budget
+            "i6": 20.0,  # I6 confluence: 6 plugins; 20ms budget
+        },
+        alias="TIER_BUDGET_MS",
+        description=(
+            "Per-tier millisecond deadline budgets (Phase 112 task 5-1, D-12). "
+            "On a deadline miss: non-stateful plugins carry forward previous-bar output; "
+            "stateful plugins (supports_incremental=True) run anyway with a WARNING log."
+        ),
+    )
     intelligence_pipeline_queue_maxsize: int = Field(
         default=100,
         alias="INTELLIGENCE_PIPELINE_QUEUE_MAXSIZE",
