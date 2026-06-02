@@ -105,6 +105,9 @@ class SignalState:
     activated_at: datetime | None = None
     active_bars_elapsed: int = 0
     bars_since_activation: int = 0
+    # Count of active-bar evaluations for MAE/MFE periodic publish trigger (every 10 bars).
+    # Incremented only when signal is ACTIVE and bar has real price range (high != low).
+    active_bar_count: int = 0
 
 
 class SignalTracker(BaseDaemon):
@@ -536,6 +539,12 @@ class SignalTracker(BaseDaemon):
             # Canonical dict is NOT mutated after this point (CONCERN-02 fix).
             status=str(canonical.get("status") or "pending"),
             market_entry_price=float(canonical.get("market_entry_price") or 0.0),
+            # Bootstrap MAE/MFE from signal_outcomes (1-I / D-18): signal_ledger_full
+            # LEFT JOINs signal_outcomes and exposes so.mae, so.mfe. Seeding here
+            # ensures a service restart does not zero running MAE/MFE.
+            # For live signals (not bootstrapped from DB), both default to 0.0 which is correct.
+            mae=float(canonical.get("mae") or 0.0),
+            mfe=float(canonical.get("mfe") or 0.0),
         )
         if state.status == SignalStatus.ACTIVE and canonical.get("activated_at"):
             state.activated_at = canonical["activated_at"]
@@ -675,6 +684,8 @@ class SignalTracker(BaseDaemon):
                 state.active_bars_elapsed += 1
                 if status == SignalStatus.ACTIVE:
                     state.bars_since_activation += 1
+                    # active_bar_count: tracks ACTIVE-only bars for MAE/MFE periodic publish
+                    state.active_bar_count += 1
             computed_bars = state.active_bars_elapsed
 
             # Build evaluation dict — inject mutable state fields here so
@@ -799,6 +810,17 @@ class SignalTracker(BaseDaemon):
                             await self._publish_chandelier_update(
                                 sid, symbol, timeframe, state, bar_time
                             )
+                    # MAE/MFE persist trigger (1-I / D-18): publish when threshold crossed
+                    # AND every 10th active bar. Payload verified against
+                    # repo.batch_execute("mae_mfe_update") in SignalLedgerRepository —
+                    # handler extracts signal_id, mae, mfe (lines ~797-799 of repository).
+                    if (
+                        is_active_bar
+                        and state.active_bar_count > 0
+                        and state.active_bar_count % 10 == 0
+                        and (abs(state.mae) > 0.05 or abs(state.mfe) > 0.05)
+                    ):
+                        await self._publish_mae_mfe_update(sid, symbol, timeframe, state, bar_time)
                 continue
 
             # --- Transition occurred ---
@@ -960,6 +982,34 @@ class SignalTracker(BaseDaemon):
         )
         await self._publish_transition(lt)
 
+    async def _publish_mae_mfe_update(
+        self,
+        signal_id: str,
+        symbol: str,
+        timeframe: str,
+        state: SignalState,
+        bar_time: datetime,
+    ) -> None:
+        """Publish a MAE_MFE_UPDATE transition to Kafka for persistence.
+
+        Payload fields verified against SignalLedgerRepository.batch_execute(
+        "mae_mfe_update") — handler extracts signal_id, mae, mfe.
+        Published when abs(mae|mfe) > 0.05 AND every 10th active bar (1-I / D-18).
+        """
+        lt = LifecycleTransition(
+            transition_type=TransitionType.MAE_MFE_UPDATE,
+            signal_id=signal_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            bar_ts=bar_time,
+            data={
+                "signal_id": signal_id,
+                "mae": state.mae,
+                "mfe": state.mfe,
+            },
+        )
+        await self._publish_transition(lt)
+
     async def _publish_market_resolution(self, mkt: MarketTransition, bar_time: datetime) -> None:
         """Publish market-track resolution as a LifecycleTransition to Kafka."""
         lt = LifecycleTransition(
@@ -1051,7 +1101,9 @@ class SignalTracker(BaseDaemon):
                    sl.hmm_regime_at_fire,
                    sl.expires_at,
                    sl.trailing_stop_price,
-                   sl.chandelier_vol_source
+                   sl.chandelier_vol_source,
+                   sl.mae,
+                   sl.mfe
             FROM signal_ledger_full sl
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')
@@ -1064,6 +1116,7 @@ class SignalTracker(BaseDaemon):
 
                 # If we got rows, load them and succeed
                 if rows:
+                    _regime_cache_collisions: dict[tuple, int] = {}
                     for row in rows:
                         raw = dict(row)
                         # asyncpg returns datetime objects for timestamptz — pass directly
@@ -1077,11 +1130,35 @@ class SignalTracker(BaseDaemon):
                         self._add_to_active_index(canonical)
                         self._signal_ids.add(canonical["signal_id"])
 
+                        # Regime cache bootstrap (1-J / D-19): seed _regime_cache from
+                        # fire-time regime data so the first live bars after restart are
+                        # not regime-blind. Uses same dict shape as the live update site
+                        # near _ingest_i7_payload (_regime_cache[(symbol, tf)] = {...}).
+                        # This is a coarse fire-time approximation that self-corrects on
+                        # the first live i7.signals message (which overwrites the entry).
+                        # Last-writer-wins across multiple signals sharing a (symbol, tf).
+                        symbol = canonical.get("symbol", "")
+                        tf = canonical.get("timeframe", "")
+                        hmm_at_fire = canonical.get("hmm_regime_at_fire")
+                        garch_at_fire = canonical.get("garch_sigma_at_fire")
+                        if symbol and tf and (hmm_at_fire is not None or garch_at_fire is not None):
+                            cache_key = (symbol, tf)
+                            if cache_key in self._regime_cache:
+                                _regime_cache_collisions[cache_key] = (
+                                    _regime_cache_collisions.get(cache_key, 1) + 1
+                                )
+                            self._regime_cache[cache_key] = {
+                                "hmm_regime": hmm_at_fire,
+                                "garch_sigma": garch_at_fire,
+                            }
+
                     total = sum(len(v) for v in self._active_index.values())
                     self.logger.info(
                         "bootstrap_complete",
                         signals=total,
                         symbols=len(self._active_symbols),
+                        regime_cache_entries=len(self._regime_cache),
+                        regime_cache_collisions=sum(_regime_cache_collisions.values()),
                         attempt=attempt + 1,
                     )
                     return
