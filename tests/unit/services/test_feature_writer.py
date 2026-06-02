@@ -110,7 +110,7 @@ def test_parse_payload_returns_list_for_valid_record():
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], tuple)
-    assert len(result[0]) == 31
+    assert len(result[0]) == 32
 
 
 def test_parse_payload_returns_none_for_invalid_json():
@@ -130,15 +130,15 @@ def test_parse_payload_returns_none_for_invalid_json():
 # ── _record_to_insert_params ──────────────────────────────────────────────────
 
 
-def test_record_to_insert_params_returns_31_tuple():
-    """_record_to_insert_params returns a 31-element tuple matching SQL columns."""
+def test_record_to_insert_params_returns_32_tuple():
+    """_record_to_insert_params returns a 32-element tuple matching SQL columns."""
     from services.feature_writer import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
     assert isinstance(params, tuple)
-    assert len(params) == 31
+    assert len(params) == 32
 
 
 def test_record_to_insert_params_serializes_ranked_signals_to_list():

@@ -26,6 +26,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_signal_writer_dlq,
 )
+from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, validate_signal
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
@@ -233,6 +234,11 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 bucket_scores=sig.get("bucket_scores"),
                 weights_version=sig.get("weights_version"),
                 expires_at=expires_at_val,
+                # feature_schema_version: not yet carried in i7 signals Kafka payload
+                # (signal_processor.py signals_payload does not include this field).
+                # Default to FEATURE_SCHEMA_VERSION constant so all post-deploy signals
+                # are stamped as clean. Trace gap documented in 112-01-SUMMARY.md.
+                feature_schema_version=FEATURE_SCHEMA_VERSION,
             )
         )
     return entries

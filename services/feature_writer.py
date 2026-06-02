@@ -71,6 +71,7 @@ INSERT INTO intelligence_features (
     signals_after_tod, signals_after_calibration,
     ledger_written, pipeline_latency_ms,
     i7_computed_at, session_type, days_to_expiry,
+    feature_schema_version,
     ctx
 )
 VALUES (
@@ -83,6 +84,7 @@ VALUES (
     $25, $26,
     $27, $28,
     $29, $30, $31,
+    $32,
     (
         SELECT jsonb_object_agg(event_type, ctx ORDER BY event_type)
         FROM ctx_snapshots
@@ -166,7 +168,7 @@ def _record_to_insert_params(
     expiry_map: dict[str, date] | None = None,
     cross_asset_snapshot: dict | None = None,
 ) -> tuple:
-    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
+    """Build a 32-element tuple of INSERT parameters for _INSERT_FEATURE_SQL."""
     event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
@@ -209,6 +211,7 @@ def _record_to_insert_params(
         record.i7_computed_at,  # $29 i7_computed_at
         session_type_val,  # $30 session_type
         days,  # $31 days_to_expiry
+        event.feature_schema_version,  # $32 feature_schema_version (contamination boundary)
     )
 
 
