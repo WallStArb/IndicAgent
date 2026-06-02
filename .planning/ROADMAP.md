@@ -654,17 +654,16 @@ Plans:
   3. Memory is gated behind `ZEP_MEMORY_ENABLED` feature flag; disabled by default; enabled only after shadow-mode recall quality is validated
   4. Memory latency is measured per-call via OTel histogram; recall must complete within 50ms p95 to remain within agent `latency_budget_ms`
 
-**Plans:** 7 plans in 3 waves
+**Plans:** 6 plans in 3 waves
 
 Plans:
 
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
+- [ ] 097-01-PLAN.md — DB migration: 6 memory tables + 3 ENUMs + indexes + hypertables + compression policies
+- [ ] 097-02-PLAN.md — Core types (Episode/CalibrationStats/RegimeHistory) + 4 backend Protocols + AGENT_MEMORY_ENABLED + config/memory.yaml + 6 OTel metrics
+- [ ] 097-03-PLAN.md — EmbeddingService + Pgvector episodic/calibration/regime read backends
+- [ ] 097-04-PLAN.md — Mem0 backend + MemoryClient facade + MemoryEpisodeWriter/EmbeddingWorker + WorkerContext wiring
+- [ ] 097-05-PLAN.md — memory_batch.py 4-step nightly orchestrator + systemd timer/service + _DAG_ORDER registration
+- [ ] 097-06-PLAN.md — Unit tests for MemoryClient, MemoryEpisodeWriter, EmbeddingService (CI-clean)
 
 ### Phase 098: DSPy Offline Prompt Optimizer
 
@@ -1505,4 +1504,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete   | 2026-06-02 |
+| 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
