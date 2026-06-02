@@ -1299,6 +1299,34 @@ Plans:
 
 </details>
 
+### Phase 112: Intelligence Pipeline Signal Integrity
+
+**Goal**: Establish a forensic contamination boundary and fix 22 data integrity defects across the intelligence pipeline and signal lifecycle — calibration category error, quality floor absence, PERF-03 incomplete migration, SETUP_PRIORITY static bias, lifecycle mutable dicts, backfill outcome labeling, MAE/MFE persistence, regime cache cold-start, wave isolation, dual-write legacy access, output queue starvation, and latency hot-path — so every row written after Phase 0 deploy carries a `feature_schema_version = 2` clean-data guarantee and downstream ML training operates on verified, uncontaminated data.
+**Depends on**: Phase 111
+**Requirements**: PIPE-INT-01, PIPE-INT-02, PIPE-INT-03, PIPE-INT-04, PIPE-INT-05
+**Success Criteria** (what must be TRUE):
+
+  1. Phase 0 atomic commit ships: `feature_schema_version = 2` in `IntelligenceEvent` + `intelligence_features` migration + `signal_ledger` migration + `signal_ledger_full` view updated + `CHECKPOINT_VERSION = 2` + `setup_performance` reset to neutral (perf_multiplier=1.0, sample_size=0 for all pre-fix rows)
+  2. Calibration routes correctly: `apply_calibration` removed from `SignalProcessor.process()`; applied to filtered CIS inside `CISScorer.score()`; `calibrated_confidence` stamped from `cis_result.calibrated_cis`; quality floor empirically derived from win_rate query with `SIGNAL_MIN_PUBLISHABLE_CONFIDENCE` setting; `SETUP_PRIORITY` dict removed from ranker and aggregator; `long_bias=False` with confidence secondary tiebreak; all ships atomically
+  3. PERF-03 migration complete: `_state_migration_complete: ClassVar[bool]` on `PatternPlugin`; `PluginExecutor.__init__` raises named `RuntimeError` for any incremental plugin without confirmation; all legacy plugins audited and migrated
+  4. Signal lifecycle integrity: `status` and `market_entry_price` moved to `SignalState` (no canonical dict mutations); MAE/MFE persisted via `MAE_MFE_UPDATE` transition; regime cache seeded from bootstrap; backfill signals routed to `SignalReplayAuditor` not `ttl_expired_behind`; consumer `auto_offset_reset = "earliest"`
+  5. Architecture and latency: `frames["features"]` dual-write eliminated; wave isolation regression test passes; output queue weighted-fair drain (5:1); serialization JSON anti-pattern fixed; ML training queries gated on `feature_schema_version >= 2`
+
+**Plans**: TBD (5 waves matching spec phases 0-4)
+
+Plans:
+
+- [ ] 112-01-PLAN.md — Wave 1: Phase 0 forensic boundary (migrations, version markers, setup_performance reset, checkpoint flush)
+- [ ] 112-02-PLAN.md — Wave 2: Phase 1A critical logic fixes (calibration routing, quality floor, field alias map, PERF-03 class attr + executor gate, long_bias=False + SETUP_PRIORITY removal) — ships atomically
+- [ ] 112-03-PLAN.md — Wave 3: Phase 1B lifecycle fixes (CONCERN-02 mutable dicts, backfill routing, MAE/MFE persistence, regime cache, consumer offset reset)
+- [ ] 112-04-PLAN.md — Wave 4: Phase 2 architecture (wave isolation docs + test, features dual-write elimination, output queue weighted-fair, health loop, circuit breakers, queue depth metrics)
+- [ ] 112-05-PLAN.md — Wave 5: Phase 3+4 latency + data remediation (fast-path protocol, serialization fix, batch enqueue, tier deadlines, flat features, ML training filters, calibration retraining gate, setup_performance window gate)
+
+**Cross-cutting constraints:**
+
+- `SIGNAL_SCHEMA_VERSION` bump ships at end of Wave 2 (1-F + 2-C) — NOT in Wave 1; see spec 0-C
+- `pytest tests/unit/ -q` passes; `ruff check .` clean after each wave
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -1477,3 +1505,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
+| 112. Intelligence Pipeline Signal Integrity | v2.8 | 0/TBD | Not started | - |
