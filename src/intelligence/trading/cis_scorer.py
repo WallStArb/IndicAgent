@@ -20,6 +20,9 @@ import numpy as np
 
 from src.intelligence.utils import clamp
 
+# Type alias for calibration curves dict (matches calibrator.py type)
+type CalibrationCurves = dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]]
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -68,6 +71,9 @@ class CISResult:
     # Per-constituent contributions to final CIS score
     # {bucket: {signal_name: actual_contribution_to_cis_score}}
     constituent_contributions: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Design B: calibrated CIS score (isotonic applied to Kalman-filtered CIS).
+    # None when no calibration curve is available for this (tf, symbol).
+    calibrated_cis: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +102,12 @@ class CISScorer:
         self._weights_version = weights_version
         # Pre-compute weights array once — self._weights is immutable after init
         self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
+        # Calibration curves for CIS-level calibration (Design B).
+        # Set via set_calibration_curves(); empty dict = passthrough.
+        self._calibration_curves: CalibrationCurves = {}
+        # Per-(tf, symbol) Kalman state for CIS smoothing (Design B: moved from SignalProcessor).
+        # Keys: (tf, symbol), values: {"x": float, "P": float, "Q": float, "R": float}
+        self._cis_kalman_state: dict[tuple[str, str], dict] = {}
 
     def update_weights(self, weights: dict[str, float], version: int) -> None:
         """Runtime weight hot-swap. Called from service layer only.
@@ -114,16 +126,65 @@ class CISScorer:
         self._weights_version = version
         self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
 
+    def set_calibration_curves(self, curves: CalibrationCurves) -> None:
+        """Update CIS-level calibration curves (Design B).
+
+        Called by orchestrator when cache_snapshot.calibration_curves changes.
+        The GIL protects dict assignment — no asyncio.Lock needed.
+
+        Parameters
+        ----------
+        curves:
+            Dict keyed by (plugin_name_or_sentinel, tf, symbol) →
+            (breakpoints, values) numpy arrays. Use "_cis_" as plugin_name_or_sentinel
+            for CIS-level curves. Empty dict = passthrough.
+        """
+        self._calibration_curves = curves
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def get_kalman_state(self) -> dict:
+        """Return defensive copy of CIS Kalman state for checkpoint.
+
+        New format: {(tf, symbol): {"x": float, "P": float, "Q": float, "R": float}}
+        Legacy (pre-Design-B) format: {str: float} — returned as-is.
+        """
+        result = {}
+        for k, v in self._cis_kalman_state.items():
+            result[k] = dict(v) if isinstance(v, dict) else v
+        return result
+
+    def restore_kalman_state(self, state: dict) -> None:
+        """Restore CIS Kalman state from checkpoint.
+
+        Accepts the new format {(tf, symbol): dict} and gracefully handles
+        legacy checkpoint format (arbitrary string keys with non-dict values)
+        by storing them as-is for backward compatibility.
+        """
+        for k, v in state.items():
+            if isinstance(v, dict):
+                self._cis_kalman_state[k] = dict(v)
+            else:
+                # Legacy format (pre-Design-B checkpoint): store value as-is.
+                # This prevents crashes when restoring old checkpoints.
+                self._cis_kalman_state[k] = v
 
     def score(
         self,
         features: dict[str, Any],
         plugin_outputs: dict[str, dict],
+        *,
+        tf: str = "*",
+        symbol: str = "*",
     ) -> CISResult:
         """Compute CIS from feature dict and per-plugin signal outputs.
+
+        Design B (Phase 112): Applies Kalman smoothing to the raw CIS score and
+        then applies CIS-level isotonic calibration (not per-signal calibration).
+        The calibrated_cis field on CISResult is stamped by the pipeline as
+        calibrated_confidence on the winner signal.
 
         Parameters
         ----------
@@ -132,11 +193,16 @@ class CISScorer:
         plugin_outputs:
             Dict of {plugin_name: signal_dict} for active I7 signals. Used to
             extract direction/confidence contributions for new evidence plugins.
+        tf:
+            Current timeframe (e.g. "1m"). Used for Kalman state key and calibration lookup.
+        symbol:
+            Instrument symbol (e.g. "ES"). Used for Kalman state key and calibration lookup.
 
         Returns
         -------
         CISResult with cis_score, direction, bucket_scores, weights_version,
-        buckets_agreeing, constituent_contributions.
+        buckets_agreeing, constituent_contributions, calibrated_cis.
+        calibrated_cis is None if no calibration curve is available.
         """
         trend_score, trend_contrib = self._trend(features)
         momentum_score, momentum_contrib = self._momentum(features, plugin_outputs)
@@ -185,6 +251,11 @@ class CISScorer:
         if agreeing < BUCKET_AGREE_MIN:
             direction = 0
 
+        # Design B: Apply Kalman smoothing to raw CIS, then apply CIS-level calibration.
+        # The filtered CIS is stored internally in _cis_kalman_state for state persistence.
+        filtered_cis = self._apply_cis_kalman(cis_score, tf, symbol)
+        calibrated_cis = self._apply_cis_calibration(filtered_cis, tf, symbol)
+
         return CISResult(
             cis_score=round(cis_score, 4),
             direction=direction,
@@ -192,7 +263,47 @@ class CISScorer:
             weights_version=self._weights_version,
             buckets_agreeing=agreeing,
             constituent_contributions=contributions,
+            calibrated_cis=calibrated_cis,
         )
+
+    def _apply_cis_kalman(self, raw_cis: float, tf: str, symbol: str) -> float:
+        """Apply per-(tf, symbol) Kalman filter to smooth CIS bar-to-bar noise.
+
+        Design B: Kalman lives in CISScorer so calibration can use the filtered value.
+        State keyed by (tf, symbol) to isolate per-instrument Kalman tracks.
+        """
+        key = (tf, symbol)
+        if key not in self._cis_kalman_state:
+            R = {"1m": 0.5, "5m": 0.3, "15m": 0.2, "1h": 0.1}.get(tf, 0.3)
+            self._cis_kalman_state[key] = {"x": raw_cis, "P": 1.0, "Q": 0.01, "R": R}
+        ks = self._cis_kalman_state[key]
+        P_pred = ks["P"] + ks["Q"]
+        K = P_pred / (P_pred + ks["R"])
+        x_new = ks["x"] + K * (raw_cis - ks["x"])
+        P_new = (1.0 - K) * P_pred
+        ks["x"] = x_new
+        ks["P"] = P_new
+        return x_new
+
+    def _apply_cis_calibration(self, filtered_cis: float, tf: str, symbol: str) -> float | None:
+        """Apply CIS-level isotonic calibration to the Kalman-filtered CIS score.
+
+        Lookup hierarchy: (_cis_, tf, symbol) → (_cis_, tf, *) → None (passthrough).
+        Returns None when no calibration curve is available.
+        The caller stamps the result on the winner signal as calibrated_confidence.
+        """
+        if not self._calibration_curves:
+            return None
+        _key_specific = ("_cis_", tf, symbol)
+        _key_global = ("_cis_", tf, "*")
+        curve = self._calibration_curves.get(
+            _key_specific, self._calibration_curves.get(_key_global)
+        )
+        if curve is None:
+            return None
+        breakpoints, values = curve
+        calibrated = float(np.interp(filtered_cis, breakpoints, values))
+        return round(calibrated, 4)
 
     # ------------------------------------------------------------------
     # Utility helpers

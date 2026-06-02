@@ -154,10 +154,7 @@ class TestPipelineDeterminism:
                 "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 side_effect=lambda sigs, *a, **kw: sigs,
             ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_calibration",
-                side_effect=lambda sigs, *a, **kw: sigs,
-            ),
+            # Phase 112 D-04: apply_calibration removed from signal_processor
             patch(
                 "src.intelligence.pipeline.signal_processor.rank_signals",
                 side_effect=lambda sigs, *a, **kw: sigs,

@@ -702,6 +702,8 @@ async def test_semaphore_blocks_then_proceeds() -> None:
     agent._lineage = MagicMock()
     agent._lineage.record = MagicMock()
 
+    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION as _SSV
+
     raw_signal = {
         "signal_id": str(uuid4()),
         "symbol": "ESM6",
@@ -710,7 +712,7 @@ async def test_semaphore_blocks_then_proceeds() -> None:
         "direction": 1,
         "pre_quality_confidence": 0.75,
         "calibrated_confidence": 0.75,
-        "signal_schema_version": "v1",
+        "signal_schema_version": _SSV,
     }
 
     # Release the slot after a short delay so dispatch can proceed

@@ -17,9 +17,13 @@ def select_winner(
     signals: list[dict],
     cis_result: Any = None,
     *,
-    long_bias: bool = True,
+    long_bias: bool = False,
 ) -> tuple[dict | None, list[dict], str]:
     """Select winning signal from all ranked signals for a bar.
+
+    Phase 112 1-F: long_bias default changed to False (D-06).
+    When long_bias=False and longs==shorts in fallback, use confidence as
+    secondary tiebreak (highest confidence wins) rather than biasing toward longs.
 
     Parameters
     ----------
@@ -32,7 +36,7 @@ def select_winner(
         Must have a ``direction`` attribute (+1/-1/0). None -> skip CIS override.
     long_bias:
         When True and longs==shorts in fallback, bias toward long direction.
-        When False, select highest-ranked signal regardless of direction.
+        When False (default, D-06), use confidence as secondary tiebreak.
 
     Returns
     -------
@@ -89,9 +93,14 @@ def _aggregate_fallback(
     active: list[dict],
     all_ranked: list[dict],
     *,
-    long_bias: bool = True,
+    long_bias: bool = False,
 ) -> tuple[dict | None, str]:
-    """Select winner by majority direction, then adjusted_rank sort."""
+    """Select winner by majority direction, then adjusted_rank / confidence tiebreak.
+
+    Phase 112 1-F: long_bias defaults to False. When longs==shorts:
+    - long_bias=True (legacy): bias toward longs
+    - long_bias=False (D-06): use confidence as secondary tiebreak (direction-agnostic)
+    """
     by_direction: dict[int, list[dict]] = defaultdict(list)
     for s in active:
         by_direction[s.get("direction", 0)].append(s)
@@ -103,12 +112,22 @@ def _aggregate_fallback(
         if long_bias:
             majority_group = by_direction[1]
         else:
-            majority_group = sorted(active, key=lambda s: s.get("adjusted_rank", 999))[:1]
+            # D-06: direction-agnostic tie resolution — sort by adjusted_rank (asc)
+            # then confidence (desc) as secondary tiebreak
+            majority_group = sorted(
+                active,
+                key=lambda s: (s.get("adjusted_rank", 999), -s.get("confidence", 0.0)),
+            )[:1]
     else:
         majority_group = by_direction[1] if longs > shorts else by_direction[-1]
 
     if not majority_group:
         return None, "no_signal"
 
-    selected = dict(min(majority_group, key=lambda s: s.get("adjusted_rank", 999)))
+    selected = dict(
+        min(
+            majority_group,
+            key=lambda s: (s.get("adjusted_rank", 999), -s.get("confidence", 0.0)),
+        )
+    )
     return _stamp_winner(selected, active), "priority_majority"
