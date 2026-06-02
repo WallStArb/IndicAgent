@@ -37,7 +37,6 @@ from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
-    SIGNAL_PROCESSOR_CIS_NULL_TOTAL,
     SIGNAL_PROCESSOR_DLQ_TOTAL,
     SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL,
     SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL,
@@ -292,32 +291,8 @@ class SignalProcessor:
         }
         cis_result = self._cis_scorer.score(features, plugin_outputs, tf=tf, symbol=symbol)
         raw_cis = cis_result.cis_score
-
-        # CIS score absent (scorer returned None) → DLQ immediately, no further pipeline work
-        if raw_cis is None:
-            self._signal_dlq_total.add(1)
-            SIGNAL_PROCESSOR_CIS_NULL_TOTAL.add(1)
-            SIGNAL_PROCESSOR_DLQ_TOTAL.add(1, {"reason": "cis_score_null"})
-            dlq_payload = {
-                "reason": "cis_score_null",
-                "symbol": symbol,
-                "tf": tf,
-                "bar_ts": format_iso_ts(bar.ts),
-            }
-            return SignalProcessorResult(
-                success=False,
-                dlq_payload=dlq_payload,
-                i7_result={
-                    "ranked": [],
-                    "winner": None,
-                    "signals_evaluated": len(raw_signals),
-                    "signals_after_quality": 0,
-                    "signals_after_regime": 0,
-                    "signals_after_tod": 0,
-                    "signals_after_calibration": 0,
-                    "i7_computed_at": i7_computed_at,
-                },
-            )
+        # CISScorer.score() always returns float; zero CIS is handled by the direction==0
+        # path downstream (no signals pass quality/regime gates when CIS is near zero).
 
         # Design B: filtered_cis and calibrated_cis are now computed inside CISScorer.score().
         # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.
