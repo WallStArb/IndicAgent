@@ -96,11 +96,15 @@ def compute_setup_performance(rows: list[dict]) -> dict[str, dict]:
     return result
 
 
-def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
+def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, tuple[float, int]]:
     """Convert setup stats to perf_multipliers using Sharpe rank.
 
-    Returns dict[setup_plugin, float] where values are in [0.5, 1.5].
-    If only one eligible setup, returns {plugin: 1.0}.
+    Returns dict[setup_plugin, (perf_multiplier, sample_size)] where multipliers
+    are in [0.5, 1.5].
+    If only one eligible setup, returns {plugin: (1.0, sample_size)}.
+
+    D-16: This function only returns multipliers for setups with sample_size >= MIN_SAMPLE_SIZE.
+    Setups below the threshold get the warm-up penalty (0.5) applied by the ranker.
     """
     if not stats:
         return {}
@@ -109,25 +113,26 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
     n = len(plugins)
 
     if n == 1:
-        return {plugins[0]: 1.0}
+        return {plugins[0]: (1.0, int(stats[plugins[0]].get("sample_size", 30)))}
 
     # Sort by sharpe_ratio ascending so rank 0 = worst, rank n-1 = best
     sorted_plugins = sorted(plugins, key=lambda p: stats[p]["sharpe_ratio"])
-    multipliers: dict[str, float] = {}
+    multipliers: dict[str, tuple[float, int]] = {}
     for rank, plugin in enumerate(sorted_plugins):
-        multipliers[plugin] = 0.5 + ((n - 1 - rank) / n)
+        m = 0.5 + ((n - 1 - rank) / n)
+        multipliers[plugin] = (m, int(stats[plugin].get("sample_size", 30)))
 
     return multipliers
 
 
 async def run_setup_performance_update(
     db_manager: Any,
-) -> dict[str, float]:
-    """Read perf weights from signal_metrics (market track, 'all' regime, 30d window).
+) -> dict[str, tuple[float, int]]:
+    """Read perf weights from setup_performance table (30d rolling window).
 
-    SignalMetricsWriter keeps setup_performance in sync as a shim.
-    This function now reads that shim table and returns perf_weights dict
-    for backward compatibility with callers.
+    Returns dict[setup_plugin, (perf_multiplier, sample_size)] for all setups
+    with sample_size >= MIN_SAMPLE_SIZE. Setups absent from the result have
+    sample_size < 30 and the ranker applies the warm-up penalty (0.5, D-16).
 
     Returns empty dict if no eligible setups (n < MIN_SAMPLE_SIZE).
     """

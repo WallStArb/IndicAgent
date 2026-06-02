@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 
 # Single canonical version tag. All signal producers and consumers reference this.
-SIGNAL_SCHEMA_VERSION = "v1"
+# Phase 112 D-03: Bumped from "v1" to "v2" as the final atomic step in Wave 2.
+# Transition window query run 2026-06-02: 46,182 in-flight 'v1' signals with
+# activated_at IS NOT NULL were observed. These will be evaluated by signal_replay_auditor.
+# All new signals written post-deploy carry version "v2".
+SIGNAL_SCHEMA_VERSION = "v2"
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame

@@ -206,7 +206,8 @@ class Settings(BaseSettings):
     REGIME_PROB_SOFT_MAX: float = Field(default=0.55, validation_alias="REGIME_PROB_SOFT_MAX")
 
     # Winner selector configuration (Phase 68-01)
-    winner_long_bias: bool = Field(default=True, validation_alias="WINNER_LONG_BIAS")
+    # Phase 112 1-F: default changed to False (D-06) — confidence tiebreak, not direction bias.
+    winner_long_bias: bool = Field(default=False, validation_alias="WINNER_LONG_BIAS")
 
     # Signal quality floor (Phase 112 D-05).
     # Minimum publishable confidence after quality multipliers applied.

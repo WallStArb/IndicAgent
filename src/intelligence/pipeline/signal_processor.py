@@ -453,7 +453,9 @@ class SignalProcessor:
 
         # Select winner
         winner, _, resolution_method = select_winner(
-            eligible_ranked, cis_result, long_bias=getattr(self._settings, "winner_long_bias", True)
+            eligible_ranked,
+            cis_result,
+            long_bias=getattr(self._settings, "winner_long_bias", False),
         )
 
         # Stamp resolution_method on every ranked signal
