@@ -285,7 +285,7 @@ class SignalProcessor:
         # CISScorer.score() always returns float per its type contract; treat None defensively
         # as zero in case of a scorer implementation error.  Zero CIS is handled by the
         # direction==0 path downstream (no signals pass quality/regime gates).
-        raw_cis: float = float(cis_result.cis_score or 0.0)
+        raw_cis: float = float(cis_result.cis_score if cis_result.cis_score is not None else 0.0)
 
         # Design B: filtered_cis and calibrated_cis are now computed inside CISScorer.score().
         # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.

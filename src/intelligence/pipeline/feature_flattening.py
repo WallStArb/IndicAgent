@@ -79,14 +79,10 @@ def build_flat_features(event: IntelligenceEvent) -> dict[str, Any]:
     for k, v in event.i1.model_dump().items():
         if v is not None:
             f[k] = v
-    # Apply I1 aliases (BB field names used by CIS scorer and downstream I7 plugins).
-    # Guard against None so aliases do not bypass the None filter applied to other fields.
-    if event.i1.bb_20_2_mid is not None:
-        f["bb_middle"] = event.i1.bb_20_2_mid
-    if event.i1.bb_20_2_upper is not None:
-        f["bb_upper"] = event.i1.bb_20_2_upper
-    if event.i1.bb_20_2_lower is not None:
-        f["bb_lower"] = event.i1.bb_20_2_lower
+    # Apply I1 aliases via _I1_ALIAS_MAP — canonical fields already in f (None-filtered above).
+    for alias, canonical in _I1_ALIAS_MAP.items():
+        if canonical in f:
+            f[alias] = f[canonical]
     for tier_key in ("i2", "i3", "i4", "i5", "smc", "i6"):
         sub = getattr(event, tier_key, None)
         if sub is not None:

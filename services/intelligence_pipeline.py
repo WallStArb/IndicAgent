@@ -54,6 +54,7 @@ from src.intelligence.pipeline import (
     PluginStateManager,
     SignalProcessor,
 )
+from src.intelligence.pipeline.executor import _SHADOW_CB_DEFAULTS
 from src.intelligence.pipeline.output_queue import PRIORITY_HIGH, PRIORITY_LOW
 from src.intelligence.pipeline.per_key_worker_manager import (
     _WORKER_COUNT_GAUGE,
@@ -236,15 +237,7 @@ class IntelligencePipeline(BaseDaemon):
         breakers are equivalent in behaviour.
         """
         all_plugins = TIER_I1 + TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7
-        return {
-            name: CircuitBreaker(
-                failure_threshold=3,
-                timeout_sec=300,
-                name=name,
-                enabled=False,
-            )
-            for name in all_plugins
-        }
+        return {name: CircuitBreaker(**_SHADOW_CB_DEFAULTS, name=name) for name in all_plugins}
 
     async def _setup(self) -> None:
         self._db = DatabaseManager(self.settings.database_url)

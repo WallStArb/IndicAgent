@@ -315,7 +315,6 @@ class OutputQueue:
             self._buffer_depth.set(max(self._high_queue.qsize(), self._low_queue.qsize()))
 
             # Publish all items with per-item error isolation.
-            first_exc: Exception | None = None
             handled = 0
 
             try:
@@ -331,8 +330,6 @@ class OutputQueue:
                             item_key=item[1] if len(item) > 1 else None,
                             priority=priority,
                         )
-                        if first_exc is None:
-                            first_exc = exc
                     finally:
                         # Mark this item done on the correct queue.
                         q.task_done()
