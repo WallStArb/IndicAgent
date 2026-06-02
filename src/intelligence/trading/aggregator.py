@@ -28,56 +28,12 @@ _REGIME_MAP: dict[str, list[int]] = {
     "any": [0, 1, 2],
 }
 
-# Plugin priority: higher value = higher priority.
-# All 36 TIER_I7 plugins must be listed here. Any plugin not present triggers a
-# _log.warning("aggregator.unknown_plugin") and silently falls to rank 0 — which is
-# why this list must stay in sync with TIER_I7 in register_plugins.py.
-SETUP_PRIORITY: dict[str, int] = {
-    # Core setups (highest priority — most validated)
-    "trad_LiquiditySweepReclaim": 10,
-    "trad_MTFAlignment": 9,
-    "trad_TrendFollowing": 8,
-    "trad_SqueezeExpansion": 7,
-    "trad_MeanReversion": 6,
-    "trad_MomentumBreakout": 5,
-    "trad_LiquidityHunt": 5,
-    "trad_VWAPDeviation": 4,
-    # Structure/context setups
-    "trad_SupplyDemandSetup": 4,
-    "trad_CHoCHReversal": 4,
-    "trad_FVGFill": 3,
-    "trad_PatternCompletion": 3,
-    "trad_DivergenceStack": 3,
-    "trad_RegimeTransition": 3,
-    # Session/volume setups
-    "trad_SessionExtremesSetup": 3,
-    "trad_ORB15": 3,
-    "trad_ORB30": 3,
-    "trad_PrevDayLevelTest": 2,
-    "trad_VWAPReclaim": 3,
-    "trad_AnchoredVWAPReversion": 2,
-    "trad_POCRejection": 2,
-    "trad_HVNRejection": 2,
-    "trad_LVNBreakout": 3,
-    # Continuation/pattern setups
-    "trad_SecondLegContinuation": 2,
-    "trad_VCP": 2,
-    "trad_FailedBreakout": 2,
-    "trad_GapAnalysisSetup": 2,
-    "trad_CandlestickPatternSetup": 1,
-    # Orderflow setups
-    "trad_OFIContinuation": 3,
-    "trad_OFIDivergence": 2,
-    "trad_OFISpike": 2,
-    "trad_CVDDivergence": 2,
-    "trad_CVDSpike": 2,
-    "trad_DeltaExhaustion": 2,
-    "trad_DualDivergence": 2,
-    "trad_CrossAssetDivergence": 1,
-}
+# Phase 112 2-C: SETUP_PRIORITY dict removed. Ranking is fully data-driven via
+# perf_multiplier from setup_performance (Sharpe-ranked, [0.5, 1.5]).
+# Setups with sample_size < 30 receive a warm-up penalty of 0.5 (D-16).
+# The aggregator's _build_all_ranked applies these same rules for backward compat.
 
 _CONFIDENCE_BOOST_PER_AGREE = 0.0
-_warned_plugins: set[str] = set()
 _REGIME_TIEBREAK_THRESHOLD = 0.4
 
 # Trend setup names (I7 plugins that require a trending market for edge).
@@ -463,7 +419,7 @@ def _aggregate_fallback(
 
 def _build_all_ranked(
     fired: list[dict],
-    perf_weights: dict[str, float] | None = None,
+    perf_weights: dict[str, float | tuple[float, int]] | None = None,
     features: dict[str, Any] | None = None,
     drift_penalty: float = 1.0,
     calibration_curves: dict[tuple[str, str], tuple[list[float], list[float]]] | None = None,
@@ -471,15 +427,14 @@ def _build_all_ranked(
 ) -> list[dict]:
     """Build ranked list of all fired signals (eligible + suppressed).
 
-    When perf_weights is provided and non-empty:
-      adjusted_rank = perf_multiplier (primary key, ascending: 0.5=best → 1.5=worst).
-      Tiebreak within equal multipliers: SETUP_PRIORITY descending (higher priority wins).
-      Setups absent from perf_weights get multiplier=1.0 (neutral).
+    Phase 112 2-C: Data-driven ranking — SETUP_PRIORITY removed.
+
+    adjusted_rank = perf_multiplier (ascending: 0.5=best → 1.5=worst).
+    - Setups with sample_size >= 30: perf_multiplier from Sharpe rank [0.5, 1.5].
+    - Setups absent from perf_weights OR sample_size < 30: warm-up penalty 0.5.
 
     When perf_weights is None or empty:
-      Falls back to SETUP_PRIORITY descending (original behavior).
-      adjusted_rank is set to a negative SETUP_PRIORITY value so ascending sort
-      still puts the highest-priority setup first.
+      All setups get adjusted_rank = 0.5 (warm-up penalty — no data available).
 
     When features is provided:
       Each signal's confidence is multiplied by hurst_q * entropy_q BEFORE
@@ -487,22 +442,15 @@ def _build_all_ranked(
       reversion setups use hurst_mr_quality.  Both default to 1.0 when absent.
 
     When drift_penalty < 1.0 (QUAL-09 KS drift):
-      Applied AFTER Hurst × Entropy multipliers and BEFORE adjusted_rank assignment.
-      DRIFT_PENALTIES: none=1.0, warning=0.85, critical=0.70.
-      When "none" (default 1.0), confidence is unchanged.
+      Applied AFTER Hurst x Entropy multipliers and BEFORE adjusted_rank assignment.
 
-    composite_rank is always assigned 1-based by SETUP_PRIORITY desc for observability.
+    composite_rank is assigned 1-based by initial order (for observability).
     """
-    # 1. Sort by SETUP_PRIORITY descending to assign composite_rank (observability only)
-    priority_sorted = sorted(
-        fired,
-        key=lambda s: SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0),
-        reverse=True,
-    )
+    # 1. Assign composite_rank (observability — order of appearance from plugin execution)
     # EFF-01: In-place mutation avoids creating 36+ new dict objects per bar
-    for i, sig in enumerate(priority_sorted):
+    for i, sig in enumerate(fired):
         sig["composite_rank"] = i + 1
-    with_ranks = priority_sorted
+    with_ranks = fired
 
     # 1b. Apply quality multiplier before adjusted_rank assignment.
     #     Uses min(hurst_q, entropy_q) instead of multiplication — both Hurst and entropy
@@ -566,24 +514,32 @@ def _build_all_ranked(
         for sig in with_ranks:
             sig["calibrated_confidence"] = None
 
-    # 2. Assign adjusted_rank
+    # 2. Assign adjusted_rank (data-driven, D-16 warm-up penalty).
+    #    perf_weights values can be plain floats (backward compat) or (multiplier, sample_size).
     weights = perf_weights or {}
     for sig in with_ranks:
         plugin_name = sig.get("setup_plugin", "")
-        if plugin_name not in SETUP_PRIORITY and plugin_name not in _warned_plugins:
-            _log.warning("aggregator.unknown_plugin", extra={"plugin": plugin_name})
-            _warned_plugins.add(plugin_name)
-        if weights:
-            # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
-            multiplier = weights.get(plugin_name, 1.0)
-            sig["adjusted_rank"] = round(multiplier, 4)
+        raw_entry = weights.get(plugin_name)
+        if raw_entry is None:
+            # No perf data: warm-up penalty
+            multiplier = 0.5
+            sample_size = 0
+        elif isinstance(raw_entry, tuple):
+            multiplier, sample_size = raw_entry
         else:
-            # No perf data: sort by SETUP_PRIORITY descending.
-            # Negate so ascending sort puts highest-priority first.
-            sig["adjusted_rank"] = round(-SETUP_PRIORITY.get(plugin_name, 0), 4)
+            multiplier = float(raw_entry)
+            sample_size = 30  # assume validated if plain float
+
+        # D-16: enforce warm-up penalty for unvalidated setups
+        if sample_size < 30:
+            multiplier = 0.5
+
+        sig["adjusted_rank"] = round(multiplier, 4)
+        sig["perf_multiplier"] = round(multiplier, 4)
+        sig["sample_size"] = sample_size
 
     # 3. Sort by calibrated_confidence (desc) when available, else by adjusted_rank (asc).
-    #    Tiebreak: adjusted_rank ascending, then SETUP_PRIORITY descending.
+    #    Tiebreak: adjusted_rank ascending, then confidence descending.
     return sorted(
         with_ranks,
         key=lambda s: (
@@ -593,8 +549,9 @@ def _build_all_ranked(
                 if s.get("calibrated_confidence") is not None
                 else -(s.get("confidence", 0.0))
             ),
-            # Tiebreak: adjusted_rank ascending (lower = better), then priority desc
+            # Tiebreak: adjusted_rank ascending (lower = better)
             s["adjusted_rank"],
-            -SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0) if weights else 0,
+            # Final tiebreak: confidence descending (higher confidence wins ties)
+            -(s.get("confidence", 0.0)),
         ),
     )

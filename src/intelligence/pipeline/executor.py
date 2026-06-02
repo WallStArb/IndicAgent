@@ -184,6 +184,26 @@ class PluginExecutor:
             "Plugin executions skipped due to asset class mismatch",
         )
 
+        # PERF-03 startup enforcement (D-07): hard crash if any incremental plugin
+        # has not confirmed PERF-03 migration. This is a RuntimeError (not assert)
+        # so it survives -O (optimized mode) in production.
+        incremental_names = [
+            name
+            for name, p in self._plugin_cache.items()
+            if getattr(p, "supports_incremental", False)
+        ]
+        incomplete = [
+            name
+            for name in incremental_names
+            if not getattr(self._plugin_cache.get(name), "_state_migration_complete", False)
+        ]
+        if incomplete:
+            raise RuntimeError(
+                f"PERF-03 migration incomplete for plugins: {incomplete}. "
+                f"Set _state_migration_complete = True on each plugin after auditing "
+                f"that compute_next() correctly uses the state= parameter."
+            )
+
     # ------------------------------------------------------------------
     # Public accessors
     # ------------------------------------------------------------------

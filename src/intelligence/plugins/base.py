@@ -47,6 +47,15 @@ class PatternPlugin(Protocol):
     inputs: ClassVar[list[InputSpec]]
     valid_asset_classes: ClassVar[frozenset[AssetClass]]
     regime_type: ClassVar[str]  # Must be "trend", "mean_reversion", or "any"
+    # PERF-03 migration flag: True when plugin has been audited and confirmed to
+    # correctly use the state= parameter in compute_next() (not cold-starting every bar).
+    # PluginExecutor.__init__ raises RuntimeError if any supports_incremental=True plugin
+    # has this set to False. All 34 incremental plugins must set this to True.
+    _state_migration_complete: ClassVar[bool]
+    # fast_path flag: True when plugin meets fast-path execution criteria:
+    # supports_incremental=False AND P99 latency < 100µs (verified from 24h histogram).
+    # fast_path execution branch ships in Plan 05. Here only the attribute is added.
+    fast_path: ClassVar[bool]
 
     def compute_full(
         self, frames: dict[str, Any], *, state: dict | None = None
