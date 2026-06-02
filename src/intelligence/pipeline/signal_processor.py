@@ -282,9 +282,10 @@ class SignalProcessor:
             sig.get("setup_plugin", ""): sig for sig in raw_signals if sig.get("direction", 0) != 0
         }
         cis_result = self._cis_scorer.score(features, plugin_outputs, tf=tf, symbol=symbol)
-        raw_cis = cis_result.cis_score
-        # CISScorer.score() always returns float; zero CIS is handled by the direction==0
-        # path downstream (no signals pass quality/regime gates when CIS is near zero).
+        # CISScorer.score() always returns float per its type contract; treat None defensively
+        # as zero in case of a scorer implementation error.  Zero CIS is handled by the
+        # direction==0 path downstream (no signals pass quality/regime gates).
+        raw_cis: float = float(cis_result.cis_score or 0.0)
 
         # Design B: filtered_cis and calibrated_cis are now computed inside CISScorer.score().
         # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.

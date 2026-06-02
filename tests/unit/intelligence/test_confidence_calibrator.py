@@ -14,7 +14,11 @@ from src.intelligence.ml.confidence_calibrator import (
 
 
 def _make_rows(n: int, win_fraction: float = 0.6) -> list[dict]:
-    """Generate n fake signal_ledger rows with alternating wins/losses."""
+    """Generate n fake signal_ledger rows with alternating wins/losses.
+
+    Uses key "x_input" to match the SQL alias `cis_score AS x_input` in
+    run_calibration_update() (Phase 112 CR-03 fix).
+    """
     rows = []
     for i in range(n):
         is_win = (i / n) < win_fraction
@@ -22,7 +26,7 @@ def _make_rows(n: int, win_fraction: float = 0.6) -> list[dict]:
             {
                 "setup_plugin": "trad_TrendFollowing",
                 "timeframe": "1m",
-                "confidence": round(0.3 + 0.5 * (i / max(n - 1, 1)), 4),
+                "x_input": round(0.3 + 0.5 * (i / max(n - 1, 1)), 4),
                 "outcome": "target_1" if is_win else "stopped_in_trade",
             }
         )

@@ -98,20 +98,25 @@ async def test_drain_loop_publishes_via_producer_msg_kwarg() -> None:
 
 @pytest.mark.asyncio
 async def test_drain_loop_calls_task_done_on_publish_exception() -> None:
-    """task_done() must be called even when producer.publish raises."""
+    """task_done() must be called even when producer.publish raises.
+
+    Phase 112 WR-03: the drain loop no longer re-raises publish exceptions so
+    subsequent queued items are not dropped.  Publish failures are logged and
+    counted via _publish_failures counter instead.
+    """
     q = make_output_queue()
     q._producer.publish = AsyncMock(side_effect=RuntimeError("kafka down"))
 
     q.enqueue("topic", "key", {"msg": "fail"})
 
-    # Loop runs once (True while non-empty), then stops
+    # Loop runs once (True while non-empty), then stops without raising
     def running_fn() -> bool:
         return not q._high_queue.empty() or not q._low_queue.empty()
 
-    with pytest.raises(RuntimeError, match="kafka down"):
-        await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
+    # drain_loop must NOT raise on publish failure (WR-03 fix)
+    await asyncio.wait_for(q.drain_loop(running_fn=running_fn), timeout=2.0)
 
-    # Queue should be fully drained (task_done called before exception surfaced)
+    # Queue should be fully drained (task_done called for the failed item too)
     # If task_done was NOT called, join() would hang forever
     await asyncio.wait_for(q._high_queue.join(), timeout=1.0)
 
