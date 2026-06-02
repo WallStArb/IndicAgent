@@ -75,6 +75,11 @@ class CISResult:
     # None when no calibration curve is available for this (tf, symbol).
     calibrated_cis: float | None = None
 
+    def __post_init__(self) -> None:
+        if self.cis_score is None:
+            raise TypeError("CISResult.cis_score must be float, got None")
+        self.cis_score = float(self.cis_score)
+
 
 # ---------------------------------------------------------------------------
 # Scorer
