@@ -1319,7 +1319,7 @@ Plans:
 - [x] 112-01-PLAN.md — Wave 1: Phase 0 forensic boundary (migrations, version markers, setup_performance reset, checkpoint flush)
 - [x] 112-02-PLAN.md — Wave 2: Phase 1A critical logic fixes (calibration routing, quality floor, field alias map, PERF-03 class attr + executor gate, long_bias=False + SETUP_PRIORITY removal) — ships atomically
 - [x] 112-03-PLAN.md — Wave 3: Phase 1B lifecycle fixes (CONCERN-02 mutable dicts, backfill routing, MAE/MFE persistence, regime cache, consumer offset reset)
-- [ ] 112-04-PLAN.md — Wave 4: Phase 2 architecture (wave isolation docs + test, features dual-write elimination, output queue weighted-fair, health loop, circuit breakers, queue depth metrics)
+- [x] 112-04-PLAN.md — Wave 4: Phase 2 architecture (wave isolation docs + test, features dual-write elimination, output queue weighted-fair, health loop, circuit breakers, queue depth metrics)
 - [ ] 112-05-PLAN.md — Wave 5: Phase 3+4 latency + data remediation (fast-path protocol, serialization fix, batch enqueue, tier deadlines, flat features, ML training filters, calibration retraining gate, setup_performance window gate)
 
 **Cross-cutting constraints:**
@@ -1505,4 +1505,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
-| 112. Intelligence Pipeline Signal Integrity | v2.8 | 3/5 | In Progress|  |
+| 112. Intelligence Pipeline Signal Integrity | v2.8 | 4/5 | In Progress|  |
