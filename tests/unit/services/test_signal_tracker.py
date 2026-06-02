@@ -33,6 +33,7 @@ def _make_agent() -> SignalTracker:
     agent._signal_ids: set[str] = set()
     agent._signal_states: dict[str, SignalState] = {}
     agent._point_values: dict[str, float] = {}
+    agent._regime_cache: dict[tuple[str, str], dict] = {}
 
     # Kafka producer mock
     agent._producer = AsyncMock()
@@ -145,7 +146,8 @@ class TestTimeframeFilter:
 class TestIngestSignal:
     """New signals from i7.signals topic are added to the active index via _load_signal + _ingest_signal."""
 
-    def test_ingest_new_signal(self):
+    @pytest.mark.asyncio
+    async def test_ingest_new_signal(self):
         agent = _make_agent()
         # Use a recent timestamp so bars_elapsed < ttl_bars (default 10 bars for 1m = 10 min)
         recent_ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
@@ -164,7 +166,7 @@ class TestIngestSignal:
 
         canonical = agent._load_signal(raw)
         assert canonical is not None
-        agent._ingest_signal(canonical)
+        await agent._ingest_signal(canonical)
 
         key = ("ESM6", "1m")
         assert key in agent._active_index
@@ -172,7 +174,8 @@ class TestIngestSignal:
         assert agent._active_index[key][0]["signal_id"] == "abc-123"
         assert "ESM6" in agent._active_symbols
 
-    def test_ingest_multiple_signals_same_symbol(self):
+    @pytest.mark.asyncio
+    async def test_ingest_multiple_signals_same_symbol(self):
         agent = _make_agent()
         # Use a recent timestamp so bars_elapsed < ttl_bars (default 10 bars for 1m = 10 min)
         recent_ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
@@ -190,7 +193,7 @@ class TestIngestSignal:
             }
             canonical = agent._load_signal(raw)
             assert canonical is not None
-            agent._ingest_signal(canonical)
+            await agent._ingest_signal(canonical)
 
         key = ("ESM6", "1m")
         assert len(agent._active_index[key]) == 3

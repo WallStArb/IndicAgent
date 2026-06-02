@@ -472,7 +472,7 @@ class SignalProcessor:
 
         # Call prepare_signals_or_dlq
         success, dlq_payload, signals_payload = await self.prepare_signals_or_dlq(
-            ranked, symbol, tf, bar
+            ranked, symbol, tf, bar, features=features
         )
 
         winner_payload = winner if success else None
@@ -502,6 +502,7 @@ class SignalProcessor:
         symbol: str,
         tf: str,
         bar: Any,
+        features: dict | None = None,
     ) -> tuple[bool, dict | None, dict | None]:
         """Assert CIS presence and build signals or DLQ payload.
 
@@ -563,6 +564,10 @@ class SignalProcessor:
             "tf": tf,
             "bar_ts": format_iso_ts(bar_ts),
             "computed_at": format_iso_ts(computed_at),
+            # Current bar regime state — consumed by signal_tracker to update its
+            # per-symbol staleness cache (BUG-02 fix: regime drift was always 0).
+            "hmm_regime": (features or {}).get("hmm_regime"),
+            "garch_sigma": (features or {}).get("garch_sigma"),
             "signals": ranked,
         }
         return True, None, signals_payload

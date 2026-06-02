@@ -124,6 +124,9 @@ class SignalTracker(BaseDaemon):
         self._signal_states: dict[str, SignalState] = {}
         # Per-symbol (not per-signal) — not in SignalState
         self._point_values: dict[str, float] = {}
+        # Per-(symbol, tf) current regime state — updated from i7.signals envelope.
+        # Used for staleness computation to compare current vs fire-time regime (BUG-02 fix).
+        self._regime_cache: dict[tuple[str, str], dict] = {}
 
         # Kafka clients (initialized in _setup)
         self._bar_consumer: KafkaConsumerClient | None = None
@@ -263,7 +266,7 @@ class SignalTracker(BaseDaemon):
                 break
             try:
                 self._record_message_consumed()
-                self._ingest_i7_payload(payload)
+                await self._ingest_i7_payload(payload)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -369,11 +372,12 @@ class SignalTracker(BaseDaemon):
     # Signal ingestion (from i7.signals topic)
     # ------------------------------------------------------------------
 
-    def _ingest_i7_payload(self, payload: dict) -> None:
+    async def _ingest_i7_payload(self, payload: dict) -> None:
         """Ingest a full i7.signals payload (contains multiple signals per bar).
 
         Args:
-            payload: Kafka message with {symbol, tf, bar_ts, computed_at, signals: list}
+            payload: Kafka message with {symbol, tf, bar_ts, computed_at,
+                     hmm_regime, garch_sigma, signals: list}
         """
         signals_list = payload.get("signals") or []
         symbol = payload.get("symbol", "")
@@ -381,6 +385,16 @@ class SignalTracker(BaseDaemon):
 
         if not symbol or not tf:
             return
+
+        # Update per-(symbol, tf) regime cache from envelope (BUG-02 fix: enables
+        # staleness regime drift to compare current vs fire-time regime).
+        hmm = payload.get("hmm_regime")
+        sigma = payload.get("garch_sigma")
+        if hmm is not None or sigma is not None:
+            self._regime_cache[(symbol, tf)] = {
+                "hmm_regime": hmm,
+                "garch_sigma": sigma,
+            }
 
         for sig in signals_list:
             # Skip regime-suppressed signals (they won't activate in zone track)
@@ -399,15 +413,18 @@ class SignalTracker(BaseDaemon):
             canonical = self._load_signal(raw)
             if canonical is None:
                 continue  # rejected -> DLQ counter incremented inside _load_signal
-            self._ingest_signal(canonical)
+            await self._ingest_signal(canonical)
 
-    def _ingest_signal(self, canonical: dict) -> None:
+    async def _ingest_signal(self, canonical: dict) -> None:
         """Ingest a canonical signal dict into the active index.
 
         Three-branch decision tree:
           1. Dedup: skip if already tracked
           2. Backfill fast-path: publish TTL-expired if elapsed, skip active index
           3. Normal path: enter active index
+
+        The signal ID is only added to _signal_ids AFTER a successful publish on the
+        fast-path, preventing ghost IDs when the Kafka publish fails.
 
         Args:
             canonical: Normalized signal dict from _load_signal
@@ -436,14 +453,17 @@ class SignalTracker(BaseDaemon):
             )
             # Skip fast-path: do not fire TTL from bar count. Add to active index normally below.
         elif now_utc >= expires_at:
-            # Fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index
+            # Fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index.
+            # Await the publish before deduping: if publish fails, do NOT add to _signal_ids
+            # so the signal can be retried on the next ingest attempt.
             tf_secs = TF_SECONDS.get(tf, 60)
             bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
-            self._publish_ttl_expired_transition_sync(canonical, bars_elapsed)
-            SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.add(
-                1, {"symbol": canonical["symbol"], "timeframe": tf}
-            )
-            self._signal_ids.add(sid)
+            published = await self._publish_ttl_expired_transition(canonical, bars_elapsed)
+            if published:
+                SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL.add(
+                    1, {"symbol": canonical["symbol"], "timeframe": tf}
+                )
+                self._signal_ids.add(sid)
             return
 
         # Normal path (TTL window still open): enter active index
@@ -474,6 +494,18 @@ class SignalTracker(BaseDaemon):
         state = SignalState()
         if canonical.get("status") == SignalStatus.ACTIVE and canonical.get("activated_at"):
             state.activated_at = canonical["activated_at"]
+            # Restore chandelier state persisted in signal_outcomes (CONCERN-01 fix).
+            # trailing_stop_price is a JSONB dict stored by _publish_chandelier_update.
+            raw_cs = canonical.get("trailing_stop_price")
+            if isinstance(raw_cs, dict) and raw_cs.get("trailing_stop") is not None:
+                state.chandelier_state = {
+                    "trailing_stop": raw_cs.get("trailing_stop"),
+                    "highest_high": raw_cs.get("highest_high"),
+                    "lowest_low": raw_cs.get("lowest_low"),
+                    "vol": raw_cs.get("vol"),
+                    "vol_source": raw_cs.get("vol_source")
+                    or canonical.get("chandelier_vol_source"),
+                }
         self._signal_states[sid] = state
 
         self.logger.debug(
@@ -483,12 +515,11 @@ class SignalTracker(BaseDaemon):
             timeframe=tf,
         )
 
-    def _publish_ttl_expired_transition_sync(self, canonical: dict, bars_elapsed: int) -> None:
-        """Schedule a TTL-expired LifecycleTransition for a backfill signal.
+    async def _publish_ttl_expired_transition(self, canonical: dict, bars_elapsed: int) -> bool:
+        """Publish a TTL-expired LifecycleTransition for a backfill signal.
 
-        The transition is scheduled via asyncio so the sync context (_ingest_signal)
-        can publish without blocking. If no event loop is running, the transition is
-        dropped (startup edge case — not critical for correctness).
+        Returns True if published successfully, False on failure. The caller
+        must NOT dedup the signal_id on failure so retries remain possible.
         """
         from datetime import timedelta
 
@@ -508,6 +539,7 @@ class SignalTracker(BaseDaemon):
                 "exit_at": exit_at,
                 "exit_price": None,
                 "exit_reason": "ttl_expired",
+                "pnl_ticks": None,
                 "pnl_r": 0.0,
                 "pnl_dollars": None,
                 "signal_quality": None,
@@ -519,19 +551,23 @@ class SignalTracker(BaseDaemon):
         )
 
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._publish_transition(lt))
-        except RuntimeError:
-            pass  # No event loop — startup edge case, log and continue
-        self.logger.info(
-            "backfill_ttl_fast_path",
-            signal_id=canonical["signal_id"],
-            symbol=canonical["symbol"],
-            timeframe=tf,
-            bars_elapsed=bars_elapsed,
-            ttl_bars=canonical["ttl_bars"],
-        )
+            await self._publish_transition(lt)
+            self.logger.info(
+                "backfill_ttl_fast_path",
+                signal_id=canonical["signal_id"],
+                symbol=canonical["symbol"],
+                timeframe=tf,
+                bars_elapsed=bars_elapsed,
+                ttl_bars=canonical["ttl_bars"],
+            )
+            return True
+        except Exception as exc:
+            self.logger.warning(
+                "backfill_ttl_fast_path.publish_failed",
+                signal_id=canonical["signal_id"],
+                error=str(exc),
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Signal removal
@@ -649,10 +685,12 @@ class SignalTracker(BaseDaemon):
                         "vol_source": vol_source,
                     }
 
-                # Staleness computation
-                hmm_now = _as_int(sig.get("hmm_regime"))
+                # Staleness computation — use regime cache for current bar state (BUG-02 fix).
+                # sig.get("hmm_regime") is fire-time only; _regime_cache has current bar.
+                regime_now = self._regime_cache.get((symbol, timeframe), {})
+                hmm_now = _as_int(regime_now.get("hmm_regime"))
                 hmm_fire = _as_int(sig.get("hmm_regime_at_fire"))
-                garch_now = _as_float(sig.get("garch_sigma"))
+                garch_now = _as_float(regime_now.get("garch_sigma"))
                 garch_fire = _as_float(sig.get("garch_sigma_at_fire"))
                 staleness_score_val, _ = compute_staleness_score(
                     hmm_now, hmm_fire, garch_now, garch_fire
@@ -661,6 +699,13 @@ class SignalTracker(BaseDaemon):
                 state.staleness_consecutive = (
                     consecutive + 1 if staleness_score_val > STALENESS_SCORE_THRESHOLD else 0
                 )
+
+            # Capture chandelier stop before evaluation to detect ratchet updates
+            chandelier_stop_before = (
+                state.chandelier_state.get("trailing_stop")
+                if state.chandelier_state is not None
+                else None
+            )
 
             # --- Evaluate signal ---
             try:
@@ -689,10 +734,18 @@ class SignalTracker(BaseDaemon):
                 )
                 continue
 
-            # No transition — update MAE/MFE for active signals and continue
+            # No transition — update MAE/MFE and persist chandelier ratchet if it moved
             if transition is None:
                 if status == SignalStatus.ACTIVE:
                     self._update_mae_mfe(state, sig, bar)
+                    # Publish chandelier state whenever trailing_stop ratchets so it
+                    # survives a service restart (restored from signal_outcomes on bootstrap).
+                    if state.chandelier_state is not None:
+                        chandelier_stop_after = state.chandelier_state.get("trailing_stop")
+                        if chandelier_stop_after != chandelier_stop_before:
+                            await self._publish_chandelier_update(
+                                sid, symbol, timeframe, state, bar_time
+                            )
                 continue
 
             # --- Transition occurred ---
@@ -774,6 +827,7 @@ class SignalTracker(BaseDaemon):
                 "exit_at": bar_time,
                 "exit_price": transition.exit_price,
                 "exit_reason": transition.exit_reason,
+                "pnl_ticks": transition.pnl_ticks,
                 "pnl_r": transition.pnl_r,
                 "pnl_dollars": transition.pnl_dollars,
                 "signal_quality": None,
@@ -817,6 +871,41 @@ class SignalTracker(BaseDaemon):
                 signal_id=lt.signal_id,
                 error=str(exc),
             )
+
+    async def _publish_chandelier_update(
+        self,
+        signal_id: str,
+        symbol: str,
+        timeframe: str,
+        state: SignalState,
+        bar_time: datetime,
+    ) -> None:
+        """Publish a CHANDELIER_UPDATE transition so trailing stop survives restarts."""
+        cs = state.chandelier_state
+        if cs is None:
+            return
+        lt = LifecycleTransition(
+            transition_type=TransitionType.CHANDELIER_UPDATE,
+            signal_id=signal_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            bar_ts=bar_time,
+            data={
+                "signal_id": signal_id,
+                "trailing_stop_price": {
+                    "trailing_stop": cs.get("trailing_stop"),
+                    "highest_high": cs.get("highest_high"),
+                    "lowest_low": cs.get("lowest_low"),
+                    "vol": cs.get("vol"),
+                    "vol_source": cs.get("vol_source"),
+                },
+                "trailing_stop_tightening_rate": None,
+                "staleness_score": None,
+                "staleness_trigger_reason": None,
+                "chandelier_vol_source": cs.get("vol_source"),
+            },
+        )
+        await self._publish_transition(lt)
 
     async def _publish_market_resolution(self, mkt: MarketTransition, bar_time: datetime) -> None:
         """Publish market-track resolution as a LifecycleTransition to Kafka."""
@@ -906,7 +995,10 @@ class SignalTracker(BaseDaemon):
                    sl.entry_zone_high,
                    sl.market_entry_price,
                    sl.garch_sigma_at_fire,
-                   sl.hmm_regime_at_fire
+                   sl.hmm_regime_at_fire,
+                   sl.expires_at,
+                   sl.trailing_stop_price,
+                   sl.chandelier_vol_source
             FROM signal_ledger_full sl
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active')

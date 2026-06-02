@@ -23,7 +23,7 @@ from src.intelligence.register_plugins import (
     TIER_SMC,
     validate_schema_coverage,
 )
-from src.intelligence.trading.aggregator import TREND_SETUPS
+from src.intelligence.trading.aggregator import SETUP_PRIORITY, TREND_SETUPS
 
 # ---------------------------------------------------------------------------
 # Module-level OTel metrics (imported from central registry — Task 2)
@@ -146,7 +146,10 @@ class PluginValidator:
         # 5. TREND_SETUPS sync
         report.add(self._validate_trend_sets_sync())
 
-        # 6. Incremental _state contract
+        # 6. SETUP_PRIORITY completeness (all TIER_I7 plugins must be ranked)
+        report.add(self._validate_setup_priority_sync())
+
+        # 7. Incremental _state contract
         report.add(self._validate_incremental_state_contract())
 
         # Emit metrics
@@ -332,6 +335,39 @@ class PluginValidator:
             )
 
         return ValidationResult(name="trend_sets_sync", status="PASS", details=[])
+
+    def _validate_setup_priority_sync(self) -> ValidationResult:
+        """Assert every TIER_I7 plugin has an explicit entry in SETUP_PRIORITY.
+
+        A plugin absent from SETUP_PRIORITY silently ranks 0 and can win
+        aggregation via majority vote without any intentional priority assignment.
+        """
+        tier_i7_set = set(TIER_I7)
+        priority_set = set(SETUP_PRIORITY.keys())
+        missing = tier_i7_set - priority_set
+        extra = priority_set - tier_i7_set
+
+        errors: list[ValidationError] = []
+        for name in sorted(missing):
+            errors.append(
+                ValidationError(
+                    tier="I7",
+                    plugin=name,
+                    message="Plugin in TIER_I7 but missing from SETUP_PRIORITY — will rank 0",
+                )
+            )
+        for name in sorted(extra):
+            errors.append(
+                ValidationError(
+                    tier="I7",
+                    plugin=name,
+                    message="Plugin in SETUP_PRIORITY but not in TIER_I7 — stale entry",
+                )
+            )
+
+        if errors:
+            return ValidationResult(name="setup_priority_sync", status="FAIL", details=errors)
+        return ValidationResult(name="setup_priority_sync", status="PASS", details=[])
 
     def _validate_incremental_state_contract(self) -> ValidationResult:
         """Verify every incremental plugin returns _state in compute_next() output.
