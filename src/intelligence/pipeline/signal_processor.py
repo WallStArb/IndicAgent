@@ -23,12 +23,15 @@ import structlog
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import TF_SECONDS
+from src.intelligence.pipeline.feature_flattening import (
+    _HMM_REGIME_LABEL,  # noqa: F401 — kept for any local references (none currently)
+    build_flat_features,
+)
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
 from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
-from src.intelligence.schemas import I1Indicators
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
@@ -48,34 +51,10 @@ from src.observability.metrics import (
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 
-# ---------------------------------------------------------------------------
-# I1 alias map (1-C): maps feature dict keys used in _build_features_from_event
-# to their canonical I1Indicators.model_fields names. Validated at import time
-# so any schema drift is caught immediately rather than silently at runtime.
-# Consumed by Plan 05 flat feature precompute.
-# ---------------------------------------------------------------------------
-
-_I1_ALIAS_MAP: dict[str, str] = {
-    # Bollinger Band aliases used in CIS scorer / downstream consumers
-    "bb_middle": "bb_20_2_mid",
-    "bb_upper": "bb_20_2_upper",
-    "bb_lower": "bb_20_2_lower",
-}
-
-# Import-time assertion: every VALUE must exist in I1Indicators.model_fields
-_I1_FIELDS = set(I1Indicators.model_fields.keys())
-for _alias_key, _canonical in _I1_ALIAS_MAP.items():
-    if _canonical not in _I1_FIELDS:
-        raise ImportError(
-            f"_I1_ALIAS_MAP validation failed: alias '{_alias_key}' → '{_canonical}' "
-            f"is not in I1Indicators.model_fields. Known fields: {sorted(_I1_FIELDS)}"
-        )
-del _alias_key, _canonical  # clean up loop variable from module scope
-
-# HMM regime integer -> semantic label (mirrored from orchestrator for features build)
-_HMM_REGIME_LABEL: dict[int, str] = {0: "ranging", 1: "trending", 2: "trending"}
-
 # Alpha decay half-life bars
+# Note: _I1_ALIAS_MAP, _HMM_REGIME_LABEL, and build_flat_features are imported from
+# feature_flattening (moved in Plan 05 to prevent circular import with
+# feature_pipeline_executor.py). _I1_ALIAS_MAP is re-exported above for compat.
 ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
 
@@ -105,28 +84,9 @@ def _cis_kalman_update(
     return x_new, P_new
 
 
-def _build_features_from_event(event: Any) -> dict[str, Any]:
-    """Build a features dict from a typed IntelligenceEvent for I7 plugins."""
-    f: dict[str, Any] = {}
-    for k, v in event.i1.model_dump().items():
-        if v is not None:
-            f[k] = v
-    f["bb_middle"] = event.i1.bb_20_2_mid
-    f["bb_upper"] = event.i1.bb_20_2_upper
-    f["bb_lower"] = event.i1.bb_20_2_lower
-    for tier_key in ("i2", "i3", "i4", "i5", "smc", "i6"):
-        sub = getattr(event, tier_key, None)
-        if sub is not None:
-            for k, v in sub.model_dump().items():
-                if v is not None:
-                    f[k] = v
-    f["vix"] = getattr(event, "vix", None)
-    hmm_val = f.get("hmm_regime")
-    hmm_int = int(hmm_val) if hmm_val is not None else None
-    f["hmm_regime_label"] = (
-        _HMM_REGIME_LABEL.get(hmm_int, "unknown") if hmm_int is not None else None
-    )
-    return f
+# _build_features_from_event removed in Plan 05 — replaced by build_flat_features()
+# imported from feature_flattening (the public neutral-module name). Call sites use
+# the precomputed fp_result.flat_features (set once per bar in FeaturePipelineExecutor).
 
 
 # ---------------------------------------------------------------------------
@@ -272,12 +232,18 @@ class SignalProcessor:
         tf: str,
         raw_signals: list[dict],
         cache_snapshot: CacheSnapshot,
+        flat_features: dict | None = None,
     ) -> SignalProcessorResult:
         """Run signal pipeline stages and return structured result.
 
         Reads cache values from cache_snapshot — NOT from any self-held cache reference.
         Applies alpha decay to raw_signals before gates (D-21, moved from orchestrator).
         Emits D-22 OTel counters for gate observability.
+
+        Args:
+            flat_features: Pre-computed flat feature dict from build_flat_features(event).
+                           When provided (Plan 05 hot path), avoids per-bar model_dump()
+                           call. When None, falls back to building from event (backward compat).
         """
         # Sync CIS weights at start of every bar (D-07 Pitfall 4 mediation)
         self.sync_cis_weights(cache_snapshot.cis_weights, cache_snapshot.cis_weights_version)
@@ -311,8 +277,10 @@ class SignalProcessor:
                 },
             )
 
-        # Build features from event
-        features = _build_features_from_event(event)
+        # Build features from event — use precomputed flat_features when available (3-E).
+        # When flat_features is provided (set once per bar in FeaturePipelineExecutor),
+        # avoids per-bar model_dump() call on the hot path.
+        features = flat_features if flat_features is not None else build_flat_features(event)
 
         # Design B: Update CIS scorer's calibration curves before scoring.
         # The scorer applies calibration to the Kalman-filtered CIS inside score().

@@ -142,23 +142,27 @@ def test_perf05_none_values_excluded_from_event():
     assert i1_dumped["rsi_14"] == 42.0
 
 
-def test_perf01_build_features_from_event_called_once():
-    """PERF-01: executor.py contains exactly one call site of _build_features_from_event."""
+def test_perf01_build_flat_features_called_once_in_fpe():
+    """PERF-01: feature_pipeline_executor.py contains exactly one call to build_flat_features.
+
+    Plan 05: _build_features_from_event was renamed to build_flat_features and moved to
+    feature_flattening.py. FeaturePipelineExecutor calls it exactly once per bar (3-E).
+    """
     import ast
     import pathlib
 
-    executor_src = pathlib.Path("src/intelligence/pipeline/executor.py").read_text()
+    fpe_src = pathlib.Path("src/intelligence/pipeline/feature_pipeline_executor.py").read_text()
 
     # Count actual call sites (not comments/docstrings)
-    tree = ast.parse(executor_src)
+    tree = ast.parse(fpe_src)
     call_count = 0
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Name) and func.id == "_build_features_from_event":
+            if isinstance(func, ast.Name) and func.id == "build_flat_features":
                 call_count += 1
 
     assert call_count == 1, (
-        f"PERF-01: expected exactly 1 call to _build_features_from_event in executor.py, "
+        f"PERF-01: expected exactly 1 call to build_flat_features in feature_pipeline_executor.py, "
         f"found {call_count}"
     )

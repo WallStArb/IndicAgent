@@ -231,7 +231,9 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
                 break
             self._record_message_consumed()
             try:
-                # Pipeline publishes {"event": "<json_string>"}
+                # Plan 05 serialization fix: pipeline now publishes flat dict payload.
+                # Old format: {"event": "<json_string>"} — string unwrap path preserved
+                # for backward compat with warmup/replay messages still using old format.
                 raw = payload.get("event", payload)
                 if isinstance(raw, str):
                     import json
