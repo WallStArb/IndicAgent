@@ -34,6 +34,15 @@ from src.observability.metrics import counter
 
 _AGENT_VERSION = "v1"
 
+CHECKPOINT_VERSION: int = 2
+"""Version integer written into every checkpoint payload on save and compared on load.
+
+If the loaded version does not match CHECKPOINT_VERSION (including missing/None
+on a legacy checkpoint written with _AGENT_VERSION), the checkpoint is discarded
+and the pipeline cold-starts with clean state.  Increment this constant whenever
+a structural change in plugin state schema requires a forced cold start (e.g.,
+Phase 112 contamination boundary enforcement)."""
+
 _CHECKPOINT_PATH = Path("cache/pipeline_checkpoint.json")
 
 _CHECKPOINT_FIELDS: tuple[str, ...] = (
@@ -159,7 +168,7 @@ class PluginStateManager:
                 "PluginStateManager is the single writer"
             )
         payload: dict[str, Any] = {
-            "version": _AGENT_VERSION,
+            "version": CHECKPOINT_VERSION,
             "ts": datetime.now(UTC).isoformat(),
             "plugin_states": _tag_value(self._plugin_states),
         }
@@ -195,8 +204,14 @@ class PluginStateManager:
         try:
             _ensure_default_models_registered()
             raw = json.loads(raw_text)
-            if raw.get("version") != _AGENT_VERSION:
-                self._logger.warning("state.checkpoint_version_mismatch", found=raw.get("version"))
+            loaded_version = raw.get("version")
+            if loaded_version != CHECKPOINT_VERSION:
+                self._logger.warning(
+                    "state.checkpoint_version_mismatch",
+                    loaded_version=loaded_version,
+                    expected_version=CHECKPOINT_VERSION,
+                    note="discarding checkpoint, pipeline will cold-start clean",
+                )
                 return None
 
             # Restore plugin_states internally — tuple-key restoration
