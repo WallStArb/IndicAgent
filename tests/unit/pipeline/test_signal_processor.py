@@ -418,13 +418,16 @@ def test_no_lateral_imports():
 
 
 def test_module_level_helpers_exist():
-    """_apply_alpha_decay, _cis_kalman_update are module-level callables in signal_processor.
+    """_apply_alpha_decay is a module-level callable in signal_processor.
+    _cis_kalman_update was removed in Phase 112 — Kalman logic moved to CISScorer.
     build_flat_features moved to feature_flattening (Plan 05 neutral module) and re-imported."""
     import src.intelligence.pipeline.feature_flattening as ff_mod
     import src.intelligence.pipeline.signal_processor as mod
 
     assert callable(mod._apply_alpha_decay), "_apply_alpha_decay must be a module-level callable"
-    assert callable(mod._cis_kalman_update), "_cis_kalman_update must be a module-level callable"
+    assert not hasattr(
+        mod, "_cis_kalman_update"
+    ), "_cis_kalman_update must be removed (dead code since Design B migration)"
     # build_flat_features moved to feature_flattening in Plan 05; signal_processor re-imports it.
     assert callable(
         mod.build_flat_features
@@ -435,7 +438,6 @@ def test_module_level_helpers_exist():
 
     # Verify they are NOT class methods
     assert not inspect.ismethod(mod._apply_alpha_decay)
-    assert not inspect.ismethod(mod._cis_kalman_update)
     assert not inspect.ismethod(mod.build_flat_features)
 
 
