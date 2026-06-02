@@ -197,6 +197,10 @@ class IntelligencePipeline(BaseDaemon):
             "intelligence_pipeline_pipeline_errors_total",
             "Pipeline processing errors",
         )
+        self._bar_timeout_total = counter(
+            "intelligence_pipeline_bar_timeout_total",
+            "Bars that exceeded the 500ms hard outer timeout and were DLQ'd with reason bar_tier_timeout",
+        )
         self._pipeline_latency = self._meter.create_histogram(
             "intelligence_pipeline_pipeline_latency_ms",
             description="Per-bar pipeline latency in milliseconds",
@@ -332,6 +336,7 @@ class IntelligencePipeline(BaseDaemon):
             state_mgr=self._state_mgr,
             instrument_map=self._instrument_map,
             vix_symbol=self._vix_symbol,
+            settings=self.settings,
         )
 
         # Construct SignalProcessor (plan 05). Receives CacheSnapshot per bar, not CacheManager.
@@ -533,7 +538,36 @@ class IntelligencePipeline(BaseDaemon):
             "pipeline.process_bar_inner",
             **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
-            await self._process_bar_compute(bar, t0=t0, gap=gap)
+            try:
+                # Hard 500ms outer timeout (D-12, 3-D): if the entire bar compute
+                # exceeds 500ms, DLQ the bar with reason bar_tier_timeout rather than
+                # blocking the consumer loop.
+                await asyncio.wait_for(self._process_bar_compute(bar, t0=t0, gap=gap), timeout=0.5)
+            except TimeoutError:
+                env = self.settings.env_name
+                msg_key = message_key(bar.symbol, bar.tf)
+                dlq_payload = {
+                    "reason": "bar_tier_timeout",
+                    "symbol": bar.symbol,
+                    "tf": bar.tf,
+                    "ts": bar.ts.isoformat(),
+                }
+                self._bar_timeout_total.add(1, {"symbol": bar.symbol, "tf": bar.tf})
+                self.logger.warning(
+                    "pipeline.bar_timeout",
+                    symbol=bar.symbol,
+                    tf=bar.tf,
+                    timeout_ms=500,
+                )
+                # Enqueue to DLQ — short 1s timeout so the handler cannot
+                # stall the consumer loop indefinitely.
+                await self._out_queue.enqueue_blocking(
+                    topic_signal_dlq(env),
+                    msg_key,
+                    dlq_payload,
+                    timeout_sec=1.0,
+                    priority=PRIORITY_HIGH,
+                )
 
     async def _process_bar_compute(self, bar: BarMessage, *, t0: float, gap: bool = False) -> None:
         """Core I1-I7 compute and output routing — called from inside observed_span."""
@@ -559,13 +593,6 @@ class IntelligencePipeline(BaseDaemon):
         intel_topic = (
             topic_intelligence_shadow(env) if self._shadow_mode else topic_intelligence(env)
         )
-        await self._out_queue.enqueue_blocking(
-            intel_topic,
-            msg_key,
-            {"event": fp_result.event.model_dump_json()},
-            timeout_sec=5.0,
-            priority=PRIORITY_HIGH,
-        )
         # I7 via run_i7_complete (D-20); alpha decay in SignalProcessor (D-21)
         i7_start = time.perf_counter()
         plugin_states = self._state_mgr.get_all_states_for(bar.symbol, bar.tf)
@@ -585,32 +612,57 @@ class IntelligencePipeline(BaseDaemon):
             bar.tf,
             raw_signals=raw_signals,
             cache_snapshot=cache_snapshot,
+            flat_features=fp_result.flat_features,  # 3-E: precomputed once per bar
         )
-        # 4-way routing (all high priority — journal is low priority, enqueued below)
-        if result.success and result.signals_payload:
-            await self._out_queue.enqueue_blocking(
-                topic_intelligence_i7_signals(env),
-                msg_key,
-                result.signals_payload,
-                timeout_sec=5.0,
-                priority=PRIORITY_HIGH,
-            )
-        elif result.dlq_payload:
-            await self._out_queue.enqueue_blocking(
-                topic_signal_dlq(env),
-                msg_key,
-                result.dlq_payload,
-                timeout_sec=5.0,
-                priority=PRIORITY_HIGH,
-            )
-        if result.winner_payload:
-            await self._out_queue.enqueue_blocking(
-                topic_signals_aggregated(env),
-                msg_key,
-                result.winner_payload,
-                timeout_sec=5.0,
-                priority=PRIORITY_HIGH,
-            )
+        # 3-C batched enqueue: collect all non-None output payloads and submit via
+        # a single enqueue_many() call, replacing sequential enqueue_blocking calls.
+        # Intel: 3-B serialization fix — model_dump(mode="json") dict, not model_dump_json() string.
+        # i7_signals XOR dlq (mutually exclusive): success path vs DLQ path.
+        # winner: optional (absent when no winner this bar).
+        # journal: LOW priority — collected here, LOW priority item in batch.
+        i7_result = result.i7_result or {}
+        journal_record = await self._build_journal_record(
+            bar, fp_result.event, t0, msg_key, i7_result
+        )
+        _i7_signals_payload = result.signals_payload if result.success else None
+        _dlq_payload = result.dlq_payload if not result.success else None
+        _batch: list[tuple] = [
+            # Intel event (HIGH) — 3-B: dict payload not nested JSON string
+            (intel_topic, msg_key, fp_result.event.model_dump(mode="json"), PRIORITY_HIGH),
+            # i7 signals or DLQ (HIGH) — mutually exclusive
+            (
+                (
+                    topic_intelligence_i7_signals(env),
+                    msg_key,
+                    _i7_signals_payload,
+                    PRIORITY_HIGH,
+                )
+                if _i7_signals_payload
+                else (
+                    (topic_signal_dlq(env), msg_key, _dlq_payload, PRIORITY_HIGH)
+                    if _dlq_payload
+                    else None
+                )
+            ),
+            # Winner (HIGH) — None when no winner this bar
+            (
+                (topic_signals_aggregated(env), msg_key, result.winner_payload, PRIORITY_HIGH)
+                if result.winner_payload
+                else None
+            ),
+            # Journal (LOW) — silently dropped on timeout, never stalls pipeline
+            (
+                (
+                    topic_intelligence_journal(env),
+                    msg_key,
+                    journal_record,
+                    PRIORITY_LOW,
+                )
+                if journal_record
+                else None
+            ),
+        ]
+        await self._out_queue.enqueue_many(_batch, timeout_sec=5.0)
         pipeline_latency_ms = (time.perf_counter() - t0) * 1000
         self._pipeline_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
         self._bar_e2e_latency.record(pipeline_latency_ms, {"symbol": bar.symbol, "tf": bar.tf})
@@ -630,7 +682,8 @@ class IntelligencePipeline(BaseDaemon):
                     self.logger.info("intelligence_pipeline.cb_closed", plugin_id=plugin_name)
         except Exception as e:
             self.logger.warning("intelligence_pipeline.cb_scan_failed", error=str(e))
-        await self._enqueue_intel_journal(bar, fp_result.event, t0, msg_key, result.i7_result)
+        # Journal enqueue is now part of the batched enqueue_many call above (3-C).
+        # _enqueue_intel_journal is replaced by _build_journal_record + enqueue_many.
 
     def _assemble_checkpoint_extra(self) -> dict:
         """Build the cross-owned extra_state dict (HIGH finding 5: no plugin_states key).
@@ -644,57 +697,66 @@ class IntelligencePipeline(BaseDaemon):
             "last_bar_offset": self._last_bar_offset,
         }
 
-    async def _enqueue_intel_journal(
+    async def _build_journal_record(
         self,
         bar: BarMessage,
         event: IntelligenceEvent,
         t0: float,
         msg_key: str,
         i7_result: dict | None,
-    ) -> None:
-        """Build and enqueue BarIntelligenceRecord to the intelligence journal topic."""
-        i7 = i7_result or {}
-        ranked_dicts: list[dict] = i7.get("ranked", [])
-        winner: dict | None = i7.get("winner")
-        i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
+    ) -> dict | None:
+        """Build a BarIntelligenceRecord dict for the intelligence journal topic.
 
-        ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
+        Returns the record as a serialized dict (model_dump mode='json') so it can be
+        included in the batched enqueue_many call (3-C). Returns None on any error.
 
-        if winner is None:
-            winner_plugin = None
-            winner_confidence = None
-            winner_direction = None
-        else:
-            winner_plugin = winner.get("setup_plugin")
-            winner_direction = winner.get("direction")
-            winner_confidence = winner.get("calibrated_confidence")
-            if winner_confidence is None:
-                winner_confidence = winner.get("confidence")
+        Journal is LOW priority — silently dropped by enqueue_many on timeout.
+        Previously this method also enqueued; now it only builds (3-C refactor).
+        """
+        try:
+            i7 = i7_result or {}
+            ranked_dicts: list[dict] = i7.get("ranked", [])
+            winner: dict | None = i7.get("winner")
+            i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
 
-        record = BarIntelligenceRecord(
-            intelligence=event,
-            ranked_signals=ranked_signals,
-            winner_plugin=winner_plugin,
-            winner_confidence=winner_confidence,
-            winner_direction=winner_direction,
-            signals_evaluated=i7.get("signals_evaluated", 0),
-            signals_after_quality=i7.get("signals_after_quality", 0),
-            signals_after_regime=i7.get("signals_after_regime", 0),
-            signals_after_tod=i7.get("signals_after_tod", 0),
-            signals_after_calibration=i7.get("signals_after_calibration", 0),
-            ledger_written=len(ranked_dicts) > 0,
-            session_type=normalize_session_type(event.session_type),
-            i7_computed_at=i7_computed_at,
-            pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
-        )
-        # Journal is LOW priority — on timeout, silently dropped (never stalls pipeline)
-        await self._out_queue.enqueue_blocking(
-            topic_intelligence_journal(self.settings.env_name),
-            msg_key,
-            record.model_dump(mode="json"),
-            timeout_sec=5.0,
-            priority=PRIORITY_LOW,
-        )
+            ranked_signals = [signal_dict_to_ranked(s) for s in ranked_dicts]
+
+            if winner is None:
+                winner_plugin = None
+                winner_confidence = None
+                winner_direction = None
+            else:
+                winner_plugin = winner.get("setup_plugin")
+                winner_direction = winner.get("direction")
+                winner_confidence = winner.get("calibrated_confidence")
+                if winner_confidence is None:
+                    winner_confidence = winner.get("confidence")
+
+            record = BarIntelligenceRecord(
+                intelligence=event,
+                ranked_signals=ranked_signals,
+                winner_plugin=winner_plugin,
+                winner_confidence=winner_confidence,
+                winner_direction=winner_direction,
+                signals_evaluated=i7.get("signals_evaluated", 0),
+                signals_after_quality=i7.get("signals_after_quality", 0),
+                signals_after_regime=i7.get("signals_after_regime", 0),
+                signals_after_tod=i7.get("signals_after_tod", 0),
+                signals_after_calibration=i7.get("signals_after_calibration", 0),
+                ledger_written=len(ranked_dicts) > 0,
+                session_type=normalize_session_type(event.session_type),
+                i7_computed_at=i7_computed_at,
+                pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
+            )
+            return record.model_dump(mode="json")
+        except Exception as exc:
+            self.logger.warning(
+                "pipeline.journal_build_failed",
+                symbol=bar.symbol,
+                tf=bar.tf,
+                error=str(exc),
+            )
+            return None
 
     async def _health_monitor_loop(self) -> None:
         """Emit per-key worker queue gauges every 10 seconds.

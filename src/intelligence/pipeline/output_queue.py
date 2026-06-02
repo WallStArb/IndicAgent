@@ -162,6 +162,42 @@ class OutputQueue:
         else:
             await q.put((topic, key, value))
 
+    async def enqueue_many(
+        self,
+        items: list[tuple],
+        *,
+        timeout_sec: float | None = None,
+    ) -> None:
+        """Enqueue multiple (topic, key, value, priority) tuples in one call.
+
+        Replaces sequential ``enqueue_blocking`` calls in _process_bar_compute —
+        all non-None bar outputs (intel, i7_signals/dlq, winner, journal) are batched
+        into one call to reduce per-item overhead (3-C).
+
+        Each item is a 4-tuple: (topic, key, value, priority). Use PRIORITY_HIGH for
+        intelligence/i7_signals/dlq/winner and PRIORITY_LOW for journal.
+
+        None items are silently skipped so callers can include conditional payloads
+        (e.g. winner may be absent for bars with no signals) without filtering upfront.
+
+        On HIGH enqueue timeout: re-raises ``asyncio.TimeoutError`` (same as enqueue_blocking).
+        On LOW enqueue timeout: silently drops and increments journal_drop counter.
+
+        Args:
+            items: List of (topic, key, value, priority) tuples.
+            timeout_sec: Per-item enqueue timeout in seconds. Passed to each
+                         enqueue_blocking call. None = wait indefinitely per item.
+        """
+        for item in items:
+            if item is None:
+                continue
+            topic, key, value, priority = item
+            if value is None:
+                continue
+            await self.enqueue_blocking(
+                topic, key, value, timeout_sec=timeout_sec, priority=priority
+            )
+
     async def join(self) -> None:
         """Await until all enqueued items in BOTH queues have been processed.
 

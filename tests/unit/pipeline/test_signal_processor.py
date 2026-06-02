@@ -256,7 +256,7 @@ async def test_process_returns_signal_processor_result_with_all_payloads_on_succ
     # Patch stage functions to pass-through
     with (
         patch(
-            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            "src.intelligence.pipeline.signal_processor.build_flat_features",
             return_value={"hmm_regime": 1},
         ),
         patch(
@@ -321,7 +321,7 @@ async def test_process_returns_dlq_payload_on_cis_null():
     }
 
     with patch(
-        "src.intelligence.pipeline.signal_processor._build_features_from_event",
+        "src.intelligence.pipeline.signal_processor.build_flat_features",
         return_value={},
     ):
         result = await proc.process(
@@ -355,7 +355,7 @@ async def test_process_consumes_cache_snapshot_not_cache_manager_reference():
     snapshot = _make_snapshot()
     with (
         patch(
-            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            "src.intelligence.pipeline.signal_processor.build_flat_features",
             return_value={},
         ),
         patch(
@@ -418,19 +418,25 @@ def test_no_lateral_imports():
 
 
 def test_module_level_helpers_exist():
-    """_apply_alpha_decay, _cis_kalman_update, _build_features_from_event are module-level callables."""
+    """_apply_alpha_decay, _cis_kalman_update are module-level callables in signal_processor.
+    build_flat_features moved to feature_flattening (Plan 05 neutral module) and re-imported."""
+    import src.intelligence.pipeline.feature_flattening as ff_mod
     import src.intelligence.pipeline.signal_processor as mod
 
     assert callable(mod._apply_alpha_decay), "_apply_alpha_decay must be a module-level callable"
     assert callable(mod._cis_kalman_update), "_cis_kalman_update must be a module-level callable"
+    # build_flat_features moved to feature_flattening in Plan 05; signal_processor re-imports it.
     assert callable(
-        mod._build_features_from_event
-    ), "_build_features_from_event must be a module-level callable"
+        mod.build_flat_features
+    ), "build_flat_features must be importable from signal_processor"
+    assert callable(
+        ff_mod.build_flat_features
+    ), "build_flat_features must be callable in feature_flattening"
 
     # Verify they are NOT class methods
     assert not inspect.ismethod(mod._apply_alpha_decay)
     assert not inspect.ismethod(mod._cis_kalman_update)
-    assert not inspect.ismethod(mod._build_features_from_event)
+    assert not inspect.ismethod(mod.build_flat_features)
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +505,7 @@ async def test_shadow_plugin_never_wins_even_with_highest_score():
 
     with (
         patch(
-            "src.intelligence.pipeline.signal_processor._build_features_from_event",
+            "src.intelligence.pipeline.signal_processor.build_flat_features",
             return_value={"hmm_regime": 1},
         ),
         patch(
