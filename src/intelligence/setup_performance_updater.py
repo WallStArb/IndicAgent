@@ -101,7 +101,15 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, tuple[float, 
 
     Returns dict[setup_plugin, (perf_multiplier, sample_size)] where multipliers
     are in [0.5, 1.5].
+
+    Ascending `adjusted_rank` sort selects the MINIMUM value first.
+    Best Sharpe -> multiplier=0.5 -> ranks first (lowest value wins ascending sort).
+    Worst Sharpe -> multiplier~1.5 -> ranks last.
+
     If only one eligible setup, returns {plugin: (1.0, sample_size)}.
+    With n=1, a single validated setup receives multiplier=1.0 (neutral), which
+    intentionally ranks below an unvalidated setup's warm-up penalty (0.5) under
+    ascending sort.
 
     D-16: This function only returns multipliers for setups with sample_size >= MIN_SAMPLE_SIZE.
     Setups below the threshold get the warm-up penalty (0.5) applied by the ranker.
