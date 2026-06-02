@@ -208,6 +208,20 @@ class Settings(BaseSettings):
     # Winner selector configuration (Phase 68-01)
     winner_long_bias: bool = Field(default=True, validation_alias="WINNER_LONG_BIAS")
 
+    # Signal quality floor (Phase 112 D-05).
+    # Minimum publishable confidence after quality multipliers applied.
+    # Signals below this floor are rejected and counted by
+    # intelligence_pipeline_quality_floor_rejections_total.
+    # The empirical value is loaded at startup by quality_gate.load_quality_floor()
+    # from .pipeline_quality_floor (written by services/quality_floor_bootstrap.py).
+    # This setting serves as the config-level floor and as the default when the
+    # bootstrap file is absent.
+    SIGNAL_MIN_PUBLISHABLE_CONFIDENCE: float = Field(
+        default=0.12,
+        validation_alias="SIGNAL_MIN_PUBLISHABLE_CONFIDENCE",
+        description="Minimum signal confidence after quality multipliers. Default 0.12 per D-05.",
+    )
+
     # Provider Merger Agent (Phase 54-04)
     # provider_raw_topics: list of provider names whose raw topics to subscribe to
     # provider_routing_config: asset_class -> authoritative provider name
