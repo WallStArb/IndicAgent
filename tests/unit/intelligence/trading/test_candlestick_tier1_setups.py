@@ -45,12 +45,16 @@ class TestCandlestickTier1Patterns:
             "volume_sma_20": 1000.0,
         }
 
+    def _frames(self, f: dict) -> dict:
+        """Spread flat feature dict across all tier keys (plugins no longer read frames['features'])."""
+        return {"i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "smc": f, "i6": f}
+
     def test_three_white_soldiers_bullish(self):
         from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bull_features("three_white_soldiers")}
+            {"main": df, **self._frames(self._bull_features("three_white_soldiers"))}
         )
         assert result.get("direction") == 1
         assert "three_white_soldiers" in result.get("signal_type", "")
@@ -60,7 +64,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bear_features("three_black_crows")}
+            {"main": df, **self._frames(self._bear_features("three_black_crows"))}
         )
         assert result.get("direction") == -1
         assert "three_black_crows" in result.get("signal_type", "")
@@ -70,7 +74,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bull_features("morning_star")}
+            {"main": df, **self._frames(self._bull_features("morning_star"))}
         )
         assert result.get("direction") == 1
         assert "morning_star" in result.get("signal_type", "")
@@ -80,7 +84,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bear_features("evening_star")}
+            {"main": df, **self._frames(self._bear_features("evening_star"))}
         )
         assert result.get("direction") == -1
         assert "evening_star" in result.get("signal_type", "")
@@ -90,7 +94,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bull_features("three_inside_up")}
+            {"main": df, **self._frames(self._bull_features("three_inside_up"))}
         )
         assert result.get("direction") == 1
         assert "three_inside_up" in result.get("signal_type", "")
@@ -100,7 +104,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bear_features("three_inside_down")}
+            {"main": df, **self._frames(self._bear_features("three_inside_down"))}
         )
         assert result.get("direction") == -1
         assert "three_inside_down" in result.get("signal_type", "")
@@ -111,7 +115,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bull_features("harami_cross")}
+            {"main": df, **self._frames(self._bull_features("harami_cross"))}
         )
         assert result.get("direction") == 1  # follows bullish trend
         assert "harami_cross" in result.get("signal_type", "")
@@ -121,7 +125,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bear_features("dark_cloud_cover")}
+            {"main": df, **self._frames(self._bear_features("dark_cloud_cover"))}
         )
         assert result.get("direction") == -1
         assert "dark_cloud_cover" in result.get("signal_type", "")
@@ -131,7 +135,7 @@ class TestCandlestickTier1Patterns:
 
         df = self._make_df()
         result = CandlestickPatternSetupPlugin().compute_full(
-            {"main": df, "features": self._bull_features("piercing_line")}
+            {"main": df, **self._frames(self._bull_features("piercing_line"))}
         )
         assert result.get("direction") == 1
         assert "piercing_line" in result.get("signal_type", "")

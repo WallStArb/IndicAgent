@@ -156,7 +156,7 @@ class TestOFIDivergencePlugin:
     def test_no_fire_when_ofi_divergence_missing(self):
         """Returns no_signal() when ofi_divergence not in features."""
         frames = _make_frames()
-        frames["features"].pop("ofi_divergence")
+        frames["i1"].pop("ofi_divergence")
         result = self.plugin.compute_full(frames)
         assert result.get("direction", 0) == 0
 
