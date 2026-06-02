@@ -23,12 +23,12 @@ import structlog
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import TF_SECONDS
-from src.intelligence.pipeline.calibrator import apply_calibration
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
 from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
+from src.intelligence.schemas import I1Indicators
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
@@ -47,6 +47,30 @@ from src.observability.metrics import (
 # ---------------------------------------------------------------------------
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
+
+# ---------------------------------------------------------------------------
+# I1 alias map (1-C): maps feature dict keys used in _build_features_from_event
+# to their canonical I1Indicators.model_fields names. Validated at import time
+# so any schema drift is caught immediately rather than silently at runtime.
+# Consumed by Plan 05 flat feature precompute.
+# ---------------------------------------------------------------------------
+
+_I1_ALIAS_MAP: dict[str, str] = {
+    # Bollinger Band aliases used in CIS scorer / downstream consumers
+    "bb_middle": "bb_20_2_mid",
+    "bb_upper": "bb_20_2_upper",
+    "bb_lower": "bb_20_2_lower",
+}
+
+# Import-time assertion: every VALUE must exist in I1Indicators.model_fields
+_I1_FIELDS = set(I1Indicators.model_fields.keys())
+for _alias_key, _canonical in _I1_ALIAS_MAP.items():
+    if _canonical not in _I1_FIELDS:
+        raise ImportError(
+            f"_I1_ALIAS_MAP validation failed: alias '{_alias_key}' → '{_canonical}' "
+            f"is not in I1Indicators.model_fields. Known fields: {sorted(_I1_FIELDS)}"
+        )
+del _alias_key, _canonical  # clean up loop variable from module scope
 
 # HMM regime integer -> semantic label (mirrored from orchestrator for features build)
 _HMM_REGIME_LABEL: dict[int, str] = {0: "ranging", 1: "trending", 2: "trending"}
@@ -178,7 +202,8 @@ class SignalProcessor:
         self._signal_gate: dict = {}
         self._setup_cooldown: dict = {}
         self._setup_last_fire: dict = {}
-        self._kalman_state: dict = {}
+        # NOTE: CIS Kalman state is now owned by CISScorer (Design B migration).
+        # self._kalman_state moved to self._cis_scorer._cis_kalman_state.
         self._last_synced_cis_version: int = 0
 
         # OTel metrics (D-16)
@@ -219,12 +244,12 @@ class SignalProcessor:
     # ------------------------------------------------------------------
 
     def get_kalman_state(self) -> dict:
-        """Return defensive copy of Kalman state for checkpoint."""
-        return dict(self._kalman_state)
+        """Return defensive copy of CIS Kalman state for checkpoint (delegates to CISScorer)."""
+        return self._cis_scorer.get_kalman_state()
 
     def restore_kalman_state(self, state: dict) -> None:
-        """Restore Kalman state from checkpoint."""
-        self._kalman_state.update(state)
+        """Restore CIS Kalman state from checkpoint (delegates to CISScorer)."""
+        self._cis_scorer.restore_kalman_state(state)
 
     def get_setup_last_fire(self) -> dict:
         """Return defensive copy of setup_last_fire for checkpoint."""
@@ -289,11 +314,15 @@ class SignalProcessor:
         # Build features from event
         features = _build_features_from_event(event)
 
-        # Compute CIS score once per bar
+        # Design B: Update CIS scorer's calibration curves before scoring.
+        # The scorer applies calibration to the Kalman-filtered CIS inside score().
+        self._cis_scorer.set_calibration_curves(cache_snapshot.calibration_curves)
+
+        # Compute CIS score once per bar (tf/symbol needed for Kalman + calibration in scorer)
         plugin_outputs: dict[str, dict] = {
             sig.get("setup_plugin", ""): sig for sig in raw_signals if sig.get("direction", 0) != 0
         }
-        cis_result = self._cis_scorer.score(features, plugin_outputs)
+        cis_result = self._cis_scorer.score(features, plugin_outputs, tf=tf, symbol=symbol)
         raw_cis = cis_result.cis_score
 
         # CIS score absent (scorer returned None) → DLQ immediately, no further pipeline work
@@ -322,15 +351,10 @@ class SignalProcessor:
                 },
             )
 
-        # Kalman-filter the CIS score to smooth bar-to-bar noise
-        kalman_key = (symbol, tf)
-        if kalman_key not in self._kalman_state:
-            R = {"1m": 0.5, "5m": 0.3, "15m": 0.2, "1h": 0.1}.get(tf, 0.3)
-            self._kalman_state[kalman_key] = {"x": raw_cis, "P": 1.0, "Q": 0.01, "R": R}
-        ks = self._kalman_state[kalman_key]
-        filtered_cis, new_P = _cis_kalman_update(raw_cis, ks["x"], ks["P"], ks["Q"], ks["R"])
-        ks["x"] = filtered_cis
-        ks["P"] = new_P
+        # Design B: filtered_cis and calibrated_cis are now computed inside CISScorer.score().
+        # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.
+        kalman_key = (tf, symbol)
+        filtered_cis = self._cis_scorer._cis_kalman_state.get(kalman_key, {}).get("x", raw_cis)
 
         # Attribution capture: BEFORE quality gate
         for sig in raw_signals:
@@ -348,7 +372,11 @@ class SignalProcessor:
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = await apply_quality_gate(
-            raw_signals, features, tf=tf, recorder=self._transform_recorder
+            raw_signals,
+            features,
+            tf=tf,
+            recorder=self._transform_recorder,
+            min_confidence=getattr(self._settings, "SIGNAL_MIN_PUBLISHABLE_CONFIDENCE", 0.12),
         )
         _record_dropped("quality", raw_signals, quality_gated)
 
@@ -385,17 +413,10 @@ class SignalProcessor:
         )
         _record_dropped("tod", regime_gated, tod_adjusted)
 
-        _stamp_pre("pre_calibration_confidence", tod_adjusted)
-        calibrated = await apply_calibration(
-            tod_adjusted,
-            cache_snapshot.calibration_curves,
-            tf,
-            symbol=symbol,
-            recorder=self._transform_recorder,
-        )
-        _record_dropped("calibration", tod_adjusted, calibrated)
+        # Design B: per-signal calibration removed. Calibration is now applied at CIS level
+        # inside CISScorer.score() and stamped as calibrated_confidence from cis_result.calibrated_cis.
         ranked = await rank_signals(
-            calibrated,
+            tod_adjusted,
             cache_snapshot.perf_weights,
             tf,
             symbol=symbol,
@@ -454,7 +475,8 @@ class SignalProcessor:
             "signals_after_quality": len(quality_gated),
             "signals_after_regime": len(regime_gated),
             "signals_after_tod": len(tod_adjusted),
-            "signals_after_calibration": len(calibrated),
+            # Design B: no per-signal calibration stage; tod_adjusted → ranked directly
+            "signals_after_calibration": len(tod_adjusted),
             "i7_computed_at": i7_computed_at,
         }
 
@@ -483,6 +505,10 @@ class SignalProcessor:
             winner_payload["is_backfill"] = (
                 datetime.now(UTC) - bar.ts
             ).total_seconds() > TF_SECONDS.get(tf, 60)
+            # Design B: stamp calibrated_confidence from CIS-level calibration.
+            # cis_result.calibrated_cis is None when no curve is available (passthrough).
+            if cis_result.calibrated_cis is not None:
+                winner_payload["calibrated_confidence"] = cis_result.calibrated_cis
 
         return SignalProcessorResult(
             success=success,
