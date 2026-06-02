@@ -84,7 +84,7 @@ class FeaturePipelineResult:
         tiered: Per-tier output dicts or None if tiers returned nothing.
         main_df: pandas DataFrame for (symbol, tf) — built once here and reused
                  by run_i7_complete to avoid a duplicate to_dataframe() call (D-26).
-        hmm_regime: HMM regime integer from I1 output; None before first bar.
+        hmm_regime: HMM regime integer from SMC tier output; None before first bar.
     """
 
     event: IntelligenceEvent | None
@@ -229,7 +229,7 @@ class FeaturePipelineExecutor:
         )
         if i1_state_updates:
             self._state_mgr.update_batch(i1_state_updates)
-        frames["features"] = dict(i1_result)
+        frames["i1"] = dict(i1_result)
         self._prev_i1_features[key] = dict(i1_result)
         self._last_events[key + "_i1"] = i1_result
 
@@ -287,8 +287,9 @@ class FeaturePipelineExecutor:
         # Persist event for cross-tf context reads on subsequent bars
         self._last_events[key] = event
 
-        # Extract HMM regime from i1 output for CacheManager (D-25)
-        hmm_val = frames.get("features", {}).get("hmm_regime")
+        # Extract HMM regime from smc tier output for CacheManager (D-25)
+        # hmm_regime lives in SMCContext (produced by smc_HMMRegime plugin, tier key "smc")
+        hmm_val = frames.get("smc", {}).get("hmm_regime")
         hmm_regime = int(hmm_val) if isinstance(hmm_val, (int, float)) else None
 
         return FeaturePipelineResult(
