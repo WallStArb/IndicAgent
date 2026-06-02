@@ -1,9 +1,10 @@
 """Tests for SignalTracker._ingest_signal backfill fast-path.
 
 Covers:
-1. test_backfill_fast_path_expired — backfill signal past TTL → TTL-expired published, NOT added to active index
-2. test_backfill_carried_forward — backfill signal within TTL → added to active index normally
-3. test_backfill_fast_path_publish_failure — publish failure → signal_id NOT deduped (allows retry)
+1. test_backfill_routed_to_replay — backfill signal past TTL → dedup-only (no EXIT), counter incremented (1-H)
+2. test_backfill_fast_path_non_backfill_expired — non-backfill past TTL → TTL-expired published (existing path)
+3. test_backfill_fast_path_publish_failure — non-backfill publish failure → signal_id NOT deduped (allows retry)
+4. test_backfill_carried_forward — backfill signal within TTL → added to active index normally
 """
 
 from collections import defaultdict
@@ -66,16 +67,54 @@ def _make_backfill_canonical(
 
 
 class TestBackfillFastPathExpired:
-    """TTL elapsed → TTL transition published, skip active index."""
+    """Backfill signals with elapsed TTL → routed to dedup-only (1-H / D-09)."""
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_backfill_fast_path_expired(self):
-        """Backfill signal with 20 bars elapsed (> ttl_bars=10) takes fast-path."""
+    async def test_backfill_routed_to_replay(self):
+        """Backfill signal with elapsed TTL routes to dedup-only — no EXIT published.
+
+        SignalReplayAuditor owns evaluation for these signals. Publishing a false EXIT
+        here would contaminate the ledger (1-H fix).
+        """
         agent = _make_agent()
 
         signal_ts = datetime.now(UTC) - timedelta(minutes=20)
         canonical = _make_backfill_canonical("fast-path-expired-001", signal_ts, ttl_bars=10)
+
+        mock_replay_counter = MagicMock()
+        with (
+            patch(
+                "services.signal_tracker.SIGNAL_TRACKER_BACKFILL_ROUTED_TO_REPLAY_TOTAL",
+                mock_replay_counter,
+            ),
+            patch.object(
+                agent, "_publish_ttl_expired_transition", new_callable=AsyncMock, return_value=True
+            ) as mock_ttl,
+            patch.object(agent, "_add_to_active_index", wraps=MagicMock()) as mock_add,
+        ):
+            await agent._ingest_signal(canonical)
+
+            # No EXIT published for backfill signals
+            mock_ttl.assert_not_called()
+            # Not added to active index
+            mock_add.assert_not_called()
+            # Counter incremented
+            mock_replay_counter.add.assert_called_once()
+
+        # Signal is deduped so re-ingestion is a no-op
+        assert "fast-path-expired-001" in agent._signal_ids
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_non_backfill_fast_path_still_publishes_exit(self):
+        """Non-backfill signals with elapsed TTL still publish TTL-expired EXIT (existing path)."""
+        agent = _make_agent()
+
+        signal_ts = datetime.now(UTC) - timedelta(minutes=20)
+        # is_backfill=False: uses original fast path
+        canonical = _make_backfill_canonical("fast-path-non-backfill-004", signal_ts, ttl_bars=10)
+        canonical["is_backfill"] = False
 
         mock_fastpath = MagicMock()
         with (
@@ -93,17 +132,19 @@ class TestBackfillFastPathExpired:
             mock_ttl.assert_called_once()
             mock_add.assert_not_called()
 
-        assert "fast-path-expired-001" in agent._signal_ids
+        assert "fast-path-non-backfill-004" in agent._signal_ids
         mock_fastpath.add.assert_called()
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_backfill_fast_path_publish_failure_does_not_dedup(self):
-        """If publish fails, signal_id must NOT be added to _signal_ids so retry is possible."""
+        """If non-backfill publish fails, signal_id must NOT be deduped so retry is possible."""
         agent = _make_agent()
 
         signal_ts = datetime.now(UTC) - timedelta(minutes=20)
         canonical = _make_backfill_canonical("fast-path-fail-003", signal_ts, ttl_bars=10)
+        # is_backfill=False uses old path where publish failure matters
+        canonical["is_backfill"] = False
 
         with patch.object(
             agent, "_publish_ttl_expired_transition", new_callable=AsyncMock, return_value=False

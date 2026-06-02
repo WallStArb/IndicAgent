@@ -67,6 +67,12 @@ _NULL_EXPIRES_AT_COUNTER = counter(
     "Count of signals skipped at startup due to NULL expires_at — data-integrity alert (D-17)",
 )
 
+SIGNAL_TRACKER_BACKFILL_ROUTED_TO_REPLAY_TOTAL = counter(
+    "signal_tracker_backfill_routed_to_replay_total",
+    "Backfill signals with elapsed TTL routed to dedup-only (no EXIT published); "
+    "SignalReplayAuditor evaluates these bar-by-bar (1-H / D-09)",
+)
+
 
 def _as_int(value: Any) -> int | None:
     """Return value if it is an int, else None — for staleness regime inputs."""
@@ -174,22 +180,27 @@ class SignalTracker(BaseDaemon):
         """Bootstrap: load active signals from DB, start Kafka clients."""
         await self._bootstrap_active_signals()
 
-        # Bar consumer — subscribes to both 1m and HTF bar topics
+        # Bar consumer — subscribes to both 1m and HTF bar topics.
+        # earliest: _signal_ids bootstrap completes before consumer start, so
+        # replaying known signals is a dedup no-op (2-F / D-10).
         self._bar_consumer = KafkaConsumerClient(
             topic_market_bars(self.env_name),
             topic_market_bars_htf(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_tracker_compute_consumer",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
         )
         await self._bar_consumer.start()
 
-        # Signal consumer — subscribes to i7.signals for new signal ingestion
+        # Signal consumer — subscribes to i7.signals for new signal ingestion.
+        # earliest: _bootstrap_active_signals() runs BEFORE consumer start in _setup(),
+        # so _signal_ids is fully populated for all active signals before any replay
+        # begins. Re-reading an already-known sid short-circuits at the dedup check (2-F).
         self._signal_consumer = KafkaConsumerClient(
             topic_intelligence_i7_signals(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_tracker_compute_signals_consumer",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
         )
         await self._signal_consumer.start()
 
@@ -461,7 +472,28 @@ class SignalTracker(BaseDaemon):
             )
             # Skip fast-path: do not fire TTL from bar count. Add to active index normally below.
         elif now_utc >= expires_at:
-            # Fast-path: TTL elapsed at ingest — publish TTL-expired, never enter index.
+            # Fast-path: TTL elapsed at ingest.
+            #
+            # BACKFILL ROUTING (1-H / D-09): is_backfill signals with elapsed TTL
+            # are routed to dedup-only — do NOT publish EXIT, do NOT enter active index.
+            # SignalReplayAuditor evaluates these bar-by-bar against historical bars.
+            # Publishing a false EXIT here would contaminate the ledger.
+            if canonical.get("is_backfill") is True:
+                # Dedup-only: register sid so subsequent re-ingestion is a no-op.
+                self._signal_ids.add(sid)
+                SIGNAL_TRACKER_BACKFILL_ROUTED_TO_REPLAY_TOTAL.add(
+                    1, {"symbol": canonical["symbol"]}
+                )
+                self.logger.info(
+                    "backfill_routed_to_replay",
+                    signal_id=sid,
+                    symbol=canonical["symbol"],
+                    timeframe=tf,
+                    note="TTL elapsed; routed to dedup-only — SignalReplayAuditor owns evaluation",
+                )
+                return
+
+            # Non-backfill: publish TTL-expired, never enter index.
             # Await the publish before deduping: if publish fails, do NOT add to _signal_ids
             # so the signal can be retried on the next ingest attempt.
             tf_secs = TF_SECONDS.get(tf, 60)
