@@ -294,13 +294,18 @@ async def test_process_returns_signal_processor_result_with_all_payloads_on_succ
 
 
 @pytest.mark.asyncio
-async def test_process_returns_dlq_payload_on_cis_null():
-    """process() routes to DLQ when cis_scorer returns cis_score=None."""
+async def test_process_handles_cis_none_defensively():
+    """process() treats cis_score=None as 0.0 (defensive fallback for scorer contract violation).
+
+    Phase 112 removed the DLQ early-exit for None CIS — CISScorer.score() always returns
+    float per its type contract.  If a scorer implementation error produces None, the processor
+    coerces to 0.0 and continues; the direction=0 result means no winner is selected.
+    """
     proc = _make_processor()
 
     from src.intelligence.trading.cis_scorer import CISResult
 
-    # cis_score=None triggers the early-exit DLQ path in process()
+    # Simulate a scorer implementation error that produces cis_score=None
     null_cis_result = CISResult(
         cis_score=None,
         direction=0,
@@ -324,12 +329,13 @@ async def test_process_returns_dlq_payload_on_cis_null():
         "src.intelligence.pipeline.signal_processor.build_flat_features",
         return_value={},
     ):
+        # Must not raise (None coerced to 0.0)
         result = await proc.process(
             MagicMock(), {}, bar, "ES", "1m", raw_signals=[raw_signal], cache_snapshot=snapshot
         )
 
-    assert result.success is False
-    assert result.dlq_payload is not None
+    # direction=0 → no winner selected; process() succeeds with no signals payload
+    assert result.dlq_payload is None
     assert result.winner_payload is None
 
 
