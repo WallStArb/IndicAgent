@@ -158,7 +158,8 @@ class KalmanTrendPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features", {})
+        # garch_sigma produced by GARCHVolatility (i4 tier, Wave A)
+        features = frames.get("i4") or {}
         R = self._get_R(features)
         closes = df["close"].to_numpy(dtype=float)
 
@@ -177,7 +178,8 @@ class KalmanTrendPlugin(IncrementalMixin):
         if df is None or len(df) < self.min_lookback:
             return {}
 
-        features = frames.get("features", {})
+        # garch_sigma produced by GARCHVolatility (i4 tier, Wave A)
+        features = frames.get("i4") or {}
         R = self._get_R(features)
         closes = df["close"].to_numpy(dtype=float)
 
@@ -201,7 +203,8 @@ class KalmanTrendPlugin(IncrementalMixin):
             return {}
 
         close = float(df.iloc[-1]["close"])
-        features = windows.get("features", {})
+        # garch_sigma produced by GARCHVolatility (i4 tier, Wave A)
+        features = windows.get("i4") or {}
         R = self._get_R(features) if self.use_garch_adaptive else state["R"]
         Q = self._Q
 

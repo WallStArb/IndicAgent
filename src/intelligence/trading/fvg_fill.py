@@ -57,7 +57,15 @@ class FVGFillPlugin:
             return no_signal()
         open_, high, low, close = result
 
-        features = frames.get("features") or {}
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+            **(frames.get("i6") or {}),
+        }
 
         fvg_type = int(features.get("fvg_type", 0))
         fvg_open_count = float(features.get("fvg_open_count", 0.0))

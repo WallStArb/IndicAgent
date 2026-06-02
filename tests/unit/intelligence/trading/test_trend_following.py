@@ -23,7 +23,18 @@ class TestTrendFollowing:
             "ema_21": 5185.0,
         }
         plugin = TrendFollowingPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "trend_long"
         assert result.get("direction") == 1
@@ -49,7 +60,18 @@ class TestTrendFollowing:
             "ema_21": 5015.0,
         }
         plugin = TrendFollowingPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "trend_short"
         assert result.get("direction") == -1
@@ -70,7 +92,18 @@ class TestTrendFollowing:
             "atr_14": 10.0,
         }
         plugin = TrendFollowingPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
@@ -82,5 +115,7 @@ class TestTrendFollowing:
         close = np.array([5000.0, 5001.0, 5002.0])
         df = make_ohlcv(close)
         plugin = TrendFollowingPlugin()
-        result = plugin.compute_full({"main": df, "features": {}})
+        result = plugin.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {} or result.get("signal_type", "none") == "none"

@@ -29,7 +29,9 @@ def test_returns_empty_when_fewer_than_6_extremes_confirmed():
     plugin = SwingMomentumPlugin()
     closes = make_oscillating_prices(40, amplitude=20.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     assert result == {}
 
 
@@ -40,7 +42,9 @@ def test_returns_empty_with_insufficient_swings():
     # 2.5 * 2 * half-periods = 5 peaks+troughs
     closes = make_oscillating_prices(30, amplitude=25.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     assert result == {}
 
 
@@ -56,7 +60,9 @@ def test_struct_energy_formula():
     plugin = SwingMomentumPlugin()
     closes = make_oscillating_prices(200, amplitude=30.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     # After 200 bars of regular oscillation we expect a real result (not {})
     if result:
         energy = result.get("struct_energy")
@@ -71,7 +77,9 @@ def test_struct_energy_clamped_to_one():
     # Very large amplitude → raw formula may exceed 1.0 → clamp must apply
     closes = make_oscillating_prices(200, amplitude=500.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     if result:
         energy = result.get("struct_energy", 0.0)
         assert energy <= 1.0
@@ -89,7 +97,9 @@ def test_amplitude_expanding_true_when_monotonically_increasing():
     envelope = np.linspace(5.0, 50.0, n)  # growing amplitude
     closes = 5000.0 + envelope * np.sin(t)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     if result:
         expanding = result.get("swing_amplitude_expanding")
         assert expanding is not None
@@ -102,7 +112,9 @@ def test_amplitude_expanding_false_when_not_monotonically_increasing():
     # Constant amplitude — not expanding
     closes = make_oscillating_prices(200, amplitude=10.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     if result:
         expanding = result.get("swing_amplitude_expanding")
         assert expanding is not None
@@ -117,7 +129,9 @@ def test_output_keys_present_when_warmed_up():
     plugin = SwingMomentumPlugin()
     closes = make_oscillating_prices(200, amplitude=30.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     if result:
         expected_keys = {
             "swing_amplitude_ratio",

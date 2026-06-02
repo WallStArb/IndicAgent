@@ -24,7 +24,13 @@ def _make_frames(close_arr, features=None, ts_utc_val=None, volume=None, symbol=
         df["timestamp"] = [ts_utc_val] * len(df)
     return {
         "main": df,
-        "features": features or {},
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features or {},
         "__symbol__": symbol,
         "__timeframe__": tf,
     }

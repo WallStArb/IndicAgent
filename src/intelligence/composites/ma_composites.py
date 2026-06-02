@@ -55,11 +55,15 @@ class MACompositePlugin:
     bb_mid_key: str = "bb_mid"
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        # Expect upstream maps: "ma" (from MovingAveragesPlugin), optional "atr", "bb"
-        features = frames.get("features") or {}
+        # All moving average fields and indicators come from I1 tier
+        features = frames.get("i1") or {}
         ma = features
+        df = frames.get("main")
+        # price/close: prefer I1 direct pass; fall back to latest DataFrame bar
         price = features.get("price")  # allow direct pass if provided
-        close = features.get("close")
+        close = features.get("close") or (
+            float(df["close"].iloc[-1]) if df is not None and len(df) else None
+        )
         px = price or close
         out: dict[str, Any] = {}
 

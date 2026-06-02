@@ -38,7 +38,18 @@ def _make_frames(
         "atr": atr,
         "atr_14": atr,
     }
-    return {"main": df, "features": features, "__symbol__": symbol, "__timeframe__": tf}
+    return {
+        "main": df,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+        "__symbol__": symbol,
+        "__timeframe__": tf,
+    }
 
 
 class TestOFIDivergencePlugin:

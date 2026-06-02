@@ -97,8 +97,26 @@ class TestKalmanTrend:
         plugin_adapt = KalmanTrendPlugin(use_garch_adaptive=True)
 
         df = _make_ohlcv(n=100)
-        frames_no_garch = {"main": df, "features": {}}
-        frames_with_garch = {"main": df, "features": {"garch_sigma": 0.02}}
+        frames_no_garch = {
+            "main": df,
+            "i1": {},
+            "i2": {},
+            "i3": {},
+            "i4": {},
+            "i5": {},
+            "smc": {},
+            "i6": {},
+        }
+        frames_with_garch = {
+            "main": df,
+            "i1": {"garch_sigma": 0.02},
+            "i2": {"garch_sigma": 0.02},
+            "i3": {"garch_sigma": 0.02},
+            "i4": {"garch_sigma": 0.02},
+            "i5": {"garch_sigma": 0.02},
+            "smc": {"garch_sigma": 0.02},
+            "i6": {"garch_sigma": 0.02},
+        }
 
         result_fixed = plugin_fixed.compute_full(frames_no_garch)
         result_adapt = plugin_adapt.compute_full(frames_with_garch)

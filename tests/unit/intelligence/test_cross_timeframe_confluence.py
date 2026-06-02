@@ -18,7 +18,13 @@ def plugin():
 def _base_frames() -> dict:
     """Minimal frames with at least one intel_* key so the plugin does not early-return."""
     return {
-        "features": {"trend_direction": 1, "ema_20": 100.0},
+        "i1": {"trend_direction": 1, "ema_20": 100.0},
+        "i2": {"trend_direction": 1, "ema_20": 100.0},
+        "i3": {"trend_direction": 1, "ema_20": 100.0},
+        "i4": {"trend_direction": 1, "ema_20": 100.0},
+        "i5": {"trend_direction": 1, "ema_20": 100.0},
+        "smc": {"trend_direction": 1, "ema_20": 100.0},
+        "i6": {"trend_direction": 1, "ema_20": 100.0},
         "timeframe": "1m",
         "intel_5m": {"trend_direction": 1},
     }

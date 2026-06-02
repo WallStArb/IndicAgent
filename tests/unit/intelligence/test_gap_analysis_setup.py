@@ -51,14 +51,36 @@ class TestGapDetection:
         """open > prior close by 0.5*ATR produces direction == 1."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == 1
 
     def test_bearish_gap_detected(self):
         """open < prior close by 0.5*ATR produces direction == -1."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=False)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["direction"] == -1
 
     def test_no_gap_no_signal(self):
@@ -69,7 +91,18 @@ class TestGapDetection:
         df.at[df.index[-1], "open"] = float(df["close"].iloc[-2])
         features = {"atr_14": 10.0}
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
         assert result["direction"] == 0
 
@@ -77,7 +110,18 @@ class TestGapDetection:
         """gap < 0.3*ATR threshold produces signal_type == 'none'."""
         df, features = make_gap_df(gap_atr_mult=0.2)  # 0.2 < 0.3 min threshold
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
 
 
@@ -93,35 +137,90 @@ class TestGapClassification:
         """gap_size_atr=1.2, vol_ratio=2.5 → bias == 'continuation'."""
         df, features = make_gap_df(gap_atr_mult=1.2, high_volume=True)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["bias"] == "continuation"
 
     def test_medium_gap_normal_volume_fade(self):
         """gap_size_atr=0.5, normal volume → bias == 'fade'."""
         df, features = make_gap_df(gap_atr_mult=0.5, high_volume=False)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["bias"] == "fade"
 
     def test_bullish_fade_signal_type(self):
         """bullish fade gap → signal_type == 'gap_fade_long'."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True, high_volume=False)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "gap_fade_long"
 
     def test_bearish_fade_signal_type(self):
         """bearish fade gap → signal_type == 'gap_fade_short'."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=False, high_volume=False)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "gap_fade_short"
 
     def test_bullish_continuation_signal_type(self):
         """large bullish gap + high volume → signal_type == 'gap_cont_long'."""
         df, features = make_gap_df(gap_atr_mult=1.2, bullish=True, high_volume=True)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "gap_cont_long"
 
 
@@ -137,7 +236,18 @@ class TestGapSignalFields:
         """Fade signal: entry_type == 'at_limit', entry_price == current session open."""
         df, features = make_gap_df(gap_atr_mult=0.5)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["entry_type"] == "at_limit"
         assert result["entry_price"] == pytest.approx(float(df["open"].iloc[-1]))
 
@@ -145,14 +255,36 @@ class TestGapSignalFields:
         """Continuation signal: entry_type == 'at_pullback'."""
         df, features = make_gap_df(gap_atr_mult=1.2, high_volume=True)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["entry_type"] == "at_pullback"
 
     def test_all_fields_present_on_fired_signal(self):
         """Fired signal has confidence > 0.0, targets non-empty, stop_loss != entry_price."""
         df, features = make_gap_df(gap_atr_mult=0.5)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["confidence"] > 0.0
         assert len(result["targets"]) >= 1
         assert result["stop_loss"] != result["entry_price"]
@@ -161,7 +293,18 @@ class TestGapSignalFields:
         """Fade long signal: stop_loss < entry_price (stop is below the entry open)."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True)
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["stop_loss"] < result["entry_price"]
 
 
@@ -179,6 +322,17 @@ class TestGapNoSignal:
         df = make_ohlcv(close)
         features = {"atr_14": 10.0}
         plugin = GapAnalysisSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result["signal_type"] == "none"
         assert result["direction"] == 0

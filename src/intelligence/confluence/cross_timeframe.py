@@ -64,7 +64,20 @@ class CrossTimeframeConfluencePlugin:
     W_I2 = 0.1  # I2 event signals; total = 1.1 → renormalize by dividing by 1.1
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        features = frames.get("features") or {}
+        # Merge all tier outputs for helper functions that need cross-tier field access
+        # This plugin (I6) runs after all prior waves so all tier keys are available
+        features = {
+            **(frames.get("i1") or {}),
+            **(frames.get("i2") or {}),
+            **(frames.get("i3") or {}),
+            **(frames.get("i4") or {}),
+            **(frames.get("i5") or {}),
+            **(frames.get("smc") or {}),
+        }
+        # Inject close from DataFrame for confluence_smc helpers (proximity decay)
+        df = frames.get("main")
+        if df is not None and len(df) > 0 and "close" not in features:
+            features["close"] = float(df["close"].iloc[-1])
         current_tf = frames.get("timeframe", "")
 
         # Collect available cross-TF intelligence dicts

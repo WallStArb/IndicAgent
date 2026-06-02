@@ -209,7 +209,9 @@ class TestSwingDetectorCorrectness:
         close = np.concatenate([flat, peak, flat, flat])  # 70 bars
         df = make_ohlcv(close)
         p = SwingDetectorPlugin()
-        result = p.compute_full({"main": df, "features": {}})
+        result = p.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("swing_high") is not None
         assert result.get("swing_high") > 100.0
 
@@ -221,7 +223,9 @@ class TestSwingDetectorCorrectness:
         trough = np.array([95, 90, 85, 80, 75, 80, 85, 90, 95, 100.0])
         close = np.concatenate([flat, trough, flat, flat])  # 70 bars
         df = make_ohlcv(close)
-        result = SwingDetectorPlugin().compute_full({"main": df, "features": {}})
+        result = SwingDetectorPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("swing_low") is not None
         assert result.get("swing_low") < 100.0
 
@@ -239,7 +243,9 @@ class TestGARCHCorrectness:
         close = np.linspace(5000, 5200, 100) + np.random.default_rng(42).normal(0, 5, 100)
         df = make_ohlcv(close)
         p = GARCHVolatilityPlugin()
-        result = p.compute_full({"main": df, "features": {}})
+        result = p.compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         sigma = result.get("garch_sigma")
         if sigma is not None:
             assert sigma > 0
@@ -250,7 +256,9 @@ class TestGARCHCorrectness:
 
         close = np.linspace(5000, 5200, 100)
         df = make_ohlcv(close)
-        result = GARCHVolatilityPlugin().compute_full({"main": df, "features": {}})
+        result = GARCHVolatilityPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         regime = result.get("garch_vol_regime")
         if regime is not None:
             assert regime in (0, 1, 2)
@@ -333,7 +341,9 @@ class TestSRClusteringCorrectness:
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
-        result = SupportResistancePlugin().compute_full({"main": df, "features": {}})
+        result = SupportResistancePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         resistance = result.get("nearest_resistance")
         support = result.get("nearest_support")
         if resistance is not None:
@@ -349,7 +359,9 @@ class TestSRClusteringCorrectness:
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
-        result = SupportResistancePlugin().compute_full({"main": df, "features": {}})
+        result = SupportResistancePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         dist = result.get("support_dist_pct")
         if dist is not None:
             # Plugin outputs percentage (0-100 scale), not fraction (0-1)
@@ -363,7 +375,9 @@ class TestTrendStructureCorrectness:
 
         close = np.linspace(5000, 5200, 60)
         df = make_ohlcv(close)
-        result = TrendStructurePlugin().compute_full({"main": df, "features": {}})
+        result = TrendStructurePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         integrity = result.get("structure_integrity")
         if integrity is not None:
             assert 0.0 <= integrity <= 1.0
@@ -377,7 +391,9 @@ class TestTrendStructureCorrectness:
         zigzag = np.sin(np.linspace(0, 6 * np.pi, 60)) * 10  # 3 cycles of noise
         close = base + zigzag
         df = make_ohlcv(close)
-        result = TrendStructurePlugin().compute_full({"main": df, "features": {}})
+        result = TrendStructurePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         direction = result.get("trend_direction")
         if direction is not None:
             assert direction >= 0  # uptrend → positive or neutral
@@ -395,7 +411,9 @@ class TestKalmanCorrectness:
 
         close = np.linspace(5000, 5200, 60)
         df = make_ohlcv(close)
-        result = KalmanTrendPlugin().compute_full({"main": df, "features": {}})
+        result = KalmanTrendPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         trend = result.get("kalman_trend")
         slope = result.get("kalman_slope")
         if trend is not None:
@@ -409,7 +427,9 @@ class TestKalmanCorrectness:
 
         close = np.linspace(5000, 5200, 60)
         df = make_ohlcv(close)
-        result = KalmanTrendPlugin().compute_full({"main": df, "features": {}})
+        result = KalmanTrendPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         uncertainty = result.get("kalman_uncertainty")
         if uncertainty is not None:
             assert uncertainty > 0
@@ -423,7 +443,18 @@ class TestTrendRegimeCorrectness:
         features = {"sma_20": 5100.0, "sma_50": 5050.0, "close": 5150.0}
         close = np.full(60, 5000.0)  # flat price (different from injected SMAs)
         df = make_ohlcv(close)
-        result = TrendRegimePlugin().compute_full({"main": df, "features": features})
+        result = TrendRegimePlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         regime = result.get("trend_regime")
         assert regime is not None
 
@@ -433,7 +464,9 @@ class TestTrendRegimeCorrectness:
 
         close = np.linspace(5000, 5200, 60)
         df = make_ohlcv(close)
-        result = TrendRegimePlugin().compute_full({"main": df, "features": {}})
+        result = TrendRegimePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         regime = result.get("trend_regime")
         if regime is not None:
             assert regime in (-1.0, -0.5, 0.0, 0.5, 1.0)
@@ -450,7 +483,18 @@ class TestMomentumContextCorrectness:
             "stoch_k_14_3": 75.0,
             "cci_14": 120.0,
         }
-        result = MomentumContextPlugin().compute_full({"main": None, "features": features})
+        result = MomentumContextPlugin().compute_full(
+            {
+                "main": None,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         bias = result.get("momentum_bias")
         if bias is not None:
             assert bias > 0
@@ -465,7 +509,18 @@ class TestMomentumContextCorrectness:
             "stoch_k_14_3": 15.0,
             "cci_14": -120.0,
         }
-        result = MomentumContextPlugin().compute_full({"main": None, "features": features})
+        result = MomentumContextPlugin().compute_full(
+            {
+                "main": None,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         bias = result.get("momentum_bias")
         if bias is not None:
             assert bias < 0
@@ -487,7 +542,18 @@ class TestBollingerSqueezeCorrectness:
             "keltner_upper_20_2": 5030.0,
             "keltner_lower_20_2": 4970.0,  # KC width = 60
         }
-        result = BollingerSqueezePlugin().compute_full({"main": None, "features": features})
+        result = BollingerSqueezePlugin().compute_full(
+            {
+                "main": None,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         squeeze = result.get("squeeze_active")
         if squeeze is not None:
             assert squeeze == 1.0
@@ -502,7 +568,18 @@ class TestBollingerSqueezeCorrectness:
             "keltner_upper_20_2": 5020.0,
             "keltner_lower_20_2": 4980.0,  # KC width = 40
         }
-        result = BollingerSqueezePlugin().compute_full({"main": None, "features": features})
+        result = BollingerSqueezePlugin().compute_full(
+            {
+                "main": None,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         squeeze = result.get("squeeze_active")
         if squeeze is not None:
             assert squeeze == 0.0
@@ -540,7 +617,9 @@ class TestBOSCHoCHCorrectness:
                 "volume": np.full(len(close), 1000),
             }
         )
-        result = BOSCHoCHPlugin().compute_full({"main": df, "features": {}})
+        result = BOSCHoCHPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         bos = result.get("bos_detected", 0)
         # BOS should not trigger since close didn't break the swing high
         assert bos == 0, "BOS should not trigger on wick-only break"
@@ -561,7 +640,9 @@ class TestFVGCorrectness:
                 "volume": [1000] * 80,
             }
         )
-        result = FairValueGapPlugin().compute_full({"main": df, "features": {}})
+        result = FairValueGapPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         fvg_type = result.get("fvg_type")
         # Plugin should detect an FVG (any type)
         assert fvg_type is not None
@@ -597,7 +678,9 @@ class TestLiquiditySweepsCorrectness:
                 "volume": np.full(len(close), 1000),
             }
         )
-        result = LiquiditySweepsPlugin().compute_full({"main": df, "features": {}})
+        result = LiquiditySweepsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert "sweep_detected" in result or result == {}  # either detects or returns empty
 
 
@@ -618,7 +701,18 @@ class TestHMMCorrectness:
         close = np.linspace(5000, 5200, 80)
         df = make_ohlcv(close)
         features = {"rsi_14": 60.0, "macd_histogram_12_26_9": 5.0, "atr_14": 10.0}
-        result = HMMRegimePlugin().compute_full({"main": df, "features": features})
+        result = HMMRegimePlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         regime = result.get("hmm_regime")
         if regime is not None:
             assert regime in (0.0, 1.0, 2.0)
@@ -643,7 +737,9 @@ class TestLiquidityPoolsCorrectness:
             ]
         )
         df = make_ohlcv(close)
-        result = LiquidityPoolsPlugin().compute_full({"main": df, "features": {}})
+        result = LiquidityPoolsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         bsl = result.get("bsl_level")
         ssl = result.get("ssl_level")
         current_price = float(close[-1])
@@ -670,8 +766,30 @@ class TestSupplyDemandCorrectness:
         df_fresh = make_ohlcv(close[:30])
         df_tested = make_ohlcv(close)
 
-        r_fresh = SupplyDemandZonesPlugin().compute_full({"main": df_fresh, "features": {}})
-        r_tested = SupplyDemandZonesPlugin().compute_full({"main": df_tested, "features": {}})
+        r_fresh = SupplyDemandZonesPlugin().compute_full(
+            {
+                "main": df_fresh,
+                "i1": {},
+                "i2": {},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+            }
+        )
+        r_tested = SupplyDemandZonesPlugin().compute_full(
+            {
+                "main": df_tested,
+                "i1": {},
+                "i2": {},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+            }
+        )
 
         fresh_val = r_fresh.get("demand_freshness", 1.0)
         tested_val = r_tested.get("demand_freshness", 1.0)

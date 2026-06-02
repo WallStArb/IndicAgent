@@ -34,7 +34,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("engulfing_bull") == 1.0
         assert result.get("engulfing_bear") == 0.0
 
@@ -57,7 +59,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("pin_bar_bull") == 1.0
 
     def test_doji_detected(self):
@@ -78,7 +82,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("doji_detected") in (0.0, 1.0)
 
     def test_returns_all_fields(self):
@@ -88,7 +94,9 @@ class TestCandlestickPatterns:
 
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         expected = {
             "engulfing_bull",
             "engulfing_bear",
@@ -131,7 +139,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result["inside_bar"] == 1.0
         assert 0.0 < result["inside_bar_depth"] < 1.0
         assert abs(result["inside_bar_depth"] - 0.2) < 0.01
@@ -153,7 +163,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result["inside_bar"] == 0.0
         assert result["inside_bar_depth"] == 0.0
 
@@ -177,7 +189,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result["outside_bar"] == 1.0
         assert result["outside_bar_expansion"] > 0.0
         assert abs(result["outside_bar_expansion"] - 1.4) < 0.01
@@ -199,7 +213,9 @@ class TestCandlestickPatterns:
                 "volume": [1000.0, 1000.0, 1000.0],
             }
         )
-        result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
+        result = CandlestickPatternsPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result["outside_bar"] == 0.0
         assert result["outside_bar_expansion"] == 0.0
 
@@ -218,7 +234,18 @@ class TestMTFVolatilityGradient:
         intel_15m = {"vol_expansion": 0.5}
         intel_1h = {"vol_expansion": 0.3}
         result = MTFVolatilityPlugin().compute_full(
-            {"main": df, "features": {}, "intel_15m": intel_15m, "intel_1h": intel_1h}
+            {
+                "main": df,
+                "i1": {},
+                "i2": {},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+                "intel_15m": intel_15m,
+                "intel_1h": intel_1h,
+            }
         )
         # Should output continuous values, not binary 0/1
         assert 0.0 < result["mtf_vol_expansion_15m"] <= 1.0
@@ -234,7 +261,18 @@ class TestMTFVolatilityGradient:
         intel_15m = {"vol_expansion": -0.5}
         intel_1h = {"vol_expansion": -0.3}
         result = MTFVolatilityPlugin().compute_full(
-            {"main": df, "features": {}, "intel_15m": intel_15m, "intel_1h": intel_1h}
+            {
+                "main": df,
+                "i1": {},
+                "i2": {},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+                "intel_15m": intel_15m,
+                "intel_1h": intel_1h,
+            }
         )
         assert result["mtf_vol_expansion_15m"] == 0.0
         assert result["mtf_vol_expansion_1h"] == 0.0
@@ -252,7 +290,18 @@ class TestMTFVolatilityGradient:
         }
         intel_15m = {"vol_expansion": 0.6}
         result = MTFVolatilityPlugin().compute_full(
-            {"main": df, "features": features, "intel_15m": intel_15m, "intel_1h": {}}
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+                "intel_15m": intel_15m,
+                "intel_1h": {},
+            }
         )
         # squeeze_within_expansion should be continuous > 0 when squeezing and expanding
         assert result["squeeze_within_expansion"] > 0.0
@@ -270,7 +319,9 @@ class TestFlagPennant:
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
-        result = FlagPennantPlugin().compute_full({"main": df, "features": {}})
+        result = FlagPennantPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         for field_name in ("bull_flag", "bear_flag", "bull_pennant", "bear_pennant"):
             val = result.get(field_name)
             if val is not None:
@@ -281,7 +332,9 @@ class TestFlagPennant:
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
-        result = FlagPennantPlugin().compute_full({"main": df, "features": {}})
+        result = FlagPennantPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         if result:
             expected = {
                 "flag_pattern",
@@ -308,7 +361,9 @@ class TestCupHandle:
 
         close = np.linspace(5000, 5200, 80)
         df = make_ohlcv(close)
-        result = CupHandlePlugin().compute_full({"main": df, "features": {}})
+        result = CupHandlePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         # Should not raise; result may be empty or dict with values in {0.0, 1.0}
         assert isinstance(result, dict)
 
@@ -317,7 +372,9 @@ class TestCupHandle:
 
         close = np.linspace(5000, 5100, 80)
         df = make_ohlcv(close)
-        result = CupHandlePlugin().compute_full({"main": df, "features": {}})
+        result = CupHandlePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         val = result.get("cup_handle_pattern")
         if val is not None:
             assert val in (0.0, 1.0)
@@ -328,7 +385,9 @@ class TestCupHandle:
         # Only 2 bars — below min_lookback (needs ~50+)
         close = np.array([5000.0, 5001.0])
         df = make_ohlcv(close)
-        result = CupHandlePlugin().compute_full({"main": df, "features": {}})
+        result = CupHandlePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("cup_handle_pattern") in (None, 0.0)
 
 
@@ -350,7 +409,18 @@ class TestMeasuredMove:
             "swing_low_idx": 0,
             "close": 5050.0,
         }
-        result = MeasuredMovePlugin().compute_full({"main": df, "features": features})
+        result = MeasuredMovePlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         val = result.get("abcd_pattern_active")
         assert val in (0.0, 0.5, 1.0)
 
@@ -359,7 +429,9 @@ class TestMeasuredMove:
 
         close = np.linspace(5000, 5100, 20)
         df = make_ohlcv(close)
-        result = MeasuredMovePlugin().compute_full({"main": df, "features": {}})
+        result = MeasuredMovePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("abcd_pattern_active") == 0.0
 
     def test_empty_returns_empty(self):
@@ -379,7 +451,9 @@ class TestVolumeProfile:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = VolumeProfilePlugin().compute_full({"main": df, "features": {}})
+        result = VolumeProfilePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         hvn = result.get("nearest_hvn_level")
         if hvn is not None:
             assert 4990 <= hvn <= 5110
@@ -389,7 +463,9 @@ class TestVolumeProfile:
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
-        result = VolumeProfilePlugin().compute_full({"main": df, "features": {}})
+        result = VolumeProfilePlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         val = result.get("in_lvn")
         if val is not None:
             assert val in (0.0, 1.0)
@@ -412,7 +488,18 @@ class TestKeyLevelReaction:
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
         features = {"nearest_support": 5050.0, "atr_14": 10.0, "close": 5052.0}
-        result = KeyLevelReactionPlugin().compute_full({"main": df, "features": features})
+        result = KeyLevelReactionPlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         val = result.get("key_level_reaction_type")
         assert val in (0.0, 1.0, 2.0, 3.0, 4.0)
 
@@ -428,7 +515,18 @@ class TestKeyLevelReaction:
             "atr_14": 5.0,
             "close": 5050.5,
         }
-        result = KeyLevelReactionPlugin().compute_full({"main": df, "features": features})
+        result = KeyLevelReactionPlugin().compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         assert result.get("key_level_confluence_count", 0) >= 0
 
     def test_no_levels_returns_none_reaction(self):
@@ -436,7 +534,9 @@ class TestKeyLevelReaction:
 
         close = np.linspace(5000, 5100, 10)
         df = make_ohlcv(close)
-        result = KeyLevelReactionPlugin().compute_full({"main": df, "features": {}})
+        result = KeyLevelReactionPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("key_level_reaction_type") == 0.0
 
     def test_empty_returns_empty(self):

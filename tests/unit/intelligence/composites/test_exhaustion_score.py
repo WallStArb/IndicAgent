@@ -21,11 +21,9 @@ def make_frames(
     prev_exhaustion_bars=None,
 ) -> dict:
     """Build minimal frames dict for ExhaustionScore tests."""
-    features: dict = {
-        "rsi_14": rsi_14,
-        "rsi_curvature": rsi_curvature,
-        "macd_hist_slope": macd_hist_slope,
-    }
+    # rsi_14 from I1 tier; rsi_curvature/macd_hist_slope from I2 tier (MomentumAccel)
+    i1: dict = {"rsi_14": rsi_14}
+    i2: dict = {"rsi_curvature": rsi_curvature, "macd_hist_slope": macd_hist_slope}
     prev: dict = {}
     if prev_exhaustion_score is not None:
         prev["exhaustion_score"] = prev_exhaustion_score
@@ -33,7 +31,7 @@ def make_frames(
         prev["exhaustion_side"] = prev_exhaustion_side
     if prev_exhaustion_bars is not None:
         prev["exhaustion_bars"] = prev_exhaustion_bars
-    return {"features": features, "prev_features": prev}
+    return {"i1": i1, "i2": i2, "prev_features": prev}
 
 
 # ── score tier tests ──────────────────────────────────────────────────────────

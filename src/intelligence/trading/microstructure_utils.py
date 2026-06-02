@@ -45,7 +45,15 @@ def detect_spike_signal(
     - Degrade gracefully: missing spike_z → no signal (don't estimate)
     """
     df = frames.get("main")
-    features = frames.get("features") or {}
+    features = {
+        **(frames.get("i1") or {}),
+        **(frames.get("i2") or {}),
+        **(frames.get("i3") or {}),
+        **(frames.get("i4") or {}),
+        **(frames.get("i5") or {}),
+        **(frames.get("smc") or {}),
+        **(frames.get("i6") or {}),
+    }
     if df is None or len(df) < min_lookback:
         return no_signal()
 

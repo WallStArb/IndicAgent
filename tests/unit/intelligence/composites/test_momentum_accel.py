@@ -14,28 +14,29 @@ def make_frames(
     prev_macd=None,
     prev_roc=None,
 ) -> dict:
-    features = {}
+    # All fields are I1 tier (indicators)
+    i1 = {}
     prev = {}
     if rsi is not None:
-        features["rsi_14"] = rsi
+        i1["rsi_14"] = rsi
     if macd is not None:
-        features["macd_12_26_9"] = macd
+        i1["macd_12_26_9"] = macd
     if roc is not None:
-        features["roc_14"] = roc
+        i1["roc_14"] = roc
     if prev_rsi is not None:
         prev["rsi_14"] = prev_rsi
     if prev_macd is not None:
         prev["macd_12_26_9"] = prev_macd
     if prev_roc is not None:
         prev["roc_14"] = prev_roc
-    return {"features": features, "prev_features": prev}
+    return {"i1": i1, "prev_features": prev}
 
 
 def test_missing_prev_returns_zeros():
     plugin = MomentumAccelPlugin()
     result = plugin.compute_next(
         {
-            "features": {"rsi_14": 50.0, "macd_12_26_9": 0.5, "roc_14": 1.0},
+            "i1": {"rsi_14": 50.0, "macd_12_26_9": 0.5, "roc_14": 1.0},
             "prev_features": {},
         }
     )
@@ -342,7 +343,7 @@ def make_frames_extended(
             }
         )
 
-    return {"features": features, "prev_features": prev, "main": main_df}
+    return {"i1": features, "prev_features": prev, "main": main_df}
 
 
 # ── new outputs in frozenset ──────────────────────────────────────────────────

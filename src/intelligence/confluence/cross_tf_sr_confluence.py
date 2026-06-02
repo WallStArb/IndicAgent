@@ -83,8 +83,8 @@ class CrossTFSRConfluencePlugin:
                 ctf_sr_confluence: float [-1, +1] (tanh-normalized S/R alignment)
                 ctf_sr_regime: str (one of 5 categorical labels)
         """
-        features = frames.get("features") or {}
-        current_close = features.get("close")
+        df = frames.get("main")
+        current_close = float(df["close"].iloc[-1]) if df is not None and len(df) else None
         if not isinstance(current_close, (int, float)) or current_close <= 0:
             return {"ctf_sr_confluence": 0.0, "ctf_sr_regime": "no_confluence"}
 

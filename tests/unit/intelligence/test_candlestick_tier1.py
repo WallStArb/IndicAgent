@@ -19,7 +19,16 @@ from src.intelligence.features.i5_patterns.candlestick_patterns import Candlesti
 
 def _frames(bars: list[dict]) -> dict:
     """Wrap list-of-bar-dicts into the frames dict expected by compute_full."""
-    return {"main": pd.DataFrame(bars), "features": {}}
+    return {
+        "main": pd.DataFrame(bars),
+        "i1": {},
+        "i2": {},
+        "i3": {},
+        "i4": {},
+        "i5": {},
+        "smc": {},
+        "i6": {},
+    }
 
 
 def _three_white_soldiers(base: float = 100.0) -> dict:
@@ -401,14 +410,18 @@ class TestMinLookbackGuard:
                 {"open": 100.9, "high": 102.0, "low": 100.5, "close": 101.5, "volume": 1100},
             ]
         )
-        result = plugin.compute_full({"main": two_bar, "features": {}})
+        result = plugin.compute_full(
+            {"main": two_bar, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         # With min_lookback=3, a 2-bar DF must return empty dict — no IndexError
         assert result == {}, f"Expected empty dict for 2-bar df, got {result}"
 
     def test_zero_bar_returns_empty(self, plugin: CandlestickPatternsPlugin) -> None:
         """0-bar DataFrame must return {}."""
         empty = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-        result = plugin.compute_full({"main": empty, "features": {}})
+        result = plugin.compute_full(
+            {"main": empty, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {}
 
     def test_one_bar_returns_empty(self, plugin: CandlestickPatternsPlugin) -> None:
@@ -418,7 +431,9 @@ class TestMinLookbackGuard:
                 {"open": 100.0, "high": 101.0, "low": 99.5, "close": 100.8, "volume": 1000},
             ]
         )
-        result = plugin.compute_full({"main": one_bar, "features": {}})
+        result = plugin.compute_full(
+            {"main": one_bar, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result == {}
 
 

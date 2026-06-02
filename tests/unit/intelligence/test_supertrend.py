@@ -70,5 +70,16 @@ class TestSupertrend:
         """Should still work with upstream features available."""
         plugin = SupertrendPlugin()
         df = _make_ohlcv(n=100)
-        result = plugin.compute_full({"main": df, "features": {"atr_14": 5.0}})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": {"atr_14": 5.0},
+                "i2": {"atr_14": 5.0},
+                "i3": {"atr_14": 5.0},
+                "i4": {"atr_14": 5.0},
+                "i5": {"atr_14": 5.0},
+                "smc": {"atr_14": 5.0},
+                "i6": {"atr_14": 5.0},
+            }
+        )
         assert "supertrend_value" in result

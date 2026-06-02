@@ -36,7 +36,9 @@ def test_returns_empty_or_zero_when_fewer_than_20_bars():
     plugin = HMAPlugin()
     closes = np.full(15, 5000.0)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     # Accept either {} (empty) or a dict with hma_20=0.0 (safe default)
     assert result == {} or result.get("hma_20", 0.0) == pytest.approx(0.0)
 
@@ -49,7 +51,9 @@ def test_hma_20_is_float_on_valid_input():
     plugin = HMAPlugin()
     closes = np.linspace(5000.0, 5050.0, 50)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     assert isinstance(result.get("hma_20"), float)
     assert result["hma_20"] > 0.0
 
@@ -67,7 +71,9 @@ def test_hma_20_flat_series_equals_price():
     c = 5000.0
     closes = np.full(50, c)
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     assert result.get("hma_20") == pytest.approx(c, rel=1e-6)
 
 
@@ -80,7 +86,9 @@ def test_hma_20_trending_series_closer_to_current_price():
     plugin = HMAPlugin()
     closes = np.linspace(4800.0, 5200.0, 50)  # strong uptrend
     df = make_ohlcv(closes)
-    result = plugin.compute_full({"main": df, "features": {}})
+    result = plugin.compute_full(
+        {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+    )
     hma = result.get("hma_20")
     if hma is not None:
         current_price = closes[-1]

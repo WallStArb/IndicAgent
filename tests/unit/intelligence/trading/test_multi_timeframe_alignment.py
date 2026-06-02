@@ -23,7 +23,18 @@ class TestMultiTimeframeAlignment:
             "atr_14": 10.0,
         }
         plugin = MTFAlignmentPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type") == "mtf_alignment_long"
         assert result.get("direction") == 1
@@ -41,7 +52,18 @@ class TestMultiTimeframeAlignment:
             "atr_14": 10.0,
         }
         plugin = MTFAlignmentPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"
 
@@ -57,6 +79,17 @@ class TestMultiTimeframeAlignment:
             "atr_14": 10.0,
         }
         plugin = MTFAlignmentPlugin()
-        result = plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_full(
+            {
+                "main": df,
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
 
         assert result.get("signal_type", "none") == "none"

@@ -27,7 +27,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         # 8:30 ET: in NY AM killzone (7:00–10:00) but NY session opens at 9:30
         assert result.get("in_ny_killzone") == 1.0
         assert result.get("session_ny") == 0.0
@@ -47,7 +49,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("session_london") == 0.0  # 2am ET, London starts 3am ET
         assert result.get("in_london_killzone") >= 0.2  # 2am ET in killzone, continuous gradient
 
@@ -66,7 +70,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         # 9:00 AM ET — NY opens at 9:30
         assert result.get("session_ny") == 0.0
 
@@ -85,7 +91,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("session_ny") >= 0.2  # Continuous bell-shaped gradient, >= floor
 
     def test_monday_flag(self):
@@ -103,7 +111,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("is_monday") == 1.0
         assert result.get("is_friday") == 0.0
 
@@ -115,7 +125,9 @@ class TestSessionContext:
 
         close = np.full(10, 5000.0)
         df = make_ohlcv(close)
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         # Should return neutral 0.0 for all flags when no timestamp
         assert isinstance(result, dict)
         assert len(result) == 27  # updated: plugin now has 27 outputs
@@ -140,7 +152,9 @@ class TestSessionContext:
                 "volume": [1000],
             }
         )
-        result = SessionContextPlugin().compute_full({"main": df, "features": {}})
+        result = SessionContextPlugin().compute_full(
+            {"main": df, "i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("minutes_to_ny_open", 0) > 0
 
 
@@ -163,21 +177,44 @@ class TestMTFVolatility:
             "keltner_lower": 99.0,
         }
         intel_15m = {"vol_expansion": 0.8}
-        result = MTFVolatilityPlugin().compute_full({"features": features, "intel_15m": intel_15m})
+        result = MTFVolatilityPlugin().compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+                "intel_15m": intel_15m,
+            }
+        )
         assert result.get("squeeze_within_expansion") > 0.0  # Continuous gradient, not binary
 
     def test_no_squeeze_without_expansion(self):
         from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         features = {"squeeze_active": 1.0, "vol_expansion": -0.5}
-        result = MTFVolatilityPlugin().compute_full({"features": features})
+        result = MTFVolatilityPlugin().compute_full(
+            {
+                "i1": features,
+                "i2": features,
+                "i3": features,
+                "i4": features,
+                "i5": features,
+                "smc": features,
+                "i6": features,
+            }
+        )
         # No intel_15m or intel_1h → higher TF not expanding → no squeeze_within
         assert result.get("squeeze_within_expansion") == 0.0
 
     def test_no_expansion_without_cache(self):
         from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
-        result = MTFVolatilityPlugin().compute_full({"features": {}})
+        result = MTFVolatilityPlugin().compute_full(
+            {"i1": {}, "i2": {}, "i3": {}, "i4": {}, "i5": {}, "smc": {}, "i6": {}}
+        )
         assert result.get("mtf_vol_expansion_15m") == 0.0
         assert result.get("mtf_vol_expansion_1h") == 0.0
 
@@ -186,7 +223,13 @@ class TestMTFVolatility:
 
         result = MTFVolatilityPlugin().compute_full(
             {
-                "features": {"vol_expansion": 1.0},
+                "i1": {"vol_expansion": 1.0},
+                "i2": {"vol_expansion": 1.0},
+                "i3": {"vol_expansion": 1.0},
+                "i4": {"vol_expansion": 1.0},
+                "i5": {"vol_expansion": 1.0},
+                "smc": {"vol_expansion": 1.0},
+                "i6": {"vol_expansion": 1.0},
                 "intel_15m": {"vol_expansion": 1.0},
                 "intel_1h": {"vol_expansion": 1.0},
             }
@@ -200,7 +243,13 @@ class TestMTFVolatility:
 
         result = MTFVolatilityPlugin().compute_full(
             {
-                "features": {"vol_expansion": 10.0},
+                "i1": {"vol_expansion": 10.0},
+                "i2": {"vol_expansion": 10.0},
+                "i3": {"vol_expansion": 10.0},
+                "i4": {"vol_expansion": 10.0},
+                "i5": {"vol_expansion": 10.0},
+                "smc": {"vol_expansion": 10.0},
+                "i6": {"vol_expansion": 10.0},
                 "intel_15m": {"vol_expansion": 10.0},
                 "intel_1h": {"vol_expansion": 10.0},
             }
