@@ -1,35 +1,44 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-02T08:45:01-04:00",
-  "phase": "096",
-  "phase_name": "agent-registry",
-  "phase_dir": ".planning/phases/096-agent-registry",
-  "plan": 1,
-  "task": 0,
-  "total_tasks": 3,
+  "timestamp": "2026-06-02T13:30:00Z",
+  "phase": "pre-097",
+  "phase_name": "intelligence-pipeline-signal-integrity",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
   "status": "paused",
-  "completed_tasks": [],
-  "remaining_tasks": [
-    {"id": 1, "name": "Plan 01 - AgentDependencies + AgentRegistry + BaseAIWorker __init_subclass__", "status": "not_started"},
-    {"id": 2, "name": "Plan 02 - AgentRegistry.build integration into BaseGroupCoordinator + agents.yaml", "status": "not_started"},
-    {"id": 3, "name": "Plan 03 - Wire AlphaSwarm + NarrativeSwarm + validation gate", "status": "not_started"}
+  "completed_tasks": [
+    {"id": 1, "name": "Signal lifecycle deferred concerns review (CONCERN-02/03/06)", "status": "done"},
+    {"id": 2, "name": "Full intelligence pipeline architectural review — 22 findings", "status": "done"},
+    {"id": 3, "name": "Contamination-boundary-first ordering (Simons framing)", "status": "done"},
+    {"id": 4, "name": "Spec v1 written and committed (80430c78)", "status": "done"},
+    {"id": 5, "name": "Spec self-review — 10 defects identified and resolved in v2 (9cbb049c)", "status": "done"}
   ],
-  "blockers": [],
+  "remaining_tasks": [
+    {"id": 6, "name": "Resolve Design A vs B calibration question BEFORE /gsd-plan-phase", "status": "not_started", "priority": "blocking"},
+    {"id": 7, "name": "Run /gsd-plan-phase to generate implementation plan for new phase", "status": "not_started"}
+  ],
+  "blockers": [
+    {
+      "description": "DEFECT-1 (calibration Design A vs B): confidence_calibrator.py:75 trains on cis_score AS confidence. apply_calibration in pipeline receives per-signal plugin confidence. These may be different distributions. Must determine: (A) calibration is per-signal, training query should use plugin confidence (fix: retrain), or (B) calibration is for CIS score only, remove per-signal apply_calibration. This decision gates spec section 1-A. See spec Calibration Design Intent section.",
+      "type": "technical",
+      "workaround": "Read confidence_calibrator.py lines 60-100 and apply_calibration in calibrator.py. Query: SELECT setup_plugin, cis_score, confidence FROM signal_ledger LIMIT 100 to compare distributions."
+    }
+  ],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "Signal/lifecycle architectural review completed this session — 6 bugs fixed and pushed to main (commit f6a44b45)", "rationale": "Pre-phase quality work; signal pipeline integrity is prerequisite for alpha quality", "phase": "pre-096"},
-    {"decision": "Phase 096 plans are written and reviewed, ready to execute — no discussion or planning needed", "rationale": "3 plans exist in .planning/phases/096-agent-registry/", "phase": "096"}
+    {"decision": "One phase for all 22 findings", "rationale": "Coherence — alpha decay, dag.py, signal lifecycle fixes all touch related code"},
+    {"decision": "Contamination boundary (Phase 0) ships first as forensic boundary prep", "rationale": "Simons: fix the data versioning before fixing the logic, or you cannot know which data to trust"},
+    {"decision": "FEATURE_SCHEMA_VERSION starts at 2 (not 1), NULL = tainted pre-fix rows", "rationale": "Simpler than bump protocol; training query filters WHERE feature_schema_version = 2"},
+    {"decision": "SIGNAL_SCHEMA_VERSION bump moves to end of Phase 1 (not Phase 0)", "rationale": "Bumping early breaks replay auditor query gate immediately"},
+    {"decision": "Checkpoint discard on version mismatch is intentional state flush", "rationale": "Contaminated Kalman/tod_priors worse than cold start"},
+    {"decision": "Quality floor derived empirically from outcome data, not hardcoded", "rationale": "Hardcoded 0.15 has no basis; find confidence bucket where win_rate < 0.45"},
+    {"decision": "CB enabled with threshold=10, timeout=60 (not shadow defaults of 3/300)", "rationale": "Shadow defaults too aggressive for production; 10 failures = genuinely broken"},
+    {"decision": "Warm-up setups rank at 0.5 (not 1.0) until sample_size >= 30", "rationale": "Unvalidated setups should not compete equally with proven ones"},
+    {"decision": "Soft regime gate: confidence *= hmm_prob_in_favorable_regime", "rationale": "hmm_regime_prob confirmed present in hmm_regime.py:406; hard suppression only at prob=0"},
+    {"decision": "Stale carry-forward on deadline miss: non-stateful plugins only", "rationale": "Stateful plugins (GARCH/Kalman/HMM) create state/output desync if output is stale but state advanced"}
   ],
-  "uncommitted_files": [
-    ".claude.local.md",
-    ".planning/STATE.md",
-    ".planning/phases/096-agent-registry/096-01-PLAN.md",
-    ".planning/phases/096-agent-registry/096-02-PLAN.md",
-    ".planning/phases/096-agent-registry/096-03-PLAN.md",
-    ".planning/phases/096-agent-registry/096-CONTEXT.md",
-    ".planning/phases/096-agent-registry/096-PATTERNS.md",
-    "docs/foundation/naming-system.md"
-  ],
-  "next_action": "Execute Phase 096 Plan 01: create src/core/ai/agent_dependencies.py and src/core/ai/registry.py per 096-01-PLAN.md truths",
-  "context_notes": "Session was signal/lifecycle bug review — not Phase 096. All 6 priority bugs fixed and pushed. Phase 096 plans are fully written and reviewed. Next session should run /gsd-execute-phase to execute all 3 plans in wave order."
+  "uncommitted_files": [".claude.local.md", ".planning/STATE.md", ".planning/phases/096-agent-registry/096-01-PLAN.md", ".planning/phases/096-agent-registry/096-02-PLAN.md", ".planning/phases/096-agent-registry/096-03-PLAN.md", ".planning/phases/096-agent-registry/096-CONTEXT.md", "docs/foundation/naming-system.md", ".planning/phases/096-agent-registry/096-PATTERNS.md"],
+  "next_action": "Open confidence_calibrator.py (production/scripts or src/intelligence/ml/) and determine Design A vs B. Query signal_ledger to compare cis_score vs confidence distributions. Update spec section 1-A if needed. Then: /gsd-plan-phase for phase 097.",
+  "context_notes": "Deep architectural review session. Pipeline has 3 co-active data corruption bugs. Spec is now v2, defects resolved, ready for planning. The one open question is calibration design intent — everything else is fully specified. Phase should be numbered 097 (096 is agent-registry, already planned)."
 }
