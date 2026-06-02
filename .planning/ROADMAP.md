@@ -626,17 +626,13 @@ Plans:
   3. Starting the service with a spec missing a required field or pointing to a non-existent agent class fails fast with a descriptive error before any bar is processed
   4. `shadow_registry` DB table is the promotion/demotion authority; `agents.yaml` can set `shadow_only=True` but cannot force production promotion — that requires the statistical gate
 
-**Plans:** 7 plans in 3 waves
+**Plans:** 3 plans in 3 waves
 
 Plans:
 
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [x] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
+- [ ] 096-01-PLAN.md — SwarmDeps + registry core (AgentSpec, _REGISTRY, AgentRegistry) + __init_subclass__ self-registration (Wave 1)
+- [ ] 096-02-PLAN.md — Migrate all six agent constructors + BaseAIWorker.__init__ to deps: SwarmDeps (Wave 2)
+- [ ] 096-03-PLAN.md — register_agents.py + config/agents.yaml + wire BaseSwarmCoordinator._setup + slim AlphaSwarm/NarrativeSwarm (Wave 3)
 
 ### Phase 097: Zep Episodic Memory
 
