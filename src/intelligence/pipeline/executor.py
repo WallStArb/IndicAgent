@@ -267,10 +267,15 @@ class PluginExecutor:
     # ------------------------------------------------------------------
 
     def _get_plugin_cb(self, plugin_name: str) -> CircuitBreaker:
-        """Get or create a CircuitBreaker for the named plugin (lazy-init)."""
+        """Get or create a CircuitBreaker for the named plugin (lazy-init).
+
+        Uses shadow-mode defaults (enabled=False, failure_threshold=3, timeout_sec=300)
+        to match _build_plugin_circuit_breakers() in intelligence_pipeline.py, so any
+        plugin discovered post-deploy also starts in shadow mode.
+        """
         cb = self._plugin_circuit_breakers.get(plugin_name)
         if cb is None:
-            cb = CircuitBreaker(failure_threshold=10, timeout_sec=60, enabled=True)
+            cb = CircuitBreaker(failure_threshold=3, timeout_sec=300, enabled=False)
             self._plugin_circuit_breakers[plugin_name] = cb
         return cb
 
