@@ -136,10 +136,7 @@ class TestI1ParallelExecution:
                 "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 return_value=[],
             ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_calibration",
-                return_value=[],
-            ),
+            # Phase 112 D-04: apply_calibration removed from signal_processor
             patch(
                 "src.intelligence.pipeline.signal_processor.rank_signals",
                 return_value=[],
@@ -217,10 +214,7 @@ class TestI7ParallelExecution:
                 "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
                 return_value=[],
             ),
-            patch(
-                "src.intelligence.pipeline.signal_processor.apply_calibration",
-                return_value=[],
-            ),
+            # Phase 112 D-04: apply_calibration removed from signal_processor
             patch(
                 "src.intelligence.pipeline.signal_processor.rank_signals",
                 return_value=[],

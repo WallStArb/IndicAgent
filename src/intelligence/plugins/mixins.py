@@ -141,6 +141,10 @@ def get_main_df(frames: dict[str, Any] | None, min_bars: int) -> pd.DataFrame | 
 class IncrementalMixin:
     """Owns fallback-to-full and _state return contract for incremental plugins.
 
+    PERF-03: All subclasses are confirmed PERF-03 compliant -- they use the
+    state= parameter from the executor and write _state back in compute_next().
+    The mixin guarantees this via the compute_next() implementation.
+
     State ownership model (MUTABLE IN-PLACE CONTRACT):
     - State is a plain dict, passed by reference to _compute_next_core.
     - Plugins MUTATE state in place: state["key"] = new_value.
@@ -170,6 +174,15 @@ class IncrementalMixin:
     - compute_next(frames, *, state=None): Falls back to compute_full if state is None,
       else calls _compute_next_core and attaches _state (the same mutated dict).
     """
+
+    # PERF-03 migration flag: all IncrementalMixin subclasses are compliant because
+    # the mixin itself enforces the state read/writeback contract via compute_next().
+    _state_migration_complete: bool = True
+
+    # fast_path flag: IncrementalMixin subclasses use compute_next() so fast_path
+    # does not apply (they have persistent state). Default False; non-incremental
+    # plugins may set this to True after P99 latency verification (Plan 05).
+    fast_path: bool = False
 
     def compute_full(self, frames: dict, *, state: dict | None = None) -> dict:
         """Run full computation and attach seeded state.
