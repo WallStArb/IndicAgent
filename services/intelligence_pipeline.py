@@ -197,6 +197,10 @@ class IntelligencePipeline(BaseDaemon):
             "intelligence_pipeline_pipeline_errors_total",
             "Pipeline processing errors",
         )
+        self._bar_timeout_total = counter(
+            "intelligence_pipeline_bar_timeout_total",
+            "Bars that exceeded the 500ms hard outer timeout and were DLQ'd with reason bar_tier_timeout",
+        )
         self._pipeline_latency = self._meter.create_histogram(
             "intelligence_pipeline_pipeline_latency_ms",
             description="Per-bar pipeline latency in milliseconds",
@@ -332,6 +336,7 @@ class IntelligencePipeline(BaseDaemon):
             state_mgr=self._state_mgr,
             instrument_map=self._instrument_map,
             vix_symbol=self._vix_symbol,
+            settings=self.settings,
         )
 
         # Construct SignalProcessor (plan 05). Receives CacheSnapshot per bar, not CacheManager.
@@ -533,7 +538,36 @@ class IntelligencePipeline(BaseDaemon):
             "pipeline.process_bar_inner",
             **{ATTR_SYMBOL: bar.symbol, ATTR_TF: bar.tf},
         ):
-            await self._process_bar_compute(bar, t0=t0, gap=gap)
+            try:
+                # Hard 500ms outer timeout (D-12, 3-D): if the entire bar compute
+                # exceeds 500ms, DLQ the bar with reason bar_tier_timeout rather than
+                # blocking the consumer loop.
+                await asyncio.wait_for(self._process_bar_compute(bar, t0=t0, gap=gap), timeout=0.5)
+            except TimeoutError:
+                env = self.settings.env_name
+                msg_key = message_key(bar.symbol, bar.tf)
+                dlq_payload = {
+                    "reason": "bar_tier_timeout",
+                    "symbol": bar.symbol,
+                    "tf": bar.tf,
+                    "ts": bar.ts.isoformat(),
+                }
+                self._bar_timeout_total.add(1, {"symbol": bar.symbol, "tf": bar.tf})
+                self.logger.warning(
+                    "pipeline.bar_timeout",
+                    symbol=bar.symbol,
+                    tf=bar.tf,
+                    timeout_ms=500,
+                )
+                # Enqueue to DLQ — short 1s timeout so the handler cannot
+                # stall the consumer loop indefinitely.
+                await self._out_queue.enqueue_blocking(
+                    topic_signal_dlq(env),
+                    msg_key,
+                    dlq_payload,
+                    timeout_sec=1.0,
+                    priority=PRIORITY_HIGH,
+                )
 
     async def _process_bar_compute(self, bar: BarMessage, *, t0: float, gap: bool = False) -> None:
         """Core I1-I7 compute and output routing — called from inside observed_span."""

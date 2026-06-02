@@ -91,6 +91,19 @@ class PluginTask:
 # ---------------------------------------------------------------------------
 
 
+async def _fast_path_coroutine(plugin, frames: dict, state: dict) -> Any:
+    """D-13 fast-path execution: call plugin synchronously in the event loop.
+
+    Used when plugin.fast_path is True. Eligibility gate (D-13): plugin must have
+    supports_incremental=False AND P99 latency < 100µs verified from a 24h histogram.
+    No plugin in this plan sets fast_path=True — this branch is infrastructure only.
+
+    Wraps the result in the same (result, duration_ms) format as _timed_plugin_call
+    so _collect_plugin_results handles it identically.
+    """
+    return _timed_plugin_call(plugin, frames, state)
+
+
 def _timed_plugin_call(plugin, frames, state: dict) -> Any:
     """Wrapper that returns (result, duration_ms) tuple for per-plugin timing.
 
@@ -199,6 +212,12 @@ class PluginExecutor:
         self._observer: NoOpPluginObserver = (
             observer if observer is not None else NoOpPluginObserver()
         )
+
+        # D-12 tier deadline carry-forward cache.
+        # Keyed by (tier_key, symbol, tf) -> last successfully completed tier output.
+        # Used by run_tier: on deadline miss, non-stateful plugins reuse this cache;
+        # stateful plugins log WARNING and run regardless.
+        self._last_tier_outputs: dict[tuple[str, str, str], dict] = {}
 
         # OTel metric owned by executor (D-16): skipped plugin counter
         self._plugin_skipped_total = counter(
@@ -407,12 +426,20 @@ class PluginExecutor:
             # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
             state = plugin_states.get(plugin_name, {})
 
+            # D-13 fast-path branch: plugins with fast_path=True run synchronously in the
+            # event loop via _fast_path_coroutine (no thread offload). Eligibility (D-13):
+            # supports_incremental=False AND P99 latency < 100µs from 24h histogram.
+            # No plugin sets fast_path=True in this plan — the branch is infrastructure only.
+            if getattr(plugin, "fast_path", False):
+                coroutine = _fast_path_coroutine(plugin, frames, state)
+            else:
+                coroutine = loop.run_in_executor(
+                    self._thread_pool,
+                    functools.partial(_timed_plugin_call, plugin, frames, state),
+                )
             tasks.append(
                 PluginTask(
-                    coroutine=loop.run_in_executor(
-                        self._thread_pool,
-                        functools.partial(_timed_plugin_call, plugin, frames, state),
-                    ),
+                    coroutine=coroutine,
                     plugin_name=plugin_name,
                     state_key=(plugin_name, symbol, tf),
                     lock=lock,
@@ -447,16 +474,32 @@ class PluginExecutor:
         frames: dict,
         loop: asyncio.AbstractEventLoop,
         shadow_cache: dict,
+        tier_budget_ms: float | None = None,
     ) -> tuple[dict[str, Any], dict]:
         """Run one tier's plugins in parallel.
 
         Does NOT merge into frames — caller (_run_tiers) handles frame merging
         after each wave completes.
 
+        Args:
+            tier_budget_ms: Optional per-tier deadline in milliseconds (D-12).
+                On a deadline miss:
+                - Non-stateful plugins (supports_incremental=False): carry forward
+                  previous-bar output from self._last_tier_outputs.
+                - Stateful plugins (supports_incremental=True): run anyway; log WARNING.
+                When None, no deadline enforcement is applied.
+
         Returns (tier_outputs, state_updates) keyed by (plugin_name, symbol, tf).
         """
         tasks: list[PluginTask] = []
         df_main_tier = frames.get("main")
+        # Classify plugins in this tier by stateful vs non-stateful for deadline logic
+        stateful_plugins: set[str] = set()
+        for plugin_name in tier_plugins:
+            plugin = self._plugin_cache.get(plugin_name)
+            if plugin is not None and getattr(plugin, "supports_incremental", False):
+                stateful_plugins.add(plugin_name)
+
         for plugin_name in tier_plugins:
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
@@ -486,12 +529,18 @@ class PluginExecutor:
             # PERF-03: state passed as parameter — no pre-dispatch plugin._state assignment.
             state = plugin_states.get(plugin_name, {})
 
+            # D-13 fast-path branch: run synchronously in event loop when fast_path=True.
+            # See eligibility gate in run_i1 comment. No plugin sets fast_path=True here.
+            if getattr(plugin, "fast_path", False):
+                coroutine = _fast_path_coroutine(plugin, frames, state)
+            else:
+                coroutine = loop.run_in_executor(
+                    self._thread_pool,
+                    functools.partial(_timed_plugin_call, plugin, frames, state),
+                )
             tasks.append(
                 PluginTask(
-                    coroutine=loop.run_in_executor(
-                        self._thread_pool,
-                        functools.partial(_timed_plugin_call, plugin, frames, state),
-                    ),
+                    coroutine=coroutine,
                     plugin_name=plugin_name,
                     tier_key=tier_key,
                     state_key=(plugin_name, symbol, tf),
@@ -502,7 +551,10 @@ class PluginExecutor:
         if not tasks:
             return {}, {}
 
+        _tier_t0 = time.perf_counter()
         gather_results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
+        _tier_duration_ms = (time.perf_counter() - _tier_t0) * 1000
+
         outputs, state_updates = self._collect_plugin_results(
             tasks, gather_results, lock, symbol, tf, log_prefix="plugin"
         )
@@ -515,6 +567,36 @@ class PluginExecutor:
             for k, v in output.items():
                 if v is not None and not (isinstance(v, float) and math.isnan(v)):
                     tier_output[k] = v
+
+        # D-12 tier deadline budget enforcement
+        if tier_budget_ms is not None and _tier_duration_ms > tier_budget_ms:
+            cf_key = (tier_key, symbol, tf)
+            cached = self._last_tier_outputs.get(cf_key)
+            if stateful_plugins:
+                # Stateful tier: run anyway, emit WARNING per D-12
+                self._logger.warning(
+                    "tier_budget.miss.stateful_ran",
+                    tier=tier_key,
+                    symbol=symbol,
+                    tf=tf,
+                    duration_ms=round(_tier_duration_ms, 1),
+                    budget_ms=tier_budget_ms,
+                    stateful_plugins=sorted(stateful_plugins),
+                )
+            elif cached:
+                # Non-stateful: carry forward previous-bar output
+                self._logger.debug(
+                    "tier_budget.miss.carry_forward",
+                    tier=tier_key,
+                    symbol=symbol,
+                    tf=tf,
+                    duration_ms=round(_tier_duration_ms, 1),
+                    budget_ms=tier_budget_ms,
+                )
+                return cached, {}
+        else:
+            # Under budget: update carry-forward cache
+            self._last_tier_outputs[(tier_key, symbol, tf)] = dict(tier_output)
 
         return tier_output, state_updates
 
@@ -531,6 +613,7 @@ class PluginExecutor:
         tf: str,
         frames: dict,
         shadow_cache: dict,
+        tier_budget_ms: dict[str, float] | None = None,
     ) -> tuple[dict, dict]:
         """Run I2-I6 in waves — parallel within each wave, sequential between.
 
@@ -541,6 +624,10 @@ class PluginExecutor:
 
         Accumulates state_updates across all tiers; orchestrator writes once via
         PluginStateManager.update_batch(state_updates).
+
+        Args:
+            tier_budget_ms: Optional dict of per-tier deadlines in ms (D-12).
+                            Passed through to each run_tier call.
 
         Returns:
             (tiered, state_updates) where:
@@ -563,6 +650,7 @@ class PluginExecutor:
                     frames,
                     loop,
                     shadow_cache,
+                    tier_budget_ms=tier_budget_ms.get(tier_key) if tier_budget_ms else None,
                 )
                 for tier_key, tier_plugins in wave
             ]
