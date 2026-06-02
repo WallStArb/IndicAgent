@@ -84,6 +84,25 @@ def _as_float(value: Any) -> float | None:
     return value if isinstance(value, (int, float)) else None
 
 
+def _parse_optional_ts(value: Any) -> datetime | None:
+    """Parse an optional ISO-8601 timestamp string to a timezone-aware datetime.
+
+    Returns None if value is None, empty, or malformed.  Applies the same
+    normalization as the mandatory timestamp field in _load_signal().
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, str) and value:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+        except ValueError:
+            return None
+    return None
+
+
 @dataclass
 class SignalState:
     """Per-signal in-memory tracking state for lifecycle evaluation.
@@ -383,7 +402,7 @@ class SignalTracker(BaseDaemon):
                 raw["entry_zone_high"] if raw.get("entry_zone_high") is not None else entry_price
             ),
             "market_entry_price": raw.get("market_entry_price"),
-            "activated_at": raw.get("activated_at"),
+            "activated_at": _parse_optional_ts(raw.get("activated_at")),
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
             "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
             "expires_at": raw.get("expires_at"),
