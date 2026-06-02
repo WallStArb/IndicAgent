@@ -98,6 +98,7 @@ _QUERY = """
       AND timestamp > NOW() - INTERVAL '100 days'
       AND setup_plugin IS NOT NULL
       AND was_selected = true
+      AND signal_schema_version = 'v2'
     ORDER BY exit_at
 """
 

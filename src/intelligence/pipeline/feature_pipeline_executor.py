@@ -19,7 +19,7 @@ Design contract:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -27,10 +27,12 @@ import structlog
 from opentelemetry import metrics as otel_metrics
 from pydantic import ValidationError
 
+from src.config.settings import Settings
 from src.core.bar_history import BarHistory
 from src.intelligence.context.vix_context import compute_vix_context
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.pipeline.executor import PluginExecutor
+from src.intelligence.pipeline.feature_flattening import build_flat_features
 from src.intelligence.pipeline.signal_processor import CacheSnapshot
 from src.intelligence.pipeline.state_manager import PluginStateManager
 from src.intelligence.schemas import (
@@ -85,12 +87,17 @@ class FeaturePipelineResult:
         main_df: pandas DataFrame for (symbol, tf) — built once here and reused
                  by run_i7_complete to avoid a duplicate to_dataframe() call (D-26).
         hmm_regime: HMM regime integer from SMC tier output; None before first bar.
+        flat_features: Pre-computed flat feature dict from build_flat_features(event).
+                       Computed once per bar in FeaturePipelineExecutor.run() and
+                       consumed by SignalProcessor — avoids per-signal model_dump() (3-E).
+                       Empty dict when event is None.
     """
 
     event: IntelligenceEvent | None
     tiered: dict | None
     main_df: Any  # pandas DataFrame; typed as Any to avoid hard pandas import at top
     hmm_regime: int | None
+    flat_features: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -117,15 +124,21 @@ class FeaturePipelineExecutor:
         state_mgr: PluginStateManager,
         instrument_map: dict,
         vix_symbol: str | None,
+        settings: Settings | None = None,
     ) -> None:
         self._bar_history = bar_history
         self._executor = executor
         self._state_mgr = state_mgr
         self._instrument_map = instrument_map
         self._vix_symbol = vix_symbol
+        self._settings = settings
         # Carry-forward state — migrated from orchestrator __init__ lines 163-165 (D-18)
         self._prev_i1_features: dict = {}  # keyed by f"{symbol}:{tf}"
         self._last_events: dict = {}  # keyed by f"{symbol}:{tf}" or f"{symbol}:{tf}_i1"
+        # D-12 I1 deadline carry-forward cache: keyed by (symbol, tf)
+        # Used when I1 tier misses its TIER_BUDGET_MS deadline.
+        # Note: I2-I6 carry-forward lives in PluginExecutor._last_tier_outputs.
+        self._last_i1_outputs: dict[tuple[str, str], dict] = {}
         self._logger = structlog.get_logger(__name__)
 
     async def run(
@@ -224,9 +237,27 @@ class FeaturePipelineExecutor:
             tf,
             shadow_cache=cache_snapshot.shadow_cache,
         )
-        INTELLIGENCE_PIPELINE_TIER_LATENCY_MS.record(
-            (time.perf_counter() - _i1_t0) * 1000, {"tier": "i1"}
-        )
+        _i1_duration_ms = (time.perf_counter() - _i1_t0) * 1000
+        INTELLIGENCE_PIPELINE_TIER_LATENCY_MS.record(_i1_duration_ms, {"tier": "i1"})
+        # D-12 tier deadline budget check for I1.
+        # I1 contains only non-stateful indicator plugins (supports_incremental=False),
+        # so on a deadline miss we carry forward the previous bar's output.
+        _i1_budget = self._settings.tier_budget_ms.get("i1", 50.0) if self._settings else 50.0
+        if _i1_duration_ms > _i1_budget:
+            _cf_key = (symbol, tf)
+            _cached = self._last_i1_outputs.get(_cf_key)
+            if _cached:
+                self._logger.debug(
+                    "tier_budget.miss.carry_forward",
+                    tier="i1",
+                    symbol=symbol,
+                    tf=tf,
+                    duration_ms=round(_i1_duration_ms, 1),
+                    budget_ms=_i1_budget,
+                )
+                i1_result = _cached
+        else:
+            self._last_i1_outputs[(symbol, tf)] = dict(i1_result)
         if i1_state_updates:
             self._state_mgr.update_batch(i1_state_updates)
         frames["i1"] = dict(i1_result)
@@ -235,6 +266,7 @@ class FeaturePipelineExecutor:
 
         # Tier execution I2-I6 (orchestrator lines 698-710)
         _tiers_t0 = time.perf_counter()
+        _tier_budgets = self._settings.tier_budget_ms if self._settings else None
         tiered, tier_state_updates = await self._executor.run_tiers(
             plugin_states,
             lock,
@@ -243,6 +275,7 @@ class FeaturePipelineExecutor:
             tf,
             frames,
             shadow_cache=cache_snapshot.shadow_cache,
+            tier_budget_ms=_tier_budgets,
         )
         INTELLIGENCE_PIPELINE_TIER_LATENCY_MS.record(
             (time.perf_counter() - _tiers_t0) * 1000, {"tier": "i2_i6"}
@@ -287,6 +320,11 @@ class FeaturePipelineExecutor:
         # Persist event for cross-tf context reads on subsequent bars
         self._last_events[key] = event
 
+        # 3-E: Precompute flat feature dict once per bar — avoids per-signal model_dump()
+        # in SignalProcessor.process(). Both signal_processor and feature_pipeline_executor
+        # import build_flat_features from feature_flattening (neutral module, no circular dep).
+        flat_features = build_flat_features(event)
+
         # Extract HMM regime from smc tier output for CacheManager (D-25)
         # hmm_regime lives in SMCContext (produced by smc_HMMRegime plugin, tier key "smc")
         hmm_val = frames.get("smc", {}).get("hmm_regime")
@@ -297,4 +335,5 @@ class FeaturePipelineExecutor:
             tiered=tiered,
             main_df=main_df,
             hmm_regime=hmm_regime,
+            flat_features=flat_features,
         )

@@ -76,6 +76,7 @@ async def run_calibration_update(db_manager: Any) -> None:
             FROM signal_ledger_full
             WHERE outcome IS NOT NULL
               AND is_shadow = FALSE
+              AND feature_schema_version >= 2
             ORDER BY signal_computed_at DESC
             LIMIT 50000
             """)

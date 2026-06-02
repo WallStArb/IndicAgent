@@ -205,9 +205,10 @@ class BarHistorySeeder:
                         i1_computed_at=latest["i1_computed_at"],
                         computed_at=latest["computed_at"],
                     )
+                    # Plan 05 serialization fix: publish flat dict, not {"event": "<json_string>"}
                     await self._kafka_producer.publish(
                         topic_intelligence(self._env_name),
-                        {"event": event.model_dump_json()},
+                        event.model_dump(mode="json"),
                         key=message_key(symbol, tf),
                     )
                     published_events += 1
