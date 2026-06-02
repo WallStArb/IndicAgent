@@ -316,7 +316,11 @@ class SignalProcessor:
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = await apply_quality_gate(
             raw_signals,
-            features,
+            {
+                "hurst_quality": features.get("hurst_trend_quality", 1.0),
+                "entropy_quality": features.get("entropy_quality", 1.0),
+                "drift_penalty": cache_snapshot.drift_penalties.get(symbol, 1.0),
+            },
             tf=tf,
             recorder=self._transform_recorder,
             min_confidence=getattr(self._settings, "SIGNAL_MIN_PUBLISHABLE_CONFIDENCE", 0.12),
