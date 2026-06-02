@@ -72,16 +72,8 @@ def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None
     sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)
 
 
-def _cis_kalman_update(
-    raw_cis: float, x_est: float, P_est: float, Q: float, R: float
-) -> tuple[float, float]:
-    """One predict+update step of the local-level 1D Kalman filter on CIS score."""
-    P_pred = P_est + Q
-    K = P_pred / (P_pred + R)
-    x_new = x_est + K * (raw_cis - x_est)
-    P_new = (1.0 - K) * P_pred
-    return x_new, P_new
-
+# _cis_kalman_update removed — Kalman computation moved to CISScorer._apply_cis_kalman()
+# (Design B migration). Use cis_scorer.py for all CIS Kalman logic.
 
 # _build_features_from_event removed in Plan 05 — replaced by build_flat_features()
 # imported from feature_flattening (the public neutral-module name). Call sites use
