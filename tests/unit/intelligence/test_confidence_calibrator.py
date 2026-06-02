@@ -35,7 +35,7 @@ def _make_rows(n: int, win_fraction: float = 0.6) -> list[dict]:
 
 def test_fit_curve_returns_correct_shapes():
     rows = _make_rows(150)
-    confidences = [r["confidence"] for r in rows]
+    confidences = [r["x_input"] for r in rows]
     win_labels = [1.0 if r["outcome"] == "target_1" else 0.0 for r in rows]
     bp, vals, ece = _fit_curve(confidences, win_labels)
     assert isinstance(bp, list)
