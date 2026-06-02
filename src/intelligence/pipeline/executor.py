@@ -47,6 +47,17 @@ from src.observability.metrics import (
 from src.observability.plugin_observer import NoOpPluginObserver, PluginObserver
 
 # ---------------------------------------------------------------------------
+# Shadow-mode circuit breaker defaults — single source of truth used by
+# _build_plugin_circuit_breakers() (intelligence_pipeline) and _get_plugin_cb() (here).
+# ---------------------------------------------------------------------------
+
+_SHADOW_CB_DEFAULTS: dict[str, object] = {
+    "failure_threshold": 3,
+    "timeout_sec": 300,
+    "enabled": False,
+}
+
+# ---------------------------------------------------------------------------
 # Type aliases (shared with orchestrator)
 # ---------------------------------------------------------------------------
 
@@ -275,7 +286,7 @@ class PluginExecutor:
         """
         cb = self._plugin_circuit_breakers.get(plugin_name)
         if cb is None:
-            cb = CircuitBreaker(failure_threshold=3, timeout_sec=300, enabled=False)
+            cb = CircuitBreaker(**_SHADOW_CB_DEFAULTS)
             self._plugin_circuit_breakers[plugin_name] = cb
         return cb
 
