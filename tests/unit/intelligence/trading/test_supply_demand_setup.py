@@ -78,7 +78,10 @@ class TestSupplyDemandSetup:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": self._demand_features()})
+        f = self._demand_features()
+        result = plugin.compute_full(
+            {"main": df, "smc": f, "i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "i6": f}
+        )
         assert result["signal_type"] == "supply_demand_long"
         assert result["direction"] == 1
         assert result["confidence"] > 0.4
@@ -91,7 +94,10 @@ class TestSupplyDemandSetup:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
-        result = plugin.compute_full({"main": df, "features": self._supply_features()})
+        f = self._supply_features()
+        result = plugin.compute_full(
+            {"main": df, "smc": f, "i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "i6": f}
+        )
         assert result["signal_type"] == "supply_demand_short"
         assert result["direction"] == -1
         assert result["stop_loss"] > result["entry_price"]

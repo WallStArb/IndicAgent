@@ -142,8 +142,30 @@ class TestVWAPDeviation:
         features_mod = _features(price=4978.0)
         features_ext = _features(price=4960.0)
 
-        r_mod = plugin.compute_full({"main": make_ohlcv(close_moderate), "features": features_mod})
-        r_ext = plugin.compute_full({"main": make_ohlcv(close_extreme), "features": features_ext})
+        r_mod = plugin.compute_full(
+            {
+                "main": make_ohlcv(close_moderate),
+                "i1": features_mod,
+                "i2": features_mod,
+                "i3": features_mod,
+                "i4": features_mod,
+                "i5": features_mod,
+                "smc": features_mod,
+                "i6": features_mod,
+            }
+        )
+        r_ext = plugin.compute_full(
+            {
+                "main": make_ohlcv(close_extreme),
+                "i1": features_ext,
+                "i2": features_ext,
+                "i3": features_ext,
+                "i4": features_ext,
+                "i5": features_ext,
+                "smc": features_ext,
+                "i6": features_ext,
+            }
+        )
 
         assert r_mod.get("signal_type") == "vwap_reversion_long"
         assert r_ext.get("signal_type") == "vwap_reversion_long"

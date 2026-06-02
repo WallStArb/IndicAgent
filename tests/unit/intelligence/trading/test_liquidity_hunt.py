@@ -63,7 +63,10 @@ class TestLiquidityHunt:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
-        result = plugin.compute_full({"main": df, "features": self._features_bsl_swept()})
+        f = self._features_bsl_swept()
+        result = plugin.compute_full(
+            {"main": df, "smc": f, "i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "i6": f}
+        )
         assert result["signal_type"] == "liquidity_hunt_short"
         assert result["direction"] == -1
         assert result["confidence"] > 0.5
@@ -77,7 +80,10 @@ class TestLiquidityHunt:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
-        result = plugin.compute_full({"main": df, "features": self._features_ssl_swept()})
+        f = self._features_ssl_swept()
+        result = plugin.compute_full(
+            {"main": df, "smc": f, "i1": f, "i2": f, "i3": f, "i4": f, "i5": f, "i6": f}
+        )
         assert result["signal_type"] == "liquidity_hunt_long"
         assert result["direction"] == 1
         assert result["stop_loss"] < result["entry_price"]  # stop below entry for long
