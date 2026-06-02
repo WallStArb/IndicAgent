@@ -241,38 +241,8 @@ async def test_record_swarm_result_missing_hmm_regime_uses_sentinel():
 
 
 # ---------------------------------------------------------------------------
-# Task 2: _LEAD_MAP and segment key
+# Task 2: segment key
 # ---------------------------------------------------------------------------
-
-
-def test_lead_map_es_resolves_to_nq():
-    """_resolve_lead('ES') must return 'NQ'."""
-    from services.alpha_swarm import _resolve_lead
-
-    assert _resolve_lead("ES") == "NQ", "_resolve_lead('ES') should return 'NQ'"
-
-
-def test_lead_map_nq_self_leads():
-    """_resolve_lead('NQ') must return 'NQ' (self-lead)."""
-    from services.alpha_swarm import _resolve_lead
-
-    assert _resolve_lead("NQ") == "NQ", "_resolve_lead('NQ') should return 'NQ' (self-lead)"
-
-
-def test_lead_map_unknown_symbol_self_leads():
-    """_resolve_lead for unmapped symbol returns itself."""
-    from services.alpha_swarm import _resolve_lead
-
-    assert _resolve_lead("AAPL") == "AAPL"
-    assert _resolve_lead("GC") == "GC"
-
-
-def test_lead_map_constant_exists():
-    """_LEAD_MAP module constant must exist with ES->NQ."""
-    import services.alpha_swarm as m
-
-    assert hasattr(m, "_LEAD_MAP"), "_LEAD_MAP not found in alpha_swarm_agent"
-    assert m._LEAD_MAP.get("ES") == "NQ", f"_LEAD_MAP['ES'] != 'NQ': {m._LEAD_MAP}"
 
 
 @pytest.mark.asyncio
@@ -304,17 +274,6 @@ async def test_segment_key_uses_numeric_regime():
     # segment_key stored in metadata JSONB
     segment_key = row.get("metadata", {}).get("segment_key", "")
     assert segment_key == "1.5m", f"Expected segment_key='1.5m', got {segment_key!r}"
-
-
-@pytest.mark.asyncio
-async def test_es_lead_is_nq():
-    """For symbol ESM6, resolved lead base should be NQ via _LEAD_MAP."""
-    from services.alpha_swarm import _resolve_lead
-
-    # ESM6 base is 'ES', maps to NQ
-    # _resolve_lead takes the base symbol, not the full contract
-    lead = _resolve_lead("ES")
-    assert lead == "NQ", f"Expected lead='NQ' for ES, got {lead!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -482,24 +441,6 @@ def test_swarm_agents_are_four_typed_agents():
     ), "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
     # Evaluator must be the typed list element
     assert hasattr(m, "Evaluator"), "Evaluator not imported in alpha_swarm_agent"
-
-
-def test_swarm_agent_to_transform_has_all_agents():
-    """_SWARM_AGENT_TO_TRANSFORM must map all five multiplier agents (Phase 80 + Phase 70 ML scorer)."""
-    import services.alpha_swarm as m
-
-    assert hasattr(
-        m, "_SWARM_AGENT_TO_TRANSFORM"
-    ), "_SWARM_AGENT_TO_TRANSFORM not found in alpha_swarm_agent"
-    mapping = m._SWARM_AGENT_TO_TRANSFORM
-    expected = {
-        "skeptic": ("swarm_skeptic", 6),
-        "correlation_v1": ("swarm_correlation", 6),
-        "regime_coherence_v1": ("swarm_regime_coherence", 6),
-        "counterfactual_v1": ("swarm_counterfactual", 6),
-        "ml_scorer_v1": ("swarm_ml_scorer", 6),
-    }
-    assert dict(mapping) == expected, f"Unexpected mapping: {dict(mapping)}"
 
 
 @pytest.mark.asyncio

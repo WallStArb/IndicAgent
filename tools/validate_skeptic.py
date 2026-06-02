@@ -39,41 +39,37 @@ async def fetch_validation_data(
     days: int = 90,
     symbol_filter: list[str] | None = None,
 ) -> pd.DataFrame:
-    """JOIN alpha_multiplier_shadow with signal_ledger for validation."""
+    """Fetch agent prediction rows from signal_lineage joined to signal_ledger_full."""
     settings = Settings()
     conn = await asyncpg.connect(settings.database_url)
 
     try:
-        where_clauses = [
-            "s.agent_id = $1",
-            "l.exit_at IS NOT NULL",
-            "l.outcome IS NOT NULL",
-            "s.ts >= NOW() - $2::interval",
-        ]
         params: list = [agent_id, f"{days} days"]
-
+        symbol_clause = ""
         if symbol_filter:
             params.append(symbol_filter)
-            where_clauses.append("s.symbol = ANY($3)")
+            symbol_clause = "AND sl.symbol = ANY($3)"
 
-        where = " AND ".join(where_clauses)
         query = f"""
             SELECT
-                s.signal_id,
-                s.agent_id,
-                s.symbol,
-                s.tf,
-                s.hmm_regime,
-                s.predicted_multiplier AS multiplier,
-                s.confidence,
-                s.ts,
-                l.outcome,
-                l.pnl_r,
-                l.regime_type_at_fire,
-                l.plugin as setup_plugin
-            FROM alpha_multiplier_shadow s
-            JOIN signal_ledger l ON s.signal_id::uuid = l.signal_id::uuid
-            WHERE {where}
+                sl.signal_id::text AS signal_id,
+                sl.source          AS agent_id,
+                sl.symbol,
+                sl.tf,
+                sl.multiplier,
+                (sl.metadata->'payload'->>'confidence')::float AS confidence,
+                sl.ts,
+                ledger.outcome,
+                ledger.pnl_r
+            FROM signal_lineage sl
+            JOIN signal_ledger_full ledger ON ledger.signal_id = sl.signal_id
+            WHERE sl.event_type = 'agent_prediction'
+              AND sl.source = $1
+              AND sl.multiplier IS NOT NULL
+              AND ledger.outcome IS NOT NULL
+              AND ledger.pnl_r IS NOT NULL
+              AND sl.ts >= NOW() - $2::interval
+              {symbol_clause}
         """
         rows = await conn.fetch(query, *params)
         df = pd.DataFrame([dict(r) for r in rows])
