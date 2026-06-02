@@ -45,14 +45,33 @@ def _make_snapshot(**overrides) -> CacheSnapshot:
 
 
 def _make_processor() -> SignalProcessor:
-    """Create a SignalProcessor with a MagicMock CIS scorer."""
+    """Create a SignalProcessor with a MagicMock CIS scorer.
+
+    Phase 112 note: Kalman state is now owned by CISScorer (Design B).
+    The MagicMock CISScorer must support get_kalman_state/restore_kalman_state
+    for the checkpoint roundtrip tests.
+    """
     cis_scorer = MagicMock()
     cis_scorer.update_weights = MagicMock()
+    # Phase 112 Design B: CISScorer owns Kalman state.
+    # Give the mock a real backing dict so Kalman checkpoint tests work.
+    _kalman_backing: dict = {}
+
+    def _mock_get_kalman_state():
+        return dict(_kalman_backing)
+
+    def _mock_restore_kalman_state(state):
+        _kalman_backing.update(state)
+
+    cis_scorer.get_kalman_state = _mock_get_kalman_state
+    cis_scorer.restore_kalman_state = _mock_restore_kalman_state
+    cis_scorer._cis_kalman_state = _kalman_backing  # for filtered_cis read-back in process()
     settings = MagicMock()
     settings.regime_prob_min = 0.7
     settings.REGIME_PROB_SOFT_MAX = 0.55
     settings.regime_dur_min = 12
     settings.winner_long_bias = True
+    settings.SIGNAL_MIN_PUBLISHABLE_CONFIDENCE = 0.0  # no floor for unit tests
     return SignalProcessor(cis_scorer=cis_scorer, settings=settings, transform_recorder=None)
 
 
@@ -252,10 +271,7 @@ async def test_process_returns_signal_processor_result_with_all_payloads_on_succ
             "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
             side_effect=lambda sigs, *a, **kw: sigs,
         ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_calibration",
-            side_effect=lambda sigs, *a, **kw: sigs,
-        ),
+        # Phase 112 D-04: apply_calibration removed from signal_processor (moved to CISScorer)
         patch(
             "src.intelligence.pipeline.signal_processor.rank_signals",
             side_effect=lambda sigs, *a, **kw: sigs,
@@ -354,10 +370,7 @@ async def test_process_consumes_cache_snapshot_not_cache_manager_reference():
             "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
             return_value=[],
         ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_calibration",
-            return_value=[],
-        ),
+        # Phase 112 D-04: apply_calibration removed from signal_processor
         patch(
             "src.intelligence.pipeline.signal_processor.rank_signals",
             return_value=[],
@@ -501,10 +514,7 @@ async def test_shadow_plugin_never_wins_even_with_highest_score():
             "src.intelligence.pipeline.signal_processor.apply_tod_adjustment",
             side_effect=lambda sigs, *a, **kw: sigs,
         ),
-        patch(
-            "src.intelligence.pipeline.signal_processor.apply_calibration",
-            side_effect=lambda sigs, *a, **kw: sigs,
-        ),
+        # Phase 112 D-04: apply_calibration removed from signal_processor
         patch(
             "src.intelligence.pipeline.signal_processor.rank_signals",
             side_effect=lambda sigs, *a, **kw: sigs,

@@ -146,12 +146,30 @@ class CISScorer:
     # ------------------------------------------------------------------
 
     def get_kalman_state(self) -> dict:
-        """Return defensive copy of CIS Kalman state for checkpoint."""
-        return {k: dict(v) for k, v in self._cis_kalman_state.items()}
+        """Return defensive copy of CIS Kalman state for checkpoint.
+
+        New format: {(tf, symbol): {"x": float, "P": float, "Q": float, "R": float}}
+        Legacy (pre-Design-B) format: {str: float} — returned as-is.
+        """
+        result = {}
+        for k, v in self._cis_kalman_state.items():
+            result[k] = dict(v) if isinstance(v, dict) else v
+        return result
 
     def restore_kalman_state(self, state: dict) -> None:
-        """Restore CIS Kalman state from checkpoint."""
-        self._cis_kalman_state.update({k: dict(v) for k, v in state.items()})
+        """Restore CIS Kalman state from checkpoint.
+
+        Accepts the new format {(tf, symbol): dict} and gracefully handles
+        legacy checkpoint format (arbitrary string keys with non-dict values)
+        by storing them as-is for backward compatibility.
+        """
+        for k, v in state.items():
+            if isinstance(v, dict):
+                self._cis_kalman_state[k] = dict(v)
+            else:
+                # Legacy format (pre-Design-B checkpoint): store value as-is.
+                # This prevents crashes when restoring old checkpoints.
+                self._cis_kalman_state[k] = v
 
     def score(
         self,
