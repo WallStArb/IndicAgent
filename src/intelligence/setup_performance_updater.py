@@ -2,7 +2,8 @@
 
 Computes per-setup win rate, avg pnl_r, sample size, and Sharpe ratio
 from the rolling 30-day window of resolved signals in signal_ledger.
-Only setups with sample_size >= MIN_SAMPLE_SIZE (30) are included.
+Only setups with sample_size >= MIN_SAMPLE_SIZE (100) are included.
+Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns.
 
 Writes results to:
   - setup_performance table (upsert, nightly)
@@ -32,7 +33,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-MIN_SAMPLE_SIZE = 30  # FEED-02 promotion gate
+# Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
+MIN_SAMPLE_SIZE = 100  # FEED-02 promotion gate
 ROLLING_DAYS = 30
 
 
