@@ -1307,6 +1307,16 @@ Plans:
 
 </details>
 
+### Phase 113: Architecture Hardening
+
+**Goal**: Fix twelve correctness and integrity problems surfaced by the 2026-06-03 Renaissance first-principles architecture review: dead Redis SSE code, SSE drop telemetry, topic-indexed fan-out, content-addressed signal IDs (CRITICAL-01), in-process confidence calibration (CRITICAL-02), BaseWriter sentinel contract (HIGH-01), idempotent feature upserts (HIGH-03), DAG invariant CI enforcement (MEDIUM-01), live contract hot-reload (MEDIUM-02), setup_performance sample gate, and pipeline backpressure circuit breaker. CRITICAL-03 (shadow governance statistical gates) is addressed in Phase 101 CONTEXT.md.
+**Depends on**: Phase 112
+
+Plans:
+- [ ] 113-01-PLAN.md — All 12 tasks (SSE hardening + architecture review findings)
+
+---
+
 ### Phase 112: Intelligence Pipeline Signal Integrity
 
 **Goal**: Establish a forensic contamination boundary and fix 22 data integrity defects across the intelligence pipeline and signal lifecycle — calibration category error, quality floor absence, PERF-03 incomplete migration, SETUP_PRIORITY static bias, lifecycle mutable dicts, backfill outcome labeling, MAE/MFE persistence, regime cache cold-start, wave isolation, dual-write legacy access, output queue starvation, and latency hot-path — so every row written after Phase 0 deploy carries a `feature_schema_version = 2` clean-data guarantee and downstream ML training operates on verified, uncontaminated data.
@@ -1514,3 +1524,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
+| 113. Architecture Hardening | v2.8 | 1/1 | Planned | - |
