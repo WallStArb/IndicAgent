@@ -12,11 +12,11 @@ HIGH finding 4: SignalProcessorResult carries all 4 output paths.
 
 from __future__ import annotations
 
+import hashlib
 import zoneinfo
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 import structlog
 
@@ -68,6 +68,35 @@ ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 # ---------------------------------------------------------------------------
 # Module-level helpers (ported from god class lines 193-230)
 # ---------------------------------------------------------------------------
+
+
+def _make_signal_id(
+    symbol: str,
+    feature_ts_ns: int,
+    feature_tf: str,
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: float,
+) -> str:
+    """Deterministic content-addressed signal ID (SHA-256, first 32 hex chars).
+
+    Identity is derived from the BAR INPUTS — not from plugin outputs.
+    Plugin outputs are stateful (Kalman, rolling windows, regime state) and change
+    across restarts; bar OHLCV is the stable invariant across any replay.
+
+    Canonicalization rules:
+    - feature_ts_ns: UTC epoch nanoseconds as integer — parse from timestamptz, not ISO string
+    - feature_tf: lowercase normalized, e.g. "1m", "5m"
+    - OHLCV: repr(round(x, 10)) — deterministic float serialization, excludes float jitter
+    """
+    raw = (
+        f"{symbol}|{feature_ts_ns}|{feature_tf.lower()}"
+        f"|{round(open_, 10)}|{round(high, 10)}|{round(low, 10)}"
+        f"|{round(close, 10)}|{round(volume, 10)}"
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None:
@@ -517,7 +546,19 @@ class SignalProcessor:
             sig["timestamp"] = format_iso_ts(bar_ts)
             sig["is_backfill"] = is_backfill
             sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
-            sig.setdefault("signal_id", str(uuid4()))
+            if "signal_id" not in sig:
+                _ts_ns = int(bar.ts.timestamp() * 1e9)
+                _tf_norm = (sig.get("feature_tf") or tf).lower()
+                sig["signal_id"] = _make_signal_id(
+                    symbol=symbol,
+                    feature_ts_ns=_ts_ns,
+                    feature_tf=_tf_norm,
+                    open_=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                )
 
         if is_backfill and ranked:
             INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.add(
