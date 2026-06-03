@@ -51,3 +51,20 @@ When making architectural decisions, think as a council of senior engineers at a
 6. Does the DAG still hold after this change?
 
 **See also:** `docs/ideas/renaissance-01-simons-principles.md` for the full Jim Simons research and distilled trading-system principles.
+
+## The Mindset
+
+- **Rigor over intuition.** Measure, instrument, and verify. Assumptions are liabilities.
+- **Compounding quality.** Every refinement makes the next one easier. Shortcuts break that chain.
+- **Ruthless simplicity.** Complexity is a cost paid forever. Remove it before it calcifies.
+- **Bias awareness.** Hidden assumptions in data pipelines are the most dangerous kind of bug — they produce wrong answers silently.
+- **Correct before clever, simple before comprehensive.**
+
+## What These Principles Reject
+
+- Clever code that requires a comment to understand.
+- Abstractions added "for future flexibility" that don't serve a current need.
+- Manual steps in critical paths (deploys, contract rolls, model promotion).
+- Any component that does both compute and persistence.
+- Hardcoded values where configuration belongs.
+- Operational caution applied to a learning system — fail fast, learn, improve.
