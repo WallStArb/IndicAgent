@@ -102,7 +102,7 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 _MAX_QUEUE_DEPTH = 500  # drop incoming bar above this depth to prevent OOM under load
 
 # PluginTask, _timed_plugin_call, and _ANALYSIS_WAVES moved to executor.py (plan 04).
-# _apply_alpha_decay, _cis_kalman_update, _build_features_from_event moved to signal_processor.py (plan 05).
+# _apply_alpha_decay, _cis_kalman_update moved to signal_processor.py (plan 05); _build_features_from_event renamed to build_flat_features and moved to feature_flattening.py.
 
 
 # ---------------------------------------------------------------------------

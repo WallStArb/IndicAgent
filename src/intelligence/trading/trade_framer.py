@@ -862,7 +862,7 @@ def frame_trade(
     entry:
         Raw entry price from plugin (current close)
     features:
-        Full features dict from _build_features_from_event()
+        Full features dict from build_flat_features()
     atr:
         ATR value (ATR×14 from I1)
 
