@@ -104,17 +104,18 @@ def test_parse_payload_returns_list_for_valid_record():
     record = _make_valid_bar_intelligence_record()
     payload = record.model_dump()
 
-    result = svc._parse_payload(payload)
+    valid, invalid = svc._parse_payload(payload)
 
-    assert result is not None
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert isinstance(result[0], tuple)
-    assert len(result[0]) == 32
+    assert valid
+    assert not invalid
+    assert isinstance(valid, list)
+    assert len(valid) == 1
+    assert isinstance(valid[0], tuple)
+    assert len(valid[0]) == 32
 
 
 def test_parse_payload_returns_none_for_invalid_json():
-    """Malformed payload returns None without crashing."""
+    """Malformed payload returns ([], [payload]) without crashing."""
     from services.feature_writer import FeatureWriter
 
     svc = FeatureWriter.__new__(FeatureWriter)
@@ -122,8 +123,9 @@ def test_parse_payload_returns_none_for_invalid_json():
     svc._parse_errors_total = MagicMock()
     svc._expiry_map = {}
 
-    result = svc._parse_payload(b"not-valid-json{{{")
-    assert result is None
+    valid, invalid = svc._parse_payload(b"not-valid-json{{{")
+    assert not valid
+    assert invalid
     svc._parse_errors_total.add.assert_called_once()
 
 

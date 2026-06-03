@@ -82,12 +82,12 @@ class GraduationWriter(BaseWriter):
     def _dlq_topic(self) -> str | None:
         return topic_transform_graduation_dlq(self.settings.env_name)
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         if not isinstance(payload, dict):
-            return None
+            return [], [payload]
         if not all(k in payload for k in _REQUIRED_KEYS):
-            return None
-        return [payload]
+            return [], [payload]
+        return [payload], []
 
     async def _flush_batch(self, batch: list) -> None:
         t0 = time.perf_counter()

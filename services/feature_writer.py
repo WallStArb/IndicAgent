@@ -303,7 +303,7 @@ class FeatureWriter(BaseWriter):
         """Route unparseable intelligence payloads to DLQ."""
         return topic_feature_writer_dlq(self.env_name)
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse a BarIntelligenceRecord payload into insert param tuples."""
         try:
             if isinstance(payload, dict):
@@ -313,17 +313,17 @@ class FeatureWriter(BaseWriter):
             elif isinstance(payload, bytes):
                 record = BarIntelligenceRecord.model_validate_json(payload)
             else:
-                return None
+                return [], [payload]
         except (ValidationError, ValueError):
             self._parse_errors_total.add(1)
-            return None
+            return [], [payload]
 
         if record is None:
-            return None
+            return [], [payload]
 
         cross_asset = getattr(self, "_cross_asset_cache", {}).get(record.intelligence.tf, {})
         params = _record_to_insert_params(record, self._expiry_map, cross_asset)
-        return [params]
+        return [params], []
 
     async def _flush_batch(self, batch: list) -> None:
         if not self.db_manager:

@@ -106,12 +106,12 @@ class LifecycleWriter(BaseWriter):
         """Route unparseable lifecycle payloads to DLQ."""
         return topic_lifecycle_writer_dlq(self.settings.env_name)
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         try:
             from_dict(payload)
         except (ValueError, KeyError):
-            return None
-        return [payload]
+            return [], [payload]
+        return [payload], []
 
     # ------------------------------------------------------------------
     # Exit-specific idempotency guard
