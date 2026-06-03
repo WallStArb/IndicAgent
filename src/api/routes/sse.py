@@ -32,7 +32,7 @@ router = APIRouter()
 _MAX_LATEST_KEYS = 200  # per-topic snapshot cap; prevents unbounded growth on contract rolls
 
 
-@dataclass
+@dataclass(eq=False)
 class _Subscription:
     queue: asyncio.Queue = dc_field(repr=False)
     topics: frozenset
