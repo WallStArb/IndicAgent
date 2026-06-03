@@ -1249,12 +1249,12 @@ Plans:
 
 **Plans**: 6 plans
 
-- [ ] 101-01-PLAN.md — Accuracy metrics (bootstrap CI, Sharpe, win rate)
-- [ ] 101-02-PLAN.md — Novelty metrics (decorrelation from agent population)
-- [ ] 101-03-PLAN.md — Calibration metrics (confidence vs reality)
-- [ ] 101-04-PLAN.md — Regime specificity (performance by market regime)
-- [ ] 101-05-PLAN.md — Efficiency metrics (fitness per compute cost)
-- [ ] 101-06-PLAN.md — Composite score integration + discriminative power gate
+- [ ] 101-01-PLAN.md — Foundation: agent_fitness hypertable + FITNESS_* Settings + OTel metrics + fitness package (wave 1)
+- [ ] 101-02-PLAN.md — Accuracy (FIT-01) + Calibration (FIT-03) calculators (wave 2)
+- [ ] 101-03-PLAN.md — Regime specificity (FIT-04) + Efficiency (FIT-05) calculators (wave 2)
+- [ ] 101-04-PLAN.md — Novelty (FIT-02) + geometric-mean Composite calculators (wave 2)
+- [ ] 101-05-PLAN.md — PromotionGate + DemotionGate pure classes (wave 2)
+- [ ] 101-06-PLAN.md — fitness_auditor oneshot + shadow_auditor refactor + FIT-06 variance gate + systemd (wave 3)
 
 ### Phase 102: Genetic Infrastructure
 
