@@ -390,6 +390,10 @@ class SignalTracker(BaseDaemon):
             "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
             "expires_at": raw.get("expires_at"),
         }
+        # Shadow signals skip zone-entry and are tracked as immediately active so
+        # outcomes accumulate for the shadow governance promotion gate.
+        if canonical["is_shadow"] and canonical["status"] == SignalStatus.REGIME_SUPPRESSED:
+            canonical["status"] = "active"
         return canonical
 
     # ------------------------------------------------------------------
@@ -422,14 +426,9 @@ class SignalTracker(BaseDaemon):
 
         for sig in signals_list:
             status = sig.get("status")
-            is_shadow = bool(sig.get("is_shadow", False))
-            if status == SignalStatus.REGIME_SUPPRESSED and is_shadow:
-                # Virtual-activate: shadow signals skip zone-entry and are tracked
-                # as immediately active from fire bar so outcomes accumulate for
-                # the shadow governance promotion gate.
-                sig = {**sig, "status": "active"}
-            elif status and status not in (SignalStatus.PENDING, SignalStatus.ACTIVE):
-                continue
+            if status and status not in (SignalStatus.PENDING, SignalStatus.ACTIVE):
+                if not (status == SignalStatus.REGIME_SUPPRESSED and sig.get("is_shadow")):
+                    continue
             # Normalize: pipeline payloads may have empty symbol/timeframe/timestamp
             # at the signal level — fill from top-level envelope before _load_signal
             raw = {
@@ -1152,15 +1151,6 @@ class SignalTracker(BaseDaemon):
                         canonical = self._load_signal(raw)
                         if canonical is None:
                             continue
-
-                        # Shadow signals are regime_suppressed in DB but must be
-                        # tracked as virtually-active so outcomes accumulate for the
-                        # shadow governance promotion gate.
-                        if (
-                            canonical.get("is_shadow")
-                            and canonical.get("status") == SignalStatus.REGIME_SUPPRESSED
-                        ):
-                            canonical["status"] = "active"
 
                         # Bootstrap path: route directly to _add_to_active_index — do NOT run
                         # backfill fast-path or dedup check (signal_ids not set yet).

@@ -32,8 +32,6 @@ def _make_agent() -> SignalTracker:
     agent._transitions_total = MagicMock()
     agent._active_signals_gauge = MagicMock()
     agent.settings = MagicMock(env_name="dev")
-    # Suppress OTel counter that fires on NULL expires_at
-    agent._null_expires_at_counter = MagicMock()
     return agent
 
 
