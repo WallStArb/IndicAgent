@@ -8,15 +8,6 @@ import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ...core.stream_keys import indicators as sk_indicators
-from ...core.stream_keys import intelligence as sk_intelligence
-from ...core.stream_keys import intelligence_i7 as sk_intelligence_i7
-from ...core.stream_keys import live_tick as sk_live_tick
-from ...core.stream_keys import market as sk_market
-from ...core.stream_keys import narratives as sk_narratives
-from ...core.stream_keys import narratives_group as sk_narratives_group
-from ...core.stream_keys import signals_aggregated as sk_signals_aggregated
-from ...core.stream_keys import system_events as sk_system_events
 from ...core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i8,
@@ -29,13 +20,10 @@ from ...core.stream_keys import (
 )
 from .. import dependencies
 from ..utils import get_settings as _get_settings
-from ..utils import resolve_contract as _resolve_contract
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-_NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
 
 
 # ── KafkaSSEBroadcaster ──────────────────────────────────────────────────────
@@ -243,74 +231,6 @@ def _event_name_for_topic(topic: str) -> str:
         return "narrative_data"
     if candidate == "narratives" or candidate.startswith("narratives"):
         return "narrative_data"
-    return "message"
-
-
-def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
-    """Legacy Redis stream list builder — kept for backward compatibility with tests.
-
-    Returns Redis-style stream names. Use _build_topic_list() for Kafka-based SSE.
-    """
-    settings = _get_settings()
-    env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-    # Accept comma-separated timeframes (e.g. "1m,5m,15m,1h,4h,1d")
-    timeframes = [tf.strip() for tf in timeframe.split(",") if tf.strip()]
-    streams: list[str] = []
-    for sym in symbols:
-        contract = _resolve_contract(sym)
-        # ticks (no timeframe)
-        streams.append(sk_live_tick(env_prefix, contract))
-        # market bars and indicators per timeframe
-        for tf in timeframes:
-            streams.append(sk_market(env_prefix, contract, tf))
-            streams.append(sk_indicators(env_prefix, contract, tf))
-            streams.append(sk_intelligence(env_prefix, contract, tf))
-            streams.append(sk_intelligence_i7(env_prefix, contract, tf))
-            streams.append(sk_signals_aggregated(env_prefix, contract, tf))
-            streams.append(sk_narratives(env_prefix, contract, tf))
-    # Group narrative streams — global, not per-symbol
-    for group in _NARRATIVE_GROUPS:
-        streams.append(sk_narratives_group(env_prefix, group))
-    # System events stream — global, not per-symbol
-    streams.append(sk_system_events(env_prefix))
-    return streams
-
-
-@functools.lru_cache(maxsize=512)
-def _event_name_for_stream(stream_name: str) -> str:
-    """Legacy Redis stream → SSE event name mapping (kept for backward compat with tests)."""
-    # Remove optional env prefix when testing startswith
-    parts = stream_name.split(":", 1)
-    head = parts[0]
-    rest = parts[1] if len(parts) > 1 else ""
-    # If head is an env name (e.g., "dev"), re-evaluate from rest
-    known_domains = {
-        "ticks",
-        "market",
-        "indicators",
-        "intelligence",
-        "intelligence_i7",
-        "signals",
-        "narratives",
-        "system",
-    }
-    candidate = rest if rest and head not in known_domains else stream_name
-    if candidate.startswith("ticks:"):
-        return "tick_data"
-    if candidate.startswith("market:"):
-        return "market_data"
-    if candidate.startswith("indicators:"):
-        return "indicator_data"
-    if candidate.startswith("intelligence_i7:"):
-        return "signal_scorecard"
-    if candidate.startswith("intelligence:"):
-        return "intelligence_data"
-    if candidate.startswith("signals:"):
-        return "signal_data"
-    if candidate.startswith("narratives:"):
-        return "narrative_data"
-    if candidate.startswith("system:"):
-        return "system_event"
     return "message"
 
 
