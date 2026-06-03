@@ -1,6 +1,6 @@
 """NarrativeSwarm — per-signal market narrative generation service.
 
-Extends BaseSwarmCoordinator (group_id="narrative"). Subscribes to i7 signals,
+Extends BaseGroupCoordinator (group_id="narrative"). Subscribes to i7 signals,
 dispatches NarrativeSynthesizer for eligible timeframes (5m+), and publishes
 narrative AgentOutput to topic_narratives().
 
@@ -26,7 +26,7 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_narratives,
 )
-from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
+from src.intelligence.ai.group_coordinator import BaseGroupCoordinator
 from src.intelligence.ai.narrative.narrative_agent import NarrativeSynthesizer
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
@@ -35,7 +35,7 @@ from src.observability.metrics import NARRATIVE_GENERATION_TOTAL
 logger = structlog.get_logger(__name__)
 
 
-class NarrativeSwarm(BaseSwarmCoordinator):
+class NarrativeSwarm(BaseGroupCoordinator):
     """Single-agent narrative group service.
 
     One NarrativeSynthesizer, one consumer group, one output topic.
@@ -115,8 +115,8 @@ class NarrativeSwarm(BaseSwarmCoordinator):
 
         try:
             signal = signal_dict_to_ranked(raw_signal)
-        except Exception as exc:
-            self.logger.warning("narrative_swarm.invalid_signal", exc_info=exc)
+        except Exception as error:
+            self.logger.warning("narrative_swarm.invalid_signal", exc_info=error)
             return
 
         symbol = signal.symbol
@@ -137,9 +137,9 @@ class NarrativeSwarm(BaseSwarmCoordinator):
 
         try:
             result = await self._narrative_agent.compute(context)
-        except Exception as exc:
+        except Exception as error:
             NARRATIVE_GENERATION_TOTAL.add(1, {"status": "exception"})
-            self.logger.error("narrative_swarm.compute_error", exc_info=exc)
+            self.logger.error("narrative_swarm.compute_error", exc_info=error)
             return
 
         if result.error:

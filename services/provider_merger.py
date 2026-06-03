@@ -154,13 +154,13 @@ class ProviderMerger(BaseDaemon):
             try:
                 bar = BarMessage.model_validate(payload)
                 await self._handle_bar(topic, bar)
-            except ValidationError as exc:
-                await self._send_to_dlq(payload, exc)
-            except Exception as exc:
+            except ValidationError as error:
+                await self._send_to_dlq(payload, error)
+            except Exception as error:
                 self.logger.error(
                     "provider_merger.processing_error",
                     topic=topic,
-                    error=str(exc),
+                    error=str(error),
                     payload_preview=str(payload)[:200],
                 )
 

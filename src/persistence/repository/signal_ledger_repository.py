@@ -13,7 +13,9 @@ from typing import Any
 
 import structlog
 
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+from src.intelligence.trading.signal_schema import (
+    SIGNAL_SCHEMA_VERSION,  # Ring 1 constant — schema version is a domain invariant shared across persistence and intelligence layers
+)
 
 logger = structlog.get_logger(__name__)
 

@@ -199,12 +199,12 @@ class CUSUMMonitor:
         try:
             async with self.db_pool.acquire() as conn:
                 await conn.execute(query, setup_plugin, cusum_severity)
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "drift_state CUSUM upsert failed",
                 setup_plugin=setup_plugin,
                 cusum_severity=cusum_severity,
-                error=str(exc),
+                error=str(error),
             )
 
     # ------------------------------------------------------------------
@@ -271,16 +271,16 @@ class CUSUMMonitor:
                         await self.check_setup(setup_plugin)
                     except asyncio.CancelledError:
                         raise
-                    except Exception as exc:
+                    except Exception as error:
                         self.logger.warning(
                             "CUSUM check error",
                             setup_plugin=setup_plugin,
-                            error=str(exc),
+                            error=str(error),
                         )
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
-                self.logger.error("CUSUM cycle error", error=str(exc))
+            except Exception as error:
+                self.logger.error("CUSUM cycle error", error=str(error))
 
             elapsed = asyncio.get_event_loop().time() - cycle_start
             sleep_secs = max(0, interval_seconds - elapsed)

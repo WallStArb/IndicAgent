@@ -897,10 +897,10 @@ class PluginExecutor:
             try:
                 plugin.reload_parameters()
                 reloaded_names.append(plugin_name)
-            except Exception as exc:
+            except Exception as error:
                 self._logger.warning(
                     "intelligence_pipeline.hmm_reload_tf_failed",
                     plugin_name=plugin_name,
-                    error=str(exc),
+                    error=str(error),
                 )
         return reloaded_names

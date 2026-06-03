@@ -26,7 +26,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.service_utils import SEED_LOOKBACK_MULTIPLIER, TF_SECONDS, min_bars_for_tf
 from src.core.stream_keys import message_key, topic_intelligence
-from src.intelligence.schemas import (
+from src.intelligence.schemas import (  # Ring 1 types — warmup_provider reconstructs IntelligenceEvents from DB; these types are the canonical schema
     I1Indicators,
     I2Events,
     I3Structure,
@@ -94,13 +94,13 @@ class WarmupProvider:
             try:
                 await db.initialize()
                 return db
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "warmup_db_connect_failed",
                     attempt=attempt,
                     max_retries=_MAX_RETRIES,
                     retry_in=delay if attempt < _MAX_RETRIES else None,
-                    error=str(exc),
+                    error=str(error),
                 )
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(delay)
@@ -189,9 +189,9 @@ class WarmupProvider:
                         key=message_key(symbol, tf),
                     )
                     published_events += 1
-                except Exception as exc:
+                except Exception as error:
                     self.logger.warning(
-                        "warmup_publish_failed", symbol=symbol, tf=tf, error=str(exc)
+                        "warmup_publish_failed", symbol=symbol, tf=tf, error=str(error)
                     )
 
         tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
@@ -227,12 +227,12 @@ class WarmupProvider:
                             }
                         )
                         fallback_seeded += 1
-                    except Exception as exc:
+                    except Exception as error:
                         self.logger.debug(
                             "warmup_fallback_bar_parse_failed",
                             symbol=symbol,
                             tf=tf,
-                            error=str(exc),
+                            error=str(error),
                         )
 
         fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]

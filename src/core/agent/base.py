@@ -35,8 +35,13 @@ from typing import Any
 import structlog
 from opentelemetry import metrics as _otel_metrics
 
-from src.config.config_consumer import ConfigConsumerMixin
-from src.config.settings import Settings, get_settings
+from src.config.config_consumer import (
+    ConfigConsumerMixin,  # ring0-ok: settings is Ring 0 infrastructure
+)
+from src.config.settings import (  # ring0-ok: all daemons need configuration access
+    Settings,
+    get_settings,
+)
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import (
     AGENT_CIRCUIT_BREAKER_STATE,
@@ -300,11 +305,11 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             setup_duration = time.monotonic() - setup_start
             AGENT_SETUP_LATENCY_SECONDS.record(setup_duration, self._setup_latency_attrs)
             AGENT_SETUP_SUCCESS_TOTAL.add(1, self._setup_success_attrs)
-        except Exception as exc:
+        except Exception as error:
             # Log setup failure AND track metric
             self.logger.exception("daemon.setup_failed")
             AGENT_SETUP_FAILURE_TOTAL.add(
-                1, {"agent": self._agent_label, "error_type": type(exc).__name__}
+                1, {"agent": self._agent_label, "error_type": type(error).__name__}
             )
             raise
 
@@ -518,12 +523,12 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
                     topic=dlq_topic,
                     error=str(error),
                 )
-        except Exception as exc:
+        except Exception as error:
             self.logger.error(
                 "daemon.dlq_route_failed",
                 agent=self.name,
                 topic=dlq_topic,
-                error=str(exc),
+                error=str(error),
             )
 
     def _get_producer(self):
@@ -570,8 +575,8 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             env_name = self.settings.env_name or ""
             await self._producer.publish(topic_alert_requests(env_name), payload)
             self.logger.info("alert_published", severity=severity, message=message[:100])
-        except Exception as exc:
-            self.logger.error("alert_publish_failed", error=str(exc))
+        except Exception as error:
+            self.logger.error("alert_publish_failed", error=str(error))
 
     async def _setup_with_retry(self) -> None:
         """Wrap _setup() with exponential backoff retry.
@@ -584,7 +589,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
             try:
                 await self._setup()
                 return
-            except Exception as exc:
+            except Exception as error:
                 if attempt == self.SETUP_RETRY_ATTEMPTS - 1:
                     raise
                 backoff = self.SETUP_RETRY_BACKOFF_S * (2**attempt)
@@ -594,7 +599,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
                     attempt=attempt + 1,
                     max_attempts=self.SETUP_RETRY_ATTEMPTS,
                     backoff_seconds=backoff,
-                    error=str(exc),
+                    error=str(error),
                 )
                 await asyncio.sleep(backoff)
 

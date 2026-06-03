@@ -121,9 +121,9 @@ class LLMProviderChain:
                 return await self._generate_inner(
                     span, prompt, system, max_tokens, timeout, model, audit_context, response_format
                 )
-            except Exception as exc:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+            except Exception as error:
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 raise
 
     async def _generate_inner(

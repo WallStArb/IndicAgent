@@ -1,7 +1,7 @@
-"""Unit tests for INFRA-04 and INFRA-06 in BaseSwarmCoordinator / BaseAIWorker.
+"""Unit tests for INFRA-04 and INFRA-06 in BaseGroupCoordinator / BaseAIWorker.
 
 INFRA-04: _on_error emits AI_AGENT_ERRORS_TOTAL + publishes lineage when set.
-INFRA-06: graduation stub deleted; LineageRecorder lifecycle in BaseSwarmCoordinator;
+INFRA-06: graduation stub deleted; LineageRecorder lifecycle in BaseGroupCoordinator;
           dispatch via override detection.
 """
 
@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 
 from src.core.ai.base_agent import BaseAIWorker
 from src.core.ai.output import AgentOutput
-from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
 from src.intelligence.ai.context import SignalContext
+from src.intelligence.ai.group_coordinator import BaseGroupCoordinator
 
 # ---------------------------------------------------------------------------
 # Minimal test doubles
@@ -45,14 +45,14 @@ class ConcreteAIAgent(BaseAIWorker):
 # ---------------------------------------------------------------------------
 
 
-def test_base_group_service_has_no_graduation_attr():
+def test_group_coordinator_has_no_graduation_attr():
     """INFRA-06: has_graduation and _graduation_loop stub must be deleted from base."""
     assert not hasattr(
-        BaseSwarmCoordinator, "has_graduation"
-    ), "has_graduation class attribute must be deleted from BaseSwarmCoordinator"
+        BaseGroupCoordinator, "has_graduation"
+    ), "has_graduation class attribute must be deleted from BaseGroupCoordinator"
     assert not hasattr(
-        BaseSwarmCoordinator, "_graduation_loop"
-    ), "_graduation_loop stub must be deleted from BaseSwarmCoordinator"
+        BaseGroupCoordinator, "_graduation_loop"
+    ), "_graduation_loop stub must be deleted from BaseGroupCoordinator"
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ def test_on_error_skips_lineage_when_none():
 def test_graduation_dispatch_via_override_detection():
     """INFRA-06: hasattr detects _graduation_loop only on subclasses that define it."""
 
-    class WithGraduation(BaseSwarmCoordinator):
+    class WithGraduation(BaseGroupCoordinator):
         """Subclass that defines its own _graduation_loop."""
 
         group_id = "test_graduation"
@@ -146,7 +146,7 @@ def test_graduation_dispatch_via_override_detection():
         async def _graduation_loop(self) -> None:
             pass
 
-    class WithoutGraduation(BaseSwarmCoordinator):
+    class WithoutGraduation(BaseGroupCoordinator):
         """Subclass that does NOT define _graduation_loop."""
 
         group_id = "test_no_graduation"
@@ -175,8 +175,8 @@ def test_graduation_dispatch_via_override_detection():
     ), "WithGraduation defines _graduation_loop; hasattr should be True"
     # Base class: graduation loop deleted; hasattr returns False
     assert not hasattr(
-        BaseSwarmCoordinator, "_graduation_loop"
-    ), "BaseSwarmCoordinator stub was deleted; hasattr should be False"
+        BaseGroupCoordinator, "_graduation_loop"
+    ), "BaseGroupCoordinator stub was deleted; hasattr should be False"
     # Subclass without override: hasattr returns False
     assert not hasattr(
         WithoutGraduation, "_graduation_loop"

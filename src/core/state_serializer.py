@@ -50,8 +50,8 @@ class StateSerializer:
         try:
             tagged = _tag_value(state)
             return msgpack.packb(tagged, use_bin_type=True)
-        except Exception as exc:
-            raise TypeError(f"State contains non-serializable data: {exc}") from exc
+        except Exception as error:
+            raise TypeError(f"State contains non-serializable data: {error}") from error
 
     @staticmethod
     def decode(payload: bytes) -> dict:

@@ -156,12 +156,12 @@ class KSDriftMonitor:
 
         try:
             reference_rows, current_rows = await self._fetch_windows(symbol, tf)
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "KS fetch failed",
                 symbol=symbol,
                 timeframe=tf,
-                error=str(exc),
+                error=str(error),
             )
             return DriftCheckResult(severity="none", reference_n=0, current_n=0)
 
@@ -302,13 +302,13 @@ class KSDriftMonitor:
         try:
             async with self.db_pool.acquire() as conn:
                 await conn.execute(query, symbol, tf, ks_severity)
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "drift_state upsert failed",
                 symbol=symbol,
                 tf=tf,
                 ks_severity=ks_severity,
-                error=str(exc),
+                error=str(error),
             )
 
     # ------------------------------------------------------------------
@@ -340,12 +340,12 @@ class KSDriftMonitor:
                         await self.check_symbol_tf(symbol, tf)
                     except asyncio.CancelledError:
                         raise
-                    except Exception as exc:
+                    except Exception as error:
                         self.logger.warning(
                             "KS check error",
                             symbol=symbol,
                             timeframe=tf,
-                            error=str(exc),
+                            error=str(error),
                         )
             elapsed = asyncio.get_event_loop().time() - cycle_start
             sleep_secs = max(0, interval_seconds - elapsed)

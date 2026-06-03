@@ -175,11 +175,11 @@ class SignalAuditor(BaseDaemon):
                 coverage_gaps_published=len(gap_events),
             )
 
-        except Exception as exc:
+        except Exception as error:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "signal_auditor.audit_error",
-                error=str(exc),
+                error=str(error),
             )
 
     async def _check_coverage(self, instruments: list) -> list[dict]:

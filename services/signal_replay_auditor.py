@@ -474,11 +474,11 @@ class SignalReplayAuditor(BaseDaemon):
                 continue
             try:
                 await self._replay_signal(row)
-            except Exception as exc:
+            except Exception as error:
                 self.logger.exception(
                     "replay_signal_failed",
                     signal_id=str(row["signal_id"]),
-                    error=str(exc),
+                    error=str(error),
                 )
 
         # Refresh north-star gauge after batch (writes are async, slight lag ok)
@@ -492,8 +492,8 @@ class SignalReplayAuditor(BaseDaemon):
         while self.running:
             try:
                 await self._cycle()
-            except Exception as exc:
-                self.logger.exception("replay_cycle_failed", error=str(exc))
+            except Exception as error:
+                self.logger.exception("replay_cycle_failed", error=str(error))
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(), timeout=self.settings.replay_interval_seconds

@@ -285,9 +285,9 @@ class BaseWriter(BaseDaemon, abc.ABC):
                     t0 = time.monotonic()
                     await self._consumer.commit()
                     self._commit_latency.record(time.monotonic() - t0)
-            except Exception as exc:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+            except Exception as error:
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 self._flush_errors_total.add(1)
                 span.set_attribute("error", True)
                 self.logger.exception("flush_failed", batch_size=len(batch))
@@ -322,9 +322,9 @@ class BaseWriter(BaseDaemon, abc.ABC):
                         try:
                             validated = self._payload_adapter.validate_python(payload)
                             valid, invalid = self._parse_payload(validated)
-                        except ValidationError as exc:
+                        except ValidationError as error:
                             self._parse_failures_total.add(1)
-                            await self._maybe_route_to_dlq(payload, exc)
+                            await self._maybe_route_to_dlq(payload, error)
                             continue
                     else:
                         valid, invalid = self._parse_payload(payload)
@@ -333,9 +333,9 @@ class BaseWriter(BaseDaemon, abc.ABC):
                         await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
                     if valid:
                         self._buffer_rows(valid)
-                except Exception as exc:
-                    span.set_status(StatusCode.ERROR, str(exc))
-                    span.record_exception(exc)
+                except Exception as error:
+                    span.set_status(StatusCode.ERROR, str(error))
+                    span.record_exception(error)
                     raise
 
             # Backpressure: if buffer is above alert threshold, pause briefly

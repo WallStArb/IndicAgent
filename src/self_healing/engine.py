@@ -117,9 +117,9 @@ class SelfHealingEngine:
                 labels=payload.get("labels", {}),
                 reason=payload.get("reason"),
             )
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError) as error:
             WEBHOOK_VALIDATION_FAILED_TOTAL.add(1, {"reason": "invalid_payload"})
-            raise HTTPException(status_code=400, detail=f"Invalid payload: {exc}") from exc
+            raise HTTPException(status_code=400, detail=f"Invalid payload: {error}") from error
 
         WEBHOOK_RECEIVED_TOTAL.add(
             1,
@@ -272,7 +272,7 @@ class SelfHealingEngine:
                 error=None,
             )
 
-        except Exception as exc:
+        except Exception as error:
             duration_ms = int((time.monotonic() - start) * 1000)
             await self._ledger.record(
                 RemediationRecord(
@@ -286,7 +286,7 @@ class SelfHealingEngine:
                     action=strategy.action,
                     outcome="failed",
                     duration_ms=duration_ms,
-                    error_message=str(exc),
+                    error_message=str(error),
                     changed_by="self_healing_engine",
                     reason=alert.reason,
                 )
@@ -299,7 +299,7 @@ class SelfHealingEngine:
                 pre_value=pre_value,
                 post_value=None,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error=str(error),
             )
 
     async def _check_circuit_breaker(self) -> tuple[bool, str | None]:
@@ -365,11 +365,11 @@ class SelfHealingEngine:
                 if not results:
                     return None
                 return float(results[0]["value"][1])
-        except (aiohttp.ClientError, TimeoutError, ValueError, KeyError, IndexError) as exc:
+        except (aiohttp.ClientError, TimeoutError, ValueError, KeyError, IndexError) as error:
             logger.warning(
                 "prometheus.query_failed",
                 state_variable=state_variable,
-                error=str(exc),
+                error=str(error),
                 url=self._prometheus_url,
             )
             return None
@@ -444,7 +444,7 @@ class SelfHealingEngine:
             REMEDIATION_POOL_FLUSH_TOTAL.add(1, {"outcome": "success"})
             # Re-bind ledger to the refreshed pool
             self._ledger = RemediationLedger(self._managed_pool.pool)
-        except Exception as exc:
+        except Exception as error:
             REMEDIATION_POOL_FLUSH_TOTAL.add(1, {"outcome": "failed"})
-            logger.critical("pool_flush_failed", error=str(exc))
+            logger.critical("pool_flush_failed", error=str(error))
             raise

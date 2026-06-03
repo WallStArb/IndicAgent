@@ -188,11 +188,11 @@ class SignalMetricsAnalyzer(BaseDaemon):
             try:
                 await self._run_compute_cycle()
                 _COMPUTE_CYCLES.add(1, _attrs)
-            except Exception as exc:
+            except Exception as error:
                 _COMPUTE_ERRORS.add(1, _attrs)
                 self.logger.error(
                     "signal_metrics_analyzer.cycle_failed",
-                    error=str(exc),
+                    error=str(error),
                     exc_info=True,
                 )
             finally:

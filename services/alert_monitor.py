@@ -111,11 +111,11 @@ class AlertMonitor(BaseDaemon):
                     )
                     self.logger.warning("alert_monitor.telegram_failed", status=resp.status)
                     return False
-        except Exception as exc:
+        except Exception as error:
             ALERTING_DISPATCH_TOTAL.add(
                 1, {"channel": "telegram", "severity": "CRITICAL", "status": "failure"}
             )
-            self.logger.error("alert_monitor.telegram_error", error=str(exc))
+            self.logger.error("alert_monitor.telegram_error", error=str(error))
             return False
 
     async def _dispatch_discord(self, message: str, source: str, severity: str) -> bool:
@@ -150,11 +150,11 @@ class AlertMonitor(BaseDaemon):
                     )
                     self.logger.warning("alert_monitor.discord_failed", status=resp.status)
                     return False
-        except Exception as exc:
+        except Exception as error:
             ALERTING_DISPATCH_TOTAL.add(
                 1, {"channel": "discord", "severity": severity, "status": "failure"}
             )
-            self.logger.error("alert_monitor.discord_error", error=str(exc))
+            self.logger.error("alert_monitor.discord_error", error=str(error))
             return False
 
 

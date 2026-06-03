@@ -241,8 +241,8 @@ class PluginStateManager:
             )
             return extra_fields
 
-        except Exception as exc:
-            self._logger.warning("state.checkpoint_read_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("state.checkpoint_read_failed", error=str(error))
             return None
 
     # ------------------------------------------------------------------
@@ -275,9 +275,9 @@ class PluginStateManager:
                     self.write_checkpoint(extra)
                 except asyncio.CancelledError:
                     raise  # propagate cancellation — do not swallow
-                except Exception as exc:
+                except Exception as error:
                     self._checkpoint_failures.add(1)
-                    self._logger.exception("checkpoint_loop.iteration_failed", error=str(exc))
+                    self._logger.exception("checkpoint_loop.iteration_failed", error=str(error))
                     # continue — do not let one transient error kill the loop forever
 
         return asyncio.create_task(_loop())

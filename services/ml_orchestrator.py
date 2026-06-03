@@ -87,11 +87,11 @@ class MLOrchestrator(BaseDaemon):
                 discovery_run_id=final_state.get("last_discovery_run_id"),
                 model_status=final_state.get("model_status"),
             )
-        except Exception as exc:
-            self.logger.exception("ml_orchestrator.error", error=str(exc))
+        except Exception as error:
+            self.logger.exception("ml_orchestrator.error", error=str(error))
             await self._producer.publish(
                 topic_ml_orchestrator_dlq(self.settings.env_name),
-                {"error": str(exc)},
+                {"error": str(error)},
             )
 
     async def _run_graph(self, initial_state: MLOrchestrationState) -> MLOrchestrationState:
@@ -158,10 +158,10 @@ class MLOrchestrator(BaseDaemon):
             )
             try:
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-            except TimeoutError as exc:
+            except TimeoutError as error:
                 proc.kill()
                 await proc.wait()
-                raise RuntimeError("data quality service timed out after 600s") from exc
+                raise RuntimeError("data quality service timed out after 600s") from error
             if proc.returncode != 0:
                 raise RuntimeError(f"data quality service failed: {stderr.decode()[:200]}")
 
@@ -173,9 +173,9 @@ class MLOrchestrator(BaseDaemon):
             self.logger.info("ml_orchestrator.data_quality_score", score=score)
             return {**state, "data_quality_score": score}
 
-        except Exception as exc:
-            self.logger.exception("ml_orchestrator.data_quality_node.error", error=str(exc))
-            return {**state, "data_quality_score": 0.0, "last_error": str(exc)}
+        except Exception as error:
+            self.logger.exception("ml_orchestrator.data_quality_node.error", error=str(error))
+            return {**state, "data_quality_score": 0.0, "last_error": str(error)}
 
     async def _discovery_node(self, state: MLOrchestrationState) -> MLOrchestrationState:
         """Trigger discovery service and capture run_id."""
@@ -193,10 +193,10 @@ class MLOrchestrator(BaseDaemon):
             try:
                 # 30 min max for tsfresh
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
-            except TimeoutError as exc:
+            except TimeoutError as error:
                 proc.kill()
                 await proc.wait()
-                raise RuntimeError("discovery service timed out after 1800s") from exc
+                raise RuntimeError("discovery service timed out after 1800s") from error
             if proc.returncode != 0:
                 raise RuntimeError(f"discovery service failed: {stderr.decode()[:200]}")
 
@@ -207,9 +207,9 @@ class MLOrchestrator(BaseDaemon):
             self.logger.info("ml_orchestrator.discovery_complete", run_id=run_id)
             return {**state, "last_discovery_run_id": run_id}
 
-        except Exception as exc:
-            self.logger.exception("ml_orchestrator.discovery_node.error", error=str(exc))
-            return {**state, "last_error": str(exc)}
+        except Exception as error:
+            self.logger.exception("ml_orchestrator.discovery_node.error", error=str(error))
+            return {**state, "last_error": str(error)}
 
     async def _training_node(self, state: MLOrchestrationState) -> MLOrchestrationState:
         """STUB -- Phase 67 implements LightGBM training here."""

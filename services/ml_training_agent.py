@@ -30,9 +30,9 @@ def main() -> None:
         agent = MLTrainer(settings)
         asyncio.run(agent.start())
         JOB_COMPLETED_TOTAL.add(1, {"job": "ml-training", "status": "success"})
-    except Exception as exc:
+    except Exception as error:
         JOB_COMPLETED_TOTAL.add(1, {"job": "ml-training", "status": "failure"})
-        raise exc
+        raise error
     finally:
         flush_and_shutdown_metrics()
 

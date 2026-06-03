@@ -74,8 +74,8 @@ class BarReplayProvider(BaseDaemon):
         try:
             data = json.loads(CHECKPOINT_PATH.read_text())
             return datetime.fromisoformat(data["last_replayed_ts"])
-        except Exception as exc:
-            self.logger.warning("checkpoint_load_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("checkpoint_load_failed", error=str(error))
             return None
 
     def _save_checkpoint(self, ts: datetime) -> None:

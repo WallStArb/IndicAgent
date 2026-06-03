@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DLQDrain — continuous consumer of all DLQ topics, writes to dlq_events.
+"""DLQWriter — continuous consumer of all DLQ topics, writes to dlq_events.
 
 Subscribes to all 15 active DLQ topics as a single consumer group. Parses each
 message as a DLQPayload, then inserts into the dlq_events hypertable. All events
@@ -13,7 +13,7 @@ Architecture:
     L9 consumer (alongside signal_auditor, parity_auditor, alerting_agent):
       1. Subscribe to all 15 DLQ topics via dlq_drain_consumer group
       2. For each message: parse DLQPayload, upsert to dlq_events
-      3. Emit structured log per event (dlq_drained)
+      3. Emit structured log per event (dlq_written)
       4. Skip unparseable messages with log warning (no crash)
 """
 
@@ -74,7 +74,7 @@ VALUES
 """
 
 
-class DLQDrain(BaseDaemon):
+class DLQWriter(BaseDaemon):
     """Continuous Kafka consumer draining all 15 DLQ topics into dlq_events.
 
     Follows BaseDaemon lifecycle contract (setup/_run/stop). No timer loop -
@@ -142,12 +142,12 @@ class DLQDrain(BaseDaemon):
                     window_start,
                 )
             self.logger.info(
-                "dlq_drain.quarantine_seed",
+                "dlq_writer.quarantine_seed",
                 seeded_keys=len(self._quarantine_counts),
             )
-        except Exception as e:
+        except Exception as error:
             # Missing seed is degraded mode, not fatal; counters rebuild from live traffic.
-            self.logger.warning("dlq_drain.quarantine_seed_failed", error=str(e))
+            self.logger.warning("dlq_writer.quarantine_seed_failed", error=str(error))
 
     async def _setup(self) -> None:
         """Create DB pool, seed quarantine counts, subscribe consumer to all 15 DLQ topics."""
@@ -162,7 +162,7 @@ class DLQDrain(BaseDaemon):
             auto_offset_reset="earliest",
         )
         await self._consumer.start()
-        self.logger.info("dlq_drain_started", topic_count=len(topics))
+        self.logger.info("dlq_writer_started", topic_count=len(topics))
 
     async def _run(self) -> None:
         """Main consume loop - process DLQ messages until stop event."""
@@ -174,15 +174,15 @@ class DLQDrain(BaseDaemon):
                 break
 
             self._record_message_consumed()
-            await self._drain_message(dlq_topic, payload)
+            await self._write_message(dlq_topic, payload)
 
-    async def _drain_message(self, dlq_topic: str, raw: dict) -> None:
+    async def _write_message(self, dlq_topic: str, raw: dict) -> None:
         """Parse raw payload as DLQPayload and upsert to dlq_events."""
         assert self._pool is not None
 
         try:
             msg = DLQPayload.model_validate(raw)
-        except Exception as exc:
+        except Exception as error:
             if _is_legacy_format(raw):
                 # Pre-107.5 messages lack the DLQPayload envelope. Already failed,
                 # no retry value - discard with a single structured audit log.
@@ -194,9 +194,9 @@ class DLQDrain(BaseDaemon):
                 )
             else:
                 self.logger.warning(
-                    "dlq_drain_parse_failed",
+                    "dlq_writer_parse_failed",
                     dlq_topic=dlq_topic,
-                    error=str(exc),
+                    error=str(error),
                     raw_preview=str(raw)[:200],
                 )
             return
@@ -229,17 +229,17 @@ class DLQDrain(BaseDaemon):
                     msg.retry_count,
                     quarantined,
                 )
-        except Exception as exc:
+        except Exception as error:
             self.logger.error(
-                "dlq_drain_db_write_failed",
+                "dlq_writer_db_write_failed",
                 dlq_topic=dlq_topic,
                 agent=msg.agent,
-                error=str(exc),
+                error=str(error),
             )
             return
 
         self.logger.info(
-            "dlq_drained",
+            "dlq_written",
             agent=msg.agent,
             source_topic=msg.source_topic,
             dlq_topic=dlq_topic,
@@ -249,7 +249,7 @@ class DLQDrain(BaseDaemon):
 
     async def stop(self) -> None:
         """Drain in-flight messages, close consumer and pool."""
-        self.logger.info("dlq_drain_stopping")
+        self.logger.info("dlq_writer_stopping")
         self._stop_event.set()
         if self._consumer is not None:
             await self._consumer.stop()
@@ -262,8 +262,8 @@ class DLQDrain(BaseDaemon):
 
 
 async def main() -> None:
-    setup_service_logging("logs/dlq_drain.log")
-    agent = DLQDrain()
+    setup_service_logging("logs/dlq_writer.log")
+    agent = DLQWriter()
     await agent.start()
 
 

@@ -356,11 +356,11 @@ class CacheManager:
                 await load_fn()
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except Exception as error:
                 self._logger.warning(
                     "cache_manager.refresh_loop_error",
                     loader=getattr(load_fn, "__name__", str(load_fn)),
-                    error=str(exc),
+                    error=str(error),
                 )
 
     def start_refresh_loops(self) -> list[asyncio.Task]:
@@ -420,10 +420,10 @@ class CacheManager:
                     await conn.close()
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except Exception as error:
                 self._logger.warning(
                     "cache_manager.instruments_listener_error",
-                    error=str(exc),
+                    error=str(error),
                 )
                 self._listener_connected.add(-1)
                 await asyncio.sleep(5)
@@ -456,10 +456,10 @@ class CacheManager:
             instruments = [_instrument_from_row(r) for r in rows]
             self._on_instruments_changed()
             self._logger.info("cache_manager.instruments_reloaded", count=len(instruments))
-        except Exception as exc:
+        except Exception as error:
             self._logger.error(
                 "cache_manager.instruments_reload_failed",
-                error=str(exc),
+                error=str(error),
             )
 
     # ------------------------------------------------------------------
@@ -516,8 +516,8 @@ class CacheManager:
                 regime=current_regime,
                 n_setups=n,
             )
-        except Exception as exc:
-            self._logger.warning("perf_weights.load_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("perf_weights.load_failed", error=str(error))
 
     async def _load_shadow_cache(self) -> None:
         """Load shadow_registry into shadow_cache. Atomic replacement."""
@@ -528,8 +528,8 @@ class CacheManager:
                 "SELECT component_name, is_shadow FROM shadow_registry"
             )
             self._shadow_cache = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
-        except Exception as exc:
-            self._logger.warning("shadow_cache.load_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("shadow_cache.load_failed", error=str(error))
 
     async def _refresh_drift_penalties(self) -> None:
         """Refresh drift penalties from DRIFT_PENALTIES config. Atomic replacement."""
@@ -563,8 +563,8 @@ class CacheManager:
                 }
                 self._cis_weights = weights
                 self._cis_weights_version = int(row["version"])
-        except Exception as exc:
-            self._logger.warning("cis_weights.load_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("cis_weights.load_failed", error=str(error))
 
     async def _load_calibration_curves(self) -> None:
         """Load calibration curves from calibration_curves table. Atomic replacement.
@@ -595,8 +595,8 @@ class CacheManager:
                 key = (r["setup_plugin"], r["timeframe"], r["symbol"] or "*")
                 curves[key] = (np.array(bp, dtype=float), np.array(vals, dtype=float))
             self._calibration_curves = curves
-        except Exception as exc:
-            self._logger.warning("calibration_curves.load_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("calibration_curves.load_failed", error=str(error))
 
     async def _load_tod_multipliers(self) -> None:
         """Load TOD multipliers from tod_multipliers table.
@@ -620,5 +620,5 @@ class CacheManager:
                 key = (r["regime_type"], r["tf"], r["hour_et"], r["symbol"])
                 priors[key] = float(r["multiplier"])
             self._tod_priors = {**self._tod_priors, **priors}
-        except Exception as exc:
-            self._logger.warning("tod_multipliers.load_failed", error=str(exc))
+        except Exception as error:
+            self._logger.warning("tod_multipliers.load_failed", error=str(error))

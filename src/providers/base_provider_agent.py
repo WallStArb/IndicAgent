@@ -242,13 +242,13 @@ class BaseProvider(BaseDaemon):
                     await self._adapter.qualify_instrument(instrument)
                     span.set_attribute("success", True)
                     return True
-                except Exception as exc:
+                except Exception as error:
                     span.set_attribute("success", False)
                     self.logger.warning(
                         "provider_agent.qualify_failed",
                         agent=self.name,
                         symbol=instrument.symbol,
-                        error=str(exc),
+                        error=str(error),
                     )
                     return False
 
@@ -275,12 +275,12 @@ class BaseProvider(BaseDaemon):
                 )
             except CancelledError:
                 return
-            except Exception as exc:
+            except Exception as error:
                 self.logger.error(
                     "provider_agent.stream_error",
                     agent=self.name,
                     provider=self._provider_name_str(),
-                    error=str(exc),
+                    error=str(error),
                 )
 
             if self._stop_event.is_set():
@@ -330,7 +330,7 @@ class BaseProvider(BaseDaemon):
                 else:
                     PROVIDER_CONNECTED.add(0, self._provider_attrs)
                     span.set_attribute("success", False)
-            except Exception as exc:
+            except Exception as error:
                 PROVIDER_CONNECTED.add(0, self._provider_attrs)
                 span.set_attribute("success", False)
                 self.logger.error(
@@ -338,7 +338,7 @@ class BaseProvider(BaseDaemon):
                     agent=self.name,
                     provider=self._provider_name_str(),
                     attempt=attempt,
-                    error=str(exc),
+                    error=str(error),
                 )
 
     # ------------------------------------------------------------------
@@ -436,11 +436,11 @@ class BaseProvider(BaseDaemon):
 
                 except CancelledError:
                     raise
-                except Exception as exc:
+                except Exception as error:
                     self.logger.error(
                         "provider_agent.gap_requests_loop.error",
                         agent=self.name,
-                        error=str(exc),
+                        error=str(error),
                         payload_preview=str(payload)[:200],
                     )
                     # Continue consuming — don't crash the loop on a single failure

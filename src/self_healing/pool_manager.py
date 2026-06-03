@@ -86,8 +86,8 @@ class ManagedPool:
                 new_pool = await create_pool(
                     self._url, pool_name=self._pool_name, **self._pool_kwargs
                 )
-            except Exception as exc:
-                logger.error("managed_pool.create_failed", error=str(exc))
+            except Exception as error:
+                logger.error("managed_pool.create_failed", error=str(error))
                 # old_pool untouched; system remains functional
                 raise
 
@@ -100,8 +100,8 @@ class ManagedPool:
                     result = await conn.fetchval("SELECT 1")
                 if result != 1:
                     raise RuntimeError(f"SELECT 1 returned unexpected value: {result!r}")
-            except Exception as exc:
-                logger.error("managed_pool.verify_failed", error=str(exc))
+            except Exception as error:
+                logger.error("managed_pool.verify_failed", error=str(error))
                 # CRITICAL rollback path: close the failed new pool, keep old_pool active.
                 # self._pool has NOT been swapped yet — system continues working on old_pool.
                 try:
@@ -128,9 +128,9 @@ class ManagedPool:
                 )
                 old_pool.terminate()  # force-close stuck connections
                 drain_forced = True
-            except Exception as exc:
+            except Exception as error:
                 # Swap already succeeded -> system is healthy on new pool. Log and continue.
-                logger.warning("managed_pool.drain_error", error=str(exc))
+                logger.warning("managed_pool.drain_error", error=str(error))
 
             drain_ms = int((time.monotonic() - t2) * 1000)
 

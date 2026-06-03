@@ -144,10 +144,10 @@ async def compute_floor(db_manager: DatabaseManager) -> float:
         )
         return DEFAULT_FLOOR
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as error:  # noqa: BLE001
         _log.error(
             "quality_floor_bootstrap.query_failed",
-            error=str(exc),
+            error=str(error),
             floor=DEFAULT_FLOOR,
         )
         return DEFAULT_FLOOR

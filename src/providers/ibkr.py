@@ -155,8 +155,8 @@ def _find_ib_gateway_pid() -> int | None:
                     return int(entry.name)
             except (FileNotFoundError, PermissionError):
                 continue
-    except Exception as exc:
-        logger.warning("ibkr.find_gateway_pid_failed", extra={"error": str(exc)})
+    except Exception as error:
+        logger.warning("ibkr.find_gateway_pid_failed", extra={"error": str(error)})
     return None
 
 
@@ -195,8 +195,8 @@ async def _restart_ib_gateway(port: int) -> bool:
         os.kill(gw_pid, signal.SIGTERM)
     except ProcessLookupError:
         pass  # already gone — proceed to wait for restart
-    except OSError as exc:
-        logger.error("ibkr.gateway_kill_failed", extra={"pid": gw_pid, "error": str(exc)})
+    except OSError as error:
+        logger.error("ibkr.gateway_kill_failed", extra={"pid": gw_pid, "error": str(error)})
         return False
 
     ready = await _wait_for_gateway_port(port=port, timeout=90.0)
@@ -307,8 +307,8 @@ async def _connect_with_circuit_breaker(
             )
             return ib_instance, current_cid
 
-        except ConnectionError as exc:
-            if _ERR_326 in str(exc):
+        except ConnectionError as error:
+            if _ERR_326 in str(error):
                 IBKR_ERROR_326_TOTAL.add(1, {"provider": "ibkr", "action": "client_id_rotated"})
                 logger.warning(
                     "ibkr.error_326_rotating_client_id",
@@ -320,10 +320,10 @@ async def _connect_with_circuit_breaker(
                 )
                 current_cid += 1
                 continue
-            _record_failure(type(exc).__name__)
+            _record_failure(type(error).__name__)
             break
-        except Exception as exc:
-            _record_failure(type(exc).__name__)
+        except Exception as error:
+            _record_failure(type(error).__name__)
             break
     else:
         # Phase 2: all clientIds returned 326 → restart gateway to clear stale sessions
@@ -340,13 +340,13 @@ async def _connect_with_circuit_breaker(
                     _record_success()
                     logger.info("IBKR connected after gateway restart", extra={"client_id": cid})
                     return ib_instance, cid
-                except ConnectionError as exc:
-                    if _ERR_326 in str(exc):
+                except ConnectionError as error:
+                    if _ERR_326 in str(error):
                         continue
-                    _record_failure(type(exc).__name__)
+                    _record_failure(type(error).__name__)
                     break
-                except Exception as exc:
-                    _record_failure(type(exc).__name__)
+                except Exception as error:
+                    _record_failure(type(error).__name__)
                     break
             else:
                 _record_failure("326_post_restart")
@@ -464,9 +464,9 @@ class IBKRProvider:
             # reqCurrentTime is lightweight and fast
             await asyncio.wait_for(self._ib.reqCurrentTimeAsync(), timeout=5.0)
             return True
-        except (TimeoutError, ConnectionError, OSError) as exc:
+        except (TimeoutError, ConnectionError, OSError) as error:
             logger.warning(
-                "IBKR ping failed", extra={"error": str(exc), "error_type": type(exc).__name__}
+                "IBKR ping failed", extra={"error": str(error), "error_type": type(error).__name__}
             )
             return False
 

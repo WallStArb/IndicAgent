@@ -208,19 +208,19 @@ class BarWriter(BaseWriter):
             try:
                 await self._load_contract_cache()
                 break
-            except Exception as exc:
+            except Exception as error:
                 if _attempt == _cache_attempts - 1:
                     self.logger.error(
                         "bar_writer.contract_cache_load_failed",
                         attempts=_cache_attempts,
-                        error=str(exc),
+                        error=str(error),
                     )
                     raise
                 self.logger.warning(
                     "bar_writer.contract_cache_retry",
                     attempt=_attempt + 1,
                     backoff_seconds=_cache_backoff,
-                    error=str(exc),
+                    error=str(error),
                 )
                 await asyncio.sleep(_cache_backoff)
 
@@ -261,10 +261,10 @@ class BarWriter(BaseWriter):
                 if valid:
                     self._buffer_rows(valid)
                 _EVENTS_CONSUMED.add(1, self._events_consumed_attrs)
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "bar_writer.parse_failed",
-                    error=str(exc),
+                    error=str(error),
                     payload_preview=str(payload)[:200],
                 )
                 continue
@@ -340,10 +340,10 @@ class BarWriter(BaseWriter):
                 new_contract=event.new_contract,
                 cache_size=len(self._contract_cache),
             )
-        except Exception as exc:
+        except Exception as error:
             self.logger.error(
                 "bar_writer.contract_update_handler_failed",
-                error=str(exc),
+                error=str(error),
             )
             # Do not crash — existing cache remains valid for outgoing contract
 
@@ -388,10 +388,10 @@ class BarWriter(BaseWriter):
                 gap_preceding=bool(payload.get("gap_preceding", False)),
                 is_flat_bar=bool(payload.get("is_flat_bar", False)),
             )
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "bar_writer.parse_failed",
-                error=str(exc),
+                error=str(error),
                 payload_preview=str(payload)[:200],
             )
             return None

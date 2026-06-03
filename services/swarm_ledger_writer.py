@@ -111,9 +111,9 @@ class SwarmLedgerWriter(BaseDaemon):
                 break
             try:
                 terminal = await self._handle_event(payload)
-            except Exception as exc:
+            except Exception as error:
                 # transient (e.g. DB) failure: do NOT commit, allow re-delivery
-                self.logger.warning("swarm_ledger_writer.handle_failed", error=str(exc))
+                self.logger.warning("swarm_ledger_writer.handle_failed", error=str(error))
                 continue
             if terminal:
                 # success OR terminal-invalid: commit so we do not replay forever

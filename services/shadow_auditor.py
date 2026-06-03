@@ -170,9 +170,9 @@ async def _check_promotion(
                 """,
                 name,
             )
-        except Exception as exc:
+        except Exception as error:
             SHADOW_TAIL_GATE_DB_ERROR.add(1, {"plugin": name})
-            logger.warning("shadow_audit.tail_gate_db_error", plugin=name, error=str(exc))
+            logger.warning("shadow_audit.tail_gate_db_error", plugin=name, error=str(error))
 
     # OTel metrics — point gauges use .set() (point-in-time absolute values)
     SHADOW_N_RESOLVED.set(n, {"plugin": name})
@@ -347,9 +347,9 @@ def main() -> None:
     try:
         asyncio.run(_amain())
         JOB_COMPLETED_TOTAL.add(1, {"job": "shadow-auditor", "status": "success"})
-    except Exception as exc:
+    except Exception as error:
         JOB_COMPLETED_TOTAL.add(1, {"job": "shadow-auditor", "status": "failure"})
-        raise exc
+        raise error
     finally:
         flush_and_shutdown_metrics()
 

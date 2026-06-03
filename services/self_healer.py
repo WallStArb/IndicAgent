@@ -83,9 +83,9 @@ async def webhook_alertmanager(request: Request) -> JSONResponse:
         )
     except HTTPException:
         raise
-    except Exception as exc:
-        WEBHOOK_VALIDATION_FAILED_TOTAL.add(1, {"reason": type(exc).__name__})
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as error:
+        WEBHOOK_VALIDATION_FAILED_TOTAL.add(1, {"reason": type(error).__name__})
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 if __name__ == "__main__":
