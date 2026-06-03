@@ -485,16 +485,28 @@ Replace random UUID signal generation with a deterministic SHA-256 ID derived fr
 Import `hashlib` at the top of the file (it is already in stdlib). Add this function near the top of the module, before `SignalProcessor`:
 
 ```python
-def _make_signal_id(symbol: str, feature_ts_ns: int, feature_tf: str, agent_id: str, payload_hash: str) -> str:
+def _make_signal_id(
+    symbol: str,
+    feature_ts_ns: int,
+    feature_tf: str,
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: float,
+) -> str:
     """Deterministic content-addressed signal ID (SHA-256, first 32 hex chars).
 
-    Canonicalization rules (must be stable across runs):
-    - feature_ts_ns: UTC epoch nanoseconds (int) — never ISO string (formatting varies)
-    - feature_tf: lowercase normalized string, e.g. "1m", "5m"
-    - payload_hash: SHA-256 of RFC canonical JSON (sort_keys=True, separators=(',',':'))
-    - Volatile fields (trace IDs, creation timestamps, correlation IDs) are EXCLUDED
+    Identity is derived from the BAR INPUTS — not from plugin outputs.
+    Plugin outputs are stateful (Kalman, rolling windows, regime state) and change
+    across restarts; bar OHLCV is the stable invariant across any replay.
+
+    Canonicalization rules:
+    - feature_ts_ns: UTC epoch nanoseconds as integer — parse from timestamptz, not ISO string
+    - feature_tf: lowercase normalized, e.g. "1m", "5m"
+    - OHLCV: repr(round(x, 10)) — deterministic float serialization, excludes float jitter
     """
-    raw = f"{symbol}|{feature_ts_ns}|{feature_tf}|{agent_id}|{payload_hash}"
+    raw = f"{symbol}|{feature_ts_ns}|{feature_tf}|{round(open_,10)}|{round(high,10)}|{round(low,10)}|{round(close,10)}|{round(volume,10)}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 ```
 
@@ -505,25 +517,27 @@ Current:
 sig.setdefault("signal_id", str(uuid4()))
 ```
 
-New (compute a stable ID from the signal's defining inputs — canonicalization is critical for replay stability):
+New — identity is derived from the bar that produced the signal, not from plugin outputs:
 ```python
 if "signal_id" not in sig:
-    # Canonicalize: epoch ns (not ISO string), RFC JSON (no spaces), sort_keys
-    _ts_ns = int(datetime.fromisoformat(sig.get("feature_ts", "")).timestamp() * 1e9) if sig.get("feature_ts") else 0
+    # bar is the BarEvent in scope at this point in _process_bar()
+    _ts_ns = int(bar.timestamp.timestamp() * 1e9)
     _tf_norm = (sig.get("feature_tf") or tf).lower()
-    _payload_hash = hashlib.sha256(
-        json.dumps(sig.get("contributing_plugins", {}), sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()[:16]
     sig["signal_id"] = _make_signal_id(
         symbol=symbol,
         feature_ts_ns=_ts_ns,
         feature_tf=_tf_norm,
-        agent_id=sig.get("agent_id", ""),
-        payload_hash=_payload_hash,
+        open_=bar.open,
+        high=bar.high,
+        low=bar.low,
+        close=bar.close,
+        volume=bar.volume,
     )
 ```
 
-`json` is already imported; `hashlib` was added in Step 1.
+Read `signal_processor.py` to confirm the `BarEvent` attribute names (`bar.open`, `bar.timestamp`, etc.) before implementing — adapt if they differ.
+
+`hashlib` was added in Step 1.
 
 - [ ] **Step 3: Add UNIQUE constraint migration**
 
@@ -553,31 +567,39 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_signal_ledger_signal_id_uniqu
 Add these cases to a new test block in the signal processor unit tests (or create `tests/unit/intelligence/test_signal_id_stability.py`):
 
 ```python
-def test_signal_id_stable_across_identical_replay():
-    """Same inputs produce the same ID on repeated calls."""
-    id1 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
-    id2 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
-    assert id1 == id2
+```python
+_BAR_KWARGS = dict(symbol="ES", feature_ts_ns=1717440000000000000, feature_tf="1m",
+                   open_=5000.25, high=5010.0, low=4998.5, close=5005.0, volume=12345.0)
 
-def test_signal_id_stable_with_reordered_contributing_plugins():
-    """Plugin dict key order does not affect the ID (sort_keys=True)."""
-    h1 = hashlib.sha256(json.dumps({"a": 1, "b": 2}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
-    h2 = hashlib.sha256(json.dumps({"b": 2, "a": 1}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
-    assert h1 == h2
+def test_signal_id_stable_across_identical_replay():
+    """Same bar inputs produce the same ID on repeated calls."""
+    assert _make_signal_id(**_BAR_KWARGS) == _make_signal_id(**_BAR_KWARGS)
 
 def test_signal_id_different_for_different_timestamps():
     """Different epoch ns produce different IDs."""
-    id1 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
-    id2 = _make_signal_id("ES", 1717440000000000001, "1m", "alpha_agent", "abc123")
+    id1 = _make_signal_id(**{**_BAR_KWARGS, "feature_ts_ns": 1717440000000000000})
+    id2 = _make_signal_id(**{**_BAR_KWARGS, "feature_ts_ns": 1717440000000000001})
+    assert id1 != id2
+
+def test_signal_id_different_for_different_close():
+    """Different close price produces a different ID — proves OHLCV is in the hash."""
+    id1 = _make_signal_id(**{**_BAR_KWARGS, "close": 5005.0})
+    id2 = _make_signal_id(**{**_BAR_KWARGS, "close": 5005.1})
     assert id1 != id2
 
 def test_signal_id_tf_normalization():
-    """Timeframe is lowercased before hashing."""
-    id1 = _make_signal_id("ES", 0, "1m", "agent", "h")
-    id2 = _make_signal_id("ES", 0, "1M", "agent", "h")
-    # Both should normalize to "1m" — add normalization in caller before _make_signal_id
-    # This test confirms the contract is enforced
-    assert id1 == id2  # only if caller lowercases before passing
+    """Timeframe is lowercased before hashing — caller must normalize before passing."""
+    id1 = _make_signal_id(**{**_BAR_KWARGS, "feature_tf": "1m"})
+    id2 = _make_signal_id(**{**_BAR_KWARGS, "feature_tf": "1M"})
+    assert id1 == id2  # only true if caller lowercases; this test documents the contract
+
+def test_signal_id_independent_of_plugin_outputs():
+    """Two signals from the same bar but different plugin outputs get the SAME ID.
+    Plugin outputs are stateful and vary across restarts — they must not affect identity."""
+    # Both signals came from the same bar — their IDs must match regardless of
+    # what the plugins computed.
+    assert _make_signal_id(**_BAR_KWARGS) == _make_signal_id(**_BAR_KWARGS)
+    # The point: _make_signal_id takes no plugin-output args — it cannot vary on them.
 ```
 
 - [ ] **Step 6: Remove unused `uuid4` import if it is now unused**
@@ -648,8 +670,10 @@ for sig in ranked:
         cal = self._calibrator.get_calibrated_confidence(
             sig.get("agent_id", ""), bar.tf, raw_conf
         )
-        # cal is None when curve is missing/stale — use raw value as fallback
+        # cal is None when curve is missing/stale — use raw value as fallback.
+        # confidence_calibrated=False lets I7 distinguish calibrated from raw.
         sig["calibrated_confidence"] = cal if cal is not None else raw_conf
+        sig["confidence_calibrated"] = cal is not None
 ```
 
 Where `self._calibrator` is the existing `ConfidenceCalibrator` instance already held by the pipeline.
@@ -777,9 +801,10 @@ ON CONFLICT (ts, symbol, tf) DO UPDATE SET
     i5 = EXCLUDED.i5,
     smc = EXCLUDED.smc,
     i6 = EXCLUDED.i6
+WHERE EXCLUDED.feature_schema_version >= intelligence_features.feature_schema_version
 ```
 
-Adapt the column list to exactly match what is currently in the INSERT — read the file to confirm all columns.
+The `WHERE` guard ensures a stale replay (lower schema version) cannot overwrite a live write (higher schema version). Without it, a replay run after market close silently overwrites the live values written during the session. Adapt the column list to exactly match what is currently in the INSERT — read the file to confirm all columns.
 
 - [ ] **Step 3: Run unit tests**
 
@@ -1001,32 +1026,30 @@ PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
 At the top of the file, after existing constants:
 
 ```python
-_MAX_QUEUE_DEPTH = 500  # drop oldest bar above this depth to prevent OOM under load
+_MAX_QUEUE_DEPTH = 500  # drop incoming bar above this depth to prevent OOM under load
 ```
 
-In the bar ingestion path, before enqueuing a new bar:
+In the bar ingestion path, **do not enqueue the incoming bar** if the queue is full — drop the newest arrival, not the oldest. Dropping the oldest bar corrupts established rolling windows and Kalman state; dropping the newest discards only what hasn't been incorporated yet:
 
 ```python
 if self._bar_queue.qsize() >= _MAX_QUEUE_DEPTH:
-    try:
-        dropped = self._bar_queue.get_nowait()
-        PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
-            1, {"symbol": dropped.symbol, "tf": dropped.tf}
-        )
-        # WARNING: dropping a bar may corrupt stateful plugin state (rolling windows,
-        # Kalman filters, regime detection, CIS smoothing). Log symbol+tf so operators
-        # can detect when state may be stale and trigger a replay if needed.
-        logger.warning(
-            "pipeline_backpressure_drop",
-            symbol=dropped.symbol,
-            tf=dropped.tf,
-            queue_depth=self._bar_queue.qsize(),
-        )
-    except asyncio.QueueEmpty:
-        pass
+    # Drop the INCOMING bar (newest), not the queued ones (established state).
+    # Dropping oldest would corrupt rolling windows, Kalman filters, regime state.
+    PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
+        1, {"symbol": bar.symbol, "tf": bar.tf}
+    )
+    logger.warning(
+        "pipeline_backpressure_drop",
+        symbol=bar.symbol,
+        tf=bar.tf,
+        queue_depth=self._bar_queue.qsize(),
+    )
+    return  # or continue — don't enqueue; caller drives the loop
+else:
+    await self._bar_queue.put(bar)
 ```
 
-Verify the actual queue object name by reading `_setup()` — adapt to whatever `asyncio.Queue` instance is used.
+Adapt to the exact control flow at the ingestion call site — read `_setup()` and the main `_run()` loop to find where bars are enqueued.
 
 **Gap-awareness note:** Dropping bars does not re-sync stateful plugin state. This circuit breaker is an OOM safeguard for extreme overload scenarios (sustained backfill floods), not a steady-state drop policy. The warning log with `symbol+tf` is the operator signal to investigate and replay if state is suspected stale.
 
@@ -1065,17 +1088,17 @@ git commit -m "feat(pipeline): backpressure circuit breaker, drop oldest bar at 
 - ✅ Tests for all key behaviors (Task 4)
 
 **Architecture Review Findings (Tasks 5–11):**
-- ✅ CRITICAL-01: Content-addressed `signal_id` — replaces `uuid4()` at `signal_processor.py:520` (Task 5)
-- ✅ CRITICAL-02: In-process calibration before I7 — `calibrated_confidence` populated in hot path (Task 6)
+- ✅ CRITICAL-01: Content-addressed `signal_id` — SHA-256 of bar OHLCV inputs (not plugin outputs); stable across restarts and replay (Task 5)
+- ✅ CRITICAL-02: In-process calibration before I7 — `calibrated_confidence` + `confidence_calibrated: bool` populated in hot path; raw fallback is explicit (Task 6)
 - ➡️ CRITICAL-03: Shadow governance (t-test gate, min_n=200, rolling Sharpe demotion) — routed to Phase 101 CONTEXT.md; must be implemented in `PromotionGate`/`DemotionGate` classes in `src/intelligence/ai/fitness/gates.py`, not in `shadow_auditor.py` directly
 - ✅ HIGH-01: BaseWriter `_parse_payload` returns `(valid, invalid)` tuple — no sentinels (Task 7)
 - 🟡 HIGH-02: `pipeline_latency` already labels with `{"symbol": bar.symbol, "tf": bar.tf}` at line 660 — finding already resolved in codebase, no action needed
-- ✅ HIGH-03: `intelligence_features` upsert `DO NOTHING` → `DO UPDATE` for replay idempotency (Task 8)
+- ✅ HIGH-03: `intelligence_features` upsert `DO NOTHING` → `DO UPDATE SET ... WHERE version guard` — replay idempotent, stale replay cannot overwrite live data (Task 8)
 - ✅ MEDIUM-01: pytest CI fixture — DAG Invariant 2 enforcement on all `src/intelligence/` modules (Task 9)
 - ➡️ MEDIUM-03: DSPy optimizer data gate observability — already fully specified in Phase 098 CONTEXT.md; no action needed here
 - ✅ MEDIUM-02: Live contract hot-reload via `contracts.updated` topic (Task 10)
 - ✅ Structural: `setup_performance` sample gate raised from 30 → 100 (Task 11)
-- ✅ Structural: Pipeline backpressure circuit breaker, drop oldest bar at depth > 500 (Task 12)
+- ✅ Structural: Pipeline backpressure circuit breaker — drops INCOMING bar (newest) at depth > 500; preserves established stateful window state (Task 12)
 
 **Remaining deferred (SSE-specific, separate plans):**
 - Bug 1 (SSE symbol filtering): topics are flat by design; per-symbol filtering needs a separate design decision
@@ -1086,3 +1109,56 @@ git commit -m "feat(pipeline): backpressure circuit breaker, drop oldest bar at 
 - `_Subscription` defined in Task 3 Step 2, used in Task 3 Steps 3–6 and Task 4 — consistent
 - `_MAX_LATEST_KEYS` defined in Task 3 Step 1, used in Task 3 Step 4 and Task 4 — consistent
 - `SSE_MESSAGES_DROPPED_TOTAL` defined in Task 2, imported in Task 3 Step 7, monkeypatched in Task 4 via `src.api.routes.sse.SSE_MESSAGES_DROPPED_TOTAL` — consistent
+
+---
+
+## Production Validation
+
+Run these after deploying all 12 tasks to confirm the hardening held. "Unit tests green" is the entry bar; these are the success criteria.
+
+```bash
+# 1. calibrated_confidence null rate should be zero (CRITICAL-02)
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
+  SELECT count(*) AS nulls
+  FROM signal_ledger
+  WHERE calibrated_confidence IS NULL
+    AND timestamp > now() - interval '1 hour';"
+# Expected: 0
+
+# 2. confidence_calibrated flag distribution — know what fraction had curves
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
+  SELECT confidence_calibrated, count(*)
+  FROM signal_ledger
+  WHERE timestamp > now() - interval '1 hour'
+  GROUP BY 1;"
+# Expected: both rows present; calibrated=true should dominate once curves warm up
+
+# 3. signal_id uniqueness constraint active
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
+  SELECT indexname, indexdef FROM pg_indexes
+  WHERE tablename = 'signal_ledger' AND indexname = 'idx_signal_ledger_signal_id_unique';"
+# Expected: one row
+
+# 4. No signal_id collisions in the last hour
+PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -c "
+  SELECT signal_id, count(*) FROM signal_ledger
+  WHERE timestamp > now() - interval '1 hour'
+  GROUP BY signal_id HAVING count(*) > 1;"
+# Expected: 0 rows
+
+# 5. SSE drop counter baseline (should be near zero under normal load)
+curl -s http://localhost:8000/metrics | grep sse_messages_dropped_total
+# Expected: counter present; value near 0
+
+# 6. Backpressure drop counter (should be 0 outside of backfill)
+curl -s http://localhost:8000/metrics | grep intelligence_pipeline_backpressure_drop_total
+# Expected: counter present; value 0 during live session
+
+# 7. Contract reload metrics present
+curl -s http://localhost:8000/metrics | grep contracts_reload_total
+# Expected: counter present with status=success label
+
+# 8. DAG invariant test passes in CI
+.venv/bin/pytest tests/unit/intelligence/test_dag_invariants.py -v
+# Expected: all modules pass; any violation is a hard block
+```
