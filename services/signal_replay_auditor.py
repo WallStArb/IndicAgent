@@ -26,6 +26,7 @@ import asyncpg
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
+from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import TF_SECONDS, topic_lifecycle_transitions
 
 # Reuse the live tracker's evaluators — never duplicate evaluation logic.
@@ -328,7 +329,7 @@ class SignalReplayAuditor(BaseDaemon):
             bar_ts=end_ts,
             data={
                 "status": SignalStatus.EXPIRED,
-                "exit_at": end_ts.isoformat(),
+                "exit_at": format_iso_ts(end_ts),
                 "exit_price": None,
                 "exit_reason": "ttl_expired",
                 "pnl_r": 0.0,
@@ -393,9 +394,11 @@ class SignalReplayAuditor(BaseDaemon):
                 timeframe=signal_dict.get("timeframe", ""),
                 bar_ts=bar_ts,
                 data={
-                    "market_entry_at": signal_timestamp.isoformat() if signal_timestamp else None,
+                    "market_entry_at": (
+                        format_iso_ts(signal_timestamp) if signal_timestamp else None
+                    ),
                     "market_entry_exit_price": mt.exit_price,
-                    "market_entry_exit_at": bar_ts.isoformat(),
+                    "market_entry_exit_at": format_iso_ts(bar_ts),
                     "market_entry_pnl_r": mt.pnl_r,
                     "market_entry_mae": mt.mae,
                     "market_entry_mfe": mt.mfe,
@@ -440,7 +443,7 @@ class SignalReplayAuditor(BaseDaemon):
                 "status": (
                     t.new_status.value if hasattr(t.new_status, "value") else str(t.new_status)
                 ),
-                "exit_at": bar_ts.isoformat(),
+                "exit_at": format_iso_ts(bar_ts),
                 "exit_price": t.exit_price,
                 "exit_reason": t.exit_reason,
                 "pnl_r": t.pnl_r,

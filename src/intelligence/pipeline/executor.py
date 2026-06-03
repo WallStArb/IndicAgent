@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 import os as _os
 
 import structlog
+from opentelemetry import metrics as otel_metrics
 
 from src.core.service_utils import should_skip_plugin
 from src.intelligence.register_plugins import (
@@ -54,6 +55,13 @@ from src.observability.metrics import (
     counter,
 )
 from src.observability.plugin_observer import NoOpPluginObserver, PluginObserver
+
+_meter = otel_metrics.get_meter("indicagent")
+_TIER_LATENCY_MS = _meter.create_histogram(
+    "intelligence_pipeline_tier_latency_ms",
+    description="Per-tier execution latency in milliseconds",
+    unit="ms",
+)
 
 _PLUGIN_CB_ENABLED: bool = _os.environ.get("PLUGIN_CB_ENABLED", "0") == "1"
 _SHADOW_CB_DEFAULTS: dict[str, object] = {
@@ -659,22 +667,25 @@ class PluginExecutor:
         tiered: dict[str, dict] = {}
         all_state_updates: dict[tuple, dict] = {}
 
+        async def _timed_tier(tier_key: str, tier_plugins: tuple) -> tuple:
+            _t0 = time.perf_counter()
+            result = await self.run_tier(
+                tier_key,
+                tier_plugins,
+                plugin_states,
+                lock,
+                symbol,
+                tf,
+                frames,
+                loop,
+                shadow_cache,
+                tier_budget_ms=tier_budget_ms.get(tier_key) if tier_budget_ms else None,
+            )
+            _TIER_LATENCY_MS.record((time.perf_counter() - _t0) * 1000, {"tier": tier_key})
+            return result
+
         for wave in self._ANALYSIS_WAVES:
-            coros = [
-                self.run_tier(
-                    tier_key,
-                    tier_plugins,
-                    plugin_states,
-                    lock,
-                    symbol,
-                    tf,
-                    frames,
-                    loop,
-                    shadow_cache,
-                    tier_budget_ms=tier_budget_ms.get(tier_key) if tier_budget_ms else None,
-                )
-                for tier_key, tier_plugins in wave
-            ]
+            coros = [_timed_tier(tier_key, tier_plugins) for tier_key, tier_plugins in wave]
             wave_results = await asyncio.gather(*coros, return_exceptions=True)
 
             for (tier_key, _), wave_result in zip(wave, wave_results, strict=True):

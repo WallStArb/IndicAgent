@@ -293,12 +293,9 @@ class IntelligencePipeline(BaseDaemon):
 
         await self._seed_bar_history_from_db()
 
-        from src.core.ml.transform_recorder import TransformRecorder  # noqa: PLC0415
-
-        self._transform_recorder = TransformRecorder(
-            pool=self._db.pool, batch_size=100, flush_interval_s=2.0
-        )
-
+        # TransformRecorder archived in Phase 78 (D-04). Pass recorder=None;
+        # signal_processor.py guards all call sites with `if recorder is not None`.
+        # graduation_analyzer still reads signal_transform_log — see #33 for migration plan.
         _symbol_filter_list = self.settings.intelligence_pipeline_symbol_filter
         symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
         self._cache_mgr = CacheManager(
@@ -345,7 +342,7 @@ class IntelligencePipeline(BaseDaemon):
         self._sig_proc = SignalProcessor(
             cis_scorer=CISScorer(),
             settings=self.settings,
-            transform_recorder=self._transform_recorder,
+            transform_recorder=None,
         )
 
         # Restore cross-owned checkpoint fields into SignalProcessor
@@ -424,11 +421,6 @@ class IntelligencePipeline(BaseDaemon):
             await self._kafka_consumer.stop()
         if hasattr(self, "_kafka_producer"):
             await self._kafka_producer.stop()
-        if hasattr(self, "_transform_recorder"):
-            try:
-                await self._transform_recorder.flush()
-            except Exception as error:
-                self.logger.warning("teardown.transform_recorder_flush_failed", error=str(error))
         if hasattr(self, "_db"):
             await self._db.close()
         self.logger.info("agent.teardown_complete")

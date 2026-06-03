@@ -108,7 +108,7 @@ class TestSerialization:
             bar_ts=ts,
         )
         d = to_dict(t)
-        assert d["bar_ts"] == "2026-04-10T14:30:00+00:00"
+        assert d["bar_ts"] == "2026-04-10T14:30:00Z"
 
     def test_from_dict_naive_timestamp_gets_utc(self):
         """Naive timestamps should be treated as UTC."""

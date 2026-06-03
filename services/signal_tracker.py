@@ -28,11 +28,12 @@ from src.config.settings import get_point_value
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.service_utils import TF_SECONDS, parse_iso_ts, tf_to_seconds
+from src.core.service_utils import TF_SECONDS, format_iso_ts, parse_iso_ts, tf_to_seconds
 from src.core.stream_keys import (
     message_key,
     topic_intelligence_i7_signals,
     topic_lifecycle_transitions,
+    topic_llm_outcomes,
     topic_market_bars,
     topic_market_bars_htf,
     topic_signal_tracker_dlq,
@@ -946,6 +947,27 @@ class SignalTracker(BaseDaemon):
                 signal_id=lt.signal_id,
                 error=str(error),
             )
+
+        if lt.transition_type == TransitionType.EXIT:
+            outcomes_msg = {
+                "signal_id": lt.signal_id,
+                "outcome": lt.data.get("outcome"),
+                "pnl_r": lt.data.get("pnl_r"),
+                "mae": lt.data.get("mae"),
+                "mfe": lt.data.get("mfe"),
+                "bars_in_trade": lt.data.get("bars_in_trade"),
+                "outcome_at": format_iso_ts(lt.bar_ts),
+            }
+            try:
+                await self._producer.publish(
+                    topic_llm_outcomes(self.env_name), outcomes_msg, key=key
+                )
+            except Exception as error:
+                self.logger.warning(
+                    "publish_llm_outcome.failed",
+                    signal_id=lt.signal_id,
+                    error=str(error),
+                )
 
     async def _publish_chandelier_update(
         self,

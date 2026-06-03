@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from src.core.service_utils import format_iso_ts
+
 
 class TransitionType(StrEnum):
     """Signal lifecycle transition types."""
@@ -54,7 +56,7 @@ def _json_safe(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_json_safe(v) for v in obj]
     if isinstance(obj, datetime):
-        return obj.isoformat()
+        return format_iso_ts(obj)
     try:
         from uuid import UUID
 
@@ -72,7 +74,7 @@ def to_dict(t: LifecycleTransition) -> dict:
         "signal_id": str(t.signal_id),
         "symbol": t.symbol,
         "timeframe": t.timeframe,
-        "bar_ts": t.bar_ts.isoformat(),
+        "bar_ts": format_iso_ts(t.bar_ts),
         "data": _json_safe(t.data),
     }
 

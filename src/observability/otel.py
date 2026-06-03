@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import socket
 
@@ -11,6 +12,8 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+_log = logging.getLogger(__name__)
 
 
 def init_otel_providers(
@@ -46,8 +49,8 @@ def init_otel_providers(
             )
             meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
             metrics.set_meter_provider(meter_provider)
-        except Exception:
-            pass  # Graceful degradation -- agents run without metrics export
+        except Exception as error:
+            _log.warning("otel.meter_provider_init_failed endpoint=%s error=%s", endpoint, error)
 
     # Initialize TracerProvider (traces) -- replaces init_tracing()
     if not isinstance(trace.get_tracer_provider(), TracerProvider):
@@ -60,8 +63,8 @@ def init_otel_providers(
             processor = BatchSpanProcessor(exporter)
             provider.add_span_processor(processor)
             trace.set_tracer_provider(provider)
-        except Exception:
-            pass  # Graceful degradation
+        except Exception as error:
+            _log.warning("otel.tracer_provider_init_failed endpoint=%s error=%s", endpoint, error)
 
 
 # Keep backward compat -- init_tracing() now delegates to init_otel_providers
