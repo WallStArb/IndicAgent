@@ -681,10 +681,21 @@ Plans:
 
 Plans:
 
+**Wave 1**
+
 - [ ] 098-01-PLAN.md — Migration 115_prompt_versions table (status CHECK candidate/active/retired) + dspy>=3.2.1 pin
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 098-02-PLAN.md — DSPyOptimizer core class: per-agent data gate, BootstrapFewShot compile, JSONB candidate write
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 098-03-PLAN.md — Oneshot entrypoint + systemd service/timer (weekly Mon 07:00 UTC) + _DAG_ORDER registration
 - [ ] 098-04-PLAN.md — A/B promotion runner (D-09 criteria, '0'/'1'/'2' regime guard) + comparison report + unit tests
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 098-05-PLAN.md — [DEFERRED until Phase 096] Startup prompt injection via AgentDependencies + prompt_loader + unit tests
 
 ### Phase 099: Guardrails AI Validation
