@@ -164,21 +164,20 @@ class BarWriter(BaseWriter):
             source,  # $10 source::text
         )
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse a bar payload into a buffer row tuple.
 
-        Returns list with one 10-tuple, empty list if parse fails (not DLQ),
-        or None for a truly unparseable payload (triggers DLQ in base class).
+        Returns (valid_rows, invalid_rows).
         """
         if not isinstance(payload, dict) or not payload:
-            return None
+            return [], [payload]
         bar = self._parse_bar(payload)
         if bar is None:
-            return []
+            return [], []
 
         base = self._contract_cache.get(bar.symbol, bar.symbol)
         source = "live_1m" if bar.tf == "1m" else "live_htf"
-        return [self._bar_to_row(bar, base, source)]
+        return [self._bar_to_row(bar, base, source)], []
 
     async def _flush_batch(self, batch: list) -> None:
         assert self._db_pool is not None
@@ -256,11 +255,11 @@ class BarWriter(BaseWriter):
             self._record_message_consumed()  # Track liveness for stall detection
 
             try:
-                rows = self._parse_payload(payload)
-                if rows is not None:
-                    self._buffer_rows(rows)
-                else:
+                valid, invalid = self._parse_payload(payload)
+                if invalid and not valid:
                     await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+                if valid:
+                    self._buffer_rows(valid)
                 _EVENTS_CONSUMED.add(1, self._events_consumed_attrs)
             except Exception as exc:
                 self.logger.warning(

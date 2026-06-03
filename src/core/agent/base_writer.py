@@ -146,10 +146,11 @@ class BaseWriter(BaseDaemon, abc.ABC):
         """Kafka consumer group ID."""
 
     @abc.abstractmethod
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse raw Kafka payload into rows for buffer.
 
-        Return list of parsed rows to buffer, or None to route to DLQ.
+        Returns (valid_rows, invalid_rows). Base class DLQs if valid is empty AND
+        invalid is non-empty. Returns ([], []) for an unparseable payload to skip silently.
         """
 
     @abc.abstractmethod
@@ -320,18 +321,18 @@ class BaseWriter(BaseDaemon, abc.ABC):
                     if self._payload_adapter is not None:
                         try:
                             validated = self._payload_adapter.validate_python(payload)
-                            rows = self._parse_payload(validated)
+                            valid, invalid = self._parse_payload(validated)
                         except ValidationError as exc:
                             self._parse_failures_total.add(1)
                             await self._maybe_route_to_dlq(payload, exc)
                             continue
                     else:
-                        rows = self._parse_payload(payload)
-                    if rows is not None:
-                        self._buffer_rows(rows)
-                    else:
+                        valid, invalid = self._parse_payload(payload)
+                    if invalid and not valid:
                         self._parse_failures_total.add(1)
                         await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
+                    if valid:
+                        self._buffer_rows(valid)
                 except Exception as exc:
                     span.set_status(StatusCode.ERROR, str(exc))
                     span.record_exception(exc)

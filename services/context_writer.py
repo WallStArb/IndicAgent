@@ -108,11 +108,10 @@ class ContextWriter(BaseWriter):
     # Validation and parse
     # -----------------------------------------------------------------------
 
-    def _parse_payload(self, payload: dict) -> dict | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Validate incoming CTX message.
 
-        Returns the validated payload dict on success,
-        or None to route to DLQ on validation failure.
+        Returns ([payload], []) on success or ([], [payload]) on validation failure.
 
         Threat model (from plan threat_model):
         - event_type must be in allowlist
@@ -128,7 +127,7 @@ class ContextWriter(BaseWriter):
                 missing=sorted(missing),
             )
             self._validation_errors.add(1)
-            return None
+            return [], [payload]
 
         event_type = payload.get("event_type", "")
         if event_type not in _ALLOWED_EVENT_TYPES:
@@ -138,7 +137,7 @@ class ContextWriter(BaseWriter):
                 allowed=sorted(_ALLOWED_EVENT_TYPES),
             )
             self._validation_errors.add(1)
-            return None
+            return [], [payload]
 
         inner_payload = payload.get("payload")
         if not isinstance(inner_payload, dict):
@@ -147,7 +146,7 @@ class ContextWriter(BaseWriter):
                 event_type=event_type,
             )
             self._validation_errors.add(1)
-            return None
+            return [], [payload]
 
         payload_bytes = len(json.dumps(inner_payload))
         if payload_bytes > _MAX_PAYLOAD_BYTES:
@@ -158,9 +157,9 @@ class ContextWriter(BaseWriter):
                 max_bytes=_MAX_PAYLOAD_BYTES,
             )
             self._validation_errors.add(1)
-            return None
+            return [], [payload]
 
-        return payload
+        return [payload], []
 
     def _on_message_consumed(self, payload: dict) -> None:
         self._events_consumed.add(1)
@@ -180,12 +179,13 @@ class ContextWriter(BaseWriter):
             self._record_message_consumed()
             self._on_message_consumed(payload)
 
-            msg = self._parse_payload(payload)
-            if msg is None:
+            valid, invalid = self._parse_payload(payload)
+            if invalid and not valid:
                 self._parse_failures_total.add(1)
                 await self._maybe_route_to_dlq(payload, Exception("Validation failed"))
                 continue
-            await self._process_message(msg)
+            if valid:
+                await self._process_message(valid[0])
             await self.maybe_flush()
 
     def _to_event_row(

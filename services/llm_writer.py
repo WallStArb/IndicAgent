@@ -479,17 +479,17 @@ class LLMWriter(BaseWriter):
         """Kafka consumer group ID."""
         return CONSUMER_GROUP
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse llm.calls topic message into INSERT param tuple.
 
-        Returns None to route to DLQ on parse failure.
+        Returns ([], [payload]) to route to DLQ on parse failure.
         Only used when BaseWriter's generic consume path is active;
         LLMWriter uses a custom _run() with direct message routing.
         """
         parsed = _parse_llm_call_fields(payload)
         if parsed is None:
-            return None
-        return [self._parsed_to_insert_tuple(parsed)]
+            return [], [payload]
+        return [self._parsed_to_insert_tuple(parsed)], []
 
     async def _flush_batch(self, batch: list) -> None:
         """Write batch of llm_calls rows to TimescaleDB.
