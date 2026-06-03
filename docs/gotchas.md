@@ -33,6 +33,10 @@ See `docs/operations/timescaledb-gotchas.md` for query/schema gotchas. `instrume
 
 `src/observability/circuit_breaker.py`: `record_failure()` opens the breaker but `OPEN→HALF_OPEN` recovery only fires inside `call()`. For manual tracking outside `call()`, use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (resets failures, closes from HALF_OPEN).
 
+## I7 Plugin Feature Access
+
+- **Tier sub-dicts in `plugin_input`**: Phase 112-04 migrated all I7 plugins to read features via `frames.get("i1")`, `frames.get("smc")`, etc. (tier-keyed sub-dicts). If `run_i7_complete()` (or any caller) only provides a flat `"features"` key, ALL plugins construct an empty features dict and return `no_signal()` on every bar. Zero signals, zero errors, completely silent. Any change to how `plugin_input` is constructed MUST verify tier sub-dicts are present.
+
 ## Historical Backfill
 
 ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `production/scripts/backfill_1d.py` which chunks automatically.
