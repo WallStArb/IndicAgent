@@ -78,12 +78,35 @@ class PerKeyWorkerManager:
         if key not in self._queues:
             self._spawn_worker(key)
         await self._queues[key].put(bar)
-        # Emit queue-depth and worker-count gauges every 10th enqueue (low overhead)
         self._enqueue_count += 1
         if self._enqueue_count % 10 == 0:
             depth_max = max((q.qsize() for q in self._queues.values()), default=0)
             _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
             _WORKER_COUNT_GAUGE.set(len(self._queues), {})
+
+    def try_enqueue(self, bar: BarMessage) -> bool:
+        """Non-blocking enqueue. Returns False when the per-key queue is full.
+
+        Drop the INCOMING bar (newest), not the oldest — dropping oldest would
+        corrupt rolling windows and Kalman state. Caller increments the
+        backpressure drop counter on False and continues the consumer loop.
+        Symbol-filtered bars (not owned by this shard) return True (not a drop).
+        """
+        if self._symbol_filter is not None and bar.symbol not in self._symbol_filter:
+            return True
+        key = (bar.symbol, bar.tf)
+        if key not in self._queues:
+            self._spawn_worker(key)
+        try:
+            self._queues[key].put_nowait(bar)
+            self._enqueue_count += 1
+            if self._enqueue_count % 10 == 0:
+                depth_max = max((q.qsize() for q in self._queues.values()), default=0)
+                _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
+                _WORKER_COUNT_GAUGE.set(len(self._queues), {})
+            return True
+        except asyncio.QueueFull:
+            return False
 
     def _spawn_worker(self, key: tuple[str, str]) -> None:
         queue: asyncio.Queue = asyncio.Queue(maxsize=self._queue_maxsize)

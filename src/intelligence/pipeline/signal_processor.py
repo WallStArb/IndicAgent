@@ -23,6 +23,7 @@ import structlog
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import TF_SECONDS
+from src.intelligence.pipeline.calibrator import apply_calibration
 from src.intelligence.pipeline.feature_flattening import (
     _HMM_REGIME_LABEL,  # noqa: F401 — kept for any local references (none currently)
     build_flat_features,
@@ -379,8 +380,6 @@ class SignalProcessor:
         )
         _record_dropped("tod", regime_gated, tod_adjusted)
 
-        # Design B: per-signal calibration removed. Calibration is now applied at CIS level
-        # inside CISScorer.score() and stamped as calibrated_confidence from cis_result.calibrated_cis.
         ranked = await rank_signals(
             tod_adjusted,
             cache_snapshot.perf_weights,
@@ -389,32 +388,17 @@ class SignalProcessor:
             recorder=self._transform_recorder,
         )
 
-        # CRITICAL-02: In-process confidence calibration before winner selection.
-        # calibrated_confidence is populated here so all downstream consumers (I7, signal_ledger,
-        # Kafka payloads) receive non-null values. Fallback: raw confidence when no curve cached.
-        # confidence_calibrated: bool distinguishes calibrated from raw-fallback paths.
-        _cal_curves = cache_snapshot.calibration_curves
-        for sig in ranked:
-            plugin_name = sig.get("setup_plugin", "")
-            raw_conf = sig.get("confidence") or sig.get("pre_quality_confidence")
-            if raw_conf is not None:
-                curve = _cal_curves.get((plugin_name, tf))
-                if curve is not None:
-                    try:
-                        x_pts = curve.get("x") or curve.get("breakpoints", [])
-                        y_pts = curve.get("y") or curve.get("values", [])
-                        if x_pts and y_pts:
-                            import numpy as np  # noqa: PLC0415 — lazy import, stdlib equivalent unavailable
-
-                            cal_val = float(np.interp(raw_conf, x_pts, y_pts))
-                            sig["calibrated_confidence"] = round(cal_val, 4)
-                            sig["confidence_calibrated"] = True
-                            continue
-                    except Exception:
-                        pass  # fall through to raw fallback
-                # No curve or parse error — pass raw confidence through unchanged
-                sig["calibrated_confidence"] = raw_conf
-                sig["confidence_calibrated"] = False
+        # CRITICAL-02: per-signal plugin confidence calibration before winner selection.
+        # apply_calibration uses 3-tuple (plugin, tf, symbol) key with '*' global fallback.
+        # Winner's calibrated_confidence is later overwritten by cis_result.calibrated_cis
+        # (CIS-level calibration) — the two layers are intentionally distinct.
+        ranked = await apply_calibration(
+            ranked,
+            cache_snapshot.calibration_curves,
+            tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
+        )
 
         # Annotate each ranked signal with CIS fields + metadata
         num_signals = len(ranked)
@@ -470,8 +454,7 @@ class SignalProcessor:
             "signals_after_quality": len(quality_gated),
             "signals_after_regime": len(regime_gated),
             "signals_after_tod": len(tod_adjusted),
-            # Design B: no per-signal calibration stage; tod_adjusted → ranked directly
-            "signals_after_calibration": len(tod_adjusted),
+            "signals_after_calibration": len(ranked),
             "i7_computed_at": i7_computed_at,
         }
 

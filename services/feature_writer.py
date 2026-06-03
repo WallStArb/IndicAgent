@@ -496,15 +496,14 @@ class FeatureWriter(BaseWriter):
                     continue
 
                 if kafka_topic == intelligence_journal_topic:
-                    rows = self._parse_payload(payload)
-                    if rows is not None:
-                        self._buffer_rows(rows)
-                        self.events_consumed_total.add(1)
-                        self._total_events += 1
-                    else:
-                        # Parse failed — route to DLQ for analysis
+                    valid, invalid = self._parse_payload(payload)
+                    if invalid:
                         await self._maybe_route_to_dlq(payload, Exception("Parse failed"))
                         self.error_count_total.add(1)
+                    if valid:
+                        self._buffer_rows(valid)
+                        self.events_consumed_total.add(1)
+                        self._total_events += 1
                     self.events_buffered_gauge.set(len(self._buffer))
                     await self.maybe_flush()
 

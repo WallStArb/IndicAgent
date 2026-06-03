@@ -91,7 +91,7 @@ async def rank_signals(
 
         # Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
         # D-16 warm-up penalty: force 0.5 for sample_size < 100
-        if sample_size < 30:
+        if sample_size < 100:
             perf_multiplier = WARMUP_PENALTY_MULTIPLIER
 
         adjusted_rank = round(perf_multiplier, 4)

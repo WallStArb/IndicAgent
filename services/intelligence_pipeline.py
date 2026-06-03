@@ -32,7 +32,7 @@ from src.core.service_utils import min_bars_for_tf, normalize_session_type, pars
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
-    topic_contracts_updated,
+    topic_contract_updates,
     topic_cross_asset,
     topic_intelligence,
     topic_intelligence_i7_signals,
@@ -255,7 +255,7 @@ class IntelligencePipeline(BaseDaemon):
         )
         await self._kafka_producer.start()
 
-        self._contracts_topic = topic_contracts_updated(self.settings.env_name)
+        self._contracts_topic = topic_contract_updates(self.settings.env_name)
         topics = [
             topic_market_bars(self.settings.env_name),
             topic_market_bars_htf(self.settings.env_name),
@@ -503,12 +503,10 @@ class IntelligencePipeline(BaseDaemon):
                                 await self._send_to_dlq(payload, Exception("Parse failed"))
                                 continue
                             # STRUCTURAL: backpressure circuit breaker — drop INCOMING bar
-                            # (newest) if total queue depth exceeds threshold. Dropping
-                            # oldest would corrupt rolling windows and Kalman state.
-                            total_depth = sum(
-                                q.qsize() for q in self._worker_manager._queues.values()
-                            )
-                            if total_depth >= _MAX_QUEUE_DEPTH:
+                            # (newest) when the per-key queue is full. try_enqueue uses
+                            # put_nowait so a full queue never stalls the Kafka consumer loop.
+                            # Dropping oldest would corrupt rolling windows and Kalman state.
+                            if not self._worker_manager.try_enqueue(bar):
                                 PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
                                     1, {"symbol": bar.symbol, "tf": bar.tf}
                                 )
@@ -516,10 +514,7 @@ class IntelligencePipeline(BaseDaemon):
                                     "pipeline_backpressure_drop",
                                     symbol=bar.symbol,
                                     tf=bar.tf,
-                                    queue_depth=total_depth,
                                 )
-                            else:
-                                await self._worker_manager.enqueue(bar)
 
                         msg_count += 1
                         if msg_count >= COMMIT_BATCH_SIZE:

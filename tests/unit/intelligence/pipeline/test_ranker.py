@@ -1,7 +1,7 @@
 """Unit tests for rank_signals pure function.
 
 Phase 112 2-C: SETUP_PRIORITY removed. adjusted_rank = perf_multiplier.
-D-16: sample_size < 30 → warm-up penalty (0.5).
+D-16: sample_size < 100 → warm-up penalty (0.5).
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ async def test_computes_adjusted_rank_from_perf_weight():
     plugin = "trad_TrendFollowing"
     weight = 0.8
     sig = make_signal(plugin=plugin)
-    # Pass sample_size=30 via tuple to get above warm-up threshold
-    result = await rank_signals([sig], {(plugin, "1m", "*"): (weight, 30)}, "1m")
+    # Pass sample_size=100 via tuple to get above warm-up threshold
+    result = await rank_signals([sig], {(plugin, "1m", "*"): (weight, 100)}, "1m")
     assert result[0]["adjusted_rank"] == round(weight, 4)
     assert result[0]["perf_multiplier"] == weight
-    assert result[0]["sample_size"] == 30
+    assert result[0]["sample_size"] == 100
 
 
 @pytest.mark.asyncio
@@ -55,15 +55,15 @@ async def test_missing_perf_weight_defaults_to_warmup():
 
 
 @pytest.mark.asyncio
-async def test_sample_size_below_30_gets_warmup_penalty():
-    """sample_size < 30 → perf_multiplier = 0.5 (D-16 warm-up penalty)."""
+async def test_sample_size_below_100_gets_warmup_penalty():
+    """sample_size < 100 → perf_multiplier = 0.5 (D-16 warm-up penalty)."""
     plugin = "trad_TrendFollowing"
     sig = make_signal(plugin=plugin)
-    # Provide a "good" perf_multiplier but with sample_size=15 (below threshold)
-    result = await rank_signals([sig], {(plugin, "1m", "*"): (1.2, 15)}, "1m")
+    # Provide a "good" perf_multiplier but with sample_size=50 (below threshold)
+    result = await rank_signals([sig], {(plugin, "1m", "*"): (1.2, 50)}, "1m")
     assert result[0]["adjusted_rank"] == WARMUP_PENALTY_MULTIPLIER
     assert result[0]["perf_multiplier"] == WARMUP_PENALTY_MULTIPLIER
-    assert result[0]["sample_size"] == 15
+    assert result[0]["sample_size"] == 50
 
 
 @pytest.mark.asyncio
@@ -85,7 +85,7 @@ async def test_symbol_specific_weight_used():
     plugin = "trad_TrendFollowing"
     weight = 0.6
     sig = make_signal(plugin=plugin)
-    result = await rank_signals([sig], {(plugin, "1m", "ES"): (weight, 50)}, "1m", symbol="ES")
+    result = await rank_signals([sig], {(plugin, "1m", "ES"): (weight, 100)}, "1m", symbol="ES")
     assert result[0]["perf_multiplier"] == weight
     assert result[0]["adjusted_rank"] == round(weight, 4)
 
@@ -96,7 +96,7 @@ async def test_symbol_falls_back_to_global_star():
     plugin = "trad_TrendFollowing"
     weight = 0.8
     sig = make_signal(plugin=plugin)
-    result = await rank_signals([sig], {(plugin, "1m", "*"): (weight, 50)}, "1m", symbol="ES")
+    result = await rank_signals([sig], {(plugin, "1m", "*"): (weight, 100)}, "1m", symbol="ES")
     assert result[0]["perf_multiplier"] == weight
     assert result[0]["adjusted_rank"] == round(weight, 4)
 
