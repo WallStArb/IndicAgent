@@ -19,6 +19,7 @@ import asyncpg
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
 from src.core.kafka_utils import KafkaProducerClient
+from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
     TF_SECONDS,  # noqa: F401 — confirms Plan 02 dependency satisfied
     topic_market_bars,
@@ -103,7 +104,7 @@ class BarReplayProvider(BaseDaemon):
         payload = {
             "symbol": row["symbol"],
             "timeframe": tf,
-            "timestamp": row["timestamp"].isoformat(),
+            "timestamp": format_iso_ts(row["timestamp"]),
             "open": float(row["open"]),
             "high": float(row["high"]),
             "low": float(row["low"]),
