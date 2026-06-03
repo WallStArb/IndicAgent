@@ -117,8 +117,8 @@ class TestBuildAllRankedPerfMultiplier:
         ]
         perf_weights = _compute_perf_multipliers(
             {
-                "trad_MeanReversion": {"sharpe_ratio": 3.0, "sample_size": 50},
-                "trad_LiquiditySweepReclaim": {"sharpe_ratio": 0.2, "sample_size": 50},
+                "trad_MeanReversion": {"sharpe_ratio": 3.0, "sample_size": 100},
+                "trad_LiquiditySweepReclaim": {"sharpe_ratio": 0.2, "sample_size": 100},
             }
         )
         result = _build_all_ranked(fired, perf_weights=perf_weights)
@@ -137,7 +137,7 @@ class TestBuildAllRankedPerfMultiplier:
             _signal("trad_MTFAlignment", 1),
         ]
         # Only one setup has a performance weight with sufficient sample_size
-        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.6, 50)})
+        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.6, 100)})
         # All signals have adjusted_rank as floats
         for sig in result:
             assert isinstance(sig.get("adjusted_rank"), float)
@@ -150,7 +150,7 @@ class TestBuildAllRankedPerfMultiplier:
     def test_build_all_ranked_adjusted_rank_attached_to_signal(self):
         """Each result dict has an 'adjusted_rank' key with float value."""
         fired = [_signal("trad_TrendFollowing", 1)]
-        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.8, 50)})
+        result = _build_all_ranked(fired, perf_weights={"trad_TrendFollowing": (0.8, 100)})
         assert len(result) == 1
         assert "adjusted_rank" in result[0]
         assert isinstance(result[0]["adjusted_rank"], float)
@@ -180,9 +180,9 @@ class TestBuildAllRankedPerfMultiplier:
         ]
         # Outperformer (MeanReversion) and underperformer (LiquiditySweepReclaim)
         perf_weights = {
-            "trad_MeanReversion": (0.5, 50),  # best Sharpe: lowest multiplier
-            "trad_TrendFollowing": (1.0, 50),  # neutral
-            "trad_LiquiditySweepReclaim": (1.5, 50),  # underperformer: highest multiplier
+            "trad_MeanReversion": (0.5, 100),  # best Sharpe: lowest multiplier
+            "trad_TrendFollowing": (1.0, 100),  # neutral
+            "trad_LiquiditySweepReclaim": (1.5, 100),  # underperformer: highest multiplier
         }
         result = _build_all_ranked(fired, perf_weights=perf_weights)
         # Verify adjusted_ranks are in ascending order (lower = higher priority = appears first)
@@ -210,7 +210,7 @@ class TestAggregatePerfWeightsKwarg:
         result = aggregate(
             signals,
             trend_regime=0.5,
-            perf_weights={"trad_TrendFollowing": (0.7, 50)},
+            perf_weights={"trad_TrendFollowing": (0.7, 100)},
         )
         # Should return an AggregatedResult regardless of perf_weights
         assert result is not None

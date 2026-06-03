@@ -148,7 +148,8 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         and event["window_days"] == 30
         and event.get("avg_r") is not None
         and event.get("sharpe") is not None
-        and event["n"] >= 30
+        # Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
+        and event["n"] >= 100
     ):
         await conn.execute(
             """

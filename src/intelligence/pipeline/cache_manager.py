@@ -481,7 +481,7 @@ class CacheManager:
             async def _fetch(regime: str) -> list:
                 base = (
                     "SELECT setup_plugin, tf, symbol, sharpe FROM signal_metrics"
-                    " WHERE track = 'market' AND window_days = 30 AND n >= 30"
+                    " WHERE track = 'market' AND window_days = 30 AND n >= 100"
                 )
                 if self._symbol_filter is not None:
                     return await self._db.execute_query(
