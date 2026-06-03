@@ -34,6 +34,8 @@ When making architectural decisions, think as a council of senior engineers at a
 - **Prioritize clean data flow.** Every stage in the pipeline has exactly one job. Data moves in one direction. No shortcuts that create hidden coupling.
 - **Guard against hidden biases and edge-case failures.** Silent failures — wrong-type defaults, stale cache hits, swallowed exceptions — are more dangerous than loud ones. Design so failures surface.
 - **Component reuse over duplication.** Three similar implementations is a signal to extract a shared abstraction. But do not abstract prematurely; wait until the pattern is proven.
+- **Modularity.** Every component is a self-contained unit with a single clear responsibility. Dependencies flow inward, never in circles.
+- **Microservices over monoliths.** Each service owns exactly one role. Deploy, scale, and fail independently.
 - **Separation of concerns is non-negotiable.** Compute is separate from persistence. Transport is separate from state. Coordination is separate from computation.
 - **Well-structured DAGs for all data pipelines.** The DAG is the architecture. Violating it means the system can no longer be reasoned about correctly.
 - **Highly optimized async patterns.** All I/O is async. Blocking calls in the hot path are architectural defects.
