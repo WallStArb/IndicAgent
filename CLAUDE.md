@@ -87,7 +87,7 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintai
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, SignalContext, AgentOutput, WorkerContext, LLMAdapter, AgentProtocol). `BaseGroupCoordinator` (shared group dispatcher) lives in `src/intelligence/ai/group_coordinator.py`.
+- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, Evaluator, AgentOutput, WorkerContext, IAIAgent protocol). `SignalContext` lives in `src/intelligence/ai/context.py`. `BaseGroupCoordinator` (shared group dispatcher) lives in `src/intelligence/ai/group_coordinator.py`.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
@@ -115,14 +115,14 @@ Cold: BarWriter + feature_writer → TimescaleDB (batch, async)
 
 ## Plugin System
 
-132 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
+138 plugins across tiers I1–I7 (I1=29, I2=11, I3=9, I4=13, I5=16, SMC=16, I6=7, I7=37 incl. 2 aggregators). See `src/intelligence/CLAUDE.md` for tier details and LLM provider chain.
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - **Shadow governance:** `shadow_registry` DB table. Auto-enroll at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: EV[R] < -0.05 for 3 consecutive cycles.
 - **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores
 
 ## Adding an AI Agent
 
-Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `TEMPLATE_agent.py`. Reference: `skeptic_agent.py`.
+Full protocol: `src/intelligence/ai/AUTHORING.md`. Skeleton: `src/intelligence/ai/TEMPLATE.py`. Reference: `skeptic_agent.py`.
 - **Mandatory attrs**: `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`
 - **Files**: `src/intelligence/ai/<group>/<name>_agent.py` + `<name>_prompts.py` (expose `PROMPT_REGISTRY`, `ACTIVE_VERSION`)
 - **`_compute()` contract**: Build prompt → call LLM → parse → `AgentOutput`. Never raise; `self._neutral(error=...)` on failure.
@@ -218,7 +218,7 @@ Every new daemon that inherits BaseDaemon MUST emit these five OTel signals; non
 - **Redpanda**: Kafka-compatible. Topic naming: dots not colons. Via `stream_keys.py` always. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Daemon reads contracts at startup; restart on futures expiry.
 - **Roll flow:** Nightly `roll-batch` timer (`production/scripts/roll_batch.py`) runs at 8pm, detects calendar-based rolls, promotes front-month contracts in `contract_metadata` table, and broadcasts updates via Kafka. Provider picks up changes on next `get_active_contracts()` call. See `docs/ideas/futures-roll-simplification.md` for architecture analysis.
-- **Docker**: All 11 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
+- **Docker**: All 14 containers `restart: unless-stopped`. After `docker-compose.yml` changes: `cd production && docker compose up -d`.
 - **Systemd:** `production/systemd/` is reference. Installed in `/etc/systemd/system/`. Check `systemctl status` for authoritative state.
 - **Ollama:** runs in Docker (`ollama/ollama:rocm` container), not systemd. Use `docker exec ollama ollama <cmd>`. Live services `alpha_swarm` and `narrative_compute` hold persistent connections — kill them before swapping models or benchmarking.
 

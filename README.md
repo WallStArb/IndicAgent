@@ -29,7 +29,7 @@ Each domain is an independent analysis engine that subscribes to market data str
 
 The quantitative domain runs live on 60 instruments across futures, ETFs, FX, and crypto, transforming raw market data into evidence-graded trading signals in under 10ms. It's been in production since early 2026, accumulating its own labeled training data with every bar.
 
-**The AI layer is independent and non-monolithic.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) with per-provider circuit breakers means no single model or vendor is a dependency. Specialist agents perform analytical tasks — skeptic, correlation, volume analysis — while composite agents perform roles the way a trading desk would. An Evolvable AI (eAI) architecture is designed for agents that don't just learn from data, but evolve through Darwinian selection: mutation, recombination, and fitness-gated promotion, with statistical proof required at every generation.
+**The AI layer is independent and non-monolithic.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) with per-provider circuit breakers means no single model or vendor is a dependency. Specialist agents perform analytical tasks — skeptic, correlation, volume analysis — while composite agents perform roles the way a trading desk would. An Evolvable AI (eAI) architecture is designed for agents that don't just learn from data, but evolve through Darwinian selection: mutation, recombination, and fitness-gated promotion, with statistical proof required at every generation. A Vector Intelligence Layer gives the entire stack empirical memory: every bar state embedded in pgvector, the K nearest historical analogs retrieved at query time with their realized outcomes, so every AI conclusion is grounded in what actually happened — not in what a model predicts in a vacuum.
 
 **What makes this different from a signal pipeline:**
 
@@ -41,6 +41,7 @@ The quantitative domain runs live on 60 instruments across futures, ETFs, FX, an
 - **Provider-agnostic by design** — the intelligence pipeline has zero knowledge of where data comes from. It consumes typed events from the bus. Any real-time source plugs in the same way.
 - **Full lineage and reproducibility** — every AI agent call tracked with prompt version, model, inputs, outputs, and timing. Every signal traces back through every transformation to raw data.
 - **Evolvable** — eAI framework applies natural selection to AI agents. Genome mutation, sexual recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency. Statistical gates at every lifecycle transition.
+- **Empirical memory** — a Vector Intelligence Layer embeds every bar state in pgvector and retrieves the K most similar historical analogs at query time, with realized forward returns. IC-weighted, independence-calibrated, and domain-agnostic — the same substrate extends to fundamental and qualitative intelligence without new infrastructure.
 - **API-first** — every output immediately available over REST and SSE. Any HTTP client subscribes without pipeline changes.
 
 ---
@@ -416,6 +417,91 @@ Every bar the pipeline processes adds a row to `intelligence_features`. Every si
 
 ---
 
+## Vector Intelligence Layer — Empirical Memory for the Pipeline
+
+The I1–I7 pipeline is a sophisticated prediction machine with one critical gap: it has no memory of what it has predicted before. Every bar is processed as if it is the first bar. RSI reads 67, regime is trending, SMC structure shows a bullish order block — the pipeline computes all of this, fires a confluence score, generates a signal. Then the bar closes, price moves, and the system forgets. The intelligence state at that bar and the outcome that followed are never connected.
+
+Renaissance's edge is not in having better models — it is in having more observations per model. The Medallion fund runs thousands of overlapping signals, each carrying a small IC, and the edge compounds across their statistical independence. The critical infrastructure that makes this possible is the ability to retrieve, at any level of granularity, the historical states most similar to now and what price did after them.
+
+That infrastructure is the Vector Intelligence Layer.
+
+### What VIL Does
+
+VIL is a retrieval substrate. Its job is exactly two things:
+
+1. **Embed** — encode bar states, plugin histories, and signals as L2-normalized vectors, stored in pgvector alongside what price did afterward at T+5, T+10, T+20
+2. **Retrieve** — given the current bar as a query vector, return the K most similar historical states and their realized forward returns
+
+That is the full scope of VIL. It returns analog sets. It does not score them.
+
+The boundary is intentional. Turning an analog set into a score — directional hit rate, return distribution, composite conviction, percentile rank — belongs to the layers above. The retrieval substrate stays focused, testable, and reusable across every consumer that needs "find conditions similar to these and see what happened."
+
+The embedding serialization is the hardest problem and the one with the highest blast radius. Raw flattening of the ~100 numerical fields from `intelligence_features` fails because mixed scales (RSI 0–100, volume in millions, price in thousands) make cosine distance meaningless — dominated by magnitude, not structure. The solution: per-feature rolling z-scores (or percentile ranks for bounded features), point-in-time only, categorical fields excluded from the vector and applied as retrieval filters. The contract is versioned — a serialization change invalidates stored history and forces explicit migration, never a silent corruption.
+
+### The Five-Layer Stack
+
+VIL is the foundation of a five-layer empirical intelligence stack. Each layer has a strict contract and a single owner:
+
+```
+vil-01  Substrate         Embed · label · retrieve → list[AnalogResult]
+                          Three tables (embeddings, outcome_labels, similarity_pairs)
+                          One retrieval primitive — scoped k-NN, regime filter, distance gate
+
+vil-02  Feature IC        Outcome Labeler — forward R-multiples per bar at T+5/10/20/60
+                          IC Factory — Spearman IC × IC Sharpe × FDR correction per feature
+                          Analog Finder — thin VIL wrapper returning raw analog set
+                          Question: "what predicts price, with what stability, in which regime?"
+
+vil-03  Scoring Engine    Transforms list[AnalogResult] + IC weights → Score Object
+                          Distribution · directional HR · expected R · composite z-score
+                          Conviction envelope (based on analog count + mean distance)
+                          Four resolution levels: L0 plugin, L1 symbol/TF, L2 cross-TF, L3 cross-asset
+
+vil-04  Correlation       Pairwise cosine similarity of plugin/signal/feature histories
+                          Eigenvalue decomposition → effective-N (truly independent signal sources)
+                          Redundant plugin suppression fed back to shadow_registry
+                          Question: "are you counting one observation as two?"
+
+vil-05  Signal Combiner   IC-weighted + decorrelated combination of the full live edge set
+                          Shrinks raw E[R] toward zero in proportion to IC Sharpe
+                          Marginal contribution, not standalone strength, is the value metric
+                          The terminal layer — where aggregate independent conviction lives
+```
+
+Each layer measures or transforms; none acts. VIL retrieves. vil-02 measures prediction (IC). vil-04 measures independence (effective-N). vil-03 scores each edge in isolation. vil-05 combines them into one conviction view that accounts for both trust and overlap. The separation is what makes each layer testable and the whole stack evolvable.
+
+### What It Unlocks
+
+| Consumer | What they gain |
+|---|---|
+| **LLM swarm agents** | Grounded historical evidence in every prompt: "47 similar bars found — 63% up at T+10, avg +0.4R." Agents reason over evidence, not pattern intuition |
+| **I7 governance** | Evidence-based raise/suppress: does the current intelligence state historically precede favorable moves? IC replaces hand-tuned rules |
+| **eAI fitness** | Empirical ground truth: an agent's predictions are measured against the analog distribution for the same bars. Calibration is a SQL query, not a narrative judgment |
+| **Signal independence** | With 138 plugins, if effective-N is 20, downstream confidence estimates are inflated 7x. vil-04 surfaces this continuously — `effective_plugin_count` is a live, alertable gauge |
+| **Research** | "Which features have genuine predictive power at 10-bar horizon in trending regime?" becomes a query over `feature_ic_stats`, queryable in Superset |
+| **Signal combiner** | IC-weighted, decorrelated conviction across the full live edge set — many small independent edges summing to one large stable view, the way Renaissance actually does it |
+
+### Out-of-Distribution Detection
+
+When the current bar has no analogs within the distance threshold, the market is in a state the historical record has never seen. Every model downstream — every score, every IC weight, every analog distribution — is extrapolating out-of-sample. VIL exposes an **OOD monitor**: `vil_ood_rate`, the rolling fraction of live retrievals returning no close analogs. A spike is an early warning that the current environment has decoupled from history — arriving before parametric regime classifiers catch it, because "nothing looks like this" precedes "this looks like regime X." VIL surfaces the signal; a consumer decides the response. Reduce conviction, widen intervals, alert research — the decision is explicit, never silent.
+
+### Extending Intelligence to New Domains
+
+The VIL substrate is domain-agnostic. The same embed → label → retrieve architecture that works for quantitative bar states works for any structured intelligence state. This is the foundation for the extension to fundamental and qualitative intelligence:
+
+| Domain | What gets embedded | What gets retrieved |
+|---|---|---|
+| **Fundamental** | Earnings surprise vectors, macro indicator states, COT positioning | Historical macro analogs and what equity regimes followed |
+| **Qualitative** | News sentiment vectors, prediction market states, analyst positioning | Sentiment conditions and what price environments followed |
+| **Cross-domain** | Joined quantitative + fundamental state | Conditions where multiple domains agreed — the highest-conviction analog |
+| **Derivatives** | Vol surface shape, gamma exposure, skew | Options flow regimes and what spot price did in each |
+
+Each domain plugs into the same VIL tables, the same k-NN primitive, the same scoring engine. No new infrastructure per domain — the substrate compounds with every domain added and every bar processed. The older the system, the more valuable it becomes.
+
+Full design: [`docs/ideas/vil-01-vector-intelligence-layer.md`](docs/ideas/vil-01-vector-intelligence-layer.md) through `vil-05`.
+
+---
+
 ## API Layer: Intelligence as Output
 
 The API is the product. Every signal, indicator value, regime classification, and AI narrative is immediately available over standard HTTP.
@@ -493,7 +579,7 @@ New domains attach the same way. The fundamental analysis engine subscribes to m
 | **AI providers** | Ollama (local GPU), OpenRouter, Ollama Cloud — per-provider circuit breakers |
 | **Stack** | Python · FastAPI · asyncpg · Next.js · Prometheus · Grafana |
 
-**Current state:** Quantitative domain in production since early 2026. Fundamental, qualitative, and derivatives domains designed. Application agents architecturally defined. ML layer designed, awaiting data gate. eAI framework designed.
+**Current state:** Quantitative domain in production since early 2026. Vector Intelligence Layer (pgvector substrate, five-layer empirical stack) designed — the foundation for IC-measured prediction, independence-calibrated confidence, and domain extension. Fundamental, qualitative, and derivatives domains designed. Application agents architecturally defined. ML layer designed, awaiting data gate. eAI framework designed.
 
 ---
 
@@ -524,6 +610,12 @@ Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signal
 |----------|--------|
 | [ML Architecture](docs/ideas/ai-02-ml-agent-architecture.md) | ML layer design — 5 agents, LangGraph orchestration, promotion gates |
 | [eAI Design](docs/ideas/ai-03-evolvable-ai-agents.md) | Evolvable AI framework — genome model, reproductive operators, fitness function |
+| [VIL — Substrate](docs/ideas/vil-01-vector-intelligence-layer.md) | pgvector retrieval substrate — embed, label, retrieve; schema; serialization spec |
+| [VIL — Feature IC](docs/ideas/vil-02-predictive-feature-intelligence.md) | Outcome Labeler, IC Factory, Analog Finder — what predicts price |
+| [VIL — Scoring Engine](docs/ideas/vil-03-scoring-engine.md) | Analog set → Score Object; four resolution levels; conviction envelope |
+| [VIL — Correlation](docs/ideas/vil-04-correlation-intelligence.md) | Effective-N; plugin/signal independence; redundancy suppression |
+| [VIL — Signal Combiner](docs/ideas/vil-05-signal-combiner.md) | IC-weighted, decorrelated combination of the live edge set |
+| [VIL — Platform Ideas](docs/ideas/vil-06-platform-ideas.md) | Regime discovery, lead-lag, hypothesis backtester, episodic memory |
 | [DAG Execution](docs/concepts/dag-execution.md) | Service DAG topology and execution model |
 | [Roadmap](.planning/ROADMAP.md) | Phase roadmap and current position |
 
