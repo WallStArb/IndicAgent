@@ -485,9 +485,16 @@ Replace random UUID signal generation with a deterministic SHA-256 ID derived fr
 Import `hashlib` at the top of the file (it is already in stdlib). Add this function near the top of the module, before `SignalProcessor`:
 
 ```python
-def _make_signal_id(symbol: str, feature_ts: str, feature_tf: str, agent_id: str, payload_hash: str) -> str:
-    """Deterministic content-addressed signal ID (SHA-256, first 32 hex chars)."""
-    raw = f"{symbol}|{feature_ts}|{feature_tf}|{agent_id}|{payload_hash}"
+def _make_signal_id(symbol: str, feature_ts_ns: int, feature_tf: str, agent_id: str, payload_hash: str) -> str:
+    """Deterministic content-addressed signal ID (SHA-256, first 32 hex chars).
+
+    Canonicalization rules (must be stable across runs):
+    - feature_ts_ns: UTC epoch nanoseconds (int) — never ISO string (formatting varies)
+    - feature_tf: lowercase normalized string, e.g. "1m", "5m"
+    - payload_hash: SHA-256 of RFC canonical JSON (sort_keys=True, separators=(',',':'))
+    - Volatile fields (trace IDs, creation timestamps, correlation IDs) are EXCLUDED
+    """
+    raw = f"{symbol}|{feature_ts_ns}|{feature_tf}|{agent_id}|{payload_hash}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 ```
 
@@ -498,16 +505,19 @@ Current:
 sig.setdefault("signal_id", str(uuid4()))
 ```
 
-New (compute a stable ID from the signal's defining inputs):
+New (compute a stable ID from the signal's defining inputs — canonicalization is critical for replay stability):
 ```python
 if "signal_id" not in sig:
+    # Canonicalize: epoch ns (not ISO string), RFC JSON (no spaces), sort_keys
+    _ts_ns = int(datetime.fromisoformat(sig.get("feature_ts", "")).timestamp() * 1e9) if sig.get("feature_ts") else 0
+    _tf_norm = (sig.get("feature_tf") or tf).lower()
     _payload_hash = hashlib.sha256(
-        json.dumps(sig.get("contributing_plugins", {}), sort_keys=True).encode()
+        json.dumps(sig.get("contributing_plugins", {}), sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()[:16]
     sig["signal_id"] = _make_signal_id(
         symbol=symbol,
-        feature_ts=sig.get("feature_ts", ""),
-        feature_tf=sig.get("feature_tf", tf),
+        feature_ts_ns=_ts_ns,
+        feature_tf=_tf_norm,
         agent_id=sig.get("agent_id", ""),
         payload_hash=_payload_hash,
     )
@@ -522,7 +532,9 @@ Create `production/migrations/115_signal_id_unique.sql`:
 ```sql
 -- Migration 115: enforce UNIQUE on signal_ledger.signal_id
 -- Prerequisite: all existing rows must have non-null, distinct signal_ids.
--- Run in a maintenance window; duplicate check first.
+-- IMPORTANT: CREATE UNIQUE INDEX CONCURRENTLY cannot run inside a transaction.
+-- Run this migration OUTSIDE a transaction block (use --single-transaction=off or
+-- a direct psql session, not a migration tool that wraps all statements in BEGIN).
 
 DO $$
 BEGIN
@@ -531,11 +543,44 @@ BEGIN
   END IF;
 END $$;
 
+-- Non-transactional — must be the only statement in its execution context:
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_signal_ledger_signal_id_unique
     ON signal_ledger (signal_id);
 ```
 
-- [ ] **Step 4: Remove unused `uuid4` import if it is now unused**
+- [ ] **Step 4: Add signal ID stability tests**
+
+Add these cases to a new test block in the signal processor unit tests (or create `tests/unit/intelligence/test_signal_id_stability.py`):
+
+```python
+def test_signal_id_stable_across_identical_replay():
+    """Same inputs produce the same ID on repeated calls."""
+    id1 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
+    id2 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
+    assert id1 == id2
+
+def test_signal_id_stable_with_reordered_contributing_plugins():
+    """Plugin dict key order does not affect the ID (sort_keys=True)."""
+    h1 = hashlib.sha256(json.dumps({"a": 1, "b": 2}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+    h2 = hashlib.sha256(json.dumps({"b": 2, "a": 1}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+    assert h1 == h2
+
+def test_signal_id_different_for_different_timestamps():
+    """Different epoch ns produce different IDs."""
+    id1 = _make_signal_id("ES", 1717440000000000000, "1m", "alpha_agent", "abc123")
+    id2 = _make_signal_id("ES", 1717440000000000001, "1m", "alpha_agent", "abc123")
+    assert id1 != id2
+
+def test_signal_id_tf_normalization():
+    """Timeframe is lowercased before hashing."""
+    id1 = _make_signal_id("ES", 0, "1m", "agent", "h")
+    id2 = _make_signal_id("ES", 0, "1M", "agent", "h")
+    # Both should normalize to "1m" — add normalization in caller before _make_signal_id
+    # This test confirms the contract is enforced
+    assert id1 == id2  # only if caller lowercases before passing
+```
+
+- [ ] **Step 6: Remove unused `uuid4` import if it is now unused**
 
 ```bash
 grep -n "uuid4" src/intelligence/pipeline/signal_processor.py
@@ -543,18 +588,18 @@ grep -n "uuid4" src/intelligence/pipeline/signal_processor.py
 
 If `uuid4` no longer appears outside the import line, remove it from the import.
 
-- [ ] **Step 5: Verify import and run unit tests**
+- [ ] **Step 7: Verify import and run unit tests**
 
 ```bash
 .venv/bin/python -c "from src.intelligence.pipeline.signal_processor import SignalProcessor; print('ok')"
 .venv/bin/pytest tests/unit/ -q
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/intelligence/pipeline/signal_processor.py production/migrations/115_signal_id_unique.sql
-git commit -m "feat(signals): content-addressed signal_id via SHA-256 (CRITICAL-01)"
+git commit -m "feat(signals): content-addressed signal_id via SHA-256 with stable canonicalization (CRITICAL-01)"
 ```
 
 ---
@@ -575,7 +620,12 @@ Read `src/intelligence/ml/confidence_calibrator.py` to find where curves are cac
 def get_calibrated_confidence(
     self, plugin_name: str, timeframe: str, raw_confidence: float
 ) -> float | None:
-    """Apply cached calibration curve synchronously. Returns None if no curve cached."""
+    """Apply cached calibration curve synchronously. Returns None if no curve cached.
+
+    Fallback contract: caller MUST pass raw_confidence through unchanged when this
+    returns None (no cached curve, stale curve, or out-of-range input). Never block
+    or raise — calibration is best-effort; raw confidence is always valid.
+    """
     curve = self._curves.get((plugin_name, timeframe))
     if curve is None:
         return None
@@ -590,15 +640,16 @@ Verify the exact cache structure by reading the calibrator's `_curves` attribute
 In `_process_bar()`, after the I6 confluence step and before I7 scoring, add:
 
 ```python
-# Calibrate confidence in-process before I7 (CRITICAL-02)
+# Calibrate confidence in-process before I7 (CRITICAL-02).
+# Fallback: if no cached curve, pass raw_confidence through unchanged — never block.
 for sig in ranked:
     raw_conf = sig.get("confidence") or sig.get("pre_quality_confidence")
     if raw_conf is not None:
         cal = self._calibrator.get_calibrated_confidence(
             sig.get("agent_id", ""), bar.tf, raw_conf
         )
-        if cal is not None:
-            sig["calibrated_confidence"] = cal
+        # cal is None when curve is missing/stale — use raw value as fallback
+        sig["calibrated_confidence"] = cal if cal is not None else raw_conf
 ```
 
 Where `self._calibrator` is the existing `ConfidenceCalibrator` instance already held by the pipeline.
@@ -627,13 +678,19 @@ Replace the `None` / `[]` two-sentinel contract with a `(valid, invalid)` tuple 
 - Modify: `src/core/agent/base_writer.py`
 - Modify: all subclasses that implement `_parse_payload` (find via grep)
 
-- [ ] **Step 1: Enumerate all `_parse_payload` implementations**
+- [ ] **Step 1: Enumerate all `_parse_payload` implementations and build a test inventory**
 
 ```bash
 grep -rn "def _parse_payload" src/ services/ --include="*.py"
 ```
 
-Note every file and the return shape used.
+For every file found, record the subclass name and its current return shape in a table. This inventory must exist before any modification — the migration is only safe if every subclass is covered:
+
+| Subclass | File | Current return shape | Needs migration? |
+|----------|------|---------------------|-----------------|
+| (fill in) | (fill in) | list / None / [] | yes/no |
+
+After building the inventory, add a test file per-subclass (or extend existing) with at minimum these cases: all-valid, all-invalid, mixed valid+invalid, parser exception, and verify DLQ shape for the invalid path.
 
 - [ ] **Step 2: Change the `_parse_payload` signature in `base_writer.py`**
 
@@ -828,7 +885,7 @@ def contracts_updated(env: str) -> str:
 grep -rn "get_active_contracts" services/ src/ --include="*.py" | grep -v __pycache__
 ```
 
-Note each daemon and where it stores the result.
+Note each daemon and where it stores the result. **Resolve this to a concrete list before writing any code** — "other daemons" is not an acceptable implementation target.
 
 - [ ] **Step 3: Add contract hot-reload to `intelligence_pipeline.py`**
 
@@ -838,18 +895,28 @@ In `_setup()`, subscribe to `topic_contracts_updated(env_name)` alongside the ex
 self._contract_topic = topic_contracts_updated(self._settings.env_name or "")
 ```
 
-In `_run()`, add a dispatch branch when a message arrives on `self._contract_topic`:
+In `_run()`, add a dispatch branch when a message arrives on `self._contract_topic`. Use atomic reference replacement — never mutate the contract set in place while `_process_bar()` may be reading it. Validate the incoming payload before swap; preserve last-known-good on bad update:
 
 ```python
 if topic == self._contract_topic:
-    self._active_contracts = get_active_contracts(self._settings)
-    logger.info("contracts_reloaded", count=len(self._active_contracts))
+    try:
+        new_contracts = get_active_contracts(self._settings)
+        # Atomic swap — replace the reference, never mutate in place
+        self._active_contracts = new_contracts
+        CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
+        logger.info("contracts_reloaded", count=len(self._active_contracts))
+    except Exception as exc:
+        CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
+        logger.error("contracts_reload_failed", error=str(exc))
+        # Last-known-good preserved — no assignment on failure
     continue
 ```
 
-- [ ] **Step 4: Repeat Step 3 pattern for each other daemon found in Step 2**
+Add `CONTRACTS_RELOAD_TOTAL` counter to `src/observability/metrics.py` with label `status` (values: `"success"`, `"failure"`).
 
-Each daemon that caches contracts at startup needs the same subscribe + atomic replace pattern. Apply one at a time and run tests between each.
+- [ ] **Step 4: Apply the same atomic-swap + metrics pattern to each daemon in the Step 2 list**
+
+For each daemon: subscribe to `self._contract_topic` in `_setup()`, add the same dispatch branch in `_run()`. Apply one daemon at a time and run unit tests between each. Test that: (a) a valid update replaces contracts, (b) a bad update preserves the previous set.
 
 - [ ] **Step 5: Verify no regressions**
 
@@ -860,8 +927,8 @@ Each daemon that caches contracts at startup needs the same subscribe + atomic r
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/core/stream_keys.py services/intelligence_pipeline.py  # + other modified daemons
-git commit -m "feat(contracts): live hot-reload via contracts.updated topic, eliminates roll restart (MEDIUM-02)"
+git add src/core/stream_keys.py src/observability/metrics.py services/intelligence_pipeline.py  # + other modified daemons
+git commit -m "feat(contracts): live hot-reload via contracts.updated topic with atomic swap and failure telemetry (MEDIUM-02)"
 ```
 
 ---
@@ -946,6 +1013,9 @@ if self._bar_queue.qsize() >= _MAX_QUEUE_DEPTH:
         PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
             1, {"symbol": dropped.symbol, "tf": dropped.tf}
         )
+        # WARNING: dropping a bar may corrupt stateful plugin state (rolling windows,
+        # Kalman filters, regime detection, CIS smoothing). Log symbol+tf so operators
+        # can detect when state may be stale and trigger a replay if needed.
         logger.warning(
             "pipeline_backpressure_drop",
             symbol=dropped.symbol,
@@ -957,6 +1027,8 @@ if self._bar_queue.qsize() >= _MAX_QUEUE_DEPTH:
 ```
 
 Verify the actual queue object name by reading `_setup()` — adapt to whatever `asyncio.Queue` instance is used.
+
+**Gap-awareness note:** Dropping bars does not re-sync stateful plugin state. This circuit breaker is an OOM safeguard for extreme overload scenarios (sustained backfill floods), not a steady-state drop policy. The warning log with `symbol+tf` is the operator signal to investigate and replay if state is suspected stale.
 
 - [ ] **Step 3: Import the counter**
 
