@@ -276,13 +276,13 @@ def derive_roll_chain(
         start_idx = 0
 
     # Collect 3 consecutive contracts
-    idx = start_idx
+    index = start_idx
     cur_year = scan_year
     while len(contracts_raw) < 3:
-        contracts_raw.append((cur_year, cycle[idx]))
-        idx += 1
-        if idx >= cycle_len:
-            idx = 0
+        contracts_raw.append((cur_year, cycle[index]))
+        index += 1
+        if index >= cycle_len:
+            index = 0
             cur_year += 1
 
     # Build contract dicts

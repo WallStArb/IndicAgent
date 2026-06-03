@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 _RETRY_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0, 2.0)
 
 
-class _SignalNotReady(Exception):
+class _SignalNotReadyError(Exception):
     """signal_ledger row not yet visible; triggers retry backoff."""
 
 
@@ -215,7 +215,7 @@ class SwarmLedgerWriter(BaseDaemon):
                         str(signal_id),
                     )
                     if not exists:
-                        raise _SignalNotReady()
+                        raise _SignalNotReadyError()
 
                     # Base enrichment UPSERT: swarm aggregate fields.
                     # Parameters: ($1 signal_id::uuid, $2 swarm_multiplier,
@@ -245,7 +245,7 @@ class SwarmLedgerWriter(BaseDaemon):
                 )
                 return
 
-            except _SignalNotReady:
+            except _SignalNotReadyError:
                 SWARM_SIGNAL_LEDGER_UPDATE_TOTAL.add(1, {"status": "retry"})
                 await asyncio.sleep(delay)
 
