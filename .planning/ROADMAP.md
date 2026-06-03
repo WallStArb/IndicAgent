@@ -677,17 +677,15 @@ Plans:
   3. DSPy optimizer runs as a timer-triggered batch job (not a daemon); optimizer does not touch the live inference path
   4. A/B comparison report (win rate delta, parse failure delta, calibrated_confidence delta) shows measurable improvement before any optimized prompt is promoted to default
 
-**Plans:** 7 plans in 3 waves
+**Plans:** 5 plans in 4 waves
 
 Plans:
 
-- [x] 108-01-PLAN.md — OTel instruments + BaseAgent watchdog counters + requirements.txt
-- [x] 108-02-PLAN.md — WatchdogSec=60 rollout to 25 daemon unit files
-- [x] 108-03-PLAN.md — DLQ quarantine migration + DLQDrainAgent counting logic
-- [x] 108-04-PLAN.md — ServiceAuditor stall threshold + pipeline CB open logging + bar e2e latency
-- [x] 108-05-PLAN.md — FastAPI OTel instrumentation + api_health gauge
-- [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
-- [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
+- [ ] 098-01-PLAN.md — Migration 115_prompt_versions table (status CHECK candidate/active/retired) + dspy>=3.2.1 pin
+- [ ] 098-02-PLAN.md — DSPyOptimizer core class: per-agent data gate, BootstrapFewShot compile, JSONB candidate write
+- [ ] 098-03-PLAN.md — Oneshot entrypoint + systemd service/timer (weekly Mon 07:00 UTC) + _DAG_ORDER registration
+- [ ] 098-04-PLAN.md — A/B promotion runner (D-09 criteria, '0'/'1'/'2' regime guard) + comparison report + unit tests
+- [ ] 098-05-PLAN.md — [DEFERRED until Phase 096] Startup prompt injection via AgentDependencies + prompt_loader + unit tests
 
 ### Phase 099: Guardrails AI Validation
 
