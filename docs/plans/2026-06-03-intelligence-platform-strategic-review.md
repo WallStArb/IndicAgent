@@ -170,20 +170,28 @@ Issues flagged in the May 2026 audit have been fixed in subsequent phases. Shado
 
 ## Verified Open Findings (from platform-08-architectural-weaknesses.md)
 
-These were verified against live code on 2026-06-03 and remain unresolved. Full detail and fix guidance in `docs/ideas/platform-08-architectural-weaknesses.md`.
+Full detail and fix guidance in `docs/ideas/platform-08-architectural-weaknesses.md`.
+
+### Fixed (2026-06-03)
+
+| # | Finding | Fix |
+|---|---|---|
+| #25 | `TransformRecorder` live on archived hot path — 4-5 DB writes/signal/bar | `recorder=None` passed to SignalProcessor; teardown block removed. Commit 3dada29f. |
+| #14 | Per-tier latency (I2-I6) completely absent | Per-tier timing added in `executor.py run_tiers()` via `_timed_tier` wrapper. All 6 tiers now emit `intelligence_pipeline_tier_latency_ms{tier=X}`. |
+| #34 | `otel.py` silently suppresses all OTel init errors | Both except blocks now emit `_log.warning()` with endpoint and error. |
+| HF-10 (partial) | `llm.outcomes` topic had no publisher — LLM outcome back-fill permanently broken | `signal_tracker._publish_transition()` now publishes to `topic_llm_outcomes` on every EXIT transition. `intelligence.i8` subscriber remains — deferred pending qualitative tier. |
+| #32 (partial) | Raw `.isoformat()` on Kafka message paths | Fixed in `lifecycle_transitions.py` `to_dict()`/`_json_safe()`, `bar_replay_provider._publish_bar()`, `signal_replay_auditor` transition payloads. Non-Kafka paths (logs, checkpoints) left as-is. |
 
 ### Confirmed Still Open
 
 | # | Finding | Severity |
 |---|---|---|
-| #25 | `TransformRecorder` marked "ARCHIVED" but still instantiated live in `intelligence_pipeline._setup()` — 4-5 async DB writes per signal per bar through deprecated path | HIGH |
-| HF-10 | `llm.outcomes` and `intelligence.i8` topics have active subscribers in `llm_writer` but publishers unverified — i8 column never populated | HIGH |
-| #14 | Per-tier latency (I2-I6) completely absent — 68 plugins across 6 tiers have no per-stage aggregate; only I1, I7, and end-to-end are measured | HIGH |
-| #33 | Dual graduation mechanisms — `graduation_compute` reads `signal_transform_log` (from archived TransformRecorder); `alpha_swarm._graduation_loop` runs Spearman independently. If #25 is fixed, graduation_compute breaks | MEDIUM |
+| #33 | Dual graduation mechanisms — `graduation_analyzer` still reads `signal_transform_log` which TransformRecorder no longer writes. Needs migration to `signal_lineage` before graduation_compute starves. | MEDIUM |
+| HF-10 (i8) | `intelligence.i8` subscriber in `llm_writer` has no publisher — deferred until qualitative tier is built | LOW (deferred by design) |
 
 ### Not Verified (needs a focused session)
 
-HF-6 (LLMWriter stall watchdog permanently disabled), HF-7 (BarWriter stall detection blind), HF-11 (CtxWriter skips `super()._teardown()`), #17 (systemd After= wrong unit), #19 (feature_writer agent ID mismatch), #20 (cyclic L5 restart order), #24 (agent vs agent_id label split), #30 (bar_replay no Conflicts= guard), #32 (25 raw isoformat calls), #34 (otel.py silently suppresses init errors), #36 (checkpoint write synchronous).
+HF-6 (LLMWriter stall watchdog permanently disabled), HF-7 (BarWriter stall detection blind), HF-11 (CtxWriter skips `super()._teardown()`), #17 (systemd After= wrong unit), #19 (feature_writer agent ID mismatch), #20 (cyclic L5 restart order), #24 (agent vs agent_id label split), #30 (bar_replay no Conflicts= guard), #36 (checkpoint write synchronous).
 
 ---
 

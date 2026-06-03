@@ -62,9 +62,12 @@ Five shadow metrics (`SHADOW_WIN_RATE`, `SHADOW_N_RESOLVED`, `SHADOW_EV_R`, `SHA
 - **Fix:** Replace `gauge()` with `_meter.create_histogram()` for latency metrics and `_meter.create_counter()` for count metrics. Add `.record()` calls at the two dead sites.
 
 ### HF-10: `intelligence.i8` and `llm.outcomes` topics have no active publisher — subscriptions consuming void (HIGH — Information Destruction)
+**STATUS: PARTIALLY FIXED 2026-06-03 (commit 3dada29f)**
 `llm_writer_service` subscribes to `intelligence.i8` (i8 column in `intelligence_features` never populated) and `llm.outcomes` (LLM audit trail outcome back-fill permanently broken). Both topics have zero active publishers after a full codebase search.
 - **Files:** `services/llm_writer_service.py:478-479`, `src/core/stream_keys.py:111,136`
 - **Fix:** Identify intended publisher (likely `narrative_group_compute_agent` for i8; `signal_tracker_compute_agent` for outcomes) and add publish calls, or document these as deferred and remove dead subscriptions.
+- **`llm.outcomes` FIXED:** `signal_tracker._publish_transition()` now publishes to `topic_llm_outcomes` on every `EXIT` transition.
+- **`intelligence.i8` DEFERRED:** No qualitative tier built. Subscription stays; publisher deferred to Q-tier work.
 
 ### HF-11: `ctx_writer_agent` skips `super()._teardown()` — final buffer flush never runs on shutdown (HIGH — Information Destruction)
 `ctx_writer_agent._teardown()` omits `super()._teardown()`. The final flush guard in `BaseWriterAgent._teardown()` is never called. Any buffered CTX records at shutdown time are lost with no warning.
@@ -195,6 +198,7 @@ No service file contains any `start_as_current_span` or `observed_span` call. Sp
 ---
 
 ### #14. Per-stage latency (I2-I6) completely absent — 6 pipeline stages dark (HIGH — P1 Alpha Leakage + P3)
+**STATUS: FIXED 2026-06-03 (commit 3dada29f)**
 
 **Severity:** HIGH
 **Renaissance:** P1, P3
@@ -202,7 +206,7 @@ No service file contains any `start_as_current_span` or `observed_span` call. Sp
 
 Only end-to-end and I7 latency are measured. I1 gauge is declared but never called (dead instrument). I2, I3, I4, I5, SMC, I6 — 68 plugins across 6 tiers — have no per-stage aggregate. A new I4 plugin causing a 30ms regression has no directly alertable metric. Per-plugin histogram via `PluginObserver` exists but there is no per-tier roll-up for fast triage.
 
-**Fix:** Add six histogram instruments `tier_latency_ms{tier=i2..i6,smc}` in `FeaturePipelineExecutor`. Add `.record()` calls at each `run_tier()` boundary.
+**Fix:** `_timed_tier` wrapper in `executor.py run_tiers()` records `intelligence_pipeline_tier_latency_ms{tier=X}` for each individual tier. All 6 tiers (i2, i3, i4, i5, smc, i6) now emit per-tier latency histograms.
 
 ---
 
@@ -329,14 +333,15 @@ Shadow auditor queries `signal_ledger WHERE setup_plugin = $1` using swarm agent
 ---
 
 ### #25. `TransformRecorder` archived but still active on hot path — 4-5 async DB writes per signal per bar (HIGH — P1 Alpha Leakage)
+**STATUS: FIXED 2026-06-03 (commit 3dada29f)**
 
 **Severity:** HIGH
 **Renaissance:** P1
-**Files:** `services/intelligence_pipeline_agent.py:250-254`, `src/core/ml/transform_recorder.py:1`
+**Files:** `services/intelligence_pipeline.py` (was `intelligence_pipeline_agent.py`), `src/core/ml/transform_recorder.py:1`
 
-Module header says "ARCHIVED in Phase 78 (D-04). Do NOT import." It emits `DeprecationWarning` at import. Yet `_setup()` instantiates it live and passes it to `SignalProcessor`, which routes it through all 5 pipeline stages. Each call `await recorder.record()` queues a DB insert to `signal_transform_log`. ~2-10 async coroutine switches per signal per bar under this deprecated path.
+Module header says "ARCHIVED in Phase 78 (D-04). Do NOT import." It emits `DeprecationWarning` at import. Yet `_setup()` instantiated it live and passed it to `SignalProcessor`, which routed it through all 5 pipeline stages.
 
-**Fix:** Remove `TransformRecorder` instantiation from `_setup()`. Pass `recorder=None` — the `if recorder is not None` guard is already in place. Delete `signal_transform_log` writes as part of the incomplete Phase 78 cleanup.
+**Fix applied:** `recorder=None` passed to `SignalProcessor`; teardown flush block removed. The `if recorder is not None` guards in `signal_processor.py` prevent any calls. `graduation_analyzer` still reads historical `signal_transform_log` data — see #33 for migration plan.
 
 ---
 
@@ -413,6 +418,7 @@ Four completely different conceptions: full with correct `.set()`, full with wro
 ---
 
 ### #32. 25 raw `.isoformat()` calls produce `+00:00` instead of canonical `Z` suffix (MEDIUM — P2 Information Destruction)
+**STATUS: PARTIALLY FIXED 2026-06-03 (commit 3dada29f)**
 
 **Severity:** MEDIUM
 **Renaissance:** P2
@@ -420,7 +426,8 @@ Four completely different conceptions: full with correct `.set()`, full with wro
 
 `format_iso_ts(dt)` exists in `service_utils.py` to produce `Z`-suffix strings for Kafka/JSON. 25 raw `.isoformat()` calls produce `+00:00`. External consumers using naive `datetime.fromisoformat()` on Python < 3.11 will fail. Downstream sort order can diverge in some libraries.
 
-**Fix:** Global search-replace: `dt.isoformat()` → `format_iso_ts(dt)` in `services/` and `src/`. Add a ruff rule to flag raw `.isoformat()` on datetime objects.
+**Kafka-path calls fixed:** `lifecycle_transitions.py` `to_dict()`/`_json_safe()`, `bar_replay_provider._publish_bar()`, `signal_replay_auditor` transition payloads now use `format_iso_ts()`.
+**Remaining:** Log-only and checkpoint calls (`bar_aggregator`, `signal_auditor`, `service_auditor`, `bar_replay_provider` checkpoint, `bar_accumulator`) — low risk, left as-is. Add a ruff rule to prevent regressions.
 
 ---
 
@@ -437,6 +444,7 @@ Two parallel graduation systems: (1) `graduation_compute_agent` reads `signal_tr
 ---
 
 ### #34. `otel.py` silently suppresses all OTel initialization errors — entire deployment runs dark (MEDIUM — P3 Feedback Loop Gap)
+**STATUS: FIXED 2026-06-03 (commit 3dada29f)**
 
 **Severity:** MEDIUM
 **Renaissance:** P3
@@ -444,7 +452,7 @@ Two parallel graduation systems: (1) `graduation_compute_agent` reads `signal_tr
 
 Both `MeterProvider` and `TracerProvider` initialization errors are caught with bare `except Exception: pass`. A misconfigured `OTEL_EXPORTER_OTLP_ENDPOINT` causes all production metrics to be silently discarded with no log warning, no counter, and no startup alert. Agents proceed with no-op providers believing they are observable.
 
-**Fix:** Replace `pass` with `logger.warning("otel.init_failed", error=str(exc), endpoint=endpoint)` in both except blocks.
+**Fix applied:** Both except blocks now emit `_log.warning("otel.meter_provider_init_failed ...")` / `_log.warning("otel.tracer_provider_init_failed ...")` with endpoint and error string.
 
 ---
 
@@ -514,11 +522,11 @@ These are well-designed and working.
 | HF-9 | Latency metrics are `up_down_counter` — p50/p95 impossible | CRITICAL |
 | #5/CL-3 | Intelligence topic drops silently on QueueFull | CRITICAL |
 | #26 | `PluginStateManager.get_all_states_for()` O(N) scan — quadratic at 116 symbols | HIGH |
-| #25 | `TransformRecorder` archived but live on hot path — 4-5 async writes/signal | HIGH |
-| #14 | Per-stage latency (I2-I6) completely absent | HIGH |
+| ~~#25~~ | ~~`TransformRecorder` archived but live on hot path — 4-5 async writes/signal~~ | ~~HIGH~~ FIXED 2026-06-03 |
+| ~~#14~~ | ~~Per-stage latency (I2-I6) completely absent~~ | ~~HIGH~~ FIXED 2026-06-03 |
 | #10/CL-2 | `PluginCircuitBreaker` unused on plugin path — 4500ms plugins uncaught | MEDIUM |
 | #28 | `roll_compute` at priority 8 despite needing priority-2 data — stale contract after outage | MEDIUM |
-| #32 | 25 raw `.isoformat()` calls — `+00:00` vs `Z` inconsistency | MEDIUM |
+| #32 | 25 raw `.isoformat()` calls — Kafka paths fixed; log/checkpoint calls remain | MEDIUM (partial) |
 | #36 | Checkpoint write synchronous — blocks asyncio event loop at 116+ symbols | MEDIUM |
 | #35 | LLM provider coupling — LiteLLM swap touches every agent file | MEDIUM |
 
@@ -530,7 +538,7 @@ These are well-designed and working.
 | HF-3 | `LLMWriterAgent._pool` AttributeError — parse-success back-fills silently dropped | CRITICAL |
 | HF-5 | `SwarmLedgerWriterAgent` auto-commit — DB failure = permanent event loss | CRITICAL |
 | HF-4 | `FeatureWriterAgent` ghost-run — DB failure silently disables all feature persistence | HIGH |
-| HF-10 | `intelligence.i8` and `llm.outcomes` topics have no publisher | HIGH |
+| ~~HF-10~~ | ~~`intelligence.i8` and `llm.outcomes` topics have no publisher~~ | `llm.outcomes` FIXED 2026-06-03; `i8` DEFERRED |
 | HF-11 | `CtxWriterAgent` skips `super()._teardown()` — final flush on shutdown never runs | HIGH |
 | #15 | Three services bypass `create_pool()` — missing JSONB codecs, silent double-serialization | HIGH |
 | #22 | Shadow promotion/demotion trains on all signals including shadow | HIGH |
@@ -554,7 +562,7 @@ These are well-designed and working.
 | #23 | Swarm agent shadow governance structurally dead — auditor always sees n=0 | HIGH |
 | #24 | `"agent"` vs `"agent_id"` metric label split — cross-agent dashboards broken | HIGH |
 | #16 | `signal_replay_auditor` and `bar_replay_provider` reinvent BaseAgent lifecycle | HIGH |
-| #34 | `otel.py` silently suppresses all OTel init errors — deployment runs dark | MEDIUM |
+| ~~#34~~ | ~~`otel.py` silently suppresses all OTel init errors — deployment runs dark~~ | ~~MEDIUM~~ FIXED 2026-06-03 |
 | #31 | 4 divergent `_health_monitor_loop` implementations | MEDIUM |
 | #9 | `validate_signal()` exists but never called — I7 output boundary unguarded | MEDIUM |
 
