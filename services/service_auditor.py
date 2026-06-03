@@ -102,7 +102,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
-    "indicagent-dlq-drain": 9,  # priority 9: drains DLQ topics from all above layers
+    "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
@@ -150,7 +150,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "context_writer": "indicagent-ctx-writer",
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
-    "dlq_drain": "indicagent-dlq-drain",
+    "dlq_writer": "indicagent-dlq-drain",
     # Phase 109 services (config foundation + self-healing engine).
     # Lag thresholds for these units, when needed, will be seeded into config_state
     # under alert.lag.* keys by Plan 05 Task 3.
@@ -307,8 +307,8 @@ class ServiceAuditor(BaseDaemon):
                 except (TypeError, ValueError):
                     continue
             self._lag_thresholds = result
-        except Exception as exc:
-            self.logger.warning("lag_thresholds.load_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("lag_thresholds.load_failed", error=str(error))
 
     async def _on_config_message_received(self, key: str, value: object) -> None:
         """Hot-reload lag thresholds when alert.lag.* config keys change.
@@ -401,8 +401,8 @@ class ServiceAuditor(BaseDaemon):
                     },
                     row["symbol"],
                 )
-        except Exception as exc:
-            self.logger.error("service_auditor.freshness_check_failed", error=str(exc))
+        except Exception as error:
+            self.logger.error("service_auditor.freshness_check_failed", error=str(error))
 
     async def _prometheus_check_loop(self) -> None:
         while self.running:
@@ -445,8 +445,8 @@ class ServiceAuditor(BaseDaemon):
 
                 # Feature pipeline freshness (replaces parity_auditor)
                 await self._check_feature_pipeline_freshness()
-            except Exception as exc:
-                self.logger.error("service_auditor.prometheus_check_failed", error=str(exc))
+            except Exception as error:
+                self.logger.error("service_auditor.prometheus_check_failed", error=str(error))
 
     async def _systemd_check_loop(self) -> None:
         while self.running:
@@ -462,8 +462,8 @@ class ServiceAuditor(BaseDaemon):
                         await self._evaluate_service_dynamic(
                             unit, active, sub, 0, lag_threshold, False
                         )
-            except Exception as exc:
-                self.logger.error("service_auditor.systemd_check_failed", error=str(exc))
+            except Exception as error:
+                self.logger.error("service_auditor.systemd_check_failed", error=str(error))
 
     async def _heartbeat_loop(self) -> None:
         while self.running:
@@ -478,8 +478,8 @@ class ServiceAuditor(BaseDaemon):
                     restart_count=None,
                     duration_degraded_s=None,
                 )
-            except Exception as exc:
-                self.logger.error("service_auditor.heartbeat_failed", error=str(exc))
+            except Exception as error:
+                self.logger.error("service_auditor.heartbeat_failed", error=str(error))
 
     # -- Graduated response ---------------------------------------------------
 
@@ -713,8 +713,8 @@ class ServiceAuditor(BaseDaemon):
         """
         try:
             results = await self._query_prometheus("agent_last_message_timestamp_seconds")
-        except Exception as exc:
-            self.logger.warning("service_auditor.stall_fetch_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("service_auditor.stall_fetch_failed", error=str(error))
             return []
 
         now = time.time()
@@ -746,10 +746,10 @@ class ServiceAuditor(BaseDaemon):
         """
         try:
             instruments = get_active_contracts(self.settings)
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "service_auditor.session_lookup_failed",
-                error=str(exc),
+                error=str(error),
             )
             return True
         for inst in instruments:

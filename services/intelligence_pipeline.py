@@ -382,8 +382,8 @@ class IntelligencePipeline(BaseDaemon):
             config = {"service": {"timeframes": list(self._timeframes)}}
             seeder = BarHistorySeeder(self.settings, config, self._kafka_producer)
             await seeder.seed(self._bar_history)
-        except Exception as exc:
-            self.logger.warning("bar_history.seed_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("bar_history.seed_failed", error=str(error))
 
     async def _run(self) -> None:
         # drain_task is always gathered below; no need to also track in _background_tasks
@@ -427,8 +427,8 @@ class IntelligencePipeline(BaseDaemon):
         if hasattr(self, "_transform_recorder"):
             try:
                 await self._transform_recorder.flush()
-            except Exception as exc:
-                self.logger.warning("teardown.transform_recorder_flush_failed", error=str(exc))
+            except Exception as error:
+                self.logger.warning("teardown.transform_recorder_flush_failed", error=str(error))
         if hasattr(self, "_db"):
             await self._db.close()
         self.logger.info("agent.teardown_complete")
@@ -440,8 +440,8 @@ class IntelligencePipeline(BaseDaemon):
         task.add_done_callback(self._background_tasks.discard)
 
         def _log_exc(t: asyncio.Task) -> None:
-            if not t.cancelled() and (exc := t.exception()):
-                self.logger.error("intelligence_pipeline.hmm_reload_failed", error=str(exc))
+            if not t.cancelled() and (error := t.exception()):
+                self.logger.error("intelligence_pipeline.hmm_reload_failed", error=str(error))
 
         task.add_done_callback(_log_exc)
 
@@ -493,9 +493,9 @@ class IntelligencePipeline(BaseDaemon):
                                 self._contracts = new_contracts  # atomic reference swap
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
                                 self.logger.info("contracts_reloaded", count=len(self._contracts))
-                            except Exception as exc:
+                            except Exception as error:
                                 CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
-                                self.logger.error("contracts_reload_failed", error=str(exc))
+                                self.logger.error("contracts_reload_failed", error=str(error))
                                 # Last-known-good preserved — no assignment on failure
                         else:
                             bar = self._parse_bar(payload)
@@ -520,11 +520,11 @@ class IntelligencePipeline(BaseDaemon):
                         if msg_count >= COMMIT_BATCH_SIZE:
                             await self._kafka_consumer.commit()
                             msg_count = 0
-                    except Exception as exc:
-                        self.logger.error("bar.process_error", error=str(exc))
+                    except Exception as error:
+                        self.logger.error("bar.process_error", error=str(error))
                         self._pipeline_errors.add(1)
-            except Exception as exc:
-                self.logger.warning("process_loop.consumer_error", error=str(exc))
+            except Exception as error:
+                self.logger.warning("process_loop.consumer_error", error=str(error))
                 await asyncio.sleep(1)
 
     def _dlq_topic(self) -> str | None:
@@ -602,8 +602,10 @@ class IntelligencePipeline(BaseDaemon):
         i1_start = time.perf_counter()
         try:
             fp_result = await self._feature_pipeline.run(bar, cache_snapshot, gap=gap)
-        except Exception as exc:
-            self.logger.error("pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
+        except Exception as error:
+            self.logger.error(
+                "pipeline.i1_i6_error", symbol=bar.symbol, tf=bar.tf, error=str(error)
+            )
             self._pipeline_errors.add(1)
             return
         i1_duration_ms = (time.perf_counter() - i1_start) * 1000
@@ -776,12 +778,12 @@ class IntelligencePipeline(BaseDaemon):
                 pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
             )
             return record.model_dump(mode="json")
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "pipeline.journal_build_failed",
                 symbol=bar.symbol,
                 tf=bar.tf,
-                error=str(exc),
+                error=str(error),
             )
             return None
 
@@ -802,10 +804,10 @@ class IntelligencePipeline(BaseDaemon):
                 worker_count = len(queues)
                 _WORKER_QUEUE_DEPTH_GAUGE.set(depth_max, {})
                 _WORKER_COUNT_GAUGE.set(worker_count, {})
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "health_monitor.gauge_emit_failed",
-                    error=str(exc),
+                    error=str(error),
                 )
 
     async def _handle_system_event(self, payload: dict) -> None:

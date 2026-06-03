@@ -71,9 +71,9 @@ class ModelRegistry:
             return None
         try:
             return mlflow.pyfunc.load_model(row["artifact_path"])
-        except Exception as exc:
+        except Exception as error:
             logger.error(
-                "model_registry.load_failed", artifact=row["artifact_path"], error=str(exc)
+                "model_registry.load_failed", artifact=row["artifact_path"], error=str(error)
             )
             return None
 

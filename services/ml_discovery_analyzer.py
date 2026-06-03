@@ -111,9 +111,9 @@ class MLDiscoveryAnalyzer(BaseDaemon):
                 "ml_discovery_analyzer.timeout", symbol=symbol, tf=tf, regime=regime
             )
             return {"top_features": [], "ic_scores": {}, "feature_count": 0, "status": "partial"}
-        except Exception as exc:
+        except Exception as error:
             self.logger.exception(
-                "ml_discovery_analyzer.error", symbol=symbol, tf=tf, regime=regime, error=str(exc)
+                "ml_discovery_analyzer.error", symbol=symbol, tf=tf, regime=regime, error=str(error)
             )
             return None
 
@@ -215,8 +215,8 @@ class MLDiscoveryAnalyzer(BaseDaemon):
                 FEATURE_IC_SCORE.add(
                     abs(feat["ic"]), {"feature_name": feat["name"], "regime": str(regime)}
                 )
-        except Exception as exc:
-            self.logger.warning("ml_discovery_analyzer.metric_update_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("ml_discovery_analyzer.metric_update_failed", error=str(error))
 
         # Publish summary to Kafka
         await self._producer.publish(

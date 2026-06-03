@@ -386,11 +386,11 @@ class PluginValidator:
                 # Phase 1: seed state via compute_full()
                 try:
                     seed_result = plugin.compute_full(frames)
-                except Exception as exc:
+                except Exception as error:
                     add_error(
                         tier_name,
                         plugin_name,
-                        f"compute_full() raised during state contract check: {exc}",
+                        f"compute_full() raised during state contract check: {error}",
                     )
                     continue
 
@@ -412,11 +412,11 @@ class PluginValidator:
                 # Phase 2: incremental step via compute_next()
                 try:
                     result = plugin.compute_next(frames, state=state)
-                except Exception as exc:
+                except Exception as error:
                     add_error(
                         tier_name,
                         plugin_name,
-                        f"compute_next() raised during state contract check: {exc}",
+                        f"compute_next() raised during state contract check: {error}",
                     )
                     continue
 

@@ -95,8 +95,8 @@ class TransformRecorder:
             async with self._pool.acquire() as conn:
                 await conn.executemany(_INSERT_SQL, batch)
             logger.debug("transform_recorder.flushed", count=len(batch))
-        except Exception as exc:
-            logger.exception("transform_recorder.flush_error", error=str(exc), count=len(batch))
+        except Exception as error:
+            logger.exception("transform_recorder.flush_error", error=str(error), count=len(batch))
 
     async def flush(self) -> None:
         """Force flush remaining pending rows (called at SIGTERM)."""

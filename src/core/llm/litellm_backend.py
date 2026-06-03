@@ -185,12 +185,12 @@ class LiteLLMBackend:
                 self.last_provider_id = provider
                 self.last_token_usage = self._normalize_usage(response.usage)
                 return content
-            except Exception as exc:
+            except Exception as error:
                 cb.record_failure()
                 logger.warning(
                     "litellm_backend.provider_failed",
                     provider=provider,
-                    error=str(exc)[:120],
+                    error=str(error)[:120],
                 )
 
         return None
@@ -259,10 +259,10 @@ class LiteLLMBackend:
                 )
                 self.last_failure_reason = None
                 return validated_model
-            except Exception as exc:
+            except Exception as error:
                 cb.record_failure()
                 # Distinguish validation failure from provider/network failure
-                exc_str = str(exc).lower()
+                exc_str = str(error).lower()
                 if "validation" in exc_str or "pydantic" in exc_str:
                     self.last_failure_reason = "instructor_validation_failed"
                 else:
@@ -270,7 +270,7 @@ class LiteLLMBackend:
                 logger.warning(
                     "litellm_backend.generate_structured.provider_failed",
                     provider=provider,
-                    error=str(exc)[:120],
+                    error=str(error)[:120],
                     failure_reason=self.last_failure_reason,
                 )
 

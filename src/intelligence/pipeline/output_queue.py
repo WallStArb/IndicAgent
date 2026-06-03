@@ -331,12 +331,12 @@ class OutputQueue:
                     q = self._queue_for(priority)
                     try:
                         await self._publish_one(item)
-                    except Exception as exc:
+                    except Exception as error:
                         self._publish_failures.add(1)
                         batch_failures += 1
                         self._logger.error(
                             "output.publish_failed",
-                            error=str(exc),
+                            error=str(error),
                             item_key=item[1] if len(item) > 1 else None,
                             priority=priority,
                         )

@@ -144,11 +144,11 @@ class BaseAIWorker(BaseDaemon, ABC):
                 span.set_attribute("latency_ms", round(latency_ms, 1))
                 return result.model_copy(update={"latency_ms": latency_ms})
 
-            except TimeoutError as exc:
+            except TimeoutError as error:
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._record_metrics("timeout", latency_ms)
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 span.set_attribute("status", "timeout")
                 span.set_attribute("latency_ms", round(latency_ms, 1))
                 # Base-class infra events use the "ai_worker." role prefix (not a per-service agent_id) — intentional exception to the {derived_agent_id}.action convention.
@@ -163,30 +163,30 @@ class BaseAIWorker(BaseDaemon, ABC):
                     error=f"timeout after {self._timeout_s:.1f}s", latency_ms=latency_ms
                 )
 
-            except Exception as exc:
+            except Exception as error:
                 latency_ms = (time.monotonic() - t0) * 1000
                 self._record_metrics("error", latency_ms)
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 span.set_attribute("status", "error")
-                span.set_attribute("error", str(exc)[:200])
+                span.set_attribute("error", str(error)[:200])
                 logger.exception(
                     "ai_worker.exception",
                     agent_id=self.agent_id,
-                    error=str(exc),
+                    error=str(error),
                 )
-                await self._on_error(exc)
-                return self._neutral(error=str(exc), latency_ms=latency_ms)
+                await self._on_error(error)
+                return self._neutral(error=str(error), latency_ms=latency_ms)
 
     async def _run(self) -> None:
-        """BaseAIWorker subclasses are compute objects driven by BaseSwarmCoordinator.
+        """BaseAIWorker subclasses are compute objects driven by BaseGroupCoordinator.
 
         They must not be started as standalone agents. This satisfies BaseDaemon's
         abstract requirement while failing loudly if misused.
         """
         raise RuntimeError(
             f"{self.__class__.__name__} is a compute agent and cannot be run standalone. "
-            "Use within a BaseSwarmCoordinator."
+            "Use within a BaseGroupCoordinator."
         )
 
     @abstractmethod
@@ -290,9 +290,9 @@ class BaseAIWorker(BaseDaemon, ABC):
                     span.set_attribute("llm.empty_response", True)
                     LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
                 return result, call_id
-            except Exception as exc:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+            except Exception as error:
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 raise
 
     async def _llm_generate_structured(
@@ -349,9 +349,9 @@ class BaseAIWorker(BaseDaemon, ABC):
                     span.set_attribute("llm.empty_response", True)
                     LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
                 return result, call_id
-            except Exception as exc:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+            except Exception as error:
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 raise
 
     async def _run_typed(
@@ -431,9 +431,9 @@ class BaseAIWorker(BaseDaemon, ABC):
                 )
                 result = await agent.run(prompt)
                 return result.output  # Pitfall 5: .output not .data
-            except Exception as exc:
-                span.set_status(StatusCode.ERROR, str(exc))
-                span.record_exception(exc)
+            except Exception as error:
+                span.set_status(StatusCode.ERROR, str(error))
+                span.record_exception(error)
                 raise
 
     async def _report_parse_failure(self, call_id: str) -> None:
@@ -446,8 +446,8 @@ class BaseAIWorker(BaseDaemon, ABC):
         LLM_PARSE_FAILURES.add(1, self._agent_labels)
         try:
             await self._llm._publish_parse_failure(call_id)
-        except Exception as exc:
-            logger.warning("agent.parse_failure_report_failed", call_id=call_id, error=str(exc))
+        except Exception as error:
+            logger.warning("agent.parse_failure_report_failed", call_id=call_id, error=str(error))
 
     # -----------------------------------------------------------------------
     # Extension hooks (D-42, D-43, D-44) — future phases wire these to OTel,

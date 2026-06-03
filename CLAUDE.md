@@ -85,7 +85,7 @@ Canonical registry: `_DAG_ORDER` in `services/service_auditor.py`. Never maintai
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, BaseSwarmCoordinator, SignalContext, AgentOutput, WorkerContext, LLMAdapter, AgentProtocol).
+- `src/core/ai/` — AI agent infrastructure (BaseAIWorker, BaseEvaluator, SignalContext, AgentOutput, WorkerContext, LLMAdapter, AgentProtocol). `BaseGroupCoordinator` (shared group dispatcher) lives in `src/intelligence/ai/group_coordinator.py`.
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
@@ -143,7 +143,7 @@ These are non-negotiable architectural constraints. Any code that violates one o
 **Core Patterns**
 - **Parallel dicts → dataclass**: When a class has 3+ `dict[str, X]` attributes all keyed by the same ID, consolidate into `dict[str, MyState]` where `MyState` is a `@dataclass`. Use a `_state(key)` factory method for lazy init (required when the dataclass needs constructor args like `deque(maxlen=N)`). Pattern: `SignalTracker._signal_states`. Benefits: co-located memory, impossible mismatched state across dicts.
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
-- **`BaseSwarmCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
+- **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly. Auto-injects audit_context (call_id, symbol, signal_id, regime, agent_id, prompt_version).
 - **`prompt_version` class attribute** on every BaseAIWorker subclass — set from agent's `ACTIVE_VERSION` constant. Auto-injected into `llm_calls` for prompt A/B testing.
 - **`llm_calls` composite PK: `(call_id, called_at)`** — ON CONFLICT must use both columns.

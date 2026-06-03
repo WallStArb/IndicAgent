@@ -161,8 +161,8 @@ class CrossAssetAnalyzer(BaseDaemon):
         self._db = DatabaseManager(self._database_url)
         try:
             await self._db.initialize()
-        except Exception as exc:
-            self.logger.warning("DB init failed — proceeding without seed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("DB init failed — proceeding without seed", error=str(error))
             self._db = None
 
         # Seed rolling windows from DB
@@ -203,10 +203,10 @@ class CrossAssetAnalyzer(BaseDaemon):
                 await self._process_intelligence_message(payload)
                 # Record message consumed for stall detection
                 self._record_message_consumed()
-            except Exception as exc:
+            except Exception as error:
                 self.logger.error(
                     "Error processing intelligence message",
-                    error=str(exc),
+                    error=str(error),
                     exc_info=True,
                 )
 
@@ -366,12 +366,12 @@ class CrossAssetAnalyzer(BaseDaemon):
                                 tf=tf,
                                 n_bars=len(rows),
                             )
-                    except Exception as exc:
+                    except Exception as error:
                         self.logger.warning(
                             "DB seed failed for symbol/tf — continuing without seed",
                             base=base,
                             tf=tf,
-                            error=str(exc),
+                            error=str(error),
                         )
 
     # -----------------------------------------------------------------------

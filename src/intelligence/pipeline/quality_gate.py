@@ -76,11 +76,11 @@ def load_quality_floor(path: str | None = None, default: float = 0.12) -> float:
             default,
         )
         return default
-    except Exception as exc:  # noqa: BLE001
+    except Exception as error:  # noqa: BLE001
         _logger.warning(
             "quality_gate: failed to read floor from %s: %s; using default %.4f",
             file_path,
-            exc,
+            error,
             default,
         )
         return default

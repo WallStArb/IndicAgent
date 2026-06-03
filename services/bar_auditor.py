@@ -220,10 +220,10 @@ class BarAuditor(BaseDaemon):
                 )
         except TimeoutError:
             pass  # Expected — no messages available
-        except Exception as exc:
+        except Exception as error:
             self.logger.debug(
                 "bar_auditor.contract_drain_error",
-                error=str(exc),
+                error=str(error),
             )
 
     async def _detect_gaps(
@@ -399,11 +399,11 @@ class BarAuditor(BaseDaemon):
                 gap_requests_published=len(gap_requests),
             )
 
-        except Exception as exc:
+        except Exception as error:
             _AUDIT_ERRORS.add(1, self._agent_attrs)
             self.logger.error(
                 "bar_auditor.audit_error",
-                error=str(exc),
+                error=str(error),
             )
             # Do not re-raise — audit loop must continue on transient failures
 

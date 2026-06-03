@@ -1,7 +1,7 @@
 """NarrativeSynthesizer -- LLM-driven market narrative generation.
 
 On-demand (not hot-path): instantiated per HTTP request, not managed by
-BaseSwarmCoordinator. Per D-35: TF gate rejects 1m bars (only 5m+ allowed).
+BaseGroupCoordinator. Per D-35: TF gate rejects 1m bars (only 5m+ allowed).
 Per D-34: returns AgentOutput with narrative text in payload.
 
 Renaissance design:

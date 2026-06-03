@@ -51,12 +51,12 @@ class FeatureSnapshotRepository:
                 lookback_secs,
                 limit,
             )
-        except Exception as exc:
+        except Exception as error:
             logger.warning(
                 "feature_snapshot_query_failed",
                 symbol=symbol,
                 tf=tf,
-                error=str(exc),
+                error=str(error),
             )
             return []
 
@@ -87,11 +87,11 @@ class FeatureSnapshotRepository:
                 lookback_secs,
                 limit,
             )
-        except Exception as exc:
+        except Exception as error:
             logger.warning(
                 "ohlcv_fallback_query_failed",
                 symbol=symbol,
                 tf=tf,
-                error=str(exc),
+                error=str(error),
             )
             return []

@@ -26,7 +26,7 @@ async def observed_span(name: str, tracer=None, **attrs):
     with _tracer.start_as_current_span(name, attributes=attrs) as span:
         try:
             yield span
-        except Exception as exc:
-            span.set_status(StatusCode.ERROR, str(exc))
-            span.record_exception(exc)
+        except Exception as error:
+            span.set_status(StatusCode.ERROR, str(error))
+            span.record_exception(error)
             raise

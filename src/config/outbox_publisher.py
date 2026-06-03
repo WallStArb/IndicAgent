@@ -210,7 +210,7 @@ class OutboxPublisher(BaseDaemon):
                 version=version,
                 latency_ms=round(elapsed * 1000, 2),
             )
-        except Exception as exc:
+        except Exception as error:
             # Exponential backoff: delay = 2^min(retry_count, 6) seconds (max 64s)
             backoff_s = 2 ** min(retry_count, 6)
             await conn.execute(
@@ -230,5 +230,5 @@ class OutboxPublisher(BaseDaemon):
                 version=version,
                 retry_count=retry_count,
                 next_attempt_s=backoff_s,
-                error=str(exc),
+                error=str(error),
             )

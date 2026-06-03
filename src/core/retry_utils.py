@@ -118,8 +118,8 @@ async def retry_with_backoff(
     for attempt in range(max_attempts):
         try:
             return await coro_fn(*args, **kwargs)
-        except retry_on as exc:
-            last_exception = exc
+        except retry_on as error:
+            last_exception = error
 
             if attempt < max_attempts - 1:
                 # Not the final attempt — sleep then retry

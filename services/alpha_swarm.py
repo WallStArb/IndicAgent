@@ -1,14 +1,14 @@
-"""alpha_swarm_agent.py -- AlphaSwarm extending BaseSwarmCoordinator.
+"""alpha_swarm_agent.py -- AlphaSwarm extending BaseGroupCoordinator.
 
-Per B+ architecture: one service, all alpha agents, extends BaseSwarmCoordinator.
-group_id="alpha". Graduation dispatch via override detection in BaseSwarmCoordinator.
+Per B+ architecture: one service, all alpha agents, extends BaseGroupCoordinator.
+group_id="alpha". Graduation dispatch via override detection in BaseGroupCoordinator.
 
 Plan 78-01 changes (D-01, D-04, D-08, D-35, D-36, D-37, D-38, POOL-FIX):
 - Single LineageRecorder writes to topic_signal_lineage()
 - Segment key built from hmm_regime numeric prefix + timeframe
 - _LEAD_MAP: ES -> NQ lead resolution
 - Volume profile stub removed; VolumeZscorePlugin (Plan 06) replaces it
-- Pool comes from BaseSwarmCoordinator._setup() only — no second pool
+- Pool comes from BaseGroupCoordinator._setup() only — no second pool
 
 Plan 78-03 changes (D-05, D-06, D-07, D-23, D-24, D-25):
 - _shadow_registry_ensure_swarm(): idempotent enrollment per-agent loop
@@ -52,8 +52,8 @@ from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualEvaluat
 from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
 from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAnalyzer
 from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
-from src.intelligence.ai.base_group_service import BaseSwarmCoordinator
 from src.intelligence.ai.context import SignalContext, Tier
+from src.intelligence.ai.group_coordinator import BaseGroupCoordinator
 from src.intelligence.schemas import signal_dict_to_ranked
 from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
@@ -79,10 +79,10 @@ def _now_utc_iso() -> str:
     return format_iso_ts(datetime.now(UTC))
 
 
-class AlphaSwarm(BaseSwarmCoordinator):
+class AlphaSwarm(BaseGroupCoordinator):
     """Single service dispatching all alpha agents.
 
-    Per D-32: extends BaseSwarmCoordinator, one bar consumer, one signal consumer,
+    Per D-32: extends BaseGroupCoordinator, one bar consumer, one signal consumer,
     one DB pool (from super()), one LineageRecorder, one LLMProviderChain, one SignalContextCache.
     Agents are pure compute, iterated per signal via asyncio.gather().
 
@@ -126,9 +126,9 @@ class AlphaSwarm(BaseSwarmCoordinator):
         return [topic_intelligence(self.settings.env_name)]
 
     async def _setup(self) -> None:
-        """Wire infrastructure beyond BaseSwarmCoordinator defaults.
+        """Wire infrastructure beyond BaseGroupCoordinator defaults.
 
-        POOL-FIX: pool is created once by super()._setup() in BaseSwarmCoordinator.
+        POOL-FIX: pool is created once by super()._setup() in BaseGroupCoordinator.
         LineageRecorder gets the Kafka producer from self._producer (set by super).
 
         Plan 80-07: construct all four Evaluator instances + semaphore.
@@ -222,7 +222,7 @@ class AlphaSwarm(BaseSwarmCoordinator):
                     agent._apply_shadow_mode_config()
 
     async def _graduation_loop(self) -> None:
-        """Override BaseSwarmCoordinator stub: evaluate all agents every 15 min.
+        """Override BaseGroupCoordinator stub: evaluate all agents every 15 min.
 
         Runs Spearman ρ on (multiplier vs pnl_r) per (agent_id, timeframe) from
         signal_lineage JOIN signal_ledger_full. UPSERTs swarm_agent_weights.
@@ -235,8 +235,8 @@ class AlphaSwarm(BaseSwarmCoordinator):
                 await self._run_graduation_cycle()
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
-                self.logger.error("graduation_cycle_failed", err=str(exc))
+            except Exception as error:
+                self.logger.error("graduation_cycle_failed", err=str(error))
 
     async def _run_graduation_cycle(self) -> None:
         """Single evaluation cycle: per-agent Spearman weight learning + shadow refresh.
@@ -247,11 +247,11 @@ class AlphaSwarm(BaseSwarmCoordinator):
         for agent in self._agents:
             try:
                 await self._evaluate_agent(agent.agent_id)
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "alpha_swarm.graduation_failed",
                     agent_id=agent.agent_id,
-                    error=str(exc),
+                    error=str(error),
                 )
         await self._reload_agent_weights()
         await self._refresh_shadow_state_from_registry()
@@ -307,13 +307,13 @@ class AlphaSwarm(BaseSwarmCoordinator):
                 pnl_rs = [g["pnl_r"] for g in group]
                 try:
                     rho = float(stats.spearmanr(multipliers, pnl_rs).statistic)
-                except Exception as exc:
+                except Exception as error:
                     self.logger.warning(
                         "graduation.spearman_failed",
                         agent_id=agent_id,
                         tf=tf,
                         n=n,
-                        error=str(exc),
+                        error=str(error),
                     )
                     rho = 0.0
                 if rho != rho:  # NaN guard for constant inputs
@@ -411,8 +411,8 @@ class AlphaSwarm(BaseSwarmCoordinator):
         task.add_done_callback(self._background_tasks.discard)
 
         def _log_exc(t: asyncio.Task[Any]) -> None:
-            if not t.cancelled() and (exc := t.exception()):
-                self.logger.error("alpha_swarm.reload_ml_models_failed", error=str(exc))
+            if not t.cancelled() and (error := t.exception()):
+                self.logger.error("alpha_swarm.reload_ml_models_failed", error=str(error))
 
         task.add_done_callback(_log_exc)
 
@@ -426,16 +426,16 @@ class AlphaSwarm(BaseSwarmCoordinator):
             if hasattr(agent, "_setup_models"):
                 try:
                     await agent._setup_models()
-                except Exception as exc:
+                except Exception as error:
                     self.logger.warning(
                         "alpha_swarm.model_reload_failed",
                         agent=agent.__class__.__name__,
-                        error=str(exc),
+                        error=str(error),
                     )
         self.logger.info("alpha_swarm.ml_models_reloaded_sigusr1")
 
     async def _teardown(self) -> None:
-        """Delegate to base teardown (lineage lifecycle owned by BaseSwarmCoordinator)."""
+        """Delegate to base teardown (lineage lifecycle owned by BaseGroupCoordinator)."""
         await super()._teardown()
 
     async def _handle_trigger(self, event: dict) -> None:

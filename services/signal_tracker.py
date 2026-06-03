@@ -270,14 +270,14 @@ class SignalTracker(BaseDaemon):
                 await self._evaluate_bar(symbol, timeframe, bar, bar_time)
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "bar_loop.error",
-                    error=str(exc),
+                    error=str(error),
                     key=key,
                 )
                 # Route failed payload to DLQ
-                await self._send_to_dlq(payload, exc)
+                await self._send_to_dlq(payload, error)
 
     async def _signal_loop(self) -> None:
         """Consume i7.signal payloads and ingest new signals."""
@@ -291,14 +291,14 @@ class SignalTracker(BaseDaemon):
                 await self._ingest_i7_payload(payload)
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "signal_loop.error",
-                    error=str(exc),
+                    error=str(error),
                     key=key,
                 )
                 # Route failed payload to DLQ
-                await self._send_to_dlq(payload, exc)
+                await self._send_to_dlq(payload, error)
 
     # ------------------------------------------------------------------
     # Symbol / timeframe filtering
@@ -615,11 +615,11 @@ class SignalTracker(BaseDaemon):
                 ttl_bars=canonical["ttl_bars"],
             )
             return True
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "backfill_ttl_fast_path.publish_failed",
                 signal_id=canonical["signal_id"],
-                error=str(exc),
+                error=str(error),
             )
             return False
 
@@ -728,8 +728,8 @@ class SignalTracker(BaseDaemon):
                             pnl_r = pnl_now / risk_m
                             state.market_mae = min(state.market_mae, pnl_r)
                             state.market_mfe = max(state.market_mfe, pnl_r)
-                except Exception as exc:
-                    self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(exc))
+                except Exception as error:
+                    self.logger.warning("market_entry.eval.error", signal_id=sid, error=str(error))
 
             # --- Chandelier + Staleness state for active signals ---
             staleness_score_val = 0.0
@@ -790,11 +790,11 @@ class SignalTracker(BaseDaemon):
                     signal_timestamp=sig_ts,  # D-01: pass signal fire time
                     bar_time=bar_time,  # D-01: pass current bar time
                 )
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "evaluate_signal.error",
                     signal_id=sid,
-                    error=str(exc),
+                    error=str(error),
                 )
                 continue
 
@@ -940,11 +940,11 @@ class SignalTracker(BaseDaemon):
 
         try:
             await self._producer.publish(topic, msg, key=key)
-        except Exception as exc:
+        except Exception as error:
             self.logger.warning(
                 "publish_transition.failed",
                 signal_id=lt.signal_id,
-                error=str(exc),
+                error=str(error),
             )
 
     async def _publish_chandelier_update(
@@ -1228,8 +1228,8 @@ class SignalTracker(BaseDaemon):
                 key=message_key("signal_tracker_compute"),
                 msg=payload,
             )
-        except Exception as exc:
-            self.logger.error("bootstrap_failed_event_publish_error", error=str(exc))
+        except Exception as error:
+            self.logger.error("bootstrap_failed_event_publish_error", error=str(error))
 
 
 async def main() -> None:

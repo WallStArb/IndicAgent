@@ -156,11 +156,11 @@ class MLEvaluator(Evaluator):
                             n_cols=len(new_feature_cols),
                             run_id=run_id,
                         )
-                    except Exception as exc:
+                    except Exception as error:
                         logger.warning(
                             "ml_scorer.feature_cols_load_failed",
                             run_id=run_id,
-                            error=str(exc),
+                            error=str(error),
                         )
                         # Fallback: shadow keys + bar context in canonical order
                         new_feature_cols = list(SHADOW_FEATURE_KEYS) + list(_BAR_CONTEXT_KEYS)
@@ -318,10 +318,10 @@ class MLEvaluator(Evaluator):
 
         try:
             ml_score = float(model.predict(features)[0])
-        except Exception as exc:
+        except Exception as error:
             logger.warning(
                 "ml_scorer.predict_failed",
-                error=str(exc),
+                error=str(error),
                 segment=segment_key,
             )
             return self._neutral(error="predict_exception", latency_ms=0.0)

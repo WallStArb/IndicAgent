@@ -191,10 +191,10 @@ class GraduationAnalyzer(BaseDaemon):
                 await self._handle_transition(payload)
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
                     "graduation_compute.handle_error",
-                    error=str(exc),
+                    error=str(error),
                 )
 
     async def _handle_transition(self, payload: dict) -> None:
@@ -284,23 +284,23 @@ class GraduationAnalyzer(BaseDaemon):
             )
             return True
 
-        except Exception as exc:
+        except Exception as error:
             self._evaluation_errors.add(1)
             self.logger.exception(
                 "graduation_compute.eval_error",
                 transform_id=transform_id,
                 segment_key=segment_key,
-                error=str(exc),
+                error=str(error),
             )
             # Route to DLQ so the error is traceable without crashing the loop
             dlq_payload = {
                 "transform_id": transform_id,
                 "transform_version": transform_version,
                 "segment_key": segment_key,
-                "error": str(exc),
+                "error": str(error),
                 "ts": datetime.now(UTC).isoformat(),
             }
-            await self._send_to_dlq(dlq_payload, exc)
+            await self._send_to_dlq(dlq_payload, error)
             return False
 
     async def _teardown(self) -> None:

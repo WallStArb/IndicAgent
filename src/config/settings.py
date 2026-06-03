@@ -535,12 +535,12 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
             _active_contracts_last_refresh = now
         return result
 
-    except Exception as exc:
+    except Exception as error:
         import structlog as _structlog
 
         _structlog.get_logger(__name__).warning(
             "get_active_contracts.db_query_failed",
-            error=str(exc),
+            error=str(error),
         )
         # Fallback: return last valid cache if warm; never consult s.contracts
         with _settings_lock:
@@ -548,7 +548,7 @@ def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
                 return _active_contracts_cache
         _structlog.get_logger(__name__).critical(
             "get_active_contracts.cold_start_db_unavailable",
-            error=str(exc),
+            error=str(error),
         )
         return []
 

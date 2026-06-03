@@ -135,12 +135,12 @@ class PerKeyWorkerManager:
                     symbol=key[0],
                     tf=key[1],
                 )
-            except Exception as exc:
+            except Exception as error:
                 self._logger.error(
                     "per_key_worker_error",
                     symbol=key[0],
                     tf=key[1],
-                    error=str(exc),
+                    error=str(error),
                     exc_info=True,
                 )
             finally:

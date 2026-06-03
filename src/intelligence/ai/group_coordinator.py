@@ -1,4 +1,4 @@
-"""BaseSwarmCoordinator — shared dispatcher for agent groups."""
+"""BaseGroupCoordinator — shared dispatcher for agent groups."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class BaseSwarmCoordinator(BaseDaemon, ABC):
+class BaseGroupCoordinator(BaseDaemon, ABC):
     """Shared dispatcher for agent groups (alpha, narrative, risk).
 
     Subclasses declare 3 abstract properties:
@@ -147,7 +147,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
         for agent in self.agents:
             agent._lineage = self._lineage
 
-        # D-19: BaseSwarmCoordinator must call super()._setup() for forward compatibility
+        # D-19: BaseGroupCoordinator must call super()._setup() for forward compatibility
         await super()._setup()
 
     async def _shadow_registry_ensure_agents(self, agents: list[BaseAIWorker]) -> None:
@@ -164,7 +164,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
                     agent.agent_id,
                 )
         self.logger.info(
-            "base_group_service.shadow_enrolled",
+            "group_coordinator.shadow_enrolled",
             group_id=self.group_id,
             agents=[a.agent_id for a in agents],
         )
@@ -186,7 +186,7 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
         for row in rows:
             self._context_cache.seed_from_db_row(dict(row))
         logger.info(
-            "base_group_service.cache_seeded",
+            "group_coordinator.cache_seeded",
             group_id=self.group_id,
             entries=len(rows),
         )
@@ -250,14 +250,14 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
                 ) as span:
                     try:
                         self._context_cache.update(event)
-                    except Exception as exc:
-                        span.set_status(StatusCode.ERROR, str(exc))
-                        span.record_exception(exc)
+                    except Exception as error:
+                        span.set_status(StatusCode.ERROR, str(error))
+                        span.record_exception(error)
                         raise
-            except Exception as exc:
+            except Exception as error:
                 self.logger.warning(
-                    "base_group_service.bar_cache_error",
-                    error=str(exc),
+                    "group_coordinator.bar_cache_error",
+                    error=str(error),
                 )
 
     async def _trigger_loop(self) -> None:
@@ -274,14 +274,14 @@ class BaseSwarmCoordinator(BaseDaemon, ABC):
                 ) as span:
                     try:
                         await self._handle_trigger(payload)
-                    except Exception as exc:
-                        span.set_status(StatusCode.ERROR, str(exc))
-                        span.record_exception(exc)
+                    except Exception as error:
+                        span.set_status(StatusCode.ERROR, str(error))
+                        span.record_exception(error)
                         raise
-            except Exception as exc:
+            except Exception as error:
                 self.logger.exception(
-                    "base_group_service.trigger_error",
-                    error=str(exc),
+                    "group_coordinator.trigger_error",
+                    error=str(error),
                 )
 
     @abstractmethod

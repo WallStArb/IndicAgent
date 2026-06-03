@@ -312,8 +312,8 @@ class BarAggregator(BaseDaemon):
 
             return restored_any
 
-        except Exception as exc:
-            self.logger.warning("bar_aggregator.state.restore_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("bar_aggregator.state.restore_failed", error=str(error))
             _STATE_CHECKPOINT_FAILURES_TOTAL.add(1)
             return False
         finally:
@@ -460,9 +460,9 @@ class BarAggregator(BaseDaemon):
                                 try:
                                     await self._checkpoint_state(bar)
                                     self._checkpoint_failure_timestamps.clear()
-                                except Exception as exc:
+                                except Exception as error:
                                     self.logger.warning(
-                                        "bar_aggregator.checkpoint_failed", error=str(exc)
+                                        "bar_aggregator.checkpoint_failed", error=str(error)
                                     )
                                     _STATE_CHECKPOINT_FAILURES_TOTAL.add(1)
                                     # Check if degraded (3 failures in 60s)
@@ -496,13 +496,13 @@ class BarAggregator(BaseDaemon):
                         )
                         # Continue to next bar - don't let one slow bar block everything
 
-                    except Exception as exc:
+                    except Exception as error:
                         # Handle other exceptions during bar processing
                         self._health_metrics.record_error()
                         _AGGREGATION_ERRORS.add(1, self._agent_attrs)
                         self.logger.error(
                             "bar_aggregator.processing_error",
-                            error=str(exc),
+                            error=str(error),
                             payload_preview=str(payload)[:200],
                         )
                         # Don't crash on single bar failure — continue consuming
@@ -520,8 +520,8 @@ class BarAggregator(BaseDaemon):
                         self._health_metrics._htf_bars_last_minute = 0
                         self._health_metrics._last_htf_emit_ts = time.monotonic()
                         self.logger.info("bar_aggregator.consumer_reset_complete")
-                    except Exception as exc:
-                        self.logger.error("bar_aggregator.consumer_reset_failed", error=str(exc))
+                    except Exception as error:
+                        self.logger.error("bar_aggregator.consumer_reset_failed", error=str(error))
                         raise  # unrecoverable — let systemd restart clean
 
         finally:
@@ -653,11 +653,11 @@ class BarAggregator(BaseDaemon):
                 gap_preceding=bool(payload.get("gap_preceding", False)),
                 is_flat_bar=bool(payload.get("is_flat_bar", False)),
             )
-        except Exception as exc:
+        except Exception as error:
             self._last_skip_reason = "parse_exception"
             self.logger.warning(
                 "bar_aggregator.parse_failed",
-                error=str(exc),
+                error=str(error),
                 payload_preview=str(payload)[:200],
             )
             return None

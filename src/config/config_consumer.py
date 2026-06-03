@@ -85,18 +85,18 @@ class ConfigConsumerMixin:
                 agent=self.name,  # type: ignore[attr-defined]
                 keys=len(self._config_cache),
             )
-        except Exception as exc:
+        except Exception as error:
             CONFIG_STALE_TOTAL.add(
                 1,
                 {
                     "agent_id": self.name,  # type: ignore[attr-defined]
-                    "reason": type(exc).__name__,
+                    "reason": type(error).__name__,
                 },
             )
             structlog.get_logger().warning(
                 "config.snapshot.load_failed",
                 agent=self.name,  # type: ignore[attr-defined]
-                error=str(exc),
+                error=str(error),
             )
             # Do NOT re-raise — NON-FATAL
         finally:
@@ -129,7 +129,7 @@ class ConfigConsumerMixin:
             await self._config_consumer.start()
             # NOTE: topic was bound at construction time (KafkaConsumerClient first positional arg).
             self._config_reload_task = asyncio.create_task(self._reload_config_loop())
-        except Exception as exc:
+        except Exception as error:
             CONFIG_STALE_TOTAL.add(
                 1,
                 {
@@ -140,7 +140,7 @@ class ConfigConsumerMixin:
             structlog.get_logger().warning(
                 "config.consumer.setup_failed",
                 agent=self.name,  # type: ignore[attr-defined]
-                error=str(exc),
+                error=str(error),
             )
             # Do NOT re-raise — NON-FATAL
 
@@ -202,7 +202,7 @@ class ConfigConsumerMixin:
                             agent=self.name,  # type: ignore[attr-defined]
                             error=str(hook_exc),
                         )
-                except Exception as exc:
+                except Exception as error:
                     CONFIG_STALE_TOTAL.add(
                         1,
                         {
@@ -213,11 +213,11 @@ class ConfigConsumerMixin:
                     structlog.get_logger().warning(
                         "config.parse_failed",
                         agent=self.name,  # type: ignore[attr-defined]
-                        error=str(exc),
+                        error=str(error),
                     )
                 if not self.running:  # type: ignore[attr-defined]
                     break
-        except Exception as exc:
+        except Exception as error:
             CONFIG_STALE_TOTAL.add(
                 1,
                 {
@@ -228,7 +228,7 @@ class ConfigConsumerMixin:
             structlog.get_logger().error(
                 "config.consumer.loop_failed",
                 agent=self.name,  # type: ignore[attr-defined]
-                error=str(exc),
+                error=str(error),
             )
 
     async def _teardown_config_consumer(self) -> None:

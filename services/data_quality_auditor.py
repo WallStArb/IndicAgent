@@ -188,8 +188,8 @@ class DataQualityAuditor(BaseDaemon):
             from src.observability.metrics import DATA_QUALITY_SCORE
 
             DATA_QUALITY_SCORE.set(score)
-        except Exception as exc:
-            self.logger.warning("data_quality_auditor.metric_emit_failed", error=str(exc))
+        except Exception as error:
+            self.logger.warning("data_quality_auditor.metric_emit_failed", error=str(error))
 
     async def _maybe_publish_alert(self, score: float) -> None:
         """Publish alert to Kafka if score below threshold."""

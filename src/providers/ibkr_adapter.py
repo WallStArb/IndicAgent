@@ -155,8 +155,8 @@ class IBKRAdapter:
                         _enqueue_bar(msg)
             except asyncio.CancelledError:
                 pass
-            except Exception as exc:
-                logger.error("official_bars_stream error", exc_info=exc)
+            except Exception as error:
+                logger.error("official_bars_stream error", exc_info=error)
 
         # Watchdog: detect TWS disconnect so _stream_loop can reconnect.
         # After error 1100 (TWS lost), ib_insync restores the TCP connection
@@ -203,11 +203,11 @@ class IBKRAdapter:
                     pinged_this_gap = True
                     try:
                         alive = await self._provider.ping()
-                    except Exception as exc:
+                    except Exception as error:
                         logger.warning(
                             "ibkr_adapter.ping_exception_forcing_restart silence=%ds err=%s",
                             int(silence_s),
-                            exc,
+                            error,
                         )
                         await bar_queue.put(_RECONNECT)
                         return

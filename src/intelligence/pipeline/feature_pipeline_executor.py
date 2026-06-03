@@ -308,12 +308,12 @@ class FeaturePipelineExecutor:
                 computed_at=datetime.now(UTC),
                 bar_id=bar.bar_id,
             )
-        except ValidationError as exc:
+        except ValidationError as error:
             self._logger.error(
                 "FeaturePipelineExecutor.IntelligenceEvent validation failed",
                 symbol=symbol,
                 tf=tf,
-                error=str(exc),
+                error=str(error),
             )
             return FeaturePipelineResult(event=None, tiered=None, main_df=main_df, hmm_regime=None)
 
