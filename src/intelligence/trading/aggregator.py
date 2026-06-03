@@ -528,10 +528,11 @@ def _build_all_ranked(
             multiplier, sample_size = raw_entry
         else:
             multiplier = float(raw_entry)
-            sample_size = 30  # assume validated if plain float
+            sample_size = 100  # assume validated if plain float
 
+        # Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
         # D-16: enforce warm-up penalty for unvalidated setups
-        if sample_size < 30:
+        if sample_size < 100:
             multiplier = 0.5
 
         sig["adjusted_rank"] = round(multiplier, 4)

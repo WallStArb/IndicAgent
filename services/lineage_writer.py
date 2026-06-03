@@ -57,9 +57,9 @@ class LineageWriter(BaseWriter):
     def _dlq_topic(self) -> str | None:
         return topic_signal_lineage_dlq(self.env_name)
 
-    def _parse_payload(self, payload: LineageEvent) -> list | None:
+    def _parse_payload(self, payload: LineageEvent) -> tuple[list, list]:
         """Receive already-validated LineageEvent from base; return as single-item list."""
-        return [payload]
+        return [payload], []
 
     def _to_row(self, event: LineageEvent) -> tuple:
         """Map LineageEvent fields to positional INSERT params.

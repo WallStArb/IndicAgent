@@ -148,7 +148,8 @@ async def _handle_metrics_computed(conn, event: dict) -> None:
         and event["window_days"] == 30
         and event.get("avg_r") is not None
         and event.get("sharpe") is not None
-        and event["n"] >= 30
+        # Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
+        and event["n"] >= 100
     ):
         await conn.execute(
             """
@@ -243,9 +244,9 @@ class SignalMetricsWriter(BaseWriter):
     def _dlq_topic(self) -> str | None:
         return topic_signal_metrics(self.env_name) + ".dlq"
 
-    def _parse_payload(self, payload: SignalMetricsEvent) -> list | None:
+    def _parse_payload(self, payload: SignalMetricsEvent) -> tuple[list, list]:
         """Receive already-validated SignalMetricsEvent; dispatching done in _flush_batch."""
-        return [payload]
+        return [payload], []
 
     async def _flush_batch(self, batch: list[SignalMetricsEvent]) -> None:
         """Dispatch each event to the appropriate SQL helper by event_type."""

@@ -1,7 +1,7 @@
 """Ranker pipeline stage — pure function.
 
 Phase 112 D-16: Data-driven ranking. adjusted_rank = perf_multiplier.
-- Setups with sample_size >= 30: adjusted_rank = perf_multiplier from Sharpe rank [0.5, 1.5]
+- Setups with sample_size >= 100: adjusted_rank = perf_multiplier from Sharpe rank [0.5, 1.5]
 - Setups with sample_size < 30 (unvalidated): adjusted_rank = 0.5 (warm-up penalty, D-16)
   Below-neutral ranking ensures unvalidated setups do not out-rank validated ones.
 
@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.core.ml.transform_recorder import TransformRecorder
 
-# Warm-up penalty for setups with sample_size < 30 (D-16).
+# Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
+# Warm-up penalty for setups with sample_size < 100 (D-16).
 # Below 0.5 so unvalidated setups rank below the lowest eligible multiplier (0.5).
 WARMUP_PENALTY_MULTIPLIER: float = 0.5
 
@@ -86,9 +87,10 @@ async def rank_signals(
         else:
             # Plain float (backward compat with old callers that don't include sample_size)
             perf_multiplier = float(raw_entry)
-            sample_size = 30  # assume validated if caller provides plain float
+            sample_size = 100  # assume validated if caller provides plain float
 
-        # D-16 warm-up penalty: force 0.5 for sample_size < 30
+        # Minimum 100 samples required; values below 200 are statistically unreliable on fat-tailed returns
+        # D-16 warm-up penalty: force 0.5 for sample_size < 100
         if sample_size < 30:
             perf_multiplier = WARMUP_PENALTY_MULTIPLIER
 

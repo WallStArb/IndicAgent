@@ -43,7 +43,37 @@ VALUES (
      WHERE (symbol = $2 OR symbol IS NULL)
        AND tf = $3)
 )
-ON CONFLICT (ts, symbol, tf) DO NOTHING
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET
+    platform = EXCLUDED.platform,
+    source = EXCLUDED.source,
+    schema_version = EXCLUDED.schema_version,
+    bar = EXCLUDED.bar,
+    technical_indicators = EXCLUDED.technical_indicators,
+    market_context = EXCLUDED.market_context,
+    pattern_detections = EXCLUDED.pattern_detections,
+    regime_features = EXCLUDED.regime_features,
+    confluence_scores = EXCLUDED.confluence_scores,
+    smc = EXCLUDED.smc,
+    cross_timeframe_context = EXCLUDED.cross_timeframe_context,
+    trading_signals = EXCLUDED.trading_signals,
+    bar_close_ts = EXCLUDED.bar_close_ts,
+    i1_computed_at = EXCLUDED.i1_computed_at,
+    computed_at = EXCLUDED.computed_at,
+    winner_plugin = EXCLUDED.winner_plugin,
+    winner_confidence = EXCLUDED.winner_confidence,
+    winner_direction = EXCLUDED.winner_direction,
+    signals_evaluated = EXCLUDED.signals_evaluated,
+    signals_after_quality = EXCLUDED.signals_after_quality,
+    signals_after_regime = EXCLUDED.signals_after_regime,
+    signals_after_tod = EXCLUDED.signals_after_tod,
+    signals_after_calibration = EXCLUDED.signals_after_calibration,
+    ledger_written = EXCLUDED.ledger_written,
+    pipeline_latency_ms = EXCLUDED.pipeline_latency_ms,
+    i7_computed_at = EXCLUDED.i7_computed_at,
+    session_type = EXCLUDED.session_type,
+    days_to_expiry = EXCLUDED.days_to_expiry,
+    ctx = EXCLUDED.ctx
+WHERE EXCLUDED.schema_version >= {table}.schema_version
 """
 
 
