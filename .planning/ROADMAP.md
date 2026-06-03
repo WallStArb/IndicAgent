@@ -20,7 +20,7 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-29)
-- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (not started)
+- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (in progress)
 
 ## Phases
 
@@ -866,7 +866,7 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — NOT STARTED</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — IN PROGRESS</summary>
 
 **Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-109) completed in v2.7.
 
@@ -1506,11 +1506,11 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 110. Renaissance Rename | v2.8 | 4/4 | Complete   | 2026-05-30 |
 | 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
-| 096. Agent Registry | v2.8 | 0/TBD | Not started | - |
-| 097. Zep Episodic Memory | v2.8 | 0/TBD | Not started | - |
+| 096. Agent Registry | v2.8 | 3/3 | Planned | - |
+| 097. Zep Episodic Memory | v2.8 | 6/6 | Planned | - |
 | 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
 | 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
-| 101. Composite Fitness Function | v2.8 | 0/6 | Planned | - |
+| 101. Composite Fitness Function | v2.8 | 6/6 | Planned | - |
 | 102. Genetic Infrastructure | v2.8 | 0/4 | Planned | - |
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
