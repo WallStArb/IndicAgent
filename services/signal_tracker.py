@@ -372,6 +372,7 @@ class SignalTracker(BaseDaemon):
             "entry_price": float(entry_price),
             "stop_loss": float(stop_loss),
             "is_backfill": bool(raw.get("is_backfill", False)),
+            "is_shadow": bool(raw.get("is_shadow", False)),
             "ttl_bars": int(raw.get("ttl_bars", 10)),
             "signal_schema_version": raw.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
             "status": raw.get("status", "pending"),
@@ -420,9 +421,14 @@ class SignalTracker(BaseDaemon):
             }
 
         for sig in signals_list:
-            # Skip regime-suppressed signals (they won't activate in zone track)
             status = sig.get("status")
-            if status and status not in (SignalStatus.PENDING, SignalStatus.ACTIVE):
+            is_shadow = bool(sig.get("is_shadow", False))
+            if status == SignalStatus.REGIME_SUPPRESSED and is_shadow:
+                # Virtual-activate: shadow signals skip zone-entry and are tracked
+                # as immediately active from fire bar so outcomes accumulate for
+                # the shadow governance promotion gate.
+                sig = {**sig, "status": "active"}
+            elif status and status not in (SignalStatus.PENDING, SignalStatus.ACTIVE):
                 continue
             # Normalize: pipeline payloads may have empty symbol/timeframe/timestamp
             # at the signal level — fill from top-level envelope before _load_signal
@@ -1113,6 +1119,7 @@ class SignalTracker(BaseDaemon):
         _BOOTSTRAP_QUERY = """
             SELECT sl.signal_id, sl.symbol, sl.timeframe, sl.timestamp, sl.status, sl.direction,
                    sl.activated_at, sl.ttl_bars, sl.signal_schema_version, sl.is_backfill,
+                   sl.is_shadow,
                    COALESCE(sl.entry_price, sl.activation_price) AS entry_price,
                    sl.stop_loss,
                    sl.targets,
@@ -1128,7 +1135,7 @@ class SignalTracker(BaseDaemon):
                    sl.mfe
             FROM signal_ledger_full sl
             WHERE sl.exit_at IS NULL
-              AND sl.status IN ('pending', 'active')
+              AND sl.status IN ('pending', 'active', 'regime_suppressed')
               AND sl.timestamp > NOW() - INTERVAL '7 days'
         """
         try:
@@ -1146,8 +1153,16 @@ class SignalTracker(BaseDaemon):
                         if canonical is None:
                             continue
 
-                        # Bootstrap path: these are already-active signals from DB.
-                        # Route directly to _add_to_active_index — do NOT run
+                        # Shadow signals are regime_suppressed in DB but must be
+                        # tracked as virtually-active so outcomes accumulate for the
+                        # shadow governance promotion gate.
+                        if (
+                            canonical.get("is_shadow")
+                            and canonical.get("status") == SignalStatus.REGIME_SUPPRESSED
+                        ):
+                            canonical["status"] = "active"
+
+                        # Bootstrap path: route directly to _add_to_active_index — do NOT run
                         # backfill fast-path or dedup check (signal_ids not set yet).
                         self._add_to_active_index(canonical)
                         self._signal_ids.add(canonical["signal_id"])
