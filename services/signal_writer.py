@@ -92,40 +92,41 @@ class SignalWriter(BaseWriter):
     def _on_message_consumed(self, payload: dict) -> None:
         self._events_consumed.add(1)
 
-    def _parse_payload(self, payload: dict) -> list | None:
+    def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse intelligence.i7.signals payload into LedgerEntry objects.
 
-        Returns None for truly empty payloads (triggers DLQ via base class).
-        Returns [] when all signals are invalid (prevents double-DLQ).
+        Returns ([], []) for truly empty payloads — skip silently.
+        Returns ([], [payload]) when all signals are invalid — triggers DLQ.
         """
         symbol = payload.get("symbol", "")
         tf = payload.get("tf", "")
         signals: list[dict] = payload.get("signals", [])
 
-        # Empty payload — base class will DLQ the whole message
+        # Empty payload — skip silently
         if not signals:
-            return None
+            return [], []
 
-        valid: list[dict] = []
-        invalid: list[dict] = []
+        valid_sigs: list[dict] = []
+        invalid_sigs: list[dict] = []
         for sig in signals:
             if validate_signal(sig):
-                valid.append(sig)
+                valid_sigs.append(sig)
             else:
-                invalid.append(sig)
+                invalid_sigs.append(sig)
 
-        if invalid:
-            self._invalid_signals.extend(invalid)
+        if invalid_sigs:
+            self._invalid_signals.extend(invalid_sigs)
             self.logger.warning(
                 "signal_writer.invalid_signals_partitioned",
-                count=len(invalid),
+                count=len(invalid_sigs),
                 symbol=symbol,
                 tf=tf,
             )
 
-        rows = _payload_to_ledger_entries({**payload, "signals": valid})
-        # Return [] when all signals invalid — prevents double-DLQ
-        return rows if rows else []
+        rows = _payload_to_ledger_entries({**payload, "signals": valid_sigs})
+        if not rows:
+            return [], [payload]
+        return rows, []
 
     async def _flush_batch(self, batch: list) -> None:
         invalid = self._invalid_signals[:]

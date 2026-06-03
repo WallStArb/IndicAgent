@@ -865,3 +865,30 @@ ML_TRAINING_SECONDS = _meter.create_histogram(
     description="Full ML training cycle duration",
     unit="s",
 )
+
+# ---------------------------------------------------------------------------
+# SSE delivery (Phase hardening)
+# ---------------------------------------------------------------------------
+
+SSE_MESSAGES_DROPPED_TOTAL = _meter.create_counter(
+    "sse_messages_dropped_total",
+    description="SSE messages dropped because the client queue was full",
+)
+
+# ---------------------------------------------------------------------------
+# Contract hot-reload (Phase hardening)
+# ---------------------------------------------------------------------------
+
+CONTRACTS_RELOAD_TOTAL = _meter.create_counter(
+    "contracts_reload_total",
+    description="Contract hot-reload attempts labeled by status (success|failure)",
+)
+
+# ---------------------------------------------------------------------------
+# Pipeline backpressure (Phase hardening)
+# ---------------------------------------------------------------------------
+
+PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
+    "intelligence_pipeline_backpressure_drop_total",
+    description="Bars dropped by backpressure circuit breaker (queue depth exceeded)",
+)

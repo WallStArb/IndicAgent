@@ -3,20 +3,15 @@ import functools
 import json
 from collections import defaultdict
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ...core.stream_keys import indicators as sk_indicators
-from ...core.stream_keys import intelligence as sk_intelligence
-from ...core.stream_keys import intelligence_i7 as sk_intelligence_i7
-from ...core.stream_keys import live_tick as sk_live_tick
-from ...core.stream_keys import market as sk_market
-from ...core.stream_keys import narratives as sk_narratives
-from ...core.stream_keys import narratives_group as sk_narratives_group
-from ...core.stream_keys import signals_aggregated as sk_signals_aggregated
-from ...core.stream_keys import system_events as sk_system_events
+from src.observability.metrics import SSE_MESSAGES_DROPPED_TOTAL
+
 from ...core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i8,
@@ -29,13 +24,18 @@ from ...core.stream_keys import (
 )
 from .. import dependencies
 from ..utils import get_settings as _get_settings
-from ..utils import resolve_contract as _resolve_contract
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-_NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
+_MAX_LATEST_KEYS = 200  # per-topic snapshot cap; prevents unbounded growth on contract rolls
+
+
+@dataclass(eq=False)
+class _Subscription:
+    queue: asyncio.Queue = dc_field(repr=False)
+    topics: frozenset
 
 
 # ── KafkaSSEBroadcaster ──────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ class KafkaSSEBroadcaster:
     """
 
     def __init__(self) -> None:
-        self._queues: list[asyncio.Queue] = []
+        self._by_topic: dict[str, set] = defaultdict(set)
         # Per-topic, per-message-key: latest message only.
         # Stores the most recent message for every (topic, key) pair so new clients
         # receive complete current state for all symbols/TFs on connect — no matter
@@ -114,34 +114,39 @@ class KafkaSSEBroadcaster:
             if topic == _intelligence_record_topic:
                 payload = self._extract_signal_scorecard_payload(payload)
             item = {"topic": topic, "key": key, "payload": payload}
-            # Latest-per-key: always keep the most recent message for each key.
-            # Uses key or falls back to a monotonic counter for keyless messages.
             slot = key if key is not None else "__keyless"
-            self._latest[topic][slot] = item
-            # Fan-out: deliver to all connected clients; skip full queues (slow client)
-            for q in list(self._queues):
-                try:
-                    q.put_nowait(item)
-                except asyncio.QueueFull:
-                    pass  # slow client — drop message, continue
 
-    def subscribe(self) -> tuple[dict, asyncio.Queue]:
+            # Size-bounded latest snapshot: evict oldest when topic is full
+            topic_latest = self._latest[topic]
+            if len(topic_latest) >= _MAX_LATEST_KEYS and slot not in topic_latest:
+                oldest = next(iter(topic_latest))
+                del topic_latest[oldest]
+            topic_latest[slot] = item
+
+            # Fan-out only to subscriptions that requested this topic — O(matching)
+            for sub in list(self._by_topic.get(topic, ())):
+                try:
+                    sub.queue.put_nowait(item)
+                except asyncio.QueueFull:
+                    SSE_MESSAGES_DROPPED_TOTAL.add(1, {"topic": topic})
+
+    def subscribe(self, topics: frozenset) -> tuple[dict, _Subscription]:
         """Register a new SSE client.
 
         Returns:
-            (latest_dict, live_queue): latest dict (topic → {key → item}) for initial
-            snapshot drain, and a live asyncio.Queue for subsequent messages.
+            (latest_dict, sub): latest dict (topic → {key → item}) for initial
+            snapshot drain, and a _Subscription for subsequent messages.
         """
         q: asyncio.Queue = asyncio.Queue(maxsize=500)
-        self._queues.append(q)
-        return self._latest, q
+        sub = _Subscription(queue=q, topics=topics)
+        for topic in topics:
+            self._by_topic[topic].add(sub)
+        return self._latest, sub
 
-    def unsubscribe(self, q: asyncio.Queue) -> None:
-        """Deregister a client queue on disconnect."""
-        try:
-            self._queues.remove(q)
-        except ValueError:
-            pass  # already removed or never subscribed
+    def unsubscribe(self, sub: _Subscription) -> None:
+        """Deregister a client subscription on disconnect."""
+        for topic in sub.topics:
+            self._by_topic[topic].discard(sub)
 
 
 # ── Topic list builder ───────────────────────────────────────────────────────
@@ -246,74 +251,6 @@ def _event_name_for_topic(topic: str) -> str:
     return "message"
 
 
-def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
-    """Legacy Redis stream list builder — kept for backward compatibility with tests.
-
-    Returns Redis-style stream names. Use _build_topic_list() for Kafka-based SSE.
-    """
-    settings = _get_settings()
-    env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-    # Accept comma-separated timeframes (e.g. "1m,5m,15m,1h,4h,1d")
-    timeframes = [tf.strip() for tf in timeframe.split(",") if tf.strip()]
-    streams: list[str] = []
-    for sym in symbols:
-        contract = _resolve_contract(sym)
-        # ticks (no timeframe)
-        streams.append(sk_live_tick(env_prefix, contract))
-        # market bars and indicators per timeframe
-        for tf in timeframes:
-            streams.append(sk_market(env_prefix, contract, tf))
-            streams.append(sk_indicators(env_prefix, contract, tf))
-            streams.append(sk_intelligence(env_prefix, contract, tf))
-            streams.append(sk_intelligence_i7(env_prefix, contract, tf))
-            streams.append(sk_signals_aggregated(env_prefix, contract, tf))
-            streams.append(sk_narratives(env_prefix, contract, tf))
-    # Group narrative streams — global, not per-symbol
-    for group in _NARRATIVE_GROUPS:
-        streams.append(sk_narratives_group(env_prefix, group))
-    # System events stream — global, not per-symbol
-    streams.append(sk_system_events(env_prefix))
-    return streams
-
-
-@functools.lru_cache(maxsize=512)
-def _event_name_for_stream(stream_name: str) -> str:
-    """Legacy Redis stream → SSE event name mapping (kept for backward compat with tests)."""
-    # Remove optional env prefix when testing startswith
-    parts = stream_name.split(":", 1)
-    head = parts[0]
-    rest = parts[1] if len(parts) > 1 else ""
-    # If head is an env name (e.g., "dev"), re-evaluate from rest
-    known_domains = {
-        "ticks",
-        "market",
-        "indicators",
-        "intelligence",
-        "intelligence_i7",
-        "signals",
-        "narratives",
-        "system",
-    }
-    candidate = rest if rest and head not in known_domains else stream_name
-    if candidate.startswith("ticks:"):
-        return "tick_data"
-    if candidate.startswith("market:"):
-        return "market_data"
-    if candidate.startswith("indicators:"):
-        return "indicator_data"
-    if candidate.startswith("intelligence_i7:"):
-        return "signal_scorecard"
-    if candidate.startswith("intelligence:"):
-        return "intelligence_data"
-    if candidate.startswith("signals:"):
-        return "signal_data"
-    if candidate.startswith("narratives:"):
-        return "narrative_data"
-    if candidate.startswith("system:"):
-        return "system_event"
-    return "message"
-
-
 # ── SSE endpoint ──────────────────────────────────────────────────────────────
 
 
@@ -342,9 +279,7 @@ async def sse_events(
     broadcaster: KafkaSSEBroadcaster = dependencies.kafka_broadcaster
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     topic_list = _build_topic_list(symbol_list, timeframe)
-    topic_set = set(topic_list)
-
-    snapshot, live_q = broadcaster.subscribe()
+    snapshot, sub = broadcaster.subscribe(frozenset(topic_list))
 
     async def event_generator() -> AsyncGenerator[bytes]:
         try:
@@ -377,17 +312,14 @@ async def sse_events(
                     break
 
                 try:
-                    item = await asyncio.wait_for(live_q.get(), timeout=5.0)
+                    item = await asyncio.wait_for(sub.queue.get(), timeout=5.0)
                 except TimeoutError:
                     yield b": heartbeat\n\n"
                     continue
                 except asyncio.CancelledError:
                     break
 
-                # Filter to only topics this client subscribed to
-                if item["topic"] not in topic_set:
-                    continue
-
+                # No topic filter needed — broadcaster delivers only subscribed topics
                 event_name = _event_name_for_topic(item["topic"])
                 try:
                     data_json = _serialize_sse_item(item)
@@ -404,7 +336,7 @@ async def sse_events(
             yield b'event: error\ndata: {"error": "stream error"}\n\n'
         finally:
             logger.info("SSE generator closing", symbols=symbols, timeframe=timeframe)
-            broadcaster.unsubscribe(live_q)
+            broadcaster.unsubscribe(sub)
 
     return StreamingResponse(
         event_generator(),

@@ -32,6 +32,7 @@ from src.core.service_utils import min_bars_for_tf, normalize_session_type, pars
 from src.core.stream_keys import (
     TF_SECONDS,
     message_key,
+    topic_contracts_updated,
     topic_cross_asset,
     topic_intelligence,
     topic_intelligence_i7_signals,
@@ -81,7 +82,12 @@ from src.intelligence.schemas import (
 )
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.observability.circuit_breaker import CircuitBreaker
-from src.observability.metrics import THREAD_POOL_WORKERS, counter
+from src.observability.metrics import (
+    CONTRACTS_RELOAD_TOTAL,
+    PIPELINE_BACKPRESSURE_DROP_TOTAL,
+    THREAD_POOL_WORKERS,
+    counter,
+)
 from src.observability.plugin_observer import PluginObserver
 from src.observability.spans import ATTR_SYMBOL, ATTR_TF, observed_span
 
@@ -93,6 +99,7 @@ _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 VIX_REGIME_TF: str = "1h"
 I7_PLUGINS = TIER_I7
 _OUTPUT_QUEUE_MAXSIZE = 500
+_MAX_QUEUE_DEPTH = 500  # drop incoming bar above this depth to prevent OOM under load
 
 # PluginTask, _timed_plugin_call, and _ANALYSIS_WAVES moved to executor.py (plan 04).
 # _apply_alpha_decay, _cis_kalman_update, _build_features_from_event moved to signal_processor.py (plan 05).
@@ -248,12 +255,14 @@ class IntelligencePipeline(BaseDaemon):
         )
         await self._kafka_producer.start()
 
+        self._contracts_topic = topic_contracts_updated(self.settings.env_name)
         topics = [
             topic_market_bars(self.settings.env_name),
             topic_market_bars_htf(self.settings.env_name),
             topic_system_events(self.settings.env_name),
             topic_cross_asset(self.settings.env_name),
             topic_macro_signals(self.settings.env_name),
+            self._contracts_topic,
         ]
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -448,6 +457,7 @@ class IntelligencePipeline(BaseDaemon):
         _cross_asset_topic = topic_cross_asset(self.settings.env_name)
         _macro_topic = topic_macro_signals(self.settings.env_name)
         _system_topic = topic_system_events(self.settings.env_name)
+        _contracts_topic = self._contracts_topic
         COMMIT_BATCH_SIZE = 100
         msg_count = 0
         while self.running:
@@ -475,12 +485,41 @@ class IntelligencePipeline(BaseDaemon):
                             await self._cache_mgr.update_macro(tf, macro_fields)
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
+                        elif _topic == _contracts_topic:
+                            # MEDIUM-02: atomic contract hot-reload — never mutate in place.
+                            # Preserve last-known-good on failure; emit telemetry on both paths.
+                            try:
+                                new_contracts = get_active_contracts(self.settings)
+                                self._contracts = new_contracts  # atomic reference swap
+                                CONTRACTS_RELOAD_TOTAL.add(1, {"status": "success"})
+                                self.logger.info("contracts_reloaded", count=len(self._contracts))
+                            except Exception as exc:
+                                CONTRACTS_RELOAD_TOTAL.add(1, {"status": "failure"})
+                                self.logger.error("contracts_reload_failed", error=str(exc))
+                                # Last-known-good preserved — no assignment on failure
                         else:
                             bar = self._parse_bar(payload)
                             if bar is None:
                                 await self._send_to_dlq(payload, Exception("Parse failed"))
                                 continue
-                            await self._worker_manager.enqueue(bar)
+                            # STRUCTURAL: backpressure circuit breaker — drop INCOMING bar
+                            # (newest) if total queue depth exceeds threshold. Dropping
+                            # oldest would corrupt rolling windows and Kalman state.
+                            total_depth = sum(
+                                q.qsize() for q in self._worker_manager._queues.values()
+                            )
+                            if total_depth >= _MAX_QUEUE_DEPTH:
+                                PIPELINE_BACKPRESSURE_DROP_TOTAL.add(
+                                    1, {"symbol": bar.symbol, "tf": bar.tf}
+                                )
+                                self.logger.warning(
+                                    "pipeline_backpressure_drop",
+                                    symbol=bar.symbol,
+                                    tf=bar.tf,
+                                    queue_depth=total_depth,
+                                )
+                            else:
+                                await self._worker_manager.enqueue(bar)
 
                         msg_count += 1
                         if msg_count >= COMMIT_BATCH_SIZE:

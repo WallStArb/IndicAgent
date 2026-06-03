@@ -143,15 +143,15 @@ def test_topics_produced():
 
 
 def test_parse_payload_appends_tuple():
-    """_parse_payload returns a list with a 10-element tuple."""
+    """_parse_payload returns (valid, invalid) tuple with valid containing a 10-element tuple."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m")
 
-    rows = agent._parse_payload(payload)
+    valid, invalid = agent._parse_payload(payload)
 
-    assert rows is not None
-    assert len(rows) == 1
-    row = rows[0]
+    assert len(valid) == 1
+    assert invalid == []
+    row = valid[0]
     assert len(row) == 10
     assert row[1] == "ESM6"  # symbol
     assert row[3] == "1m"  # timeframe (index 3 after base added at index 2)
@@ -167,13 +167,13 @@ def test_parse_payload_source_tagging():
     """source='live_1m' for tf='1m'; source='live_htf' for all other TFs."""
     agent = _make_agent()
 
-    rows_1m = agent._parse_payload(_make_bar_payload(tf="1m"))
-    rows_5m = agent._parse_payload(_make_bar_payload(tf="5m"))
-    rows_1h = agent._parse_payload(_make_bar_payload(tf="1h"))
+    valid_1m, _ = agent._parse_payload(_make_bar_payload(tf="1m"))
+    valid_5m, _ = agent._parse_payload(_make_bar_payload(tf="5m"))
+    valid_1h, _ = agent._parse_payload(_make_bar_payload(tf="1h"))
 
-    assert rows_1m[0][9] == "live_1m"
-    assert rows_5m[0][9] == "live_htf"
-    assert rows_1h[0][9] == "live_htf"
+    assert valid_1m[0][9] == "live_1m"
+    assert valid_5m[0][9] == "live_htf"
+    assert valid_1h[0][9] == "live_htf"
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +266,10 @@ def test_parse_payload_resolves_futures_base():
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m", symbol="ESM6")
 
-    rows = agent._parse_payload(payload)
+    valid, invalid = agent._parse_payload(payload)
 
-    row = rows[0]
+    assert len(valid) == 1
+    row = valid[0]
     assert row[1] == "ESM6"  # symbol unchanged
     assert row[2] == "ES"  # base resolved from contract_cache
     assert row[3] == "1m"  # timeframe at correct index
@@ -279,9 +280,10 @@ def test_parse_payload_fallback_for_non_futures():
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m", symbol="DIA")
 
-    rows = agent._parse_payload(payload)
+    valid, invalid = agent._parse_payload(payload)
 
-    row = rows[0]
+    assert len(valid) == 1
+    row = valid[0]
     assert row[1] == "DIA"  # symbol
     assert row[2] == "DIA"  # base == symbol (fallback — DIA not in contract_metadata)
 

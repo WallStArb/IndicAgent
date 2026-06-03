@@ -81,8 +81,9 @@ class TestCtxWriterInsertCtsEvent:
         msg = _make_valid_message(event_type="earnings")
 
         # Validate via _parse_payload then buffer via _process_message
-        rows = agent._parse_payload(msg)
-        assert rows is not None, "Valid message should pass validation"
+        valid, invalid = agent._parse_payload(msg)
+        assert valid, "Valid message should pass validation"
+        assert not invalid
 
         await agent._process_message(msg)
 
@@ -166,17 +167,18 @@ class TestCtxWriterRejectDisallowedEventType:
         agent = _make_agent()
         msg = _make_valid_message(event_type="random")
 
-        rows = agent._parse_payload(msg)
+        valid, invalid = agent._parse_payload(msg)
 
-        assert rows is None, "Disallowed event_type must return None"
+        assert not valid, "Disallowed event_type must return empty valid"
+        assert invalid, "Disallowed event_type must return non-empty invalid"
         agent._validation_errors.add.assert_called()
 
     def test_allowed_event_types_pass(self):
         agent = _make_agent()
         for etype in sorted(_ALLOWED_EVENT_TYPES):
             msg = _make_valid_message(event_type=etype)
-            rows = agent._parse_payload(msg)
-            assert rows is not None, f"Allowed event_type '{etype}' should pass"
+            valid, invalid = agent._parse_payload(msg)
+            assert valid, f"Allowed event_type '{etype}' should pass"
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +196,10 @@ class TestCtxWriterRejectOversizePayload:
         msg = _make_valid_message()
         msg["payload"] = {"data": oversize_data}
 
-        rows = agent._parse_payload(msg)
+        valid, invalid = agent._parse_payload(msg)
 
-        assert rows is None, "Oversized payload must return None"
+        assert not valid, "Oversized payload must return empty valid"
+        assert invalid, "Oversized payload must return non-empty invalid"
         agent._validation_errors.add.assert_called()
 
     def test_borderline_payload_within_limit_passes(self):
@@ -207,8 +210,8 @@ class TestCtxWriterRejectOversizePayload:
         msg = _make_valid_message()
         msg["payload"] = {"data": safe_data}
 
-        rows = agent._parse_payload(msg)
-        assert rows is not None, "Payload within limit should pass"
+        valid, invalid = agent._parse_payload(msg)
+        assert valid, "Payload within limit should pass"
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +228,10 @@ class TestCtxWriterRejectMissingKeys:
         msg = _make_valid_message()
         del msg[missing_key]
 
-        rows = agent._parse_payload(msg)
+        valid, invalid = agent._parse_payload(msg)
 
-        assert rows is None, f"Message missing '{missing_key}' must be rejected"
+        assert not valid, f"Message missing '{missing_key}' must be rejected"
+        assert invalid, f"Message missing '{missing_key}' must have invalid"
         agent._validation_errors.add.assert_called()
 
 
