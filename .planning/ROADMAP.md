@@ -1244,7 +1244,7 @@ Plans:
 
 ### Phase 101: Composite Fitness Function
 
-**Goal**: Build rigorous fitness evaluation across 5 dimensions before enabling reproductive operators. Gate for Phases 102-103: composite score variance across live agents must be >= 0.2.
+**Goal**: Build rigorous fitness evaluation across 5 dimensions before enabling reproductive operators. Gate for Phases 102-103: composite score **standard deviation** across live agents must be >= 0.2 (FIT-06 discriminative-power gate; metric `fitness_population_stddev`).
 **Depends on**: Phase 099 (or Phase 094 if 099 is deferred)
 **Requirements**: FIT-01, FIT-02, FIT-03, FIT-04, FIT-05, FIT-06
 **Success Criteria** (what must be TRUE):
@@ -1254,7 +1254,7 @@ Plans:
   3. Calibration metric (confidence vs realized outcome alignment) is computed per agent via reliability diagram; stored in `agent_fitness`
   4. Regime specificity performance (segmented by `hmm_regime` label) is computed per agent and stored
   5. Efficiency metric (output quality / latency * tokens) is computed and stored; penalizes expensive agents with marginal edge
-  6. Cross-agent composite score variance >= 0.2 across the live agent population; if variance < 0.2, Phases 102-103 are blocked until fitness function is revised
+  6. Cross-agent composite score **standard deviation (population stddev, `statistics.pstdev`) >= 0.2** across the live agent population; if stddev < 0.2, Phases 102-103 are blocked until the fitness function is revised. (Terminology note: prior drafts said "variance"; the gate is on **stddev**, gauge `fitness_population_stddev`, threshold `FITNESS_VARIANCE_GATE_THRESHOLD=0.2`. Stddev is the correct measure for bounded [0,1] composites where true variance 0.2 would be unattainable.)
 
 **Plans**: 6 plans
 
@@ -1270,7 +1270,7 @@ Plans:
 **Goal**: Build gene bank, frozen archive, and decomposition algorithms to extract best genome segments from demoted agents.
 **Depends on**: Phase 101 (FIT-06 discriminative power gate passed)
 **Requirements**: GENE-01, GENE-02, GENE-03, GENE-04
-**Evidence gate**: Phase 102 does not begin until FIT-06 composite score shows cross-agent variance >= 0.2.
+**Evidence gate**: Phase 102 does not begin until FIT-06 composite score shows cross-agent **stddev >= 0.2** (`fitness_population_stddev`).
 **Success Criteria** (what must be TRUE):
 
   1. `agent_genomes` TimescaleDB table exists with full genome serialization (prompt, config, tool set, `agent_id`); schema is versioned
