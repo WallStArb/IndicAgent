@@ -389,6 +389,33 @@ class SignalProcessor:
             recorder=self._transform_recorder,
         )
 
+        # CRITICAL-02: In-process confidence calibration before winner selection.
+        # calibrated_confidence is populated here so all downstream consumers (I7, signal_ledger,
+        # Kafka payloads) receive non-null values. Fallback: raw confidence when no curve cached.
+        # confidence_calibrated: bool distinguishes calibrated from raw-fallback paths.
+        _cal_curves = cache_snapshot.calibration_curves
+        for sig in ranked:
+            plugin_name = sig.get("setup_plugin", "")
+            raw_conf = sig.get("confidence") or sig.get("pre_quality_confidence")
+            if raw_conf is not None:
+                curve = _cal_curves.get((plugin_name, tf))
+                if curve is not None:
+                    try:
+                        x_pts = curve.get("x") or curve.get("breakpoints", [])
+                        y_pts = curve.get("y") or curve.get("values", [])
+                        if x_pts and y_pts:
+                            import numpy as np  # noqa: PLC0415 — lazy import, stdlib equivalent unavailable
+
+                            cal_val = float(np.interp(raw_conf, x_pts, y_pts))
+                            sig["calibrated_confidence"] = round(cal_val, 4)
+                            sig["confidence_calibrated"] = True
+                            continue
+                    except Exception:
+                        pass  # fall through to raw fallback
+                # No curve or parse error — pass raw confidence through unchanged
+                sig["calibrated_confidence"] = raw_conf
+                sig["confidence_calibrated"] = False
+
         # Annotate each ranked signal with CIS fields + metadata
         num_signals = len(ranked)
         for rank_idx, sig in enumerate(ranked, start=1):
