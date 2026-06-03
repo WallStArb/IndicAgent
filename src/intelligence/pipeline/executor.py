@@ -802,7 +802,7 @@ class PluginExecutor:
         D-15: PluginExecutor MUST NOT hold a PluginStateManager reference.
         Caller pre-fetches plugin_states and lock and passes them as parameters.
 
-        D-20: internally calls _build_features_from_event once, assembles plugin_input,
+        D-20: internally calls build_flat_features once, assembles plugin_input,
         calls run_i7_plugins, and post-processes each signal dict:
           - Sets setup_plugin, symbol, tf from PluginTask and bar.
           - Sets regime_type via self._plugin_cache (no private cross-class access).
@@ -820,14 +820,14 @@ class PluginExecutor:
         Returns:
             list[dict]: Post-processed raw signals with direction != 0.
         """
-        from src.intelligence.pipeline.signal_processor import (  # noqa: PLC0415
-            _build_features_from_event,
+        from src.intelligence.pipeline.feature_flattening import (  # noqa: PLC0415
+            build_flat_features,
         )
 
         symbol = bar.symbol
         tf = bar.tf
 
-        features = _build_features_from_event(intel_event)
+        features = build_flat_features(intel_event)
 
         plugin_input = {
             "main": main_df,
