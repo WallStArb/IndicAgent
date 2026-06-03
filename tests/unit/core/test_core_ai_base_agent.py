@@ -205,8 +205,14 @@ class _Result(BaseModel):
 def _make_typed_agent() -> BaseAIWorker:
     """Build a concrete BaseAIWorker subclass with result_type = _Result."""
 
+    # Use a function-call counter to generate unique agent_ids for test isolation
+    if not hasattr(_make_typed_agent, "_counter"):
+        _make_typed_agent._counter = 0
+    _make_typed_agent._counter += 1
+    unique_id = f"typed_worker_{_make_typed_agent._counter}"
+
     class TypedWorker(ConcreteAgent):
-        agent_id = "typed_worker"
+        agent_id = unique_id
         result_type: ClassVar[type[BaseModel]] = _Result
 
     return TypedWorker()

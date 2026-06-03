@@ -81,15 +81,16 @@ function contractToBase(contract: string): string {
  * Parse the nested event, then access tiered fields.
  * See src/intelligence/schemas.py for IntelligenceEvent schema.
  */
-function parseIntelligence(p: Record<string, string>): {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseIntelligence(p: Record<string, any>): {
   structure: StructureData;
   context: ContextData;
   patterns: PatternData;
   smartMoney: SmartMoneyData;
   confluence: ConfluenceData;
 } {
-  // Parse the nested IntelligenceEvent JSON from the stream payload
-  const event = JSON.parse(p.event || "{}");
+  // Payload IS the IntelligenceEvent dict (flat dict, not wrapped {"event": "<json>"})
+  const event = p;
 
   // Extract tiers — fall back to empty object if tier is missing
   const i3 = event.i3 ?? {};
@@ -758,8 +759,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     // Extract both I1 (→ indicatorsByTf) and I3–I6 (→ intelligenceByTf) here.
     es.addEventListener("intelligence_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
-      // Symbol and timeframe are nested inside payload.event (IntelligenceEvent JSON)
-      const event = JSON.parse(payload.event || "{}");
+      // Payload IS the IntelligenceEvent dict (flat dict, not wrapped {"event": "<json>"})
+      const event = payload;
       const sym = contractToBase(event.symbol || "");
       if (!sym) return;
       // FIX: IntelligenceEvent uses 'tf' not 'timeframe' (see src/intelligence/schemas.py)

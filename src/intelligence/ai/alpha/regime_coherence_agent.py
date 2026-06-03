@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 from pydantic import BaseModel, field_validator
 
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
-from src.core.llm.chain import LLMProviderChain
 from src.intelligence.ai.alpha.regime_coherence_prompts import (
     ACTIVE_VERSION,
     build_regime_coherence_prompt,
 )
 from src.intelligence.ai.context import SignalContext, Tier
+
+if TYPE_CHECKING:
+    from src.core.ai.agent_dependencies import AgentDependencies
 
 logger = structlog.get_logger(__name__)
 
@@ -90,9 +92,11 @@ class RegimeCoherenceAnalyzer(Evaluator):
             self.shadow_only = override.strip().lower() in ("true", "1", "yes")
         # Unknown type - keep fail-closed (do nothing)
 
-    def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
+    def __init__(self, *, dependencies: AgentDependencies, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._llm = llm_chain
+        self._llm = dependencies.llm_chain
+        if self._llm is None:
+            raise ValueError("RegimeCoherenceAnalyzer requires dependencies.llm_chain")
 
     async def _compute(self, context: SignalContext) -> AgentOutput:
         """Core computation: build prompt -> call LLM -> parse JSON -> multiplier.

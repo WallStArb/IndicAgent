@@ -26,6 +26,7 @@ from src.observability.metrics import (
 from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
 
 if TYPE_CHECKING:
+    from src.core.ai.agent_dependencies import AgentDependencies
     from src.core.ai.lineage import LineageRecorder
     from src.core.llm.chain import LLMProviderChain
     from src.intelligence.ai.context import (  # ring0-ok: TYPE_CHECKING only, not at runtime
@@ -92,23 +93,34 @@ class BaseAIWorker(BaseDaemon, ABC):
     # max_tokens=None. Matches compute-cost discipline from CONTEXT.md.
     _default_max_tokens: ClassVar[int] = 2048
 
-    def __init__(self, name: str | None = None, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        dependencies: AgentDependencies | None = None,
+        name: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         # If name not provided, use class name or agent_id
         if name is None:
             name = self.__class__.__name__
-        super().__init__(*args, name=name, **kwargs)
+        super().__init__(name=name, **kwargs)
         self._timeout_s = self.latency_budget_ms / 1000.0
         self._lineage: LineageRecorder | None = None
         self._llm: LLMProviderChain | None = None
         self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Validate result_type at class-definition time (REVIEWS LOW item 10).
+        """Validate result_type and self-register agent in _REGISTRY.
 
-        Fails immediately when a subclass sets result_type to a non-BaseModel value,
-        catching misconfiguration before the first _run_typed() call.
+        - result_type validation: Fails immediately when a subclass sets result_type
+          to a non-BaseModel value (REVIEWS LOW item 10).
+        - Self-registration: Registers agents by agent_id in _REGISTRY at class-
+          definition time. BaseAIWorker (agent_id="") and Evaluator are skipped.
+          Duplicate agent_ids raise RegistryError.
         """
         super().__init_subclass__(**kwargs)
+
+        # result_type validation (existing)
         if cls.result_type is not None and not (
             isinstance(cls.result_type, type) and issubclass(cls.result_type, BaseModel)
         ):
@@ -116,6 +128,18 @@ class BaseAIWorker(BaseDaemon, ABC):
                 f"{cls.__name__}.result_type must be a pydantic BaseModel subclass or None,"
                 f" got {cls.result_type!r}"
             )
+
+        # Self-registration in _REGISTRY (Phase 096)
+        if cls.agent_id:
+            # Lazy import avoids circular import at module load
+            from src.core.ai.registry import _REGISTRY, RegistryError
+
+            if cls.agent_id in _REGISTRY and _REGISTRY[cls.agent_id] is not cls:
+                raise RegistryError(
+                    f"Duplicate agent_id '{cls.agent_id}': "
+                    f"{_REGISTRY[cls.agent_id].__name__} vs {cls.__name__}"
+                )
+            _REGISTRY[cls.agent_id] = cls
 
     async def compute(self, context: SignalContext) -> AgentOutput:
         """Run _compute() with timing capture + exception safety.

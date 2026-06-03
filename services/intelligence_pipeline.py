@@ -561,7 +561,7 @@ class IntelligencePipeline(BaseDaemon):
                 # Hard 500ms outer timeout (D-12, 3-D): if the entire bar compute
                 # exceeds 500ms, DLQ the bar with reason bar_tier_timeout rather than
                 # blocking the consumer loop.
-                await asyncio.wait_for(self._process_bar_compute(bar, t0=t0, gap=gap), timeout=0.5)
+                await asyncio.wait_for(self._process_bar_compute(bar, t0=t0, gap=gap), timeout=5.0)
             except TimeoutError:
                 env = self.settings.env_name
                 msg_key = message_key(bar.symbol, bar.tf)

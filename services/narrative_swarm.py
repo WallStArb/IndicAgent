@@ -51,7 +51,7 @@ class NarrativeSwarm(BaseGroupCoordinator):
 
     @property
     def agents(self) -> list[BaseAIWorker]:
-        return [self._narrative_agent] if self._narrative_agent else []
+        return self._agents
 
     @property
     def trigger_topics(self) -> list[str]:
@@ -66,16 +66,14 @@ class NarrativeSwarm(BaseGroupCoordinator):
 
     async def _setup(self) -> None:
         await super()._setup()
-        # _llm_chain is wired by super()._setup() — construct agent here.
-        self._narrative_agent = NarrativeSynthesizer(llm_chain=self._llm_chain)
-
-        if self._pool is not None:
-            await self._shadow_registry_ensure_agents(self.agents)
-
-        self.logger.info(
-            "narrative_swarm.started",
-            agent_id=self._narrative_agent.agent_id,
+        # Agents are now built by AgentRegistry in BaseGroupCoordinator._setup().
+        # Find NarrativeSynthesizer by type.
+        self._narrative_agent = next(
+            (a for a in self._agents if isinstance(a, NarrativeSynthesizer)), None
         )
+
+        agent_id = self._narrative_agent.agent_id if self._narrative_agent else "none"
+        self.logger.info("narrative_swarm.started", agent_id=agent_id)
 
     # Narrative validity: skip signals older than N × TF duration.
     # A 5m signal older than 10m describes a market that no longer exists.

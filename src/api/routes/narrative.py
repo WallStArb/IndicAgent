@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ...config.settings import Settings
+from ...core.ai.agent_dependencies import AgentDependencies
 from ...core.database_manager import DatabaseManager
 from ...core.llm.chain import LLMProviderChain
 from ...intelligence.ai.context import BarContext, QuantSignalContext, SignalContext
@@ -216,7 +217,12 @@ async def get_narrative(
             context = _build_context_from_row(row)
 
             # 3. Generate narrative
-            agent = NarrativeSynthesizer(llm_chain=_get_llm_chain())
+            agent_dependencies = AgentDependencies(
+                llm_chain=_get_llm_chain(),
+                pool=None,
+                settings=_get_settings(),
+            )
+            agent = NarrativeSynthesizer(dependencies=agent_dependencies)
             t0 = time.monotonic()
             output = await agent.compute(context)
             latency_ms = (time.monotonic() - t0) * 1000

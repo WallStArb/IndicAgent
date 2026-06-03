@@ -568,7 +568,7 @@ Plans:
 
 - [x] 093-05-PLAN.md — Edge case coverage, numerical stability over 10K bars, CI gate confirmation
 
-### Phase 094: LiteLLM Backend *(deferred to v2.8)*
+### Phase 094: LiteLLM Backend — COMPLETE 2026-05-29
 
 **Goal**: Users of `LLMProviderChain.generate()` get multi-provider routing, automatic retries, and a consistent audit interface — without knowing which underlying HTTP client is in use.
 **Depends on**: Phase 092
@@ -593,7 +593,7 @@ Plans:
 - [x] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
 - [x] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
-### Phase 095: Pydantic AI Agent Adapter *(deferred to v2.8)*
+### Phase 095: Pydantic AI Agent Adapter — COMPLETE 2026-05-31
 
 **Goal**: Agent authors write typed `_compute()` implementations against a `RunContext[AgentDeps]`; all session lifecycle, error handling, and dependency injection are handled by the adapter — not hand-coded per agent.
 **Depends on**: Phase 093
@@ -1043,7 +1043,7 @@ Plans:
 
 - [x] 109-05-PLAN.md — SelfHealingAgent service + runtime params migration + cleanup (_LAG_THRESHOLDS, shadow_only)
 
-### Phase 094: LiteLLM + Instructor Structured Output
+### Phase 094: LiteLLM + Instructor Structured Output — COMPLETE 2026-05-29
 
 **Goal**: Replace ~450 LOC of bespoke provider logic with LiteLLM configuration. Layer Instructor structured output on top to eliminate per-agent JSON parsing boilerplate. Parse failure rate measured before and after.
 **Depends on**: Phase 107
@@ -1057,7 +1057,11 @@ Plans:
   5. `llm_calls.parse_success` rate is measured before Phase 094 ships and after; result documented; if no improvement, STRUCT-OUT is flagged for review rather than silently promoted
   6. Each agent declares one typed `BaseModel` result class; `_parse_multiplier_response` and `_validate_*_fields` boilerplate deleted; LOC reduction confirmed
 
-**Plans**: TBD (2 plans written from v2.7, not yet executed)
+**Plans**: 3 plans — COMPLETE
+
+- [x] 094-01-PLAN.md — LiteLLMBackend implementation with multi-provider routing
+- [x] 094-02-PLAN.md — LLMProviderChain wire-up + legacy provider deletion
+- [x] 094-03-PLAN.md — Instructor structured output layer + agent migration
 
 ### Phase 110: Renaissance Rename
 
@@ -1121,7 +1125,7 @@ Plans:
 
 - pytest tests/unit/ passes with zero failures; ruff check . passes
 
-### Phase 095: Pydantic AI Agent Execution Layer
+### Phase 095: Pydantic AI Agent Execution Layer — COMPLETE 2026-05-31
 
 **Goal**: Add a typed, validated LLM execution path to `BaseAIWorker` — a `WorkerContext` frozen dep container, an `LLMAdapter` (pydantic-ai `FunctionModel`) that routes through `LLMProviderChain` preserving circuit breaking and the `llm_calls` audit trail, and a `_run_typed()` method plus `result_type: ClassVar` opt-in — so every AI agent gets pydantic-ai's grammar-constrained structured output, validation, and retry for free. `SkepticEvaluator` is migrated straight to `_run_typed()` as the reference implementation (no parallel class, no feature gate).
 **Depends on**: Phase 094 (and sequenced after Phase 110 rename)
@@ -1134,15 +1138,13 @@ Plans:
   4. `SkepticEvaluator` runs via `_run_typed()` with `result_type=SkepticResult` and `agent_id="skeptic"`; transfer function and AlphaSwarm wiring unchanged; no `SkepticPydanticEvaluator`, no `ENABLE_PYDANTIC_SKEPTIC` gate (AGENT-EXEC-04)
   5. `BaseAIWorker._llm_generate()` / `_llm_generate_structured()` are unmodified; unmigrated agents pass all existing tests (AGENT-EXEC-05)
 
-**Plans**: 5 plans in 4 waves
+**Plans**: 5 plans — COMPLETE
 
-Plans:
-
-- [ ] 095-01-PLAN.md — pydantic-ai dependency + WorkerContext frozen dataclass (Wave 1)
-- [ ] 095-02-PLAN.md — response_format threading through chain.generate() + LiteLLMBackend (Wave 1)
-- [ ] 095-03-PLAN.md — LLMAdapter FunctionModel bridge through LLMProviderChain (Wave 2)
-- [ ] 095-04-PLAN.md — _run_typed() + result_type ClassVar on BaseAIWorker (Wave 3)
-- [ ] 095-05-PLAN.md — SkepticEvaluator straight migration + alpha_swarm mapping (Wave 4)
+- [x] 095-01-PLAN.md — pydantic-ai dependency + WorkerContext frozen dataclass (Wave 1)
+- [x] 095-02-PLAN.md — response_format threading through chain.generate() + LiteLLMBackend (Wave 1)
+- [x] 095-03-PLAN.md — LLMAdapter FunctionModel bridge through LLMProviderChain (Wave 2)
+- [x] 095-04-PLAN.md — _run_typed() + result_type ClassVar on BaseAIWorker (Wave 3)
+- [x] 095-05-PLAN.md — SkepticEvaluator straight migration + alpha_swarm mapping (Wave 4)
 
 ### Phase 096: Agent Registry
 
