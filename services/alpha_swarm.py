@@ -47,11 +47,9 @@ from src.core.stream_keys import (
     topic_intelligence_i7_signals,
     topic_swarm_alpha,
 )
-from src.intelligence.ai.alpha.correlation_agent import CorrelationAnalyzer
-from src.intelligence.ai.alpha.counterfactual_agent import CounterfactualEvaluator
+
+# MLEvaluator import retained for isinstance lookup in _setup
 from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
-from src.intelligence.ai.alpha.regime_coherence_agent import RegimeCoherenceAnalyzer
-from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
 from src.intelligence.ai.context import SignalContext, Tier
 from src.intelligence.ai.group_coordinator import BaseGroupCoordinator
 from src.intelligence.schemas import signal_dict_to_ranked
@@ -131,21 +129,15 @@ class AlphaSwarm(BaseGroupCoordinator):
         POOL-FIX: pool is created once by super()._setup() in BaseGroupCoordinator.
         LineageRecorder gets the Kafka producer from self._producer (set by super).
 
-        Plan 80-07: construct all four Evaluator instances + semaphore.
+        Agents are now built by AgentRegistry in BaseGroupCoordinator._setup().
+        This method only configures semaphore, config propagation, and SIGUSR1.
         """
         await super()._setup()
 
-        # Agents require _llm_chain which is wired by super()._setup() — construct here.
-        self._agents = [
-            SkepticEvaluator(llm_chain=self._llm_chain),
-            CorrelationAnalyzer(llm_chain=self._llm_chain),
-            RegimeCoherenceAnalyzer(llm_chain=self._llm_chain),
-            CounterfactualEvaluator(llm_chain=self._llm_chain),
-        ]
-        # MLEvaluator: no LLM chain; uses pool for ModelRegistry.
-        # Must be appended after super()._setup() so self._pool is available.
-        self._agents.append(MLEvaluator(pool=self._pool))
-        await self._agents[-1]._setup_models()
+        # MLEvaluator requires async _setup_models() call — find by type.
+        ml = next((a for a in self._agents if isinstance(a, MLEvaluator)), None)
+        if ml is not None:
+            await ml._setup_models()
 
         self._semaphore = asyncio.Semaphore(self.settings.SWARM_MAX_CONCURRENT_CALLS)
 
@@ -159,10 +151,6 @@ class AlphaSwarm(BaseGroupCoordinator):
                     agent._config_cache[k] = v
             if hasattr(agent, "_apply_shadow_mode_config"):
                 agent._apply_shadow_mode_config()
-
-        # D-23: idempotent enrollment — guarantees row exists even if migration missed
-        if self._pool is not None:
-            await self._shadow_registry_ensure_agents(self._agents)
 
         # SIGUSR1 hot-reload: triggered by nightly training agent after model registration.
         # asyncio.get_running_loop() MUST be used here (not get_event_loop()) — this is

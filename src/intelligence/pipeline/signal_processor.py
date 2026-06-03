@@ -25,7 +25,6 @@ from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import TF_SECONDS
 from src.intelligence.pipeline.calibrator import apply_calibration
 from src.intelligence.pipeline.feature_flattening import (
-    _HMM_REGIME_LABEL,  # noqa: F401 — kept for any local references (none currently)
     build_flat_features,
 )
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
@@ -60,7 +59,7 @@ _QUALITY_FEATURE_ABSENT: float = 1.0
 _DRIFT_PENALTY_ABSENT: float = 1.0  # no penalty when symbol has no drift history
 
 # Alpha decay half-life bars
-# Note: _I1_ALIAS_MAP, _HMM_REGIME_LABEL, and build_flat_features are imported from
+# Note: _I1_ALIAS_MAP and build_flat_features are imported from
 # feature_flattening (moved in Plan 05 to prevent circular import with
 # feature_pipeline_executor.py). _I1_ALIAS_MAP is re-exported above for compat.
 ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}

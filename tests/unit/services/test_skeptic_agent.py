@@ -142,26 +142,12 @@ def test_skeptic_evaluator_agent_id_and_result_type():
 
 
 def _make_skeptic_evaluator():
-    """Construct SkepticEvaluator bypassing __init__ (avoids LLMProviderChain dep)."""
+    """Construct SkepticEvaluator with mocked AgentDependencies."""
+    from src.core.ai.agent_dependencies import AgentDependencies
     from src.intelligence.ai.alpha.skeptic_agent import SkepticEvaluator
 
-    evaluator = SkepticEvaluator.__new__(SkepticEvaluator)
-    evaluator.logger = MagicMock()
-
-    # Build a tracer mock whose context manager yields a span mock with all needed attrs
-    span_mock = MagicMock()
-    cm_mock = MagicMock()
-    cm_mock.__enter__ = MagicMock(return_value=span_mock)
-    cm_mock.__exit__ = MagicMock(return_value=False)
-    tracer_mock = MagicMock()
-    tracer_mock.start_as_current_span = MagicMock(return_value=cm_mock)
-    evaluator.tracer = tracer_mock
-
-    evaluator._llm = MagicMock()
-    evaluator._timeout_s = 120.0
-    evaluator._agent_labels = {"agent_id": "skeptic", "group": "alpha"}
-    evaluator.shadow_only = True
-    evaluator._lineage = None  # no lineage recorder in unit tests
+    deps = AgentDependencies(llm_chain=MagicMock(), pool=None, settings=None)
+    evaluator = SkepticEvaluator(dependencies=deps)
     return evaluator
 
 

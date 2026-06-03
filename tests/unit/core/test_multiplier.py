@@ -13,9 +13,15 @@ def _make_dummy_agent():
     from src.core.ai.evaluator import Evaluator
     from src.intelligence.ai.context import SignalContext
 
+    # Use a function-call counter to generate unique agent_ids for test isolation
+    if not hasattr(_make_dummy_agent, "_counter"):
+        _make_dummy_agent._counter = 0
+    _make_dummy_agent._counter += 1
+    unique_id = f"dummy_v1_{_make_dummy_agent._counter}"
+
     class _DummyAgent(Evaluator):
         output_schema: ClassVar[dict] = {"score": float, "confidence": float}
-        agent_id = "dummy_v1"
+        agent_id = unique_id
         group = "test"
         tiers_needed = frozenset()
         latency_budget_ms = 1000.0
@@ -95,7 +101,7 @@ def test_build_multiplier_output_fields_from_context():
     output = agent._build_multiplier_output(
         ctx, multiplier=0.9, confidence=0.6, payload={}, prompt_version="v2"
     )
-    assert output.agent_id == "dummy_v1"
+    assert output.agent_id == agent.agent_id
     assert output.group == "test"
     assert output.symbol == "ES"
     assert output.timeframe == "5m"

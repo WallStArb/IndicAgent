@@ -422,25 +422,44 @@ async def test_graduation_loop_handles_nan_gracefully():
 
 
 def test_swarm_agents_are_four_typed_agents():
-    """Plan 80-07: _agents init list must declare list[Evaluator] with four agents.
+    """Plan 096-03: agents are built by AgentRegistry, not hardcoded imports.
 
-    Updated from Phase 78 single-skeptic assertion. Plan 80-07 adds
-    Correlation, RegimeCoherence, Counterfactual alongside Skeptic.
+    AlphaSwarm no longer imports CorrelationAnalyzer, RegimeCoherenceAnalyzer,
+    CounterfactualEvaluator, or SkepticEvaluator directly — AgentRegistry.build()
+    in BaseGroupCoordinator._setup() constructs them from YAML.
+
+    MLEvaluator import is retained for isinstance lookup in _setup.
     VolumeAgentComputeAgent (Phase 74 dead code) must remain absent.
     """
+    import inspect
+
     import services.alpha_swarm as m
 
-    # All four Phase 80 agents must be importable from the module
-    assert hasattr(m, "CorrelationAnalyzer"), "CorrelationAnalyzer not in module"
-    assert hasattr(m, "RegimeCoherenceAnalyzer"), "RegimeCoherenceAnalyzer not in module"
-    assert hasattr(m, "CounterfactualEvaluator"), "CounterfactualEvaluator not in module"
-    assert hasattr(m, "SkepticEvaluator"), "SkepticEvaluator not in module"
+    # MLEvaluator retained for isinstance lookup
+    assert hasattr(m, "MLEvaluator"), "MLEvaluator not in module (needed for isinstance)"
+
+    # Direct agent class imports removed — built by AgentRegistry
+    assert not hasattr(m, "SkepticEvaluator"), "SkepticEvaluator should not be imported"
+    assert not hasattr(m, "CorrelationAnalyzer"), "CorrelationAnalyzer should not be imported"
+    assert not hasattr(
+        m, "RegimeCoherenceAnalyzer"
+    ), "RegimeCoherenceAnalyzer should not be imported"
+    assert not hasattr(
+        m, "CounterfactualEvaluator"
+    ), "CounterfactualEvaluator should not be imported"
+
     # VolumeAgentComputeAgent (Phase 74 dead code) must remain absent
     assert not hasattr(
         m, "VolumeAgentComputeAgent"
     ), "VolumeAgentComputeAgent still imported in alpha_swarm_agent"
+
     # Evaluator must be the typed list element
     assert hasattr(m, "Evaluator"), "Evaluator not imported in alpha_swarm_agent"
+
+    # Verify registry-driven path: _setup must call super()._setup() and use _setup_models
+    setup_src = inspect.getsource(m.AlphaSwarm._setup)
+    assert "super()._setup()" in setup_src, "_setup must call super()._setup()"
+    assert "_setup_models" in setup_src, "_setup must call _setup_models on MLEvaluator"
 
 
 @pytest.mark.asyncio

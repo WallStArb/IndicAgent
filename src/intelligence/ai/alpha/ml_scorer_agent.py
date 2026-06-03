@@ -21,7 +21,7 @@ Key sources:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import mlflow
 import numpy as np
@@ -33,6 +33,9 @@ from src.core.ai.prompt_utils import clamp
 from src.core.ml.registry import ModelRegistry
 from src.intelligence.ai.context import SignalContext
 from src.intelligence.ml.feature_builder import SHADOW_FEATURE_KEYS
+
+if TYPE_CHECKING:
+    from src.core.ai.agent_dependencies import AgentDependencies
 
 logger = structlog.get_logger(__name__)
 
@@ -111,10 +114,12 @@ class MLEvaluator(Evaluator):
             self.shadow_only = override.strip().lower() in ("true", "1", "yes")
         # Unknown type - keep fail-closed (do nothing)
 
-    def __init__(self, pool: Any, **kwargs: Any) -> None:
+    def __init__(self, *, dependencies: AgentDependencies, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._pool = pool
-        self._registry = ModelRegistry(pool)
+        if dependencies.pool is None:
+            raise ValueError("MLEvaluator requires dependencies.pool")
+        self._pool = dependencies.pool
+        self._registry = ModelRegistry(dependencies.pool)
         # segment_key -> loaded MLflow pyfunc model
         self._models: dict[str, Any] = {}
         # Post-encoding column list from MLflow shap_importance.json.

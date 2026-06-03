@@ -21,7 +21,7 @@ from src.intelligence.ai.alpha.skeptic_prompts import (
 from src.intelligence.ai.context import SignalContext, Tier
 
 if TYPE_CHECKING:
-    from src.core.llm.chain import LLMProviderChain
+    from src.core.ai.agent_dependencies import AgentDependencies
 
 logger = structlog.get_logger(__name__)
 
@@ -82,9 +82,11 @@ class SkepticEvaluator(Evaluator):
             self.shadow_only = override.strip().lower() in ("true", "1", "yes")
         # Unknown type - keep fail-closed (do nothing)
 
-    def __init__(self, llm_chain: LLMProviderChain, **kwargs: Any) -> None:
+    def __init__(self, *, dependencies: AgentDependencies, **kwargs: Any) -> None:
         super().__init__(name="SkepticEvaluator", **kwargs)
-        self._llm = llm_chain
+        self._llm = dependencies.llm_chain
+        if self._llm is None:
+            raise ValueError("SkepticEvaluator requires dependencies.llm_chain")
 
     async def _compute(self, context: SignalContext) -> AgentOutput:
         """Core computation: build prompt -> call LLM -> parse JSON -> transfer function.

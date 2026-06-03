@@ -1,0 +1,17 @@
+# config/agents.yaml
+# Operator manifest — edit and restart the service to add/reconfigure agents.
+# shadow_only: true is the only valid value; false is rejected at validation.
+# Production promotion goes through shadow_registry statistical gate only.
+
+alpha:
+  - agent_id: skeptic
+  - agent_id: correlation_v1
+  - agent_id: regime_coherence_v1
+  - agent_id: counterfactual_v1
+  - agent_id: ml_scorer_v1
+    shadow_only: true
+
+narrative:
+  - agent_id: narrative_v1
+
+risk: []  # scaffolded; no agents in Phase 096

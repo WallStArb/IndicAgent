@@ -318,7 +318,7 @@ async def get_recent_signals(
                 sl.direction,
                 sl.entry_price,
                 sl.stop_loss,
-                sl.confidence,
+                sl.signal_quality AS confidence,
                 sl.was_selected,
                 sl.cis_score,
                 sl.status,
@@ -336,7 +336,7 @@ async def get_recent_signals(
               AND ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
-              AND (NOT $5::boolean OR (sl.confidence >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
+              AND (NOT $5::boolean OR (sl.signal_quality >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
             ORDER BY sl.signal_computed_at DESC
             LIMIT $3
         """
@@ -443,7 +443,7 @@ async def get_signals_stats(
                 -- Hero tier count today
                 COUNT(*) FILTER (
                     WHERE was_selected = true
-                      AND confidence >= 0.40
+                      AND signal_quality >= 0.40
                       AND cis_score IS NOT NULL
                       AND abs(cis_score) > 0.35
                       AND signal_computed_at >= NOW() - INTERVAL '24 hours'
@@ -453,15 +453,15 @@ async def get_signals_stats(
                     WHERE was_selected = true
                       AND signal_computed_at >= NOW() - INTERVAL '24 hours'
                 ) AS selected_count_today,
-                -- Avg confidence
+                -- Avg confidence (signal_quality is the post-rename column)
                 ROUND(
-                    AVG(confidence) FILTER (
+                    AVG(signal_quality) FILTER (
                         WHERE was_selected = true
                           AND signal_computed_at >= NOW() - INTERVAL '24 hours'
                     )::numeric, 4
                 ) AS avg_confidence_today,
                 ROUND(
-                    AVG(confidence) FILTER (
+                    AVG(signal_quality) FILTER (
                         WHERE was_selected = true
                           AND signal_computed_at >= NOW() - INTERVAL '7 days'
                     )::numeric, 4

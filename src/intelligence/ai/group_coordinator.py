@@ -80,6 +80,10 @@ class BaseGroupCoordinator(BaseDaemon, ABC):
         self._pool: Any | None = None  # asyncpg.Pool
         self._llm_chain: LLMProviderChain | None = None
         self._lineage: LineageRecorder | None = None
+        self._agents: list[BaseAIWorker] = []
+        self._agent_dependencies: Any | None = (
+            None  # AgentDependencies; Any avoids import at module level
+        )
 
     async def _setup(self) -> None:
         """Wire Kafka consumer/producer + DB pool + cache seeding.
@@ -144,7 +148,42 @@ class BaseGroupCoordinator(BaseDaemon, ABC):
                 env_name=self.env_name,
             )
             await self._lineage.start()
-        for agent in self.agents:
+
+        # ----------------------------------------------------------------------
+        # Agent Registry: build agents from YAML, apply DB shadow state
+        # ----------------------------------------------------------------------
+        from src.core.ai.agent_dependencies import AgentDependencies
+        from src.core.ai.registry import AgentRegistry, RegistryConfigError
+        from src.intelligence.ai.register_agents import _import_all
+
+        # Import all agent modules to trigger __init_subclass__ registration
+        _import_all()
+
+        # Build AgentDependencies container
+        self._agent_dependencies = AgentDependencies(
+            llm_chain=self._llm_chain,
+            pool=self._pool,
+            settings=self.settings,
+        )
+
+        # Build agents from YAML via AgentRegistry
+        self._agents = AgentRegistry.build(self.group_id, self._agent_dependencies)
+
+        # Empty-active-group guard: an active swarm group must have at least one agent
+        if not self._agents:
+            raise RegistryConfigError(
+                f"Group '{self.group_id}' resolved to zero agents — an active swarm group "
+                f"must define at least one agent in config/agents.yaml. Only the scaffolded "
+                f"'risk' group may be empty."
+            )
+
+        # Enroll agents in shadow_registry and apply authoritative DB state
+        if self._pool is not None:
+            await self._shadow_registry_ensure_agents(self._agents)
+            await self._apply_shadow_registry_state(self._agents)
+
+        # Assign lineage to each agent (must run after agents are built)
+        for agent in self._agents:
             agent._lineage = self._lineage
 
         # D-19: BaseGroupCoordinator must call super()._setup() for forward compatibility
@@ -167,6 +206,45 @@ class BaseGroupCoordinator(BaseDaemon, ABC):
             "group_coordinator.shadow_enrolled",
             group_id=self.group_id,
             agents=[a.agent_id for a in agents],
+        )
+
+    async def _apply_shadow_registry_state(self, agents: list[BaseAIWorker]) -> None:
+        """Apply authoritative shadow_registry DB state to agent instances.
+
+        Reads back is_shadow from shadow_registry and sets agent.shadow_only on each
+        instance. The DB value is authoritative — it overrides the class default.
+        Fails closed (raises) if any agent lacks a shadow_registry row or if the DB
+        read fails — never defaults to the class shadow_only value.
+        """
+        assert self._pool is not None
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT component_name, is_shadow FROM shadow_registry "
+                    "WHERE component_type = 'swarm_agent'"
+                )
+                state = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
+        except Exception as error:
+            self.logger.error(
+                "group_coordinator.shadow_state_read_failed",
+                group_id=self.group_id,
+                error=str(error),
+            )
+            raise
+
+        for agent in agents:
+            if agent.agent_id not in state:
+                raise RuntimeError(
+                    f"shadow_registry has no row for agent '{agent.agent_id}' after "
+                    f"enrollment — refusing to start (cannot determine authoritative "
+                    f"shadow state)"
+                )
+            agent.shadow_only = state[agent.agent_id]
+
+        self.logger.info(
+            "group_coordinator.shadow_state_applied",
+            group_id=self.group_id,
+            state={a.agent_id: a.shadow_only for a in agents},
         )
 
     async def _seed_context_cache(self) -> None:
