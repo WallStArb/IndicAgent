@@ -352,15 +352,15 @@ class SelfHealingEngine:
                 url,
                 params={"query": state_variable},
                 timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
+            ) as response:
+                if response.status != 200:
                     logger.warning(
                         "prometheus.non_200",
-                        status=resp.status,
+                        status=response.status,
                         query=state_variable,
                     )
                     return None
-                data = await resp.json()
+                data = await response.json()
                 results = data.get("data", {}).get("result", [])
                 if not results:
                     return None
@@ -419,8 +419,8 @@ class SelfHealingEngine:
             self._service_auditor_restart_url,
             json={"unit": unit},
             timeout=aiohttp.ClientTimeout(total=30),
-        ) as resp:
-            resp.raise_for_status()
+        ) as response:
+            response.raise_for_status()
 
     async def _flush_connection_pool(self) -> None:
         """Graceful flush of the managed DB pool via ManagedPool.flush().
