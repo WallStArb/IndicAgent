@@ -11,7 +11,7 @@ Pipeline processes bars sequentially (one at a time). I1→4 waves→I7 = 6 sequ
 I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → SMC → I6 (confluence) → I7 (signals)
 ```
 
-**I1** (28): indicators · **I2** (10): composite events · **I3** (8): structure · **I4** (12): context (GARCH, Kalman, VWAP, VIXRegime) · **I5** (16): patterns · **SMC** (16): smart money (BOS/CHoCH, FVG, OB, HMM) · **I6** (6): confluence · **I7** (36): trading setups + 2 aggregators. See `TIER_I*` in `register_plugins.py`.
+**I1** (29): indicators · **I2** (11): composite events · **I3** (9): structure · **I4** (13): context (GARCH, Kalman, VWAP, VIXRegime) · **I5** (16): patterns · **SMC** (16): smart money (BOS/CHoCH, FVG, OB, HMM) · **I6** (7): confluence · **I7** (37): trading setups + 2 aggregators. See `TIER_I*` in `register_plugins.py`.
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -54,7 +54,7 @@ All live in `src/intelligence/trading/`:
 
 **AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (default nemotron-3-nano:4b; set via `OLLAMA_MODEL` in `.env`).
 
-**NarrativeComputeAgent** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
+**NarrativeSynthesizer** (`src/intelligence/ai/narrative/narrative_agent.py`): deployed via `indicagent-narrative-compute` systemd service.
 
 **Backend:** `LiteLLMBackend` — `litellm.acompletion()` unified interface. `OllamaProvider`/`LLMChain` classes removed. Provider configured via `OLLAMA_MODEL` in `.env` (default nemotron-3-nano:4b). `chain.last_provider_id` = which succeeded.
 - Adding providers: configure via litellm model string (e.g., `"openai/gpt-4o"`) and API key env vars; see `src/core/llm/litellm_backend.py`.
