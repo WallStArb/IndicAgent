@@ -851,6 +851,17 @@ class PluginExecutor:
             "cache_snapshot": cache_snapshot,
         }
 
+        # Phase 112-04 migrated all I7 plugins to read tier sub-dicts
+        # (frames.get("i1"), frames.get("smc"), etc.) instead of the flat
+        # frames["features"] dict. Provide each tier's model_dump() so
+        # plugins can merge features from their expected keys.
+        for tier_key in ("i1", "i2", "i3", "i4", "i5", "smc", "i6"):
+            sub = getattr(intel_event, tier_key, None)
+            if sub is not None:
+                plugin_input[tier_key] = {
+                    k: v for k, v in sub.model_dump().items() if v is not None
+                }
+
         tasks, outputs, sig_state_updates = await self.run_i7_plugins(
             plugin_states,
             lock,
