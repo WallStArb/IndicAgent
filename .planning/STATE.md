@@ -4,7 +4,7 @@ milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
 stopped_at: Phase 101 context gathered
-last_updated: "2026-06-03T03:34:12.037Z"
+last_updated: "2026-06-03T10:17:17.222Z"
 last_activity: 2026-06-03 -- Phase 098 planning complete
 progress:
   total_phases: 21
@@ -72,7 +72,7 @@ Last activity: 2026-06-03 -- Phase 098 planning complete
 | Gate | Condition | Blocks |
 |------|-----------|--------|
 | GUARD gate | Post-Instructor parse failure rate > 1% (STRUCT-OUT-03) | Phase 099 executes only if condition true |
-| FIT-06 gate | Cross-agent composite score variance >= 0.2 | Phases 102 and 103 |
+| FIT-06 gate | Cross-agent composite score **stddev** >= 0.2 (`fitness_population_stddev`, `statistics.pstdev`) | Phases 102 and 103 |
 | Zep compute gate | Recall p95 latency <= 50ms; RAM footprint documented | Phase 097 enablement |
 | DSPy data gate | >= 500 labeled rows per agent in llm_calls | Phase 098 first run |
 
