@@ -260,8 +260,10 @@ test-results/
 
 # AI tool local config — not shared
 .claude.local.md
+.claude.json
 .cursorignore
 .gemini/
+.mcp.json
 
 # Archive directory - never commit archived/deprecated code
 archive/
