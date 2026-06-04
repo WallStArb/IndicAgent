@@ -425,7 +425,7 @@ class TestDivergenceStack:
             assert result.get("direction") == 0
 
     def test_confidence_formula(self):
-        """Verify confidence uses compose_confidence(weighted_score / 0.60) with [0.10, 0.95] contract.
+        """Verify confidence uses compose_confidence(weighted_score / 0.60) with [0.0, 0.95] contract.
 
         With RSI=0.9 (0.30), MACD=0.9 (0.25), vol=0.9 (0.20) — 3 agreeing, score=0.675.
         Raw = 0.675 / 0.60 = 1.125, clamped to CONF_CEIL=0.95.
