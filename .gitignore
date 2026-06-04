@@ -254,6 +254,10 @@ playwright.config.ts
 playwright-report/
 test-results/
 
+# AI tool working directories (auto-created, always empty)
+.codex/
+.agents/
+
 # Archive directory - never commit archived/deprecated code
 archive/
 
