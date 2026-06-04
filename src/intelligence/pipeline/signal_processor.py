@@ -12,7 +12,6 @@ HIGH finding 4: SignalProcessorResult carries all 4 output paths.
 
 from __future__ import annotations
 
-import hashlib
 import zoneinfo
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -33,7 +32,10 @@ from src.intelligence.pipeline.regime_gate import apply_regime_gate
 from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment
 from src.intelligence.pipeline.winner_selector import select_winner
 from src.intelligence.trading.cis_scorer import CISScorer
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
+from src.intelligence.trading.signal_schema import (
+    REQUIRED_PIPELINE_FIELDS,
+    SIGNAL_SCHEMA_VERSION,
+)
 from src.observability.metrics import (
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
     REGIME_GATE_SUPPRESSIONS_TOTAL,
@@ -70,42 +72,20 @@ ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 # ---------------------------------------------------------------------------
 
 
-def _make_signal_id(
-    symbol: str,
-    feature_ts_ns: int,
-    feature_tf: str,
-    open_: float,
-    high: float,
-    low: float,
-    close: float,
-    volume: float,
-) -> str:
-    """Deterministic content-addressed signal ID (SHA-256, first 32 hex chars).
-
-    Identity is derived from the BAR INPUTS — not from plugin outputs.
-    Plugin outputs are stateful (Kalman, rolling windows, regime state) and change
-    across restarts; bar OHLCV is the stable invariant across any replay.
-
-    Canonicalization rules:
-    - feature_ts_ns: UTC epoch nanoseconds as integer — parse from timestamptz, not ISO string
-    - feature_tf: lowercase normalized, e.g. "1m", "5m"
-    - OHLCV: repr(round(x, 10)) — deterministic float serialization, excludes float jitter
-    """
-    raw = (
-        f"{symbol}|{feature_ts_ns}|{feature_tf.lower()}"
-        f"|{round(open_, 10)}|{round(high, 10)}|{round(low, 10)}"
-        f"|{round(close, 10)}|{round(volume, 10)}"
-    )
-    return hashlib.sha256(raw.encode()).hexdigest()[:32]
-
-
 def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None:
-    """QUAL-02: Apply alpha decay to signal confidence in-place."""
+    """QUAL-02: Apply exponential alpha decay to signal confidence in-place.
+
+    Decays confidence by 0.5^(bars_since/half_life) — confidence halves each half_life
+    bars after the last winner fire. Exponential form never zeroes a signal (unlike
+    linear decay), preserving persistent setups while discounting autocorrelated fires.
+    """
     if last_fire_state is None:
         return
     bars_since = last_fire_state.get("bars_since", 0)
+    if bars_since == 0:
+        return
     half_life = ALPHA_HALF_LIFE_BARS.get(tf, 6)
-    multiplier = max(0.0, 1.0 - bars_since / half_life)
+    multiplier = 0.5 ** (bars_since / half_life)
     sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)
 
 
@@ -179,8 +159,6 @@ class SignalProcessor:
         self._logger = structlog.get_logger(__name__)
 
         # Transient state (not checkpointed — checkpointed via get/restore methods)
-        self._signal_gate: dict = {}
-        self._setup_cooldown: dict = {}
         self._setup_last_fire: dict = {}
         # NOTE: CIS Kalman state is now owned by CISScorer (Design B migration).
         # self._kalman_state moved to self._cis_scorer._cis_kalman_state.
@@ -270,11 +248,6 @@ class SignalProcessor:
 
         i7_computed_at = datetime.now(UTC)
 
-        # Alpha decay (D-21): apply before gate pipeline, using self._setup_last_fire
-        for sig in raw_signals:
-            fire_key = (symbol, tf, sig.get("setup_plugin", ""), sig.get("direction", 0))
-            _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
-
         # D-22: total signals entering the pipeline
         SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL.add(len(raw_signals))
         self._signals_generated.add(len(raw_signals))
@@ -297,6 +270,21 @@ class SignalProcessor:
                 },
             )
 
+        # Stamp pre_quality_confidence BEFORE alpha decay — training data must reflect
+        # raw plugin confidence, not the post-decay value.
+        for sig in raw_signals:
+            sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
+
+        # Alpha decay (D-21): advance bars_since for all (symbol, tf) fire keys, then
+        # apply exponential decay. bars_since is incremented every bar a plugin fires
+        # after having previously won; reset to 0 when the same plugin wins again.
+        for fire_key, state in self._setup_last_fire.items():
+            if fire_key[0] == symbol and fire_key[1] == tf:
+                state["bars_since"] += 1
+        for sig in raw_signals:
+            fire_key = (symbol, tf, sig.get("setup_plugin", ""), sig.get("direction", 0))
+            _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+
         # Build features from event — use precomputed flat_features when available (3-E).
         # When flat_features is provided (set once per bar in FeaturePipelineExecutor),
         # avoids per-bar model_dump() call on the hot path.
@@ -317,10 +305,6 @@ class SignalProcessor:
         # Read back the Kalman-filtered CIS from the scorer's internal state for attribution.
         kalman_key = (tf, symbol)
         filtered_cis = self._cis_scorer._cis_kalman_state.get(kalman_key, {}).get("x", raw_cis)
-
-        # Attribution capture: BEFORE quality gate
-        for sig in raw_signals:
-            sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
 
         def _record_dropped(gate: str, before: list, after: list) -> None:
             dropped = len(before) - len(after)
@@ -536,6 +520,21 @@ class SignalProcessor:
                 )
                 return False, dlq_payload, None
 
+        # Terminal pipeline completeness check — signal_id and processor-stamped fields
+        # must all be present before publish. Missing fields indicate a pipeline bug.
+        complete: list[dict] = []
+        for sig in ranked:
+            missing = REQUIRED_PIPELINE_FIELDS - set(sig.keys())
+            if missing:
+                self._logger.error(
+                    "signal_processor.pipeline_fields_missing",
+                    plugin=sig.get("setup_plugin", "unknown"),
+                    missing_fields=sorted(missing),
+                )
+                continue
+            complete.append(sig)
+        ranked = complete
+
         # Assertion passed — stamp bar close as market_entry_price
         close_price = bar.close
         for sig in ranked:
@@ -555,19 +554,6 @@ class SignalProcessor:
             sig["timestamp"] = format_iso_ts(bar_ts)
             sig["is_backfill"] = is_backfill
             sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
-            if "signal_id" not in sig:
-                _ts_ns = int(bar.ts.timestamp() * 1e9)
-                _tf_norm = (sig.get("feature_tf") or tf).lower()
-                sig["signal_id"] = _make_signal_id(
-                    symbol=symbol,
-                    feature_ts_ns=_ts_ns,
-                    feature_tf=_tf_norm,
-                    open_=bar.open,
-                    high=bar.high,
-                    low=bar.low,
-                    close=bar.close,
-                    volume=bar.volume,
-                )
 
         if is_backfill and ranked:
             INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.add(

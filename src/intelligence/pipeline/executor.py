@@ -49,7 +49,11 @@ from src.intelligence.register_plugins import (
     TIER_I7,
     TIER_SMC,
 )
-from src.intelligence.trading.signal_schema import REQUIRED_SIGNAL_FIELDS, validate_signal
+from src.intelligence.trading.signal_schema import (
+    REQUIRED_SIGNAL_FIELDS,
+    make_signal_id,
+    validate_signal,
+)
 from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
     FEATURES_COMPUTED_TOTAL,
@@ -898,6 +902,18 @@ class PluginExecutor:
                         missing_fields=sorted(missing),
                     )
                     continue
+                sig["signal_id"] = make_signal_id(
+                    symbol=symbol,
+                    feature_ts_ns=int(bar.ts.timestamp() * 1e9),
+                    feature_tf=tf,
+                    open_=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    setup_plugin=task.plugin_name,
+                    direction=int(sig.get("direction", 0)),
+                )
                 raw_signals.append(sig)
 
         return raw_signals
