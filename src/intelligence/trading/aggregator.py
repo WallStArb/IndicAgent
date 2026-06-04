@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from .cis_scorer import CISScorer
+from .signal_schema import REQUIRED_SIGNAL_FIELDS, validate_signal
 
 _log = logging.getLogger(__name__)
 
@@ -194,6 +195,27 @@ def aggregate(
     All fired signals (eligible + suppressed) appear in all_ranked.
     Suppressed signals have regime_eligible=False and suppression_reason set.
     """
+    # Schema enforcement gate: validate at production boundary before signals touch Kafka.
+    # Rejects structurally invalid signals with a loud, plugin-attributed error rather than
+    # letting them cross the bus and fail silently in a downstream consumer.
+    valid: list[dict] = []
+    for sig in signals:
+        if sig.get("direction", 0) == 0 or sig.get("signal_type") == "none":
+            valid.append(sig)
+            continue
+        if not validate_signal(sig):
+            missing = REQUIRED_SIGNAL_FIELDS - set(sig.keys())
+            _log.error(
+                "aggregator.schema_violation",
+                extra={
+                    "plugin": sig.get("setup_plugin", "unknown"),
+                    "missing_fields": sorted(missing),
+                },
+            )
+            continue
+        valid.append(sig)
+    signals = valid
+
     # Tag each signal with regime eligibility (in-place mutation).
     # Uses regime_data (higher-TF, slow-clock) not features (same-TF, noisy).
     _regime_gate_signals(signals, regime_data)

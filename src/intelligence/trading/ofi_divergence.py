@@ -28,6 +28,7 @@ from ..utils.gradient_utils import hmm_regime_weight
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .state_utils import track_consecutive_state
 from .trade_framer import frame_trade
 
@@ -183,21 +184,22 @@ class OFIDivergencePlugin:
         if rel_volume is not None:
             supporting.append(f"rel_volume={float(rel_volume):.2f}")
 
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(close, 2),
-            "stop_loss": float(tf_frame.stop),
-            "targets": [float(t.price) for t in tf_frame.targets],
-            "confidence": confidence,
-            "regime_context": regime_context,
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "microstructure",
-            signal["confidence"],
+        signal = make_signal_from_frame(
+            tf_frame,
+            symbol=symbol,
+            timeframe=features.get("timeframe", tf),
+            timestamp=features.get("timestamp", ""),
+            signal_type=sig_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_context,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            features_snapshot=capture_signal_features(
+                features, direction, "microstructure", confidence
+            ),
         )
         return signal
 
