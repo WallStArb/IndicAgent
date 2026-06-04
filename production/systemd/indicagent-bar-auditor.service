@@ -12,7 +12,6 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_auditor.py
 Restart=always
 WatchdogSec=60
