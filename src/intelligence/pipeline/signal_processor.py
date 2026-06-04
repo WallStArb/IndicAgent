@@ -34,7 +34,6 @@ from src.intelligence.pipeline.winner_selector import select_winner
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import (
     REQUIRED_PIPELINE_FIELDS,
-    SIGNAL_SCHEMA_VERSION,
 )
 from src.observability.metrics import (
     INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL,
@@ -553,7 +552,6 @@ class SignalProcessor:
         for sig in ranked:
             sig["timestamp"] = format_iso_ts(bar_ts)
             sig["is_backfill"] = is_backfill
-            sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
 
         if is_backfill and ranked:
             INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL.add(

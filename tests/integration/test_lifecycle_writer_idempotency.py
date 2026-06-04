@@ -40,8 +40,8 @@ async def test_lifecycle_writer_idempotency_counter():
             """
             INSERT INTO signal_ledger (
                 signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
-                direction, status, signal_schema_version, exit_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+                direction, status, exit_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
             """,
             test_signal_id,
             "ES",
@@ -51,7 +51,6 @@ async def test_lifecycle_writer_idempotency_counter():
             3980.0,
             1,
             "active",
-            "v1",
         )
 
         # Capture baseline counter value

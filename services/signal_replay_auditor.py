@@ -39,7 +39,6 @@ from src.intelligence.trading.lifecycle_transitions import (
     TransitionType,
     to_dict,
 )
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SIGNAL_REPLAY_ATTEMPTED_TOTAL,
     SIGNAL_REPLAY_NULL_ZONE_TOTAL,
@@ -100,13 +99,13 @@ class SignalReplayAuditor(BaseDaemon):
               AND sl.status IN ('pending', 'active')
               AND sl.expires_at IS NOT NULL
               AND sl.expires_at < NOW()
-              AND sl.signal_schema_version = $1
+              AND sl.entry_zone_low IS NOT NULL
             ORDER BY sl.expires_at DESC
-            LIMIT $2
+            LIMIT $1
         """
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            return await conn.fetch(query, SIGNAL_SCHEMA_VERSION, self.settings.replay_batch_size)
+            return await conn.fetch(query, self.settings.replay_batch_size)
 
     async def _fetch_window_bars(
         self, symbol: str, tf: str, start_ts: datetime, end_ts: datetime
@@ -136,9 +135,8 @@ class SignalReplayAuditor(BaseDaemon):
                 WHERE exit_at IS NULL
                   AND expires_at IS NOT NULL
                   AND expires_at < NOW()
-                  AND signal_schema_version = $1
+                  AND entry_zone_low IS NOT NULL
                 """,
-                SIGNAL_SCHEMA_VERSION,
             )
         return int(cnt or 0)
 

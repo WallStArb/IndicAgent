@@ -1,4 +1,4 @@
-# Phase 100: Occam's Razor - Research
+# Phase 114: Occam's Razor - Research
 
 **Researched:** 2026-06-03
 **Domain:** Model Selection, Statistical Testing, Complexity-Aware Evaluation
@@ -289,8 +289,8 @@ SWARM_AGENT_WEIGHT.set(weight, {"agent_id": agent_id, "timeframe": tf})
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| Manual model selection | Automated Occam testing | Phase 100 (this phase) | Reject over-complex models automatically |
-| Single metric (Sharpe) | Multi-metric + complexity penalty | Phase 100 | Prevents gaming via parameter bloat |
+| Manual model selection | Automated Occam testing | Phase 114 (this phase) | Reject over-complex models automatically |
+| Single metric (Sharpe) | Multi-metric + complexity penalty | Phase 114 | Prevents gaming via parameter bloat |
 | Human-in-the-loop promotion | Shadow-first auto-rejection | v2.5 (Phase 77) | Evidence-based promotion, zero manual work |
 | Bootstrap CI not available | scipy.stats.bootstrap (v1.10+) | 2021 | Could simplify manual loop (future optimization) |
 
@@ -312,7 +312,7 @@ SWARM_AGENT_WEIGHT.set(weight, {"agent_id": agent_id, "timeframe": tf})
    - Recommendation: Run on every graduation cycle — cheap relative to LLM calls, provides rapid feedback
 
 3. **Baseline for genetic agents (future Phase 102)**
-   - What we know: Not in scope for Phase 100, but genetic agents will need baselines
+   - What we know: Not in scope for Phase 114, but genetic agents will need baselines
    - What's unclear: What baseline type for "best single feature from genetic pool"?
    - Recommendation: `SimpleBaseline` that picks the highest-IC single feature as baseline
 
@@ -329,7 +329,7 @@ SWARM_AGENT_WEIGHT.set(weight, {"agent_id": agent_id, "timeframe": tf})
 - `docs/foundation/occam-razor.md` — Principle statement, Renaissance rationale
 - `docs/ideas/ai-occam-razor.md` — Implementation spec, architecture sketch
 - `src/intelligence/ai/AUTHORING.md` — Agent authoring protocol, shadow enrollment
-- `.planning/phases/100-occam-razor/100-CONTEXT.md` — Locked decisions (D-01 through D-07)
+- `.planning/phases/114-occam-razor/114-CONTEXT.md` — Locked decisions (D-01 through D-07)
 
 ### Tertiary (LOW confidence)
 - None — all sources verified against code or official docs

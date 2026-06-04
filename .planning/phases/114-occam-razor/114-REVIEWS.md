@@ -1,15 +1,15 @@
-# Cross-AI Review: Phase 100 Occam's Razor
+# Cross-AI Review: Phase 114 Occam's Razor
 
 **Date:** 2026-06-04
 **Reviewers:** Gemini (gemini-2.5-flash), Codex (gpt-5.5)
-**Phase:** 100 - Occam's Razor (Complexity-Aware Model Selection)
-**Plans Reviewed:** 100-01, 100-02, 100-03, 100-04
+**Phase:** 114 - Occam's Razor (Complexity-Aware Model Selection)
+**Plans Reviewed:** 114-01, 114-02, 114-03, 114-04
 
 ---
 
 ## Executive Summary
 
-Both reviewers identified **MEDIUM-HIGH overall risk** for Phase 100. The plans are well-structured and follow Renaissance principles, but critical semantics are under-specified:
+Both reviewers identified **MEDIUM-HIGH overall risk** for Phase 114. The plans are well-structured and follow Renaissance principles, but critical semantics are under-specified:
 
 1. **Complexity-penalized decision rule** is incomplete — penalty mentioned but not reflected in stated decision logic
 2. **Return alignment** between complex and baseline models lacks explicit contract
@@ -69,13 +69,13 @@ The four plans form a mostly coherent phased implementation. Sequencing is direc
 
 ### Concerns by Plan
 
-**Plan 100-01 (Baseline Registry)**
+**Plan 114-01 (Baseline Registry)**
 - **HIGH:** `BaselineBuilder` protocol not specified deeply enough — needs explicit input schema, label semantics, output format, metadata
 - **HIGH:** `LinearBaseline` using `LogisticRegression` implies classification, but phase goal compares Sharpe delta from returns. How do class probabilities become positions/returns?
 - **MEDIUM:** Rule baseline could become arbitrary unless tied to existing signal features
 - **MEDIUM:** Missing fail-closed behavior for insufficient data, NaNs, zero variance, sklearn convergence failure
 
-**Plan 100-02 (Statistical Test Engine)**
+**Plan 114-02 (Statistical Test Engine)**
 - **HIGH:** Decision rule says `ci_lower > 0 → promote` but requirement says "bootstrap statistical test with complexity penalty." Penalty not reflected in stated rule.
 - **HIGH:** Sharpe comparison invalid if returns autocorrelated, sparse, non-stationary. Naive bootstrap may overstate confidence.
 - **HIGH:** "Promote" may be wrong action — requirement says reject if baseline wins/ties, not necessarily graduate
@@ -83,14 +83,14 @@ The four plans form a mostly coherent phased implementation. Sequencing is direc
 - **MEDIUM:** Complexity score formula may explode across units unless normalized
 - **MEDIUM:** No mention of multiple testing across many shadow agents
 
-**Plan 100-03 (Shadow Registry Integration)**
+**Plan 114-03 (Shadow Registry Integration)**
 - **HIGH:** Rejection update sets `is_shadow=TRUE`, but rejected models may already be shadow. Need separate rejection status/terminal state
 - **HIGH:** Migration may need additional fields: `occam_decision`, `occam_baseline_id`, `occam_ci_lower`, `occam_ci_upper`, `occam_sharpe_delta`, `occam_rejected_at`
 - **HIGH:** `_evaluate_agent_with_occam` combines DB query + Sharpe computation + update — risks becoming hard-to-test
 - **MEDIUM:** No explicit idempotency — 15-min loop could repeatedly reject
 - **MEDIUM:** No transaction/locking strategy for concurrent graduation and rejection
 
-**Plan 100-04 (End-to-End Integration)**
+**Plan 114-04 (End-to-End Integration)**
 - **HIGH:** Real baseline return computation too late — statistical test engine needs return construction contract first
 - **HIGH:** Complexity columns in `ml_models` also too late if Wave 2 needs real complexity lookup
 - **HIGH:** Synthetic integration tests insufficient for system whose core risk is data alignment
@@ -141,13 +141,13 @@ Both reviewers agree on these critical gaps:
 
 ## Recommended Actions
 
-1. **Revise Plan 100-02 Task 4** — explicitly define complexity-penalized decision rule with formula
-2. **Revise Plan 100-01 Task 1** — add explicit `BaselineBuilder` protocol with input schema and output format
-3. **Add migration task to Plan 100-03** — include additional Occam audit fields (`occam_ci_lower`, `occam_ci_upper`, `occam_sharpe_delta`, etc.)
-4. **Move complexity schema to Plan 100-02** — statistical test engine needs real complexity lookup contract
+1. **Revise Plan 114-02 Task 4** — explicitly define complexity-penalized decision rule with formula
+2. **Revise Plan 114-01 Task 1** — add explicit `BaselineBuilder` protocol with input schema and output format
+3. **Add migration task to Plan 114-03** — include additional Occam audit fields (`occam_ci_lower`, `occam_ci_upper`, `occam_sharpe_delta`, etc.)
+4. **Move complexity schema to Plan 114-02** — statistical test engine needs real complexity lookup contract
 5. **Add explicit "insufficient data" handling** across all plans with `EVAL_STATE_PENDING` status
-6. **Add idempotency guard** in Plan 100-03 Task 4 rejection UPDATE
-7. **Add golden dataset test** to Plan 100-04 testing section
+6. **Add idempotency guard** in Plan 114-03 Task 4 rejection UPDATE
+7. **Add golden dataset test** to Plan 114-04 testing section
 
 ---
 

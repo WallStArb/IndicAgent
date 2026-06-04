@@ -62,9 +62,9 @@ async def test_all_signals_resolved():
                 """
                 INSERT INTO signal_ledger (
                     signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
-                    direction, targets, status, signal_schema_version, ttl_bars,
+                    direction, targets, status, ttl_bars,
                     exit_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL)
                 """,
                 signal_id,
                 "ES",
@@ -75,7 +75,6 @@ async def test_all_signals_resolved():
                 direction,
                 [entry_price + (20 * direction), entry_price + (40 * direction)],
                 "pending",
-                "v1",
                 ttl_bars,
             )
 
@@ -136,7 +135,7 @@ async def test_all_signals_resolved():
             SELECT COUNT(*)
               FROM signal_ledger
              WHERE exit_at IS NULL
-               AND signal_schema_version = 'v1'
+               AND entry_zone_low IS NOT NULL
                AND timestamp < NOW() - INTERVAL '2 minutes'
                AND signal_id LIKE $1
             """,

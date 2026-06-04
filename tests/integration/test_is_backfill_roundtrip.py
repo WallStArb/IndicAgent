@@ -64,7 +64,6 @@ async def test_is_backfill_roundtrip():
             "composite_rank": 0.8,
             "adjusted_rank": 0.85,
             "ttl_bars": 10,
-            "signal_schema_version": "v1",
             "is_backfill": True,  # Explicitly set for test (publisher would compute this)
             "status": "pending",
             "exit_at": None,

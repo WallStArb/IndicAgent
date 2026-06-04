@@ -1,4 +1,4 @@
-# Phase 100: Occam's Razor - Pattern Map
+# Phase 114: Occam's Razor - Pattern Map
 
 **Mapped:** 2026-06-03
 **Files analyzed:** 5
@@ -293,7 +293,7 @@ SWARM_AGENT_WEIGHT = point_gauge(
 
 **ORE metrics to add:**
 ```python
-# Occam's Razor evaluator metrics (Phase 100)
+# Occam's Razor evaluator metrics (Phase 114)
 OCCAM_EVALUATIONS_TOTAL = _meter.create_counter(
     "occam_evaluations_total",
     description="Occam razor evaluations run by agent_id and outcome",

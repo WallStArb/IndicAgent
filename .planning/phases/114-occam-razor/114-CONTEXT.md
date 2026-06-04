@@ -1,4 +1,4 @@
-# Phase 100: Occam's Razor - Context
+# Phase 114: Occam's Razor - Context
 
 **Gathered:** 2026-06-03
 **Status:** Ready for planning
@@ -23,10 +23,10 @@ Implement complexity-aware model selection for all shadow ML agents. The Occam's
 - Integration into `config/agents.yaml` as `alpha` group agent
 
 **Out of scope:**
-- Multi-baseline comparison (single baseline per agent type for Phase 100)
+- Multi-baseline comparison (single baseline per agent type for Phase 114)
 - Parameter budgeting across agents (future extension)
 - Online adaptation of penalty_weight (tunable via config, not adaptive)
-- Plugin-level Occam testing (technical indicators excluded in Phase 100)
+- Plugin-level Occam testing (technical indicators excluded in Phase 114)
 - Production signal blocking (ORE is shadow-only, never affects live signals)
 
 </domain>

@@ -661,33 +661,9 @@ async def test_tf_gate_skips_signals_below_min_minutes() -> None:
         "setup_plugin": "vwap_reversion",
         "direction": 1,
         "pre_quality_confidence": 0.75,
-        "signal_schema_version": "v1",
     }
     await agent._process_one_signal(raw_signal)
     # No agent should have been called
-    mock_agent.compute.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_schema_gate_skips_v0_signals() -> None:
-    """signal_schema_version='v0' must not invoke any agent."""
-    agent = _make_agent_with_mocks()
-    agent._semaphore = asyncio.Semaphore(8)
-    # Mock _context_cache so the method doesn't crash if it reaches that point
-    agent._context_cache = MagicMock()
-    mock_agent = AsyncMock(agent_id="skeptic", shadow_only=True, tiers_needed=frozenset())
-    agent._agents = [mock_agent]
-
-    raw_signal = {
-        "signal_id": str(uuid4()),
-        "symbol": "ESM6",
-        "tf": "5m",
-        "setup_plugin": "vwap_reversion",
-        "direction": 1,
-        "pre_quality_confidence": 0.75,
-        "signal_schema_version": "v0",  # schema gate should reject this
-    }
-    await agent._process_one_signal(raw_signal)
     mock_agent.compute.assert_not_called()
 
 
@@ -736,8 +712,6 @@ async def test_semaphore_blocks_then_proceeds() -> None:
     agent._lineage = MagicMock()
     agent._lineage.record = MagicMock()
 
-    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION as _SSV
-
     raw_signal = {
         "signal_id": str(uuid4()),
         "symbol": "ESM6",
@@ -746,7 +720,6 @@ async def test_semaphore_blocks_then_proceeds() -> None:
         "direction": 1,
         "pre_quality_confidence": 0.75,
         "calibrated_confidence": 0.75,
-        "signal_schema_version": _SSV,
     }
 
     # Release the slot after a short delay so dispatch can proceed

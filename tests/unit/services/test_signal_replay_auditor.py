@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -378,20 +377,13 @@ async def test_replay_both_tracks_independent() -> None:
     ), f"Unexpected market outcome: {market_outcome}"
 
 
-def test_replay_skips_v0_signals() -> None:
-    """_fetch_unresolved SQL must filter by SIGNAL_SCHEMA_VERSION to exclude v0 rows."""
-    from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
-
+def test_fetch_unresolved_filters_on_zone_low() -> None:
+    """_fetch_unresolved SQL must filter entry_zone_low IS NOT NULL — the real structural invariant."""
     src = inspect.getsource(SignalReplayAuditor._fetch_unresolved)
-    # Verify the query uses a $1 parameter (not hardcoded 'v1') and passes SIGNAL_SCHEMA_VERSION
-    assert re.search(r"signal_schema_version\s*=\s*\$1", src), (
-        "_fetch_unresolved must filter signal_schema_version via $1 parameter. "
-        "v0 rows have contaminated entry_price/zone data and must not be replayed."
+    assert "entry_zone_low IS NOT NULL" in src, (
+        "_fetch_unresolved must filter entry_zone_low IS NOT NULL. "
+        "Version strings are a proxy invariant; column presence is the ground truth."
     )
-    # Verify SIGNAL_SCHEMA_VERSION is not v0 (which has contaminated data)
-    assert (
-        SIGNAL_SCHEMA_VERSION != "v0"
-    ), f"SIGNAL_SCHEMA_VERSION={SIGNAL_SCHEMA_VERSION!r} must not be v0"
 
 
 @pytest.mark.asyncio

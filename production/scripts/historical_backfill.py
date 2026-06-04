@@ -728,7 +728,7 @@ INSERT INTO signal_ledger (
     feature_ts, feature_tf,
     cis_score, bucket_scores, weights_version,
     market_entry_price,
-    is_backfill, signal_schema_version
+    is_backfill
 ) VALUES (
     %s::uuid, %s, %s, %s, %s, %s,
     %s, %s, %s, %s::jsonb,
@@ -736,7 +736,7 @@ INSERT INTO signal_ledger (
     %s, %s,
     %s, %s::jsonb, %s,
     %s,
-    TRUE, 'v1'
+    TRUE
 ) ON CONFLICT DO NOTHING
 """
 

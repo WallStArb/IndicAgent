@@ -19,8 +19,8 @@
 - ✅ **v2.4 Observability Hardening** — Phases 67–68 (shipped 2026-04-23)
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
-- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-29)
-- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-101, 103 (in progress)
+- ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
+- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103, 110-114 (in progress)
 
 ## Phases
 
@@ -533,7 +533,7 @@ Plans:
 </details>
 
 <details>
-<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109) — SHIPPED 2026-05-29</summary>
+<summary>✅ v2.7 Mathematical Correctness, Storage & Hardening (Phases 093, 100, 100.5, 104-109) — SHIPPED 2026-05-29</summary>
 
 **Milestone Goal:** (1) Ensure mathematical correctness of all intelligence pipeline computations via Renaissance-style validation (ATR bug fix + systematic audit). (2) Build plugin shared infrastructure and incremental compute foundation. (3) Redesign storage architecture (column rename + signal ledger slim). (4) Infrastructure hardening: architecture hotfixes, foundation hardening, infrastructure hygiene, self-healing hardening, config foundation. Phases 094-099 (AI platform) deferred to v2.8.
 
@@ -866,9 +866,9 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-101, 103) — IN PROGRESS</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-114) — IN PROGRESS</summary>
 
-**Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-109) completed in v2.7.
+**Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103, 114). Naming and infrastructure alignment (110-113) completed. Each dependency earns its place before the next is added.
 
 **Design principles (Renaissance standard):**
 
@@ -1245,7 +1245,7 @@ Plans:
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 
-### Phase 100: Occam's Razor — Complexity-Aware Model Selection
+### Phase 114: Occam's Razor — Complexity-Aware Model Selection
 
 **Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a paired bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update with structured reason codes and comprehensive audit trail.
 **Depends on**: Phase 096 (Agent Registry)
@@ -1267,19 +1267,19 @@ Plans:
 
 **Wave 1** — Baseline registry + complexity migration (independent)
 
-- [ ] 100-01-PLAN.md — BaselineBuilder protocol (fit/predict/metadata) + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry + ml_models complexity columns migration
+- [ ] 114-01-PLAN.md — BaselineBuilder protocol (fit/predict/metadata) + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry + ml_models complexity columns migration
 
 **Wave 2** *(depends on Wave 1)* — Statistical test engine
 
-- [ ] 100-02-PLAN.md — OccamRazorEvaluator: paired bootstrap CI, penalized decision rule, EVAL_STATE enum, golden dataset tests
+- [ ] 114-02-PLAN.md — OccamRazorEvaluator: paired bootstrap CI, penalized decision rule, EVAL_STATE enum, golden dataset tests
 
 **Wave 3** *(depends on Wave 2)* — Shadow registry integration
 
-- [ ] 100-03-PLAN.md — shadow_registry Occam audit columns + OTel metrics + AlphaSwarm rejection flow with idempotency + structured reason codes + golden dataset rejection test
+- [ ] 114-03-PLAN.md — shadow_registry Occam audit columns + OTel metrics + AlphaSwarm rejection flow with idempotency + structured reason codes + golden dataset rejection test
 
 **Wave 4** *(depends on Wave 3)* — End-to-end integration
 
-- [ ] 100-04-PLAN.md — Advisory lock concurrent safety + ORE registration verification + Grafana dashboard + golden dataset E2E tests
+- [ ] 114-04-PLAN.md — Advisory lock concurrent safety + ORE registration verification + Grafana dashboard + golden dataset E2E tests
 
 ### Phase 101: Composite Fitness Function
 
@@ -1425,7 +1425,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104, 105, 106, 107, 108 shipped; 109 in progress). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-101, 103).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104-109 shipped). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-114).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1564,3 +1564,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 103. Reproductive Operators | v2.8 | 0/4 | Planned | - |
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
 | 113. Architecture Hardening | v2.8 | 1/1 | Complete   | 2026-06-03 |
+| 114. Occam's Razor | v2.8 | 4/4 plans written/0 executed | Planned | - |
