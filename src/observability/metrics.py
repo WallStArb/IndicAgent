@@ -95,7 +95,6 @@ PLUGIN_FALLBACK_TOTAL = _meter.create_counter(
 PLUGIN_DURATION_MS = _meter.create_histogram(
     "intelligence_pipeline_plugin_duration_ms",
     description="Per-plugin execution latency",
-    unit="ms",
 )
 PLUGIN_ERRORS_TOTAL = _meter.create_counter(
     "intelligence_pipeline_plugin_errors_total",
@@ -615,7 +614,6 @@ AI_AGENT_INVOCATIONS_TOTAL = _meter.create_counter(
 AI_AGENT_DURATION_MS = _meter.create_histogram(
     "ai_agent_duration_ms",
     description="AI agent execution latency in ms",
-    unit="ms",
 )
 
 

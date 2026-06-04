@@ -181,9 +181,9 @@ export function useObservabilityStream(): ObservabilityData {
         fetchScalar("rate(bar_agg_aggregation_errors_total[1m])", s),
         // Intelligence
         fetchScalar("rate(intelligence_pipeline_bars_processed_total[1m])", s),
-        fetchScalar("intelligence_pipeline_pipeline_latency_ms", s),
-        fetchScalar("intelligence_pipeline_i1_latency_ms", s),
-        fetchScalar("intelligence_pipeline_i7_latency_ms", s),
+        fetchScalar("histogram_quantile(0.95, rate(intelligence_pipeline_pipeline_latency_ms_bucket[1m]))", s),
+        fetchScalar("histogram_quantile(0.95, rate(intelligence_pipeline_i1_latency_ms_bucket[1m]))", s),
+        fetchScalar("histogram_quantile(0.95, rate(intelligence_pipeline_i7_latency_ms_bucket[1m]))", s),
         fetchScalar("rate(intelligence_pipeline_pipeline_errors_total[1m])", s),
         fetchScalar("intelligence_pipeline_output_buffer_depth", s),
         fetchScalar("intelligence_pipeline_thread_pool_workers", s),

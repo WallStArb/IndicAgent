@@ -18,6 +18,9 @@ if _services_dir not in sys.path:
 from unittest.mock import AsyncMock  # noqa: E402
 
 import pytest  # noqa: E402
+
+# Disable OTel startup validation in tests (no collector running)
+os.environ.setdefault("OTEL_VALIDATION_DISABLED", "1")
 import pytest_asyncio  # noqa: E402
 
 # Set test environment

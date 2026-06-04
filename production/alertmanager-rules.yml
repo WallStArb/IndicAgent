@@ -95,6 +95,26 @@ groups:
         annotations:
           summary: "Service {{ $labels.unit }} is down"
 
+      - alert: OTelExportFailure
+        expr: increase(otel_export_validation_total[5m]) == 0 and indicagent_service_up == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel metric export not reaching collector"
+          description: "otel_export_validation_total has not incremented in 5m for a running service. The gRPC exporter may be silently failing. Check collector health and OTEL_EXPORTER_OTLP_ENDPOINT."
+
+      - alert: MetricsStaleByAgent
+        expr: |
+          (time() - agent_last_message_timestamp_seconds) > 300
+          and on(agent_id) indicagent_service_up{unit!=""} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} stopped exporting metrics (>5m stale)"
+          description: "agent_last_message_timestamp_seconds is >300s old for a service that service_auditor reports as up. The agent may be stuck or the OTel export pipeline is broken."
+
       - alert: ConsumerLagHigh
         expr: persistence_consumer_lag_records > 1000
         for: 2m
