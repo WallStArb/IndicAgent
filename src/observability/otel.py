@@ -90,15 +90,13 @@ def _validate_export(
     endpoint: str,
 ) -> None:
     """Force a test metric through the export pipeline to verify gRPC connectivity."""
-    test_meter = meter_provider.get_meter("otel.healthcheck")
-    test_counter = test_meter.create_counter("otel_export_validation_total")
-    test_counter.add(1, {"service": service_name, "check": "startup"})
-    try:
-        meter_provider.force_flush(timeout_millis=3000)
-    except Exception as error:
-        raise OTelInitError(
-            f"OTel startup validation failed: endpoint={endpoint}, error={error}"
-        ) from error
+    meter_provider.get_meter("otel.healthcheck").create_counter("otel_export_validation_total").add(
+        1, {"service": service_name, "check": "startup"}
+    )
+    # force_flush raises on gRPC connection failure — let it propagate as-is.
+    # The caller (init_otel_providers) is not wrapped in try/except, so any
+    # exception from here crashes the service with a clear traceback.
+    meter_provider.force_flush(timeout_millis=3000)
 
 
 # Keep backward compat -- init_tracing() now delegates to init_otel_providers
