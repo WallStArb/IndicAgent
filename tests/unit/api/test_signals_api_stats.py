@@ -74,3 +74,64 @@ class TestSignalsApiStats:
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/stats").json()
         assert data["hero_rate"] == 0.0
+
+
+def _recent_row(**kwargs):
+    import json
+    import uuid
+    from datetime import datetime
+
+    defaults = {
+        "signal_id": str(uuid.uuid4()),
+        "setup_plugin": "trad_FailedBreakout",
+        "signal_type": "long_entry",
+        "direction": 1,
+        "entry_price": 5285.5,
+        "stop_loss": 5278.0,
+        "confidence": 0.72,
+        "was_selected": True,
+        "cis_score": 0.45,
+        "status": "expired",
+        "outcome": "target_1",
+        "exit_price": 5296.0,
+        "pnl_r": 1.5,
+        "signal_computed_at": datetime(2026, 6, 4, 14, 32, 7),
+        "timeframe": "1m",
+        "symbol": "ES",
+        "setup_win_rate": 0.083,
+        "setup_avg_pnl_r": 0.175,
+        "hmm_regime_at_fire": 0,
+        "exit_reason": "target_1",
+        "mfe": 2.4,
+        "ttl_bars": 10,
+        "bars_in_trade": 26,
+        "targets": json.dumps([5296.0, 5302.0]),
+    }
+    return {**defaults, **kwargs}
+
+
+@pytest.mark.unit
+class TestRecentSignalsEnhanced:
+    def teardown_method(self):
+        app.dependency_overrides.clear()
+
+    def test_recent_includes_regime_and_r_ratio(self):
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[_recent_row()])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/recent?tier=all&limit=10").json()
+        sig = data["signals"][0]
+        assert sig["hmm_regime_at_fire"] == 0
+        assert sig["exit_reason"] == "target_1"
+        assert sig["mfe"] == pytest.approx(2.4)
+        assert sig["ttl_bars"] == 10
+        assert sig["r_ratio"] == pytest.approx(1.37, abs=0.05)
+
+    def test_r_ratio_null_when_no_targets(self):
+        import json
+
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[_recent_row(targets=json.dumps([]))])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/recent?tier=all&limit=10").json()
+        assert data["signals"][0]["r_ratio"] is None
