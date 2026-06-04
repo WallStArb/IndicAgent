@@ -426,6 +426,25 @@ async def _process_symbol_tf(
         # Map by signal_id for O(1) lookup during bar evaluation
         sig_map: dict[str, dict] = {str(s["signal_id"]): dict(s) for s in signals}
 
+        # Coerce Decimal fields to float — asyncpg returns NUMERIC as Decimal,
+        # but evaluate_signal/evaluate_market_entry do arithmetic with float.
+        _float_fields = (
+            "entry_price",
+            "stop_loss",
+            "market_entry_price",
+            "entry_zone_low",
+            "entry_zone_high",
+        )
+        for _sig_dict in sig_map.values():
+            for _field in _float_fields:
+                _val = _sig_dict.get(_field)
+                if _val is not None:
+                    _sig_dict[_field] = float(_val)
+            # targets is a list of floats
+            _targets = _sig_dict.get("targets")
+            if _targets is not None:
+                _sig_dict["targets"] = [float(t) if t is not None else t for t in _targets]
+
         # Inject canonical per-TF TTL — use stored ttl_bars if present (Phase 107.5+),
         # else fall back to canonical default.
         _tf_ttl = TF_TTL_BARS.get(timeframe, 10)
@@ -770,13 +789,26 @@ async def _process_symbol_tf(
         # 6. Final flush + commit
         if pending_writes and not dry_run:
             await _flush_writes(conn, pending_writes)
+            pending_writes.clear()
+
+        # Final COMMIT — every write must be durable before release
+        if not dry_run:
+            await conn.execute("COMMIT")
+            logger.info(
+                "%s %s: final commit — %d resolved total",
+                symbol,
+                timeframe,
+                stats["processed"],
+            )
+
         await db.pool.release(conn)
 
     except Exception as exc:
         logger.error("Error processing %s %s: %s", symbol, timeframe, exc)
         stats["errors"] += 1
         try:
-            await conn.execute("ROLLBACK")
+            if not dry_run:
+                await conn.execute("ROLLBACK")
             await db.pool.release(conn)
         except Exception:
             pass  # Connection already released or failed
