@@ -13,7 +13,7 @@ DB-ignorant ProviderAgent — no database access.
 
 Golden Signals (D-16):
 - Traffic: merger_bars_routed_total, merger_bars_dropped_total
-- Latency: merger_bar_latency_seconds
+- Latency: merger_bar_latency_seconds  # measures bar.ts → merger receipt (IBKR delivery lag, ~5-6s; merger pass-through itself is sub-ms)
 - Errors: (exception counter via structlog)
 - Saturation: failover state (merger_failovers_total)
 

@@ -21,8 +21,6 @@ def test_winner_cis_field_is_additive_not_overwriting():
 
     assert winner["calibrated_confidence"] == 0.68
     assert winner["cis_calibrated_confidence"] == 0.81
-    assert "calibrated_confidence" in winner
-    assert "cis_calibrated_confidence" in winner
 
 
 import numpy as np
@@ -33,51 +31,50 @@ from src.intelligence.pipeline.quality_gate import apply_quality_gate
 
 
 @pytest.mark.asyncio
-async def test_signal_below_raw_floor_survives_if_calibrated_above():
-    """Signal at raw=0.08 survives if isotonic curve calibrates it to 0.25.
+@pytest.mark.parametrize(
+    "raw_conf,plugin,breakpoints,values,expected_calibrated,expected_survivors",
+    [
+        (
+            0.08,
+            "trend_following",
+            [0.0, 0.08, 0.50, 1.0],
+            [0.10, 0.25, 0.60, 0.95],
+            0.25,
+            1,
+        ),
+        (
+            0.14,
+            "mean_reversion",
+            [0.0, 0.14, 0.50, 1.0],
+            [0.01, 0.05, 0.45, 0.90],
+            0.05,
+            0,
+        ),
+    ],
+    ids=["below_raw_survives_if_calibrated_above", "above_raw_dropped_if_calibrated_below"],
+)
+async def test_quality_gate_uses_calibrated_confidence(
+    raw_conf, plugin, breakpoints, values, expected_calibrated, expected_survivors
+):
+    """Quality gate must operate on calibrated confidence, not raw plugin value.
 
-    Before Fix 3, this signal was dropped by quality gate before calibration ran.
+    Case 1: raw=0.08 calibrates to 0.25 → survives gate (before fix: dropped at raw).
+    Case 2: raw=0.14 calibrates to 0.05 → dropped by gate (before fix: passed at raw).
     """
     sig = {
-        "confidence": 0.08,
-        "setup_plugin": "trend_following",
-        "signal_id": "abc123",
+        "confidence": raw_conf,
+        "setup_plugin": plugin,
+        "signal_id": "test-sig",
         "direction": 1,
         "regime_type": "trend",
     }
-    breakpoints = np.array([0.0, 0.08, 0.50, 1.0])
-    values = np.array([0.10, 0.25, 0.60, 0.95])
-    cal_curves = {("trend_following", "1m", "*"): (breakpoints, values)}
+    cal_curves = {(plugin, "1m", "*"): (np.array(breakpoints), np.array(values))}
 
     calibrated = await apply_calibration([sig], cal_curves, tf="1m")
-    assert calibrated[0]["confidence"] == pytest.approx(0.25, abs=0.01)
+    assert calibrated[0]["confidence"] == pytest.approx(expected_calibrated, abs=0.01)
 
     gated = await apply_quality_gate(calibrated, {}, min_confidence=0.12)
-    assert len(gated) == 1
-
-
-@pytest.mark.asyncio
-async def test_signal_above_raw_floor_dropped_if_calibrated_below():
-    """Signal at raw=0.14 is dropped if isotonic curve calibrates it to 0.05.
-
-    Before Fix 3, this signal passed the gate at raw=0.14 unchallenged.
-    """
-    sig = {
-        "confidence": 0.14,
-        "setup_plugin": "mean_reversion",
-        "signal_id": "def456",
-        "direction": -1,
-        "regime_type": "mean_reversion",
-    }
-    breakpoints = np.array([0.0, 0.14, 0.50, 1.0])
-    values = np.array([0.01, 0.05, 0.45, 0.90])
-    cal_curves = {("mean_reversion", "1m", "*"): (breakpoints, values)}
-
-    calibrated = await apply_calibration([sig], cal_curves, tf="1m")
-    assert calibrated[0]["confidence"] == pytest.approx(0.05, abs=0.01)
-
-    gated = await apply_quality_gate(calibrated, {}, min_confidence=0.12)
-    assert len(gated) == 0
+    assert len(gated) == expected_survivors
 
 
 @pytest.mark.asyncio

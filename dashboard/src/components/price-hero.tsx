@@ -16,8 +16,7 @@ export function PriceHero({ data, activeTf, barWindowStr, barIsStale }: PriceHer
   const isEmpty = tick.price === 0 || tick.lastUpdate === 0;
   const price = isEmpty ? 0 : tick.price;
 
-  // Show time with seconds from the tick (real-time), not the bar
-  const displayTime = tick.lastUpdate > 0 ? fmtTimeHMS(new Date(tick.lastUpdate).toISOString()) : null;
+  const displayTime = tick.timestamp ? fmtTimeHMS(tick.timestamp) : null;
 
   return (
     <div className="px-3 py-1.5 flex items-center gap-3 font-data bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
