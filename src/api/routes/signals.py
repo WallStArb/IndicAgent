@@ -607,6 +607,133 @@ async def get_signals_stats(
         raise HTTPException(status_code=500, detail=f"Error fetching signal stats: {str(e)}") from e
 
 
+@router.get("/signals/heatmap")
+async def get_signals_heatmap(
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """Setup × regime performance matrix for heat map visualization."""
+    try:
+        query = """
+            WITH base AS (
+                SELECT
+                    setup_plugin,
+                    hmm_regime_at_fire AS regime,
+                    COUNT(*) AS n,
+                    ROUND(AVG(pnl_r)::numeric, 4) AS avg_r,
+                    ROUND(
+                        AVG(CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                            THEN 1.0 ELSE 0.0 END)::numeric, 3
+                    ) AS win_rate
+                FROM signal_ledger_full
+                WHERE outcome IS NOT NULL
+                  AND pnl_r IS NOT NULL
+                  AND was_selected = true
+                  AND timestamp >= NOW() - INTERVAL '90 days'
+                GROUP BY setup_plugin, hmm_regime_at_fire
+            ),
+            totals AS (
+                SELECT setup_plugin, SUM(n) AS total_n
+                FROM base
+                GROUP BY setup_plugin
+            )
+            SELECT b.setup_plugin, b.regime, b.n, b.avg_r, b.win_rate
+            FROM base b
+            JOIN totals t ON t.setup_plugin = b.setup_plugin
+            ORDER BY t.total_n DESC, b.setup_plugin, b.regime
+        """
+        rows = await db_manager.fetch(query)
+        return {
+            "cells": [
+                {
+                    "setup_plugin": row["setup_plugin"],
+                    "regime": _i(row["regime"]),
+                    "n": int(row["n"]),
+                    "avg_r": _f(row["avg_r"]),
+                    "win_rate": _f(row["win_rate"]),
+                }
+                for row in rows
+            ]
+        }
+    except Exception as error:
+        logger.error("Error fetching signals heatmap", error=str(error))
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@router.get("/signals/edge-series")
+async def get_signals_edge_series(
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """Daily avg R and win rate for the last 30 days — feeds the edge sparkline."""
+    try:
+        query = """
+            SELECT
+                DATE_TRUNC('day', signal_computed_at)::date AS day,
+                COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
+                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r,
+                ROUND(
+                    AVG(CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                        THEN 1.0 ELSE 0.0 END) FILTER (WHERE outcome IS NOT NULL)::numeric, 3
+                ) AS win_rate
+            FROM signal_ledger_full
+            WHERE was_selected = true
+              AND signal_computed_at >= NOW() - INTERVAL '30 days'
+            GROUP BY 1
+            ORDER BY 1
+        """
+        rows = await db_manager.fetch(query)
+        return {
+            "series": [
+                {
+                    "day": str(row["day"]),
+                    "n": int(row["n"]),
+                    "avg_r": _f(row["avg_r"]),
+                    "win_rate": _f(row["win_rate"]),
+                }
+                for row in rows
+            ]
+        }
+    except Exception as error:
+        logger.error("Error fetching edge series", error=str(error))
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@router.get("/signals/intraday-heatmap")
+async def get_signals_intraday_heatmap(
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """Avg R by (hour, day-of-week) — feeds the intraday session heat map."""
+    try:
+        query = """
+            SELECT
+                EXTRACT(HOUR FROM signal_computed_at AT TIME ZONE 'America/New_York')::int AS hour,
+                EXTRACT(DOW FROM signal_computed_at AT TIME ZONE 'America/New_York')::int AS dow,
+                COUNT(*) FILTER (WHERE pnl_r IS NOT NULL) AS n,
+                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 4) AS avg_r
+            FROM signal_ledger_full
+            WHERE was_selected = true
+              AND signal_computed_at >= NOW() - INTERVAL '90 days'
+              AND EXTRACT(DOW FROM signal_computed_at AT TIME ZONE 'America/New_York') BETWEEN 1 AND 5
+              AND EXTRACT(HOUR FROM signal_computed_at AT TIME ZONE 'America/New_York') BETWEEN 8 AND 17
+            GROUP BY 1, 2
+            ORDER BY 1, 2
+        """
+        rows = await db_manager.fetch(query)
+        return {
+            "cells": [
+                {
+                    "hour": row["hour"],
+                    "dow": row["dow"],
+                    "n": int(row["n"]),
+                    "avg_r": _f(row["avg_r"]),
+                }
+                for row in rows
+            ]
+        }
+    except Exception as error:
+        logger.error("Error fetching intraday heatmap", error=str(error))
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
 _WINDOW_MAP: dict[str, str] = {
     "7d": "7 days",
     "30d": "30 days",
