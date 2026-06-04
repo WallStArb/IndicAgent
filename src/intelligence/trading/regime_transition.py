@@ -15,6 +15,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 
@@ -120,18 +121,20 @@ class RegimeTransitionPlugin:
         raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(stop, 2),
-            "targets": targets,
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
-            features, direction, "trend", signal["confidence"]
+        signal = make_signal_from_frame(
+            tf,
+            symbol=frames.get("__symbol__", ""),
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            features_snapshot=capture_signal_features(features, direction, "trend", confidence),
         )
         return signal
 

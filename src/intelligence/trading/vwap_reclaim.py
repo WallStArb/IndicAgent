@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 # Minimum volume ratio for signal confirmation
@@ -220,21 +221,22 @@ class VWAPReclaimPlugin:
         if hmm == 0.0:
             regime_ctx = "ranging"
 
-        signal = {
-            "signal_type": signal_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": round(frame.stop, 2),
-            "targets": [round(t.price, 2) for t in frame.targets],
-            "confidence": confidence,
-            "regime_context": regime_ctx,
-            "supporting_factors": supporting,
-        }
-        signal["features_snapshot"] = capture_signal_features(
-            features,
-            direction,
-            "mean_reversion",
-            signal["confidence"],
+        signal = make_signal_from_frame(
+            frame,
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamp=features.get("timestamp", ""),
+            signal_type=signal_type,
+            setup_plugin=self.name,
+            direction=direction,
+            confidence=confidence,
+            regime_context=regime_ctx,
+            confluence_score=0.0,
+            supporting_factors=supporting,
+            invalidation_conditions=[],
+            features_snapshot=capture_signal_features(
+                features, direction, "mean_reversion", confidence
+            ),
         )
         return signal
 

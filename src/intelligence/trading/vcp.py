@@ -24,6 +24,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
+from .signal_schema import make_signal_from_frame
 from .trade_framer import frame_trade
 
 _ET_TZ = ZoneInfo("America/New_York")
@@ -222,23 +223,22 @@ class VCPPlugin:
             state["contractions"] = []
             self._state[(symbol, tf)] = state
 
-            signal = {
-                "signal_type": signal_type,
-                "direction": direction,
-                "entry_price": round(frame.entry, 2),
-                "stop_loss": round(frame.stop, 2),
-                "targets": [round(t.price, 2) for t in frame.targets],
-                "confidence": confidence,
-                "regime_context": regime_ctx,
-                "supporting_factors": supporting,
-                "contraction_count": contraction_count,
-            }
-            signal["features_snapshot"] = capture_signal_features(
-                features,
-                direction,
-                "trend",
-                signal["confidence"],
+            signal = make_signal_from_frame(
+                frame,
+                symbol=symbol,
+                timeframe=features.get("timeframe", tf),
+                timestamp=features.get("timestamp", ""),
+                signal_type=signal_type,
+                setup_plugin=self.name,
+                direction=direction,
+                confidence=confidence,
+                regime_context=regime_ctx,
+                confluence_score=0.0,
+                supporting_factors=supporting,
+                invalidation_conditions=[],
+                features_snapshot=capture_signal_features(features, direction, "trend", confidence),
             )
+            signal["contraction_count"] = contraction_count
             return signal
 
         else:
