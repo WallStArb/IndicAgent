@@ -202,10 +202,7 @@ When multiple setups fire on the same bar, the **CIS scorer** adjudicates (see b
 1. **RR gate** — viable risk:reward based on zone quality and distance to target
 2. **Regime gate** — HMM confidence threshold, regime stability, direction match. Direction mismatches are suppressed and recorded as shadow signals for counterfactual tracking
 
-Quality gates on every signal:
-- **Alpha decay** — confidence degrades over time. Modeled explicitly as a decay curve, not assumed constant
-- **Freshness decay** — signal value drops as the bar context that generated it ages
-- **Per-setup cooldown** — prevents the same setup firing repeatedly within the same regime window
+Every I7 signal passes through a deterministic quality pipeline before Kafka emission — see [Signal Quality Pipeline](#signal-quality-pipeline) below.
 
 ### Layer 4: AI Intelligence
 
@@ -278,31 +275,38 @@ The learning path: logistic regression on this dataset fits per-bucket weights t
 
 ---
 
-## Self-Correcting Pipeline
+## Signal Quality Pipeline
 
-The pipeline monitors its own signal quality and self-adjusts at six independent layers — no manual recalibration required.
+Every I7 signal passes through a deterministic sequence of transformations between plugin output and Kafka emission. Confidence is not a single number assigned at plugin time — it is refined at each stage by independent evidence.
 
 ```
-Raw confidence (I7 plugin output)
-    → [1] Isotonic calibration    → calibrated_confidence
-    → [2] TOD multiplier          → time-adjusted confidence
-    → [3] perf_multiplier         → performance-weighted rank
-    → [4] KS drift penalty        → distribution-aware CIS bucket weights
-    → [5] CUSUM monitor           → feedback loop back into perf_multiplier
-    → [6] Shadow mode gate        → statistical proof before production eligibility
+I7 plugin fires
+  → compose_confidence()        enforce [0.10, 0.95] — no plugin claims certainty
+  → pre_quality_confidence      preserve raw plugin output for ML training labels
+  → alpha decay                 0.5^(fires_since_last_win / half_life) — autocorrelation discount
+  → CIS scoring                 add cis_score, bucket_scores across 6 evidence dimensions
+  → quality gate                min(Hurst, Entropy) × KS drift penalty × empirical floor
+  → regime gate                 suppress on hmm_regime vs plugin.regime_type mismatch
+  → ToD adjustment              120-cell (regime_type, timeframe, hour_et) win-rate multiplier
+  → isotonic calibration        map raw → empirical probability via historical outcomes
+  → rank_signals()              adjusted_rank = perf_multiplier from rolling Sharpe [0.5, 1.5]
+  → select_winner()             highest-ranked regime-eligible signal; ties → confidence
+  → swarm overlay               adjusted_confidence = calibrated × swarm_multiplier (MoA, 5 agents)
+  → structural completeness     verify required fields; DLQ + metric increment on any miss
+  → emit to intelligence.i7.signals
 ```
 
-**[1] Isotonic Calibration** — raw confidence values are systematically biased. Isotonic regression maps them to empirically calibrated values using historical outcome data. Raw value stored alongside calibrated value for audit.
+**Alpha decay — `0.5^(n / half_life)`** where `n` counts fires since last win, not elapsed bars. A plugin that fires 10 consecutive bars is not 10 independent observations — each is autocorrelated evidence. Confidence halves every `half_life` fires. A plugin that goes quiet for 100 bars and re-fires carries zero accumulated decay — silence is not a signal. Half-life constants are empirical priors; the training data now exists to derive them from measured autocorrelation structure per `(setup_plugin, timeframe)`.
 
-**[2] Time-of-Day Multiplier** — signal quality varies by session and regime. A trend setup at RTH open behaves differently than the same setup at 2pm. Per cell: `(regime_type, timeframe, hour_et)` — 120 cells total.
+**Hurst × Entropy quality gate** — `min(H, S)` not product, because both measure regime predictability and are correlated. Using the stricter avoids compounding correlated penalties. KS drift penalty is applied independently: Kolmogorov-Smirnov test against historical feature distributions — a signal fired into an out-of-distribution market is discounted proportional to the divergence, not dropped.
 
-**[3] Performance Multiplier** — rolling 30-day Sharpe and win rate per setup per regime. Gate: setups with N < 30 use `perf_multiplier = 1.0` — no effect until statistically proven.
+**Isotonic calibration** — raw confidence values are systematically biased upward. Isotonic regression fits a monotone map from raw → empirical win probability using historical outcomes, per `(setup_plugin, regime_type)` segment. Calibration in a trending regime differs from ranging — same plugin, different reliability profile.
 
-**[4] KS Drift Monitor** — Kolmogorov-Smirnov test compares current feature distributions against historical baseline. When a feature drifts significantly, its CIS contribution is penalized. The signal doesn't disappear — it gets discounted proportionally to how far out-of-distribution it is.
+**`pre_quality_confidence`** is stamped before any multiplier touches the signal. This is what the ML model trains against — raw plugin output, before decay, before drift penalty, before calibration. Every downstream adjustment is auditable; the training labels are uncontaminated.
 
-**[5] CUSUM Performance Monitor** — cumulative sum control charts track win rate per setup. When cumulative performance crosses the degradation threshold, `perf_multiplier` is automatically reduced. Recovery restores it. The loop closes itself.
+**CUSUM + shadow gate — the two feedback loops.** CUSUM control charts track win rate per setup continuously and feed back into `perf_multiplier` without waiting for the 30-day rolling window to catch up. Shadow mode requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` — statistically positive expected value at 95% confidence — before a plugin enters the live execution stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles. Every live plugin has demonstrated edge under real conditions, not simulated ones.
 
-**[6] Shadow Mode Gate** — every new feature or plugin runs in shadow mode before production. Shadow signals are generated, tracked through full lifecycle, and scored — but never published live. Promotion requires p < 0.05 AND N ≥ 100 resolved signals. `shadow_promotion_ready` Prometheus gauge signals when gate conditions are met.
+Full detail: [`docs/signals/signals-foundation.md`](docs/signals/signals-foundation.md)
 
 ---
 
@@ -329,7 +333,7 @@ Every signal is tracked through its complete lifecycle — not fired and forgott
 
 **Counterfactual recording.** All ranked candidates — not just winners — are written to `signal_ledger`. The system records the full I1–I8 feature vector, the CIS bucket breakdown, and the eventual outcome for every signal the pipeline considered. This is the decision boundary: the dataset tells the ML model not just what worked, but what *almost* worked and what was correctly rejected.
 
-**Signal schema versioning.** A `signal_schema_version` column distinguishes signal generations. ML training queries filter to the current schema version — contaminated data from earlier pipeline versions is excluded by construction.
+**Structural validation at construction.** Every signal is built through a single public factory (`make_signal_from_frame`) that enforces structural invariants — stop distance, stop type, minimum R:R — at the construction boundary. A signal that fails these gates never enters the pipeline. The executor re-validates at the aggregation boundary. Structural guards, not version tags.
 
 ---
 
@@ -599,10 +603,18 @@ Docs in `docs/foundation/` and domain folders (`intelligence/`, `data/`, `signal
 
 | Document | Covers |
 |----------|--------|
-| [Intelligence Foundation](docs/intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, tier contracts |
+| [Intelligence Foundation](docs/intelligence/intelligence-foundation.md) | I1–I8 definitions, data flow philosophy, CIS bucket weights, adaptive weight systems |
 | [Intelligence Plugins](docs/intelligence/intelligence-plugins.md) | Plugin protocol, 132-plugin inventory, how to add a plugin |
 | [Intelligence AI](docs/intelligence/intelligence-ai.md) | Swarm agents, LLM chain, shadow governance, graduation criteria |
 | [Intelligence Operations](docs/intelligence/intelligence-operations.md) | Services, monitoring, debugging the intelligence pipeline |
+
+### Signals Domain — verified
+
+| Document | Covers |
+|----------|--------|
+| [Signals Foundation](docs/signals/signals-foundation.md) | signal_ledger schema, full signal quality pipeline (alpha decay, calibration, CIS, ranking), feedback loops |
+| [Signals Lifecycle](docs/signals/signals-lifecycle.md) | State machine, zone activation, 8-class outcome taxonomy, MAE/MFE tracking |
+| [Signals Operations](docs/signals/signals-operations.md) | Debugging stalled signals, replay auditor, TTL expiry runbooks |
 
 ### Research & Planning — not authoritative
 
