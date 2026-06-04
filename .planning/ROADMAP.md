@@ -1247,37 +1247,39 @@ Plans:
 
 ### Phase 100: Occam's Razor — Complexity-Aware Model Selection
 
-**Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update.
+**Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a paired bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update with structured reason codes and comprehensive audit trail.
 **Depends on**: Phase 096 (Agent Registry)
 **Requirements**: OCCAM-01, OCCAM-02, OCCAM-03, OCCAM-04
 **Success Criteria** (what must be TRUE):
 
-  1. `BaselineBuilder` protocol and concrete implementations (LinearBaseline, RuleBaseline, RandomBaseline) exist in `src/intelligence/ai/baseline.py`
-  2. `OccamRazorEvaluator` statistical test engine computes bootstrap CI on Sharpe delta with complexity penalty
-  3. `AlphaSwarm._run_occam_razor_cycle()` evaluates all shadow ML agents every 15 min
-  4. Rejection UPDATE sets `shadow_registry.is_shadow=TRUE`, `rejection_reason`, `complexity_score`, `last_occam_check`
-  5. OTel metrics `OCCAM_REJECTIONS_TOTAL`, `OCCAM_EVALUATIONS_TOTAL`, `OCCAM_COMPLEXITY_RATIO`, `OCCAM_SHARPE_DELTA` emitted
-  6. Grafana dashboard `Occam's Razor` shows evaluations, rejections, complexity ratios
+  1. `BaselineBuilder` protocol has explicit `fit()`, `predict()`, `metadata()` methods with typed signatures and fail-closed guards (NaN, zero-variance, insufficient data)
+  2. `OccamRazorEvaluator` uses paired bootstrap (timestamp-aligned return deltas) with explicit penalized decision rule: `penalized_delta = sharpe_delta - lambda * log1p(complexity_ratio)`
+  3. `shadow_registry` has `occam_status` (with CHECK constraint), `occam_ci_lower`, `occam_ci_upper`, `occam_sharpe_delta`, `occam_baseline_id`, `occam_rejected_at` columns
+  4. `AlphaSwarm._run_occam_razor_cycle()` evaluates shadow ML agents with idempotent rejection (WHERE guard on occam_status) and advisory lock for concurrent safety
+  5. Structured reason codes: `REJECTED_LOW_SHARPE`, `REJECTED_COMPLEXITY`, `REJECTED_TIE` (not free-text)
+  6. OTel metrics `OCCAM_REJECTIONS_TOTAL`, `OCCAM_EVALUATIONS_TOTAL`, `OCCAM_COMPLEXITY_RATIO`, `OCCAM_SHARPE_DELTA` emitted
+  7. Grafana dashboard `Occam's Razor` shows evaluations, rejections, complexity ratios
+  8. Golden dataset tests with deterministic assertions prove all decision paths
 
-**Plans**: 4 plans in 4 waves
+**Plans**: 4 plans in 4 waves (revised per cross-AI review)
 
 Plans:
 
-**Wave 1** — Baseline registry (independent)
+**Wave 1** — Baseline registry + complexity migration (independent)
 
-- [ ] 100-01-PLAN.md — BaselineBuilder protocol + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry
+- [ ] 100-01-PLAN.md — BaselineBuilder protocol (fit/predict/metadata) + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry + ml_models complexity columns migration
 
 **Wave 2** *(depends on Wave 1)* — Statistical test engine
 
-- [ ] 100-02-PLAN.md — OccamRazorEvaluator: bootstrap CI, complexity score, decision rule with penalty
+- [ ] 100-02-PLAN.md — OccamRazorEvaluator: paired bootstrap CI, penalized decision rule, EVAL_STATE enum, golden dataset tests
 
 **Wave 3** *(depends on Wave 2)* — Shadow registry integration
 
-- [ ] 100-03-PLAN.md — shadow_registry rejection flow + ml_models complexity columns + OTel metrics
+- [ ] 100-03-PLAN.md — shadow_registry Occam audit columns + OTel metrics + AlphaSwarm rejection flow with idempotency + structured reason codes + golden dataset rejection test
 
 **Wave 4** *(depends on Wave 3)* — End-to-end integration
 
-- [ ] 100-04-PLAN.md — Real baseline returns + complexity from ml_models + Grafana dashboard + integration tests
+- [ ] 100-04-PLAN.md — Advisory lock concurrent safety + ORE registration verification + Grafana dashboard + golden dataset E2E tests
 
 ### Phase 101: Composite Fitness Function
 
