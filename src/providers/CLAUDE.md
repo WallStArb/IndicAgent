@@ -29,6 +29,14 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 2. INSERT to `instruments` table with `contract_details` JSONB; restart `indicagent-ibkr-provider`
 3. Backfill historical data: see root CLAUDE.md "New contracts" command
 
+### Bar Delivery Latency
+
+Live bars come from `reqHistoricalDataAsync(keepUpToDate=True)` via `stream_official_bars()`. This is a reconciliation API, not a low-latency feed. Observed delivery: **~5-6s from bar open** (`bar.ts`) to `market.bars` Kafka topic, all bars under 10s (measured via `merger_bar_latency_seconds`).
+
+**What this means:** IBKR fires `updateEvent(has_new_bar=True)` when a new bar period starts (at `:00`), delivering the newly-opened bar's initial snapshot ~5-6s later. This is IBKR server-side latency — nothing in our stack adds to it. The `merger_bar_latency_seconds` metric measures provider delivery lag (bar.ts → merger receipt), not merger processing time (which is sub-millisecond pass-through).
+
+**Trade-off accepted:** `keepUpToDate=True` gives clean, audited 1m bars suitable for signal computation. `reqRealTimeBars` (5s RTBs) would give sub-second delivery but requires bar accumulation and adds pipeline complexity. For 1m signal logic this latency is acceptable; for sub-second price display it is not.
+
 ### Troubleshooting
 - **IB Gateway connection refused**: IB Gateway runs locally via Docker (`ib-gateway` container, `localhost:7497`). If connection fails, check the container is running (`docker ps | grep ib-gateway`) and that the API is enabled inside the gateway UI (VNC on `:5900`).
 - **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:

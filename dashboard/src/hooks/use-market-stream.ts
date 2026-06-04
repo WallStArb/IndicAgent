@@ -616,7 +616,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const barHigh = parseFloat(String(payload.high || 0));
         const barLow = parseFloat(String(payload.low || 0));
         const barOpen = parseFloat(String(payload.open || 0));
-        const barDate = String(payload.timestamp || "").slice(0, 10);
+        const barDate = String(payload.ts || "").slice(0, 10);
         const barVol = parseFloat(String(payload.volume || 0));
         const sess = old.session;
         // Only initialize session from a bar when not yet seeded.
@@ -632,10 +632,17 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               date: barDate,
               sessionVolume: sess.sessionVolume + barVol,
             };
-        // Update tick price from bar close (5s RTB bars drive the price display)
         // Guard: skip stale bars from gap-fill replay (older than 5 minutes)
-        const barTs = new Date(payload.timestamp || 0).getTime();
-        const staleBar = barTs > 0 && (Date.now() - barTs) > STALE_BAR_THRESHOLD_MS;
+        const barTs = new Date(payload.ts || 0).getTime();
+        const now = Date.now();
+        const staleBar = barTs > 0 && (now - barTs) > STALE_BAR_THRESHOLD_MS;
+        // Log delivery latency: time since bar close (barTs + 60s) should be ~2-5s for live bars
+        if (barTs > 0 && !staleBar) {
+          const deliveryLatencyMs = now - (barTs + 60_000);
+          if (deliveryLatencyMs > 10_000) {
+            console.warn(`[market_data] slow bar delivery: ${payload.symbol} ts=${payload.ts} latency=${(deliveryLatencyMs / 1000).toFixed(1)}s`);
+          }
+        }
         const prevTick = old.tick;
         const tickFlash = priceDirection(close, prevTick.price);
         barFlash = tickFlash;
@@ -644,7 +651,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               price: close,
               bid: prevTick.bid || close,
               ask: prevTick.ask || close,
-              timestamp: String(payload.timestamp || ""),
+              timestamp: String(payload.ts || ""),
               lastUpdate: Date.now(),
               tickFlash,
             }
@@ -659,7 +666,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               low: barLow,
               close,
               volume: barVol,
-              timestamp: String(payload.timestamp || ""),
+              timestamp: String(payload.ts || ""),
               lastUpdate: Date.now(),
             },
             // Only update prevClose when initializing session; REST seed takes priority.

@@ -27,7 +27,7 @@ function getDefaultFilters(): FilterState {
     setup_plugin: [],
     timeframe: [],
     tier: ["hero", "monitored"],   // exclude candidate noise by default
-    confidence_min: 0.35,           // match hero/monitored threshold
+    confidence_min: 0,
     confidence_max: 1,
     cis_filter: "all",
     status: [],

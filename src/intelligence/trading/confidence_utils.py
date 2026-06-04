@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.utils.core import clamp
+
 CONF_CEIL: float = 0.95
 """Maximum allowed confidence for any I7 signal."""
 
@@ -43,7 +45,7 @@ def compose_confidence(raw: float) -> float:
     Returns:
         Float in [0.0, CONF_CEIL] rounded to 4 decimal places.
     """
-    return round(min(CONF_CEIL, max(0.0, raw)), 4)
+    return round(clamp(raw, 0.0, CONF_CEIL), 4)
 
 
 @dataclass(frozen=True)

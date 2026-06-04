@@ -410,9 +410,6 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
   // Client-side filtering for multi-select cases
   const filtered = useMemo(() => {
     return signals.filter((s) => {
-      // Null confidence signals should NOT bypass filters when a confidence range is set
-      if (s.confidence === null) return false;
-
       if (filters.tier.length > 0 && !filters.tier.includes(s.signal_tier))
         return false;
       if (
@@ -427,13 +424,12 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
       if (filters.status.length > 0 && !filters.status.includes(s.status))
         return false;
 
-      // Check confidence min filter
-      if (filters.confidence_min > 0 && s.confidence < filters.confidence_min)
-        return false;
-
-      // Check confidence max filter (if set)
-      if (filters.confidence_max < 1 && s.confidence > filters.confidence_max)
-        return false;
+      if (s.confidence === null) {
+        if (filters.confidence_min > 0 || filters.confidence_max < 1) return false;
+      } else {
+        if (filters.confidence_min > 0 && s.confidence < filters.confidence_min) return false;
+        if (filters.confidence_max < 1 && s.confidence > filters.confidence_max) return false;
+      }
 
       // CIS filter - only active when CIS score exists and meets threshold
       if (
