@@ -373,8 +373,8 @@ class SignalProcessor:
 
         # CRITICAL-02: per-signal plugin confidence calibration before winner selection.
         # apply_calibration uses 3-tuple (plugin, tf, symbol) key with '*' global fallback.
-        # Winner's calibrated_confidence is later overwritten by cis_result.calibrated_cis
-        # (CIS-level calibration) — the two layers are intentionally distinct.
+        # calibrated_confidence = isotonic-calibrated value (plugin-level), for all signals.
+        # CIS-level calibration is stamped separately as cis_calibrated_confidence on winner.
         ranked = await apply_calibration(
             ranked,
             cache_snapshot.calibration_curves,
@@ -466,10 +466,10 @@ class SignalProcessor:
             winner_payload["is_backfill"] = (
                 datetime.now(UTC) - bar.ts
             ).total_seconds() > TF_SECONDS.get(tf, 60)
-            # Design B: stamp calibrated_confidence from CIS-level calibration.
-            # cis_result.calibrated_cis is None when no curve is available (passthrough).
+            # CIS-level calibration: additive field distinct from plugin-level calibrated_confidence.
+            # cis_result.calibrated_cis is None when no curve is available (omit field).
             if cis_result.calibrated_cis is not None:
-                winner_payload["calibrated_confidence"] = cis_result.calibrated_cis
+                winner_payload["cis_calibrated_confidence"] = cis_result.calibrated_cis
 
         return SignalProcessorResult(
             success=success,
