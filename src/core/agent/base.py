@@ -49,7 +49,7 @@ from src.observability.metrics import (
     AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS,
     AGENT_SETUP_RETRIES_TOTAL,
 )
-from src.observability.otel import get_meter, get_tracer, init_otel_providers
+from src.observability.otel import OTelInitError, get_meter, get_tracer, init_otel_providers
 
 # ---------------------------------------------------------------------------
 # BaseDaemon Observability Metrics (Phase 67)
@@ -268,11 +268,8 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         if not _tracing_initialized:
             try:
                 init_otel_providers(service_name=self.name)
-            except Exception as error:
-                from src.observability.otel import OTelInitError
-
-                if isinstance(error, OTelInitError):
-                    self.logger.critical("daemon.otel_init_failed", error=str(error))
+            except OTelInitError as error:
+                self.logger.critical("daemon.otel_init_failed", error=str(error))
                 raise
             _tracing_initialized = True
 
