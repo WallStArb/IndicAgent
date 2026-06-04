@@ -195,9 +195,9 @@ def make_signal_from_frame(
     direction: int,
     confidence: float,
     regime_context: str,
-    confluence_score: float,
+    confluence_score: float = 0.0,
     supporting_factors: list[str],
-    invalidation_conditions: list[str],
+    invalidation_conditions: list[str] | None = None,
     ttl_bars: int | None = None,
     features_snapshot: dict | None = None,
 ) -> dict:
@@ -209,6 +209,8 @@ def make_signal_from_frame(
 
     Raises ValueError if tf.viable is False or the emission gate fails.
     """
+    if invalidation_conditions is None:
+        invalidation_conditions = []
     if not tf.viable:
         raise ValueError(
             f"Cannot build signal from non-viable TradeFrame: "

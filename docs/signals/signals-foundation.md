@@ -179,6 +179,126 @@ WHERE s.outcome IS NOT NULL
 
 ---
 
+## Signal Quality Pipeline
+
+Every I7 signal passes through a deterministic sequence of transformations between plugin output and Kafka emission. Understanding this sequence is required before touching confidence values, training data, or the quality floor.
+
+### Stage sequence
+
+```
+I7 plugin fires
+  → compose_confidence()        clamp to [0.10, 0.95]
+  → pre_quality_confidence stamp copy raw confidence before any decay or multipliers
+  → alpha decay                 discount consecutive autocorrelated re-fires
+  → CIS scoring                 add cis_score, bucket_scores, weights_version
+  → apply_quality_gate()        Hurst × Entropy × drift-penalty multipliers; floor drop
+  → apply_regime_gate()         suppress by hmm_regime vs plugin.regime_type
+  → apply_tod_adjustment()      time-of-day confidence modifier
+  → apply_calibration()         isotonic regression calibration curves
+  → rank_signals()              assign adjusted_rank from setup_performance
+  → select_winner()             pick highest-ranked regime-eligible signal
+  → terminal completeness check verify REQUIRED_PIPELINE_FIELDS present; DLQ on miss
+  → emit to intelligence.i7.signals Kafka topic
+```
+
+### compose_confidence
+
+Every I7 plugin must route its raw confidence scalar through `compose_confidence()` in `confidence_utils.py` before returning a signal. This enforces `[CONF_FLOOR, CONF_CEIL] = [0.10, 0.95]` across all plugins with a single import. No inline `min()`/`max()` clamping is permitted in plugin bodies.
+
+The floor (0.10) prevents a zero-confidence signal from persisting invisibly in lifecycle tracking. The ceiling (0.95) prevents any single plugin from claiming near-certainty regardless of evidence strength.
+
+### pre_quality_confidence
+
+Stamped immediately before alpha decay and all multiplier stages:
+
+```python
+sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
+```
+
+This preserves the raw plugin output for ML training. `pre_quality_confidence` is what the model was actually trained to predict — it should never reflect post-processing adjustments. All ML training queries use this field, not `confidence`.
+
+### Alpha decay (QUAL-02)
+
+**Purpose:** Guard against autocorrelated consecutive fires. A plugin that fires 10 bars in a row is not 10 independent observations — each fire after the previous win is evidence of signal persistence, not additional independent confirmation. Without decay, high-frequency plugins systematically crowd out lower-frequency setups with stronger independent evidence.
+
+**Formula:** `multiplier = 0.5 ** (bars_since / half_life)`
+
+`confidence` is multiplied by this value in-place before any downstream stages see it.
+
+**Half-life constants (empirical priors — not yet data-derived):**
+
+| Timeframe | half_life (fires) |
+|-----------|-------------------|
+| `1m`      | 10                |
+| `5m`      | 8                 |
+| `15m`     | 8                 |
+| `1h`      | 6                 |
+
+**What `bars_since` counts:** fires since the last win, not elapsed bars. The counter increments only when the plugin fires on the current bar. A plugin that fires once, goes silent for 100 bars, and re-fires carries zero accumulated decay — it is treated as a new independent event. Silence does not penalize re-emergence.
+
+**Reset:** `bars_since` resets to 0 when the plugin wins (is selected as the aggregator output for that bar/symbol/timeframe/direction).
+
+**State persistence:** `_setup_last_fire` is in-memory and checkpointed to the intelligence pipeline's hot-state file on graceful shutdown. Service restarts restore it via `restore_setup_last_fire()`.
+
+**Known empirical debt:** The half-life constants are tuned by intuition, not measured from data. The correct approach is to compute the autocorrelation function for each `(setup_plugin, timeframe)` fire series and derive half-life from the lag at which autocorrelation drops below significance (r < 0.3). `pre_quality_confidence` is now correctly stamped before decay, so the training data exists to do this analysis. Tracked as future work.
+
+### Quality gate (apply_quality_gate)
+
+Applies three independent multipliers to confidence after alpha decay:
+
+- **Hurst × Entropy multiplier:** `min(hurst_quality, entropy_quality)` — `min()` not product because the two measures are correlated (both reflect regime predictability). Uses the stricter of the two rather than compounding them.
+- **Drift penalty:** KS-test divergence between recent and historical feature distributions. Penalizes signals fired into a distribution-shifted market. Absent feature → neutral pass-through (1.0).
+- **Empirical quality floor:** Signals below `SIGNAL_MIN_PUBLISHABLE_CONFIDENCE` (default 0.12, loaded from `.pipeline_quality_floor` written by `quality_floor_bootstrap.py`) are dropped entirely and counted by `intelligence_pipeline_quality_floor_rejections_total`. The floor is derived from the p10 confidence of historically profitable signals — not a hand-tuned constant.
+
+### CIS scoring
+
+`CISScorer` produces a composite intelligence score (`cis_score` 0–1) from the full feature vector across six buckets (trend, momentum, structure, volume, volatility, macro). Applied before the quality gate so the quality multipliers act on CIS-adjusted confidence.
+
+`cis_score` and `bucket_scores` are written to `signal_ledger` at fire time and are immutable — they reflect the market state at the moment of signal generation, not any later recalibration.
+
+### Time-of-day adjustment (apply_tod_adjustment)
+
+120-cell lookup table keyed by `(regime_type, timeframe, hour_et)`. Computed from rolling historical win rates per cell. A trend setup at RTH open has structurally different win characteristics than the same setup at 2pm ET — the TOD multiplier captures that without requiring the plugin to know about session context.
+
+Cells with insufficient history default to a neutral multiplier (1.0) rather than penalizing.
+
+### Calibration (apply_calibration)
+
+Raw plugin confidence values are systematically biased upward — plugins tend to fire at high confidence when uncertain. Isotonic regression maps raw values to empirically calibrated probabilities. Both `confidence` and `calibrated_confidence` are set to the calibrated value; `pre_quality_confidence` (stamped before all multipliers) is the field that preserves the original plugin output for ML training.
+
+Calibration curves are loaded from the DB at pipeline startup and refreshed periodically. Each curve is fit per `(setup_plugin, regime_type)` segment against historical outcomes — a plugin's calibration in a trending regime is distinct from its calibration in a ranging regime.
+
+### Ranking and winner selection
+
+`rank_signals()` assigns `adjusted_rank` from `setup_performance` data:
+
+- **Validated setups** (`sample_size >= 30`): `adjusted_rank = perf_multiplier` derived from rolling Sharpe rank, range `[0.5, 1.5]`.
+- **Warm-up setups** (`sample_size < 30`): `adjusted_rank = 0.5` (warm-up penalty, D-16). New or low-volume setups cannot outrank validated ones.
+
+`select_winner()` picks the regime-eligible signal with the highest `adjusted_rank` (lowest numeric value under ascending sort). Tiebreaking: higher `confidence` wins. The winner is the single signal marked `was_selected=TRUE` in `signal_ledger`. All other signals on that bar are written with `was_selected=FALSE`.
+
+### Swarm overlay
+
+After winner selection, the alpha swarm (`AlphaSwarm`) applies a `swarm_multiplier` derived from a mixture-of-agents (MoA) composite across 5 alpha swarm agents:
+
+```
+adjusted_confidence = calibrated_confidence × swarm_multiplier
+```
+
+The swarm evaluates the selected signal against additional dimensions (sentiment, macro context, agent disagreement) that individual I7 plugins do not see. This is a post-selection overlay — it can reduce confidence but cannot change which signal was selected as the winner.
+
+### Feedback mechanisms (CUSUM + shadow gate)
+
+The pipeline includes two adaptive feedback loops that operate over longer time horizons than the per-bar stage sequence. These are not per-signal transformations — they update the weights and eligibility state that the per-bar stages consume.
+
+**CUSUM Monitor** — Cumulative sum control charts track win rate per setup continuously. When a setup's win rate degrades beyond the CUSUM threshold, its `perf_multiplier` is automatically reduced; when win rate recovers, the multiplier is restored. This gives the ranking system a real-time quality signal without waiting for the 30-day rolling window to catch up.
+
+**Shadow mode gate** — Every plugin is auto-enrolled in `shadow_registry` at startup. Shadow signals traverse the full pipeline and generate outcomes in `signal_ledger` (`is_shadow=TRUE`) but are excluded from `select_winner()` — they never reach the execution stream.
+
+Promotion to live: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive expected value at 95% confidence). Demotion back to shadow: `EV[R] < -0.05` for 3 consecutive evaluation cycles. The gate enforces that every live plugin has demonstrated edge under real market conditions, not just backtested conditions.
+
+---
+
 ## How To Extend
 
 ### Adding a new entry_type
@@ -258,6 +378,6 @@ WHERE expires_at IS NULL AND status IN ('pending', 'active') AND exit_at IS NULL
 - `docs/signals/signals-operations.md` — operating and debugging the three lifecycle services
 - `docs/intelligence/intelligence-foundation.md` — I7 signal generation and aggregator logic
 - `docs/data/data-streaming.md` — Signal Kafka topics — see Data Streaming
-- `src/intelligence/trading/signal_schema.py` — `SIGNAL_SCHEMA_VERSION`, `make_signal()`, `validate_signal()`
+- `src/intelligence/trading/signal_schema.py` — `make_signal_from_frame()`, `validate_signal()`, `REQUIRED_SIGNAL_FIELDS`
 - `src/persistence/repository/signal_ledger_repository.py` — `LedgerEntry`, all SQL
 - `src/intelligence/pipeline/signal_processor.py` — `was_selected`, `is_shadow` stamping logic

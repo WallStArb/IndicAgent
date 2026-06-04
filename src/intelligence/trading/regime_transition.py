@@ -91,8 +91,6 @@ class RegimeTransitionPlugin:
         tf = frame_trade(signal_type, direction, entry, features, atr)
         if not tf.viable:
             return no_signal()
-        stop = tf.stop
-        targets = [round(t.price, 2) for t in tf.targets]
 
         # Confidence: 0.5 * cp_probability + 0.3 if HMM aligns + 0.2 * choch_detected
         raw_conf = 0.5 * cp_probability
@@ -131,9 +129,7 @@ class RegimeTransitionPlugin:
             direction=direction,
             confidence=confidence,
             regime_context=regime_ctx,
-            confluence_score=0.0,
             supporting_factors=supporting,
-            invalidation_conditions=[],
             features_snapshot=capture_signal_features(features, direction, "trend", confidence),
         )
         return signal

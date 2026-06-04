@@ -27,7 +27,7 @@ All live in `src/intelligence/trading/`:
 | `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
 | `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |
-| `signal_schema.py` | `SIGNAL_SCHEMA_VERSION`, `make_signal()`, `make_signal_from_frame()`, `validate_signal()` | Canonical version constant, signal dict construction from TradeFrame, validation |
+| `signal_schema.py` | `make_signal_from_frame()`, `make_signal_id()`, `validate_signal()`, `REQUIRED_SIGNAL_FIELDS`, `REQUIRED_PIPELINE_FIELDS` | Sole public signal construction path, ID generation, structural validation |
 
 **`regime_type` class attribute** (mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
 
@@ -40,7 +40,7 @@ All live in `src/intelligence/trading/`:
 - Tier lists (`TIER_I1`…`TIER_I7`) in `register_plugins.py` — single source of truth; `validate_tier()` hard-crashes at missing names.
 
 ### Creating a New I7 Plugin
-1. `src/intelligence/trading/<name>.py` — extend `PatternPlugin`, set `regime_type` (`"trend"` | `"mean_reversion"` | `"any"`), use shared utilities above (esp. `compose_confidence()`, `make_signal()`)
+1. `src/intelligence/trading/<name>.py` — extend `PatternPlugin`, set `regime_type` (`"trend"` | `"mean_reversion"` | `"any"`), use shared utilities above (esp. `compose_confidence()`, `make_signal_from_frame()`)
 2. Add to `TIER_I7` in `register_plugins.py` + unit test in `tests/unit/intelligence/`
 3. Restart `indicagent-intelligence-pipeline`; verify: `docker exec redpanda rpk topic consume intelligence --from-end`
 

@@ -119,9 +119,7 @@ class MTFAlignmentPlugin:
             direction=direction,
             confidence=confidence,
             regime_context=regime_ctx,
-            confluence_score=0.0,
             supporting_factors=supporting,
-            invalidation_conditions=[],
         )
         signal["features_snapshot"] = capture_signal_features(
             features, direction, "trend", signal["confidence"]

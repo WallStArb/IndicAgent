@@ -228,9 +228,7 @@ class CrossAssetDivergencePlugin:
             direction=direction,
             confidence=confidence,
             regime_context=regime_context,
-            confluence_score=0.0,
             supporting_factors=supporting_factors,
-            invalidation_conditions=[],
         )
         signal["stop_basis"] = tf.stop_basis
         signal["setup_variant"] = setup_variant
