@@ -605,29 +605,44 @@ def test_no_direct_signal_ledger_writes() -> None:
 
 @pytest.mark.asyncio
 async def test_shadow_enrollment_loops_all_agents() -> None:
-    """_shadow_registry_ensure_agents inserts each agent_id in self._agents."""
+    """_ensure_and_apply_shadow_state batch-enrolls and applies authoritative state in one transaction."""
     agent = _make_agent_with_mocks()
     agents = [
-        MagicMock(agent_id="skeptic"),
-        MagicMock(agent_id="correlation_v1"),
-        MagicMock(agent_id="regime_coherence_v1"),
-        MagicMock(agent_id="counterfactual_v1"),
+        MagicMock(agent_id="skeptic", shadow_only=True),
+        MagicMock(agent_id="correlation_v1", shadow_only=True),
+        MagicMock(agent_id="regime_coherence_v1", shadow_only=True),
+        MagicMock(agent_id="counterfactual_v1", shadow_only=False),  # promoted agent
     ]
     agent._agents = agents
     mock_conn = AsyncMock()
-    mock_conn.execute = AsyncMock()
+    mock_conn.executemany = AsyncMock()
+    # DB returns is_shadow values: skeptic=True, others=False for testing
+    mock_conn.fetch = AsyncMock(
+        return_value=[
+            {"component_name": "skeptic", "is_shadow": True},
+            {"component_name": "correlation_v1", "is_shadow": False},
+            {"component_name": "regime_coherence_v1", "is_shadow": False},
+            {"component_name": "counterfactual_v1", "is_shadow": False},
+        ]
+    )
     mock_pool = MagicMock()
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     ctx.__aexit__ = AsyncMock(return_value=False)
     mock_pool.acquire = MagicMock(return_value=ctx)
     agent._pool = mock_pool
-    await agent._shadow_registry_ensure_agents(agents)
-    called_ids = [call.args[1] for call in mock_conn.execute.call_args_list]
-    assert "correlation_v1" in called_ids
-    assert "regime_coherence_v1" in called_ids
-    assert "counterfactual_v1" in called_ids
-    assert "skeptic" in called_ids
+
+    await agent._ensure_and_apply_shadow_state(agents)
+
+    # Verify batch enrollment was called
+    mock_conn.executemany.assert_called_once()
+    # Verify fetch was called to read authoritative state
+    mock_conn.fetch.assert_called_once()
+    # Verify agent.shadow_only was set from DB values (authoritative)
+    assert agents[0].shadow_only is True  # skeptic: DB says True
+    assert agents[1].shadow_only is False  # correlation_v1: DB says False
+    assert agents[2].shadow_only is False  # regime_coherence_v1: DB says False
+    assert agents[3].shadow_only is False  # counterfactual_v1: DB says False
 
 
 @pytest.mark.asyncio

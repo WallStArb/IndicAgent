@@ -177,10 +177,9 @@ class BaseGroupCoordinator(BaseDaemon, ABC):
                 f"'risk' group may be empty."
             )
 
-        # Enroll agents in shadow_registry and apply authoritative DB state
+        # Enroll agents in shadow_registry and apply authoritative DB state (atomic)
         if self._pool is not None:
-            await self._shadow_registry_ensure_agents(self._agents)
-            await self._apply_shadow_registry_state(self._agents)
+            await self._ensure_and_apply_shadow_state(self._agents)
 
         # Assign lineage to each agent (must run after agents are built)
         for agent in self._agents:
@@ -189,57 +188,49 @@ class BaseGroupCoordinator(BaseDaemon, ABC):
         # D-19: BaseGroupCoordinator must call super()._setup() for forward compatibility
         await super()._setup()
 
-    async def _shadow_registry_ensure_agents(self, agents: list[BaseAIWorker]) -> None:
-        """Idempotent enrollment of agents in shadow_registry as component_type='swarm_agent'.
+    async def _ensure_and_apply_shadow_state(self, agents: list[BaseAIWorker]) -> None:
+        """Enroll agents in shadow_registry and apply authoritative DB state in ONE transaction.
 
-        ON CONFLICT DO NOTHING preserves any manually-tuned gate params.
-        """
-        assert self._pool is not None
-        async with self._pool.acquire() as conn:
-            for agent in agents:
-                await conn.execute(
-                    "INSERT INTO shadow_registry (component_name, component_type, is_shadow) "
-                    "VALUES ($1, 'swarm_agent', TRUE) ON CONFLICT (component_name) DO NOTHING",
-                    agent.agent_id,
-                )
-        self.logger.info(
-            "group_coordinator.shadow_enrolled",
-            group_id=self.group_id,
-            agents=[a.agent_id for a in agents],
-        )
+        Renaissance demand: atomic operation, single connection, batch enrollment.
+        Fails closed if any agent lacks a shadow_registry row or if DB read fails.
 
-    async def _apply_shadow_registry_state(self, agents: list[BaseAIWorker]) -> None:
-        """Apply authoritative shadow_registry DB state to agent instances.
-
-        Reads back is_shadow from shadow_registry and sets agent.shadow_only on each
-        instance. The DB value is authoritative — it overrides the class default.
-        Fails closed (raises) if any agent lacks a shadow_registry row or if the DB
-        read fails — never defaults to the class shadow_only value.
+        ON CONFLICT DO NOTHING preserves manually-tuned gate params (is_shadow=FALSE
+        for promoted agents). The subsequent SELECT reads the authoritative value.
         """
         assert self._pool is not None
         try:
             async with self._pool.acquire() as conn:
+                # Batch enroll all agents — ONE round trip
+                await conn.executemany(
+                    "INSERT INTO shadow_registry (component_name, component_type, is_shadow) "
+                    "VALUES ($1, 'swarm_agent', TRUE) ON CONFLICT (component_name) DO NOTHING",
+                    [(a.agent_id,) for a in agents],
+                )
+
+                # Read authoritative state — ONE round trip
                 rows = await conn.fetch(
                     "SELECT component_name, is_shadow FROM shadow_registry "
                     "WHERE component_type = 'swarm_agent'"
                 )
                 state = {r["component_name"]: bool(r["is_shadow"]) for r in rows}
+
+                # Apply state BEFORE transaction commits (fail-closed if missing)
+                for agent in agents:
+                    if agent.agent_id not in state:
+                        raise RuntimeError(
+                            f"shadow_registry has no row for agent '{agent.agent_id}' after "
+                            f"enrollment — refusing to start (cannot determine authoritative "
+                            f"shadow state)"
+                        )
+                    agent.shadow_only = state[agent.agent_id]
+
         except Exception as error:
             self.logger.error(
-                "group_coordinator.shadow_state_read_failed",
+                "group_coordinator.shadow_state_failed",
                 group_id=self.group_id,
                 error=str(error),
             )
             raise
-
-        for agent in agents:
-            if agent.agent_id not in state:
-                raise RuntimeError(
-                    f"shadow_registry has no row for agent '{agent.agent_id}' after "
-                    f"enrollment — refusing to start (cannot determine authoritative "
-                    f"shadow state)"
-                )
-            agent.shadow_only = state[agent.agent_id]
 
         self.logger.info(
             "group_coordinator.shadow_state_applied",
