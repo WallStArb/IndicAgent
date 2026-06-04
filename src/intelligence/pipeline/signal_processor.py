@@ -317,8 +317,23 @@ class SignalProcessor:
 
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
-        quality_gated = await apply_quality_gate(
+
+        # CRITICAL-02: Calibrate before quality gate so the gate operates on
+        # isotonic-calibrated confidence, not raw plugin values. Cold-start
+        # (empty cal_curves) passes through unchanged — no behavior delta.
+        # After calibration, regime_gate reads calibrated_confidence and its
+        # soft-band attenuation now persists (previously wiped by calibration
+        # running after regime gate).
+        calibrated_signals = await apply_calibration(
             raw_signals,
+            cache_snapshot.calibration_curves,
+            tf=tf,
+            symbol=symbol,
+            recorder=self._transform_recorder,
+        )
+
+        quality_gated = await apply_quality_gate(
+            calibrated_signals,
             {
                 "hurst_quality": features.get("hurst_trend_quality", _QUALITY_FEATURE_ABSENT),
                 "entropy_quality": features.get("entropy_quality", _QUALITY_FEATURE_ABSENT),
@@ -328,7 +343,7 @@ class SignalProcessor:
             recorder=self._transform_recorder,
             min_confidence=getattr(self._settings, "SIGNAL_MIN_PUBLISHABLE_CONFIDENCE", 0.12),
         )
-        _record_dropped("quality", raw_signals, quality_gated)
+        _record_dropped("quality", calibrated_signals, quality_gated)
 
         _stamp_pre("pre_regime_confidence", quality_gated)
         regime_gated = await apply_regime_gate(
@@ -366,18 +381,6 @@ class SignalProcessor:
         ranked = await rank_signals(
             tod_adjusted,
             cache_snapshot.perf_weights,
-            tf,
-            symbol=symbol,
-            recorder=self._transform_recorder,
-        )
-
-        # CRITICAL-02: per-signal plugin confidence calibration before winner selection.
-        # apply_calibration uses 3-tuple (plugin, tf, symbol) key with '*' global fallback.
-        # calibrated_confidence = isotonic-calibrated value (plugin-level), for all signals.
-        # CIS-level calibration is stamped separately as cis_calibrated_confidence on winner.
-        ranked = await apply_calibration(
-            ranked,
-            cache_snapshot.calibration_curves,
             tf,
             symbol=symbol,
             recorder=self._transform_recorder,

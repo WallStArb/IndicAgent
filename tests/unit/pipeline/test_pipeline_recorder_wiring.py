@@ -157,7 +157,7 @@ async def test_calibrator_records_ratio():
     assert rec.record.await_count == 1
     call_kwargs = rec.record.await_args_list[0].kwargs
     assert call_kwargs["transform_id"] == "isotonic"
-    assert call_kwargs["dag_order"] == 4
+    assert call_kwargs["dag_order"] == 0  # calibration now runs first in pipeline
     assert abs(call_kwargs["multiplier"] - (0.4 / 0.5)) < 1e-4
 
 

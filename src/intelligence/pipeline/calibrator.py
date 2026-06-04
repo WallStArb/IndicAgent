@@ -82,7 +82,7 @@ async def apply_calibration(
                 await recorder.record(
                     signal_id=s["signal_id"],
                     transform_id="isotonic",
-                    dag_order=4,
+                    dag_order=0,  # was 4 — calibration now runs first in pipeline
                     multiplier=ratio,
                     segment_key=seg,
                     metadata={"raw_confidence": raw, "calibrated_confidence": new_conf},
