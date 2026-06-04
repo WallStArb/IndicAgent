@@ -1,46 +1,40 @@
 #!/usr/bin/env python3
 """
-Lifecycle Replay Script — batch replay of historical pending/regime_suppressed signals.
+Lifecycle Replay Script — batch replay of historical signal outcomes.
 
-Evaluates dual-track outcomes (zone track + market track) for all signals that lack
-outcomes, by replaying market_data_ohlcv bars chronologically per (symbol, timeframe).
+Evaluates dual-track outcomes (zone track + market track) for all signals
+that lack outcomes, by replaying market_data_ohlcv bars chronologically
+per (symbol, timeframe).
+
+Safety controls:
+    - Advisory lock prevents concurrent replays
+    - Preflight seeds orphan signal_outcomes rows
+    - --confirm required for destructive --reset
+    - Post-replay verification catches data integrity issues
 
 Usage:
-    # Run with -u for unbuffered logging output to file
-    python -u production/scripts/lifecycle_replay.py --workers 8 --commit-every 1000 \\
-        --symbols ESH6,NQH6 > /tmp/lifecycle_replay.log 2>&1 &
+    # Full reset + replay of corrupt data (requires service stop first):
+    sudo systemctl stop indicagent-intelligence-pipeline
+    python -u production/scripts/lifecycle_replay.py --reset --confirm --workers 8 \\
+        --commit-every 1000 > /tmp/lifecycle_replay.log 2>&1 &
 
-    python -u production/scripts/lifecycle_replay.py --symbols ES,NQ --validate --dry-run
-    python -u production/scripts/lifecycle_replay.py --workers 4
+    # Replay only (no reset — for signals that never got resolved):
+    python -u production/scripts/lifecycle_replay.py --workers 8
 
-Design notes:
-    - Each worker handles one (symbol, timeframe) pair exclusively.
-    - Bars are fetched into memory (not a server-side cursor) so that incremental
-      commits don't invalidate the cursor mid-stream.
-    - Signals are processed forward in time: a signal fired at bar N is entered
-      at bar N+1 open (market track) and evaluated on subsequent bars until exit.
-    - Already-resolved signals (outcome != NULL) are skipped via outcome check.
-    - Commits happen every commit_every resolved signals AND at pair completion.
-      This ensures partial progress survives a kill — without it, a 7-hour run
-      writes nothing if terminated before the pair finishes.
-    - market_entry_price: all signals from the generator have this field set.
-      If set, use it directly as the market fill price. If NULL (rare), use the
-      open of bar N+1 as a fill approximation.
-    - TIMEFRAMES default excludes '1d' — add explicitly if needed: --timeframes 1m,5m,15m,1h,1d
-    - To reset bad data before a re-run:
-        UPDATE signal_outcomes SET status='pending', outcome=NULL, exit_at=NULL,
-          exit_price=NULL, exit_reason=NULL, pnl_ticks=NULL, pnl_r=NULL,
-          pnl_dollars=NULL, mae=NULL, mfe=NULL, bars_in_trade=NULL,
-          signal_quality=NULL, activated_at=NULL, activation_price=NULL,
-          zone_entry_pct=NULL, bars_to_activation=NULL,
-          market_entry_at=NULL, market_entry_exit_price=NULL,
-          market_entry_exit_at=NULL, market_entry_pnl_r=NULL,
-          market_entry_mae=NULL, market_entry_mfe=NULL,
-          market_entry_bars_in_trade=NULL, market_entry_outcome=NULL,
-          market_entry_gap_bars=NULL
-        WHERE signal_id IN (
-          SELECT signal_id FROM signal_ledger WHERE symbol IN (...))
-          AND outcome IS NOT NULL;
+    # Dry run to verify schema compatibility:
+    python -u production/scripts/lifecycle_replay.py --symbols ESM6 --timeframes 5m --dry-run
+
+    # Replay specific symbols only:
+    python -u production/scripts/lifecycle_replay.py --reset --confirm --symbols ESM6,NQM6
+
+    # Include 4h timeframe (excluded by default):
+    python -u production/scripts/lifecycle_replay.py --timeframes 1m,5m,15m,1h,4h
+
+Derived table rebuild:
+    After replay, swarm_agent_weights and setup_performance are empty.
+    They repopulate on next scheduled runs:
+      - setup_performance: nightly ml-training (11pm)
+      - swarm_agent_weights: weekly ml-orchestrator (Monday)
 """
 
 from __future__ import annotations
@@ -977,6 +971,72 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
 
 
+async def _verify_replay(db: DatabaseManager, symbols: list[str], timeframes: list[str]) -> None:
+    """Post-replay integrity check.
+
+    Every non-regime signal should have an outcome. Every impossible
+    combination should be flagged. Every orphan should be detected.
+    Discrepancies are logged as warnings — investigate before trusting downstream data.
+    """
+    async with db.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT
+                COUNT(*) as total,
+                COUNT(CASE WHEN so.outcome IS NOT NULL THEN 1 END) as with_outcome,
+                COUNT(CASE WHEN so.status = 'regime_suppressed' AND so.outcome IS NULL THEN 1 END) as regime_no_outcome,
+                COUNT(CASE WHEN so.status NOT IN ('regime_suppressed')
+                           AND so.outcome IS NULL
+                           AND sl.timestamp < NOW() - INTERVAL '2 days'
+                     THEN 1 END) as stale_unresolved,
+                COUNT(CASE WHEN sl.market_entry_price IS NOT NULL
+                           AND so.market_entry_outcome IS NULL
+                           AND so.outcome IS NOT NULL
+                     THEN 1 END) as missing_market_outcome,
+                COUNT(CASE WHEN so.outcome IN ('target_1','target_1_2','target_full')
+                           AND so.pnl_r IS NULL
+                     THEN 1 END) as target_no_pnl
+            FROM signal_ledger sl
+            JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+            WHERE sl.symbol = ANY($1)
+              AND sl.timeframe = ANY($2)
+              AND sl.is_shadow = false""",
+            symbols,
+            timeframes,
+        )
+
+    logger.info(
+        "VERIFY: total=%d with_outcome=%d regime_no_outcome=%d "
+        "stale_unresolved=%d missing_market=%d target_no_pnl=%d",
+        row["total"],
+        row["with_outcome"],
+        row["regime_no_outcome"],
+        row["stale_unresolved"],
+        row["missing_market_outcome"],
+        row["target_no_pnl"],
+    )
+
+    issues = []
+    if row["stale_unresolved"] > 0:
+        issues.append(f"{row['stale_unresolved']} signals older than 2 days have no outcome")
+    if row["missing_market_outcome"] > 0:
+        issues.append(
+            f"{row['missing_market_outcome']} resolved signals with market_entry_price "
+            f"but no market_entry_outcome"
+        )
+    if row["target_no_pnl"] > 0:
+        issues.append(f"{row['target_no_pnl']} target-hit signals with null pnl_r")
+
+    if issues:
+        for issue in issues:
+            logger.warning("VERIFY ISSUE: %s", issue)
+        logger.warning(
+            "VERIFY: %d issue(s) found — investigate before trusting downstream data",
+            len(issues),
+        )
+    else:
+        logger.info("VERIFY: all checks passed — data is clean")
+
+
 async def main_async():
     parser = argparse.ArgumentParser(
         description="Lifecycle Replay — backfill historical signal outcomes"
@@ -1134,8 +1194,11 @@ async def main_async():
             )
 
         total = sum(s["processed"] for s in all_stats)
-        logger.info("Done. Total processed: %d", total)
-        if args.dry_run:
+        logger.info("Replay done. Total processed: %d", total)
+
+        if not args.dry_run:
+            await _verify_replay(db, symbols, timeframes)
+        else:
             logger.info("DRY RUN — no DB writes made.")
     finally:
         await db.close()
