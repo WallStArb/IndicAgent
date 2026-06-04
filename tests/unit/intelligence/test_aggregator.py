@@ -548,22 +548,21 @@ def _make_alpha_decay_state(bars_since: int) -> dict:
 
 
 class TestAlphaDecay:
-    """Alpha decay: confidence *= max(0.0, 1.0 - bars_since / half_life)."""
+    """Alpha decay: confidence *= 0.5 ** (bars_since / half_life) — exponential, never zeroes."""
 
     @pytest.mark.unit
     def test_half_life_bars_since_halves_confidence(self):
-        """bars_since=5, half_life=10 → multiplier=0.5 → confidence halved."""
+        """bars_since == half_life → multiplier == 0.5 → confidence exactly halved."""
         from src.intelligence.pipeline.signal_processor import (
             ALPHA_HALF_LIFE_BARS,
             _apply_alpha_decay,
         )
 
+        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 8
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
-        last_fire_state = _make_alpha_decay_state(bars_since=5)
+        last_fire_state = _make_alpha_decay_state(bars_since=half_life)
         _apply_alpha_decay(sig, "5m", last_fire_state)
-        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 6
-        expected_multiplier = max(0.0, 1.0 - 5 / half_life)
-        assert sig["confidence"] == pytest.approx(0.8 * expected_multiplier, abs=0.0001)
+        assert sig["confidence"] == pytest.approx(0.8 * 0.5, abs=0.0001)
 
     @pytest.mark.unit
     def test_first_fire_no_state_leaves_confidence_unchanged(self):
@@ -576,8 +575,8 @@ class TestAlphaDecay:
         assert sig["confidence"] == pytest.approx(original_confidence, abs=0.0001)
 
     @pytest.mark.unit
-    def test_bars_since_at_or_beyond_half_life_zeroes_confidence(self):
-        """bars_since >= half_life → multiplier clamped to 0.0 → confidence = 0.0."""
+    def test_bars_since_at_half_life_halves_confidence(self):
+        """bars_since == half_life → multiplier == 0.5, not zero (exponential)."""
         from src.intelligence.pipeline.signal_processor import (
             ALPHA_HALF_LIFE_BARS,
             _apply_alpha_decay,
@@ -585,23 +584,26 @@ class TestAlphaDecay:
 
         half_life = ALPHA_HALF_LIFE_BARS["1m"]  # 10
         sig = _signal("trad_TrendFollowing", 1, confidence=0.9)
-        last_fire_state = _make_alpha_decay_state(bars_since=half_life)  # exactly at half_life
+        last_fire_state = _make_alpha_decay_state(bars_since=half_life)
         _apply_alpha_decay(sig, "1m", last_fire_state)
-        assert sig["confidence"] == pytest.approx(0.0, abs=0.0001)
+        assert sig["confidence"] == pytest.approx(0.9 * 0.5, abs=0.0001)
 
     @pytest.mark.unit
-    def test_bars_since_beyond_half_life_also_clamped(self):
-        """bars_since > half_life → multiplier clamped to 0.0 (no negative confidence)."""
+    def test_bars_since_beyond_half_life_decays_further_not_zero(self):
+        """bars_since > half_life → confidence reduced further but never zeroed."""
         from src.intelligence.pipeline.signal_processor import (
             ALPHA_HALF_LIFE_BARS,
             _apply_alpha_decay,
         )
 
-        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 6
+        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 8
+        bars_since = half_life + 4  # 2 * half_life → multiplier == 0.25
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
-        last_fire_state = _make_alpha_decay_state(bars_since=half_life + 3)
+        last_fire_state = _make_alpha_decay_state(bars_since=bars_since)
         _apply_alpha_decay(sig, "5m", last_fire_state)
-        assert sig["confidence"] == pytest.approx(0.0, abs=0.0001)
+        expected = 0.8 * (0.5 ** (bars_since / half_life))
+        assert sig["confidence"] == pytest.approx(expected, abs=0.0001)
+        assert sig["confidence"] > 0.0
 
     @pytest.mark.unit
     def test_bars_since_zero_leaves_confidence_unchanged(self):

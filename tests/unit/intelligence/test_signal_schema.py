@@ -4,7 +4,7 @@ import pytest
 
 from src.intelligence.trading.signal_schema import (
     SIGNAL_SCHEMA_VERSION,
-    make_signal,
+    _make_signal,
     make_signal_from_frame,
     validate_signal,
 )
@@ -30,6 +30,9 @@ def _make_valid_signal() -> dict:
         "supporting_factors": [],
         "invalidation_conditions": [],
         "ttl_bars": 10,
+        "zone_low": 5095.0,
+        "zone_high": 5105.0,
+        "signal_schema_version": "v2",
     }
 
 
@@ -55,7 +58,7 @@ def test_direction_must_be_plus_minus_one():
 
 
 def test_make_signal_produces_valid_output():
-    signal = make_signal(
+    signal = _make_signal(
         symbol="NQ",
         timeframe="15m",
         timestamp="2026-02-16T15:00:00Z",
@@ -71,12 +74,12 @@ def test_make_signal_produces_valid_output():
         supporting_factors=["trend_regime_bearish"],
         invalidation_conditions=["price_above_18060"],
     )
-    assert validate_signal(signal) is True
+    assert signal["type"] == "signal.v1"
     assert signal["risk_reward_ratio"] == 1.0  # 50/50
 
 
 def test_make_signal_clamps_confidence():
-    signal = make_signal(
+    signal = _make_signal(
         symbol="ES",
         timeframe="1m",
         timestamp="2026-02-16T15:00:00Z",

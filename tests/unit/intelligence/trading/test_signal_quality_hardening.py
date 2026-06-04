@@ -10,7 +10,8 @@ _T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
 from src.intelligence.trading.lifecycle_tracker import evaluate_market_entry, evaluate_signal
-from src.intelligence.trading.signal_schema import make_signal, make_signal_from_frame
+from src.intelligence.trading.signal_schema import _make_signal as make_signal
+from src.intelligence.trading.signal_schema import make_signal_from_frame
 from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 # Emission gate thresholds (W4)
 MIN_RR_T1 = 0.0  # disabled — aggregator handles RR ranking; gate only checks structural validity
 
+# Construction fields: must all be present immediately after make_signal_from_frame().
+# Validated by the executor at the I7 production boundary.
 REQUIRED_SIGNAL_FIELDS = frozenset(
     {
         "type",
@@ -38,12 +41,61 @@ REQUIRED_SIGNAL_FIELDS = frozenset(
         "supporting_factors",
         "invalidation_conditions",
         "ttl_bars",
+        "zone_low",
+        "zone_high",
+        "signal_schema_version",
+    }
+)
+
+# Pipeline fields: stamped by SignalProcessor stages after the executor. All must be
+# present before Kafka publish. Checked at the terminal boundary in prepare_signals_or_dlq.
+REQUIRED_PIPELINE_FIELDS = frozenset(
+    {
+        "signal_id",
+        "status",
+        "bar_id",
+        "composite_rank",
+        "raw_cis_score",
+        "filtered_cis_score",
     }
 )
 
 
+def make_signal_id(
+    symbol: str,
+    feature_ts_ns: int,
+    feature_tf: str,
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: float,
+    setup_plugin: str,
+    direction: int,
+) -> str:
+    """Deterministic per-signal content-addressed ID (SHA-256, first 32 hex chars).
+
+    Identity derives from bar inputs (OHLCV) plus (setup_plugin, direction) so multiple
+    signals from the same bar are distinct. Bar OHLCV is the stable invariant across
+    replays; plugin outputs (Kalman, rolling windows, regime state) are not.
+
+    Canonicalization rules:
+    - feature_ts_ns: UTC epoch nanoseconds as integer
+    - feature_tf: lowercase normalized, e.g. "1m", "5m"
+    - OHLCV: repr(round(x, 10)) — deterministic float serialization, excludes float jitter
+    - setup_plugin + direction: distinguish multiple signals from the same bar
+    """
+    raw = (
+        f"{symbol}|{feature_ts_ns}|{feature_tf.lower()}"
+        f"|{round(open_, 10)}|{round(high, 10)}|{round(low, 10)}"
+        f"|{round(close, 10)}|{round(volume, 10)}"
+        f"|{setup_plugin}|{int(direction)}"
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
 def validate_signal(signal: dict) -> bool:
-    """Validate a signal.v1 dictionary. Returns True if valid."""
+    """Validate a signal.v1 dictionary. Returns True if structurally valid."""
     if not isinstance(signal, dict):
         return False
     if not REQUIRED_SIGNAL_FIELDS.issubset(signal.keys()):
@@ -70,7 +122,7 @@ def validate_signal(signal: dict) -> bool:
     return True
 
 
-def make_signal(
+def _make_signal(
     *,
     symbol: str,
     timeframe: str,
@@ -87,7 +139,6 @@ def make_signal(
     supporting_factors: list[str],
     invalidation_conditions: list[str],
     ttl_bars: int | None = None,
-    # Optional framing fields — populated by TradeFramer post-aggregation
     entry_type: str = "at_close",
     stop_type: str = "atr",
     target_labels: list[str] | None = None,
@@ -97,7 +148,12 @@ def make_signal(
     rr_t3: float | None = None,
     framing_method: str = "atr_fallback",
 ) -> dict:
-    """Construct a validated signal.v1 dict."""
+    """Internal signal.v1 dict builder. Called only by make_signal_from_frame().
+
+    Does not set zone_low, zone_high, or signal_schema_version — those are added
+    by make_signal_from_frame() from the TradeFrame. Use make_signal_from_frame()
+    to construct all live I7 signals.
+    """
     if ttl_bars is None:
         ttl_bars = TF_TTL_BARS.get(timeframe, 10)
 
@@ -155,11 +211,12 @@ def make_signal_from_frame(
 ) -> dict:
     """Build a signal.v1 dict from a TradeFrame, auto-extracting all framing fields.
 
-    Auto-extracts: entry_price (tf.entry, NOT raw close), stop_loss, targets,
-    zone_low, zone_high, entry_type, stop_type, rr_t1/t2/t3, target_labels,
-    target_types, framing_method. Adds signal_schema_version=SIGNAL_SCHEMA_VERSION.
+    This is the sole public construction path for I7 signals. Auto-extracts:
+    entry_price (tf.entry, NOT raw close), stop_loss, targets, zone_low, zone_high,
+    entry_type, stop_type, rr_t1/t2/t3, target_labels, target_types, framing_method.
+    Sets signal_schema_version=SIGNAL_SCHEMA_VERSION.
 
-    Raises ValueError if tf.viable is False.
+    Raises ValueError if tf.viable is False or the emission gate fails.
     """
     if not tf.viable:
         raise ValueError(
@@ -198,7 +255,7 @@ def make_signal_from_frame(
     target_labels = [t.label for t in tf.targets]
     target_types = [t.level_type for t in tf.targets]
 
-    sig = make_signal(
+    sig = _make_signal(
         symbol=symbol,
         timeframe=timeframe,
         timestamp=timestamp,
