@@ -243,12 +243,13 @@ async def _fetch_work_queue(
     """Build work queue ordered by estimated pending row count descending (largest first)."""
     async with db.get_connection() as conn:
         rows = await conn.fetch(
-            """SELECT symbol, timeframe, COUNT(*) as cnt
-                FROM signal_ledger_full
-                WHERE status IN ('pending', 'regime_suppressed')
-                  AND symbol = ANY($1)
-                  AND timeframe = ANY($2)
-                GROUP BY symbol, timeframe
+            """SELECT sl.symbol, sl.timeframe, COUNT(*) as cnt
+                FROM signal_ledger sl
+                JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+                WHERE so.status IN ('pending', 'regime_suppressed')
+                  AND sl.symbol = ANY($1)
+                  AND sl.timeframe = ANY($2)
+                GROUP BY sl.symbol, sl.timeframe
                 ORDER BY cnt DESC""",
             symbols,
             timeframes,
@@ -290,28 +291,28 @@ async def _process_symbol_tf(
 
             # 2. Fetch all unresolved signals for this pair into memory
             signals = await conn.fetch(
-                """SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
-                          direction, entry_price, stop_loss, targets, confidence, confluence_score,
-                          regime_context, supporting_factors, was_selected, num_signals_bar,
-                          num_agreeing, num_conflicting, resolution_method, composite_rank,
-                          market_context, status, activated_at, exit_at, exit_price, exit_reason,
-                          pnl_ticks, pnl_r, pnl_dollars, created_at, updated_at, feature_ts,
-                          feature_tf, cis_score, bucket_scores, weights_version, signal_quality,
-                          signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
-                          market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
-                          activation_price, zone_entry_pct, bars_to_activation, mae, mfe,
-                          bars_in_trade, outcome, cis_attribution, market_entry_price,
-                          market_entry_exit_price, market_entry_pnl_r, market_entry_mae,
-                          market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome,
-                          market_entry_gap_bars, market_entry_at, market_entry_exit_at, is_shadow,
-                          stop_basis, stop_structure_type, stop_structure_age_bars,
-                          structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
-                          chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-                          staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
-                   FROM signal_ledger_full
-                   WHERE status IN ('pending', 'regime_suppressed')
-                     AND symbol = $1 AND timeframe = $2
-                   ORDER BY timestamp ASC""",
+                """SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
+                          sl.setup_plugin, sl.signal_type, sl.direction,
+                          sl.entry_price, sl.stop_loss, sl.targets,
+                          sl.entry_zone_low, sl.entry_zone_high,
+                          sl.market_entry_price, sl.ttl_bars, sl.expires_at,
+                          sl.is_shadow, sl.is_backfill, sl.signal_schema_version,
+                          sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
+                          sl.was_selected,
+                          so.status, so.outcome, so.activated_at,
+                          so.exit_at, so.exit_price, so.exit_reason,
+                          so.pnl_ticks, so.pnl_r, so.pnl_dollars,
+                          so.mae, so.mfe, so.bars_in_trade,
+                          so.activation_price, so.zone_entry_pct, so.bars_to_activation,
+                          so.market_entry_at, so.market_entry_exit_price,
+                          so.market_entry_pnl_r, so.market_entry_mae, so.market_entry_mfe,
+                          so.market_entry_bars_in_trade, so.market_entry_outcome,
+                          so.market_entry_gap_bars, so.market_entry_exit_at
+                   FROM signal_ledger sl
+                   JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+                   WHERE so.status IN ('pending', 'regime_suppressed')
+                     AND sl.symbol = $1 AND sl.timeframe = $2
+                   ORDER BY sl.timestamp ASC""",
                 symbol,
                 timeframe,
             )
@@ -323,11 +324,12 @@ async def _process_symbol_tf(
         # Map by signal_id for O(1) lookup during bar evaluation
         sig_map: dict[str, dict] = {str(s["signal_id"]): dict(s) for s in signals}
 
-        # Inject canonical per-TF TTL — overrides any stored ttl_bars (column doesn't
-        # exist in signal_ledger; sig.get("ttl_bars", 10) always falls back to 10).
+        # Inject canonical per-TF TTL — use stored ttl_bars if present (Phase 107.5+),
+        # else fall back to canonical default.
         _tf_ttl = TF_TTL_BARS.get(timeframe, 10)
         for _sig_dict in sig_map.values():
-            _sig_dict["ttl_bars"] = _tf_ttl
+            stored_ttl = _sig_dict.get("ttl_bars")
+            _sig_dict["ttl_bars"] = stored_ttl if stored_ttl and stored_ttl > 0 else _tf_ttl
 
         # In-memory accumulators keyed by signal_id
         zone_mae: dict[str, float] = {}
@@ -812,11 +814,12 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
     """Validate: confirm resolved signals exist and have outcome populated. Logs result."""
     row = await conn.fetchrow(
         """SELECT COUNT(*) as total,
-                  COUNT(outcome) as with_outcome,
-                  COUNT(market_entry_outcome) as with_market_outcome
-           FROM signal_ledger_full
-           WHERE status NOT IN ('pending', 'regime_suppressed')
-             AND symbol = $1 AND timeframe = $2""",
+                  COUNT(so.outcome) as with_outcome,
+                  COUNT(so.market_entry_outcome) as with_market_outcome
+           FROM signal_ledger sl
+           JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+           WHERE so.status NOT IN ('pending', 'regime_suppressed')
+             AND sl.symbol = $1 AND sl.timeframe = $2""",
         symbol,
         timeframe,
     )
