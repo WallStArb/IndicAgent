@@ -547,6 +547,18 @@ async def get_signals_stats(
         """
         row = await db_manager.fetchrow(query)
 
+        outcomes_query = """
+            SELECT outcome, pnl_r
+            FROM signal_ledger_full
+            WHERE was_selected = true
+              AND status NOT IN ('pending', 'active')
+              AND outcome IS NOT NULL
+            ORDER BY signal_computed_at DESC
+            LIMIT 10
+        """
+        outcome_rows = await db_manager.fetch(outcomes_query)
+        recent_outcomes = [{"outcome": r["outcome"], "pnl_r": _f(r["pnl_r"])} for r in outcome_rows]
+
         signals_today = int(row["signals_today"] or 0)
         signals_prev = int(row["signals_prev_session"] or 0)
         hero_count = int(row["hero_count_today"] or 0)
@@ -587,6 +599,7 @@ async def get_signals_stats(
             "alpha_7d": alpha_7d,
             "alpha_30d": alpha_30d,
             "edge_trend": edge_trend,
+            "recent_outcomes": recent_outcomes,
         }
 
     except Exception as e:
