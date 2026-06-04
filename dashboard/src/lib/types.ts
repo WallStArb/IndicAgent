@@ -516,6 +516,67 @@ export interface SignalStatsData {
   alpha_7d: number | null;
   alpha_30d: number | null;
   edge_trend: "expanding" | "compressing" | "stable";
+  recent_outcomes?: RecentOutcome[];
+}
+
+export interface HeatMapCell {
+  setup_plugin: string;
+  regime: number | null;
+  n: number;
+  avg_r: number | null;
+  win_rate: number | null;
+}
+
+export interface EdgeSeriesPoint {
+  day: string;
+  n: number;
+  avg_r: number | null;
+  win_rate: number | null;
+}
+
+export interface IntradayCell {
+  hour: number;
+  dow: number;
+  n: number;
+  avg_r: number | null;
+}
+
+export interface ActiveSignal {
+  signal_id: string;
+  symbol: string;
+  timeframe: string;
+  setup_plugin: string;
+  signal_type: string;
+  direction: number;
+  entry_price: number | null;
+  stop_loss: number | null;
+  confidence: number | null;
+  status: string;
+  was_selected: boolean;
+  cis_score: number | null;
+  profit_target: number | null;
+  profit_target_2: number | null;
+  profit_target_3: number | null;
+  risk_reward_ratio: number | null;
+  stop_type: string | null;
+  regime_context: string | null;
+  market_price_at_signal: number | null;
+  signal_computed_at: string | null;
+  bar_close_ts: string | null;
+  timestamp: string | null;
+  setup_win_rate: number | null;
+  setup_avg_pnl_r: number | null;
+  staleness_score: number | null;
+  staleness_trigger_reason: string | null;
+  ttl_bars: number | null;
+  hmm_regime_at_fire: number | null;
+  bucket_scores: Record<string, number> | null;
+  signal_tier: string;
+}
+
+export interface RecentOutcome {
+  outcome: string;
+  pnl_r: number | null;
 }
 
 // ── /api/signals/attribution response ──
@@ -562,4 +623,11 @@ export interface LedgerSignal {
   exit_price: number | null;
   setup_win_rate: number | null;
   setup_avg_pnl_r: number | null;
+  hmm_regime_at_fire: number | null;
+  exit_reason: string | null;
+  mfe: number | null;
+  ttl_bars: number | null;
+  bars_in_trade: number | null;
+  targets: number[];
+  r_ratio: number | null;
 }
