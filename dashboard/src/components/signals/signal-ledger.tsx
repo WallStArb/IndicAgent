@@ -423,6 +423,11 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
         return false;
       if (filters.status.length > 0 && !filters.status.includes(s.status))
         return false;
+      if (
+        filters.regime.length > 0 &&
+        (s.hmm_regime_at_fire == null || !filters.regime.includes(s.hmm_regime_at_fire))
+      )
+        return false;
 
       if (s.confidence === null) {
         if (filters.confidence_min > 0 || filters.confidence_max < 1) return false;

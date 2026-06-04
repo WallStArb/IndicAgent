@@ -45,6 +45,11 @@ const TIER_OPTIONS = ["hero", "monitored", "candidate"] as const;
 const TF_OPTIONS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 const STATUS_OPTIONS = ["pending", "active", "regime_suppressed", "expired"] as const;
 const ASSET_CLASS_OPTIONS = ["equity_index", "energy", "metals", "interest_rates", "fx", "crypto"] as const;
+const REGIME_OPTIONS = [
+  { value: 0, label: "Trend" },
+  { value: 1, label: "Range" },
+  { value: 2, label: "Vol" },
+] as const;
 
 function PillToggle<T extends string>({
   label,
@@ -91,6 +96,37 @@ function PillToggle<T extends string>({
   );
 }
 
+function RegimePillToggle({
+  selected,
+  onChange,
+}: {
+  selected: number[];
+  onChange: (val: number[]) => void;
+}) {
+  const toggle = (v: number) => {
+    if (selected.includes(v)) onChange(selected.filter(x => x !== v));
+    else onChange([...selected, v]);
+  };
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-[0.52rem] uppercase tracking-widest text-[var(--text-muted)] shrink-0">
+        Regime
+      </span>
+      {REGIME_OPTIONS.map(({ value, label }) => (
+        <button key={value} onClick={() => toggle(value)}
+          className="px-2 py-0.5 rounded text-[0.6rem] font-semibold transition-colors"
+          style={{
+            backgroundColor: selected.includes(value) ? "var(--bg-elevated)" : "transparent",
+            color: selected.includes(value) ? "var(--text-primary)" : "var(--text-muted)",
+            border: `1px solid ${selected.includes(value) ? "var(--border-right)" : "var(--border-subtle)"}`,
+          }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function FilterBar({
   filters,
   onChange,
@@ -125,6 +161,12 @@ export function FilterBar({
         options={ASSET_CLASS_OPTIONS}
         selected={filters.asset_class as typeof ASSET_CLASS_OPTIONS[number][]}
         onChange={(v) => onChange({ asset_class: v })}
+      />
+
+      {/* Regime */}
+      <RegimePillToggle
+        selected={filters.regime}
+        onChange={(v) => onChange({ regime: v })}
       />
 
       {/* CIS filter */}
