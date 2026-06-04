@@ -258,6 +258,11 @@ test-results/
 .codex/
 .agents/
 
+# AI tool local config — not shared
+.claude.local.md
+.cursorignore
+.gemini/
+
 # Archive directory - never commit archived/deprecated code
 archive/
 
