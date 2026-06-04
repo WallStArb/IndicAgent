@@ -49,6 +49,7 @@ from src.intelligence.register_plugins import (
     TIER_I7,
     TIER_SMC,
 )
+from src.intelligence.trading.signal_schema import REQUIRED_SIGNAL_FIELDS, validate_signal
 from src.observability.circuit_breaker import CircuitBreaker, CircuitState
 from src.observability.metrics import (
     FEATURES_COMPUTED_TOTAL,
@@ -889,6 +890,14 @@ class PluginExecutor:
                 plugin_inst = self._plugin_cache.get(task.plugin_name)
                 sig["regime_type"] = getattr(plugin_inst, "regime_type", "any")
                 sig["is_shadow"] = self._is_shadow(task.plugin_name, cache_snapshot.shadow_cache)
+                if not validate_signal(sig):
+                    missing = REQUIRED_SIGNAL_FIELDS - set(sig.keys())
+                    self._logger.error(
+                        "executor.schema_violation",
+                        plugin=task.plugin_name,
+                        missing_fields=sorted(missing),
+                    )
+                    continue
                 raw_signals.append(sig)
 
         return raw_signals
