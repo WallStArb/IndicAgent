@@ -55,9 +55,8 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry._to_row()
 
-        # New fire-time-only schema: 28 params (lifecycle columns moved to signal_outcomes)
-        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
-        assert len(params) == 29
+        # 28 params: signal_schema_version removed; feature_schema_version at $28
+        assert len(params) == 28
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -85,13 +84,13 @@ class TestLedgerEntry:
         )
         params = entry._to_row()
 
-        assert len(params) == 29
-        assert params[23] == pytest.approx(0.47)  # cis_score at $24 (index 23)
-        # index 24 = bucket_scores as dict (asyncpg serializes to jsonb)
-        bucket_scores = params[24]
+        assert len(params) == 28
+        assert params[22] == pytest.approx(0.47)  # cis_score at $23 (index 22)
+        # index 23 = bucket_scores as dict (asyncpg serializes to jsonb)
+        bucket_scores = params[23]
         assert bucket_scores["trend"] == pytest.approx(0.4)
         assert bucket_scores["momentum"] == pytest.approx(0.3)
-        assert params[25] == 0  # weights_version at $26 (index 25)
+        assert params[24] == 0  # weights_version at $25 (index 24)
 
 
 @pytest.mark.unit
@@ -126,8 +125,7 @@ class TestLedgerEntryNewFields:
             was_selected=True,
         )
         params = entry._to_row()
-        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
-        assert len(params) == 29
+        assert len(params) == 28
 
 
 # ---------------------------------------------------------------------------
@@ -438,8 +436,7 @@ class TestIsShadowField:
 
     def test_to_insert_params_length_64(self):
         entry = _make_entry()
-        # Updated to 29 in Phase 112 (feature_schema_version added at $29)
-        assert len(entry._to_row()) == 29
+        assert len(entry._to_row()) == 28
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)

@@ -5,7 +5,6 @@ Covers:
 - Kalman state and setup_last_fire checkpoint roundtrips (Pitfall 5)
 - DLQ on null CIS score (prepare_signals_or_dlq)
 - Signals payload on success (prepare_signals_or_dlq)
-- signal_schema_version stamping
 - is_backfill flag on old bars
 - process() returns SignalProcessorResult with all payloads (HIGH finding 4)
 - DLQ path on CIS null in process()
@@ -27,7 +26,6 @@ from src.intelligence.pipeline.signal_processor import (
     SignalProcessor,
     SignalProcessorResult,
 )
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 
 def _make_snapshot(**overrides) -> CacheSnapshot:
@@ -195,20 +193,6 @@ async def test_prepare_signals_or_dlq_returns_signals_payload_on_success():
     # Each signal must have signal_id assigned
     for s in signals["signals"]:
         assert "signal_id" in s
-
-
-@pytest.mark.asyncio
-async def test_prepare_signals_or_dlq_stamps_signal_schema_version():
-    """Returned signals payload stamps signal_schema_version on each signal."""
-    proc = _make_processor()
-    sig = _make_signal()
-    bar = _make_bar()
-
-    _, _, signals = await proc.prepare_signals_or_dlq([sig], "ES", "1m", bar)
-
-    assert signals is not None
-    for s in signals["signals"]:
-        assert s.get("signal_schema_version") == SIGNAL_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio

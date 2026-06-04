@@ -3,7 +3,6 @@
 import pytest
 
 from src.intelligence.trading.signal_schema import (
-    SIGNAL_SCHEMA_VERSION,
     _make_signal,
     make_signal_from_frame,
     validate_signal,
@@ -32,7 +31,6 @@ def _make_valid_signal() -> dict:
         "ttl_bars": 10,
         "zone_low": 5095.0,
         "zone_high": 5105.0,
-        "signal_schema_version": "v2",
     }
 
 
@@ -165,11 +163,6 @@ class TestMakeSignalFromFrame:
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())
         assert sig["entry_price"] == tf.entry
-
-    def test_make_signal_from_frame_schema_version(self):
-        tf = _viable_frame()
-        sig = make_signal_from_frame(tf, **_frame_kwargs())
-        assert sig["signal_schema_version"] == SIGNAL_SCHEMA_VERSION
 
     def test_make_signal_from_frame_propagates_stop_type_and_targets(self):
         tf = _viable_frame()

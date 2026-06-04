@@ -392,7 +392,7 @@ async def _process_symbol_tf(
                           sl.entry_price, sl.stop_loss, sl.targets,
                           sl.entry_zone_low, sl.entry_zone_high,
                           sl.market_entry_price, sl.ttl_bars, sl.expires_at,
-                          sl.is_shadow, sl.is_backfill, sl.signal_schema_version,
+                          sl.is_shadow, sl.is_backfill,
                           sl.hmm_regime_at_fire, sl.garch_sigma_at_fire,
                           sl.was_selected,
                           so.status, so.outcome, so.activated_at,

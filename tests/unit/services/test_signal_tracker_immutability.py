@@ -70,7 +70,6 @@ def _make_canonical(status: str = "pending") -> dict:
         "expires_at": expires_at,
         "is_backfill": False,
         "ttl_bars": 10,
-        "signal_schema_version": "v2",
         # Nested dict — must not be mutated
         "trailing_stop_price": {
             "trailing_stop": None,

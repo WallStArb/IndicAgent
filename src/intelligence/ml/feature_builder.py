@@ -26,8 +26,6 @@ from typing import Any
 import polars as pl
 import structlog
 
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
-
 logger = structlog.get_logger(__name__)
 
 # Minimum resolved signals required to fit any segment model
@@ -106,7 +104,7 @@ JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
   ON tf_sig.value->>'signal_id' = sl.signal_id::text
 WHERE sl.outcome IS NOT NULL
   AND sl.is_shadow = FALSE
-  AND sl.signal_schema_version = $1
+  AND sl.entry_zone_low IS NOT NULL
   AND tf_sig.value->'features_snapshot' IS NOT NULL
 ORDER BY sl.timestamp
 """
@@ -131,10 +129,10 @@ async def build_training_matrix(pool: Any) -> pl.DataFrame:
         flattened features_snapshot keys as individual columns.
     """
     async with pool.acquire() as conn:
-        records = await conn.fetch(_TRAINING_SQL, SIGNAL_SCHEMA_VERSION)
+        records = await conn.fetch(_TRAINING_SQL)
 
     if not records:
-        logger.warning("feature_builder.no_rows", schema_version=SIGNAL_SCHEMA_VERSION)
+        logger.warning("feature_builder.no_rows")
         return pl.DataFrame()
 
     # Convert asyncpg Records to plain dicts

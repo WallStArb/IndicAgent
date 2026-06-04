@@ -53,7 +53,6 @@ def _make_backfill_canonical(
         "is_backfill": True,
         "ttl_bars": ttl_bars,
         "expires_at": expires_at,
-        "signal_schema_version": "v1",
         "status": "pending",
         "direction": 1,
         "targets": [5015.0],

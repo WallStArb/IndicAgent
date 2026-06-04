@@ -125,7 +125,7 @@ async def _test_signal_ledger_schema_columns_exist():
             AND column_name IN (
                 'signal_id', 'timestamp', 'symbol', 'timeframe', 'setup_plugin',
                 'direction', 'was_selected', 'is_shadow', 'is_backfill',
-                'signal_schema_version', 'entry_price', 'stop_loss', 'targets'
+                'entry_price', 'stop_loss', 'targets'
             )
         """)
         # Should have at least these columns

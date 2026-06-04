@@ -1,4 +1,4 @@
-# Phase 100: Occam's Razor — Complexity-Aware Model Selection
+# Phase 114: Occam's Razor — Complexity-Aware Model Selection
 
 **Status:** Planning
 **Milestone:** v2.8 AI Platform & Evolvable Agents
@@ -12,19 +12,19 @@ Implement complexity-aware model selection: for every shadow ML agent, build a s
 
 | ID | Title | Source |
 |----|-------|--------|
-| OCCAM-01 | Baseline Registry | ai-occam-razor.md |
-| OCCAM-02 | Statistical Test Engine | ai-occam-razor.md |
-| OCCAM-03 | Shadow Registry Integration | ai-occam-razor.md |
-| OCCAM-04 | OTel Metrics & Dashboards | ai-occam-razor.md |
+| 114-OCCAM-01 | Baseline Registry | ai-occam-razor.md |
+| 114-OCCAM-02 | Statistical Test Engine | ai-occam-razor.md |
+| 114-OCCAM-03 | Shadow Registry Integration | ai-occam-razor.md |
+| 114-OCCAM-04 | OTel Metrics & Dashboards | ai-occam-razor.md |
 
 ## Plans
 
 | Plan | Title | Status |
 |------|-------|--------|
-| 100-01 | Baseline Registry + Linear/Rule Builders | Planning |
-| 100-02 | Statistical Test Engine + Bootstrap CI | Planning |
-| 100-03 | Shadow Registry Enhancement + Rejection Flow | Planning |
-| 100-04 | OTel Metrics + Grafana Dashboard | Planning |
+| 114-01 | Baseline Registry + Linear/Rule Builders | Planning |
+| 114-02 | Statistical Test Engine + Bootstrap CI | Planning |
+| 114-03 | Shadow Registry Enhancement + Rejection Flow | Planning |
+| 114-04 | OTel Metrics + Grafana Dashboard | Planning |
 
 ## Dependencies
 
@@ -44,4 +44,4 @@ Implement complexity-aware model selection: for every shadow ML agent, build a s
 
 - Foundation principle: `docs/foundation/occam-razor.md`
 - Implementation spec: `docs/ideas/ai-occam-razor.md`
-- Phase context: `.planning/phases/100-occam-razor/100-CONTEXT.md`
+- Phase context: `.planning/phases/114-occam-razor/114-CONTEXT.md`

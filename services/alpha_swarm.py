@@ -53,7 +53,6 @@ from src.intelligence.ai.alpha.ml_scorer_agent import MLEvaluator
 from src.intelligence.ai.context import SignalContext, Tier
 from src.intelligence.ai.group_coordinator import BaseGroupCoordinator
 from src.intelligence.schemas import signal_dict_to_ranked
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 from src.observability.metrics import (
     SWARM_AGENT_WEIGHT,
     SWARM_AGGREGATED_MULTIPLIER,
@@ -443,10 +442,6 @@ class AlphaSwarm(BaseGroupCoordinator):
         6. Parallel asyncio.gather over self._agents
         7. Weighted aggregation -> aggregate event on topic_swarm_alpha
         """
-        # Schema version gate — v0 signals have contaminated entry/zone data, skip entirely
-        if raw_signal.get("signal_schema_version") != SIGNAL_SCHEMA_VERSION:
-            return
-
         # Source gate — backfill signals are historical; AI enrichment adds no value
         if raw_signal.get("source") == "backfill":
             return

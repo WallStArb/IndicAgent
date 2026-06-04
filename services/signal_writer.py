@@ -27,7 +27,7 @@ from src.core.stream_keys import (
     topic_signal_writer_dlq,
 )
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION, validate_signal
+from src.intelligence.trading.signal_schema import validate_signal
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
     counter,
@@ -221,7 +221,6 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 hmm_regime_at_fire=sig.get("hmm_regime_at_fire"),
                 garch_sigma_at_fire=sig.get("garch_sigma_at_fire"),
                 is_shadow=bool(sig.get("is_shadow", False)),
-                signal_schema_version=sig.get("signal_schema_version", SIGNAL_SCHEMA_VERSION),
                 is_backfill=bool(sig.get("is_backfill", False)),
                 ttl_bars=ttl,
                 entry_price=sig.get("entry_price"),

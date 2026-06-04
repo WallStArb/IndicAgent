@@ -222,7 +222,6 @@ async def test_bootstrap_null_entry_price_falls_back_to_activation_price():
         signal_id,
         activation_price=5050.0,
         ttl_bars=10,
-        signal_schema_version="1",
         is_backfill=False,
     )
     # SQL COALESCE(sl.entry_price=NULL, sl.activation_price=5050) → 5050

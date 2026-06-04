@@ -56,9 +56,9 @@ async def test_market_entry_completeness():
                 """
                 INSERT INTO signal_ledger (
                     signal_id, symbol, timeframe, timestamp, entry_price, stop_loss,
-                    direction, targets, status, signal_schema_version, ttl_bars,
+                    direction, targets, status, ttl_bars,
                     exit_at, market_entry_price, market_entry_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, $12, $13)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, $12)
                 """,
                 signal_id,
                 "ES",
@@ -69,7 +69,6 @@ async def test_market_entry_completeness():
                 direction,
                 [entry_price + (20 * direction), entry_price + (40 * direction)],
                 "active",
-                "v1",
                 ttl_bars,
                 market_entry_price,
                 signal_timestamp + timedelta(seconds=30),  # Activated 30s after fire

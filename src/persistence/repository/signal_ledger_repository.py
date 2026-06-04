@@ -13,10 +13,6 @@ from typing import Any
 
 import structlog
 
-from src.intelligence.trading.signal_schema import (
-    SIGNAL_SCHEMA_VERSION,  # Ring 1 constant — schema version is a domain invariant shared across persistence and intelligence layers
-)
-
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -71,7 +67,6 @@ class LedgerEntry:
     was_selected: bool
     is_shadow: bool = False
     is_backfill: bool = False
-    signal_schema_version: str = SIGNAL_SCHEMA_VERSION
     signal_computed_at: datetime | None = None
     feature_ts: datetime | None = None
     feature_tf: str | None = None
@@ -105,25 +100,24 @@ class LedgerEntry:
             self.was_selected,  # $8
             self.is_shadow,  # $9
             self.is_backfill,  # $10
-            self.signal_schema_version,  # $11
-            self.signal_computed_at,  # $12
-            self.feature_ts,  # $13
-            self.feature_tf,  # $14
-            self.hmm_regime_at_fire,  # $15
-            self.garch_sigma_at_fire,  # $16
-            self.ttl_bars,  # $17
-            self.entry_price,  # $18
-            self.stop_loss,  # $19
-            self.targets,  # $20 list → asyncpg JSONB
-            self.entry_zone_low,  # $21
-            self.entry_zone_high,  # $22
-            self.market_entry_price,  # $23
-            self.cis_score,  # $24
-            self.bucket_scores,  # $25 dict → asyncpg JSONB
-            self.weights_version,  # $26
-            self.pipeline_lag_ms,  # $27
-            self.expires_at,  # $28
-            self.feature_schema_version,  # $29 (contamination boundary)
+            self.signal_computed_at,  # $11
+            self.feature_ts,  # $12
+            self.feature_tf,  # $13
+            self.hmm_regime_at_fire,  # $14
+            self.garch_sigma_at_fire,  # $15
+            self.ttl_bars,  # $16
+            self.entry_price,  # $17
+            self.stop_loss,  # $18
+            self.targets,  # $19 list → asyncpg JSONB
+            self.entry_zone_low,  # $20
+            self.entry_zone_high,  # $21
+            self.market_entry_price,  # $22
+            self.cis_score,  # $23
+            self.bucket_scores,  # $24 dict → asyncpg JSONB
+            self.weights_version,  # $25
+            self.pipeline_lag_ms,  # $26
+            self.expires_at,  # $27
+            self.feature_schema_version,  # $28 (contamination boundary)
         )
 
 
@@ -136,7 +130,7 @@ INSERT INTO signal_ledger (
     signal_id, timestamp, symbol, timeframe,
     setup_plugin, signal_type, direction,
     was_selected, is_shadow, is_backfill,
-    signal_schema_version, signal_computed_at,
+    signal_computed_at,
     feature_ts, feature_tf,
     hmm_regime_at_fire, garch_sigma_at_fire,
     ttl_bars,
@@ -149,15 +143,15 @@ INSERT INTO signal_ledger (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
     $8, $9, $10,
-    $11, $12,
-    $13, $14,
-    $15, $16,
-    $17,
-    $18, $19, $20::jsonb, $21, $22,
-    $23,
-    $24, $25::jsonb, $26,
-    $27, $28,
-    $29
+    $11,
+    $12, $13,
+    $14, $15,
+    $16,
+    $17, $18, $19::jsonb, $20, $21,
+    $22,
+    $23, $24::jsonb, $25,
+    $26, $27,
+    $28
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """
@@ -312,7 +306,7 @@ _SELECT_ACTIVE_COLS = """
        is_shadow, hmm_regime_at_fire, garch_sigma_at_fire,
        trailing_stop_price, staleness_score, staleness_trigger_reason,
        shadow_tracking_start_ts, shadow_mae, shadow_mfe, shadow_outcome,
-       effective_ts, pipeline_lag_ms, signal_schema_version, is_backfill, ttl_bars, expires_at,
+       effective_ts, pipeline_lag_ms, is_backfill, ttl_bars, expires_at,
        entry_price, stop_loss, targets, entry_zone_low, entry_zone_high
 """
 

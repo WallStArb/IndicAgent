@@ -7,13 +7,6 @@ from typing import TYPE_CHECKING
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 
-# Single canonical version tag. All signal producers and consumers reference this.
-# Phase 112 D-03: Bumped from "v1" to "v2" as the final atomic step in Wave 2.
-# Transition window query run 2026-06-02: 46,182 in-flight 'v1' signals with
-# activated_at IS NOT NULL were observed. These will be evaluated by signal_replay_auditor.
-# All new signals written post-deploy carry version "v2".
-SIGNAL_SCHEMA_VERSION = "v2"
-
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
@@ -43,7 +36,6 @@ REQUIRED_SIGNAL_FIELDS = frozenset(
         "ttl_bars",
         "zone_low",
         "zone_high",
-        "signal_schema_version",
     }
 )
 
@@ -150,7 +142,7 @@ def _make_signal(
 ) -> dict:
     """Internal signal.v1 dict builder. Called only by make_signal_from_frame().
 
-    Does not set zone_low, zone_high, or signal_schema_version — those are added
+    Does not set zone_low, zone_high, or zone_source — those are added
     by make_signal_from_frame() from the TradeFrame. Use make_signal_from_frame()
     to construct all live I7 signals.
     """
@@ -214,7 +206,6 @@ def make_signal_from_frame(
     This is the sole public construction path for I7 signals. Auto-extracts:
     entry_price (tf.entry, NOT raw close), stop_loss, targets, zone_low, zone_high,
     entry_type, stop_type, rr_t1/t2/t3, target_labels, target_types, framing_method.
-    Sets signal_schema_version=SIGNAL_SCHEMA_VERSION.
 
     Raises ValueError if tf.viable is False or the emission gate fails.
     """
@@ -284,7 +275,6 @@ def make_signal_from_frame(
     sig["zone_low"] = round_to_tick(tf.zone_low, symbol)
     sig["zone_high"] = round_to_tick(tf.zone_high, symbol)
     sig["zone_source"] = (features_snapshot or {}).get("zone_source")
-    sig["signal_schema_version"] = SIGNAL_SCHEMA_VERSION
 
     if features_snapshot is not None:
         sig["features_snapshot"] = features_snapshot

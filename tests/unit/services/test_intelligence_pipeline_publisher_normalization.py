@@ -1,7 +1,7 @@
 """Tests for intelligence_pipeline_agent publisher-side normalization.
 
-Phase 81 D-01: Publisher sets is_backfill, timestamp, ttl_bars defaults,
-signal_schema_version defaults on all signals before publishing.
+Phase 81 D-01: Publisher sets is_backfill, timestamp, ttl_bars defaults
+on all signals before publishing.
 
 test_publisher_is_backfill_computed:
   Covers four time/tf combinations:
@@ -17,7 +17,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.core.service_utils import TF_SECONDS
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 
 def _apply_publisher_normalization(
@@ -44,7 +43,6 @@ def _apply_publisher_normalization(
         sig["timestamp"] = bar_ts
         sig["is_backfill"] = is_backfill
         sig.setdefault("ttl_bars", 10)
-        sig.setdefault("signal_schema_version", SIGNAL_SCHEMA_VERSION)
         if stamp_signal_id:
             sig.setdefault("signal_id", str(uuid4()))
 
@@ -95,10 +93,7 @@ class TestPublisherIsBackfillComputed:
             signals = [
                 {"signal_id": f"{case_name}-sig-01"},
                 {"signal_id": f"{case_name}-sig-02", "ttl_bars": 20},
-                {
-                    "signal_id": f"{case_name}-sig-03",
-                    "signal_schema_version": "v0",
-                },
+                {"signal_id": f"{case_name}-sig-03"},
             ]
 
             result = _apply_publisher_normalization(signals, bar_ts, computed_at, tf)
@@ -123,15 +118,6 @@ class TestPublisherIsBackfillComputed:
                 f"Case {case_name!r}: explicit ttl_bars=20 should be preserved, "
                 f"got {result[1].get('ttl_bars')!r}"
             )
-
-            # sig-01 has no version → default SIGNAL_SCHEMA_VERSION; sig-03 has "v0" → preserved
-            assert result[0].get("signal_schema_version") == SIGNAL_SCHEMA_VERSION, (
-                f"Case {case_name!r}: default signal_schema_version should be "
-                f"{SIGNAL_SCHEMA_VERSION!r}"
-            )
-            assert (
-                result[2].get("signal_schema_version") == "v0"
-            ), f"Case {case_name!r}: existing signal_schema_version='v0' should be preserved"
 
 
 class TestPublisherSignalId:

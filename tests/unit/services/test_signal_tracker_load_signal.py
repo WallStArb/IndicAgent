@@ -46,7 +46,6 @@ def _complete_kafka_payload() -> dict:
         "entry_zone_high": 5002.0,
         "is_backfill": False,
         "ttl_bars": 12,
-        "signal_schema_version": "v1",
         "status": "pending",
         "market_entry_price": 5001.0,
         "activated_at": None,
@@ -59,7 +58,7 @@ def _complete_kafka_payload() -> dict:
 
 
 class TestLoadSignalCanonical:
-    """test__load_signal_canonical — all 17 canonical fields present and typed correctly."""
+    """test__load_signal_canonical — all canonical fields present and typed correctly."""
 
     @pytest.mark.unit
     def test__load_signal_canonical(self):
@@ -69,7 +68,7 @@ class TestLoadSignalCanonical:
 
         assert result is not None, "_load_signal returned None unexpectedly"
 
-        # Must have all 17 canonical fields
+        # Must have all canonical fields
         canonical_fields = [
             "signal_id",
             "symbol",
@@ -79,7 +78,6 @@ class TestLoadSignalCanonical:
             "stop_loss",
             "is_backfill",
             "ttl_bars",
-            "signal_schema_version",
             "status",
             "direction",
             "targets",
@@ -103,7 +101,6 @@ class TestLoadSignalCanonical:
         assert isinstance(result["stop_loss"], float)
         assert isinstance(result["direction"], int)
         assert isinstance(result["targets"], list)
-        assert isinstance(result["signal_schema_version"], str)
 
         # Value assertions
         assert result["signal_id"] == "test-signal-abc"
@@ -113,7 +110,6 @@ class TestLoadSignalCanonical:
         assert result["stop_loss"] == 4990.0
         assert result["ttl_bars"] == 12
         assert result["is_backfill"] is False
-        assert result["signal_schema_version"] == "v1"
         assert result["targets"] == [5010.0, 5020.0]
 
 
@@ -166,7 +162,6 @@ class TestLoadSignalBootstrapKafkaIdentical:
             "entry_zone_high": 22010.0,
             "is_backfill": True,
             "ttl_bars": 8,
-            "signal_schema_version": "v1",
             "status": "pending",
             "market_entry_price": None,
             "activated_at": None,

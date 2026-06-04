@@ -32,7 +32,6 @@ from opentelemetry import metrics as _otel_metrics
 from src.config.settings import Settings
 from src.core.agent.base import BaseDaemon
 from src.core.database_manager import create_pool as create_db_pool
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -134,8 +133,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 ctf_momentum_divergence, ctf_sr_confluence, ctf_hmm_regime_agreement,
                 ctf_volatility_divergence, ctf_orderflow_alignment, exhaustion_score,
                 profile, hmm_regime, session_type,
-                atr_pct, volume_z_score, tod_multiplier,
-                signal_schema_version
+                atr_pct, volume_z_score, tod_multiplier
             )
             SELECT
                 f.ts,
@@ -168,8 +166,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 f.session_type,
                 (f.technical_indicators->>'atr_pct')::float8,
                 (f.technical_indicators->>'volume_z_score')::float8,
-                COALESCE((tf_sig.value->>'tod_multiplier')::float8, 1.0),
-                $1::text
+                COALESCE((tf_sig.value->>'tod_multiplier')::float8, 1.0)
             FROM intelligence_features f
             CROSS JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
             LEFT JOIN signal_ledger sl
@@ -180,7 +177,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
             ON CONFLICT (ts, signal_id) DO NOTHING
             """
 
-            result = await conn.execute(sql, SIGNAL_SCHEMA_VERSION)
+            result = await conn.execute(sql)
             # result format: "INSERT 0 N" or "UPDATE N"
             if result.startswith("INSERT"):
                 parts = result.split()
@@ -212,8 +209,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 ctf_momentum_divergence, ctf_sr_confluence, ctf_hmm_regime_agreement,
                 ctf_volatility_divergence, ctf_orderflow_alignment, exhaustion_score,
                 profile, hmm_regime, session_type,
-                atr_pct, volume_z_score, tod_multiplier,
-                signal_schema_version
+                atr_pct, volume_z_score, tod_multiplier
             )
             SELECT
                 f.ts,
@@ -246,8 +242,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 f.session_type,
                 (f.technical_indicators->>'atr_pct')::float8,
                 (f.technical_indicators->>'volume_z_score')::float8,
-                COALESCE((tf_sig.value->>'tod_multiplier')::float8, 1.0),
-                $1::text
+                COALESCE((tf_sig.value->>'tod_multiplier')::float8, 1.0)
             FROM intelligence_features f
             CROSS JOIN LATERAL jsonb_array_elements(f.trading_signals) AS tf_sig(value)
             LEFT JOIN signal_ledger sl
@@ -265,7 +260,7 @@ class MLSignalTrainingMaterializer(BaseDaemon):
                 AND EXCLUDED.pnl_r IS NOT NULL
             """
 
-            result = await conn.execute(sql, SIGNAL_SCHEMA_VERSION)
+            result = await conn.execute(sql)
             # result format: "INSERT 0 N" or "UPDATE N"
             if result.startswith("UPDATE"):
                 parts = result.split()
