@@ -77,12 +77,13 @@ def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None
     Decays confidence by 0.5^(bars_since/half_life) — confidence halves every half_life
     fires since the last win. bars_since counts fires only, not elapsed bars, so silence
     does not penalize re-emergence.
+
+    Invariant: bars_since >= 1 when called with non-None state (caller increments before
+    this call, so the zero case is impossible in production).
     """
     if last_fire_state is None:
         return
     bars_since = last_fire_state.get("bars_since", 0)
-    if bars_since == 0:
-        return
     half_life = ALPHA_HALF_LIFE_BARS.get(tf, 6)
     multiplier = 0.5 ** (bars_since / half_life)
     sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)

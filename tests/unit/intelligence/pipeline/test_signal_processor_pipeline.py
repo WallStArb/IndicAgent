@@ -96,3 +96,30 @@ async def test_cold_start_no_curves_behaves_identically():
 
     gated = await apply_quality_gate(calibrated, {}, min_confidence=0.12)
     assert len(gated) == 1
+
+
+from src.intelligence.pipeline.signal_processor import ALPHA_HALF_LIFE_BARS, _apply_alpha_decay
+
+
+def test_alpha_decay_applies_when_bars_since_is_one():
+    """bars_since=1 must apply decay — the zero guard was dead code and is removed.
+
+    Invariant: state['bars_since'] is always >= 1 when _apply_alpha_decay is called
+    with non-None state (caller increments before calling).
+    """
+    sig = {"confidence": 0.80}
+    state = {"bars_since": 1}
+    half_life = ALPHA_HALF_LIFE_BARS["1m"]  # 10
+
+    _apply_alpha_decay(sig, "1m", state)
+
+    expected = round(0.80 * (0.5 ** (1 / half_life)), 4)
+    assert sig["confidence"] == expected
+    assert sig["confidence"] < 0.80  # decay actually applied
+
+
+def test_alpha_decay_noop_when_state_is_none():
+    """None state means plugin has no prior win — no decay applied."""
+    sig = {"confidence": 0.80}
+    _apply_alpha_decay(sig, "1m", None)
+    assert sig["confidence"] == 0.80
