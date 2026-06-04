@@ -432,7 +432,6 @@ class TestDivergenceStack:
         """
         from src.intelligence.trading.confidence_utils import (
             CONF_CEIL,
-            CONF_FLOOR,
             compose_confidence,
         )
         from src.intelligence.trading.divergence_stack import (
@@ -463,7 +462,7 @@ class TestDivergenceStack:
         expected = compose_confidence(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
         assert result.get("direction", 0) == 1, "expected bullish signal to fire"
         assert abs(result.get("confidence", 0.0) - expected) < 1e-4
-        assert result["confidence"] >= CONF_FLOOR
+        assert result["confidence"] >= 0.0
         assert result["confidence"] <= CONF_CEIL
 
     def test_has_module_level_singleton(self):

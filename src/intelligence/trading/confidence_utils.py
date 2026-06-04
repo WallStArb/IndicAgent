@@ -3,8 +3,9 @@
 Per D-12/D-13/D-14: All I7 plugins route their final confidence value through
 compose_confidence(). Zero inline min()/max() clamping in plugin bodies.
 
-The contract: [CONF_FLOOR, CONF_CEIL] = [0.10, 0.95].
+The contract: ceiling only — [0.0, CONF_CEIL].
 Rounding: 4 decimal places for consistent ML feature representation.
+The publication floor (0.12) is enforced exclusively by apply_quality_gate().
 
 capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
 signal["features_snapshot"] for ML training — zero confidence modification.
@@ -22,27 +23,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-CONF_FLOOR: float = 0.10
-"""Minimum allowed confidence for any I7 signal."""
-
 CONF_CEIL: float = 0.95
 """Maximum allowed confidence for any I7 signal."""
 
 
 def compose_confidence(raw: float) -> float:
-    """Clamp raw confidence to the system contract [CONF_FLOOR, CONF_CEIL].
+    """Clamp raw confidence to the system ceiling [0.0, CONF_CEIL].
 
     All I7 plugins must route through this function before emitting a signal.
-    This eliminates inline clamping patterns (min(0.95, max(0.10, x))) and
-    ensures the system-wide contract is enforced at a single point.
+    This enforces the system-wide ceiling at a single point.
+
+    The publication floor (min_confidence=0.12) is applied by apply_quality_gate()
+    after isotonic calibration — not here. Enforcing a floor at construction time
+    would corrupt pre_quality_confidence in ML training data.
 
     Args:
         raw: Raw confidence value (any float, including out-of-range).
 
     Returns:
-        Float in [CONF_FLOOR, CONF_CEIL] rounded to 4 decimal places.
+        Float in [0.0, CONF_CEIL] rounded to 4 decimal places.
     """
-    return round(max(CONF_FLOOR, min(CONF_CEIL, raw)), 4)
+    return round(min(CONF_CEIL, max(0.0, raw)), 4)
 
 
 @dataclass(frozen=True)
