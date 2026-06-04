@@ -23,7 +23,7 @@ jobs:
     name: Lint & Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - uses: actions/setup-python@v5
         with:
@@ -48,7 +48,7 @@ jobs:
     name: Plugin Invariants
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       # Guard 1: plugin classes must end with an approved suffix.
       # Scope: plugin dirs only (plugins/, features/, trading/).
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, plugin-guards]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - uses: actions/setup-python@v5
         with:
