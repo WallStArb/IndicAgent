@@ -320,3 +320,4 @@ COPILOT.md
 .planning/agent-history.json
 .planning/HANDOFF.json
 .planning/.continue-here*.md
+.worktrees/
