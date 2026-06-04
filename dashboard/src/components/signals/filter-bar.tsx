@@ -15,6 +15,7 @@ export interface FilterState {
   status: string[];
   date_from: string;   // YYYY-MM-DD
   date_to: string;     // YYYY-MM-DD
+  regime: number[];
 }
 
 // Factory function that returns fresh default filters on each call
@@ -33,6 +34,7 @@ function getDefaultFilters(): FilterState {
     status: [],
     date_from: d.toISOString().slice(0, 10),
     date_to: new Date().toISOString().slice(0, 10),
+    regime: [],
   };
 }
 
