@@ -33,6 +33,7 @@ class TestSignalsApiStats:
     def test_stats_returns_200(self):
         mock_db = AsyncMock()
         mock_db.fetchrow = AsyncMock(return_value=_stats_row())
+        mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         resp = TestClient(app).get("/api/signals/stats")
         assert resp.status_code == 200
@@ -40,6 +41,7 @@ class TestSignalsApiStats:
     def test_stats_schema(self):
         mock_db = AsyncMock()
         mock_db.fetchrow = AsyncMock(return_value=_stats_row())
+        mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/stats").json()
         assert "signals_today" in data
@@ -53,6 +55,7 @@ class TestSignalsApiStats:
         """alpha_7d > alpha_30d → edge_trend='expanding'."""
         mock_db = AsyncMock()
         mock_db.fetchrow = AsyncMock(return_value=_stats_row(avg_pnl_r_7d=0.4, avg_pnl_r_30d=0.2))
+        mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/stats").json()
         assert data["edge_trend"] == "expanding"
@@ -61,6 +64,7 @@ class TestSignalsApiStats:
         """alpha_7d < alpha_30d → edge_trend='compressing'."""
         mock_db = AsyncMock()
         mock_db.fetchrow = AsyncMock(return_value=_stats_row(avg_pnl_r_7d=0.1, avg_pnl_r_30d=0.3))
+        mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/stats").json()
         assert data["edge_trend"] == "compressing"
@@ -71,9 +75,34 @@ class TestSignalsApiStats:
         mock_db.fetchrow = AsyncMock(
             return_value=_stats_row(hero_count_today=0, selected_count_today=0)
         )
+        mock_db.fetch = AsyncMock(return_value=[])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/stats").json()
         assert data["hero_rate"] == 0.0
+
+    def test_stats_includes_recent_outcomes(self):
+        mock_db = AsyncMock()
+        mock_db.fetchrow = AsyncMock(return_value=_stats_row())
+        mock_db.fetch = AsyncMock(
+            return_value=[
+                {"outcome": "target_1", "pnl_r": 1.5},
+                {"outcome": "stop_loss", "pnl_r": -1.0},
+            ]
+        )
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/stats").json()
+        assert "recent_outcomes" in data
+        assert len(data["recent_outcomes"]) == 2
+        assert data["recent_outcomes"][0]["outcome"] == "target_1"
+        assert data["recent_outcomes"][0]["pnl_r"] == 1.5
+
+    def test_stats_recent_outcomes_empty_when_no_resolved(self):
+        mock_db = AsyncMock()
+        mock_db.fetchrow = AsyncMock(return_value=_stats_row())
+        mock_db.fetch = AsyncMock(return_value=[])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/stats").json()
+        assert data["recent_outcomes"] == []
 
 
 def _recent_row(**kwargs):
