@@ -296,17 +296,27 @@ I7 plugin fires
   → emit to intelligence.i7.signals
 ```
 
-**Alpha decay — `0.5^(n / half_life)`** where `n` counts fires since last win, not elapsed bars. A plugin that fires 10 consecutive bars is not 10 independent observations — each is autocorrelated evidence. Confidence halves every `half_life` fires. A plugin that goes quiet for 100 bars and re-fires carries zero accumulated decay — silence is not a signal. Half-life constants are empirical priors; the training data now exists to derive them from measured autocorrelation structure per `(setup_plugin, timeframe)`.
+**[1] `compose_confidence` — clamp `[0.10, 0.95]`** — enforced at plugin construction via a single shared function. No plugin can claim certainty (≥ 0.95) or produce a zero-confidence signal that would persist invisibly in lifecycle tracking. No inline clamping permitted in plugin bodies.
 
-**Hurst × Entropy quality gate** — `min(H, S)` not product, because both measure regime predictability and are correlated. Using the stricter avoids compounding correlated penalties. KS drift penalty is applied independently: Kolmogorov-Smirnov test against historical feature distributions — a signal fired into an out-of-distribution market is discounted proportional to the divergence, not dropped.
+**[2] `pre_quality_confidence` — training data integrity** — stamped before any multiplier or decay touches the signal. This field is what the ML model trains against — raw plugin output, uncontaminated by post-processing. Every downstream adjustment is auditable without corrupting the training labels.
 
-**Isotonic calibration** — raw confidence values are systematically biased upward. Isotonic regression fits a monotone map from raw → empirical win probability using historical outcomes, per `(setup_plugin, regime_type)` segment. Calibration in a trending regime differs from ranging — same plugin, different reliability profile.
+**[3] Alpha decay — `0.5^(n / half_life)`** where `n` counts fires since last win, not elapsed bars. A plugin that fires 10 consecutive bars is not 10 independent observations — each re-fire after a win is autocorrelated evidence. Confidence halves every `half_life` fires. A plugin that goes quiet and re-emerges carries zero accumulated decay — silence is not evidence of quality loss. Half-life constants (`1m=10, 5m=8, 15m=8, 1h=6` fires) are empirical priors; the training data exists to derive them from measured autocorrelation structure.
 
-**`pre_quality_confidence`** is stamped before any multiplier touches the signal. This is what the ML model trains against — raw plugin output, before decay, before drift penalty, before calibration. Every downstream adjustment is auditable; the training labels are uncontaminated.
+**[4] Quality gate — `min(Hurst, Entropy) × KS drift penalty × empirical floor`** — `min()` not product because Hurst and Entropy both measure regime predictability and are correlated; compounding them double-penalizes the same signal. KS drift penalty (Kolmogorov-Smirnov test against historical feature distributions) discounts proportionally to out-of-distribution divergence — not a binary drop. Empirical floor derived from p10 confidence of historically profitable signals.
 
-**CUSUM + shadow gate — the two feedback loops.** CUSUM control charts track win rate per setup continuously and feed back into `perf_multiplier` without waiting for the 30-day rolling window to catch up. Shadow mode requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` — statistically positive expected value at 95% confidence — before a plugin enters the live execution stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles. Every live plugin has demonstrated edge under real conditions, not simulated ones.
+**[5] Regime gate** — HMM regime state versus plugin's declared `regime_type` (`"trend"` / `"mean_reversion"` / `"any"`). Trend plugins suppressed in ranging regime; mean-reversion plugins suppressed in trending. Suppressed signals are still written to `signal_ledger` (`regime_suppressed`) for counterfactual tracking.
 
-Full detail: [`docs/signals/signals-foundation.md`](docs/signals/signals-foundation.md)
+**[6] Time-of-day adjustment — 120 cells** — `(regime_type, timeframe, hour_et)` lookup table of rolling historical win rates. A trend setup at RTH open has structurally different reliability than the same setup at 2pm ET. Cells with insufficient history default to neutral (1.0).
+
+**[7] Isotonic calibration** — raw confidence is systematically biased upward. Isotonic regression fits a monotone map from raw → empirical win probability using resolved signal outcomes, per `(setup_plugin, regime_type)` segment. Calibration in a trending regime is independent of calibration in a ranging regime — same plugin, different reliability profile.
+
+**[8] Ranking — `adjusted_rank` from rolling Sharpe `[0.5, 1.5]`** — validated setups (`n ≥ 30`) ranked by rolling 30-day Sharpe per regime. Unvalidated setups receive a warm-up penalty (`adjusted_rank = 0.5`) — they cannot outrank proven setups until statistically demonstrated. Winner selection: highest `adjusted_rank` among regime-eligible signals; confidence breaks ties.
+
+**[9] Swarm overlay** — after winner selection, `AlphaSwarm` applies `swarm_multiplier` from a mixture-of-agents composite (5 specialist agents: skeptic, correlation, volume, ML scorer, macro). Can reduce confidence; cannot change which signal was selected.
+
+**[10] CUSUM + shadow gate — the two feedback loops** — CUSUM control charts track win rate per setup and feed back into `perf_multiplier` without waiting for the 30-day window to catch up. Shadow gate requires `n ≥ 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive EV at 95% CI) before a plugin enters the live stream. Demotion: `EV[R] < -0.05` for 3 consecutive evaluation cycles.
+
+Full stage-by-stage detail: [`docs/signals/signals-foundation.md`](docs/signals/signals-foundation.md) · CIS bucket weights and adaptive weight systems: [`docs/intelligence/intelligence-foundation.md`](docs/intelligence/intelligence-foundation.md)
 
 ---
 
