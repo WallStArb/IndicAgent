@@ -201,6 +201,11 @@ async def get_active_signals(
                 sl.signal_computed_at,
                 sl.feature_ts AS bar_close_ts,
                 sl.timestamp,
+                sl.staleness_score,
+                sl.staleness_trigger_reason,
+                sl.ttl_bars,
+                sl.hmm_regime_at_fire,
+                sl.bucket_scores,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger_full sl
@@ -268,6 +273,15 @@ async def get_active_signals(
                     ),
                     "setup_win_rate": _f(row["setup_win_rate"]),
                     "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+                    "staleness_score": _f(row["staleness_score"]),
+                    "staleness_trigger_reason": _s(row["staleness_trigger_reason"]),
+                    "ttl_bars": int(row["ttl_bars"]) if row["ttl_bars"] is not None else None,
+                    "hmm_regime_at_fire": (
+                        int(row["hmm_regime_at_fire"])
+                        if row["hmm_regime_at_fire"] is not None
+                        else None
+                    ),
+                    "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
                     "signal_tier": _compute_signal_tier(
                         row["was_selected"],
                         _f(row["confidence"]),
