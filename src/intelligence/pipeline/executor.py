@@ -60,7 +60,6 @@ _meter = otel_metrics.get_meter("indicagent")
 _TIER_LATENCY_MS = _meter.create_histogram(
     "intelligence_pipeline_tier_latency_ms",
     description="Per-tier execution latency in milliseconds",
-    unit="ms",
 )
 
 _PLUGIN_CB_ENABLED: bool = _os.environ.get("PLUGIN_CB_ENABLED", "0") == "1"

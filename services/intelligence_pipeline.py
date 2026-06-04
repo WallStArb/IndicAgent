@@ -194,12 +194,10 @@ class IntelligencePipeline(BaseDaemon):
         self._i1_latency_ms = self._meter.create_histogram(
             "intelligence_pipeline_i1_latency_ms",
             description="I1 tier execution time in milliseconds",
-            unit="ms",
         )
         self._i7_latency_ms = self._meter.create_histogram(
             "intelligence_pipeline_i7_latency_ms",
             description="I7 tier execution time in milliseconds",
-            unit="ms",
         )
         self._pipeline_errors = counter(
             "intelligence_pipeline_pipeline_errors_total",
@@ -212,12 +210,10 @@ class IntelligencePipeline(BaseDaemon):
         self._pipeline_latency = self._meter.create_histogram(
             "intelligence_pipeline_pipeline_latency_ms",
             description="Per-bar pipeline latency in milliseconds",
-            unit="ms",
         )
         self._bar_e2e_latency = self._meter.create_histogram(
             "bar_e2e_latency_ms",
             description="End-to-end bar latency from arrival to signal enqueue",
-            unit="ms",
         )
 
         self._vix_symbol: str | None = (

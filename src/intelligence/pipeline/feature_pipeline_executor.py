@@ -59,7 +59,6 @@ _meter = otel_metrics.get_meter("indicagent")
 INTELLIGENCE_PIPELINE_TIER_LATENCY_MS = _meter.create_histogram(
     "intelligence_pipeline_tier_latency_ms",
     description="Per-tier execution latency in milliseconds",
-    unit="ms",
 )
 
 # Standard timeframes for cross-tf frame construction (mirrored from orchestrator)

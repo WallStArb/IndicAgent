@@ -262,9 +262,18 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         self._register_signal_handlers()
 
         # Initialize OTel MeterProvider + TracerProvider (idempotent — first call wins)
+        # Metrics export is NOT optional — crash the service if the collector is
+        # unreachable so systemd restarts with visible failure, not silent degradation.
         global _tracing_initialized
         if not _tracing_initialized:
-            init_otel_providers(service_name=self.name)
+            try:
+                init_otel_providers(service_name=self.name)
+            except Exception as error:
+                from src.observability.otel import OTelInitError
+
+                if isinstance(error, OTelInitError):
+                    self.logger.critical("daemon.otel_init_failed", error=str(error))
+                raise
             _tracing_initialized = True
 
         # Set up OTLP log bridge (additive to file logging)
