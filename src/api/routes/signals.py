@@ -342,6 +342,12 @@ async def get_recent_signals(
                 sl.signal_computed_at,
                 sl.timeframe,
                 sl.symbol,
+                sl.hmm_regime_at_fire,
+                sl.exit_reason,
+                sl.mfe,
+                sl.ttl_bars,
+                sl.bars_in_trade,
+                sl.targets,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger_full sl
@@ -363,39 +369,57 @@ async def get_recent_signals(
             require_hero_gate,
         )
 
-        signals = [
-            {
-                "signal_id": str(row["signal_id"]),
-                "setup_plugin": row["setup_plugin"],
-                "signal_type": row["signal_type"],
-                "direction": row["direction"],
-                "entry_price": _f(row["entry_price"]),
-                "stop_loss": _f(row["stop_loss"]),
-                "confidence": _f(row["confidence"]),
-                "was_selected": row["was_selected"],
-                "cis_score": _f(row["cis_score"]),
-                "status": row["status"],
-                "outcome": row["outcome"],
-                "exit_price": _f(row["exit_price"]),
-                "pnl_r": _f(row["pnl_r"]),
-                "computed_at": (
-                    row["signal_computed_at"].isoformat()
-                    if row["signal_computed_at"] is not None
-                    and hasattr(row["signal_computed_at"], "isoformat")
-                    else None
-                ),
-                "timeframe": row["timeframe"],
-                "symbol": row["symbol"],
-                "setup_win_rate": _f(row["setup_win_rate"]),
-                "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
-                "signal_tier": _compute_signal_tier(
-                    row["was_selected"],
-                    _f(row["confidence"]),
-                    _f(row["cis_score"]),
-                ),
-            }
-            for row in rows
-        ]
+        signals = []
+        for row in rows:
+            targets = _parse_jsonb(row["targets"], default=[])
+            t1 = float(targets[0]) if targets else None
+            entry = _f(row["entry_price"])
+            stop = _f(row["stop_loss"])
+            direction = row["direction"]
+            r_ratio = None
+            if t1 is not None and entry is not None and stop is not None and entry != stop:
+                risk = abs(entry - stop)
+                reward = abs(t1 - entry)
+                r_ratio = round(reward / risk, 2) if risk > 0 else None
+            signals.append(
+                {
+                    "signal_id": str(row["signal_id"]),
+                    "setup_plugin": row["setup_plugin"],
+                    "signal_type": row["signal_type"],
+                    "direction": direction,
+                    "entry_price": entry,
+                    "stop_loss": stop,
+                    "confidence": _f(row["confidence"]),
+                    "was_selected": row["was_selected"],
+                    "cis_score": _f(row["cis_score"]),
+                    "status": row["status"],
+                    "outcome": row["outcome"],
+                    "exit_price": _f(row["exit_price"]),
+                    "pnl_r": _f(row["pnl_r"]),
+                    "computed_at": (
+                        row["signal_computed_at"].isoformat()
+                        if row["signal_computed_at"] is not None
+                        and hasattr(row["signal_computed_at"], "isoformat")
+                        else None
+                    ),
+                    "timeframe": row["timeframe"],
+                    "symbol": row["symbol"],
+                    "setup_win_rate": _f(row["setup_win_rate"]),
+                    "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+                    "signal_tier": _compute_signal_tier(
+                        row["was_selected"],
+                        _f(row["confidence"]),
+                        _f(row["cis_score"]),
+                    ),
+                    "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
+                    "exit_reason": _s(row["exit_reason"]),
+                    "mfe": _f(row["mfe"]),
+                    "ttl_bars": _i(row["ttl_bars"]),
+                    "bars_in_trade": _i(row["bars_in_trade"]),
+                    "targets": targets,
+                    "r_ratio": r_ratio,
+                }
+            )
 
         # Compute summary from the returned rows so stats always match what's shown.
         n_resolved = n_suppressed = n_wins = n_with_outcome = 0
