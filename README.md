@@ -14,11 +14,9 @@ It's not a pipeline but a foundational architecture that can carry any form of m
 
 ---
 
-Multiple analysis domains feed multiple application agents, all connected through a unified streaming data bus.
-
 The core architectural bet: intelligence, execution, and risk are independent subscribers to a shared event stream - not coupled services calling each other. Every component is a microservice. Every interaction is an event. Every output is an API. New domains and agents attach by subscribing and publishing; nothing already running changes.
 
-**Multiple intelligence domains, one data spine:**
+The quantitative domain is live on 60 instruments across futures, ETFs, FX, and crypto - producing evidence-graded trading signals in under 10ms, in production since early 2026, accumulating labeled training data with every bar. The architecture is designed to extend:
 
 | Domain | Status | Scope |
 |--------|--------|-------|
@@ -27,23 +25,21 @@ The core architectural bet: intelligence, execution, and risk are independent su
 | **Qualitative** | Designed | News NLP, sentiment, prediction markets, macro regime narrative |
 | **Derivatives** | Designed | Vol surface, gamma exposure, skew, options flow |
 
-Each domain is an independent analysis engine that subscribes to market data streams and publishes its own intelligence events. They don't depend on each other to function. Downstream application agents - trade execution, portfolio management, risk management - consume from whichever domains they need, the same way: by subscribing to the bus.
+Each domain is an independent analysis engine. Downstream application agents - trade execution, portfolio management, risk management - consume from whichever domains they need by subscribing to the bus.
 
-The quantitative domain runs live on 60 instruments across futures, ETFs, FX, and crypto, transforming raw market data into evidence-graded trading signals in under 10ms. It's been in production since early 2026, accumulating its own labeled training data with every bar.
-
-**The AI layer is independent and non-monolithic.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) runs with per-provider circuit breakers - no single model or vendor is a dependency. Specialist agents handle focused analytical tasks (skeptic, correlation, volume); composite agents orchestrate them into a coherent view, the way a trading desk synthesizes input from multiple analysts. An Evolvable AI (eAI) framework takes this further: agents that improve through Darwinian selection - mutation, recombination, fitness-gated promotion - with statistical proof required at every generation. A Vector Intelligence Layer gives the stack empirical memory: every bar state embedded in pgvector, the K nearest historical analogs retrieved at query time with their realized outcomes, so every AI conclusion is grounded in what actually happened.
+**The AI layer is multi-provider and agent-organized.** A multi-provider LLM chain (local Ollama, OpenRouter, DeepSeek) runs with per-provider circuit breakers - no single model or vendor is a dependency. Specialist agents handle focused tasks; composite agents synthesize them into a coherent view, the way a trading desk works. Two deeper systems sit behind this: an Evolvable AI framework where agents improve through Darwinian selection, and a Vector Intelligence Layer that grounds every AI conclusion in the K most similar historical bar states and what actually happened after them. Both are covered in detail below.
 
 **What makes this different from a signal pipeline:**
 
+- **Counterfactual recording** - every ranked candidate is recorded, not just winners. The system preserves the full decision boundary - what CIS selected and what it rejected - creating a training dataset that captures the rejections, not just the outcomes.
+- **Statistical rigor throughout** - bootstrap confidence intervals for win rates, not point estimates. p < 0.05 promotion gates with minimum N. KS drift detection. CUSUM control charts. Proof, not thresholds.
+- **Full signal lifecycle** - signals tracked from zone activation through 8-class outcome resolution with MAE and MFE per signal. Portfolio-level risk analytics embedded in signal tracking, not a win/loss tally.
+- **Evolvable** - agents improve through natural selection: genome mutation, recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency. Statistical gates at every lifecycle transition.
+- **Empirical memory** - a Vector Intelligence Layer embeds every bar state in pgvector and retrieves the K most similar historical analogs at query time, with realized forward returns. IC-weighted, independence-calibrated, and domain-agnostic.
 - **Self-improving** - CIS weights auto-refine from signal outcomes. ML models retrain on their own labeled data. Drift detection adjusts feature contributions in real time.
 - **Self-healing** - services auto-restart in DAG order. Bar and signal replay auditors detect gaps and resolve orphaned lifecycles.
-- **Counterfactual recording** - every ranked candidate is recorded, not just winners. The system preserves the full decision boundary - what CIS selected and what it rejected - creating a training dataset that captures the rejections, not just the outcomes.
-- **Full signal lifecycle** - signals tracked from zone activation through 8-class outcome resolution with MAE and MFE per signal. Portfolio-level risk analytics embedded in signal tracking, not a win/loss tally.
-- **Statistical rigor throughout** - bootstrap confidence intervals for win rates, not point estimates. p < 0.05 promotion gates with minimum N. KS drift detection. CUSUM control charts.
-- **Provider-agnostic by design** - the intelligence pipeline has zero knowledge of where data comes from. It consumes typed events from the bus. Any real-time source plugs in the same way.
 - **Full lineage and reproducibility** - every AI agent call tracked with prompt version, model, inputs, outputs, and timing. Every signal traces back through every transformation to raw data.
-- **Evolvable** - agents improve through natural selection: genome mutation, recombination, LLM-directed mutation. Fitness = accuracy × novelty × calibration × efficiency. Statistical gates at every lifecycle transition.
-- **Empirical memory** - a Vector Intelligence Layer embeds every bar state in pgvector and retrieves the K most similar historical analogs at query time, with realized forward returns. IC-weighted, independence-calibrated, and domain-agnostic - designed to extend to fundamental and qualitative intelligence without new infrastructure.
+- **Provider-agnostic by design** - the intelligence pipeline has zero knowledge of where data comes from. It consumes typed events from the bus. Any real-time source plugs in the same way.
 - **API-first** - every output immediately available over REST and SSE. Any HTTP client subscribes without pipeline changes.
 
 ---
