@@ -841,7 +841,7 @@ async def get_signal_detail(
             "bars_to_activation": _i(row["bars_to_activation"]),
             "exit_reason": _s(row["exit_reason"]),
             "ttl_bars": _i(row["ttl_bars"]),
-            "exit_at": row["exit_at"].isoformat() if row.get("exit_at") else None,
+            "exit_at": row["exit_at"].isoformat() if row["exit_at"] else None,
             "signal_tier": _compute_signal_tier(
                 row["was_selected"],
                 _f(row["confidence"]),
