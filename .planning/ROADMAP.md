@@ -20,7 +20,7 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104, 105, 106, 107, 108, 109 (shipped 2026-05-29)
-- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103 (in progress)
+- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-101, 103 (in progress)
 
 ## Phases
 
@@ -866,7 +866,7 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103) — IN PROGRESS</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-101, 103) — IN PROGRESS</summary>
 
 **Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103). Each dependency earns its place before the next is added. Infrastructure hardening (Phases 105-109) completed in v2.7.
 
@@ -1244,6 +1244,41 @@ Plans:
 - [ ] 108-06-PLAN.md — Oneshot job_completed_total counters (ml-training, shadow-auditor, roll-batch)
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
+
+### Phase 100: Occam's Razor — Complexity-Aware Model Selection
+
+**Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update.
+**Depends on**: Phase 096 (Agent Registry)
+**Requirements**: OCCAM-01, OCCAM-02, OCCAM-03, OCCAM-04
+**Success Criteria** (what must be TRUE):
+
+  1. `BaselineBuilder` protocol and concrete implementations (LinearBaseline, RuleBaseline, RandomBaseline) exist in `src/intelligence/ai/baseline.py`
+  2. `OccamRazorEvaluator` statistical test engine computes bootstrap CI on Sharpe delta with complexity penalty
+  3. `AlphaSwarm._run_occam_razor_cycle()` evaluates all shadow ML agents every 15 min
+  4. Rejection UPDATE sets `shadow_registry.is_shadow=TRUE`, `rejection_reason`, `complexity_score`, `last_occam_check`
+  5. OTel metrics `OCCAM_REJECTIONS_TOTAL`, `OCCAM_EVALUATIONS_TOTAL`, `OCCAM_COMPLEXITY_RATIO`, `OCCAM_SHARPE_DELTA` emitted
+  6. Grafana dashboard `Occam's Razor` shows evaluations, rejections, complexity ratios
+
+**Plans**: 4 plans in 4 waves
+
+Plans:
+
+**Wave 1** — Baseline registry (independent)
+
+- [ ] 100-01-PLAN.md — BaselineBuilder protocol + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry
+
+**Wave 2** *(depends on Wave 1)* — Statistical test engine
+
+- [ ] 100-02-PLAN.md — OccamRazorEvaluator: bootstrap CI, complexity score, decision rule with penalty
+
+**Wave 3** *(depends on Wave 2)* — Shadow registry integration
+
+- [ ] 100-03-PLAN.md — shadow_registry rejection flow + ml_models complexity columns + OTel metrics
+
+**Wave 4** *(depends on Wave 3)* — End-to-end integration
+
+- [ ] 100-04-PLAN.md — Real baseline returns + complexity from ml_models + Grafana dashboard + integration tests
+
 ### Phase 101: Composite Fitness Function
 
 **Goal**: Build rigorous fitness evaluation across 5 dimensions before enabling reproductive operators. Gate for Phases 102-103: composite score **standard deviation** across live agents must be >= 0.2 (FIT-06 discriminative-power gate; metric `fitness_population_stddev`).
@@ -1388,7 +1423,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104, 105, 106, 107, 108 shipped; 109 in progress). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104, 105, 106, 107, 108 shipped; 109 in progress). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-101, 103).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
