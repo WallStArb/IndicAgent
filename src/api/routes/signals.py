@@ -164,6 +164,10 @@ def _s(v: Any) -> str | None:
     return str(v) if v is not None else None
 
 
+def _i(v: Any) -> int | None:
+    return int(v) if v is not None else None
+
+
 @router.get("/signals/active")
 async def get_active_signals(
     db_manager: DatabaseManager = Depends(get_db_manager),
@@ -275,12 +279,8 @@ async def get_active_signals(
                     "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
                     "staleness_score": _f(row["staleness_score"]),
                     "staleness_trigger_reason": _s(row["staleness_trigger_reason"]),
-                    "ttl_bars": int(row["ttl_bars"]) if row["ttl_bars"] is not None else None,
-                    "hmm_regime_at_fire": (
-                        int(row["hmm_regime_at_fire"])
-                        if row["hmm_regime_at_fire"] is not None
-                        else None
-                    ),
+                    "ttl_bars": _i(row["ttl_bars"]),
+                    "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
                     "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
                     "signal_tier": _compute_signal_tier(
                         row["was_selected"],
