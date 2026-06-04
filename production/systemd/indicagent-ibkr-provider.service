@@ -2,8 +2,7 @@
 Description=IndicAgent IBKR Provider Agent — broker-agnostic bar publisher
 After=network-online.target indicagent-infrastructure.target
 Requires=indicagent-infrastructure.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -15,7 +14,7 @@ ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/servi
 Restart=always
 WatchdogSec=60
 NotifyAccess=main
-RestartSec=10
+RestartSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=indicagent-ibkr-provider
