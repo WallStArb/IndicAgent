@@ -30,6 +30,12 @@ def _row(**kwargs):
         "setup_win_rate": None,
         "setup_avg_pnl_r": None,
         "symbol": "ESH6",
+        "hmm_regime_at_fire": 0,
+        "exit_reason": None,
+        "mfe": None,
+        "ttl_bars": 10,
+        "bars_in_trade": None,
+        "targets": "[]",
     }
     return {**defaults, **kwargs}
 
