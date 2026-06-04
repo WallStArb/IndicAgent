@@ -163,8 +163,12 @@ def get_signals_active_at(
 
 def handle_no_data(sig: dict) -> dict:
     """No bars available after signal.timestamp — zone=never_activated, market=all NULL."""
-    ttl_secs = sig.get("ttl_bars", 10) * TF_SECONDS.get(sig.get("timeframe", "1m"), 60)
-    exit_ts = sig["timestamp"] + timedelta(seconds=ttl_secs)
+    expires_at = sig.get("expires_at")
+    if expires_at is not None:
+        exit_ts = expires_at
+    else:
+        ttl_secs = sig.get("ttl_bars", 10) * TF_SECONDS.get(sig.get("timeframe", "1m"), 60)
+        exit_ts = sig["timestamp"] + timedelta(seconds=ttl_secs)
     return {
         "zone_outcome": "never_activated",
         "zone_exit_at": exit_ts,
@@ -192,10 +196,25 @@ def resolve_at_end_of_bars(
     """Resolve remaining signal at end of bar stream using accumulated state.
 
     Called for any signal still in live_sids after all bars are exhausted.
-    Uses the last bar's timestamp and close as the exit reference.
+    Uses expires_at (Phase 107.5+) when available, falls back to ttl_bars computation.
     """
     last_ts = last_bar["timestamp"]
-    bars_elapsed = int((last_ts - sig["timestamp"]).total_seconds() / tf_seconds)
+    expires_at = sig.get("expires_at")
+
+    # Use expires_at if available (Phase 107.5+), else compute from ttl_bars
+    if expires_at is not None and last_ts < expires_at:
+        # Signal hasn't expired yet — treat as still live (no forced resolution)
+        return {"zone_outcome": None, "exit_at": None}
+
+    # Compute exit timestamp
+    if expires_at is not None:
+        exit_ts = min(last_ts, expires_at)
+    else:
+        ttl_secs = sig.get("ttl_bars", 10) * tf_seconds
+        exit_ts = sig["timestamp"] + timedelta(seconds=ttl_secs)
+        exit_ts = min(last_ts, exit_ts)
+
+    bars_elapsed = int((exit_ts - sig["timestamp"]).total_seconds() / tf_seconds)
 
     zone_outcome = (
         "ttl_expired_ahead"
@@ -212,7 +231,7 @@ def resolve_at_end_of_bars(
 
     return {
         "zone_outcome": zone_outcome,
-        "exit_at": last_ts,
+        "exit_at": exit_ts,
         "market_entry_outcome": market_outcome,
         "market_entry_exit_price": float(last_bar["close"]) if mep is not None else None,
         "market_entry_pnl_r": None,  # computed by caller from accumulated state
@@ -669,6 +688,9 @@ async def _process_symbol_tf(
                     zone_activated=zone_activated.get(sid, False),
                     market_entry_price=market_entry_prices.get(sid),
                 )
+                # Not-yet-expired signal (expires_at in the future) — skip resolution
+                if result["zone_outcome"] is None:
+                    continue
                 stats["zone"][result["zone_outcome"]] = (
                     stats["zone"].get(result["zone_outcome"], 0) + 1
                 )
