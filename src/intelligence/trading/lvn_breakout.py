@@ -217,9 +217,7 @@ class LVNBreakoutPlugin:
             direction=direction,
             confidence=confidence,
             regime_context=regime_ctx,
-            confluence_score=0.0,
             supporting_factors=supporting,
-            invalidation_conditions=[],
             features_snapshot=features_snapshot,
         )
         signal["targets"] = targets

@@ -100,6 +100,7 @@ class SignalReplayAuditor(BaseDaemon):
               AND sl.expires_at IS NOT NULL
               AND sl.expires_at < NOW()
               AND sl.entry_zone_low IS NOT NULL
+              AND sl.entry_zone_high IS NOT NULL
             ORDER BY sl.expires_at DESC
             LIMIT $1
         """
@@ -136,6 +137,7 @@ class SignalReplayAuditor(BaseDaemon):
                   AND expires_at IS NOT NULL
                   AND expires_at < NOW()
                   AND entry_zone_low IS NOT NULL
+                  AND entry_zone_high IS NOT NULL
                 """,
             )
         return int(cnt or 0)

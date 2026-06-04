@@ -74,9 +74,9 @@ ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 def _apply_alpha_decay(sig: dict, tf: str, last_fire_state: dict | None) -> None:
     """QUAL-02: Apply exponential alpha decay to signal confidence in-place.
 
-    Decays confidence by 0.5^(bars_since/half_life) — confidence halves each half_life
-    bars after the last winner fire. Exponential form never zeroes a signal (unlike
-    linear decay), preserving persistent setups while discounting autocorrelated fires.
+    Decays confidence by 0.5^(bars_since/half_life) — confidence halves every half_life
+    fires since the last win. bars_since counts fires only, not elapsed bars, so silence
+    does not penalize re-emergence.
     """
     if last_fire_state is None:
         return
@@ -274,15 +274,16 @@ class SignalProcessor:
         for sig in raw_signals:
             sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
 
-        # Alpha decay (D-21): advance bars_since for all (symbol, tf) fire keys, then
-        # apply exponential decay. bars_since is incremented every bar a plugin fires
-        # after having previously won; reset to 0 when the same plugin wins again.
-        for fire_key, state in self._setup_last_fire.items():
-            if fire_key[0] == symbol and fire_key[1] == tf:
-                state["bars_since"] += 1
+        # Alpha decay (D-21): bars_since counts fires since last win, not elapsed bars.
+        # Silence does not accumulate the counter — only actual fires do. This correctly
+        # discounts autocorrelated consecutive fires while leaving re-emergent signals
+        # unpenalized for time they did not fire.
         for sig in raw_signals:
             fire_key = (symbol, tf, sig.get("setup_plugin", ""), sig.get("direction", 0))
-            _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+            state = self._setup_last_fire.get(fire_key)
+            if state is not None:
+                state["bars_since"] += 1
+            _apply_alpha_decay(sig, tf, state)
 
         # Build features from event — use precomputed flat_features when available (3-E).
         # When flat_features is provided (set once per bar in FeaturePipelineExecutor),
@@ -525,6 +526,8 @@ class SignalProcessor:
         for sig in ranked:
             missing = REQUIRED_PIPELINE_FIELDS - set(sig.keys())
             if missing:
+                self._signal_dlq_total.add(1)
+                SIGNAL_PROCESSOR_DLQ_TOTAL.add(1, {"reason": "pipeline_fields_missing"})
                 self._logger.error(
                     "signal_processor.pipeline_fields_missing",
                     plugin=sig.get("setup_plugin", "unknown"),

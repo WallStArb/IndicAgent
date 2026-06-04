@@ -248,9 +248,7 @@ class DivergenceStackPlugin:
                 direction=direction,
                 confidence=confidence,
                 regime_context="any",
-                confluence_score=0.0,
                 supporting_factors=supporting_factors,
-                invalidation_conditions=[],
             )
             # Merge always-logged scoring fields on top of the framed signal
             signal.update(base_output)

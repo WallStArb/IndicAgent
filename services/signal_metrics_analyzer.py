@@ -99,6 +99,7 @@ _QUERY = """
       AND setup_plugin IS NOT NULL
       AND was_selected = true
       AND entry_zone_low IS NOT NULL
+      AND entry_zone_high IS NOT NULL
     ORDER BY exit_at
 """
 

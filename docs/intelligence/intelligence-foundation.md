@@ -272,21 +272,9 @@ CIS (Confluence Intelligence Score) requires agreement from at least 3 of 6 inde
 
 **Rule:** `|score| > 0.35` AND at least 3 of 6 buckets agree on direction.
 
-### Six-Layer Self-Correction
-
-Signal confidence flows through six autonomous correction layers:
-
-```
-Raw confidence (I7 plugin output)
-    → [1] Isotonic calibration    → calibrated_confidence
-    → [2] TOD multiplier          → time-adjusted confidence
-    → [3] perf_multiplier         → performance-weighted rank in all_ranked
-    → [4] KS drift penalty        → distribution-aware CIS bucket weights
-    → [5] CUSUM monitor           → feedback loop back into perf_multiplier
-    → [6] Shadow mode gate        → statistical proof before production eligibility
-```
-
 **Key invariant:** `active` signal is always derived from `all_ranked`, never from the raw `signals` list.
+
+The full stage sequence — `compose_confidence`, alpha decay, quality gate, regime gate, ToD adjustment, calibration, ranking, and winner selection — is documented in `docs/signals/signals-foundation.md` (Signal Quality Pipeline section). That is the canonical reference for how raw I7 plugin output becomes a ranked, selected signal.
 
 ### Adaptive Weight Systems
 
@@ -324,24 +312,6 @@ Regime conditioning: weights loaded per current HMM regime_type
 `IntelligencePipelineComputeAgent` loads weights at startup and refreshes every hour. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
 
 **Composition:** CIS governs which *direction* has cross-tier confirmation. Performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
-
-### Signal Confidence Calibration Chain (Detail)
-
-Full six-layer pipeline with implementation notes:
-
-1. **Isotonic Calibration** — raw confidence values are systematically biased. Isotonic regression maps them to empirically calibrated values. Raw value stored as `pre_calibration_confidence`; output as `calibrated_confidence`.
-
-2. **Time-of-Day (TOD) Multiplier** — 120 cells: `(regime_type, timeframe, hour_et)`. Computed from rolling historical win rates. A trend setup at RTH open behaves differently than the same setup at 2pm.
-
-3. **Performance Multiplier** (`perf_multiplier`) — rolling 30-day Sharpe and win rate per setup per regime. Gate: N < 30 → `perf_multiplier = 1.0`.
-
-4. **KS Drift Monitor** — Kolmogorov-Smirnov test compares current feature distributions against historical baseline. Feature drift → proportional CIS bucket weight penalty.
-
-5. **CUSUM Monitor** — cumulative sum control charts track win rate per setup. Degradation reduces performance weight automatically; recovery restores it.
-
-6. **Shadow Mode Gate** — `shadow_registry` auto-enrollment at startup. Promotion: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0`. Demotion: `EV[R] < -0.05` for 3 consecutive cycles.
-
-Swarm overlay applies after calibration: `adjusted_confidence = calibrated_confidence × swarm_multiplier` (MoA composite from 5 alpha swarm agents).
 
 ---
 

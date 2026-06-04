@@ -323,7 +323,6 @@ class CandlestickPatternSetupPlugin:
             regime_context=regime_ctx,
             confluence_score=float(confluence_score),
             supporting_factors=supporting,
-            invalidation_conditions=[],
             features_snapshot=capture_signal_features(features, direction, "session", confidence),
         )
 
