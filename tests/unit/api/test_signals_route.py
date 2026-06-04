@@ -243,3 +243,70 @@ class TestGetSignals:
         positional = list(call_args.args)
         # positional[0] is the SQL query, positional[1] is the resolved contract symbol
         assert positional[1] == "ESM6"
+
+
+# ---------------------------------------------------------------------------
+# Tests for GET /api/signals/active
+# ---------------------------------------------------------------------------
+
+
+def _active_row(**overrides):
+    """Return a complete mock row for get_active_signals queries."""
+    row = {
+        "signal_id": str(uuid.uuid4()),
+        "symbol": "ESH6",
+        "timeframe": "5m",
+        "setup_plugin": "TrendFollowing",
+        "signal_type": "long_entry",
+        "direction": "long",
+        "entry_price": "5950.25",
+        "stop_loss": "5930.00",
+        "confidence": "0.82",
+        "status": "pending",
+        "was_selected": True,
+        "cis_score": "0.75",
+        "targets": [5970.0, 5990.0, 6010.0],
+        "regime_context": "trending",
+        "stop_basis": "atr",
+        "market_price_at_signal": "5952.00",
+        "ask_at_signal": "5952.25",
+        "bid_at_signal": "5951.75",
+        "entry_zone_low": "5948.00",
+        "entry_zone_high": "5955.00",
+        "zone_valid_at_signal": True,
+        "signal_computed_at": datetime(2026, 2, 24, 10, 0, 0),
+        "bar_close_ts": datetime(2026, 2, 24, 10, 0, 0),
+        "timestamp": datetime(2026, 2, 24, 10, 0, 0),
+        "staleness_score": None,
+        "staleness_trigger_reason": None,
+        "ttl_bars": 10,
+        "hmm_regime_at_fire": 0,
+        "bucket_scores": {"trend": 0.82, "momentum": 0.61},
+        "setup_win_rate": "0.58",
+        "setup_avg_pnl_r": "1.2",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestGetActiveSignals:
+    """Tests for GET /api/signals/active"""
+
+    @pytest.mark.unit
+    def test_active_signals_regime_staleness_fields(self):
+        """Active signals response includes hmm_regime_at_fire, ttl_bars, bucket_scores, staleness fields."""
+        mock_db = _make_mock_db()
+        mock_db.fetch = AsyncMock(return_value=[_row(_active_row())])
+
+        client = _make_client(mock_db)
+        response = client.get("/api/signals/active")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 1
+        sig = body["signals"][0]
+
+        assert sig["hmm_regime_at_fire"] == 0
+        assert sig["ttl_bars"] == 10
+        assert sig["bucket_scores"] == {"trend": 0.82, "momentum": 0.61}
+        assert sig["staleness_score"] is None
