@@ -906,33 +906,46 @@ async def get_signal_detail(
     shadowing the existing /signals/{symbol} catch-all route.
     """
     try:
-        query = """
+        signal_query = """
             SELECT
                 sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
                 sl.setup_plugin, sl.signal_type, sl.direction,
-                sl.entry_price, sl.stop_loss, sl.targets, sl.confidence,
+                sl.entry_price, sl.stop_loss, sl.targets, sl.signal_quality AS confidence,
                 sl.was_selected, sl.cis_score, sl.bucket_scores,
                 sl.status, sl.outcome, sl.exit_price, sl.pnl_r,
                 sl.signal_computed_at, sl.feature_ts, sl.feature_tf,
-                sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
+                sl.entry_zone_low, sl.entry_zone_high,
                 sl.activation_price, sl.mae, sl.mfe, sl.bars_in_trade,
-                sl.hmm_regime_at_fire,
-                sl.activated_at,
-                sl.bars_to_activation,
-                sl.exit_reason,
-                sl.ttl_bars,
-                sl.exit_at,
-                f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
+                sl.hmm_regime_at_fire, sl.activated_at, sl.bars_to_activation,
+                sl.exit_reason, sl.ttl_bars, sl.exit_at
             FROM signal_ledger_full sl
-            LEFT JOIN intelligence_features f
-              ON sl.symbol = f.symbol
-             AND sl.feature_ts = f.ts
-             AND sl.feature_tf = f.tf
             WHERE sl.signal_id = $1::uuid
         """
-        row = await db_manager.fetchrow(query, signal_id)
+        row = await db_manager.fetchrow(signal_query, signal_id)
         if row is None:
             raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+
+        features = None
+        if row["feature_ts"] is not None:
+            feat_query = """
+                SELECT bar, technical_indicators, pattern_detections,
+                       regime_features, confluence_scores, smc, cross_timeframe_context
+                FROM intelligence_features
+                WHERE ts = $1 AND symbol = $2 AND tf = $3
+            """
+            feat_row = await db_manager.fetchrow(
+                feat_query, row["feature_ts"], row["symbol"], row["feature_tf"]
+            )
+            if feat_row is not None:
+                features = {
+                    "bar": _parse_jsonb(feat_row["bar"], default=None),
+                    "i1": _parse_jsonb(feat_row["technical_indicators"], default=None),
+                    "i3": _parse_jsonb(feat_row["pattern_detections"], default=None),
+                    "i4": _parse_jsonb(feat_row["regime_features"], default=None),
+                    "i5": _parse_jsonb(feat_row["confluence_scores"], default=None),
+                    "smc": _parse_jsonb(feat_row["smc"], default=None),
+                    "i6": _parse_jsonb(feat_row["cross_timeframe_context"], default=None),
+                }
 
         return {
             "signal_id": str(row["signal_id"]),
@@ -958,7 +971,7 @@ async def get_signal_detail(
             ),
             "entry_zone_low": _f(row["entry_zone_low"]),
             "entry_zone_high": _f(row["entry_zone_high"]),
-            "zone_valid_at_signal": row["zone_valid_at_signal"],
+            "zone_valid_at_signal": None,
             "activation_price": _f(row["activation_price"]),
             "mae": _f(row["mae"]),
             "mfe": _f(row["mfe"]),
@@ -974,19 +987,7 @@ async def get_signal_detail(
                 _f(row["confidence"]),
                 _f(row["cis_score"]),
             ),
-            "features": (
-                {
-                    "bar": _parse_jsonb(row["bar"], default=None),
-                    "i1": _parse_jsonb(row["i1"], default=None),
-                    "i3": _parse_jsonb(row["i3"], default=None),
-                    "i4": _parse_jsonb(row["i4"], default=None),
-                    "i5": _parse_jsonb(row["i5"], default=None),
-                    "smc": _parse_jsonb(row["smc"], default=None),
-                    "i6": _parse_jsonb(row["i6"], default=None),
-                }
-                if row["feature_ts"]
-                else None
-            ),
+            "features": features,
         }
 
     except HTTPException:
@@ -1024,11 +1025,11 @@ async def get_signals(
             query = """
                 SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
                        sl.setup_plugin, sl.signal_type, sl.direction,
-                       sl.entry_price, sl.stop_loss, sl.confidence, sl.status,
+                       sl.entry_price, sl.stop_loss, sl.signal_quality AS confidence, sl.status,
                        sl.feature_ts, sl.feature_tf, sl.signal_computed_at,
-                       sl.market_price_at_signal, sl.ask_at_signal, sl.bid_at_signal,
-                       sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
-                       f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
+                       sl.entry_zone_low, sl.entry_zone_high,
+                       f.bar, f.technical_indicators, f.pattern_detections,
+                       f.regime_features, f.confluence_scores, f.smc, f.cross_timeframe_context
                 FROM signal_ledger_full sl
                 LEFT JOIN intelligence_features f
                   ON sl.symbol = f.symbol
@@ -1045,10 +1046,9 @@ async def get_signals(
             query = """
                 SELECT signal_id, timestamp, symbol, timeframe,
                        setup_plugin, signal_type, direction,
-                       entry_price, stop_loss, confidence, status,
+                       entry_price, stop_loss, signal_quality AS confidence, status,
                        feature_ts, feature_tf, signal_computed_at,
-                       market_price_at_signal, ask_at_signal, bid_at_signal,
-                       entry_zone_low, entry_zone_high, zone_valid_at_signal
+                       entry_zone_low, entry_zone_high
                 FROM signal_ledger_full
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
