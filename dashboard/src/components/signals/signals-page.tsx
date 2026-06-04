@@ -7,12 +7,22 @@ import { AttributionRow } from "./attribution-row";
 import { ClusterStrip } from "./cluster-strip";
 import { FilterBar, FilterState, defaultFilters } from "./filter-bar";
 import { SignalLedger } from "./signal-ledger";
+import { LiveSignalCards } from "./live-signal-cards";
+import { EdgeIntelligenceStrip } from "./edge-intelligence-strip";
 
 export function SignalsPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
 
   const handleFilterChange = useCallback((next: Partial<FilterState>) => {
     setFilters((prev) => ({ ...prev, ...next }));
+  }, []);
+
+  const handleHeatMapClick = useCallback((setup: string, regime: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      setup_plugin: [setup],
+      regime: [regime],
+    }));
   }, []);
 
   return (
@@ -22,20 +32,14 @@ export function SignalsPage() {
         <CommandStrip />
       </div>
 
-      {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1600px] mx-auto px-4 py-4 flex flex-col gap-4">
-          {/* Zone 2 — Attribution Row */}
+          <LiveSignalCards />
+          <EdgeIntelligenceStrip onHeatMapCellClick={handleHeatMapClick} />
           <AttributionRow onSetupClick={(setup) => handleFilterChange({ setup_plugin: [setup] })}
                           onAssetClassClick={(ac) => handleFilterChange({ asset_class: [ac] })} />
-
-          {/* Zone 3 — Cluster Strip */}
           <ClusterStrip onClusterClick={(symbols) => handleFilterChange({ symbol: symbols })} />
-
-          {/* Zone 4 — Filter Bar */}
           <FilterBar filters={filters} onChange={handleFilterChange} />
-
-          {/* Zone 5 — Signal Ledger */}
           <SignalLedger filters={filters} />
         </div>
       </div>
