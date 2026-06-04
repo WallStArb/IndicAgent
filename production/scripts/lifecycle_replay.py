@@ -237,6 +237,89 @@ def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
 # ── Core replay logic ────────────────────────────────────────────────────────
 
 
+async def _reset_corrupt_data(
+    db: DatabaseManager,
+    symbols: list[str],
+    timeframes: list[str],
+    after: datetime,
+    before: datetime,
+) -> dict:
+    """Reset corrupt signal_outcomes + truncate derived tables.
+
+    Idempotent: safe to run multiple times. Only affects signals
+    with outcome IS NOT NULL in the exact [after, before) window.
+
+    Returns counts for audit logging.
+    """
+    stats = {}
+    async with db.pool.acquire() as conn:
+        # Re-acquire advisory lock for the destructive phase
+        if not await _acquire_replay_lock(conn):
+            raise RuntimeError("Cannot acquire advisory lock for reset")
+        try:
+            # 1. Reset signal_outcomes for corrupt-window signals
+            result = await conn.execute(
+                """UPDATE signal_outcomes SET
+                    status = 'pending',
+                    outcome = NULL,
+                    exit_at = NULL,
+                    exit_price = NULL,
+                    exit_reason = NULL,
+                    pnl_ticks = NULL,
+                    pnl_r = NULL,
+                    pnl_dollars = NULL,
+                    signal_quality = NULL,
+                    activated_at = NULL,
+                    activation_price = NULL,
+                    zone_entry_pct = NULL,
+                    bars_to_activation = NULL,
+                    mae = NULL,
+                    mfe = NULL,
+                    bars_in_trade = NULL,
+                    market_entry_at = NULL,
+                    market_entry_exit_price = NULL,
+                    market_entry_exit_at = NULL,
+                    market_entry_pnl_r = NULL,
+                    market_entry_mae = NULL,
+                    market_entry_mfe = NULL,
+                    market_entry_bars_in_trade = NULL,
+                    market_entry_outcome = NULL,
+                    market_entry_gap_bars = NULL
+                WHERE signal_id IN (
+                    SELECT signal_id FROM signal_ledger
+                    WHERE timestamp >= $1
+                      AND timestamp < $2
+                      AND symbol = ANY($3)
+                      AND timeframe = ANY($4)
+                )
+                AND outcome IS NOT NULL""",
+                after,
+                before,
+                symbols,
+                timeframes,
+            )
+            stats["outcomes_reset"] = int(result.split()[-1])
+
+            # 2. Truncate swarm_agent_weights (computed from lineage + outcomes)
+            await conn.execute("TRUNCATE swarm_agent_weights")
+            stats["weights_truncated"] = True
+
+            # 3. Truncate setup_performance (computed from outcomes)
+            await conn.execute("TRUNCATE setup_performance")
+            stats["setup_perf_truncated"] = True
+
+            logger.info(
+                "reset_complete: outcomes_reset=%d, weights_truncated=True, "
+                "setup_perf_truncated=True, window=[%s, %s)",
+                stats["outcomes_reset"],
+                after.isoformat(),
+                before.isoformat(),
+            )
+        finally:
+            await conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
+    return stats
+
+
 async def _fetch_work_queue(
     db: DatabaseManager, symbols: list[str], timeframes: list[str]
 ) -> list[tuple[str, str, int]]:
@@ -863,6 +946,28 @@ async def main_async():
         action="store_true",
         help="Override safety checks (service quiescence). Use with extreme caution.",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset corrupt outcomes + truncate derived tables before replay",
+    )
+    parser.add_argument(
+        "--reset-before",
+        type=str,
+        default="2026-06-02T00:00:00Z",
+        help="ISO timestamp — only reset signals before this date (default: 2026-06-02)",
+    )
+    parser.add_argument(
+        "--reset-after",
+        type=str,
+        default="2026-05-21T00:00:00Z",
+        help="ISO timestamp — only reset signals after this date (default: 2026-05-21)",
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required with --reset. Prevents accidental destructive operations.",
+    )
     args = parser.parse_args()
 
     # Use -u (unbuffered) when redirecting output: python -u lifecycle_replay.py > log 2>&1 &
@@ -913,6 +1018,24 @@ async def main_async():
                     logger.info("Preflight: no orphan rows found")
             finally:
                 await preflight_conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
+
+        # ── Reset corrupt data (optional, requires --confirm) ──
+        if args.reset:
+            if not args.confirm:
+                logger.error(
+                    "ABORT: --reset requires --confirm to prevent accidental data wipe. "
+                    "Run with --reset --confirm to proceed."
+                )
+                return
+            after = datetime.fromisoformat(args.reset_after.replace("Z", "+00:00"))
+            before = datetime.fromisoformat(args.reset_before.replace("Z", "+00:00"))
+            logger.info(
+                "Reset window: [%s, %s) — about to wipe outcomes and truncate derived tables",
+                after.isoformat(),
+                before.isoformat(),
+            )
+            reset_stats = await _reset_corrupt_data(db, symbols, timeframes, after, before)
+            logger.info("Reset complete: %s", reset_stats)
 
         # Build work queue
         work_queue = await _fetch_work_queue(db, symbols, timeframes)
