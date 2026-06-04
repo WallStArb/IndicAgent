@@ -8,7 +8,83 @@ import type { LedgerSignal, SignalTier } from "@/lib/types";
 import { FilterState } from "./filter-bar";
 import { tierColor, tierOpacity, CIS_SCORE_THRESHOLD } from "@/lib/signal-tier";
 import { fmtNum, fmtTimeHMS } from "@/lib/format";
-import { TrendingUp, TrendingDown, X } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
+import { SignalDetailPanel } from "./signal-detail-panel";
+
+// ── Helpers ──
+const REGIME_DOT_COLORS: Record<number, string> = {
+  0: "var(--green)",
+  1: "var(--amber)",
+  2: "var(--red)",
+};
+
+const EXIT_COLORS: Record<string, string> = {
+  stop_loss: "var(--red)",
+  ttl_expired: "var(--text-muted)",
+  target_1: "rgba(0,220,130,0.7)",
+  target_2: "var(--green)",
+  target_3: "var(--cyan, #06b6d4)",
+  condition_expired: "var(--text-muted)",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: "var(--text-muted)",
+  active: "var(--cyan, #06b6d4)",
+  regime_suppressed: "var(--red)",
+  expired: "var(--text-muted)",
+};
+
+function ExitCell({ signal }: { signal: LedgerSignal }) {
+  const live = signal.status === "pending" || signal.status === "active";
+  if (live) {
+    return (
+      <span className="text-[0.5rem] font-semibold px-1 py-0 rounded"
+        style={{
+          color: STATUS_COLORS[signal.status] ?? "var(--text-muted)",
+          border: `1px solid ${STATUS_COLORS[signal.status] ?? "var(--border-subtle)"}`,
+          backgroundColor: "rgba(0,0,0,0.2)",
+        }}>
+        {signal.status}
+      </span>
+    );
+  }
+  const reason = signal.exit_reason ?? signal.status;
+  const label = reason === "stop_loss" ? "SL"
+    : reason === "ttl_expired" ? "TTL"
+    : reason === "target_1" ? "T1"
+    : reason === "target_2" ? "T2"
+    : reason === "target_3" ? "T3"
+    : reason?.toUpperCase().slice(0, 4) ?? "—";
+  return (
+    <span className="text-[0.5rem] font-semibold px-1 py-0 rounded"
+      style={{
+        color: EXIT_COLORS[reason] ?? "var(--text-muted)",
+        border: `1px solid ${EXIT_COLORS[reason] ?? "var(--border-subtle)"}`,
+        backgroundColor: "rgba(0,0,0,0.2)",
+      }}>
+      {label}
+    </span>
+  );
+}
+
+function AgeCapCell({ signal }: { signal: LedgerSignal }) {
+  const live = signal.status === "pending" || signal.status === "active";
+  if (live) {
+    if (signal.bars_in_trade == null || signal.ttl_bars == null)
+      return <span className="text-[var(--text-muted)]">-</span>;
+    const ratio = signal.bars_in_trade / signal.ttl_bars;
+    const color = ratio < 0.5 ? "var(--text-secondary)"
+      : ratio < 0.8 ? "var(--amber)"
+      : "var(--red)";
+    return <span className="text-[0.6rem] font-data" style={{ color }}>{signal.bars_in_trade}b</span>;
+  }
+  if (signal.mfe != null && signal.mfe > 0 && signal.pnl_r != null) {
+    const cap = signal.pnl_r / signal.mfe;
+    const color = cap >= 0.7 ? "var(--green)" : cap >= 0.4 ? "var(--amber)" : "var(--red)";
+    return <span className="text-[0.6rem] font-data" style={{ color }}>{fmtNum(cap, 2)}</span>;
+  }
+  return <span className="text-[var(--text-muted)]">-</span>;
+}
 
 // ── Row component ──
 function TierDot({ tier }: { tier: SignalTier }) {
@@ -67,90 +143,44 @@ function LedgerRow({
       className="flex items-center gap-0 cursor-pointer hover:bg-[var(--bg-elevated)] transition-colors border-b border-[var(--border-subtle)]"
       style={{
         opacity,
-        borderLeft:
-          tier === "hero"
-            ? "2px solid var(--blue)"
-            : "2px solid transparent",
+        borderLeft: tier === "hero" ? "2px solid var(--blue)" : "2px solid transparent",
         backgroundColor: isSelected ? "var(--bg-elevated)" : undefined,
         height: "28px",
       }}
     >
-      {/* Time */}
-      <span className="w-[90px] shrink-0 px-2 text-[0.6rem] font-data text-[var(--text-muted)]">
-        {timeStr ?? "-"}
+      <span className="w-[90px] shrink-0 px-2 text-[0.6rem] font-data text-[var(--text-muted)]">{timeStr ?? "-"}</span>
+      <span className="w-[70px] shrink-0 px-1 text-[0.65rem] font-bold font-data text-[var(--text-secondary)]">{signal.symbol}</span>
+      <span className="w-[36px] shrink-0 px-1 text-[0.6rem] font-data text-[var(--text-muted)]">{signal.timeframe}</span>
+      <span className="w-[22px] shrink-0 px-1 flex items-center justify-center">
+        <span className="inline-block w-2 h-2 rounded-full"
+          style={{ backgroundColor: signal.hmm_regime_at_fire != null
+            ? (REGIME_DOT_COLORS[signal.hmm_regime_at_fire] ?? "var(--text-muted)")
+            : "var(--bg-elevated)" }}
+          title={signal.hmm_regime_at_fire != null ? (["Trend","Range","Vol"][signal.hmm_regime_at_fire] ?? "") : "unknown"} />
       </span>
-      {/* Symbol */}
-      <span className="w-[70px] shrink-0 px-1 text-[0.65rem] font-bold font-data text-[var(--text-secondary)]">
-        {signal.symbol}
-      </span>
-      {/* TF */}
-      <span className="w-[36px] shrink-0 px-1 text-[0.6rem] font-data text-[var(--text-muted)]">
-        {signal.timeframe}
-      </span>
-      {/* Setup */}
-      <span
-        className={`w-[130px] shrink-0 px-1 text-[0.62rem] font-data truncate ${tier === "candidate" ? "italic" : ""}`}
-        style={{ color: "var(--text-secondary)" }}
-      >
+      <span className={`w-[130px] shrink-0 px-1 text-[0.62rem] font-data truncate ${tier === "candidate" ? "italic" : ""}`}
+        style={{ color: "var(--text-secondary)" }}>
         {signal.setup_plugin.replace(/^(trad_|ind_|smc_)/, "")}
       </span>
-      {/* Dir */}
       <span className="w-[28px] shrink-0 px-1 flex items-center justify-center">
-        {isLong ? (
-          <TrendingUp size={10} style={{ color: "var(--green)" }} />
-        ) : (
-          <TrendingDown size={10} style={{ color: "var(--red)" }} />
-        )}
+        {isLong ? <TrendingUp size={10} style={{ color: "var(--green)" }} /> : <TrendingDown size={10} style={{ color: "var(--red)" }} />}
       </span>
-      {/* Tier dot */}
-      <span className="w-[22px] shrink-0 px-1 flex items-center justify-center">
-        <TierDot tier={tier} />
+      <span className="w-[48px] shrink-0 px-1 text-right text-[0.62rem] font-data text-[var(--text-secondary)]">
+        {signal.r_ratio != null ? `${fmtNum(signal.r_ratio, 1)}x` : "-"}
       </span>
-      {/* Confidence */}
-      <span
-        className="w-[56px] shrink-0 px-1 text-right text-[0.62rem] font-data"
-        style={{
-          color:
-            (signal.confidence ?? 0) >= 0.4
-              ? "var(--text-primary)"
-              : "var(--text-muted)",
-        }}
-      >
-        {signal.confidence != null ? fmtNum(signal.confidence, 2) : "-"}
-      </span>
-      {/* CIS */}
-      <span
-        className="w-[56px] shrink-0 px-1 text-right text-[0.62rem] font-data"
-        style={{
-          color:
-            signal.cis_score != null
-              ? signal.cis_score >= 0
-                ? "var(--green)"
-                : "var(--red)"
-              : "var(--text-muted)",
-        }}
-      >
+      <span className="w-[22px] shrink-0 px-1 flex items-center justify-center"><TierDot tier={tier} /></span>
+      <span className="w-[56px] shrink-0 px-1 text-right text-[0.62rem] font-data"
+        style={{ color: signal.cis_score != null ? signal.cis_score >= 0 ? "var(--green)" : "var(--red)" : "var(--text-muted)" }}>
         {cisStr}
       </span>
-      {/* Status */}
-      <span className="w-[76px] shrink-0 px-1 text-[0.58rem] font-data text-[var(--text-muted)] truncate">
-        {signal.status}
-      </span>
-      {/* Outcome */}
-      <span className="w-[96px] shrink-0 px-1">
-        <OutcomeCell outcome={signal.outcome} />
-      </span>
-      {/* PnL R */}
-      <span
-        className="w-[56px] shrink-0 px-1 text-right text-[0.62rem] font-data"
-        style={{ color: pnlColor }}
-      >
+      <span className="w-[64px] shrink-0 px-1 flex items-center"><ExitCell signal={signal} /></span>
+      <span className="w-[96px] shrink-0 px-1"><OutcomeCell outcome={signal.outcome} /></span>
+      <span className="w-[56px] shrink-0 px-1 text-right text-[0.62rem] font-data" style={{ color: pnlColor }}>
         {signal.pnl_r != null
-          ? (signal.outcome === "never_activated" ? "~" : "")
-            + (signal.pnl_r >= 0 ? "+" : "")
-            + fmtNum(signal.pnl_r, 1) + "R"
+          ? (signal.outcome === "never_activated" ? "~" : "") + (signal.pnl_r >= 0 ? "+" : "") + fmtNum(signal.pnl_r, 1) + "R"
           : "-"}
       </span>
+      <span className="w-[52px] shrink-0 px-1 text-right"><AgeCapCell signal={signal} /></span>
     </div>
   );
 }
@@ -167,14 +197,16 @@ function LedgerHeader() {
           { label: "Time", w: 90 },
           { label: "Symbol", w: 70 },
           { label: "TF", w: 36 },
+          { label: "●", w: 22 },
           { label: "Setup", w: 130 },
           { label: "Dir", w: 28 },
+          { label: "R:R", w: 48, right: true },
           { label: "Tier", w: 22 },
-          { label: "Conf", w: 56, right: true },
           { label: "CIS", w: 56, right: true },
-          { label: "Status", w: 76 },
+          { label: "Exit", w: 64 },
           { label: "Outcome", w: 96 },
           { label: "PnL R", w: 56, right: true },
+          { label: "Age/Cap", w: 52, right: true },
         ] as { label: string; w: number; right?: boolean }[]
       ).map(({ label, w, right }) => (
         <span
@@ -185,175 +217,6 @@ function LedgerHeader() {
           {label}
         </span>
       ))}
-    </div>
-  );
-}
-
-// ── Detail panel ──
-function SignalDetailPanel({
-  signalId,
-  onClose,
-}: {
-  signalId: string;
-  onClose: () => void;
-}) {
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchSignalDetail = async () => {
-      setLoading(true);
-      try {
-        const d = await fetchJson<Record<string, unknown>>(`${getApiBase()}/api/signals/detail/${signalId}`);
-        setDetail(d);
-      } catch (err) {
-        console.error("Failed to fetch signal detail:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSignalDetail();
-  }, [signalId]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  return (
-    <div
-      className="flex flex-col border-l border-[var(--border-subtle)] overflow-y-auto shrink-0"
-      style={{ width: "320px", background: "var(--bg-surface)" }}
-    >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
-        <span className="text-[0.62rem] font-bold uppercase tracking-widest text-[var(--text-secondary)]">
-          Signal Detail
-        </span>
-        <button
-          onClick={onClose}
-          aria-label="Close signal detail panel"
-          className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        >
-          <X size={14} />
-        </button>
-      </div>
-      {loading && (
-        <div className="p-4 text-[0.62rem] text-[var(--text-muted)] italic">
-          Loading...
-        </div>
-      )}
-      {!loading && detail && (
-        <div className="p-3 flex flex-col gap-2 text-[0.65rem]">
-          <div className="grid grid-cols-2 gap-1">
-            {(
-              [
-                ["Symbol", detail.symbol],
-                ["TF", detail.timeframe],
-                [
-                  "Setup",
-                  typeof detail.setup_plugin === "string"
-                    ? detail.setup_plugin.replace(/^(trad_|ind_|smc_)/, "")
-                    : detail.setup_plugin,
-                ],
-                [
-                  "Direction",
-                  detail.direction === 1 ? "LONG ▲" : "SHORT ▼",
-                ],
-                [
-                  "Tier",
-                  typeof detail.signal_tier === "string"
-                    ? detail.signal_tier.toUpperCase()
-                    : detail.signal_tier,
-                ],
-                [
-                  "Confidence",
-                  typeof detail.confidence === "number"
-                    ? fmtNum(detail.confidence, 3)
-                    : "-",
-                ],
-                [
-                  "CIS Score",
-                  detail.cis_score != null
-                    ? fmtNum(detail.cis_score as number, 3)
-                    : "-",
-                ],
-                [
-                  "Entry",
-                  detail.entry_price != null
-                    ? fmtNum(detail.entry_price as number, 2)
-                    : "-",
-                ],
-                [
-                  "Stop",
-                  detail.stop_loss != null
-                    ? fmtNum(detail.stop_loss as number, 2)
-                    : "-",
-                ],
-                [
-                  "Status",
-                  detail.status,
-                ],
-                [
-                  "Outcome",
-                  detail.outcome ?? "-",
-                ],
-                [
-                  "PnL R",
-                  detail.pnl_r != null
-                    ? fmtNum(detail.pnl_r as number, 2) + "R"
-                    : "-",
-                ],
-                [
-                  "MAE",
-                  detail.mae != null
-                    ? fmtNum(detail.mae as number, 2)
-                    : "-",
-                ],
-                [
-                  "MFE",
-                  detail.mfe != null
-                    ? fmtNum(detail.mfe as number, 2)
-                    : "-",
-                ],
-                [
-                  "Bars",
-                  detail.bars_in_trade != null
-                    ? String(detail.bars_in_trade)
-                    : "-",
-                ],
-              ] as [string, unknown][]
-            ).map(([k, v]) => (
-              <div key={k} className="flex flex-col gap-0.5">
-                <span className="text-[0.48rem] uppercase tracking-widest text-[var(--text-muted)]">
-                  {k}
-                </span>
-                <span className="text-[0.65rem] font-data text-[var(--text-primary)]">
-                  {v != null ? String(v) : "-"}
-                </span>
-              </div>
-            ))}
-          </div>
-          {detail.bucket_scores != null && (
-            <div className="mt-2">
-              <span className="text-[0.52rem] uppercase tracking-widest text-[var(--text-muted)]">
-                CIS Buckets
-              </span>
-              <pre className="text-[0.55rem] font-data text-[var(--text-secondary)] mt-1 whitespace-pre-wrap">
-                {JSON.stringify(detail.bucket_scores, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-      {!loading && !detail && (
-        <div className="p-4 text-[0.62rem] text-[var(--red)] italic">
-          Signal not found
-        </div>
-      )}
     </div>
   );
 }
