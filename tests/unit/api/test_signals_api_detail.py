@@ -43,6 +43,12 @@ def _detail_row(**kwargs):
         "mae": None,
         "mfe": None,
         "bars_in_trade": None,
+        "hmm_regime_at_fire": None,
+        "activated_at": None,
+        "bars_to_activation": None,
+        "exit_reason": None,
+        "ttl_bars": None,
+        "exit_at": None,
         "feature_ts": None,
         "feature_tf": None,
         "bar": None,
@@ -83,6 +89,28 @@ class TestSignalsApiDetail:
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         resp = TestClient(app).get(f"/api/signals/detail/{_SIGNAL_ID}")
         assert resp.status_code == 404
+
+    def test_detail_includes_lifecycle_fields(self):
+        from datetime import datetime
+
+        mock_db = AsyncMock()
+        row = _detail_row(
+            hmm_regime_at_fire=0,
+            activated_at=datetime(2026, 6, 4, 14, 32, 9),
+            bars_to_activation=2,
+            exit_reason="target_1",
+            ttl_bars=10,
+            exit_at=datetime(2026, 6, 4, 14, 58, 41),
+        )
+        mock_db.fetchrow = AsyncMock(return_value=row)
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get(f"/api/signals/detail/{row['signal_id']}").json()
+        assert data["hmm_regime_at_fire"] == 0
+        assert data["bars_to_activation"] == 2
+        assert data["exit_reason"] == "target_1"
+        assert data["ttl_bars"] == 10
+        assert "activated_at" in data
+        assert "exit_at" in data
 
     def test_detail_does_not_shadow_symbol_route(self):
         """GET /api/signals/ESH6 must NOT be caught by the detail route."""

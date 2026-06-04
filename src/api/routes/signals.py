@@ -789,6 +789,12 @@ async def get_signal_detail(
                 sl.signal_computed_at, sl.feature_ts, sl.feature_tf,
                 sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
                 sl.activation_price, sl.mae, sl.mfe, sl.bars_in_trade,
+                sl.hmm_regime_at_fire,
+                sl.activated_at,
+                sl.bars_to_activation,
+                sl.exit_reason,
+                sl.ttl_bars,
+                sl.exit_at,
                 f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
             FROM signal_ledger_full sl
             LEFT JOIN intelligence_features f
@@ -830,6 +836,12 @@ async def get_signal_detail(
             "mae": _f(row["mae"]),
             "mfe": _f(row["mfe"]),
             "bars_in_trade": row["bars_in_trade"],
+            "hmm_regime_at_fire": _i(row["hmm_regime_at_fire"]),
+            "activated_at": row["activated_at"].isoformat() if row["activated_at"] else None,
+            "bars_to_activation": _i(row["bars_to_activation"]),
+            "exit_reason": _s(row["exit_reason"]),
+            "ttl_bars": _i(row["ttl_bars"]),
+            "exit_at": row["exit_at"].isoformat() if row.get("exit_at") else None,
             "signal_tier": _compute_signal_tier(
                 row["was_selected"],
                 _f(row["confidence"]),
