@@ -69,6 +69,67 @@ logger = logging.getLogger(__name__)
 # Pass --timeframes 1m,5m,15m,1h,1d to include it explicitly.
 TIMEFRAMES = ["1m", "5m", "15m", "1h"]
 
+# Advisory lock ID — prevents concurrent replays from corrupting data.
+# pg_try_advisory_lock returns true if acquired, false if already held.
+_REPLAY_LOCK_ID = 20260602  # date of the fix that necessitated this replay
+
+
+async def _acquire_replay_lock(conn) -> bool:
+    """Acquire exclusive advisory lock. Returns False if already held."""
+    row = await conn.fetchrow("SELECT pg_try_advisory_lock($1) as acquired", _REPLAY_LOCK_ID)
+    return row["acquired"]
+
+
+async def _check_service_quiescence() -> list[str]:
+    """Check that lifecycle-writing services are stopped. Returns list of active services."""
+    import subprocess
+
+    lifecycle_services = [
+        "indicagent-intelligence-pipeline",
+        "indicagent-signal-tracker",
+        "indicagent-feature-writer",
+    ]
+    active = []
+    for svc in lifecycle_services:
+        result = subprocess.run(
+            ["systemctl", "is-active", svc],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.stdout.strip() == "active":
+            active.append(svc)
+    return active
+
+
+async def _seed_orphan_outcomes(
+    conn, symbols: list[str], timeframes: list[str], cutoff: datetime
+) -> int:
+    """Seed missing signal_outcomes rows for signal_ledger entries in the repair window.
+
+    Phase-104 split means every signal_ledger row MUST have a matching signal_outcomes row.
+    If seeding was incomplete, INNER JOIN would silently skip these signals — the exact
+    kind of silent data loss that destroys quant systems.
+
+    Returns count of rows seeded.
+    """
+    result = await conn.execute(
+        """INSERT INTO signal_outcomes (signal_id, status)
+           SELECT sl.signal_id, 'pending'
+           FROM signal_ledger sl
+           LEFT JOIN signal_outcomes so ON sl.signal_id = so.signal_id
+           WHERE so.signal_id IS NULL
+             AND sl.timestamp >= '2026-05-21'
+             AND sl.timestamp < $1
+             AND sl.symbol = ANY($2)
+             AND sl.timeframe = ANY($3)
+           ON CONFLICT (signal_id) DO NOTHING""",
+        cutoff,
+        symbols,
+        timeframes,
+    )
+    return int(result.split()[-1])
+
 
 # ── Pure helper functions (importable for unit testing) ─────────────────────
 
@@ -794,6 +855,11 @@ async def main_async():
         help="Commit after every N resolved signals per pair",
     )
     parser.add_argument("--workers", type=int, default=4, help="Concurrency level (default: 4)")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Override safety checks (service quiescence). Use with extreme caution.",
+    )
     args = parser.parse_args()
 
     # Use -u (unbuffered) when redirecting output: python -u lifecycle_replay.py > log 2>&1 &
@@ -808,6 +874,42 @@ async def main_async():
             args.symbols.split(",") if args.symbols else [c.symbol for c in get_active_contracts()]
         )
         timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
+
+        # ── Preflight safety checks ──
+        async with db.pool.acquire() as preflight_conn:
+            # 1. Advisory lock — hard stop if another replay is running
+            if not await _acquire_replay_lock(preflight_conn):
+                logger.error("ABORT: another replay is already running (advisory lock held)")
+                return
+            logger.info("Advisory lock acquired (id=%d)", _REPLAY_LOCK_ID)
+
+            try:
+                # 2. Service quiescence — warn but allow override
+                if not args.dry_run:
+                    active_services = await _check_service_quiescence()
+                    if active_services and not args.force:
+                        logger.error(
+                            "ABORT: active lifecycle services detected: %s. "
+                            "Stop them first or use --force to override.",
+                            ", ".join(active_services),
+                        )
+                        return
+                    elif active_services:
+                        logger.warning(
+                            "WARNING: running with active services (--force): %s. "
+                            "Data races are possible.",
+                            ", ".join(active_services),
+                        )
+
+                # 3. Seed orphan outcomes (idempotent)
+                cutoff = datetime(2026, 6, 2, 0, 0, 0, tzinfo=UTC)
+                orphans = await _seed_orphan_outcomes(preflight_conn, symbols, timeframes, cutoff)
+                if orphans > 0:
+                    logger.info("Preflight: seeded %d orphan signal_outcomes rows", orphans)
+                else:
+                    logger.info("Preflight: no orphan rows found")
+            finally:
+                await preflight_conn.execute("SELECT pg_advisory_unlock($1)", _REPLAY_LOCK_ID)
 
         # Build work queue
         work_queue = await _fetch_work_queue(db, symbols, timeframes)
