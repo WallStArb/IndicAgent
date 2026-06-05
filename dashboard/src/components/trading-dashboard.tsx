@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { symbolConfig } from "@/lib/symbol-config";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { IndicatorGrid } from "./indicator-grid";
@@ -19,12 +19,10 @@ import { DrillPanel } from "./drill-panel";
 import { WatchlistRail } from "./watchlist-rail";
 import { SignalAlertStrip } from "./signal-alert-strip";
 import { SkeletonCard } from "./skeleton-card";
-import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData, SignalTier } from "@/lib/types";
+import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, SignalData, SignalTier } from "@/lib/types";
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
-import { fmtTimeHMS } from "@/lib/format";
-import { LayoutGrid, Rows3, BarChart2, ScanLine } from "lucide-react";
-import Link from "next/link";
+import { LayoutGrid, Rows3, ScanLine, ChevronDown } from "lucide-react";
 import { isHeroTier } from "@/lib/signal-tier";
 
 const TF_STALENESS_MS: Record<string, number> = {
@@ -276,17 +274,32 @@ export default function TradingDashboard() {
             </span>
           </div>
 
-          {/* Profile switcher */}
-          <ProfileSwitcher
+          {/* Universe chip */}
+          <ProfileChip
             profiles={profiles}
             active={activeProfile}
+            symbolData={symbolData}
             onChange={handleProfileChange}
           />
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Timeframe pills */}
-          <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-0.5">
+        <div className="flex items-center gap-2 md:gap-4">
+          {/* Mobile: timeframe select */}
+          <div className="relative md:hidden">
+            <select
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+              className="appearance-none text-[0.65rem] font-semibold bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-md pl-2.5 pr-6 py-1 outline-none cursor-pointer"
+            >
+              {TIMEFRAMES.map((tf) => (
+                <option key={tf.value} value={tf.value}>{tf.short}</option>
+              ))}
+            </select>
+            <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
+          </div>
+
+          {/* Desktop: timeframe pills */}
+          <div className="hidden md:flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg p-0.5">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.value}
@@ -305,8 +318,10 @@ export default function TradingDashboard() {
             ))}
           </div>
 
-          {/* Layout mode toggle */}
-          <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
+          {/* Layout mode toggle — desktop only */}
+          <div className="hidden md:block">
+            <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
+          </div>
 
           <StatusDot status={connectionStatus} />
         </div>
@@ -602,37 +617,217 @@ function SymbolCard({
   );
 }
 
-/** Compact profile pill switcher */
-function ProfileSwitcher({
+/** Universe context chip — compact trigger + rich popover with live signal heat */
+function ProfileChip({
   profiles,
   active,
+  symbolData,
   onChange,
 }: {
   profiles: Record<string, { name: string; symbols: string[]; description: string }>;
   active: string;
+  symbolData: Record<string, SymbolData>;
   onChange: (key: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const keys = Object.keys(profiles);
+  const current = profiles[active];
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  function signalHeat(syms: string[]) {
+    let long = 0, short = 0;
+    for (const s of syms) {
+      const sig = symbolData[s]?.signal;
+      if (!sig) continue;
+      if (sig.direction === "long") long++;
+      else short++;
+    }
+    return { long, short, total: long + short };
+  }
+
+  const heat = signalHeat(current?.symbols ?? []);
 
   return (
-    <div className="flex items-center gap-0.5 bg-[var(--bg-base)] rounded p-0.5">
-      {keys.map((key) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          title={profiles[key].description}
-          className={`
-            px-2 py-0.5 rounded text-[0.6rem] font-semibold transition-colors whitespace-nowrap
-            ${
-              active === key
-                ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-            }
-          `}
+    <div ref={ref} style={{ position: "relative" }}>
+      {/* ── Chip trigger ── */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "7px",
+          padding: "5px 10px",
+          background: open ? "var(--bg-elevated)" : "var(--bg-surface)",
+          border: `1px solid ${open ? "rgba(78,214,200,0.35)" : "var(--border-default)"}`,
+          borderRadius: "9px",
+          cursor: "pointer",
+          transition: "border-color 0.15s, background 0.15s",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {/* Name */}
+        <span style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+          fontSize: "0.7rem",
+          letterSpacing: "0.05em",
+          textTransform: "uppercase",
+          color: "var(--text-primary)",
+        }}>
+          {current?.name ?? active}
+        </span>
+
+        {/* Symbol count */}
+        <span style={{
+          fontFamily: "var(--font-jetbrains)",
+          fontSize: "0.6rem",
+          color: "var(--text-muted)",
+          borderLeft: "1px solid var(--border-bright)",
+          paddingLeft: "7px",
+        }}>
+          {current?.symbols.length ?? 0}
+        </span>
+
+        {/* Live signal heat */}
+        {heat.total > 0 && (
+          <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {heat.long > 0 && (
+              <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.58rem", color: "var(--green)", fontWeight: 600 }}>
+                {heat.long}↑
+              </span>
+            )}
+            {heat.short > 0 && (
+              <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.58rem", color: "var(--red)", fontWeight: 600 }}>
+                {heat.short}↓
+              </span>
+            )}
+          </span>
+        )}
+
+        <ChevronDown
+          size={11}
+          style={{
+            color: "var(--text-muted)",
+            transform: open ? "rotate(180deg)" : "rotate(0)",
+            transition: "transform 0.15s",
+            marginLeft: "-2px",
+          }}
+        />
+      </button>
+
+      {/* ── Popover ── */}
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 8px)",
+            left: 0,
+            minWidth: "260px",
+            background: "#111827",
+            border: "1px solid var(--border-default)",
+            borderRadius: "12px",
+            boxShadow: "0 20px 56px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.06) inset",
+            overflow: "hidden",
+            zIndex: 200,
+          }}
         >
-          {profiles[key].name}
-        </button>
-      ))}
+          {/* Header */}
+          <div style={{
+            padding: "8px 12px 6px",
+            borderBottom: "1px solid var(--border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.55rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+              Universe
+            </span>
+            <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.55rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+              Sym · L↑ · S↓
+            </span>
+          </div>
+
+          {/* Profile rows */}
+          {keys.map((key) => {
+            const p = profiles[key];
+            const isActive = key === active;
+            const h = signalHeat(p.symbols);
+            return (
+              <button
+                key={key}
+                onClick={() => { onChange(key); setOpen(false); }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  width: "100%",
+                  padding: "9px 12px",
+                  background: isActive ? "rgba(78,214,200,0.05)" : "transparent",
+                  borderLeft: `2px solid ${isActive ? "var(--accent-cyan)" : "transparent"}`,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "background 0.1s",
+                  gap: "8px",
+                }}
+                onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)"; }}
+                onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                {/* Left: name + description */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                    fontSize: "0.72rem",
+                    letterSpacing: "0.02em",
+                    color: isActive ? "var(--accent-cyan)" : "var(--text-primary)",
+                    lineHeight: 1.2,
+                  }}>
+                    {p.name}
+                  </div>
+                  <div style={{
+                    fontSize: "0.58rem",
+                    color: "var(--text-muted)",
+                    marginTop: "2px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}>
+                    {p.description}
+                  </div>
+                </div>
+
+                {/* Right: counts */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                  <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: "var(--text-muted)", minWidth: "20px", textAlign: "right" }}>
+                    {p.symbols.length}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: h.long > 0 ? "var(--green)" : "var(--border-bright)", minWidth: "22px", textAlign: "right", fontWeight: 600 }}>
+                    {h.long > 0 ? `${h.long}↑` : "—"}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: h.short > 0 ? "var(--red)" : "var(--border-bright)", minWidth: "22px", textAlign: "right", fontWeight: 600 }}>
+                    {h.short > 0 ? `${h.short}↓` : "—"}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -686,7 +881,7 @@ function StatusDot({ status }: { status: ConnectionStatus }) {
       <span
         className={`w-1.5 h-1.5 rounded-full ${color} ${status === "connected" ? "live-pulse" : ""}`}
       />
-      <span className="text-[0.6rem] font-medium text-[var(--text-muted)]">
+      <span className="hidden md:inline text-[0.6rem] font-medium text-[var(--text-muted)]">
         {label}
       </span>
     </div>
