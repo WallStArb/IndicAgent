@@ -34,7 +34,8 @@ def _make_agent():
     agent._write_errors = MagicMock()
     agent._batch_latency_attrs = {"agent_id": "signal_writer_agent"}
     agent._invalid_signals = []
-    agent._consumer_lag = MagicMock()
+    # OTel instruments below are mocked because __new__ bypasses BaseWriter.__init__.
+    # _consumer_lag was removed from SignalWriter — do not add it back here.
     agent._buffer_depth_gauge = MagicMock()
     agent._buffer_overflow_total = MagicMock()
     agent._flush_latency = MagicMock()
