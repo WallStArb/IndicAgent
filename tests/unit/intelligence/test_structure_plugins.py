@@ -117,7 +117,7 @@ class TestSupportResistance:
         assert result["support_age_bars"] >= 0
 
     def test_trending_sr_placement(self):
-        """In uptrend, resistance above and support below current price."""
+        """sr_level_count is always present; when levels exist they are correctly placed."""
         from src.intelligence.features.i3_structure.support_resistance import (
             SupportResistancePlugin,
         )
@@ -127,9 +127,13 @@ class TestSupportResistance:
         plugin = SupportResistancePlugin()
         result = plugin.compute_full({"main": df})
 
+        # sr_level_count is the only always-present key (sparse-output semantics)
+        assert "sr_level_count" in result
         current = float(close[-1])
-        assert result["nearest_resistance"] >= current or result["resistance_dist_pct"] >= 0
-        assert result["nearest_support"] <= current or result["support_dist_pct"] >= 0
+        if "nearest_resistance" in result:
+            assert result["nearest_resistance"] >= current
+        if "nearest_support" in result:
+            assert result["nearest_support"] <= current
 
     def test_empty_frames(self):
         from src.intelligence.features.i3_structure.support_resistance import (
