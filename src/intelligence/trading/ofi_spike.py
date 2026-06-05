@@ -54,6 +54,7 @@ class OFISpikePlugin:
             signal_name_prefix="ofi_spike",
             min_lookback=self.min_lookback,
             setup_plugin=self.name,
+            regime_type=self.regime_type,
         )
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:

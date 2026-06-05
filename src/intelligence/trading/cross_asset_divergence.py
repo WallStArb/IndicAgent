@@ -196,6 +196,7 @@ class CrossAssetDivergencePlugin:
             entry=entry_price,
             features=features,
             atr=atr,
+            regime_type=self.regime_type,
         )
 
         if not tf.viable:

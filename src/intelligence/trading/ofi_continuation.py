@@ -103,7 +103,9 @@ class OFIContinuationPlugin:
         entry = float(df["close"].iloc[-1])
 
         sig_type = signal_type_for_direction("ofi_continuation", direction)
-        tf_result = frame_trade(sig_type, direction, entry, features, atr)
+        tf_result = frame_trade(
+            sig_type, direction, entry, features, atr, regime_type=self.regime_type
+        )
         if not tf_result.viable:
             return no_signal()
 

@@ -160,7 +160,9 @@ class OFIDivergencePlugin:
 
         # ── Trade frame ───────────────────────────────────────────────────────
         sig_type = signal_type_for_direction("ofi_divergence", direction)
-        tf_frame = frame_trade(sig_type, direction, close, features, atr)
+        tf_frame = frame_trade(
+            sig_type, direction, close, features, atr, regime_type=self.regime_type
+        )
         if not tf_frame.viable:
             return no_signal()
 
