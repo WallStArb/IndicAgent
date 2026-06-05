@@ -7,6 +7,7 @@ import pytest
 from src.intelligence.trading.trade_framer import (
     MIN_RR_T1,
     TradeTarget,
+    _adaptive_buffer,
     _collect_targets_long,
     _collect_targets_short,
     _pick_targets,
@@ -726,3 +727,62 @@ class TestPerTfAtrCap:
         f_near = _features(timeframe="1m", nearest_support=ENTRY - ATR * 2.0)
         targets = _collect_targets_short(ENTRY, stop, ATR, f_near)
         assert any(t.level_type == "sr" for t in targets)
+
+
+# ---------------------------------------------------------------------------
+# _adaptive_buffer
+# ---------------------------------------------------------------------------
+
+
+class TestAdaptiveBuffer:
+    def test_anchor_quiet_regime(self):
+        f = {"garch_vol_ratio": 0.70}
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(0.80, rel=1e-4)
+
+    def test_anchor_normal_regime(self):
+        f = {"garch_vol_ratio": 1.00}
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(1.00, rel=1e-4)
+
+    def test_anchor_high_regime(self):
+        f = {"garch_vol_ratio": 1.50}
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(1.35, rel=1e-4)
+
+    def test_interpolates_between_anchors(self):
+        # vol_ratio=0.85 is midpoint of [0.70, 1.00] -> garch_mult midpoint of [0.80, 1.00] = 0.90
+        f = {"garch_vol_ratio": 0.85}
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(0.90, rel=1e-4)
+
+    def test_missing_vol_ratio_defaults_to_normal(self):
+        f = {}
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(1.00, rel=1e-4)
+
+    def test_shock_floor_applied(self):
+        f = {"garch_vol_ratio": 0.70, "garch_shock": 3.5}
+        result = _adaptive_buffer(f, 1.0)
+        assert result == pytest.approx(1.35, rel=1e-4)
+
+    def test_hard_cap_limits_expansion(self):
+        f = {"garch_vol_ratio": 2.0}  # clipped to 1.50
+        assert _adaptive_buffer(f, 1.0) == pytest.approx(1.35, rel=1e-4)
+
+    def test_hurst_tightens_trend_signal(self):
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75}
+        result = _adaptive_buffer(f, 1.0, regime_type="trend")
+        assert result == pytest.approx(1.0 * (1.0 - (0.75 - 0.55) * 0.16), rel=1e-4)
+
+    def test_hurst_tightens_mean_reversion_signal(self):
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.25}
+        result = _adaptive_buffer(f, 1.0, regime_type="mean_reversion")
+        assert result == pytest.approx(1.0 * (1.0 - (0.45 - 0.25) * 0.16), rel=1e-4)
+
+    def test_hurst_conflict_no_adjustment(self):
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.25}
+        assert _adaptive_buffer(f, 1.0, regime_type="trend") == pytest.approx(1.0, rel=1e-4)
+
+    def test_regime_type_none_no_hurst_adjustment(self):
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75}
+        assert _adaptive_buffer(f, 1.0, regime_type=None) == pytest.approx(1.0, rel=1e-4)
+
+    def test_base_mult_scaling(self):
+        f = {"garch_vol_ratio": 1.0}
+        assert _adaptive_buffer(f, 0.25) == pytest.approx(0.25, rel=1e-4)
