@@ -69,6 +69,12 @@ _SUPPORT_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
     ("sma_50", "sma50", 0.6, "i1", "ma_sma"),
     ("ssl_level", "ssl", 0.7, "smc", "smc_ssl"),
     ("overnight_low", "overnight", 0.6, "i3", "overnight"),
+    ("nearest_fib_level", "fib", 0.6, "i3", "fib"),
+    ("prior_session_low", "prior_sess_l", 0.7, "i3", "session"),
+    ("asian_session_low", "asian_l", 0.6, "i3", "session"),
+    ("nearest_hvn_below", "hvn_below", 0.8, "i4", "vp_hvn"),
+    ("avwap_lower_band", "avwap_lower", 0.6, "i4", "avwap"),
+    ("kc_mid_20", "kc_mid", 0.5, "i1", "ma_kc"),
 )
 
 _RESISTANCE_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
@@ -80,9 +86,15 @@ _RESISTANCE_SPECS: tuple[tuple[str, str, float, str, str], ...] = (
     ("sma_50", "sma50", 0.6, "i1", "ma_sma"),
     ("bsl_level", "bsl", 0.7, "smc", "smc_bsl"),
     ("overnight_high", "overnight", 0.6, "i3", "overnight"),
+    ("nearest_fib_level", "fib", 0.6, "i3", "fib"),
+    ("prior_session_high", "prior_sess_h", 0.7, "i3", "session"),
+    ("asian_session_high", "asian_h", 0.6, "i3", "session"),
+    ("nearest_hvn_above", "hvn_above", 0.8, "i4", "vp_hvn"),
+    ("avwap_upper_band", "avwap_upper", 0.6, "i4", "avwap"),
+    ("kc_mid_20", "kc_mid", 0.5, "i1", "ma_kc"),
 )
 
-_STRENGTH_FIELD: dict[str, str] = {
+_STRENGTH_FIELD: dict[str, str | None] = {
     "support": "support_strength",
     "sr_support": "support_strength",
     "sr_resist": "resistance_strength",
@@ -92,12 +104,29 @@ _STRENGTH_FIELD: dict[str, str] = {
     "bsl": "bsl_significance",
     "demand": "demand_strength",
     "supply": "supply_strength",
+    "fib": "fib_cluster_strength",
+    "hvn_below": "nearest_hvn_dist_atr",
+    "hvn_above": "nearest_hvn_dist_atr",
+    "prior_sess_l": None,
+    "prior_sess_h": None,
+    "asian_l": None,
+    "asian_h": None,
+    "avwap_lower": None,
+    "avwap_upper": None,
+    "kc_mid": None,
 }
 
 # Direction-specific VP companion fields: (session_key, rolling_key, name, hvn_key, hvn_name)
 _VP_DIRECTION: dict[int, tuple[str, str, str, str, str]] = {
     1: ("val", "val_rolling", "val", "nearest_hvn_below", "hvn_below"),
     -1: ("vah", "vah_rolling", "vah", "nearest_hvn_above", "hvn_above"),
+}
+
+# SR-semantic VP direction: direction=1 means resistance (above price), direction=-1 means support (below price).
+# DIFFERENT from _VP_DIRECTION which uses trade direction (1=long -> support-side val/hvn_below).
+_SR_VP_DIRECTION: dict[int, tuple[str, str, str, str, str]] = {
+    -1: ("val", "val_rolling", "val", "nearest_hvn_below", "hvn_below"),
+    1: ("vah", "vah_rolling", "vah", "nearest_hvn_above", "hvn_above"),
 }
 
 
@@ -109,6 +138,8 @@ def _resolve_strength(features: dict, name: str, default: float) -> float:
     if val > EPSILON:
         if "age_bars" in key:
             return min(1.0, 1.0 / (1.0 + val / 50.0))
+        if "dist_atr" in key:  # HVN distance: closer node scores higher
+            return min(1.0, 1.0 / (1.0 + val))
         return min(1.0, val)
     return default
 
