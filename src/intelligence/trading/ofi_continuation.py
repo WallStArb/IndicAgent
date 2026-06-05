@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr
+from .atr_utils import get_atr_with_floor
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal, signal_type_for_direction
@@ -96,7 +96,7 @@ class OFIContinuationPlugin:
         if count < _MIN_CONSECUTIVE_BARS:
             return no_signal()
 
-        atr = get_atr(features)
+        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
         if atr is None:
             return no_signal()
 

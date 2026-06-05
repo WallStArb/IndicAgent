@@ -20,7 +20,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr
+from .atr_utils import get_atr_with_floor
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
@@ -121,7 +121,7 @@ class VCPPlugin:
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
 
-        atr = get_atr(features)
+        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
         if atr is None:
             self._state[(symbol, tf)] = state
             return no_signal()
