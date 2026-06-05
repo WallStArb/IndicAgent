@@ -916,3 +916,22 @@ class TestFrameTradeAuditFields:
         f = {"timeframe": "5m"}
         tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0)
         assert tf.plugin_regime_type is None
+
+
+# ---------------------------------------------------------------------------
+# Regime type wiring contract
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeTypeWired:
+    def test_hurst_tightening_fires_for_trend_regime_type(self):
+        # H=0.75 > 0.55 with regime_type="trend" → Hurst tightening applies → mult < 1.0
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75}
+        mult = _adaptive_buffer(f, 1.0, "trend")
+        assert mult < 1.0
+
+    def test_no_hurst_tightening_when_regime_type_none(self):
+        # Same features but regime_type=None → no Hurst tightening → mult == 1.0
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75}
+        mult = _adaptive_buffer(f, 1.0, None)
+        assert mult == pytest.approx(1.0)

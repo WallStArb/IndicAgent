@@ -23,6 +23,7 @@ def detect_spike_signal(
     signal_name_prefix: str,
     min_lookback: int = 20,
     setup_plugin: str = "",
+    regime_type: str = "any",
 ) -> dict[str, Any]:
     """Detect microstructure spike signals (OFI or CVD).
 
@@ -76,7 +77,7 @@ def detect_spike_signal(
     confidence = compose_confidence(0.50 + abs(spike_z) * 0.05)
 
     sig_type = signal_type_for_direction(signal_name_prefix, direction)
-    tf = frame_trade(sig_type, direction, entry, features, atr)
+    tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=regime_type)
     if not tf.viable:
         return no_signal()
 
