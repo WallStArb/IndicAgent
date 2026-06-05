@@ -28,6 +28,7 @@ from typing import Any
 
 from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
+from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal
 from .signal_schema import make_signal_from_frame
@@ -180,7 +181,7 @@ class CrossAssetDivergencePlugin:
         if df is None or len(df) < 2:
             return no_signal()
 
-        atr = float(features.get("atr_14", 0.0) or 0.0)
+        atr = float(get_atr_with_floor_from_frames(frames) or 0.0)
         if atr <= 0:
             return no_signal()
 

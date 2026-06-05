@@ -18,7 +18,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils import guard_intraday_only
-from .atr_utils import get_atr_with_floor
+from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
@@ -106,7 +106,7 @@ class AnchoredVWAPReversionPlugin:
         # Short when price above VWAP (sigma > 0), long when below (sigma < 0)
         direction = -1 if sigma > 0 else 1
 
-        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
+        atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
 
