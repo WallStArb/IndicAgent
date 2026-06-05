@@ -99,12 +99,7 @@ ADAPTIVE_BUFFER_HARD_CAP = 1.40  # maximum vol-driven multiplier expansion
 
 
 def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None = None) -> float:
-    """GARCH-continuous ATR buffer with Hurst regime-confirmation tightening.
-
-    Piecewise-linear through calibrated regime anchors (0.70->0.80, 1.00->1.00,
-    1.50->1.35). regime_type: "trend" | "mean_reversion" | "any" | None.
-    None or "any" -> no Hurst adjustment.
-    """
+    """Piecewise-linear GARCH vol buffer with Hurst regime-confirmation tightening."""
     vol_ratio = float(features.get("garch_vol_ratio") or 1.0)
     vol_ratio = max(0.70, min(1.50, vol_ratio))
 
@@ -934,6 +929,8 @@ def frame_trade(
     else:
         stop, stop_type = _resolve_stop_short(resolved_entry, atr, features, regime_type)
         candidates = _collect_targets_short(resolved_entry, stop, atr, features)
+
+    # Targets use raw atr: stops widen in high vol, degrading RR and gating low-quality signals
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
     zone_low, zone_high, zone_source = _resolve_zone_bounds(
