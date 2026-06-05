@@ -1272,7 +1272,7 @@ Plans:
 
 **Wave 3** *(depends on Wave 2)* — Call site wiring
 
-- [ ] 115-03-PLAN.md — Wire regime_type=self.regime_type to all 26 frame_trade() call sites (25 direct plugins + microstructure_utils); grep acceptance check
+- [x] 115-03-PLAN.md — Wire regime_type=self.regime_type to all 26 frame_trade() call sites (25 direct plugins + microstructure_utils); grep acceptance check
 
 **Wave 4** *(depends on Wave 3)* — Persistence + observability (parallel)
 
