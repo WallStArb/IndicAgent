@@ -110,8 +110,8 @@ function TradePriceLadder({ signal }: { signal: SignalData }) {
               className="flex items-center gap-2 text-[0.58rem] font-data px-1 py-0.5 rounded"
               style={{
                 background: shaded
-                  ? isLong ? "rgba(0,220,130,0.06)" : "rgba(255,71,87,0.06)"
-                  : isZoneEdge ? isLong ? "rgba(0,220,130,0.08)" : "rgba(255,71,87,0.08)"
+                  ? isLong ? "var(--green-dim)" : "var(--red-dim)"
+                  : isZoneEdge ? isLong ? "var(--green-dim)" : "var(--red-dim)"
                   : undefined,
                 borderLeft: isZoneEdge ? `2px solid ${isLong ? "var(--green)" : "var(--red)"}` : "2px solid transparent",
               }}
