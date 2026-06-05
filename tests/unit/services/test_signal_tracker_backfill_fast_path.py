@@ -183,3 +183,77 @@ class TestBackfillCarriedForward:
 
         assert "backfill-carried-002" in agent._signal_ids
         mock_fastpath.add.assert_not_called()
+
+
+class TestBootstrapTTLFastPath:
+    """Bootstrap loads signals from DB; signals with elapsed TTL must be fast-pathed,
+    not loaded into the active index."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_expired_non_backfill_publishes_ttl_and_skips_index(self):
+        """Non-backfill signal with elapsed TTL at bootstrap: TTL transition published,
+        signal NOT added to active index."""
+        agent = _make_agent()
+
+        signal_ts = datetime.now(UTC) - timedelta(minutes=20)
+        canonical = _make_backfill_canonical("bootstrap-expired-live-001", signal_ts, ttl_bars=10)
+        canonical["is_backfill"] = False
+
+        with (
+            patch.object(
+                agent, "_publish_ttl_expired_transition", new_callable=AsyncMock, return_value=True
+            ) as mock_ttl,
+            patch.object(agent, "_add_to_active_index") as mock_add,
+        ):
+            await agent._bootstrap_apply_signal(canonical)
+
+            mock_ttl.assert_called_once()
+            mock_add.assert_not_called()
+        assert "bootstrap-expired-live-001" in agent._signal_ids
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_expired_backfill_dedup_only_skips_index(self):
+        """Backfill signal with elapsed TTL at bootstrap: dedup-only, no EXIT published,
+        NOT added to active index."""
+        agent = _make_agent()
+
+        signal_ts = datetime.now(UTC) - timedelta(minutes=20)
+        canonical = _make_backfill_canonical(
+            "bootstrap-expired-backfill-001", signal_ts, ttl_bars=10
+        )
+
+        with (
+            patch.object(
+                agent, "_publish_ttl_expired_transition", new_callable=AsyncMock
+            ) as mock_ttl,
+            patch.object(agent, "_add_to_active_index") as mock_add,
+        ):
+            await agent._bootstrap_apply_signal(canonical)
+
+            mock_ttl.assert_not_called()
+            mock_add.assert_not_called()
+        assert "bootstrap-expired-backfill-001" in agent._signal_ids
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_valid_signal_enters_active_index(self):
+        """Signal with future expires_at enters active index normally."""
+        agent = _make_agent()
+
+        signal_ts = datetime.now(UTC) - timedelta(minutes=2)
+        canonical = _make_backfill_canonical("bootstrap-valid-001", signal_ts, ttl_bars=10)
+        canonical["is_backfill"] = False
+        canonical["expires_at"] = datetime.now(UTC) + timedelta(minutes=8)
+
+        with (
+            patch.object(
+                agent, "_publish_ttl_expired_transition", new_callable=AsyncMock
+            ) as mock_ttl,
+            patch.object(agent, "_add_to_active_index") as mock_add,
+        ):
+            await agent._bootstrap_apply_signal(canonical)
+
+            mock_ttl.assert_not_called()
+            mock_add.assert_called_once_with(canonical)
