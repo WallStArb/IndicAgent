@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Self-Healing Engine (HTTP webhook port 9002, OTel metrics port 9007)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 StartLimitIntervalSec=300

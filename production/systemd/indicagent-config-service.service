@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Config Service (HTTP API port 9001, OTel metrics port 9005)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 
 [Service]

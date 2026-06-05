@@ -1,0 +1,21 @@
+# /home/bg/dev/indicagent/production/systemd/indicagent-wave4.target
+# Wave 4: analytics, AI, audit, and top-level services
+# alpha-swarm, narrative-compute, llm-writer, swarm-ledger-writer,
+# signal-metrics-compute, signal-metrics-writer, graduation-compute,
+# graduation-writer, signal-auditor, signal-replay, alerting-agent,
+# dlq-drain, config-service, outbox-dispatcher, self-healing-agent,
+# api, dashboard, service-auditor
+# Does not activate until all wave 3 services have been attempted.
+[Unit]
+Description=IndicAgent Wave 4 gate — analytics, AI, audit, and top-level services
+Requires=indicagent-infrastructure.target
+After=indicagent-wave3.target
+After=indicagent-feature-writer.service
+After=indicagent-signal-tracker-compute.service
+After=indicagent-signal-writer.service
+After=indicagent-lifecycle-writer.service
+After=indicagent-lineage-writer.service
+After=indicagent-ctx-writer.service
+
+[Install]
+WantedBy=multi-user.target

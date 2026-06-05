@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Bar Replay Provider (one-shot historical OHLCV -> Kafka)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave1.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 

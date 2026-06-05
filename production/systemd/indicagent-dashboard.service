@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Dashboard — Next.js frontend
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=indicagent-api.service
 StartLimitIntervalSec=300

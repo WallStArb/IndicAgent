@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Outbox Dispatcher (publishes config updates to Kafka, OTel metrics port 9006)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 
 [Service]

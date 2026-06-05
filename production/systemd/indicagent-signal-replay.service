@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Signal Replay Auditor (L9 periodic outcome recovery)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 

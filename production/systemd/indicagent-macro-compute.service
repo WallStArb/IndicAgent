@@ -1,9 +1,7 @@
 [Unit]
 Description=IndicAgent Macro Compute Agent — yield curve and flight-to-quality factors
-Requires=indicagent-redpanda-ready.service
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave2.target
 Requires=indicagent-infrastructure.target
-Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
 StartLimitBurst=0
 
