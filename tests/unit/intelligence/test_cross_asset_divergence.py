@@ -65,21 +65,30 @@ def _base_xa(
     }
 
 
-def _mock_frame(entry: float = 5000.0) -> MagicMock:
-    """Return a mock TradeFrame that is viable."""
-    t1 = MagicMock()
-    t1.price = entry + 20.0
-    t2 = MagicMock()
-    t2.price = entry + 35.0
-    t3 = MagicMock()
-    t3.price = entry + 55.0
+def _mock_frame(entry: float = 5000.0, direction: int = 1) -> MagicMock:
+    """Return a mock TradeFrame that is viable with direction-correct stop and targets."""
+    offset = 1 if direction == 1 else -1
+    t1, t2, t3 = MagicMock(), MagicMock(), MagicMock()
+    t1.price = entry + offset * 20.0
+    t2.price = entry + offset * 35.0
+    t3.price = entry + offset * 55.0
     frame = MagicMock()
     frame.viable = True
     frame.entry = entry
-    frame.stop = entry - 10.0
+    frame.stop = entry - offset * 10.0
     frame.targets = [t1, t2, t3]
     frame.stop_basis = "atr_static"
     return frame
+
+
+def _direction_for(hmm_regime: int | None, spread_z: float) -> int:
+    """Compute expected signal direction — mirrors plugin logic for building correct mock frames."""
+    spread_positive = spread_z > 0
+    if hmm_regime == 1:
+        return 1 if spread_positive else -1
+    if hmm_regime == 2:
+        return -1 if spread_positive else 1
+    return -1 if spread_positive else 1  # regime 0 + unknown: reversion
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +202,7 @@ class TestNoSignalNonEQIndex:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["signal_type"] != "none"
@@ -214,7 +223,7 @@ class TestNoSignalNonEQIndex:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["signal_type"] != "none"
@@ -235,7 +244,7 @@ class TestNoSignalNonEQIndex:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["signal_type"] != "none"
@@ -256,7 +265,7 @@ class TestNoSignalNonEQIndex:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["signal_type"] != "none"
@@ -392,7 +401,7 @@ class TestNoSignalBelowThreshold:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["direction"] != 0
@@ -437,7 +446,7 @@ class TestLowVolFlagSuppression:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["direction"] != 0
@@ -470,9 +479,10 @@ class TestDirectionLogic:
             "cross_asset": xa,
             "main": _make_df(),
         }
+        direction = _direction_for(hmm_regime, spread_z)
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=direction),
         ):
             return p.compute_full(frames)
 
@@ -531,7 +541,7 @@ class TestDirectionLogic:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["direction"] == -1  # positive spread → short (reversion)
@@ -565,7 +575,7 @@ class TestActivePairRouting:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["direction"] != 0
@@ -616,7 +626,7 @@ class TestConfidenceFormula:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         return result["confidence"]
@@ -714,7 +724,7 @@ class TestConfidenceFormula:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         expected = 0.60 * 1.2
@@ -750,7 +760,7 @@ class TestConfidenceFormula:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert abs(result["confidence"] - 0.60) < 1e-6
@@ -785,7 +795,7 @@ class TestConfidenceFormula:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["confidence"] <= 1.0
@@ -810,7 +820,7 @@ class TestConfidenceFormula:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         assert result["confidence"] >= 0.0
@@ -838,7 +848,7 @@ class TestSupportingFactors:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
@@ -863,7 +873,7 @@ class TestSupportingFactors:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
@@ -886,7 +896,7 @@ class TestSupportingFactors:
         }
         with patch(
             "src.intelligence.trading.cross_asset_divergence.frame_trade",
-            return_value=_mock_frame(),
+            return_value=_mock_frame(direction=-1),
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]

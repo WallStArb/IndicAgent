@@ -9,7 +9,7 @@ import numpy as np
 
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
-from .atr_utils import get_atr
+from .atr_utils import get_atr_with_floor
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal
@@ -101,7 +101,7 @@ class SqueezeExpansionPlugin:
         squeeze_bars = features.get("squeeze_bars", 0.0)
         trend_regime = features.get("trend_regime", 0.0)
 
-        atr = get_atr(features)
+        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
         if atr is None:
             return no_signal()
 
