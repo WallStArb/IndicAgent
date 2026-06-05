@@ -155,6 +155,16 @@ class Settings(BaseSettings):
             "16384 gives 14K headroom over the largest full-context prompts."
         ),
     )
+    agent_memory_enabled: bool = Field(
+        default=False,
+        validation_alias="AGENT_MEMORY_ENABLED",
+        description=(
+            "Enable the pgvector-backed agent memory subsystem (Phase 097). "
+            "Gated on MEM-03 shadow validation: recall@10 must show statistically "
+            "higher outcome similarity than random baseline (D-12) after N>=200 "
+            "labeled episodes. Leave False until shadow gate passes."
+        ),
+    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
