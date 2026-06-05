@@ -279,7 +279,7 @@ def _bars_for_outcome(outcome: str, direction: int) -> list[dict]:
 _ALL_OUTCOMES = [
     "stopped_at_entry",
     "stopped_in_trade",
-    "target_1",
+    # target_1 removed: T1 no longer exits the signal (advances be_floor instead)
     "target_1_2",
     "target_full",
     "ttl_expired_ahead",

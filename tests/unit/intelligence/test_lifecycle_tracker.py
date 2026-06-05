@@ -80,14 +80,12 @@ class TestActiveToExit:
 
     @pytest.mark.unit
     def test_target_1_hit_long(self):
-        """Long active: high >= target[0] -> target_1_hit."""
+        """Long active: T1 advances be_floor but does NOT exit (partial fill semantics)."""
         sig = _active_signal(
             direction=1, entry=5100.0, stop=5085.0, targets=[5115.0, 5130.0, 5145.0]
         )
         t = evaluate_signal(sig, high=5116.0, low=5105.0, close=5114.0)
-        assert t.new_status == "target_1_hit"
-        assert t.exit_reason == "target_1"
-        assert t.exit_price == 5115.0
+        assert t is None  # T1 does not exit; signal continues with floor protection
 
     @pytest.mark.unit
     def test_target_2_hit_long(self):
@@ -101,12 +99,10 @@ class TestActiveToExit:
 
     @pytest.mark.unit
     def test_target_hit_short(self):
-        """Short active: low <= target[0] -> target_1_hit."""
+        """Short active: T1 advances be_floor but does NOT exit (partial fill semantics)."""
         sig = _active_signal(direction=-1, entry=5100.0, stop=5115.0, targets=[5085.0, 5070.0])
         t = evaluate_signal(sig, high=5098.0, low=5084.0, close=5086.0)
-        assert t.new_status == "target_1_hit"
-        assert t.exit_reason == "target_1"
-        assert t.exit_price == 5085.0
+        assert t is None  # T1 does not exit; signal continues with floor protection
 
     @pytest.mark.unit
     def test_stop_checked_before_target(self):
@@ -258,16 +254,14 @@ class TestOutcomeClassification:
         assert t is None
 
     def test_outcome_target_1_on_t1_hit(self):
-        """Active signal exits at T1 → outcome = target_1."""
+        """Active signal does NOT exit at T1 — T1 advances be_floor only."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5115.0, 5130.0])
         sig["entry_zone_low"] = 5095.0
         sig["entry_zone_high"] = 5105.0
         t = evaluate_signal(
             sig, high=5120.0, low=5102.0, close=5118.0, current_mae=0.0, current_mfe=0.5
         )
-        assert t is not None
-        assert t.new_status == "target_1_hit"
-        assert t.outcome == "target_1"
+        assert t is None  # T1 does not exit; signal continues with floor protection
 
     def test_outcome_stopped_in_trade_after_mfe(self):
         """Signal stopped out after having positive MFE → stopped_in_trade."""
@@ -306,12 +300,14 @@ class TestPnLCalculation:
 
     @pytest.mark.unit
     def test_pnl_on_target_long(self):
-        """PnL calculated correctly for target hit long."""
-        sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5115.0])
-        t = evaluate_signal(sig, high=5116.0, low=5105.0, close=5114.0)
-        assert t.pnl_ticks == pytest.approx(15.0)
-        assert t.pnl_r == pytest.approx(1.0)
-        assert t.pnl_dollars == pytest.approx(750.0)
+        """T1 no longer exits; signal continues. T2 exits at target_2 with full P&L."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5115.0, 5130.0])
+        t = evaluate_signal(sig, high=5131.0, low=5105.0, close=5129.0)
+        assert t is not None
+        assert t.exit_reason == "target_2"
+        assert t.pnl_ticks == pytest.approx(30.0)
+        assert t.pnl_r == pytest.approx(2.0)
+        assert t.pnl_dollars == pytest.approx(1500.0)
 
     @pytest.mark.unit
     def test_pnl_on_expired_uses_close(self):
@@ -406,6 +402,97 @@ class TestEvaluateMarketEntryMechanics:
         )
         assert t.outcome == "target_full"
         assert t.exit_price == 5145.0
+
+
+@pytest.mark.unit
+class TestChandelierFloor:
+    """be_floor: T1 advances to entry, T2 advances to target_1. Chandelier clamped."""
+
+    def _signal(self, entry=5000.0, stop=4980.0, targets=None) -> dict:
+        return {
+            "signal_id": "test-floor-1",
+            "status": "active",
+            "direction": 1,
+            "entry_price": entry,
+            "stop_loss": stop,
+            "targets": targets or [5020.0, 5040.0, 5060.0],
+            "expires_at": None,
+            "point_value": 50.0,
+            "activated_at": "2026-01-01T10:00:00Z",
+        }
+
+    def _chandelier(self, trailing_stop=None, be_floor=None) -> dict:
+        return {
+            "trailing_stop": trailing_stop,
+            "highest_high": 5010.0,
+            "lowest_low": 4990.0,
+            "vol": 5.0,
+            "be_floor": be_floor,
+        }
+
+    def test_t1_hit_sets_be_floor_to_entry(self):
+        sig = self._signal()
+        state = self._chandelier(trailing_stop=4990.0)
+        result = evaluate_signal(sig, high=5022.0, low=5001.0, close=5018.0, chandelier_state=state)
+        assert result is None  # T1 does not exit
+        assert state["be_floor"] == 5000.0  # advanced to entry
+
+    def test_t1_hit_does_not_set_floor_twice(self):
+        sig = self._signal()
+        state = self._chandelier(trailing_stop=4990.0, be_floor=5000.0)
+        result = evaluate_signal(sig, high=5025.0, low=5001.0, close=5020.0, chandelier_state=state)
+        assert state["be_floor"] == 5000.0  # unchanged
+
+    def test_t2_hit_advances_floor_to_t1(self):
+        sig = self._signal()
+        state = self._chandelier(trailing_stop=4990.0, be_floor=5000.0)
+        result = evaluate_signal(sig, high=5042.0, low=5005.0, close=5038.0, chandelier_state=state)
+        assert state["be_floor"] == 5020.0  # advanced to target_1
+
+    def test_chandelier_clamped_at_entry_after_t1(self):
+        sig = self._signal()
+        # trailing_stop is below entry (4995) but be_floor = entry (5000)
+        state = self._chandelier(trailing_stop=4995.0, be_floor=5000.0)
+        result = evaluate_signal(sig, high=5010.0, low=4998.0, close=5002.0, chandelier_state=state)
+        assert result is not None
+        assert result.exit_reason == "chandelier_stop"
+        assert result.exit_price == pytest.approx(5000.0)
+        assert result.pnl_r == pytest.approx(0.0, abs=1e-4)
+
+    def test_chandelier_above_floor_not_clamped(self):
+        sig = self._signal()
+        # trailing_stop=5010 > be_floor=5000 -> clamp has no effect; stop is 5010
+        state = self._chandelier(trailing_stop=5010.0, be_floor=5000.0)
+        result = evaluate_signal(sig, high=5020.0, low=5008.0, close=5012.0, chandelier_state=state)
+        assert result is not None
+        assert result.exit_price == pytest.approx(5010.0)
+        assert result.pnl_r > 0
+
+    def test_no_floor_chandelier_unchanged(self):
+        sig = self._signal()
+        # be_floor=None -> clamp not applied; trailing_stop=4985 below entry
+        state = self._chandelier(trailing_stop=4985.0, be_floor=None)
+        result = evaluate_signal(sig, high=5010.0, low=4984.0, close=4990.0, chandelier_state=state)
+        assert result is not None
+        assert result.exit_price == pytest.approx(4985.0)
+
+    def test_short_t1_sets_floor_to_entry(self):
+        sig = self._signal(entry=5000.0, stop=5020.0, targets=[4980.0, 4960.0, 4940.0])
+        sig["direction"] = -1
+        state = self._chandelier(trailing_stop=5015.0, be_floor=None)
+        result = evaluate_signal(sig, high=4999.0, low=4978.0, close=4982.0, chandelier_state=state)
+        assert result is None
+        assert state["be_floor"] == pytest.approx(5000.0)
+
+    def test_short_chandelier_clamped_at_entry_after_t1(self):
+        sig = self._signal(entry=5000.0, stop=5020.0, targets=[4980.0, 4960.0, 4940.0])
+        sig["direction"] = -1
+        # trailing_stop=5005 > entry=5000 but be_floor=5000 -> effective stop=5000
+        state = self._chandelier(trailing_stop=5005.0, be_floor=5000.0)
+        result = evaluate_signal(sig, high=5001.0, low=4990.0, close=4995.0, chandelier_state=state)
+        assert result is not None
+        assert result.exit_reason == "chandelier_stop"
+        assert result.exit_price == pytest.approx(5000.0)
 
     def test_ttl_expired_ahead(self):
         sig = _market_signal(bars_elapsed=11, ttl_bars=10)

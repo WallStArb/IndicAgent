@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+import structlog
+
 from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.observability.metrics import SIGNAL_OUTCOME_TOTAL
 from src.observability.metrics import counter as _counter
@@ -60,6 +62,8 @@ _NULL_EXPIRES_AT_COUNTER = _counter(
     "signal_lifecycle_null_expires_at_total",
     "Count of bars where expires_at was NULL — data-integrity alert (D-17)",
 )
+
+_logger = structlog.get_logger(__name__)
 
 
 def _record_outcome(signal: dict, outcome: SignalOutcome | str) -> None:
@@ -265,6 +269,21 @@ def evaluate_signal(
 
     # 1. Standard stop/target exit (conservative: stop before target on same bar)
     if status == SignalStatus.ACTIVE:
+        # Advance be_floor on T1/T2 — T1 does not exit, floor advances to protect profit
+        if chandelier_state is not None:
+            target_1 = targets[0] if targets else None
+            target_2 = targets[1] if len(targets) > 1 else None
+            t1_hit = target_1 is not None and (
+                (direction == 1 and high >= target_1) or (direction == -1 and low <= target_1)
+            )
+            t2_hit = target_2 is not None and (
+                (direction == 1 and high >= target_2) or (direction == -1 and low <= target_2)
+            )
+            if t1_hit and chandelier_state.get("be_floor") is None:
+                chandelier_state["be_floor"] = entry
+            if t2_hit and chandelier_state.get("be_floor") is not None:
+                chandelier_state["be_floor"] = target_1
+
         # Capture intrabar excursion for the exit check only — do NOT mutate current_mae/mfe
         # here because the TTL path (further down) must use the caller-supplied values to
         # stay consistent with cross-bar tracking done by the service layer.
@@ -297,6 +316,13 @@ def evaluate_signal(
     if status == SignalStatus.ACTIVE and chandelier_state is not None:
         trailing_stop = chandelier_state.get("trailing_stop")
         if trailing_stop is not None:
+            # Clamp: chandelier can never trail past the breakeven floor
+            be_floor = chandelier_state.get("be_floor")
+            if be_floor is not None:
+                if direction == 1:
+                    trailing_stop = max(trailing_stop, be_floor)
+                else:
+                    trailing_stop = min(trailing_stop, be_floor)
             chandelier_hit = (direction == 1 and low <= trailing_stop) or (
                 direction == -1 and high >= trailing_stop
             )
@@ -306,6 +332,14 @@ def evaluate_signal(
                 pnl_dollars = round(pnl_ticks * point_value, 2)
                 final_mae = min(current_mae, pnl_r)
                 final_mfe = max(current_mfe, pnl_r)
+                if be_floor is not None:
+                    _logger.info(
+                        "chandelier_floor_exit",
+                        signal_id=sid,
+                        be_floor=be_floor,
+                        trailing_stop=trailing_stop,
+                        pnl_r=pnl_r,
+                    )
                 _record_outcome(signal, SignalOutcome.STOPPED_IN_TRADE)
                 return Transition(
                     signal_id=sid,
@@ -489,10 +523,14 @@ def _check_active_exit(
         )
 
     # Target checks (highest target first for maximum credit)
+    # T1 (i==0) does not exit — be_floor is advanced in evaluate_signal before this call
     for i in range(len(targets) - 1, -1, -1):
         target = targets[i]
         hit = (direction == 1 and high >= target) or (direction == -1 and low <= target)
         if hit:
+            if i == 0:
+                # T1 advances be_floor (handled before this call); does not exit
+                break
             return _make_exit(
                 sid,
                 f"target_{i + 1}_hit",
