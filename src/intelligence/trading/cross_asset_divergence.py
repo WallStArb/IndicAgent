@@ -231,7 +231,6 @@ class CrossAssetDivergencePlugin:
             regime_context=regime_context,
             supporting_factors=supporting_factors,
         )
-        signal["stop_basis"] = tf.stop_basis
         signal["setup_variant"] = setup_variant
         signal["features_snapshot"] = capture_signal_features(
             features,
