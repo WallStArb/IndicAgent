@@ -164,6 +164,7 @@ class FailedBreakoutPlugin:
             entry=entry,
             features=features,
             atr=atr,
+            regime_type=self.regime_type,
         )
         if not frame.viable:
             self._state[(symbol, tf)] = state
