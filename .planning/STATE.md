@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-last_updated: "2026-06-05T15:58:04.977Z"
+last_updated: "2026-06-05T16:48:58.233Z"
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 18
+  completed_phases: 0
+  total_plans: 29
+  completed_plans: 7
+  percent: 0
 ---
 
 # Project State
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 097 — agent-memory
+**Current focus:** Phase 115 — framing-audit-trail
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
