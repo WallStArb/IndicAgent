@@ -59,7 +59,7 @@ class SupportResistancePlugin:
         n_bars = len(df)
 
         atr_14 = get_atr(frames.get("i1") or {})
-        volume = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
+        volume = df["volume"].to_numpy(dtype=float) if "volume" in df.columns and atr_14 else None
         mean_volume = float(volume.mean()) if volume is not None and volume.size else 0.0
 
         w = self.window
