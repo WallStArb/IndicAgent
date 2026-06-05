@@ -38,7 +38,7 @@ class SupportResistancePlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"structure"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=120),)
     window: int = 10
     cluster_atr_mult: float = 0.5
     _state: dict = field(default_factory=dict)
@@ -90,22 +90,14 @@ class SupportResistancePlugin:
         result["sr_level_count"] = float(len(resistance_clusters) + len(support_clusters))
         if nearest_r is not None:
             r_dist = (nearest_r["level"] - current_price) / current_price * 100
-            r_age = (
-                float(n_bars - 1 - nearest_r["latest_idx"])
-                if nearest_r["latest_idx"] > 0
-                else float(n_bars)
-            )
+            r_age = float(n_bars - 1 - nearest_r["latest_idx"])
             result["nearest_resistance"] = nearest_r["level"]
             result["resistance_strength"] = float(nearest_r["strength"])
             result["resistance_dist_pct"] = r_dist
             result["resistance_age_bars"] = r_age
         if nearest_s is not None:
             s_dist = (current_price - nearest_s["level"]) / current_price * 100
-            s_age = (
-                float(n_bars - 1 - nearest_s["latest_idx"])
-                if nearest_s["latest_idx"] > 0
-                else float(n_bars)
-            )
+            s_age = float(n_bars - 1 - nearest_s["latest_idx"])
             result["nearest_support"] = nearest_s["level"]
             result["support_strength"] = float(nearest_s["strength"])
             result["support_dist_pct"] = s_dist

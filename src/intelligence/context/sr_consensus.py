@@ -55,12 +55,16 @@ class SRConsensusPlugin:
         max_dist = atr * MAX_STOP_ATR_MULTIPLIER_BY_TF.get(
             features["timeframe"], MAX_STOP_ATR_MULTIPLIER_DEFAULT
         )
-        s_cands = collect_sr_candidates(
-            features, -1, current_price, atr, max_dist
-        ) + _round_candidates(current_price, atr, max_dist, -1)
-        r_cands = collect_sr_candidates(
-            features, 1, current_price, atr, max_dist
-        ) + _round_candidates(current_price, atr, max_dist, 1)
+        s_cands = sorted(
+            collect_sr_candidates(features, -1, current_price, atr, max_dist)
+            + _round_candidates(current_price, atr, max_dist, -1),
+            key=lambda c: c.price,
+        )
+        r_cands = sorted(
+            collect_sr_candidates(features, 1, current_price, atr, max_dist)
+            + _round_candidates(current_price, atr, max_dist, 1),
+            key=lambda c: c.price,
+        )
         s_best = find_best_level(s_cands, atr, current_price)
         r_best = find_best_level(r_cands, atr, current_price)
         return {

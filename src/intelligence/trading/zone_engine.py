@@ -299,10 +299,13 @@ def find_best_level(
     if diverse:
         best = max(diverse, key=lambda cl: (_source_diversity(cl), sum(c.strength for c in cl)))
         avg_price = sum(c.price for c in best) / len(best)
+        diversity = _source_diversity(best)
+        # Normalize diversity count (2-5 tiers) to [0.4, 1.0] so strength stays in 0-1 contract
+        normalized = min(1.0, diversity / 5.0)
         return ZoneCandidate(
             price=avg_price,
             name="consensus",
-            strength=float(_source_diversity(best)),
+            strength=normalized,
             source_tier="consensus",
             source_family="consensus",
         )
@@ -322,7 +325,7 @@ def _find_clusters(candidates: list[ZoneCandidate], atr: float) -> list[list[Zon
     current = [candidates[0]]
     radius = atr * CLUSTER_RADIUS_ATR
     for c in candidates[1:]:
-        if c.price - current[-1].price <= radius:
+        if abs(c.price - current[-1].price) <= radius:
             current.append(c)
         else:
             clusters.append(current)
