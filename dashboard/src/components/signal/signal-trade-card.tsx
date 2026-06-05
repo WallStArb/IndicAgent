@@ -203,14 +203,19 @@ function SetupEdgeLine({ signal }: { signal: SignalData }) {
 // ── CIS Bucket Breakdown (lazy fetch) ─────────────────────────────────────────
 
 function CISBucketBreakdown({ signalId, cisScore }: { signalId?: string; cisScore?: number | null }) {
-  const [buckets, setBuckets] = useState<Record<string, number> | null | "loading">("loading");
+  const [buckets, setBuckets] = useState<Record<string, number> | null | "loading">(
+    signalId ? "loading" : null
+  );
 
   useEffect(() => {
     if (!signalId) { setBuckets(null); return; }
-    fetch(`${getApiBase()}/api/signals/detail/${signalId}`)
+    const controller = new AbortController();
+    setBuckets("loading");
+    fetch(`${getApiBase()}/api/signals/detail/${signalId}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : null)
       .then(d => setBuckets(d?.bucket_scores ?? null))
       .catch(() => setBuckets(null));
+    return () => controller.abort();
   }, [signalId]);
 
   const scoreColor = cisScore != null
