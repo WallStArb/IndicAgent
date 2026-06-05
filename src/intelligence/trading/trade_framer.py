@@ -205,6 +205,8 @@ def _stop_type_to_structure_type(stop_type: str) -> str:
         "sr_resistance": "sr_resistance",
         "fvg_low": "fvg_low",
         "fvg_high": "fvg_high",
+        "ema_21_support": "ema_21_support",
+        "ema_21_resistance": "ema_21_resistance",
     }
     return _MAP.get(stop_type, "atr_fallback")
 
