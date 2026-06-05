@@ -162,6 +162,13 @@ class TradeFrame:
     stop_structure_age_bars: int | None = None  # bars since structural level formed
     # |structural_stop - atr_fallback| / scaled_atr
     structural_stop_distance_atr: float | None = None
+    # Framing audit trail — captured once at fire time
+    adaptive_buffer_mult: float = 1.0  # GARCH x Hurst multiplier at fire time (base_mult=1.0)
+    plugin_regime_type: str | None = None  # plugin's declared regime_type passed to frame_trade
+
+    def __post_init__(self) -> None:
+        if self.adaptive_buffer_mult <= 0:
+            raise ValueError(f"adaptive_buffer_mult must be > 0, got {self.adaptive_buffer_mult}")
 
 
 def targets_from_floats(
@@ -1047,12 +1054,15 @@ def frame_trade(
             method=method,
         )
 
+    # Extract once: used for _classify_stop_basis and stored in TradeFrame for audit trail
+    adaptive_buffer_mult = _adaptive_buffer(features, 1.0, regime_type)
+
     # Classify stop basis for ML segmentation
     stop_basis, stop_structure_type, structural_stop_distance_atr = _classify_stop_basis(
         stop_type,
         stop,
         resolved_entry,
-        atr * _adaptive_buffer(features, 1.0, regime_type),
+        atr * adaptive_buffer_mult,
         direction,
     )
     stop_structure_age_bars = _get_structure_age_bars(stop_type, features)
@@ -1075,4 +1085,6 @@ def frame_trade(
         stop_structure_type=stop_structure_type,
         stop_structure_age_bars=stop_structure_age_bars,
         structural_stop_distance_atr=structural_stop_distance_atr,
+        adaptive_buffer_mult=adaptive_buffer_mult,
+        plugin_regime_type=regime_type,
     )
