@@ -286,6 +286,12 @@ def make_signal_from_frame(
     sig["zone_high"] = round_to_tick(tf.zone_high, symbol)
     sig["zone_source"] = (features_snapshot or {}).get("zone_source")
 
+    # Framing audit trail — single authoritative assignment point (Phase 115)
+    sig["stop_basis"] = tf.stop_basis
+    sig["structural_stop_distance_atr"] = tf.structural_stop_distance_atr
+    sig["adaptive_buffer_mult"] = tf.adaptive_buffer_mult
+    sig["plugin_regime_type"] = tf.plugin_regime_type
+
     if features_snapshot is not None:
         sig["features_snapshot"] = features_snapshot
 
