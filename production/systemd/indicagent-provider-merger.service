@@ -1,8 +1,7 @@
 [Unit]
 Description=IndicAgent Provider Merger Agent — routes market.bars.raw.<provider> to market.bars
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave1.target
 Requires=indicagent-infrastructure.target
-Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

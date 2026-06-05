@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Graduation Compute — event-driven transform graduation evaluator
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 StartLimitIntervalSec=300
 StartLimitBurst=5

@@ -1,0 +1,18 @@
+# /home/bg/dev/indicagent/production/systemd/indicagent-wave2.target
+# Wave 2: intelligence pipeline — cross-asset, macro-compute, intelligence-pipeline
+# Does not activate until all wave 1 services have been attempted.
+# The After= on each wave 1 service provides the ordering guarantee;
+# services do not need to succeed, only to have completed their start attempt.
+[Unit]
+Description=IndicAgent Wave 2 gate — intelligence pipeline
+Requires=indicagent-infrastructure.target
+After=indicagent-wave1.target
+After=indicagent-ibkr-provider.service
+After=indicagent-bar-replay.service
+After=indicagent-provider-merger.service
+After=indicagent-bar-aggregator.service
+After=indicagent-bar-auditor.service
+After=indicagent-bar-writer.service
+
+[Install]
+WantedBy=multi-user.target

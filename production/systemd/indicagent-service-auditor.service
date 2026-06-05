@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Service Auditor — pipeline health monitor and self-healer
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 # Meta-watchdog exception: service-auditor must restart unconditionally — it is

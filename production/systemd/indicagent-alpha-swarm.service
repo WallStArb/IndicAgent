@@ -1,8 +1,7 @@
 [Unit]
 Description=IndicAgent Alpha Swarm Compute Agent -- LLM alpha multiplier agents
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
-Requires=indicagent-redpanda-ready.service
 
 [Service]
 Type=simple

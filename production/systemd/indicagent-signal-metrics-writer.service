@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Signal Metrics Writer Agent — persists signal metrics events to DB
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 StartLimitIntervalSec=300

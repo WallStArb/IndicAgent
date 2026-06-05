@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent Swarm Ledger Writer (L7 AI swarm → signal_ai_enrichment)
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 

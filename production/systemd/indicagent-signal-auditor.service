@@ -1,8 +1,7 @@
 [Unit]
 Description=IndicAgent Signal Auditor Agent — coverage validation + lag monitoring
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
-Requires=indicagent-redpanda-ready.service
 Wants=network-online.target indicagent-signal-writer.service
 StartLimitIntervalSec=300
 StartLimitBurst=5

@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent IBKR Provider Agent — broker-agnostic bar publisher
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave1.target
 Requires=indicagent-infrastructure.target
 StartLimitIntervalSec=0
 

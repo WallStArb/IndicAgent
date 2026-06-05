@@ -1,6 +1,6 @@
 [Unit]
 Description=IndicAgent LLM Writer Service — Redis streams to TimescaleDB
-After=network-online.target indicagent-infrastructure.target
+After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target
 Wants=indicagent-feature-writer.service
