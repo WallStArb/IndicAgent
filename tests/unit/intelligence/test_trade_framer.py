@@ -935,3 +935,28 @@ class TestRegimeTypeWired:
         f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75}
         mult = _adaptive_buffer(f, 1.0, None)
         assert mult == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Observability: OTel histogram record + structlog debug
+# ---------------------------------------------------------------------------
+
+
+class TestFrameTradeObservability:
+    def test_structlog_debug_emitted_when_hurst_fires(self):
+        from structlog.testing import capture_logs
+
+        with capture_logs() as cap_logs:
+            f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75, "timeframe": "5m"}
+            frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="trend")
+        events = [e["event"] for e in cap_logs]
+        assert "adaptive_buffer_applied" in events
+
+    def test_no_debug_when_buffer_neutral(self):
+        from structlog.testing import capture_logs
+
+        with capture_logs() as cap_logs:
+            f = {"garch_vol_ratio": 1.0, "timeframe": "5m"}
+            frame_trade("trend_long", 1, 5000.0, f, atr=10.0)
+        events = [e["event"] for e in cap_logs]
+        assert "adaptive_buffer_applied" not in events
