@@ -233,15 +233,13 @@ def evaluate_signal(
     zone_low = signal.get("entry_zone_low") or entry
     zone_high = signal.get("entry_zone_high") or entry
     risk = abs(entry - stop)
+    expires_at = signal.get("expires_at")
 
     # --- Pending: zone activation check (first) ---
     if status == SignalStatus.PENDING:
-        # Guard: if this bar is already at or past the TTL window, expire as never_activated
-        # rather than letting zone entry sneak in on an already-dead signal.
-        _expires_at = signal.get("expires_at")
-        if _expires_at is not None and bar_time is not None and bar_time >= _expires_at:
-            pass  # fall through to TTL check below — do NOT attempt activation
-        else:
+        # Guard: skip activation if the TTL window has already closed on this bar.
+        # A signal that activates past expires_at would immediately TTL-expire next bar.
+        if expires_at is None or bar_time is None or bar_time < expires_at:
             activation = _check_zone_activation(
                 sid,
                 direction,
@@ -255,7 +253,7 @@ def evaluate_signal(
             )
             if activation is not None:
                 return activation
-        # No activation — fall through to TTL check below
+        # No activation (or past TTL) — fall through to TTL check below
 
     # --- Active signal checks (in priority order) ---
 
@@ -343,7 +341,6 @@ def evaluate_signal(
 
     # 4. TTL expiry (LAST — only after all price-based checks)
     # Use bar_time >= expires_at for deterministic replay. Never datetime.now(UTC).
-    expires_at = signal.get("expires_at")
     if expires_at is None:
         # D-17: NULL expires_at post-backfill is a data-integrity bug. Fail loud, do NOT
         # fall back to bar-count. Increment counter, warn, and skip TTL check this bar.

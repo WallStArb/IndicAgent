@@ -363,6 +363,7 @@ class SignalTracker(BaseDaemon):
             return _reject("missing_entry_or_stop")
 
         # Optional / defaulted fields
+        ttl_bars = int(raw.get("ttl_bars", 10))
         canonical = {
             "signal_id": str(sid),
             "symbol": symbol,
@@ -372,7 +373,7 @@ class SignalTracker(BaseDaemon):
             "stop_loss": float(stop_loss),
             "is_backfill": bool(raw.get("is_backfill", False)),
             "is_shadow": bool(raw.get("is_shadow", False)),
-            "ttl_bars": int(raw.get("ttl_bars", 10)),
+            "ttl_bars": ttl_bars,
             "status": raw.get("status", "pending"),
             "direction": int(raw.get("direction", 1)),
             "targets": list(raw.get("targets", []) or []),
@@ -387,11 +388,7 @@ class SignalTracker(BaseDaemon):
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
             "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
             "expires_at": raw.get("expires_at")
-            or (
-                ts + timedelta(seconds=int(raw.get("ttl_bars", 10)) * tf_to_seconds(tf))
-                if tf
-                else None
-            ),
+            or (ts + timedelta(seconds=ttl_bars * tf_to_seconds(tf)) if tf else None),
         }
         # Shadow signals skip zone-entry and are tracked as immediately active so
         # outcomes accumulate for the shadow governance promotion gate.
