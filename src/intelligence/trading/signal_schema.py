@@ -240,9 +240,9 @@ def make_signal_from_frame(
             f"Emission gate: stop ({stop}) is within 1 tick ({tick}) of entry ({entry})"
         )
 
-    # Gate 2: stop_type must be identified (not "unknown")
-    if tf.stop_type == "unknown":
-        raise ValueError("Emission gate: stop_type is 'unknown' — structural stop basis required")
+    # Gate 2: stop_type is always resolved by frame_trade() — "atr" is the fallback,
+    # "unknown" never occurs. This assert is defensive documentation only.
+    assert tf.stop_type != "unknown", "frame_trade() must always resolve a stop_type"
 
     # Gate 3: minimum risk/reward to first target; all targets on correct side of entry
     target_prices = [t.price for t in tf.targets]
@@ -288,6 +288,7 @@ def make_signal_from_frame(
 
     # Framing audit trail — single authoritative assignment point (Phase 115)
     sig["stop_basis"] = tf.stop_basis
+    sig["stop_structure_age_bars"] = tf.stop_structure_age_bars
     sig["structural_stop_distance_atr"] = tf.structural_stop_distance_atr
     sig["adaptive_buffer_mult"] = tf.adaptive_buffer_mult
     sig["plugin_regime_type"] = tf.plugin_regime_type

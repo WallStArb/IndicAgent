@@ -87,10 +87,11 @@ class LedgerEntry:
     feature_schema_version: int | None = None
     # Framing audit trail — stop/target decision metadata at fire time (Phase 115)
     stop_basis: str | None = None
-    stop_type: str | None = None
+    stop_type_col: str | None = None
     structural_stop_distance_atr: float | None = None
     adaptive_buffer_mult: float | None = None
     plugin_regime_type: str | None = None
+    stop_structure_age_bars: int | None = None
     # Initial status for signal_outcomes seeding — NOT stored in signal_ledger
     status: SignalStatus = SignalStatus.PENDING
 
@@ -125,10 +126,11 @@ class LedgerEntry:
             self.expires_at,  # $27
             self.feature_schema_version,  # $28 (contamination boundary)
             self.stop_basis,  # $29
-            self.stop_type,  # $30
+            self.stop_type_col,  # $30
             self.structural_stop_distance_atr,  # $31
             self.adaptive_buffer_mult,  # $32
             self.plugin_regime_type,  # $33
+            self.stop_structure_age_bars,  # $34
         )
 
 
@@ -151,7 +153,7 @@ INSERT INTO signal_ledger (
     pipeline_lag_ms, expires_at,
     feature_schema_version,
     stop_basis, stop_type_col, structural_stop_distance_atr,
-    adaptive_buffer_mult, plugin_regime_type
+    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars
 ) VALUES (
     $1::uuid, $2, $3, $4,
     $5, $6, $7,
@@ -166,7 +168,7 @@ INSERT INTO signal_ledger (
     $26, $27,
     $28,
     $29, $30, $31,
-    $32, $33
+    $32, $33, $34
 )
 ON CONFLICT (signal_id, timestamp) DO NOTHING
 """
