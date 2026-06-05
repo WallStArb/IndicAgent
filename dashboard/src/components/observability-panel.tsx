@@ -149,7 +149,7 @@ export default function ObservabilityPanel() {
         {/* ── KPI summary strip ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <KpiCard
-            label="Active Signals"
+            label="Tracked Signals"
             value={summary.activeSignals !== null ? summary.activeSignals.toLocaleString() : "—"}
             sub="signal ledger"
             accent="green"

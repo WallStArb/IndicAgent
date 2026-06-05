@@ -262,7 +262,7 @@ export function useObservabilityStream(): ObservabilityData {
           errorRate: signalDlq,
           bufferDepth: null,
           extras: [
-            { label: "Active",  value: activeSignals !== null ? activeSignals.toLocaleString() : "—" },
+            { label: "Tracked", value: activeSignals !== null ? activeSignals.toLocaleString() : "—" },
             { label: "DLQ/s",   value: signalDlq     !== null ? `${signalDlq.toFixed(3)}`        : "—" },
           ],
           health: nodeHealth(signalRate, signalDlq, null),
