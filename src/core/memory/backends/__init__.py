@@ -1,8 +1,9 @@
 """
-Backend Protocols for the memory subsystem — Ring 0 contract layer.
+Backend Protocols and concrete implementations for the memory subsystem.
 
 Four runtime-checkable Protocols define the interface each backend must satisfy.
-Implementations live in Wave 2 (Plans 03-04). MemoryClient composes them.
+Concrete implementations (Wave 2, Plan 03) are re-exported here for a single
+stable import path.
 
 Graceful degradation contract (D-19):
     Every method returns [] or None on timeout, connection error, or any
@@ -19,8 +20,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+# Concrete implementations (Wave 2 Plan 03) — re-exported for stable import path.
+from src.core.memory.backends.calibration import PgvectorCalibrationBackend
+from src.core.memory.backends.episodic import PgvectorEpisodicBackend
+from src.core.memory.backends.regime import PgvectorRegimeBackend
+
 if TYPE_CHECKING:
     from src.core.memory.types import CalibrationStats, Episode, RegimeHistory
+
+__all__ = [
+    # Protocols
+    "EpisodicBackend",
+    "CalibrationBackend",
+    "RegimeBackend",
+    "Mem0Backend",
+    # Implementations
+    "PgvectorEpisodicBackend",
+    "PgvectorCalibrationBackend",
+    "PgvectorRegimeBackend",
+]
 
 
 @runtime_checkable
