@@ -226,14 +226,13 @@ def _classify_stop_basis(
     stop_price: float,
     entry: float,
     scaled_atr: float,
-    garch_vol_regime: int | None,
     direction: int,
 ) -> tuple[str, str, float]:
     """Classify stop into (stop_basis, stop_structure_type, structural_stop_distance_atr).
 
     stop_basis values:
-      "atr_static"      — plain ATR fallback, no GARCH regime available
-      "garch_adaptive"  — GARCH-scaled ATR fallback, OR structural stop too far from ATR fallback
+      "atr_static"      — plain ATR fallback
+      "garch_adaptive"  — structural stop too far from ATR fallback
       "structure_snap"  — structural stop within STRUCTURE_SNAP_PROXIMITY_ATR of ATR fallback
 
     structural_stop_distance_atr:
@@ -244,8 +243,6 @@ def _classify_stop_basis(
 
     # ATR fallback stop — no structural level used
     if stop_type == "atr":
-        if garch_vol_regime is not None:
-            return "garch_adaptive", "atr_fallback", 0.0
         return "atr_static", "atr_fallback", 0.0
 
     # Structural stop — compute distance from ATR fallback
@@ -1022,7 +1019,6 @@ def frame_trade(
         stop,
         resolved_entry,
         atr * _adaptive_buffer(features, 1.0, regime_type),
-        None,
         direction,
     )
     stop_structure_age_bars = _get_structure_age_bars(stop_type, features)
