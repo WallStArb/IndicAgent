@@ -5,3 +5,4 @@ export { SignalDetail } from "./signal-detail";
 export { SignalDetailHeader } from "./signal-detail-header";
 export { SignalDetailTargets } from "./signal-detail-targets";
 export { SignalConfidencePipeline } from "./signal-confidence-pipeline";
+export { SignalTradeCard } from "./signal-trade-card";
