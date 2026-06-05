@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 
 _FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786]
 _FIB_KEYS = ["fib_236", "fib_382", "fib_500", "fib_618", "fib_786"]
@@ -44,7 +45,7 @@ class FibonacciZonesPlugin:
         i1 = frames.get("i1") or {}
         i3 = frames.get("i3") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
+        atr_14 = get_atr(i1)
 
         # swing_high/swing_low from I3 SwingDetector; fallback to rolling high/low when
         # running in the same wave (parallel plugins can't read each other's outputs)
@@ -72,21 +73,13 @@ class FibonacciZonesPlugin:
         nearest_key = min(levels, key=lambda k: abs(levels[k] - close))
         nearest_level = levels[nearest_key]
         nearest_ratio = _FIB_RATIOS[_FIB_KEYS.index(nearest_key)]
-        nearest_dist_atr = (
-            abs(close - nearest_level) / float(atr_14)
-            if isinstance(atr_14, (int, float)) and atr_14 > 0
-            else None
-        )
+        nearest_dist_atr = abs(close - nearest_level) / atr_14 if atr_14 is not None else None
 
         # Discount zone: price between 50%–78.6% retracement
         in_discount = 1.0 if levels["fib_500"] <= close <= levels["fib_786"] else 0.0
 
         # Cluster strength: fraction of fib pairs within ATR/2 of each other
-        threshold = (
-            float(atr_14) / 2.0
-            if isinstance(atr_14, (int, float)) and atr_14 > 0
-            else swing_range / 20.0
-        )
+        threshold = atr_14 / 2.0 if atr_14 is not None else swing_range / 20.0
         level_vals = list(levels.values())
         cluster_count = sum(
             1

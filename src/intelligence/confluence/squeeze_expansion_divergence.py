@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from math import tanh
 from typing import Any
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..plugins import InputSpec
 
 
@@ -90,10 +92,10 @@ class SqueezeExpansionDivergencePlugin:
             if not intel:
                 continue
 
-            atr = intel.get("atr_14")
+            atr = get_atr(intel)
             entropy = intel.get("shannon_entropy")
 
-            atr_valid = isinstance(atr, (int, float)) and float(atr) > 0
+            atr_valid = atr is not None
             entropy_valid = isinstance(entropy, (int, float)) and float(entropy) > 0
             if not atr_valid and not entropy_valid:
                 continue

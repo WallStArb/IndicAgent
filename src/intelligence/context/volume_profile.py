@@ -19,6 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..context.session_context import _et_from_utc, _extract_ts
 from ..plugins import InputSpec
 
@@ -181,8 +183,8 @@ class VolumeProfilePlugin:
 
         i1 = frames.get("i1") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
-        atr_valid = isinstance(atr_14, (int, float)) and atr_14 > 0
+        atr_14 = get_atr(i1)
+        atr_valid = atr_14 is not None
 
         # ----------------------------------------------------------------
         # Session track: filter to bars since 09:30 ET

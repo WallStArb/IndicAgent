@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 from src.intelligence.utils import clamp, is_num
 from src.intelligence.utils.gradient_utils import linear_ramp
 
@@ -68,7 +69,7 @@ class SwingMomentumPlugin:
         n_bars = len(high)
 
         # --- ATR-14: use pre-computed value from I1 pipeline -----------
-        atr = float((frames.get("i1") or {}).get("atr_14") or 0.0)
+        atr = get_atr(frames.get("i1") or {}) or 0.0
 
         # --- Extreme detection (full-frame rebuild each call) ----------
         extremes = self._detect_extremes(high, low, n_bars)

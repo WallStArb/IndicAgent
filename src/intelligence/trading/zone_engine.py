@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.trading.atr_utils import get_atr
 from src.intelligence.trading.plugin_utils import _fval
 from src.observability.metrics import (
     ZONE_CANDIDATE_COUNT,
@@ -150,7 +151,7 @@ def collect_candidates(
     Returns list sorted by price ascending.
     """
     tf = features.get("timeframe", "")
-    atr = _fval(features, "atr_14") or 0.5
+    atr = get_atr(features) or 0.5
     if direction == 1:
         lo, hi = stop, entry
         specs = _SUPPORT_SPECS

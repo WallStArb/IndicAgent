@@ -16,6 +16,7 @@ import numpy as np
 
 from src.intelligence.plugins import InputSpec
 from src.intelligence.plugins.mixins import IncrementalMixin
+from src.intelligence.trading.atr_utils import get_atr
 
 
 @dataclass
@@ -53,7 +54,7 @@ class MarketProfilePlugin(IncrementalMixin):
         low = df["low"].to_numpy(dtype=float)
         i1 = frames.get("i1") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
+        atr_14 = get_atr(i1)
 
         price_range = float(high.max() - low.min())
         if price_range <= 0:
@@ -151,7 +152,7 @@ class MarketProfilePlugin(IncrementalMixin):
 
         i1 = windows.get("i1") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
+        atr_14 = get_atr(i1)
 
         bar = df.iloc[-1]
         bar_high = float(bar["high"])
@@ -227,11 +228,7 @@ class MarketProfilePlugin(IncrementalMixin):
         price_above_va = 1.0 if close > va_high else 0.0
         price_below_va = 1.0 if close < va_low else 0.0
         poc_dist_pct = (close - poc_level) / poc_level if poc_level != 0 else 0.0
-        poc_dist_atr = (
-            abs(close - poc_level) / float(atr_14)
-            if isinstance(atr_14, (int, float)) and atr_14 > 0
-            else None
-        )
+        poc_dist_atr = abs(close - poc_level) / atr_14 if atr_14 is not None else None
 
         va_width = va_high - va_low
         if price_in_va and va_width > 0:
@@ -241,11 +238,11 @@ class MarketProfilePlugin(IncrementalMixin):
         else:
             va_position_pct = 0.0
 
-        if isinstance(atr_14, (int, float)) and float(atr_14) > 0:
+        if atr_14 is not None:
             if price_above_va:
-                va_distance_atr = round((close - va_high) / float(atr_14), 4)
+                va_distance_atr = round((close - va_high) / atr_14, 4)
             elif price_below_va:
-                va_distance_atr = round((va_low - close) / float(atr_14), 4)
+                va_distance_atr = round((va_low - close) / atr_14, 4)
             else:
                 va_distance_atr = 0.0
         else:

@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..plugins import InputSpec
 from ..utils.common import is_num
 
@@ -99,8 +101,8 @@ class MomentumAccelPlugin:
 
         # Price acceleration: ((close[-1]-close[-2]) - (close[-3]-close[-4])) / atr
         # Requires at least 4 bars and a valid ATR.
-        atr = features.get("atr_14")
-        if df is not None and len(df) >= 4 and is_num(atr) and atr > 0:
+        atr = get_atr(features)
+        if df is not None and len(df) >= 4 and atr is not None:
             c = df["close"].to_numpy()
             velocity_now = float(c[-1]) - float(c[-2])
             velocity_prev = float(c[-3]) - float(c[-4])
