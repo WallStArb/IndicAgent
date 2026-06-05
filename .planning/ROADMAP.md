@@ -1264,7 +1264,7 @@ Plans:
 
 **Wave 1** — TradeFrame extension (independent)
 
-- [ ] 115-01-PLAN.md — Extend TradeFrame with adaptive_buffer_mult + plugin_regime_type; extract multiplier before first _reject_frame() call; TDD
+- [x] 115-01-PLAN.md — Extend TradeFrame with adaptive_buffer_mult + plugin_regime_type; extract multiplier before first _reject_frame() call; TDD
 
 **Wave 2** *(depends on Wave 1)* — Signal dict propagation
 
