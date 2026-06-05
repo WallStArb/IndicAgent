@@ -4,7 +4,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 from src.intelligence.utils import find_peaks, find_troughs
+
+_LOOKBACK_BY_TF: dict[str, int] = {
+    "1m": 60,
+    "5m": 60,
+    "15m": 80,
+    "1h": 120,
+    "4h": 120,
+    "1d": 60,
+}
 
 
 @dataclass
@@ -30,7 +40,7 @@ class SupportResistancePlugin:
     capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", lookback=120),)
     window: int = 10
-    cluster_pct: float = 0.005
+    cluster_atr_mult: float = 0.5
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -38,13 +48,20 @@ class SupportResistancePlugin:
         if df is None or len(df) < self.min_lookback:
             return {}
 
+        tf = frames.get("timeframe", "")
+        lookback = _LOOKBACK_BY_TF.get(tf, 120)
+        df = df.iloc[-lookback:]
+
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
         current_price = float(close[-1])
         n_bars = len(df)
 
-        # Detect pivot highs and lows using shared vectorized functions
+        atr_14 = get_atr(frames.get("i1") or {})
+        volume = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
+        mean_volume = float(volume.mean()) if volume is not None and volume.size else 0.0
+
         w = self.window
         peak_indices = find_peaks(high, n=w)
         trough_indices = find_troughs(low, n=w)
@@ -52,44 +69,48 @@ class SupportResistancePlugin:
         pivot_highs = [(float(high[i]), i) for i in peak_indices]
         pivot_lows = [(float(low[i]), i) for i in trough_indices]
 
-        # Cluster nearby levels
-        resistance_clusters = self._cluster_levels(pivot_highs, current_price)
-        support_clusters = self._cluster_levels(pivot_lows, current_price)
+        resistance_clusters = self._cluster_levels(
+            pivot_highs, current_price, atr_14, volume, mean_volume
+        )
+        support_clusters = self._cluster_levels(
+            pivot_lows, current_price, atr_14, volume, mean_volume
+        )
 
-        # Find nearest resistance (above price) and support (below price)
         resistances_above = [r for r in resistance_clusters if r["level"] > current_price]
         supports_below = [s for s in support_clusters if s["level"] < current_price]
 
-        if resistances_above:
-            nearest_r = min(resistances_above, key=lambda x: x["level"] - current_price)
-        else:
-            nearest_r = {"level": current_price * 1.02, "strength": 0, "latest_idx": 0}
+        nearest_r = (
+            min(resistances_above, key=lambda x: x["level"] - current_price)
+            if resistances_above
+            else None
+        )
+        nearest_s = max(supports_below, key=lambda x: x["level"]) if supports_below else None
 
-        if supports_below:
-            nearest_s = max(supports_below, key=lambda x: x["level"])
-        else:
-            nearest_s = {"level": current_price * 0.98, "strength": 0, "latest_idx": 0}
-
-        r_dist = (nearest_r["level"] - current_price) / current_price * 100
-        s_dist = (current_price - nearest_s["level"]) / current_price * 100
-
-        # Age: bars since most recent pivot touch in nearest cluster
-        r_idx = nearest_r["latest_idx"]
-        s_idx = nearest_s["latest_idx"]
-        r_age = float(n_bars - 1 - r_idx) if r_idx > 0 else float(n_bars)
-        s_age = float(n_bars - 1 - s_idx) if s_idx > 0 else float(n_bars)
-
-        return {
-            "nearest_resistance": nearest_r["level"],
-            "nearest_support": nearest_s["level"],
-            "resistance_strength": float(nearest_r["strength"]),
-            "support_strength": float(nearest_s["strength"]),
-            "resistance_dist_pct": r_dist,
-            "support_dist_pct": s_dist,
-            "sr_level_count": float(len(resistance_clusters) + len(support_clusters)),
-            "resistance_age_bars": r_age,
-            "support_age_bars": s_age,
-        }
+        result: dict[str, Any] = {}
+        result["sr_level_count"] = float(len(resistance_clusters) + len(support_clusters))
+        if nearest_r is not None:
+            r_dist = (nearest_r["level"] - current_price) / current_price * 100
+            r_age = (
+                float(n_bars - 1 - nearest_r["latest_idx"])
+                if nearest_r["latest_idx"] > 0
+                else float(n_bars)
+            )
+            result["nearest_resistance"] = nearest_r["level"]
+            result["resistance_strength"] = float(nearest_r["strength"])
+            result["resistance_dist_pct"] = r_dist
+            result["resistance_age_bars"] = r_age
+        if nearest_s is not None:
+            s_dist = (current_price - nearest_s["level"]) / current_price * 100
+            s_age = (
+                float(n_bars - 1 - nearest_s["latest_idx"])
+                if nearest_s["latest_idx"] > 0
+                else float(n_bars)
+            )
+            result["nearest_support"] = nearest_s["level"]
+            result["support_strength"] = float(nearest_s["strength"])
+            result["support_dist_pct"] = s_dist
+            result["support_age_bars"] = s_age
+        return result
 
     def compute_next(self, windows: dict[str, Any], *, state: dict | None = None) -> dict[str, Any]:
         return self.compute_full(windows)
@@ -98,32 +119,50 @@ class SupportResistancePlugin:
         self,
         pivots: list[tuple[float, int]],
         current_price: float,
+        atr_14: float | None,
+        volume: Any,
+        mean_volume: float,
     ) -> list[dict[str, Any]]:
         """Cluster nearby price levels; return level, strength, and latest bar index."""
         if not pivots:
             return []
+
+        cluster_radius = (atr_14 * self.cluster_atr_mult) if atr_14 else (current_price * 0.005)
 
         sorted_pivots = sorted(pivots, key=lambda p: p[0])
         clusters: list[dict[str, Any]] = []
         current_cluster: list[tuple[float, int]] = [sorted_pivots[0]]
 
         for price, idx in sorted_pivots[1:]:
-            if abs(price - current_cluster[-1][0]) <= current_price * self.cluster_pct:
+            if abs(price - current_cluster[-1][0]) <= cluster_radius:
                 current_cluster.append((price, idx))
             else:
-                clusters.append(self._finalize_cluster(current_cluster))
+                clusters.append(self._finalize_cluster(current_cluster, volume, mean_volume))
                 current_cluster = [(price, idx)]
 
         if current_cluster:
-            clusters.append(self._finalize_cluster(current_cluster))
+            clusters.append(self._finalize_cluster(current_cluster, volume, mean_volume))
 
         return clusters
 
     @staticmethod
-    def _finalize_cluster(members: list[tuple[float, int]]) -> dict[str, Any]:
+    def _finalize_cluster(
+        members: list[tuple[float, int]],
+        volume: Any,
+        mean_volume: float,
+    ) -> dict[str, Any]:
         avg_level = sum(p for p, _ in members) / len(members)
         latest_idx = max(idx for _, idx in members)
-        return {"level": avg_level, "strength": len(members), "latest_idx": latest_idx}
+        vol_sum = sum(
+            (
+                min(2.0, (float(volume[idx]) / mean_volume if mean_volume > 0 else 1.0))
+                if volume is not None
+                else 1.0
+            )
+            for _, idx in members
+        )
+        strength = len(members) * (vol_sum / len(members))
+        return {"level": avg_level, "strength": strength, "latest_idx": latest_idx}
 
 
 plugin = SupportResistancePlugin()
