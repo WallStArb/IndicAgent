@@ -95,10 +95,39 @@ ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
 MIN_STOP_ATR_MULTIPLIER = 1.0  # Minimum stop distance: at least 1×ATR from entry
 MIN_RR_T1 = 1.5  # Minimum reward-to-risk for T1: signals below this are rejected
 
-# GARCH vol-regime multipliers — scale effective ATR for stop/target sizing.
-# Regime 0 (low vol) → tighter stops; regime 2 (high vol) → wider stops.
-# Source: I4 VolatilityRegimePlugin garch_vol_regime output (0/1/2).
-GARCH_MULTIPLIERS: dict[int, float] = {0: 0.8, 1: 1.0, 2: 1.35}
+ADAPTIVE_BUFFER_HARD_CAP = 1.40  # maximum vol-driven multiplier expansion
+
+
+def _adaptive_buffer(features: dict, base_mult: float, regime_type: str | None = None) -> float:
+    """GARCH-continuous ATR buffer with Hurst regime-confirmation tightening.
+
+    Piecewise-linear through calibrated regime anchors (0.70->0.80, 1.00->1.00,
+    1.50->1.35). regime_type: "trend" | "mean_reversion" | "any" | None.
+    None or "any" -> no Hurst adjustment.
+    """
+    vol_ratio = float(features.get("garch_vol_ratio") or 1.0)
+    vol_ratio = max(0.70, min(1.50, vol_ratio))
+
+    if vol_ratio <= 1.0:
+        garch_mult = 0.80 + (vol_ratio - 0.70) * (0.20 / 0.30)
+    else:
+        garch_mult = 1.00 + (vol_ratio - 1.00) * (0.35 / 0.50)
+
+    result = base_mult * garch_mult
+
+    hurst = features.get("hurst_exponent")
+    if hurst is not None and regime_type in ("trend", "mean_reversion"):
+        h = float(hurst)
+        if regime_type == "trend" and h >= 0.55:
+            result *= 1.0 - (h - 0.55) * 0.16
+        elif regime_type == "mean_reversion" and h <= 0.45:
+            result *= 1.0 - (0.45 - h) * 0.16
+
+    if float(features.get("garch_shock") or 0.0) > 3.0:
+        result = max(result, base_mult * 1.35)
+
+    return min(result, base_mult * ADAPTIVE_BUFFER_HARD_CAP)
+
 
 # Proximity gate: if structural stop is within this many effective-ATR units of the
 # ATR fallback stop, classify as "structure_snap" (structure is close to ATR anyway).
@@ -136,7 +165,7 @@ class TradeFrame:
     stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
     stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
     stop_structure_age_bars: int | None = None  # bars since structural level formed
-    # |structural_stop - atr_fallback| / effective_atr
+    # |structural_stop - atr_fallback| / scaled_atr
     structural_stop_distance_atr: float | None = None
 
 
@@ -196,7 +225,7 @@ def _classify_stop_basis(
     stop_type: str,
     stop_price: float,
     entry: float,
-    effective_atr: float,
+    scaled_atr: float,
     garch_vol_regime: int | None,
     direction: int,
 ) -> tuple[str, str, float]:
@@ -209,7 +238,7 @@ def _classify_stop_basis(
 
     structural_stop_distance_atr:
       0.0 for ATR fallback stops.
-      abs(stop_price - atr_fallback_stop) / effective_atr for structural stops.
+      abs(stop_price - atr_fallback_stop) / scaled_atr for structural stops.
     """
     structure_type = _stop_type_to_structure_type(stop_type)
 
@@ -220,16 +249,16 @@ def _classify_stop_basis(
         return "atr_static", "atr_fallback", 0.0
 
     # Structural stop — compute distance from ATR fallback
-    if effective_atr <= EPSILON_TOLERANCE:
+    if scaled_atr <= EPSILON_TOLERANCE:
         return "garch_adaptive", structure_type, 0.0
 
     # ATR fallback reference point (what the stop would be without a structural level)
     if direction == 1:
-        atr_fallback_stop = entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER
+        atr_fallback_stop = entry - scaled_atr * ATR_STOP_FALLBACK_MULTIPLIER
     else:
-        atr_fallback_stop = entry + effective_atr * ATR_STOP_FALLBACK_MULTIPLIER
+        atr_fallback_stop = entry + scaled_atr * ATR_STOP_FALLBACK_MULTIPLIER
 
-    distance_atr = abs(stop_price - atr_fallback_stop) / effective_atr
+    distance_atr = abs(stop_price - atr_fallback_stop) / scaled_atr
 
     if distance_atr <= STRUCTURE_SNAP_PROXIMITY_ATR:
         return "structure_snap", structure_type, distance_atr
@@ -451,15 +480,20 @@ def _resolve_entry(
     return entry_price, "at_close"
 
 
-def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
+def _resolve_stop_long(
+    entry: float,
+    atr: float,
+    features: dict[str, Any],
+    regime_type: str | None = None,
+) -> tuple[float, str]:
     """Stop placement hierarchy for long trades."""
-    min_stop = entry - atr * MIN_STOP_ATR_MULTIPLIER
+    min_stop = entry - atr * _adaptive_buffer(features, MIN_STOP_ATR_MULTIPLIER, regime_type)
 
     # Priority 0: FVG low — FVG bottom as structural stop for bullish FVG
     fvg_type = _fval(features, "fvg_type")
     fvg_bottom = _fval(features, "fvg_bottom")
     if fvg_type == 1.0 and fvg_bottom > EPSILON_TOLERANCE and fvg_bottom < entry:
-        stop = fvg_bottom - atr * ATR_STOP_OB_MULTIPLIER
+        stop = fvg_bottom - atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "fvg_low"
 
@@ -467,7 +501,9 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     in_demand = _fval(features, "in_demand_zone")
     nearest_demand_low = _fval(features, "nearest_demand_low")
     if in_demand == 1.0 and nearest_demand_low > EPSILON_TOLERANCE:
-        stop = nearest_demand_low - atr * ATR_STOP_DEMAND_MULTIPLIER
+        stop = nearest_demand_low - atr * _adaptive_buffer(
+            features, ATR_STOP_DEMAND_MULTIPLIER, regime_type
+        )
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "demand_zone"
 
@@ -475,7 +511,9 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
-        stop = sweep_level - atr * ATR_STOP_SWEEP_MULTIPLIER
+        stop = sweep_level - atr * _adaptive_buffer(
+            features, ATR_STOP_SWEEP_MULTIPLIER, regime_type
+        )
         if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "sweep_level"
 
@@ -483,40 +521,48 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == 1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
-        stop = ob_bottom - atr * ATR_STOP_OB_MULTIPLIER
+        stop = ob_bottom - atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
         return min(stop, min_stop), "ob_bottom"
 
     # Priority 4: swing low
     swing_low = _fval(features, "swing_low")
     if swing_low > EPSILON_TOLERANCE and swing_low < entry:
-        stop = swing_low - atr * ATR_STOP_SWING_MULTIPLIER
+        stop = swing_low - atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
         return min(stop, min_stop), "swing_low"
 
     # Priority 4b: EMA 21 below entry as structural support stop
     ema_21 = _fval(features, "ema_21")
     if ema_21 > EPSILON_TOLERANCE and ema_21 < entry:
-        stop = ema_21 - atr * ATR_STOP_SWING_MULTIPLIER
+        stop = ema_21 - atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
         return min(stop, min_stop), "ema_21_support"
 
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > EPSILON_TOLERANCE and sr_support < entry:
-        stop = sr_support - atr * ATR_STOP_SR_MULTIPLIER
+        stop = sr_support - atr * _adaptive_buffer(features, ATR_STOP_SR_MULTIPLIER, regime_type)
         return min(stop, min_stop), "sr_support"
 
     # Fallback: ATR×2.0
-    return entry - atr * ATR_STOP_FALLBACK_MULTIPLIER, "atr"
+    return (
+        entry - atr * _adaptive_buffer(features, ATR_STOP_FALLBACK_MULTIPLIER, regime_type),
+        "atr",
+    )
 
 
-def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
+def _resolve_stop_short(
+    entry: float,
+    atr: float,
+    features: dict[str, Any],
+    regime_type: str | None = None,
+) -> tuple[float, str]:
     """Stop placement hierarchy for short trades (mirror of long)."""
-    max_stop = entry + atr * MIN_STOP_ATR_MULTIPLIER
+    max_stop = entry + atr * _adaptive_buffer(features, MIN_STOP_ATR_MULTIPLIER, regime_type)
 
     # Priority 0: FVG high — FVG top as structural stop for bearish FVG
     fvg_type = _fval(features, "fvg_type")
     fvg_top = _fval(features, "fvg_top")
     if fvg_type == -1.0 and fvg_top > EPSILON_TOLERANCE and fvg_top > entry:
-        stop = fvg_top + atr * ATR_STOP_OB_MULTIPLIER
+        stop = fvg_top + atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "fvg_high"
 
@@ -524,7 +570,9 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     in_supply = _fval(features, "in_supply_zone")
     nearest_supply_high = _fval(features, "nearest_supply_high")
     if in_supply == 1.0 and nearest_supply_high > EPSILON_TOLERANCE:
-        stop = nearest_supply_high + atr * ATR_STOP_DEMAND_MULTIPLIER
+        stop = nearest_supply_high + atr * _adaptive_buffer(
+            features, ATR_STOP_DEMAND_MULTIPLIER, regime_type
+        )
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "supply_zone"
 
@@ -532,7 +580,9 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
-        stop = sweep_level + atr * ATR_STOP_SWEEP_MULTIPLIER
+        stop = sweep_level + atr * _adaptive_buffer(
+            features, ATR_STOP_SWEEP_MULTIPLIER, regime_type
+        )
         if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "sweep_level"
 
@@ -540,19 +590,19 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     ob_type = _fval(features, "ob_type")
     ob_top = _fval(features, "ob_top")
     if ob_type == -1.0 and ob_top > EPSILON_TOLERANCE and ob_top > entry:
-        stop = ob_top + atr * ATR_STOP_OB_MULTIPLIER
+        stop = ob_top + atr * _adaptive_buffer(features, ATR_STOP_OB_MULTIPLIER, regime_type)
         return max(stop, max_stop), "ob_top"
 
     # Priority 4: swing high
     swing_high = _fval(features, "swing_high")
     if swing_high > EPSILON_TOLERANCE and swing_high > entry:
-        stop = swing_high + atr * ATR_STOP_SWING_MULTIPLIER
+        stop = swing_high + atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
         return max(stop, max_stop), "swing_high"
 
     # Priority 4b: EMA 21 above entry as structural resistance stop
     ema_21 = _fval(features, "ema_21")
     if ema_21 > EPSILON_TOLERANCE and ema_21 > entry:
-        stop = ema_21 + atr * ATR_STOP_SWING_MULTIPLIER
+        stop = ema_21 + atr * _adaptive_buffer(features, ATR_STOP_SWING_MULTIPLIER, regime_type)
         return max(stop, max_stop), "ema_21_resistance"
 
     # Priority 5: S/R nearest resistance
@@ -560,11 +610,14 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
         features, "nearest_resistance"
     )
     if sr_resistance > EPSILON_TOLERANCE and sr_resistance > entry:
-        stop = sr_resistance + atr * ATR_STOP_SR_MULTIPLIER
+        stop = sr_resistance + atr * _adaptive_buffer(features, ATR_STOP_SR_MULTIPLIER, regime_type)
         return max(stop, max_stop), "sr_resistance"
 
     # Fallback: ATR×2.0
-    return entry + atr * ATR_STOP_FALLBACK_MULTIPLIER, "atr"
+    return (
+        entry + atr * _adaptive_buffer(features, ATR_STOP_FALLBACK_MULTIPLIER, regime_type),
+        "atr",
+    )
 
 
 def _collect_targets_long(
@@ -850,6 +903,7 @@ def frame_trade(
     entry: float,
     features: dict[str, Any],
     atr: float,
+    regime_type: str | None = None,
 ) -> TradeFrame:
     """Resolve structural stop/targets for a signal.
 
@@ -873,29 +927,20 @@ def frame_trade(
     if atr <= EPSILON_TOLERANCE:
         atr = abs(entry) * ATR_EMERGENCY_FALLBACK_PCT  # 0.1% of price as emergency fallback
 
-    # Apply GARCH vol-regime multiplier to scale effective ATR for stop/target sizing.
-    # Regime 0 (low vol) → tighter; regime 2 (high vol) → wider; None → use raw ATR.
-    garch_vol_regime = features.get("garch_vol_regime")
-    garch_regime_int = int(garch_vol_regime) if garch_vol_regime is not None else None
-    if garch_regime_int is not None:
-        effective_atr = atr * GARCH_MULTIPLIERS.get(garch_regime_int, 1.0)
-    else:
-        effective_atr = atr
-
     # Resolve entry with setup-specific offset
     resolved_entry, entry_type = _resolve_entry(setup_type, direction, entry, features)
 
-    # Resolve stop (uses effective_atr for sizing)
+    # Resolve stop with continuous GARCH-adaptive buffer
     if direction == 1:
-        stop, stop_type = _resolve_stop_long(resolved_entry, effective_atr, features)
-        candidates = _collect_targets_long(resolved_entry, stop, effective_atr, features)
+        stop, stop_type = _resolve_stop_long(resolved_entry, atr, features, regime_type)
+        candidates = _collect_targets_long(resolved_entry, stop, atr, features)
     else:
-        stop, stop_type = _resolve_stop_short(resolved_entry, effective_atr, features)
-        candidates = _collect_targets_short(resolved_entry, stop, effective_atr, features)
+        stop, stop_type = _resolve_stop_short(resolved_entry, atr, features, regime_type)
+        candidates = _collect_targets_short(resolved_entry, stop, atr, features)
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
     zone_low, zone_high, zone_source = _resolve_zone_bounds(
-        setup_type, direction, resolved_entry, stop, features, effective_atr
+        setup_type, direction, resolved_entry, stop, features, atr
     )
     features["zone_source"] = zone_source
 
@@ -973,7 +1018,12 @@ def frame_trade(
 
     # Classify stop basis for ML segmentation
     stop_basis, stop_structure_type, structural_stop_distance_atr = _classify_stop_basis(
-        stop_type, stop, resolved_entry, effective_atr, garch_regime_int, direction
+        stop_type,
+        stop,
+        resolved_entry,
+        atr * _adaptive_buffer(features, 1.0, regime_type),
+        None,
+        direction,
     )
     stop_structure_age_bars = _get_structure_age_bars(stop_type, features)
 
