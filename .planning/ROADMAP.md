@@ -658,8 +658,8 @@ Plans:
 
 Plans:
 
-- [ ] 097-01-PLAN.md — DB migration: 6 memory tables + 3 ENUMs + indexes + hypertables + compression policies
-- [ ] 097-02-PLAN.md — Core types (Episode/CalibrationStats/RegimeHistory) + 4 backend Protocols + AGENT_MEMORY_ENABLED + config/memory.yaml + 6 OTel metrics
+- [x] 097-01-PLAN.md — DB migration: 6 memory tables + 3 ENUMs + indexes + hypertables + compression policies
+- [x] 097-02-PLAN.md — Core types (Episode/CalibrationStats/RegimeHistory) + 4 backend Protocols + AGENT_MEMORY_ENABLED + config/memory.yaml + 6 OTel metrics
 - [ ] 097-03-PLAN.md — EmbeddingService + Pgvector episodic/calibration/regime read backends
 - [ ] 097-04-PLAN.md — Mem0 backend + MemoryClient facade + MemoryEpisodeWriter/EmbeddingWorker + WorkerContext wiring
 - [ ] 097-05-PLAN.md — memory_batch.py 4-step nightly orchestrator + systemd timer/service + _DAG_ORDER registration
@@ -1183,7 +1183,7 @@ Plans:
   3. `AGENT_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
   4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
 
-**Plans:** 7 plans in 3 waves
+**Plans:** 2/6 plans executed
 
 Plans:
 
@@ -1556,7 +1556,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 3/3 | Planned | - |
-| 097. Zep Episodic Memory | v2.8 | 6/6 | Planned | - |
+| 097. Zep Episodic Memory | v2.8 | 2/6 | In Progress|  |
 | 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
 | 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
 | 101. Composite Fitness Function | v2.8 | 6/6 | Planned | - |
