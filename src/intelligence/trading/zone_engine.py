@@ -31,6 +31,7 @@ SINGLE_LEVEL_RADIUS_ATR = 0.25
 DEDUP_TOLERANCE_ATR = 1.0  # wider than CLUSTER_RADIUS_ATR to suppress same-level noise
 _SINGLE_STRENGTH_WEIGHT = 0.6
 _SINGLE_PROXIMITY_WEIGHT = 0.4
+_MAX_DIVERSITY_TIERS = 5  # distinct source_tiers possible in a consensus cluster
 
 
 @dataclass
@@ -221,7 +222,7 @@ def collect_candidates(
                 )
             )
 
-    return sorted(_dedup(raw, atr), key=lambda c: c.price)
+    return _dedup(raw, atr)
 
 
 def collect_sr_candidates(
@@ -300,8 +301,7 @@ def find_best_level(
         best = max(diverse, key=lambda cl: (_source_diversity(cl), sum(c.strength for c in cl)))
         avg_price = sum(c.price for c in best) / len(best)
         diversity = _source_diversity(best)
-        # Normalize diversity count (2-5 tiers) to [0.4, 1.0] so strength stays in 0-1 contract
-        normalized = min(1.0, diversity / 5.0)
+        normalized = min(1.0, diversity / _MAX_DIVERSITY_TIERS)
         return ZoneCandidate(
             price=avg_price,
             name="consensus",

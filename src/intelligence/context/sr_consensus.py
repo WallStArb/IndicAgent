@@ -55,18 +55,16 @@ class SRConsensusPlugin:
         max_dist = atr * MAX_STOP_ATR_MULTIPLIER_BY_TF.get(
             features["timeframe"], MAX_STOP_ATR_MULTIPLIER_DEFAULT
         )
-        s_cands = sorted(
-            collect_sr_candidates(features, -1, current_price, atr, max_dist)
-            + _round_candidates(current_price, atr, max_dist, -1),
-            key=lambda c: c.price,
-        )
-        r_cands = sorted(
-            collect_sr_candidates(features, 1, current_price, atr, max_dist)
-            + _round_candidates(current_price, atr, max_dist, 1),
-            key=lambda c: c.price,
-        )
-        s_best = find_best_level(s_cands, atr, current_price)
-        r_best = find_best_level(r_cands, atr, current_price)
+
+        def _build_cands(direction: int) -> list[ZoneCandidate]:
+            return sorted(
+                collect_sr_candidates(features, direction, current_price, atr, max_dist)
+                + _round_candidates(current_price, atr, max_dist, direction),
+                key=lambda c: c.price,
+            )
+
+        s_best = find_best_level(_build_cands(-1), atr, current_price)
+        r_best = find_best_level(_build_cands(1), atr, current_price)
         return {
             "sr_nearest_support": s_best.price if s_best else None,
             "sr_nearest_resistance": r_best.price if r_best else None,
