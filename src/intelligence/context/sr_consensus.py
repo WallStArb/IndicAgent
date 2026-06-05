@@ -85,10 +85,12 @@ def _round_candidates(price, atr, max_dist, direction):
         return []
     mag = 10 ** math.floor(math.log10(price))
     lo, hi = (price - max_dist, price) if direction == -1 else (price, price + max_dist)
+    seen: set[float] = set()
     res = []
     for g, s in [(mag, 0.8), (mag / 10, 0.6), (mag / 20, 0.4)]:
         for lvl in (math.floor(price / g) * g, math.ceil(price / g) * g):
-            if lvl > EPSILON and lo < lvl < hi:
+            if lvl > EPSILON and lo < lvl < hi and lvl not in seen:
+                seen.add(lvl)
                 res.append(ZoneCandidate(lvl, f"round_{g:.0f}", s, "round", "round_number"))
     return res
 
