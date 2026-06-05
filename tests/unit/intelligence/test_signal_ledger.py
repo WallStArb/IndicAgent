@@ -286,11 +286,16 @@ class TestRecordActivation:
     def test_activation_sql_does_not_touch_zone_resolution_columns(self):
         import re
 
-        # 'outcome' needs a word boundary check because 'signal_outcomes' contains 'outcome' as substring
+        # Extract only the SET clause (between SET and WHERE) to verify no resolution columns are written.
+        # exit_at IS allowed in the WHERE clause as an idempotency guard but must not appear in SET.
+        set_match = re.search(r"SET\s+(.*?)\s+WHERE", _RECORD_ACTIVATION_SQL, re.DOTALL)
+        set_clause = set_match.group(1) if set_match else _RECORD_ACTIVATION_SQL
         for col in ["exit_at", "exit_price", "pnl_r"]:
-            assert col not in _RECORD_ACTIVATION_SQL
+            assert col not in set_clause, f"{col} must not be written by activation SQL"
         # outcome column (not the table name signal_outcomes)
-        assert not re.search(r"\boutcome\b\s*=", _RECORD_ACTIVATION_SQL)
+        assert not re.search(r"\boutcome\b\s*=", set_clause)
+        # WHERE clause must have the idempotency guard
+        assert "exit_at IS NULL" in _RECORD_ACTIVATION_SQL
 
 
 @pytest.mark.unit
