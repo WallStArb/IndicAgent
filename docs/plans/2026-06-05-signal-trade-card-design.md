@@ -60,7 +60,7 @@ The current `signal-detail.tsx` renders entry, stop, and targets as flat key-val
 - R value: `+2.1R` green / `-1.0R` red; omitted for entry row
 - Target label: right-aligned muted text from `target_labels[]` (e.g., "S/R", "Fib 0.236", "BSL") — omitted if absent
 
-**Entry zone band:** Rendered as a shaded row between the two zone prices when `entry_zone_low` and `entry_zone_high` are present. Background `var(--green-dim)` for long, `var(--red-dim)` for short. Label "ZONE" with the price range. Badge: `IN ZONE` (green) if `zone_valid_at_signal === true`, else `WAIT` (amber).
+**Entry zone band:** When `entry_zone_low` and `entry_zone_high` are present, both edges are inserted as `zone_edge` price levels in the ladder (sorted to their natural price position). Each renders with a left-border accent (green/red), diamond dot, and R-multiple. The `zone_high` row additionally shows `IN ZONE` (green) or `WAIT` (amber) badge based on `zone_valid_at_signal`. Rows between the zone bounds are lightly shaded using `var(--green-dim)` / `var(--red-dim)`. This two-row design shows both zone edge prices as discrete tradeable levels rather than collapsing to a single range label.
 
 **Framing badge:** Top-right of the block — `structural` in green or `ATR fallback` in amber — derived from `framing_method`.
 
