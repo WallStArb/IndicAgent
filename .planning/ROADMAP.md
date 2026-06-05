@@ -1268,7 +1268,7 @@ Plans:
 
 **Wave 2** *(depends on Wave 1)* — Signal dict propagation
 
-- [ ] 115-02-PLAN.md — Propagate 4 audit fields through make_signal_from_frame(); remove manual stop_basis injection in cross_asset_divergence.py; TDD
+- [x] 115-02-PLAN.md — Propagate 4 audit fields through make_signal_from_frame(); remove manual stop_basis injection in cross_asset_divergence.py; TDD
 
 **Wave 3** *(depends on Wave 2)* — Call site wiring
 
