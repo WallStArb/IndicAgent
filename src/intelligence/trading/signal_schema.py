@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
-from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
+from src.core.service_utils import TF_TTL_BARS, get_tick_size, round_to_tick
 
 if TYPE_CHECKING:
     from src.intelligence.trading.trade_framer import TradeFrame
 
 # Emission gate thresholds (W4)
 MIN_RR_T1 = 0.0  # disabled — aggregator handles RR ranking; gate only checks structural validity
+_MIN_RISK = 1e-6  # matches lifecycle_tracker guard; prevents fp-epsilon RR inflation
 
 # Construction fields: must all be present immediately after make_signal_from_frame().
 # Validated by the executor at the I7 production boundary.
@@ -150,7 +151,7 @@ def _make_signal(
         ttl_bars = TF_TTL_BARS.get(timeframe, 10)
 
     risk = abs(entry_price - stop_loss)
-    rr = abs(targets[0] - entry_price) / risk if risk > 0 else 0.0
+    rr = abs(targets[0] - entry_price) / risk if risk >= _MIN_RISK else 0.0
     sig = {
         "type": "signal.v1",
         "symbol": symbol,
@@ -221,7 +222,7 @@ def make_signal_from_frame(
         ttl_bars = TF_TTL_BARS.get(timeframe, 10)
 
     # W4: Emission gate — reject structurally invalid signals at construction boundary
-    tick = TICK_SIZES.get(symbol, 0)
+    tick = get_tick_size(symbol)
     entry = tf.entry
     stop = tf.stop
     stop_distance = abs(entry - stop)

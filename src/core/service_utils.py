@@ -7,6 +7,7 @@ service files: logging setup and timeframe bar thresholds.
 from __future__ import annotations
 
 import logging
+import re as _re
 from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -122,15 +123,49 @@ TICK_SIZES: dict[str, float] = {
     "ZW": 0.25,
     "ZC": 0.25,
     "ZS": 0.25,
+    # Commodity futures (continued)
+    "HG": 0.0005,
     # Equities/ETFs — 0.01
     "SPY": 0.01,
     "QQQ": 0.01,
     "IWM": 0.01,
     "AAPL": 0.01,
+    # Bond/fixed-income ETFs — 0.01
+    "SHY": 0.01,
+    "IEF": 0.01,
+    "TLT": 0.01,
+    "HYG": 0.01,
+    "LQD": 0.01,
+    "EMB": 0.01,
+    # Sector/international ETFs — 0.01
+    "FXI": 0.01,
+    "XLF": 0.01,
+    "XLE": 0.01,
+    "XLK": 0.01,
+    "GLD": 0.01,
+    "SLV": 0.01,
     # VIX
     "VIX": 0.01,
     "VX": 0.05,
 }
+
+
+def get_tick_size(symbol: str) -> float:
+    """Get minimum tick size for symbol, stripping futures expiry codes if needed.
+
+    Falls back to 0.01 (US equity/ETF default) rather than 0, which would silently
+    bypass the emission stop-distance gate for unknown instruments.
+    """
+    tick = TICK_SIZES.get(symbol)
+    if tick is not None:
+        return tick
+    # Strip futures expiry code: ZTM6 → ZT, NGN6 → NG, ESH7 → ES
+    base = _re.sub(r"[A-Z]\d+$", "", symbol)
+    if base != symbol:
+        tick = TICK_SIZES.get(base)
+        if tick is not None:
+            return tick
+    return 0.01  # Conservative default — prevents gate bypass for unknown instruments
 
 
 def round_to_tick(price: float, symbol: str) -> float:
