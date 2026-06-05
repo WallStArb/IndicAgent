@@ -1276,8 +1276,8 @@ Plans:
 
 **Wave 4** *(depends on Wave 3)* — Persistence + observability (parallel)
 
-- [ ] 115-04-PLAN.md — Migration 119: add 5 columns to signal_ledger + recreate signal_ledger_full; update LedgerEntry + _INSERT_SQL (_to_row 33 params) + signal_writer; TDD
-- [ ] 115-05-PLAN.md — STOP_BUFFER_MULT_DISTRIBUTION OTel histogram + structlog debug in frame_trade(); structlog.testing.capture_logs() tests
+- [x] 115-04-PLAN.md — Migration 119: add 5 columns to signal_ledger + recreate signal_ledger_full; update LedgerEntry + _INSERT_SQL (_to_row 33 params) + signal_writer; TDD
+- [x] 115-05-PLAN.md — STOP_BUFFER_MULT_DISTRIBUTION OTel histogram + structlog debug in frame_trade(); structlog.testing.capture_logs() tests
 
 ### Phase 114: Occam's Razor — Complexity-Aware Model Selection
 
