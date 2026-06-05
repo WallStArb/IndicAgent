@@ -328,3 +328,78 @@ class TestParseTs:
         from src.core.service_utils import parse_iso_ts
 
         assert parse_iso_ts("not-a-date") is None
+
+
+# ---------------------------------------------------------------------------
+# Framing audit trail fields in LedgerEntry (Phase 115 Wave 4)
+# ---------------------------------------------------------------------------
+
+
+class TestFramingAuditFieldsInLedgerEntry:
+    def _minimal_payload(self) -> dict:
+        return {
+            "symbol": "ES",
+            "tf": "5m",
+            "bar_ts": "2026-01-01T10:00:00Z",
+            "computed_at": "2026-01-01T10:00:01Z",
+            "signals": [
+                {
+                    "signal_id": "00000000-0000-0000-0000-000000000001",
+                    "signal_type": "trend_long",
+                    "setup_plugin": "TrendFollowingPlugin",
+                    "direction": 1,
+                    "was_selected": True,
+                    "entry_price": 5000.0,
+                    "stop_loss": 4980.0,
+                    "targets": [5030.0],
+                    "zone_low": 4995.0,
+                    "zone_high": 5005.0,
+                    "ttl_bars": 10,
+                    "stop_basis": "structure_snap",
+                    "stop_type": "swing_low",
+                    "structural_stop_distance_atr": 0.7,
+                    "adaptive_buffer_mult": 0.968,
+                    "plugin_regime_type": "trend",
+                }
+            ],
+        }
+
+    def test_stop_basis_extracted(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        entries = _payload_to_ledger_entries(self._minimal_payload())
+        assert entries[0].stop_basis == "structure_snap"
+
+    def test_stop_type_extracted(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        entries = _payload_to_ledger_entries(self._minimal_payload())
+        assert entries[0].stop_type == "swing_low"
+
+    def test_structural_stop_distance_extracted(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        entries = _payload_to_ledger_entries(self._minimal_payload())
+        assert entries[0].structural_stop_distance_atr == pytest.approx(0.7)
+
+    def test_adaptive_buffer_mult_extracted(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        entries = _payload_to_ledger_entries(self._minimal_payload())
+        assert entries[0].adaptive_buffer_mult == pytest.approx(0.968)
+
+    def test_plugin_regime_type_extracted(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        entries = _payload_to_ledger_entries(self._minimal_payload())
+        assert entries[0].plugin_regime_type == "trend"
+
+    def test_missing_fields_default_to_none(self):
+        from services.signal_writer import _payload_to_ledger_entries
+
+        payload = self._minimal_payload()
+        del payload["signals"][0]["stop_basis"]
+        del payload["signals"][0]["adaptive_buffer_mult"]
+        entries = _payload_to_ledger_entries(payload)
+        assert entries[0].stop_basis is None
+        assert entries[0].adaptive_buffer_mult is None

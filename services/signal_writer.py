@@ -239,6 +239,12 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 # Default to FEATURE_SCHEMA_VERSION constant so all post-deploy signals
                 # are stamped as clean. Trace gap documented in 112-01-SUMMARY.md.
                 feature_schema_version=FEATURE_SCHEMA_VERSION,
+                # Framing audit trail — stop/target decision metadata (Phase 115)
+                stop_basis=sig.get("stop_basis"),
+                stop_type=sig.get("stop_type"),
+                structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
+                adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
+                plugin_regime_type=sig.get("plugin_regime_type"),
             )
         )
     return entries
