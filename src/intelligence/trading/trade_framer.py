@@ -612,223 +612,258 @@ def _resolve_stop_short(
     )
 
 
-def _collect_targets_long(
-    entry: float, stop: float, atr: float, features: dict[str, Any]
+def _collect_target_candidates(
+    entry: float,
+    stop: float,
+    direction: int,
+    atr: float,
+    features: dict[str, Any],
+    regime_type: str | None = None,
 ) -> list[TradeTarget]:
-    """Collect and rank candidate target levels above entry for longs."""
+    """Collect candidate target levels for longs (direction=1) or shorts (direction=-1)."""
     risk = abs(entry - stop)
     if risk <= EPSILON_TOLERANCE:
         return []
 
-    min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
     tf = features.get("timeframe", "")
     tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
-    max_level = entry + atr * tf_max_mult
 
-    candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
-
-    # S/R resistance
-    nearest_resistance = _fval(features, "nearest_resistance") or _fval(
-        features, "sr_nearest_resistance"
-    )
-    if nearest_resistance > EPSILON_TOLERANCE:
-        candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
-
-    # BSL level (if significant)
-    bsl_level = _fval(features, "bsl_level")
-    bsl_significance = _fval(features, "bsl_significance")
-    if bsl_level > EPSILON_TOLERANCE and bsl_significance >= 0.5:
-        candidates.append((bsl_level, f"BSL (sig={bsl_significance:.2f}) {bsl_level:.2f}", "bsl"))
-
-    # VWAP bands (stored as extras in i1)
-    vwap_upper_1 = _fval(features, "vwap_upper_1")
-    if vwap_upper_1 > EPSILON_TOLERANCE:
-        candidates.append((vwap_upper_1, f"VWAP+1σ {vwap_upper_1:.2f}", "vwap_1sigma"))
-
-    vwap_upper_2 = _fval(features, "vwap_upper_2")
-    if vwap_upper_2 > EPSILON_TOLERANCE:
-        candidates.append((vwap_upper_2, f"VWAP+2σ {vwap_upper_2:.2f}", "vwap_2sigma"))
-
-    # FVG top (bullish FVG: type==1)
-    fvg_type = _fval(features, "fvg_type")
-    fvg_top = _fval(features, "fvg_top")
-    if fvg_type == 1.0 and fvg_top > EPSILON_TOLERANCE:
-        candidates.append((fvg_top, f"FVG top {fvg_top:.2f}", "fvg"))
-
-    # OB top (bullish OB: type==1)
-    ob_type = _fval(features, "ob_type")
-    ob_top = _fval(features, "ob_top")
-    if ob_type == 1.0 and ob_top > entry:
-        candidates.append((ob_top, f"OB top {ob_top:.2f}", "ob"))
-
-    # Kalman upper
-    kalman_upper = _fval(features, "kalman_upper")
-    if kalman_upper > EPSILON_TOLERANCE:
-        candidates.append((kalman_upper, f"Kalman upper {kalman_upper:.2f}", "kalman"))
-
-    # Demand zone high (if above entry — targeting into supply)
-    nearest_demand_high = _fval(features, "nearest_demand_high")
-    if nearest_demand_high > entry:
-        candidates.append(
-            (
-                nearest_demand_high,
-                f"Demand zone {nearest_demand_high:.2f}",
-                "demand_zone",
-            )
-        )
-
-    # Prior day high as target for longs
-    prior_day_high = _fval(features, "prior_day_high")
-    if prior_day_high > entry:
-        candidates.append((prior_day_high, f"Prior Day H {prior_day_high:.2f}", "prior_day"))
-
-    # Session high (overnight) as target
-    overnight_high = _fval(features, "overnight_high")
-    if overnight_high > entry:
-        candidates.append((overnight_high, f"Overnight H {overnight_high:.2f}", "overnight"))
-
-    # Volume Profile priority candidates — bypass standard ATR range filter
-    # (VP levels are meaningful even when < 0.5 ATR from entry because
-    #  _vp_regime_active() guarantees the VA boundary is institutionally significant)
-    priority_candidates: list[tuple[float, str, str]] = []
-    tf = features.get("timeframe", "")
-    vp = _select_vp(features, tf)
-    if vp is not None and _vp_regime_active(features):
-        poc, vah, val = vp
-        price_in_va = _fval(features, "price_in_value_area")
-        if price_in_va == 1.0:
-            # Inside value area: target the far boundary (VAH for longs)
-            if vah > entry:
-                priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
-        else:
-            # Near VA boundary: T1=POC, T2=VAH
-            if poc > entry:
-                priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
-            if vah > entry:
-                priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
-
-    # Standard candidates filtered to ATR range
-    valid = [
-        (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
-    ]
-    # Sort by distance ascending
-    valid.sort(key=lambda x: x[0])
-
-    # Prepend VP priority candidates (they bypass the range filter)
-    all_candidates = priority_candidates + valid
-
-    # Convert to TradeTarget with RR
-    return [
-        TradeTarget(price=price, label=label, level_type=ltype, rr=round((price - entry) / risk, 2))
-        for price, label, ltype in all_candidates
-    ]
-
-
-def _collect_targets_short(
-    entry: float, stop: float, atr: float, features: dict[str, Any]
-) -> list[TradeTarget]:
-    """Collect and rank candidate target levels below entry for shorts."""
-    risk = abs(stop - entry)
-    if risk <= EPSILON_TOLERANCE:
-        return []
-
-    tf = features.get("timeframe", "")
-    tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
-    min_level = entry - atr * tf_max_mult
-    max_level = entry - atr * ATR_TARGET_MIN_MULTIPLIER
+    if direction == 1:
+        min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
+        max_level = entry + atr * tf_max_mult
+    else:
+        min_level = entry - atr * tf_max_mult
+        max_level = entry - atr * ATR_TARGET_MIN_MULTIPLIER
 
     candidates: list[tuple[float, str, str]] = []
 
-    # S/R support
-    nearest_support = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
-    if nearest_support > EPSILON_TOLERANCE:
-        candidates.append((nearest_support, f"S/R {nearest_support:.2f}", "sr"))
+    if direction == 1:
+        # --- Long structural levels ---
 
-    # SSL level (if significant)
-    ssl_level = _fval(features, "ssl_level")
-    ssl_significance = _fval(features, "ssl_significance")
-    if ssl_level > EPSILON_TOLERANCE and ssl_significance >= 0.5:
-        candidates.append((ssl_level, f"SSL (sig={ssl_significance:.2f}) {ssl_level:.2f}", "ssl"))
-
-    # VWAP bands
-    vwap_lower_1 = _fval(features, "vwap_lower_1")
-    if vwap_lower_1 > EPSILON_TOLERANCE:
-        candidates.append((vwap_lower_1, f"VWAP-1σ {vwap_lower_1:.2f}", "vwap_1sigma"))
-
-    vwap_lower_2 = _fval(features, "vwap_lower_2")
-    if vwap_lower_2 > EPSILON_TOLERANCE:
-        candidates.append((vwap_lower_2, f"VWAP-2σ {vwap_lower_2:.2f}", "vwap_2sigma"))
-
-    # FVG bottom (bearish FVG: type==-1)
-    fvg_type = _fval(features, "fvg_type")
-    fvg_bottom = _fval(features, "fvg_bottom")
-    if fvg_type == -1.0 and fvg_bottom > EPSILON_TOLERANCE:
-        candidates.append((fvg_bottom, f"FVG bottom {fvg_bottom:.2f}", "fvg"))
-
-    # OB bottom (bearish OB: type==-1)
-    ob_type = _fval(features, "ob_type")
-    ob_bottom = _fval(features, "ob_bottom")
-    if ob_type == -1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
-        candidates.append((ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob"))
-
-    # Kalman lower
-    kalman_lower = _fval(features, "kalman_lower")
-    if kalman_lower > EPSILON_TOLERANCE:
-        candidates.append((kalman_lower, f"Kalman lower {kalman_lower:.2f}", "kalman"))
-
-    # Supply zone low (if below entry)
-    nearest_supply_low = _fval(features, "nearest_supply_low")
-    if EPSILON_TOLERANCE < nearest_supply_low < entry:
-        candidates.append(
-            (
-                nearest_supply_low,
-                f"Supply zone {nearest_supply_low:.2f}",
-                "supply_zone",
-            )
+        # S/R resistance
+        nearest_resistance = _fval(features, "nearest_resistance") or _fval(
+            features, "sr_nearest_resistance"
         )
+        if nearest_resistance > EPSILON_TOLERANCE:
+            candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
 
-    # Prior day low as target for shorts
-    prior_day_low = _fval(features, "prior_day_low")
-    if EPSILON_TOLERANCE < prior_day_low < entry:
-        candidates.append((prior_day_low, f"Prior Day L {prior_day_low:.2f}", "prior_day"))
+        # BSL level (if significant)
+        bsl_level = _fval(features, "bsl_level")
+        bsl_significance = _fval(features, "bsl_significance")
+        if bsl_level > EPSILON_TOLERANCE and bsl_significance >= 0.5:
+            candidates.append(
+                (bsl_level, f"BSL (sig={bsl_significance:.2f}) {bsl_level:.2f}", "bsl")
+            )
 
-    # Session low (overnight) as target
-    overnight_low = _fval(features, "overnight_low")
-    if EPSILON_TOLERANCE < overnight_low < entry:
-        candidates.append((overnight_low, f"Overnight L {overnight_low:.2f}", "overnight"))
+        # VWAP bands
+        vwap_upper_1 = _fval(features, "vwap_upper_1")
+        if vwap_upper_1 > EPSILON_TOLERANCE:
+            candidates.append((vwap_upper_1, f"VWAP+1σ {vwap_upper_1:.2f}", "vwap_1sigma"))
 
-    # Volume Profile priority candidates for shorts — bypass standard ATR range filter
+        vwap_upper_2 = _fval(features, "vwap_upper_2")
+        if vwap_upper_2 > EPSILON_TOLERANCE:
+            candidates.append((vwap_upper_2, f"VWAP+2σ {vwap_upper_2:.2f}", "vwap_2sigma"))
+
+        # FVG top (bullish FVG: type==1)
+        fvg_type = _fval(features, "fvg_type")
+        fvg_top = _fval(features, "fvg_top")
+        if fvg_type == 1.0 and fvg_top > EPSILON_TOLERANCE:
+            candidates.append((fvg_top, f"FVG top {fvg_top:.2f}", "fvg"))
+
+        # OB top (bullish OB: type==1)
+        ob_type = _fval(features, "ob_type")
+        ob_top = _fval(features, "ob_top")
+        if ob_type == 1.0 and ob_top > entry:
+            candidates.append((ob_top, f"OB top {ob_top:.2f}", "ob"))
+
+        # Kalman upper
+        kalman_upper = _fval(features, "kalman_upper")
+        if kalman_upper > EPSILON_TOLERANCE:
+            candidates.append((kalman_upper, f"Kalman upper {kalman_upper:.2f}", "kalman"))
+
+        # Demand zone high (if above entry)
+        nearest_demand_high = _fval(features, "nearest_demand_high")
+        if nearest_demand_high > entry:
+            candidates.append(
+                (nearest_demand_high, f"Demand zone {nearest_demand_high:.2f}", "demand_zone")
+            )
+
+        # Prior day high as target for longs
+        prior_day_high = _fval(features, "prior_day_high")
+        if prior_day_high > entry:
+            candidates.append((prior_day_high, f"Prior Day H {prior_day_high:.2f}", "prior_day"))
+
+        # Session high (overnight) as target
+        overnight_high = _fval(features, "overnight_high")
+        if overnight_high > entry:
+            candidates.append((overnight_high, f"Overnight H {overnight_high:.2f}", "overnight"))
+
+    else:
+        # --- Short structural levels ---
+
+        # S/R support
+        nearest_support = _fval(features, "nearest_support") or _fval(
+            features, "sr_nearest_support"
+        )
+        if nearest_support > EPSILON_TOLERANCE:
+            candidates.append((nearest_support, f"S/R {nearest_support:.2f}", "sr"))
+
+        # SSL level (if significant)
+        ssl_level = _fval(features, "ssl_level")
+        ssl_significance = _fval(features, "ssl_significance")
+        if ssl_level > EPSILON_TOLERANCE and ssl_significance >= 0.5:
+            candidates.append(
+                (ssl_level, f"SSL (sig={ssl_significance:.2f}) {ssl_level:.2f}", "ssl")
+            )
+
+        # VWAP bands
+        vwap_lower_1 = _fval(features, "vwap_lower_1")
+        if vwap_lower_1 > EPSILON_TOLERANCE:
+            candidates.append((vwap_lower_1, f"VWAP-1σ {vwap_lower_1:.2f}", "vwap_1sigma"))
+
+        vwap_lower_2 = _fval(features, "vwap_lower_2")
+        if vwap_lower_2 > EPSILON_TOLERANCE:
+            candidates.append((vwap_lower_2, f"VWAP-2σ {vwap_lower_2:.2f}", "vwap_2sigma"))
+
+        # FVG bottom (bearish FVG: type==-1)
+        fvg_type = _fval(features, "fvg_type")
+        fvg_bottom = _fval(features, "fvg_bottom")
+        if fvg_type == -1.0 and fvg_bottom > EPSILON_TOLERANCE:
+            candidates.append((fvg_bottom, f"FVG bottom {fvg_bottom:.2f}", "fvg"))
+
+        # OB bottom (bearish OB: type==-1)
+        ob_type = _fval(features, "ob_type")
+        ob_bottom = _fval(features, "ob_bottom")
+        if ob_type == -1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
+            candidates.append((ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob"))
+
+        # Kalman lower
+        kalman_lower = _fval(features, "kalman_lower")
+        if kalman_lower > EPSILON_TOLERANCE:
+            candidates.append((kalman_lower, f"Kalman lower {kalman_lower:.2f}", "kalman"))
+
+        # Supply zone low (if below entry)
+        nearest_supply_low = _fval(features, "nearest_supply_low")
+        if EPSILON_TOLERANCE < nearest_supply_low < entry:
+            candidates.append(
+                (nearest_supply_low, f"Supply zone {nearest_supply_low:.2f}", "supply_zone")
+            )
+
+        # Prior day low as target for shorts
+        prior_day_low = _fval(features, "prior_day_low")
+        if EPSILON_TOLERANCE < prior_day_low < entry:
+            candidates.append((prior_day_low, f"Prior Day L {prior_day_low:.2f}", "prior_day"))
+
+        # Session low (overnight) as target
+        overnight_low = _fval(features, "overnight_low")
+        if EPSILON_TOLERANCE < overnight_low < entry:
+            candidates.append((overnight_low, f"Overnight L {overnight_low:.2f}", "overnight"))
+
+    # --- Institutional levels ---
+
+    # Weekly pivots
+    if direction == 1:
+        for field in ("weekly_r1", "weekly_r2"):
+            lvl = features.get(field)
+            if lvl and float(lvl) > entry:
+                candidates.append(
+                    (float(lvl), f"Weekly {field.upper()} {float(lvl):.2f}", "weekly_pivot")
+                )
+    else:
+        for field in ("weekly_s1", "weekly_s2"):
+            lvl = features.get(field)
+            if lvl and float(lvl) < entry:
+                candidates.append(
+                    (float(lvl), f"Weekly {field.upper()} {float(lvl):.2f}", "weekly_pivot")
+                )
+
+    # Fibonacci cluster (strength gate: lone levels are noise)
+    fib_lvl = features.get("nearest_fib_level")
+    fib_strength = float(features.get("fib_cluster_strength") or 0.0)
+    if fib_lvl is not None and float(fib_lvl) > EPSILON_TOLERANCE and fib_strength >= 0.5:
+        fib = float(fib_lvl)
+        if direction == 1 and fib > entry:
+            candidates.append((fib, f"Fib cluster {fib:.2f}", "fib"))
+        elif direction == -1 and fib < entry:
+            candidates.append((fib, f"Fib cluster {fib:.2f}", "fib"))
+
+    # Asian session H/L
+    if direction == 1:
+        asian_h = features.get("asian_session_high")
+        if asian_h and float(asian_h) > entry:
+            candidates.append((float(asian_h), f"Asian H {float(asian_h):.2f}", "asian_session"))
+    else:
+        asian_l = features.get("asian_session_low")
+        if asian_l and float(asian_l) < entry:
+            candidates.append((float(asian_l), f"Asian L {float(asian_l):.2f}", "asian_session"))
+
+    # AVWAP bands
+    if direction == 1:
+        avwap_upper = features.get("avwap_upper_band")
+        if avwap_upper and float(avwap_upper) > entry:
+            candidates.append(
+                (float(avwap_upper), f"AVWAP upper {float(avwap_upper):.2f}", "avwap")
+            )
+    else:
+        avwap_lower = features.get("avwap_lower_band")
+        if avwap_lower and float(avwap_lower) < entry:
+            candidates.append(
+                (float(avwap_lower), f"AVWAP lower {float(avwap_lower):.2f}", "avwap")
+            )
+
+    # --- Volume Profile priority candidates (bypass ATR range filter) ---
+    # VP levels are meaningful even when < 0.5 ATR from entry because
+    # _vp_regime_active() guarantees the VA boundary is institutionally significant.
     priority_candidates: list[tuple[float, str, str]] = []
-    tf = features.get("timeframe", "")
     vp = _select_vp(features, tf)
     if vp is not None and _vp_regime_active(features):
         poc, vah, val = vp
         price_in_va = _fval(features, "price_in_value_area")
-        if price_in_va == 1.0:
-            # Inside value area: target the far boundary (VAL for shorts)
-            if val < entry:
-                priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
+        if direction == 1:
+            if price_in_va == 1.0:
+                # Inside value area: target the far boundary (VAH for longs)
+                if vah > entry:
+                    priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
+            else:
+                # Near VA boundary: T1=POC, T2=VAH
+                if poc > entry:
+                    priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
+                if vah > entry:
+                    priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
         else:
-            # Near VA boundary: T1=POC, T2=VAL
-            if poc < entry:
-                priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
-            if val < entry:
-                priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
+            if price_in_va == 1.0:
+                # Inside value area: target the far boundary (VAL for shorts)
+                if val < entry:
+                    priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
+            else:
+                # Near VA boundary: T1=POC, T2=VAL
+                if poc < entry:
+                    priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
+                if val < entry:
+                    priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
 
-    # Standard candidates filtered to ATR range
-    valid = [
-        (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
-    ]
-    # Sort by distance ascending (closest first = largest price value for shorts)
-    valid.sort(key=lambda x: x[0], reverse=True)
+    # ATR range filter on standard candidates
+    valid = [(p, lbl, t) for p, lbl, t in candidates if min_level < p < max_level]
+    if direction == 1:
+        valid.sort(key=lambda x: x[0])
+    else:
+        valid.sort(key=lambda x: x[0], reverse=True)
 
-    # Prepend VP priority candidates (they bypass the range filter)
     all_candidates = priority_candidates + valid
-
-    return [
-        TradeTarget(price=price, label=label, level_type=ltype, rr=round((entry - price) / risk, 2))
-        for price, label, ltype in all_candidates
-    ]
+    if direction == 1:
+        return [
+            TradeTarget(
+                price=price, label=label, level_type=ltype, rr=round((price - entry) / risk, 2)
+            )
+            for price, label, ltype in all_candidates
+        ]
+    else:
+        return [
+            TradeTarget(
+                price=price, label=label, level_type=ltype, rr=round((entry - price) / risk, 2)
+            )
+            for price, label, ltype in all_candidates
+        ]
 
 
 def _pick_targets(
@@ -925,10 +960,12 @@ def frame_trade(
     # Resolve stop with continuous GARCH-adaptive buffer
     if direction == 1:
         stop, stop_type = _resolve_stop_long(resolved_entry, atr, features, regime_type)
-        candidates = _collect_targets_long(resolved_entry, stop, atr, features)
     else:
         stop, stop_type = _resolve_stop_short(resolved_entry, atr, features, regime_type)
-        candidates = _collect_targets_short(resolved_entry, stop, atr, features)
+
+    candidates = _collect_target_candidates(
+        resolved_entry, stop, direction, atr, features, regime_type
+    )
 
     # Targets use raw atr: stops widen in high vol, degrading RR and gating low-quality signals
 
