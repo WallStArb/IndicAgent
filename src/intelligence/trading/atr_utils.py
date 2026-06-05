@@ -54,3 +54,17 @@ def get_atr_with_floor(features: dict[str, Any], symbol: str) -> float | None:
         return None
     min_tick = get_tick_size(symbol)
     return atr if atr >= min_tick else None
+
+
+def get_atr_with_floor_from_frames(frames: dict[str, Any]) -> float | None:
+    """Get tick-floored ATR from the plugin_input frames dict.
+
+    Reads symbol from frames["symbol"] (set by executor) and ATR from
+    frames["i1"]. Call this in compute_full() instead of get_atr_with_floor()
+    to correctly apply the instrument tick-size floor.
+
+    Returns None when ATR is None or below the instrument's minimum tick.
+    """
+    symbol = frames.get("symbol") or frames.get("__symbol__", "")
+    i1 = frames.get("i1") or {}
+    return get_atr_with_floor(i1, symbol)
