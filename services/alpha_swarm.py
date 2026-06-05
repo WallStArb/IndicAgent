@@ -41,6 +41,7 @@ import structlog
 from src.config.settings import Settings
 from src.core.ai.evaluator import Evaluator
 from src.core.ai.output import AgentOutput
+from src.core.memory.factory import build_memory_client
 from src.core.service_utils import format_iso_ts
 from src.core.stream_keys import (
     topic_intelligence,
@@ -96,6 +97,8 @@ class AlphaSwarm(BaseGroupCoordinator):
         # Populated in _setup() after LLM chain is ready (CLAUDE.md pattern).
         self._agents: list[Evaluator] = []
         self._semaphore: asyncio.Semaphore | None = None
+        # Phase 097: MemoryClient built in _setup() behind AGENT_MEMORY_ENABLED gate.
+        self._memory_client: Any | None = None
         # In-memory weights cache: (agent_id, timeframe) -> weight
         self._agent_weights: dict[tuple[str, str], float] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -132,6 +135,11 @@ class AlphaSwarm(BaseGroupCoordinator):
         This method only configures semaphore, config propagation, and SIGUSR1.
         """
         await super()._setup()
+
+        # Phase 097: build MemoryClient behind AGENT_MEMORY_ENABLED gate.
+        # Returns None when disabled (default) or on construction error — agents
+        # gate on `if context.memory_client is not None` before reading.
+        self._memory_client = build_memory_client(self.settings, self._pool)
 
         # MLEvaluator requires async _setup_models() call — find by type.
         ml = next((a for a in self._agents if isinstance(a, MLEvaluator)), None)
