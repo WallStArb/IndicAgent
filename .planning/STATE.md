@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: executing
-last_updated: "2026-06-05T01:00:53.755Z"
+last_updated: "2026-06-05T10:39:46.274Z"
 progress:
-  total_phases: 17
-  completed_phases: 0
-  total_plans: 24
-  completed_plans: 3
-  percent: 0
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -68,4 +68,15 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-Resume: `/gsd-execute-phase 096` — execute the agent registry phase
+### Last session (2026-06-05) — signal data remediation (outside GSD phases)
+
+Two commits shipped directly to main:
+1. `0f66e77b` — lifecycle/emission gate fixes: get_tick_size(), _MIN_RISK guard, 76k+ DB pnl_r NULLed
+2. `19f7a918` — root causes: get_atr_with_floor(), gap_analysis direction bug, validate_signal target check, symbol="" fix, round_to_tick expiry stripping
+
+Three open items (see memory: project_signal_data_remediation.md):
+1. **Lifecycle replay** — SQL partial reset + `lifecycle_replay.py --workers 8` for 51k zero-pnl signals
+2. **cross_asset_divergence test mocks** — `_mock_frame(direction)` fix needed (17 call sites)
+3. **30 remaining ATR plugins** — switch get_atr() → get_atr_with_floor() for clean no_signal()
+
+Resume GSD work: `/gsd-execute-phase 097` — Zep episodic memory (6 plans reviewed, ready)
