@@ -1312,13 +1312,13 @@ Plans:
   6. All existing unit tests pass; new unit tests cover ATR clustering, TF lookback selection, round number grid, consensus output with and without candidates
 
 
-**Plans:** 3 plans
+**Plans:** 2/3 plans executed
 
 Plans:
 
 **Wave 1** — Fix struct_SupportResistance I3 inputs (independent)
 
-- [ ] 116-01-PLAN.md — ATR-proportional clustering + TF-proportional lookback + volume-weighted strength + kill synthetic fallback; update SR plugin unit tests
+- [x] 116-01-PLAN.md — ATR-proportional clustering + TF-proportional lookback + volume-weighted strength + kill synthetic fallback; update SR plugin unit tests
 
 **Wave 2** *(depends on Wave 1)* — Extend zone_engine candidate synthesis
 
@@ -1326,7 +1326,7 @@ Plans:
 
 **Wave 3** *(depends on Wave 2)* — ctx_SRConsensus I4 Wave-B plugin
 
-- [ ] 116-03-PLAN.md — 6 I4Context schema fields (schema-first) + ctx_SRConsensus plugin (round numbers + proximity gate + confluence) + 4-location registration + new unit test file
+- [x] 116-03-PLAN.md — 6 I4Context schema fields (schema-first) + ctx_SRConsensus plugin (round numbers + proximity gate + confluence) + 4-location registration + new unit test file
 
 ### Phase 101: Composite Fitness Function
 
@@ -1612,4 +1612,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
 | 113. Architecture Hardening | v2.8 | 1/1 | Complete   | 2026-06-03 |
 | 114. Occam's Razor | v2.8 | 4/4 plans written/0 executed | Planned | - |
-| 116. SR Consensus — Multi-Method Support/Resistance | v2.8 | 0/TBD | Not started | - |
+| 116. SR Consensus — Multi-Method Support/Resistance | v2.8 | 2/3 | In Progress|  |
