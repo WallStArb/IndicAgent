@@ -409,6 +409,14 @@ class I4Context(BaseModel):
     eq_spread_z: float | None = None  # dominant EQ pair spread z-score; EQ_INDEX only
     eq_pairs_confirming: float | None = None  # 0.0-2.0 confirming pairs; EQ_INDEX only
 
+    # ctx_SRConsensus outputs (Phase 116)
+    sr_nearest_support: float | None = None
+    sr_nearest_resistance: float | None = None
+    sr_support_confluence_score: float | None = None
+    sr_resistance_confluence_score: float | None = None
+    sr_support_dist_atr: float | None = None
+    sr_resistance_dist_atr: float | None = None
+
 
 class I5Patterns(BaseModel):
     """I5 pattern detection outputs.

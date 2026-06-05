@@ -94,6 +94,7 @@ from .context.kalman_trend import plugin as kalman_trend_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
+from .context.sr_consensus import plugin as sr_consensus_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.vix_regime import plugin as vix_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
@@ -184,6 +185,7 @@ def validate_schema_coverage() -> None:
                 hurst_plugin,
                 shannon_plugin,
                 kalman_trend_plugin,
+                sr_consensus_plugin,
                 session_ctx_plugin,
                 anchored_vwap_plugin,
                 volume_profile_plugin,
@@ -334,6 +336,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(hurst_plugin)
     registry.register_pattern(shannon_plugin)
     registry.register_pattern(kalman_trend_plugin)
+    registry.register_pattern(sr_consensus_plugin)
     registry.register_pattern(session_ctx_plugin)
     registry.register_pattern(vix_regime_plugin)
     registry.register_pattern(cross_asset_ctx_plugin)
@@ -484,6 +487,7 @@ TIER_I4: list[str] = [
     hurst_plugin.name,
     shannon_plugin.name,
     kalman_trend_plugin.name,
+    sr_consensus_plugin.name,
     session_ctx_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
@@ -577,6 +581,8 @@ I4_WAVE_A: list[str] = [
 ]
 I4_WAVE_B: list[str] = [
     kalman_trend_plugin.name,
+    sr_consensus_plugin.name,
+    sr_consensus_plugin.name,
 ]
 
 # SMC: order_blocks + fvg + liquidity_pools must complete before
