@@ -247,7 +247,9 @@ class TestEmissionGate:
             self._make_signal(entry=1.10000, stop=1.099995)
 
     def test_rejects_unknown_stop_type(self):
-        with pytest.raises(ValueError, match="stop_type"):
+        # Gate 2 is now an assert (invariant documentation); frame_trade() never
+        # produces "unknown" in production. Assert raises AssertionError, not ValueError.
+        with pytest.raises(AssertionError, match="stop_type"):
             self._make_signal(stop_type="unknown")
 
 
