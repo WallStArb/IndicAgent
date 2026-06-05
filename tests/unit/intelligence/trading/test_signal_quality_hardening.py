@@ -270,10 +270,15 @@ class TestTTLReorder:
         }
 
     def test_target_hit_on_ttl_bar_takes_target_not_ttl(self):
+        # T1 no longer exits; use a signal with T2 so a target exit still fires.
+        # The invariant under test is: price-at-target beats TTL expiry on the same bar.
         sig = self._base_signal(bars_elapsed=20, ttl=20)
-        result = evaluate_signal(sig, high=105.0, low=99.0, close=103.0)
+        sig["targets"] = [104.0, 108.0]  # add T2 so a target exit is possible
+        sig["expires_at"] = _T0 + timedelta(minutes=20)
+        bar_time = _T0 + timedelta(minutes=20)  # exactly at TTL boundary
+        result = evaluate_signal(sig, high=109.0, low=99.0, close=107.0, bar_time=bar_time)
         assert result is not None
-        assert result.exit_reason == "target_1"
+        assert result.exit_reason == "target_2"  # target_2 beats TTL
 
     def test_stop_on_ttl_bar_takes_stop_not_ttl(self):
         sig = self._base_signal(bars_elapsed=20, ttl=20)
