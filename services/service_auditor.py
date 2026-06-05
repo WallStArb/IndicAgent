@@ -90,6 +90,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-graduation-writer": 8,  # priority 8: downstream of graduation-compute (8)
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     "indicagent-ml-signal-training-materialize": 8,  # oneshot timer service; no lag threshold needed
+    "indicagent-memory-batch": 8,  # oneshot: nightly 21:00 memory backfill + calibration promotion
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
@@ -175,6 +176,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ml-training",
         "indicagent-ml-signal-training-materialize",
         "indicagent-roll-batch",
+        "indicagent-memory-batch",  # Type=oneshot, timer-triggered nightly 21:00; D-06 jobs: memory-epoch/memory-regime/memory-backfill/memory-promote
         "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
         "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
     }
