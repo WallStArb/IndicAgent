@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from math import tanh
 from typing import Any
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..plugins import InputSpec
 
 
@@ -105,9 +107,7 @@ class CrossTFSRConfluencePlugin:
             if not isinstance(support, (int, float)) or support == 0:
                 continue
 
-            atr = intel.get("atr_14", 1)  # I1 ATR field
-            if not isinstance(atr, (int, float)) or atr <= 0:
-                atr = 1.0
+            atr = get_atr(intel) or 1.0
 
             # Normalize distances to S/R in ATR units
             dist_to_resistance = (float(resistance) - close) / float(atr)

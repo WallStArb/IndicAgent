@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 
 
 @dataclass
@@ -397,7 +398,7 @@ class CandlestickPatternsPlugin:
 
         # --- Tweezer Top (near-identical highs between p and c) ---
         tweezer_top = 0.0
-        atr_val = float(features.get("atr_14") or 0.0)
+        atr_val = get_atr(features) or 0.0
         if atr_val > 0 and abs(p_h - c_h) <= 0.1 * atr_val:
             tweezer_top = 1.0
 

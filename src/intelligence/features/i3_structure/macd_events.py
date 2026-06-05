@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 from src.intelligence.utils.common import crossover_detect, is_num, track_bars_ago
 
 
@@ -77,9 +78,9 @@ class MACDEventsPlugin:
         df = frames.get("main")
         nearest_support = i3.get("nearest_support")
         close = float(df["close"].iloc[-1]) if df is not None and len(df) else None
-        atr = i1.get("atr_14")
+        atr = get_atr(i1)
         neg_support = 0
-        if hist < 0 and is_num(nearest_support) and is_num(close) and is_num(atr) and atr > 0:
+        if hist < 0 and is_num(nearest_support) and is_num(close) and atr is not None:
             dist = abs(close - nearest_support) / atr
             neg_support = 1 if dist < self._SUPPORT_ATR_THRESHOLD else 0
         out["macd_negative_support_test"] = neg_support

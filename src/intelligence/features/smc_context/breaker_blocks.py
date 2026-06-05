@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 
 
 @dataclass
@@ -52,7 +53,7 @@ class BreakerBlocksPlugin:
             **(frames.get("smc") or {}),
         }
         close = float(df["close"].iloc[-1])
-        atr = features.get("atr_14")
+        atr = get_atr(features)
 
         ob_type = features.get("ob_type")
         ob_top = features.get("ob_top")
@@ -107,9 +108,9 @@ class BreakerBlocksPlugin:
             active = 1.0  # above bearish breaker — still relevant
 
         dist_atr = None
-        if isinstance(atr, (int, float)) and atr > 0:
+        if atr is not None:
             midpoint = (top + bottom) / 2
-            dist_atr = abs(close - midpoint) / float(atr)
+            dist_atr = abs(close - midpoint) / atr
 
         return {
             "breaker_block_active": active,

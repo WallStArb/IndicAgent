@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 
 from .swing_utils import find_swing_highs, find_swing_lows
 
@@ -58,8 +59,8 @@ class BOSCHoCHPlugin:
         close = df["close"].to_numpy(dtype=float)
 
         # ATR for strength normalization
-        atr_14 = features.get("atr_14")
-        has_atr = isinstance(atr_14, (int, float)) and float(atr_14) > 0
+        atr_14 = get_atr(features)
+        has_atr = atr_14 is not None
 
         swing_highs = find_swing_highs(high, self.neighbor)
         swing_lows = find_swing_lows(low, self.neighbor)
@@ -99,7 +100,7 @@ class BOSCHoCHPlugin:
                 bos_level = last_sh_price
                 # Gradient: break distance / ATR
                 if has_atr:
-                    bos_strength = max(0.0, (float(close[i]) - last_sh_price) / float(atr_14))
+                    bos_strength = max(0.0, (float(close[i]) - last_sh_price) / atr_14)
                 break
             if close[i] < last_sl_price:
                 bos_detected = 1.0
@@ -107,7 +108,7 @@ class BOSCHoCHPlugin:
                 bos_level = last_sl_price
                 # Gradient: break distance / ATR
                 if has_atr:
-                    bos_strength = max(0.0, (last_sl_price - float(close[i])) / float(atr_14))
+                    bos_strength = max(0.0, (last_sl_price - float(close[i])) / atr_14)
                 break
 
         # CHoCH: BOS in opposite direction to prevailing trend

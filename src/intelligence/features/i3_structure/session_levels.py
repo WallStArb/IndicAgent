@@ -17,6 +17,7 @@ import pandas as pd
 
 from src.intelligence.plugins import InputSpec
 from src.intelligence.plugins.mixins import IncrementalMixin
+from src.intelligence.trading.atr_utils import get_atr
 
 _SESSION_BARS = 390  # ~1 trading day on 1m
 _WEEK_BARS = 1950  # ~5 trading days on 1m
@@ -62,7 +63,7 @@ class SessionLevelsPlugin(IncrementalMixin):
 
         i1 = frames.get("i1") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
+        atr_14 = get_atr(i1)
         n = len(df)
 
         # Session window: most recent ~1 trading day
@@ -153,9 +154,7 @@ class SessionLevelsPlugin(IncrementalMixin):
             nearest = min(levels, key=lambda x: abs(x - close))
             result["nearest_session_level"] = nearest
             result["nearest_level_dist_atr"] = (
-                abs(close - nearest) / float(atr_14)
-                if isinstance(atr_14, (int, float)) and atr_14 > 0
-                else None
+                abs(close - nearest) / atr_14 if atr_14 is not None else None
             )
         else:
             result["nearest_session_level"] = None
@@ -299,7 +298,7 @@ class SessionLevelsPlugin(IncrementalMixin):
 
         i1 = windows.get("i1") or {}
         close = float(df["close"].iloc[-1])
-        atr_14 = i1.get("atr_14")
+        atr_14 = get_atr(i1)
         n = len(df)
 
         bar = df.iloc[-1]
@@ -424,9 +423,7 @@ class SessionLevelsPlugin(IncrementalMixin):
             nearest = min(levels, key=lambda x: abs(x - close))
             result["nearest_session_level"] = nearest
             result["nearest_level_dist_atr"] = (
-                abs(close - nearest) / float(atr_14)
-                if isinstance(atr_14, (int, float)) and atr_14 > 0
-                else None
+                abs(close - nearest) / atr_14 if atr_14 is not None else None
             )
         else:
             result["nearest_session_level"] = None

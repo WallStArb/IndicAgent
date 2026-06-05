@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 
 # Reaction type encoding
 _REACTION_NONE = 0.0
@@ -45,8 +46,8 @@ class KeyLevelReactionPlugin:
         }
         _close_feat = features.get("close")
         close = float(_close_feat if _close_feat is not None else df["close"].iloc[-1])
-        atr_14 = features.get("atr_14")
-        proximity = float(atr_14) * 0.5 if isinstance(atr_14, (int, float)) and atr_14 > 0 else 0.0
+        atr_14 = get_atr(features)
+        proximity = atr_14 * 0.5 if atr_14 is not None else 0.0
 
         # Collect candidate key levels from features
         level_sources = {

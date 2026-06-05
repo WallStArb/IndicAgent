@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..utils import clamp, is_num
 from .confluence_weights import _TF_MINUTES, _proximity_decay, _sign, extract_trend_sign
 
@@ -49,7 +51,7 @@ def score_fvg_alignment(
     Returns (aggregate_score, per_tf_contributions) for full auditability.
     """
     cur_price = features.get("close") or 0.0
-    atr = features.get("atr_14") or 0.0
+    atr = get_atr(features) or 0.0
     if cur_trend == 0 or atr <= 0:
         return 0.0, {}
 
@@ -95,7 +97,7 @@ def score_ob_alignment(
     Returns (aggregate_score, per_tf_contributions) for full auditability.
     """
     cur_price = features.get("close") or 0.0
-    atr = features.get("atr_14") or 0.0
+    atr = get_atr(features) or 0.0
     if cur_trend == 0 or atr <= 0:
         return 0.0, {}
 

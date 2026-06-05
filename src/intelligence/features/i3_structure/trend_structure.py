@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from src.intelligence.plugins import InputSpec
+from src.intelligence.trading.atr_utils import get_atr
 from src.intelligence.utils import find_peaks, find_troughs
 
 
@@ -89,11 +90,10 @@ class TrendStructurePlugin:
 
         # ATR normalisation if available
         i1 = frames.get("i1")
-        if isinstance(i1, dict) and "atr_14" in i1:
-            atr = i1["atr_14"]
-            if atr > 0:
-                price_range = float(np.max(high[-20:]) - np.min(low[-20:]))
-                strength = min(1.0, strength * (price_range / atr) / 5.0)
+        atr = get_atr(i1) if isinstance(i1, dict) else None
+        if atr is not None:
+            price_range = float(np.max(high[-20:]) - np.min(low[-20:]))
+            strength = min(1.0, strength * (price_range / atr) / 5.0)
 
         # Structure integrity: how clean are the swings (no overlapping)?
         overlap_count = 0

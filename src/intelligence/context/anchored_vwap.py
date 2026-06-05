@@ -5,6 +5,8 @@ from typing import Any
 
 import numpy as np
 
+from src.intelligence.trading.atr_utils import get_atr
+
 from ..plugins import InputSpec
 from ..utils.gradient_utils import linear_ramp
 
@@ -144,9 +146,9 @@ class AnchoredVWAPPlugin:
 
         # above_weekly_vwap: compute deviation from weekly VWAP, use ATR if available
         weekly_dev = current_close - weekly_vwap
-        atr_val = i1_tier.get("atr_14")
-        if isinstance(atr_val, (int, float)) and atr_val > 0:
-            above_weekly = linear_ramp(weekly_dev / float(atr_val), -2.0, 2.0)
+        atr_val = get_atr(i1_tier)
+        if atr_val is not None:
+            above_weekly = linear_ramp(weekly_dev / atr_val, -2.0, 2.0)
         elif weekly_vwap > 0:
             # Fallback: percentage deviation mapped from [-1%, 1%] to [0, 1]
             above_weekly = linear_ramp(weekly_dev / weekly_vwap * 100.0, -1.0, 1.0)
