@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr
+from .atr_utils import get_atr_with_floor
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
@@ -77,7 +77,8 @@ class SessionExtremesSetupPlugin:
         if not (session_london or session_ny):
             return no_signal()
 
-        atr = get_atr(features)
+        symbol = frames.get("symbol", "")
+        atr = get_atr_with_floor(features, symbol)
         if atr is None:
             return no_signal()
 
@@ -171,9 +172,9 @@ class SessionExtremesSetupPlugin:
         )
         signal = make_signal_from_frame(
             _tf,
-            symbol="",
-            timeframe="",
-            timestamp="",
+            symbol=symbol,
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
             setup_plugin=self.name,
             direction=direction,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr
+from .atr_utils import get_atr_with_floor
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
@@ -89,7 +89,8 @@ class GapAnalysisSetupPlugin:
         if direction == 0:
             return no_signal()
 
-        atr = get_atr(features)
+        symbol = frames.get("symbol", "")
+        atr = get_atr_with_floor(features, symbol)
         if atr is None:
             return no_signal()
 
@@ -120,13 +121,17 @@ class GapAnalysisSetupPlugin:
 
         # GAP-03: Entry, stop, and targets — all bias-dependent
         if bias == "fade":
+            # Fade trades AGAINST the gap direction: upward gap → short, downward gap → long.
+            # direction here reflects gap direction; fade_direction is the trade direction.
+            fade_direction = -direction
             entry_type = "at_limit"
-            entry = open_[-1]  # current session open (fade from here toward prior close)
-            stop = open_[-1] - direction * self.stop_atr_fade * atr
+            entry = open_[-1]
+            stop = open_[-1] - fade_direction * self.stop_atr_fade * atr
             targets = [
                 round(prior_close, 2),
-                round(prior_close + direction * self.target_atr_fade_ext * atr, 2),
+                round(prior_close + fade_direction * self.target_atr_fade_ext * atr, 2),
             ]
+            direction = fade_direction
         else:
             entry_type = "at_pullback"
             entry = open_[-1] + (-direction * 0.25 * atr)
@@ -175,9 +180,9 @@ class GapAnalysisSetupPlugin:
         )
         signal = make_signal_from_frame(
             _tf,
-            symbol="",
-            timeframe="",
-            timestamp="",
+            symbol=symbol,
+            timeframe=features.get("timeframe", ""),
+            timestamp=features.get("timestamp", ""),
             signal_type=signal_type,
             setup_plugin=self.name,
             direction=direction,

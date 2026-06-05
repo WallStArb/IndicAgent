@@ -104,7 +104,7 @@ def validate_signal(signal: dict) -> bool:
     targets = signal.get("targets")
     if not isinstance(targets, list) or len(targets) == 0:
         return False
-    # Stop must be on the correct side of entry.
+    # Stop and all targets must be on the correct side of entry.
     entry = signal.get("entry_price")
     stop = signal.get("stop_loss")
     if isinstance(entry, (int, float)) and isinstance(stop, (int, float)):
@@ -112,6 +112,13 @@ def validate_signal(signal: dict) -> bool:
             return False
         if int(direction) == -1 and stop <= entry:
             return False
+    if isinstance(entry, (int, float)) and isinstance(targets, list):
+        for t in targets:
+            if isinstance(t, (int, float)):
+                if int(direction) == 1 and t <= entry:
+                    return False
+                if int(direction) == -1 and t >= entry:
+                    return False
     return True
 
 
@@ -237,7 +244,7 @@ def make_signal_from_frame(
     if tf.stop_type == "unknown":
         raise ValueError("Emission gate: stop_type is 'unknown' — structural stop basis required")
 
-    # Gate 3: minimum risk/reward to first target
+    # Gate 3: minimum risk/reward to first target; all targets on correct side of entry
     target_prices = [t.price for t in tf.targets]
     if target_prices:
         reward = abs(target_prices[0] - entry)
