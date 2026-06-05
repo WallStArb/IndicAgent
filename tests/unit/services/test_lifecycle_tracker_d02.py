@@ -43,9 +43,9 @@ def _make_signal(status: str, activated_at: datetime | None = None) -> dict:
 
 
 class TestD02ViolationCounter:
-    """D-02 labeling violation counter fires in the TTL block, which is only
-    reached for ACTIVE signals after the TTL reorder. PENDING signals short-circuit
-    to zone activation check and never reach the TTL block.
+    """D-02 labeling violation counter fires in the TTL block, which is
+    reached for ACTIVE signals and for PENDING signals that miss zone activation.
+    PENDING signals fall through to TTL after _check_zone_activation returns None.
 
     For PENDING signals with zone overlap, evaluate_signal returns an activation
     Transition. The D-02 counter is NOT incremented for these cases — the violation
