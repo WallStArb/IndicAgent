@@ -23,7 +23,7 @@ const syne = Syne({
 
 export const metadata: Metadata = {
   title: "IndicAgent",
-  description: "Real-time futures trading intelligence",
+  description: "Multi-layer agentic intelligence platform for quantitative signal generation, pattern detection, trade lifecycle analysis, and evolvable AI that self-improves through live market feedback",
 };
 
 export default function RootLayout({
