@@ -375,7 +375,8 @@ class TestFramingAuditFieldsInLedgerEntry:
         from services.signal_writer import _payload_to_ledger_entries
 
         entries = _payload_to_ledger_entries(self._minimal_payload())
-        assert entries[0].stop_type == "swing_low"
+        # Field renamed to stop_type_col to match DB column name (WR-03)
+        assert entries[0].stop_type_col == "swing_low"
 
     def test_structural_stop_distance_extracted(self):
         from services.signal_writer import _payload_to_ledger_entries
