@@ -848,6 +848,7 @@ class PluginExecutor:
             "main": main_df,
             "features": features,
             "__symbol__": symbol,
+            "symbol": symbol,
             "__timeframe__": tf,
             "timeframe": tf,
             "__instrument__": self._instrument_map.get(symbol),
