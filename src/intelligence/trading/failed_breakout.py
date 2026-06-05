@@ -14,7 +14,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils.gradient_utils import hmm_regime_weight
-from .atr_utils import get_atr_with_floor
+from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
@@ -74,7 +74,7 @@ class FailedBreakoutPlugin:
 
         close = df["close"].to_numpy(dtype=float)
 
-        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
+        atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
 

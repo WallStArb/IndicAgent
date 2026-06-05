@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr_with_floor
+from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .signal_schema import make_signal_from_frame
@@ -80,7 +80,7 @@ class DeltaExhaustionPlugin:
         if abs(cvd_spike_z) <= _SPIKE_Z_THRESHOLD:
             return no_signal()
 
-        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
+        atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
 

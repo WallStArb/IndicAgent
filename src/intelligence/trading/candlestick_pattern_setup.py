@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr_with_floor
+from .atr_utils import get_atr_with_floor_from_frames
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
@@ -127,7 +127,7 @@ class CandlestickPatternSetupPlugin:
         df = frames.get("main")
         vol = df["volume"].to_numpy(dtype=float)
 
-        atr = get_atr_with_floor(features, str(features.get("symbol", "")))
+        atr = get_atr_with_floor_from_frames(frames)
         if atr is None:
             return no_signal()
 
