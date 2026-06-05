@@ -219,7 +219,9 @@ class DivergenceStackPlugin:
 
             entry = float(df["close"].iloc[-1])
             signal_type = signal_type_for_direction("divergence_stack", direction)
-            tf = frame_trade(signal_type, direction, entry, features, atr)
+            tf = frame_trade(
+                signal_type, direction, entry, features, atr, regime_type=self.regime_type
+            )
             if not tf.viable:
                 return {
                     **base_output,

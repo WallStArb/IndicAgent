@@ -112,7 +112,7 @@ class DeltaExhaustionPlugin:
         )
 
         sig_type = signal_type_for_direction("delta_exhaustion", direction)
-        tf = frame_trade(sig_type, direction, entry, features, atr)
+        tf = frame_trade(sig_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 

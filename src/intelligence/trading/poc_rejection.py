@@ -131,6 +131,7 @@ class POCRejectionPlugin:
             entry=entry,
             features=features,
             atr=atr,
+            regime_type=self.regime_type,
         )
         if not frame.viable:
             return no_signal()

@@ -122,7 +122,9 @@ class DualDivergencePlugin:
         confidence = compose_confidence(0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05)
 
         sig_type = signal_type_for_direction("dual_divergence", direction)
-        tf_result = frame_trade(sig_type, direction, entry, features, atr)
+        tf_result = frame_trade(
+            sig_type, direction, entry, features, atr, regime_type=self.regime_type
+        )
         if not tf_result.viable:
             return no_signal()
 
