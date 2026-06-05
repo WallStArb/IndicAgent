@@ -1,8 +1,12 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum } from "@/lib/format";
 import { abbreviatePlugin } from "@/lib/signal-utils";
+import { getApiBase } from "@/lib/api";
+
+const BUCKET_ORDER = ["trend", "momentum", "structure", "institutional", "regime", "pattern"];
 
 // ── Price Ladder ──────────────────────────────────────────────────────────────
 
@@ -198,11 +202,83 @@ function SetupEdgeLine({ signal }: { signal: SignalData }) {
 
 // ── CIS Bucket Breakdown (lazy fetch) ─────────────────────────────────────────
 
-// Placeholder — replaced in Task 2
 function CISBucketBreakdown({ signalId, cisScore }: { signalId?: string; cisScore?: number | null }) {
+  const [buckets, setBuckets] = useState<Record<string, number> | null | "loading">("loading");
+
+  useEffect(() => {
+    if (!signalId) { setBuckets(null); return; }
+    fetch(`${getApiBase()}/api/signals/detail/${signalId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setBuckets(d?.bucket_scores ?? null))
+      .catch(() => setBuckets(null));
+  }, [signalId]);
+
+  const scoreColor = cisScore != null
+    ? cisScore >= 0 ? "var(--green)" : "var(--red)"
+    : "var(--text-muted)";
+
   return (
-    <div className="text-[0.52rem] italic text-[var(--text-muted)]">
-      {signalId ? "Loading CIS…" : "No CIS data"}
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[0.48rem] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+          CIS Breakdown
+        </span>
+        {cisScore != null && (
+          <span className="text-[0.55rem] font-bold font-data" style={{ color: scoreColor }}>
+            {cisScore >= 0 ? "+" : ""}{fmtNum(cisScore, 2)}
+          </span>
+        )}
+      </div>
+
+      {buckets === "loading" && (
+        <div className="flex flex-col gap-1">
+          {[60, 40, 75, 30, 50, 45].map((w, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <div className="w-[68px] h-2 rounded bg-[var(--bg-elevated)] animate-pulse" />
+              <div className="flex-1 h-1.5 rounded bg-[var(--bg-elevated)] animate-pulse" style={{ maxWidth: `${w}%` }} />
+              <div className="w-[28px] h-2 rounded bg-[var(--bg-elevated)] animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {buckets === null && (
+        <span className="text-[0.52rem] italic text-[var(--text-muted)]">No CIS breakdown</span>
+      )}
+
+      {buckets !== null && buckets !== "loading" && (() => {
+        const sorted = BUCKET_ORDER
+          .filter(k => k in buckets)
+          .map(k => ({ key: k, val: buckets[k] }))
+          .sort((a, b) => Math.abs(b.val) - Math.abs(a.val));
+
+        return (
+          <div className="flex flex-col gap-1">
+            {sorted.map(({ key, val }) => (
+              <div key={key} className="flex items-center gap-1.5">
+                <span className="text-[0.48rem] text-[var(--text-muted)] w-[68px] shrink-0 capitalize">
+                  {key}
+                </span>
+                <div className="flex-1 h-1.5 rounded overflow-hidden bg-[var(--bg-elevated)]">
+                  <div
+                    className="h-full rounded"
+                    style={{
+                      width: `${Math.min(100, Math.abs(val) * 100)}%`,
+                      backgroundColor: val >= 0 ? "var(--green)" : "var(--red)",
+                    }}
+                  />
+                </div>
+                <span
+                  className="text-[0.5rem] font-data w-[32px] text-right shrink-0 font-bold"
+                  style={{ color: val >= 0 ? "var(--green)" : "var(--red)" }}
+                >
+                  {val >= 0 ? "+" : ""}{fmtNum(val, 2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
