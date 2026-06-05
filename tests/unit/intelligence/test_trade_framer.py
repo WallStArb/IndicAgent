@@ -877,3 +877,42 @@ class TestCollectTargetCandidates:
         candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
         prices = [c.price for c in candidates]
         assert 5025.0 in prices
+
+
+# ---------------------------------------------------------------------------
+# Audit fields: adaptive_buffer_mult and plugin_regime_type
+# ---------------------------------------------------------------------------
+
+
+class TestFrameTradeAuditFields:
+    def test_adaptive_buffer_mult_captured_normal_regime(self):
+        f = {"garch_vol_ratio": 1.0, "timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="trend")
+        assert tf.adaptive_buffer_mult == pytest.approx(1.0, rel=1e-4)
+
+    def test_adaptive_buffer_mult_captured_high_vol(self):
+        f = {"garch_vol_ratio": 1.5, "timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="trend")
+        assert tf.adaptive_buffer_mult == pytest.approx(1.35, rel=1e-4)
+
+    def test_adaptive_buffer_mult_hurst_tightening(self):
+        # H=0.75 trend -> tighten by (0.75-0.55)*0.16 = 0.032; mult = 1.0 * (1 - 0.032) = 0.968
+        f = {"garch_vol_ratio": 1.0, "hurst_exponent": 0.75, "timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="trend")
+        assert tf.adaptive_buffer_mult == pytest.approx(1.0 * (1.0 - 0.032), rel=1e-4)
+
+    def test_adaptive_buffer_mult_positivity_invariant(self):
+        # adaptive_buffer_mult must always be > 0 regardless of features
+        f = {"garch_vol_ratio": 0.0, "hurst_exponent": 0.99, "timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="trend")
+        assert tf.adaptive_buffer_mult > 0.0
+
+    def test_plugin_regime_type_stored(self):
+        f = {"timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0, regime_type="mean_reversion")
+        assert tf.plugin_regime_type == "mean_reversion"
+
+    def test_plugin_regime_type_none_when_not_passed(self):
+        f = {"timeframe": "5m"}
+        tf = frame_trade("trend_long", 1, 5000.0, f, atr=10.0)
+        assert tf.plugin_regime_type is None
