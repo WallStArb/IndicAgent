@@ -332,6 +332,7 @@ SET status = 'active',
     zone_entry_pct = $4,
     bars_to_activation = $5
 WHERE signal_id = $1::uuid
+  AND exit_at IS NULL
 """
 
 _RECORD_ZONE_RESOLUTION_SQL = """
@@ -384,6 +385,7 @@ SET status = $2,
     bars_in_trade = $15,
     outcome = $16
 WHERE signal_id = $1::uuid
+  AND exit_at IS NULL
 """
 
 

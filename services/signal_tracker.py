@@ -18,7 +18,7 @@ Consumer groups:
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import _path_bootstrap  # noqa: F401 — project root on sys.path
@@ -386,7 +386,12 @@ class SignalTracker(BaseDaemon):
             "activated_at": parse_iso_ts(raw.get("activated_at")),
             "garch_sigma_at_fire": raw.get("garch_sigma_at_fire"),
             "hmm_regime_at_fire": raw.get("hmm_regime_at_fire"),
-            "expires_at": raw.get("expires_at"),
+            "expires_at": raw.get("expires_at")
+            or (
+                ts + timedelta(seconds=int(raw.get("ttl_bars", 10)) * tf_to_seconds(tf))
+                if tf
+                else None
+            ),
         }
         # Shadow signals skip zone-entry and are tracked as immediately active so
         # outcomes accumulate for the shadow governance promotion gate.
@@ -1164,7 +1169,10 @@ class SignalTracker(BaseDaemon):
             FROM signal_ledger_full sl
             WHERE sl.exit_at IS NULL
               AND sl.status IN ('pending', 'active', 'regime_suppressed')
-              AND sl.timestamp > NOW() - INTERVAL '7 days'
+              AND (
+                (sl.status = 'pending' AND sl.timestamp > NOW() - INTERVAL '7 days')
+                OR (sl.status IN ('active', 'regime_suppressed') AND sl.timestamp > NOW() - INTERVAL '30 days')
+              )
         """
         try:
             for attempt in range(self._BOOTSTRAP_MAX_ATTEMPTS):

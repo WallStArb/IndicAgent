@@ -236,19 +236,25 @@ def evaluate_signal(
 
     # --- Pending: zone activation check (first) ---
     if status == SignalStatus.PENDING:
-        activation = _check_zone_activation(
-            sid,
-            direction,
-            zone_low,
-            zone_high,
-            high,
-            low,
-            bars,
-            signal_timestamp=signal_timestamp,
-            bar_time=bar_time,
-        )
-        if activation is not None:
-            return activation
+        # Guard: if this bar is already at or past the TTL window, expire as never_activated
+        # rather than letting zone entry sneak in on an already-dead signal.
+        _expires_at = signal.get("expires_at")
+        if _expires_at is not None and bar_time is not None and bar_time >= _expires_at:
+            pass  # fall through to TTL check below — do NOT attempt activation
+        else:
+            activation = _check_zone_activation(
+                sid,
+                direction,
+                zone_low,
+                zone_high,
+                high,
+                low,
+                bars,
+                signal_timestamp=signal_timestamp,
+                bar_time=bar_time,
+            )
+            if activation is not None:
+                return activation
         # No activation — fall through to TTL check below
 
     # --- Active signal checks (in priority order) ---
