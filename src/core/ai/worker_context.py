@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.llm.chain import LLMProviderChain  # ring0-ok: TYPE_CHECKING only, not at runtime
+    from src.core.memory.client import MemoryClient  # ring0-ok: TYPE_CHECKING only, not at runtime
 
 
 @dataclass(frozen=True)
@@ -21,11 +22,15 @@ class WorkerContext:
             at runtime. Callers pass a concrete SignalContext; Ring 0 code treats it as Any.
         llm_chain: The active LLMProviderChain for this run. String annotation keeps the
             import TYPE_CHECKING-only (mirrors base_agent.py precedent).
-        db_pool: Reserved for Phase 097 Zep memory integration. Defaults to None.
-        memory_client: Reserved for Phase 097 Zep memory integration. Defaults to None.
+        db_pool: asyncpg connection pool; None when the memory subsystem is disabled
+            (AGENT_MEMORY_ENABLED=False).
+        memory_client: Agent memory read facade (Phase 097). MemoryClient when
+            AGENT_MEMORY_ENABLED=True and startup wiring succeeded; None otherwise.
+            TYPE_CHECKING-only import keeps Ring 0 import-light at runtime (mirrors
+            LLMProviderChain pattern). Agents gate on `if context.memory_client is not None`.
     """
 
     signal_context: Any
     llm_chain: LLMProviderChain
     db_pool: Any | None = None
-    memory_client: Any | None = None
+    memory_client: MemoryClient | None = None
