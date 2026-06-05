@@ -236,7 +236,7 @@ def evaluate_signal(
 
     # --- Pending: zone activation check (first) ---
     if status == SignalStatus.PENDING:
-        return _check_zone_activation(
+        activation = _check_zone_activation(
             sid,
             direction,
             zone_low,
@@ -247,6 +247,9 @@ def evaluate_signal(
             signal_timestamp=signal_timestamp,
             bar_time=bar_time,
         )
+        if activation is not None:
+            return activation
+        # No activation — fall through to TTL check below
 
     # --- Active signal checks (in priority order) ---
 

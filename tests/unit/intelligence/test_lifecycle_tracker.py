@@ -143,6 +143,35 @@ class TestTTLExpiry:
         assert t.new_status == "expired"
         assert t.exit_reason == "ttl_expired"
 
+    @pytest.mark.unit
+    def test_pending_expires_at_ttl_no_zone_overlap(self):
+        """Pending signal: bar_time >= expires_at, bar does NOT overlap zone -> ttl_expired/never_activated.
+
+        This is the safety-valve case: signal generated, zone never touched, TTL elapsed.
+        After the fix, evaluate_signal falls through from the pending branch to the TTL
+        block when _check_zone_activation returns None.
+        """
+        sig = _pending_signal(direction=1, entry=5100.0, stop=5085.0)
+        sig["expires_at"] = _T0 + timedelta(minutes=10)
+        bar_time = _T0 + timedelta(minutes=11)
+
+        # Bar range 5040-5050 does NOT overlap zone (entry_zone defaults to entry ±0 → 5100).
+        # No entry_zone_low/entry_zone_high in _pending_signal() → zone_low = zone_high = entry = 5100.
+        # 5050 < 5100 → no overlap.
+        t = evaluate_signal(
+            sig,
+            high=5050.0,
+            low=5040.0,
+            close=5045.0,
+            bar_time=bar_time,
+            signal_timestamp=_T0,
+        )
+
+        assert t is not None, "Expected TTL-expired Transition, got None"
+        assert t.exit_reason == "ttl_expired"
+        assert t.new_status == "expired"
+        assert t.outcome == "never_activated"
+
 
 def _pending_with_zone(
     direction=1, entry=5100.0, stop=5085.0, zone_low=5095.0, zone_high=5105.0
