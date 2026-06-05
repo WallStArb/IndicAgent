@@ -827,6 +827,16 @@ SIGNAL_MFE_DISTRIBUTION = _meter.create_histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Framing observability (Phase 115)
+# ---------------------------------------------------------------------------
+
+STOP_BUFFER_MULT_DISTRIBUTION = _meter.create_histogram(
+    "stop_buffer_mult_distribution",
+    description="Adaptive buffer multiplier at frame time by regime_type and stop_type — alerts on vol regime drift",
+    unit="1",
+)
+
+# ---------------------------------------------------------------------------
 # Kafka publish latency (Phase 83)
 # ---------------------------------------------------------------------------
 
