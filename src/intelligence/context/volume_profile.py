@@ -237,7 +237,7 @@ class VolumeProfilePlugin:
         # nearest_hvn_dist_atr (legacy)
         nearest_hvn_level = directional.get("nearest_hvn_level")
         nearest_hvn_dist = (
-            abs(close - nearest_hvn_level) / float(atr_14)
+            abs(close - nearest_hvn_level) / atr_14
             if nearest_hvn_level is not None and atr_valid
             else None
         )
@@ -247,16 +247,10 @@ class VolumeProfilePlugin:
             1.0 if val is not None and vah is not None and val <= close <= vah else 0.0
         )
         va_width_atr = (
-            (vah - val) / float(atr_14)
-            if atr_valid and vah is not None and val is not None
-            else None
+            (vah - val) / atr_14 if atr_valid and vah is not None and val is not None else None
         )
-        distance_to_vah_atr = (
-            (vah - close) / float(atr_14) if atr_valid and vah is not None else None
-        )
-        distance_to_val_atr = (
-            (close - val) / float(atr_14) if atr_valid and val is not None else None
-        )
+        distance_to_vah_atr = (vah - close) / atr_14 if atr_valid and vah is not None else None
+        distance_to_val_atr = (close - val) / atr_14 if atr_valid and val is not None else None
 
         # ----------------------------------------------------------------
         # Rolling track: last min(_ROLLING_WINDOW, len(df)) bars
