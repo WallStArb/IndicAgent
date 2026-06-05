@@ -21,6 +21,12 @@ from src.persistence.repository.signal_ledger_repository import SignalStatus
 # Rationale: entry slippage + 1 confirmation bar = false positive if stopped here
 OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2
 
+# Minimum meaningful risk (entry - stop distance) for pnl_r calculations.
+# Signals passing through with fp-epsilon risk (entry ≈ stop at machine precision)
+# produce astronomical pnl_r. Belt-and-suspenders guard; primary rejection is the
+# W4 emission gate in signal_schema.py using get_tick_size().
+_MIN_RISK = 1e-6
+
 # Target outcome lookup table (index 0→target_1, 1→target_1_2, 2+→target_full)
 # Module-level tuple avoids reconstruction on every call
 _TARGET_OUTCOME_LOOKUP = (
@@ -263,7 +269,7 @@ def evaluate_signal(
         # here because the TTL path (further down) must use the caller-supplied values to
         # stay consistent with cross-bar tracking done by the service layer.
         exit_mae, exit_mfe = current_mae, current_mfe
-        if risk > 0:
+        if risk >= _MIN_RISK:
             bar_mae = (low - entry) * direction / risk
             bar_mfe = (high - entry) * direction / risk
             exit_mae = min(current_mae, bar_mae)
@@ -296,7 +302,7 @@ def evaluate_signal(
             )
             if chandelier_hit:
                 pnl_ticks = (trailing_stop - entry) * direction
-                pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+                pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
                 pnl_dollars = round(pnl_ticks * point_value, 2)
                 final_mae = min(current_mae, pnl_r)
                 final_mfe = max(current_mfe, pnl_r)
@@ -321,7 +327,7 @@ def evaluate_signal(
             and staleness_score > STALENESS_SCORE_THRESHOLD
         ):
             pnl_ticks = (close - entry) * direction
-            pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+            pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
             pnl_dollars = round(pnl_ticks * point_value, 2)
             final_mae = min(current_mae, pnl_r)
             final_mfe = max(current_mfe, pnl_r)
@@ -355,7 +361,7 @@ def evaluate_signal(
     elif bar_time is not None and bar_time >= expires_at:
         exit_price = close
         pnl_ticks = (exit_price - entry) * direction
-        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+        pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
         pnl_dollars = round(pnl_ticks * point_value, 2)
         activated_at = signal.get("activated_at")
         if activated_at is not None and status == SignalStatus.PENDING:
@@ -572,7 +578,7 @@ def evaluate_market_entry(
         hit = (direction == 1 and high >= target) or (direction == -1 and low <= target)
         if hit:
             pnl_ticks = (target - market_entry_price) * direction
-            pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+            pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
             final_mae = min(current_mae, pnl_r)
             final_mfe = max(current_mfe, pnl_r)
             return MarketTransition(
@@ -587,7 +593,7 @@ def evaluate_market_entry(
     # 3. TTL expiry (last — only after price-based checks)
     if bars >= ttl:
         pnl_ticks = (close - market_entry_price) * direction
-        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+        pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
         outcome = (
             SignalOutcome.TTL_EXPIRED_AHEAD if current_mfe > 0 else SignalOutcome.TTL_EXPIRED_BEHIND
         )
@@ -617,7 +623,7 @@ def _make_market_exit(
 ) -> MarketTransition:
     """Build a stop-exit MarketTransition. outcome=None — resolved by caller."""
     pnl_ticks = (exit_price - market_entry_price) * direction
-    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+    pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
     final_mae = min(current_mae, pnl_r)
     final_mfe = max(current_mfe, pnl_r)
     return MarketTransition(
@@ -645,7 +651,7 @@ def _make_exit(
 ) -> Transition:
     """Build an exit Transition with P&L, MAE/MFE, and outcome."""
     pnl_ticks = (exit_price - entry) * direction
-    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+    pnl_r = round(pnl_ticks / risk, 4) if risk >= _MIN_RISK else 0.0
     pnl_dollars = round(pnl_ticks * point_value, 2)
 
     # Update excursions with this bar's result
