@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.core.service_utils import get_tick_size
+
 
 def get_atr(features: dict[str, Any]) -> float | None:
     """Return atr_14 from I1 features dict, or None if unavailable/invalid.
@@ -35,3 +37,20 @@ def get_atr(features: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if f > 0 else None
+
+
+def get_atr_with_floor(features: dict[str, Any], symbol: str) -> float | None:
+    """Return ATR floored to the instrument's minimum tick size.
+
+    Returns None when ATR is None (same as get_atr) OR when ATR is below
+    the instrument's minimum tick. A sub-tick ATR cannot produce a meaningful
+    stop distance, so the calling plugin should return no_signal().
+
+    This prevents silent emission-gate ValueError spam from quiet bars (near-zero
+    ATR during off-hours) while keeping error counts meaningful for real failures.
+    """
+    atr = get_atr(features)
+    if atr is None:
+        return None
+    min_tick = get_tick_size(symbol)
+    return atr if atr >= min_tick else None

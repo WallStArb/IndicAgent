@@ -48,7 +48,7 @@ class TestGapDetection:
     """GAP-01: gap detection — direction from open vs prior close."""
 
     def test_bullish_gap_detected(self):
-        """open > prior close by 0.5*ATR produces direction == 1."""
+        """open > prior close by 0.5*ATR: fade trade is SHORT (direction == -1)."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True)
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full(
@@ -63,10 +63,10 @@ class TestGapDetection:
                 "i6": features,
             }
         )
-        assert result["direction"] == 1
+        assert result["direction"] == -1  # upward gap fade = short trade
 
     def test_bearish_gap_detected(self):
-        """open < prior close by 0.5*ATR produces direction == -1."""
+        """open < prior close by 0.5*ATR: fade trade is LONG (direction == 1)."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=False)
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full(
@@ -81,7 +81,7 @@ class TestGapDetection:
                 "i6": features,
             }
         )
-        assert result["direction"] == -1
+        assert result["direction"] == 1  # downward gap fade = long trade
 
     def test_no_gap_no_signal(self):
         """open == prior close exactly produces signal_type == 'none', direction == 0."""
@@ -170,7 +170,7 @@ class TestGapClassification:
         assert result["bias"] == "fade"
 
     def test_bullish_fade_signal_type(self):
-        """bullish fade gap → signal_type == 'gap_fade_long'."""
+        """bullish (upward) gap fade → trade is SHORT → signal_type == 'gap_fade_short'."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True, high_volume=False)
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full(
@@ -185,10 +185,10 @@ class TestGapClassification:
                 "i6": features,
             }
         )
-        assert result["signal_type"] == "gap_fade_long"
+        assert result["signal_type"] == "gap_fade_short"
 
     def test_bearish_fade_signal_type(self):
-        """bearish fade gap → signal_type == 'gap_fade_short'."""
+        """bearish (downward) gap fade → trade is LONG → signal_type == 'gap_fade_long'."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=False, high_volume=False)
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full(
@@ -203,7 +203,7 @@ class TestGapClassification:
                 "i6": features,
             }
         )
-        assert result["signal_type"] == "gap_fade_short"
+        assert result["signal_type"] == "gap_fade_long"
 
     def test_bullish_continuation_signal_type(self):
         """large bullish gap + high volume → signal_type == 'gap_cont_long'."""
@@ -290,7 +290,7 @@ class TestGapSignalFields:
         assert result["stop_loss"] != result["entry_price"]
 
     def test_fade_stop_below_entry_for_long(self):
-        """Fade long signal: stop_loss < entry_price (stop is below the entry open)."""
+        """Fade short signal (upward gap): stop_loss > entry_price (stop is above the entry open)."""
         df, features = make_gap_df(gap_atr_mult=0.5, bullish=True)
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full(
@@ -305,7 +305,7 @@ class TestGapSignalFields:
                 "i6": features,
             }
         )
-        assert result["stop_loss"] < result["entry_price"]
+        assert result["stop_loss"] > result["entry_price"]  # short trade: stop above entry
 
 
 # ---------------------------------------------------------------------------

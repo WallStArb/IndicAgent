@@ -171,11 +171,15 @@ def get_tick_size(symbol: str) -> float:
 def round_to_tick(price: float, symbol: str) -> float:
     """Round price to the nearest tick for the given symbol.
 
-    Returns the price unchanged if the symbol is not in TICK_SIZES
-    (preserving full precision for unknown instruments).
+    Returns the price unchanged for unknown instruments (preserving full precision).
+    Use get_tick_size() when a non-zero fallback is needed (e.g. the emission gate).
     """
     tick = TICK_SIZES.get(symbol)
-    if tick is None or tick == 0:
+    if tick is None:
+        base = _re.sub(r"[A-Z]\d+$", "", symbol)
+        if base != symbol:
+            tick = TICK_SIZES.get(base)
+    if not tick:
         return price
     return round(round(price / tick) * tick, 10)
 
