@@ -114,3 +114,70 @@ class TestPullbackStalenessGate:
         frame = frame_trade("mean_reversion_long", 1, 450.0, features, atr=5.0)
         # Gate should not fire — viable determined only by RR
         assert frame.rejection_reason != "pullback_entry_price_past_t1"
+
+
+@pytest.mark.unit
+class TestStopDistanceCap:
+    """Structural stops beyond the per-TF ATR cap must fall back to ATR×2.0."""
+
+    def test_5m_stop_beyond_cap_falls_back_to_atr(self):
+        """5m signal: nearest_support 17×ATR below entry → capped at ATR×2.0."""
+        entry = 7414.75
+        atr = 8.7
+        # nearest_support 148pts below entry (~17×ATR) — mimics observed bad HVNRejection signal
+        features = {
+            "nearest_support": 7266.455,
+            "atr_14": atr,
+            "timeframe": "5m",
+        }
+        frame = frame_trade("hvn_rejection_long", 1, entry, features, atr=atr)
+        expected_stop = entry - atr * 2.0  # ATR_STOP_FALLBACK_MULTIPLIER
+        assert (
+            abs(frame.stop - expected_stop) < 0.01
+        ), f"stop {frame.stop} not capped to ATR fallback"
+
+    def test_5m_short_stop_beyond_cap_falls_back(self):
+        """5m short signal: bearish FVG top 10×ATR above at_close entry → capped at ATR×2.0."""
+        entry = 7474.25
+        atr = 8.2
+        # bearish FVG at 7558.75 top = 84.5pts above entry = ~10.3×ATR → exceeds 4×ATR cap
+        features = {
+            "fvg_type": -1.0,
+            "fvg_top": 7558.75,
+            "fvg_bottom": 7551.75,
+            "atr_14": atr,
+            "timeframe": "5m",
+        }
+        frame = frame_trade("mean_reversion_short", -1, entry, features, atr=atr)
+        expected_stop = entry + atr * 2.0
+        assert (
+            abs(frame.stop - expected_stop) < 0.01
+        ), f"stop {frame.stop} not capped to ATR fallback"
+
+    def test_structural_stop_within_cap_is_preserved(self):
+        """A legitimate 3×ATR structural stop on 5m must not be capped (within 4×ATR limit)."""
+        entry = 7414.75
+        atr = 8.7
+        # swing_low 26pts below entry (~3×ATR) — inside 4×ATR cap
+        features = {
+            "swing_low": 7388.75,
+            "atr_14": atr,
+            "timeframe": "5m",
+        }
+        frame = frame_trade("mean_reversion_long", 1, entry, features, atr=atr)
+        # Stop should be near swing_low (with buffer), not ATR fallback
+        assert frame.stop < entry - atr * 2.5, f"stop {frame.stop} was aggressively capped"
+
+    def test_1h_wider_cap_allows_larger_structural_stops(self):
+        """1h signal: a 5×ATR structural stop is within the 6×ATR cap and should be preserved."""
+        entry = 7414.75
+        atr = 25.0
+        # swing_low 5×ATR below entry — inside 6×ATR 1h cap
+        features = {
+            "swing_low": entry - atr * 5.0,
+            "atr_14": atr,
+            "timeframe": "1h",
+        }
+        frame = frame_trade("trend_long", 1, entry, features, atr=atr)
+        # Should not be capped — structural stop preserved
+        assert frame.stop < entry - atr * 4.5, f"stop {frame.stop} was incorrectly capped for 1h"
