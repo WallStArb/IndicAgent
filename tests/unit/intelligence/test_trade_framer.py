@@ -8,8 +8,7 @@ from src.intelligence.trading.trade_framer import (
     MIN_RR_T1,
     TradeTarget,
     _adaptive_buffer,
-    _collect_targets_long,
-    _collect_targets_short,
+    _collect_target_candidates,
     _pick_targets,
     _resolve_entry,
     _resolve_stop_long,
@@ -147,39 +146,43 @@ class TestTargetCollectionLong:
     def test_resistance_collected(self):
         stop = ENTRY - ATR * 2.0  # risk = 20
         f = _features(nearest_resistance=5040.0)  # 2R above entry
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert any(t.level_type == "sr" for t in targets)
 
     def test_bsl_collected_only_if_significant(self):
         stop = ENTRY - ATR * 2.0
         f_sig = _features(bsl_level=5040.0, bsl_significance=0.6)
         f_insig = _features(bsl_level=5040.0, bsl_significance=0.3)
-        assert any(t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_sig))
+        assert any(
+            t.level_type == "bsl" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_sig)
+        )
         assert not any(
-            t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_insig)
+            t.level_type == "bsl" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_insig)
         )
 
     def test_fvg_collected_only_if_bullish(self):
         stop = ENTRY - ATR * 2.0
         f_bull = _features(fvg_type=1.0, fvg_top=5030.0)
         f_bear = _features(fvg_type=-1.0, fvg_top=5030.0)
-        assert any(t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bull))
+        assert any(
+            t.level_type == "fvg" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_bull)
+        )
         assert not any(
-            t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bear)
+            t.level_type == "fvg" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_bear)
         )
 
     def test_too_close_filtered_out(self):
         # Level only ATR×0.3 above entry — below min_level threshold of ATR×0.5
         stop = ENTRY - ATR * 2.0
         f = _features(nearest_resistance=ENTRY + ATR * 0.3)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert not any(t.level_type == "sr" for t in targets)
 
     def test_too_far_filtered_out(self):
         # Level ATR×9 above entry — above max_level threshold of ATR×8
         stop = ENTRY - ATR * 2.0
         f = _features(nearest_resistance=ENTRY + ATR * 9.0)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert not any(t.level_type == "sr" for t in targets)
 
     def test_sorted_nearest_first(self):
@@ -188,14 +191,14 @@ class TestTargetCollectionLong:
             nearest_resistance=5060.0,  # 3R
             kalman_upper=5030.0,  # 1.5R
         )
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         prices = [t.price for t in targets]
         assert prices == sorted(prices)
 
     def test_rr_computed_correctly(self):
         stop = ENTRY - ATR * 2.0  # risk = 20
         f = _features(nearest_resistance=5040.0)  # 40 above entry = 2R
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         sr = next(t for t in targets if t.level_type == "sr")
         assert sr.rr == pytest.approx(2.0)
 
@@ -209,16 +212,18 @@ class TestTargetCollectionShort:
     def test_support_collected(self):
         stop = ENTRY + ATR * 2.0  # risk = 20
         f = _features(nearest_support=4960.0)  # 2R below entry
-        targets = _collect_targets_short(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, -1, ATR, f)
         assert any(t.level_type == "sr" for t in targets)
 
     def test_ssl_collected_only_if_significant(self):
         stop = ENTRY + ATR * 2.0
         f_sig = _features(ssl_level=4960.0, ssl_significance=0.6)
         f_insig = _features(ssl_level=4960.0, ssl_significance=0.3)
-        assert any(t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_sig))
+        assert any(
+            t.level_type == "ssl" for t in _collect_target_candidates(ENTRY, stop, -1, ATR, f_sig)
+        )
         assert not any(
-            t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_insig)
+            t.level_type == "ssl" for t in _collect_target_candidates(ENTRY, stop, -1, ATR, f_insig)
         )
 
     def test_sorted_nearest_first(self):
@@ -227,7 +232,7 @@ class TestTargetCollectionShort:
             nearest_support=4940.0,  # 3R
             kalman_lower=4970.0,  # 1.5R
         )
-        targets = _collect_targets_short(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, -1, ATR, f)
         prices = [t.price for t in targets]
         assert prices == sorted(prices, reverse=True)
 
@@ -602,7 +607,9 @@ class TestVolumeProfileTargets:
             "timeframe": "1m",
         }
         stop = 4000.0  # risk = 10.0 (entry=4010, stop=4000)
-        targets = _collect_targets_long(entry=4010.0, stop=stop, atr=10.0, features=features)
+        targets = _collect_target_candidates(
+            entry=4010.0, stop=stop, direction=1, atr=10.0, features=features
+        )
         assert any(t.level_type == "vp_poc" and abs(t.price - 4020.0) < 0.01 for t in targets)
         assert any(t.level_type == "vp_vah" and abs(t.price - 4035.0) < 0.01 for t in targets)
 
@@ -619,7 +626,9 @@ class TestVolumeProfileTargets:
             "timeframe": "1m",
         }
         stop = 4005.0  # risk = 10.0
-        targets = _collect_targets_long(entry=4015.0, stop=stop, atr=10.0, features=features)
+        targets = _collect_target_candidates(
+            entry=4015.0, stop=stop, direction=1, atr=10.0, features=features
+        )
         assert any(t.level_type == "vp_vah" for t in targets)
         # POC (4020) is above entry (4015) but inside VA — not added for inside-VA longs
         assert not any(t.level_type == "vp_poc" for t in targets)
@@ -673,46 +682,54 @@ class TestPerTfAtrCap:
         """1m: target at 4x ATR rejected; target at 2x ATR accepted."""
         stop = ENTRY - ATR * 2.0  # risk = 20
         f = _features(timeframe="1m", nearest_resistance=ENTRY + ATR * 4.0)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert not any(t.level_type == "sr" for t in targets)
 
     def test_1m_keeps_target_at_2x_atr(self):
         """1m: target at 2x ATR is within 3x cap — accepted."""
         stop = ENTRY - ATR * 2.0
         f = _features(timeframe="1m", nearest_resistance=ENTRY + ATR * 2.0)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert any(t.level_type == "sr" for t in targets)
 
     def test_5m_cap_is_5x(self):
         """5m: target at 6x ATR rejected; 4x accepted."""
         stop = ENTRY - ATR * 2.0
         f_far = _features(timeframe="5m", nearest_resistance=ENTRY + ATR * 6.0)
-        assert not any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_far))
+        assert not any(
+            t.level_type == "sr" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_far)
+        )
 
         f_near = _features(timeframe="5m", nearest_resistance=ENTRY + ATR * 4.0)
-        assert any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_near))
+        assert any(
+            t.level_type == "sr" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_near)
+        )
 
     def test_15m_cap_is_7x(self):
         """15m: target at 7.5x ATR rejected; 6x accepted."""
         stop = ENTRY - ATR * 2.0
         f_far = _features(timeframe="15m", nearest_resistance=ENTRY + ATR * 7.5)
-        assert not any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_far))
+        assert not any(
+            t.level_type == "sr" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_far)
+        )
 
         f_near = _features(timeframe="15m", nearest_resistance=ENTRY + ATR * 6.0)
-        assert any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_near))
+        assert any(
+            t.level_type == "sr" for t in _collect_target_candidates(ENTRY, stop, 1, ATR, f_near)
+        )
 
     def test_1h_allows_8x(self):
         """1h: still allows the full 8x ATR cap."""
         stop = ENTRY - ATR * 2.0
         f = _features(timeframe="1h", nearest_resistance=ENTRY + ATR * 7.5)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert any(t.level_type == "sr" for t in targets)
 
     def test_unknown_tf_falls_back_to_8x(self):
         """Unknown/empty TF falls back to default 8x ATR."""
         stop = ENTRY - ATR * 2.0
         f = _features(timeframe="custom", nearest_resistance=ENTRY + ATR * 7.5)
-        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        targets = _collect_target_candidates(ENTRY, stop, 1, ATR, f)
         assert any(t.level_type == "sr" for t in targets)
 
     def test_short_side_mirrors_long(self):
@@ -720,12 +737,12 @@ class TestPerTfAtrCap:
         stop = ENTRY + ATR * 2.0  # risk = 20
         # Target at entry - 4x ATR: beyond 1m cap of 3x
         f_far = _features(timeframe="1m", nearest_support=ENTRY - ATR * 4.0)
-        targets = _collect_targets_short(ENTRY, stop, ATR, f_far)
+        targets = _collect_target_candidates(ENTRY, stop, -1, ATR, f_far)
         assert not any(t.level_type == "sr" for t in targets)
 
         # Target at entry - 2x ATR: within cap
         f_near = _features(timeframe="1m", nearest_support=ENTRY - ATR * 2.0)
-        targets = _collect_targets_short(ENTRY, stop, ATR, f_near)
+        targets = _collect_target_candidates(ENTRY, stop, -1, ATR, f_near)
         assert any(t.level_type == "sr" for t in targets)
 
 
@@ -786,3 +803,77 @@ class TestAdaptiveBuffer:
     def test_base_mult_scaling(self):
         f = {"garch_vol_ratio": 1.0}
         assert _adaptive_buffer(f, 0.25) == pytest.approx(0.25, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Unified target candidate collection — institutional levels
+# ---------------------------------------------------------------------------
+
+
+class TestCollectTargetCandidates:
+    def test_weekly_pivot_r1_long(self):
+        f = {"weekly_r1": 5020.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5020.0 in prices
+
+    def test_weekly_pivot_s1_short(self):
+        f = {"weekly_s1": 4980.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY + 20.0, -1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 4980.0 in prices
+
+    def test_weekly_pivot_wrong_side_excluded(self):
+        f = {"weekly_r1": 5020.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY + 20.0, -1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5020.0 not in prices
+
+    def test_fib_cluster_included_if_strength_meets_gate(self):
+        f = {"nearest_fib_level": 5015.0, "fib_cluster_strength": 0.5, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5015.0 in prices
+
+    def test_fib_cluster_excluded_if_below_gate(self):
+        f = {"nearest_fib_level": 5015.0, "fib_cluster_strength": 0.4, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5015.0 not in prices
+
+    def test_asian_high_long(self):
+        f = {"asian_session_high": 5012.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5012.0 in prices
+
+    def test_asian_low_short(self):
+        f = {"asian_session_low": 4988.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY + 20.0, -1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 4988.0 in prices
+
+    def test_avwap_upper_long(self):
+        f = {"avwap_upper_band": 5018.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5018.0 in prices
+
+    def test_avwap_lower_short(self):
+        f = {"avwap_lower_band": 4982.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY + 20.0, -1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 4982.0 in prices
+
+    def test_atr_range_filter_excludes_too_close(self):
+        # weekly_r1 too close (< entry + atr * ATR_TARGET_MIN_MULTIPLIER) should be excluded
+        f = {"weekly_r1": ENTRY + ATR * 0.3, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert ENTRY + ATR * 0.3 not in prices
+
+    def test_existing_sr_resistance_still_collected(self):
+        f = {"nearest_resistance": 5025.0, "timeframe": "5m"}
+        candidates = _collect_target_candidates(ENTRY, ENTRY - 20.0, 1, ATR, f)
+        prices = [c.price for c in candidates]
+        assert 5025.0 in prices
