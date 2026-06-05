@@ -1297,6 +1297,21 @@ Plans:
 
 **Plans**: 4 plans in 4 waves (revised per cross-AI review)
 
+### Phase 116: SR Consensus — Multi-Method Support/Resistance Synthesis
+
+**Goal**: Replace the single-method pivot-based SR plugin with a three-step system that produces clean, proximity-gated, multi-source confluenced support/resistance levels. Fix bad inputs at source, extend the existing zone_engine synthesis with missing candidate sources, then expose the result as a persistent I4 feature (`sr_nearest_support/resistance`) so all downstream consumers get real levels instead of fallbacks.
+**Depends on**: None (independent)
+**Spec**: `docs/plans/2026-06-05-sr-consensus.md`
+**Success Criteria** (what must be TRUE):
+
+  1. `struct_SupportResistance` uses ATR-proportional cluster radius (`atr * 0.5`) and TF-proportional lookback (5m=60bars, 1h=120bars); no `price * 0.98` synthetic fallback — returns `{}` when no real pivot found
+  2. `zone_engine._SUPPORT_SPECS/_RESISTANCE_SPECS` includes fib, prior session H/L, Asian session H/L, nearest HVN above/below, AVWAP bands, Keltner midline
+  3. `ctx_SRConsensus` (I4 Wave-B) outputs `sr_nearest_support`, `sr_nearest_resistance`, confluence scores, and dist_atr fields — all `None` when no level within TF cap, never synthetic
+  4. Round number candidates derived from price-magnitude grid (`10^floor(log10(price))`) — instrument-agnostic, zero configuration
+  5. `sr_support_dist_pct = 2.0` pattern (synthetic fallback signature) drops to near zero in `intelligence_features`
+  6. All existing unit tests pass; new unit tests cover ATR clustering, TF lookback selection, round number grid, consensus output with and without candidates
+
+
 Plans:
 
 **Wave 1** — Baseline registry + complexity migration (independent)
@@ -1599,3 +1614,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
 | 113. Architecture Hardening | v2.8 | 1/1 | Complete   | 2026-06-03 |
 | 114. Occam's Razor | v2.8 | 4/4 plans written/0 executed | Planned | - |
+| 116. SR Consensus — Multi-Method Support/Resistance | v2.8 | 0/TBD | Not started | - |
