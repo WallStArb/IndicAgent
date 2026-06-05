@@ -573,6 +573,37 @@ class SignalTracker(BaseDaemon):
             timeframe=tf,
         )
 
+    async def _bootstrap_apply_signal(self, canonical: dict) -> None:
+        """Apply one signal loaded from DB during bootstrap.
+
+        Mirrors _ingest_signal fast-path logic: signals with elapsed TTL are
+        fast-pathed (publish TTL exit or dedup-only for backfill) rather than
+        loaded into the active index. This prevents reloading stale piles on restart.
+        """
+        now_utc = datetime.now(UTC)
+        expires_at = canonical.get("expires_at")
+
+        if expires_at is not None and now_utc >= expires_at:
+            if canonical.get("is_backfill") is True:
+                self._signal_ids.add(canonical["signal_id"])
+                SIGNAL_TRACKER_BACKFILL_ROUTED_TO_REPLAY_TOTAL.add(
+                    1, {"symbol": canonical["symbol"]}
+                )
+                self.logger.debug(
+                    "bootstrap_ttl_elapsed_backfill_skip",
+                    signal_id=canonical["signal_id"],
+                )
+            else:
+                tf_secs = TF_SECONDS.get(canonical["timeframe"], 60)
+                bars_elapsed = int((now_utc - canonical["timestamp"]).total_seconds() / tf_secs)
+                published = await self._publish_ttl_expired_transition(canonical, bars_elapsed)
+                if published:
+                    self._signal_ids.add(canonical["signal_id"])
+            return
+
+        self._add_to_active_index(canonical)
+        self._signal_ids.add(canonical["signal_id"])
+
     async def _publish_ttl_expired_transition(self, canonical: dict, bars_elapsed: int) -> bool:
         """Publish a TTL-expired LifecycleTransition for a backfill signal.
 
@@ -1150,10 +1181,7 @@ class SignalTracker(BaseDaemon):
                         if canonical is None:
                             continue
 
-                        # Bootstrap path: route directly to _add_to_active_index — do NOT run
-                        # backfill fast-path or dedup check (signal_ids not set yet).
-                        self._add_to_active_index(canonical)
-                        self._signal_ids.add(canonical["signal_id"])
+                        await self._bootstrap_apply_signal(canonical)
 
                         # Regime cache bootstrap (1-J / D-19): seed _regime_cache from
                         # fire-time regime data so the first live bars after restart are
