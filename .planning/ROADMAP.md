@@ -1245,6 +1245,40 @@ Plans:
 - [ ] 108-07-PLAN.md — CLAUDE.md SOP + HYGIENE-07 audit + HEAL-02 deferral record
 
 
+### Phase 115: Framing Audit Trail
+
+**Goal**: Capture the full stop/target framing decision audit trail — adaptive buffer multiplier, stop basis, structural distance, and plugin regime type — in `TradeFrame`, signal dict, and `signal_ledger`. Wire `regime_type` to all 26 `frame_trade()` call sites so Hurst tightening is live for all plugins.
+**Depends on**: Phase 112 (Intelligence Pipeline Signal Integrity)
+**Requirements**: FRAME-01, FRAME-02, FRAME-03, FRAME-04, FRAME-05
+**Success Criteria** (what must be TRUE):
+
+  1. `TradeFrame` has `adaptive_buffer_mult` (float, default 1.0) and `plugin_regime_type` (str|None) fields; `__post_init__` guards `adaptive_buffer_mult > 0`
+  2. `make_signal_from_frame()` propagates `stop_basis`, `structural_stop_distance_atr`, `adaptive_buffer_mult`, `plugin_regime_type` into every signal dict
+  3. Acceptance grep: `grep -rn "frame_trade(" src/intelligence/trading/ | grep -v "def frame_trade|regime_type=|microstructure_utils|test_|trade_framer.py"` returns 0 results
+  4. Migration 119 adds 5 nullable columns to `signal_ledger` and recreates `signal_ledger_full` view to expose them; `LedgerEntry` and `_INSERT_SQL` updated to $33 parameters
+  5. `STOP_BUFFER_MULT_DISTRIBUTION` OTel histogram records per `{regime_type, stop_type}` on every `frame_trade()` call; structlog DEBUG event `adaptive_buffer_applied` fires when buffer ≠ 1.0
+
+**Plans**: 5 plans in 4 waves
+
+Plans:
+
+**Wave 1** — TradeFrame extension (independent)
+
+- [ ] 115-01-PLAN.md — Extend TradeFrame with adaptive_buffer_mult + plugin_regime_type; extract multiplier before first _reject_frame() call; TDD
+
+**Wave 2** *(depends on Wave 1)* — Signal dict propagation
+
+- [ ] 115-02-PLAN.md — Propagate 4 audit fields through make_signal_from_frame(); remove manual stop_basis injection in cross_asset_divergence.py; TDD
+
+**Wave 3** *(depends on Wave 2)* — Call site wiring
+
+- [ ] 115-03-PLAN.md — Wire regime_type=self.regime_type to all 26 frame_trade() call sites (25 direct plugins + microstructure_utils); grep acceptance check
+
+**Wave 4** *(depends on Wave 3)* — Persistence + observability (parallel)
+
+- [ ] 115-04-PLAN.md — Migration 119: add 5 columns to signal_ledger + recreate signal_ledger_full; update LedgerEntry + _INSERT_SQL (_to_row 33 params) + signal_writer; TDD
+- [ ] 115-05-PLAN.md — STOP_BUFFER_MULT_DISTRIBUTION OTel histogram + structlog debug in frame_trade(); structlog.testing.capture_logs() tests
+
 ### Phase 114: Occam's Razor — Complexity-Aware Model Selection
 
 **Goal**: Implement Renaissance-style complexity-aware model selection for shadow ML agents. Build simple baselines (linear/logistic/rule-based), run both complex and baseline models on identical 30-day signal data, and apply a paired bootstrap statistical test with complexity penalty. If the baseline wins or ties, the complex model is automatically rejected via `shadow_registry` update with structured reason codes and comprehensive audit trail.
