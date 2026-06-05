@@ -632,15 +632,15 @@ Plans:
 
 **Wave 1**
 
-- [ ] 096-01-PLAN.md — SwarmDeps + registry core (AgentSpec, _REGISTRY, AgentRegistry) + __init_subclass__ self-registration (Wave 1)
+- [x] 096-01-PLAN.md — SwarmDeps + registry core (AgentSpec, _REGISTRY, AgentRegistry) + __init_subclass__ self-registration (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 096-02-PLAN.md — Migrate all six agent constructors + BaseAIWorker.__init__ to deps: SwarmDeps (Wave 2)
+- [x] 096-02-PLAN.md — Migrate all six agent constructors + BaseAIWorker.__init__ to deps: SwarmDeps (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 096-03-PLAN.md — register_agents.py + config/agents.yaml + wire BaseSwarmCoordinator._setup + slim AlphaSwarm/NarrativeSwarm (Wave 3)
+- [x] 096-03-PLAN.md — register_agents.py + config/agents.yaml + wire BaseSwarmCoordinator._setup + slim AlphaSwarm/NarrativeSwarm (Wave 3)
 
 ### Phase 097: Zep Episodic Memory
 
