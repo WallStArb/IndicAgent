@@ -80,7 +80,7 @@ class MTFAlignmentPlugin:
         entry = price
 
         signal_type = signal_type_for_direction("mtf_alignment", direction)
-        tf = frame_trade(signal_type, direction, entry, features, atr)
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
 

@@ -105,7 +105,7 @@ class PatternCompletionPlugin:
 
         suffix = "long" if direction == 1 else "short"
         signal_type = f"pattern_{pattern_name}_{suffix}"
-        tf = frame_trade(signal_type, direction, entry, features, atr)
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
         if not tf.viable:
             return no_signal()
         stop = tf.stop
