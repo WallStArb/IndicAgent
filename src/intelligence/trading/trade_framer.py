@@ -45,8 +45,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import structlog as _structlog
+
+from src.observability.metrics import STOP_BUFFER_MULT_DISTRIBUTION
+
 from .plugin_utils import _fval
 from .zone_engine import resolve_structural_zone
+
+_logger = _structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1056,6 +1062,19 @@ def frame_trade(
 
     # Extract once: used for _classify_stop_basis and stored in TradeFrame for audit trail
     adaptive_buffer_mult = _adaptive_buffer(features, 1.0, regime_type)
+    STOP_BUFFER_MULT_DISTRIBUTION.record(
+        adaptive_buffer_mult,
+        {"regime_type": regime_type or "any", "stop_type": stop_type},
+    )
+    if adaptive_buffer_mult != 1.0 and regime_type in ("trend", "mean_reversion"):
+        _logger.debug(
+            "adaptive_buffer_applied",
+            regime_type=regime_type,
+            vol_ratio=features.get("garch_vol_ratio"),
+            hurst=features.get("hurst_exponent"),
+            buffer_mult=round(adaptive_buffer_mult, 4),
+            stop_type=stop_type,
+        )
 
     # Classify stop basis for ML segmentation
     stop_basis, stop_structure_type, structural_stop_distance_atr = _classify_stop_basis(
