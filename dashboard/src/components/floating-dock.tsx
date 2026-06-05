@@ -20,8 +20,8 @@ export function FloatingDock() {
     <>
       <style>{`
         @keyframes dock-enter {
-          from { opacity: 0; transform: translateX(-50%) translateY(28px) scale(0.94); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0)     scale(1);    }
+          from { opacity: 0; transform: translateY(28px) scale(0.94); }
+          to   { opacity: 1; transform: translateY(0)    scale(1);    }
         }
         @keyframes live-pulse {
           0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(78,214,200,0.7); }
@@ -38,7 +38,7 @@ export function FloatingDock() {
           position: "fixed",
           bottom: 0,
           left: 0,
-          right: 0,
+          width: "100vw",
           display: "flex",
           justifyContent: "center",
           pointerEvents: "none",
