@@ -195,3 +195,58 @@ class TestMakeSignalFromFrame:
         tf = _viable_frame()
         sig = make_signal_from_frame(tf, **_frame_kwargs())
         assert "features_snapshot" not in sig
+
+
+# ---------------------------------------------------------------------------
+# Framing audit field propagation tests (Phase 115)
+# ---------------------------------------------------------------------------
+
+
+def _frame_with_audit() -> TradeFrame:
+    """TradeFrame with all four framing audit fields explicitly set."""
+    return TradeFrame(
+        entry=4500.0,
+        entry_type="at_close",
+        stop=4480.0,
+        stop_type="swing_low",
+        targets=[
+            TradeTarget(price=4530.0, label="S/R 4530", level_type="sr", rr=1.5),
+        ],
+        rr_t1=1.5,
+        method="structural",
+        viable=True,
+        rejection_reason=None,
+        zone_low=4495.0,
+        zone_high=4505.0,
+        stop_basis="structure_snap",
+        structural_stop_distance_atr=0.8,
+        adaptive_buffer_mult=0.968,
+        plugin_regime_type="trend",
+    )
+
+
+class TestFramingAuditPropagation:
+    def test_stop_basis_propagated(self):
+        sig = make_signal_from_frame(_frame_with_audit(), **_frame_kwargs())
+        assert sig["stop_basis"] == "structure_snap"
+
+    def test_structural_stop_distance_atr_propagated(self):
+        sig = make_signal_from_frame(_frame_with_audit(), **_frame_kwargs())
+        assert sig["structural_stop_distance_atr"] == pytest.approx(0.8)
+
+    def test_adaptive_buffer_mult_propagated(self):
+        sig = make_signal_from_frame(_frame_with_audit(), **_frame_kwargs())
+        assert sig["adaptive_buffer_mult"] == pytest.approx(0.968)
+
+    def test_plugin_regime_type_propagated(self):
+        sig = make_signal_from_frame(_frame_with_audit(), **_frame_kwargs())
+        assert sig["plugin_regime_type"] == "trend"
+
+    def test_defaults_propagated_when_fields_not_set(self):
+        """Audit fields present even when TradeFrame uses defaults."""
+        tf = _viable_frame()  # no audit fields — uses TradeFrame defaults
+        sig = make_signal_from_frame(tf, **_frame_kwargs())
+        # stop_basis defaults to None, adaptive_buffer_mult defaults to 1.0
+        assert "stop_basis" in sig
+        assert sig["adaptive_buffer_mult"] == pytest.approx(1.0)
+        assert sig["plugin_regime_type"] is None
