@@ -224,6 +224,91 @@ def collect_candidates(
     return sorted(_dedup(raw, atr), key=lambda c: c.price)
 
 
+def collect_sr_candidates(
+    features: dict[str, Any],
+    direction: int,
+    price: float,
+    atr: float,
+    max_dist: float,
+) -> list[ZoneCandidate]:
+    """Collect SR candidates for ctx_SRConsensus proximity gate.
+
+    direction=-1: support (below price), lo=price-max_dist, hi=price (strict)
+    direction=+1: resistance (above price), lo=price, hi=price+max_dist (strict)
+    """
+    if direction == 1:
+        lo, hi = price, price + max_dist
+        specs = _RESISTANCE_SPECS
+    else:
+        lo, hi = price - max_dist, price
+        specs = _SUPPORT_SPECS
+
+    tf = features.get("timeframe", "")
+    raw: list[ZoneCandidate] = []
+    for feat_key, name, default_str, tier, family in specs:
+        p = _fval(features, feat_key)
+        if p <= EPSILON or not (lo < p < hi):
+            continue
+        strength = _resolve_strength(features, name, default_str)
+        raw.append(
+            ZoneCandidate(
+                price=p, name=name, strength=strength, source_tier=tier, source_family=family
+            )
+        )
+
+    # VP block: use _SR_VP_DIRECTION (SR-semantic: 1=resistance->vah, -1=support->val)
+    # NOT _VP_DIRECTION (trade-semantic: 1=long->val)
+    poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
+    if direction not in _SR_VP_DIRECTION:
+        raise ValueError(
+            f"zone_engine: collect_sr_candidates direction must be 1 or -1, got {direction!r}"
+        )
+    c_sess, c_roll, c_name, hvn_key, hvn_name = _SR_VP_DIRECTION[direction]
+    companion = _select_vp(features, tf, c_sess, c_roll)
+    hvn = _fval(features, hvn_key)
+    for p, name in [(poc, "poc"), (companion, c_name), (hvn, hvn_name)]:
+        if p > EPSILON and lo < p < hi:
+            raw.append(
+                ZoneCandidate(
+                    price=p,
+                    name=name,
+                    strength=0.8 if name == "poc" else 0.7,
+                    source_tier="i4",
+                    source_family=f"vp_{name}",
+                )
+            )
+
+    return sorted(_dedup(raw, atr), key=lambda c: c.price)
+
+
+def find_best_level(
+    candidates: list[ZoneCandidate], atr: float, price: float
+) -> ZoneCandidate | None:
+    """Return the best structural level from a candidate list.
+
+    Public wrapper around private clustering internals so consumers never need
+    to import private zone_engine functions.
+
+    Prefers a structurally diverse cluster (2+ source_tiers); falls back to
+    the single highest-scoring candidate when no diverse cluster exists.
+    """
+    if not candidates:
+        return None
+    clusters = _find_clusters(candidates, atr)
+    diverse = [cl for cl in clusters if _source_diversity(cl) >= 2]
+    if diverse:
+        best = max(diverse, key=lambda cl: (_source_diversity(cl), sum(c.strength for c in cl)))
+        avg_price = sum(c.price for c in best) / len(best)
+        return ZoneCandidate(
+            price=avg_price,
+            name="consensus",
+            strength=float(_source_diversity(best)),
+            source_tier="consensus",
+            source_family="consensus",
+        )
+    return _pick_single_best(candidates, price, atr)
+
+
 # ---------------------------------------------------------------------------
 # Clustering
 # ---------------------------------------------------------------------------
