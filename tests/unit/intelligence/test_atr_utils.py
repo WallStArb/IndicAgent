@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.intelligence.trading.atr_utils import get_atr
+from src.intelligence.trading.atr_utils import get_atr, get_atr_with_floor_from_frames
 
 
 def test_get_atr_valid():
@@ -48,3 +48,39 @@ def test_get_atr_no_recomputation_present():
     source = inspect.getsource(mod)
     assert "np.mean" not in source
     assert "high" not in source.split("def get_atr")[1].split("\n")[0]
+
+
+def test_get_atr_with_floor_from_frames_valid():
+    """Test extraction from frames dict with valid ATR."""
+    frames = {
+        "symbol": "ES",
+        "i1": {"atr_14": 2.0},
+    }
+    result = get_atr_with_floor_from_frames(frames)
+    assert result is not None
+    assert isinstance(result, float)
+
+
+def test_get_atr_with_floor_from_frames_missing_symbol():
+    """Test extraction with missing symbol falls back to __symbol__."""
+    frames = {
+        "__symbol__": "ES",
+        "i1": {"atr_14": 2.0},
+    }
+    result = get_atr_with_floor_from_frames(frames)
+    assert result is not None
+
+
+def test_get_atr_with_floor_from_frames_missing_i1():
+    """Test extraction with missing i1 dict returns None."""
+    frames = {
+        "symbol": "ES",
+    }
+    result = get_atr_with_floor_from_frames(frames)
+    assert result is None
+
+
+def test_get_atr_with_floor_from_frames_empty_frames():
+    """Test extraction with empty frames dict returns None."""
+    result = get_atr_with_floor_from_frames({})
+    assert result is None
