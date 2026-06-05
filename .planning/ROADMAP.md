@@ -1312,23 +1312,21 @@ Plans:
   6. All existing unit tests pass; new unit tests cover ATR clustering, TF lookback selection, round number grid, consensus output with and without candidates
 
 
+**Plans:** 3 plans
+
 Plans:
 
-**Wave 1** — Baseline registry + complexity migration (independent)
+**Wave 1** — Fix struct_SupportResistance I3 inputs (independent)
 
-- [ ] 114-01-PLAN.md — BaselineBuilder protocol (fit/predict/metadata) + LinearBaseline, RuleBaseline, RandomBaseline + _BASELINES registry + ml_models complexity columns migration
+- [ ] 116-01-PLAN.md — ATR-proportional clustering + TF-proportional lookback + volume-weighted strength + kill synthetic fallback; update SR plugin unit tests
 
-**Wave 2** *(depends on Wave 1)* — Statistical test engine
+**Wave 2** *(depends on Wave 1)* — Extend zone_engine candidate synthesis
 
-- [ ] 114-02-PLAN.md — OccamRazorEvaluator: paired bootstrap CI, penalized decision rule, EVAL_STATE enum, golden dataset tests
+- [ ] 116-02-PLAN.md — Add 6 sources per direction to _SUPPORT/_RESISTANCE_SPECS + dist_atr HVN strength handler + collect_sr_candidates() proximity-gated function; extend zone_engine tests
 
-**Wave 3** *(depends on Wave 2)* — Shadow registry integration
+**Wave 3** *(depends on Wave 2)* — ctx_SRConsensus I4 Wave-B plugin
 
-- [ ] 114-03-PLAN.md — shadow_registry Occam audit columns + OTel metrics + AlphaSwarm rejection flow with idempotency + structured reason codes + golden dataset rejection test
-
-**Wave 4** *(depends on Wave 3)* — End-to-end integration
-
-- [ ] 114-04-PLAN.md — Advisory lock concurrent safety + ORE registration verification + Grafana dashboard + golden dataset E2E tests
+- [ ] 116-03-PLAN.md — 6 I4Context schema fields (schema-first) + ctx_SRConsensus plugin (round numbers + proximity gate + confluence) + 4-location registration + new unit test file
 
 ### Phase 101: Composite Fitness Function
 
