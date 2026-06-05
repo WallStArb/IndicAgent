@@ -582,7 +582,6 @@ I4_WAVE_A: list[str] = [
 I4_WAVE_B: list[str] = [
     kalman_trend_plugin.name,
     sr_consensus_plugin.name,
-    sr_consensus_plugin.name,
 ]
 
 # SMC: order_blocks + fvg + liquidity_pools must complete before
