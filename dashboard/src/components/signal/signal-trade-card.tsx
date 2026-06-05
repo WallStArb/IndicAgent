@@ -4,8 +4,6 @@ import type { SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum } from "@/lib/format";
 import { abbreviatePlugin } from "@/lib/signal-utils";
 
-const BUCKET_ORDER = ["trend", "momentum", "structure", "institutional", "regime", "pattern"];
-
 // ── Price Ladder ──────────────────────────────────────────────────────────────
 
 type LevelKind = "target" | "entry" | "stop" | "zone_edge";
@@ -175,9 +173,11 @@ function SetupEdgeLine({ signal }: { signal: SignalData }) {
 
   return (
     <div className="flex items-center gap-3 text-[0.55rem] font-data">
-      <span className="text-[var(--text-muted)] truncate flex-1">
-        {abbreviatePlugin(setup_plugin)}
-      </span>
+      {setup_plugin && (
+        <span className="text-[var(--text-muted)] truncate flex-1">
+          {abbreviatePlugin(setup_plugin)}
+        </span>
+      )}
       <span>
         Win{" "}
         <span className="font-bold" style={{ color: winColor }}>
