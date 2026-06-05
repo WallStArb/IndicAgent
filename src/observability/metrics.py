@@ -890,3 +890,73 @@ PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
     "intelligence_pipeline_backpressure_drop_total",
     description="Bars dropped by backpressure circuit breaker (queue depth exceeded)",
 )
+
+# ---------------------------------------------------------------------------
+# Agent memory metrics (Phase 097)
+# ---------------------------------------------------------------------------
+
+MEMORY_RECALL_LATENCY_MS = _meter.create_histogram(
+    "memory_recall_latency_ms",
+    description="MemoryClient.recall() end-to-end latency per memory tier (labels: tier, symbol)",
+    unit="ms",
+)
+
+MEMORY_RECALL_RESULTS_TOTAL = _meter.create_counter(
+    "memory_recall_results_total",
+    description="Memory recall outcomes per tier (labels: tier, result={hit,miss,timeout})",
+)
+
+MEMORY_CALIBRATION_APPLIED = _meter.create_counter(
+    "memory_calibration_applied",
+    description="CalibrationStats applied to agent output (labels: agent_id, stable={true,false})",
+)
+
+MEMORY_WRITE_QUEUE_DEPTH = _meter.create_gauge(
+    "memory_write_queue_depth",
+    description="Current MemoryEpisodeWriter asyncio.Queue depth (absolute, use .set())",
+)
+
+MEMORY_WRITE_DROPPED_TOTAL = _meter.create_counter(
+    "memory_write_dropped_total",
+    description="Episode writes dropped because the write queue was full (D-13)",
+)
+
+MEMORY_EMBED_LATENCY_MS = _meter.create_histogram(
+    "memory_embed_latency_ms",
+    description="EmbeddingService latency per call (labels: batch={true,false})",
+    unit="ms",
+)
+
+MEMORY_EMBED_STALL_SECONDS = _meter.create_gauge(
+    "memory_embed_stall_seconds",
+    description=(
+        "Seconds since last successful embedding queue drain. "
+        "Alert threshold: > 30s (F1 — embedding pipeline stall)."
+    ),
+)
+
+MEMORY_EPISODES_LABELED = _meter.create_gauge(
+    "memory_episodes_labeled",
+    description=(
+        "Total labeled episode count in memory_episodes_labeled (post-run from BackfillJob). "
+        "North-star for MEM-03 shadow gate: must reach N>=200 before AGENT_MEMORY_ENABLED."
+    ),
+)
+
+MEMORY_COHORTS_PROMOTED_TOTAL = _meter.create_counter(
+    "memory_cohorts_promoted_total",
+    description="Calibration cohorts promoted to memory_calibration_promoted (labels: agent_id)",
+)
+
+MEMORY_COHORTS_QUARANTINED_TOTAL = _meter.create_counter(
+    "memory_cohorts_quarantined_total",
+    description="Cohorts quarantined for feedback loop detection (C-04; labels: agent_id)",
+)
+
+MEMORY_PROMOTION_SKIPPED_N_ELIGIBLE = _meter.create_counter(
+    "memory_promotion_skipped_n_eligible",
+    description=(
+        "Cohorts skipped by promotion job because n_eligible is still NULL "
+        "(nightly backfill not yet run; F6; labels: agent_id)"
+    ),
+)
