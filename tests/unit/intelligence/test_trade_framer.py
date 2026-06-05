@@ -761,7 +761,7 @@ class TestAdaptiveBuffer:
         result = _adaptive_buffer(f, 1.0)
         assert result == pytest.approx(1.35, rel=1e-4)
 
-    def test_hard_cap_limits_expansion(self):
+    def test_vol_ratio_clamped_to_ceiling(self):
         f = {"garch_vol_ratio": 2.0}  # clipped to 1.50
         assert _adaptive_buffer(f, 1.0) == pytest.approx(1.35, rel=1e-4)
 
