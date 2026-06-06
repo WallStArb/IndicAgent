@@ -124,6 +124,13 @@ def py_file_with_retired_banned(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture
+def md_file_with_multiword_banned(tmp_path: Path) -> Path:
+    p = tmp_path / "multiword.md"
+    p.write_text("The classification scheme used here is well-defined.\n")
+    return p
+
+
 # ---------------------------------------------------------------------------
 # Parser tests
 # ---------------------------------------------------------------------------
@@ -197,6 +204,14 @@ class TestScanFileProse:
         violations = scan_file(py_file_with_retired_banned, rules)
         assert any(v.status == "retired" for v in violations)
 
+    def test_detects_multiword_banned_term_in_prose(
+        self, sample_glossary, md_file_with_multiword_banned
+    ):
+        rules = parse_glossary(sample_glossary)
+        violations = scan_file(md_file_with_multiword_banned, rules)
+        assert any(v.banned_term == "classification scheme" for v in violations)
+        assert any(v.canonical == "vocabulary" for v in violations)
+
 
 # ---------------------------------------------------------------------------
 # Identifier scan tests
@@ -224,13 +239,14 @@ class TestScanFileIdentifiers:
 
 
 class TestViolation:
-    def test_violation_has_required_fields(self, sample_glossary, md_file_with_banned):
+    def test_violation_fields_from_md_prose_scan(self, sample_glossary, md_file_with_banned):
         rules = parse_glossary(sample_glossary)
         violations = scan_file(md_file_with_banned, rules)
+        assert len(violations) == 1
         v = violations[0]
-        assert hasattr(v, "status")
-        assert hasattr(v, "lineno")
-        assert hasattr(v, "line")
-        assert hasattr(v, "banned_term")
-        assert hasattr(v, "canonical")
-        assert hasattr(v, "scan_type")
+        assert v.lineno == 1
+        assert v.banned_term == "taxonomy"
+        assert v.canonical == "vocabulary"
+        assert v.status == "active"
+        assert v.scan_type == "prose"
+        assert "taxonomy" in v.line
