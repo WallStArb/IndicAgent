@@ -80,9 +80,11 @@ from src.core.bar_normalizer import (
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
+from src.core.service_utils import TF_SECONDS
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
+from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.persistence.repository.signal_ledger_repository import LedgerEntry
 from src.providers import IBKRProvider
@@ -722,21 +724,35 @@ MARKET_CONTEXT_KEYS = (
 
 _INSERT_SYNC_SQL = """
 INSERT INTO signal_ledger (
-    signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
-    direction, entry_price, stop_loss, targets,
-    was_selected,
+    signal_id, timestamp, symbol, timeframe,
+    setup_plugin, signal_type, direction,
+    was_selected, is_shadow, is_backfill,
+    signal_computed_at,
     feature_ts, feature_tf,
-    cis_score, bucket_scores, weights_version,
+    hmm_regime_at_fire, garch_sigma_at_fire,
+    ttl_bars,
+    entry_price, stop_loss, targets, entry_zone_low, entry_zone_high,
     market_entry_price,
-    is_backfill
+    cis_score, bucket_scores, weights_version,
+    pipeline_lag_ms, expires_at,
+    feature_schema_version,
+    stop_basis, stop_type_col, structural_stop_distance_atr,
+    adaptive_buffer_mult, plugin_regime_type, stop_structure_age_bars
 ) VALUES (
-    %s::uuid, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s::jsonb,
+    %s::uuid, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s, TRUE,
     %s,
     %s, %s,
-    %s, %s::jsonb, %s,
+    %s, %s,
     %s,
-    TRUE
+    %s, %s, %s::jsonb, %s, %s,
+    %s,
+    %s, %s::jsonb, %s,
+    NULL, %s,
+    %s,
+    %s, %s, %s,
+    %s, %s, %s
 ) ON CONFLICT DO NOTHING
 """
 
@@ -773,11 +789,23 @@ def _build_ledger_entries(
         return []
 
     bar_close = float(bar_history[-1]["close"]) if bar_history else None
+    tf_secs = TF_SECONDS.get(timeframe, 60)
+    garch_sigma = features.get("garch_sigma")
+    hmm_regime = features.get("hmm_regime")
 
     entries = []
     for sig in result.all_ranked:
         rank = sig.get("composite_rank", 99)
         was_selected = rank == 1 and result.selected_signal is not None
+
+        ttl = sig.get("ttl_bars")
+        expires_at = None
+        if ttl is not None:
+            try:
+                expires_at = timestamp + timedelta(seconds=int(ttl) * tf_secs)
+            except (OverflowError, TypeError, ValueError):
+                expires_at = None
+
         entries.append(
             LedgerEntry(
                 signal_id=str(uuid4()),
@@ -787,16 +815,37 @@ def _build_ledger_entries(
                 setup_plugin=sig.get("setup_plugin", "unknown"),
                 signal_type=sig.get("signal_type", "unknown"),
                 direction=int(sig.get("direction", 0)),
+                was_selected=was_selected,
+                is_shadow=bool(sig.get("is_shadow", False)),
+                is_backfill=True,
+                feature_ts=feature_ts,
+                feature_tf=feature_tf,
+                hmm_regime_at_fire=(
+                    sig.get("hmm_regime_at_fire") if "hmm_regime_at_fire" in sig else hmm_regime
+                ),
+                garch_sigma_at_fire=garch_sigma,
+                ttl_bars=ttl,
                 entry_price=float(sig.get("entry_price", 0.0)),
                 stop_loss=float(sig.get("stop_loss", 0.0)),
                 targets=[float(t) for t in sig.get("targets", [])],
-                was_selected=was_selected,
-                feature_ts=feature_ts,
-                feature_tf=feature_tf,
-                cis_score=result.cis_score,
+                entry_zone_low=sig.get("zone_low"),
+                entry_zone_high=sig.get("zone_high"),
+                market_entry_price=bar_close,
+                cis_score=(
+                    sig.get("filtered_cis_score")
+                    if sig.get("filtered_cis_score") is not None
+                    else result.cis_score
+                ),
                 bucket_scores=result.bucket_scores,
                 weights_version=result.weights_version,
-                market_entry_price=bar_close,
+                expires_at=expires_at,
+                feature_schema_version=FEATURE_SCHEMA_VERSION,
+                stop_basis=sig.get("stop_basis"),
+                stop_type_col=sig.get("stop_type"),
+                structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
+                adaptive_buffer_mult=sig.get("adaptive_buffer_mult"),
+                plugin_regime_type=sig.get("plugin_regime_type"),
+                stop_structure_age_bars=sig.get("stop_structure_age_bars"),
             )
         )
     return entries
@@ -811,23 +860,42 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
     for e in entries:
         ledger_params.append(
             (
-                e.signal_id,
-                e.timestamp,
-                e.symbol,
-                e.timeframe,
-                e.setup_plugin,
-                e.signal_type,
-                e.direction,
-                e.entry_price,
-                e.stop_loss,
-                json.dumps(e.targets),
-                e.was_selected,
-                e.feature_ts,
-                e.feature_tf,
-                e.cis_score,
-                json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
-                e.weights_version,
-                e.market_entry_price,
+                e.signal_id,  # signal_id
+                e.timestamp,  # timestamp
+                e.symbol,  # symbol
+                e.timeframe,  # timeframe
+                e.setup_plugin,  # setup_plugin
+                e.signal_type,  # signal_type
+                e.direction,  # direction
+                e.was_selected,  # was_selected
+                e.is_shadow,  # is_shadow
+                # is_backfill: TRUE literal in SQL
+                e.signal_computed_at,  # signal_computed_at
+                e.feature_ts,  # feature_ts
+                e.feature_tf,  # feature_tf
+                e.hmm_regime_at_fire,  # hmm_regime_at_fire
+                e.garch_sigma_at_fire,  # garch_sigma_at_fire
+                e.ttl_bars,  # ttl_bars
+                e.entry_price,  # entry_price
+                e.stop_loss,  # stop_loss
+                json.dumps(e.targets) if e.targets is not None else None,  # targets
+                e.entry_zone_low,  # entry_zone_low
+                e.entry_zone_high,  # entry_zone_high
+                e.market_entry_price,  # market_entry_price
+                e.cis_score,  # cis_score
+                (
+                    json.dumps(e.bucket_scores) if e.bucket_scores is not None else None
+                ),  # bucket_scores
+                e.weights_version,  # weights_version
+                # pipeline_lag_ms: NULL literal in SQL
+                e.expires_at,  # expires_at
+                e.feature_schema_version,  # feature_schema_version
+                e.stop_basis,  # stop_basis
+                e.stop_type_col,  # stop_type_col
+                e.structural_stop_distance_atr,  # structural_stop_distance_atr
+                e.adaptive_buffer_mult,  # adaptive_buffer_mult
+                e.plugin_regime_type,  # plugin_regime_type
+                e.stop_structure_age_bars,  # stop_structure_age_bars
             )
         )
         outcomes_params.append(
