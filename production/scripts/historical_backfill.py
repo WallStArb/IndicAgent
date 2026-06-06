@@ -472,10 +472,9 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364) sends two
     #     requests (364d + 1d) — no roll adjustment, but data reliably lands for all exchanges.
     "1h": (365, False),
-    # 4h: ~1.625 bars/day/symbol. Same fetch window as 1h — 365 days covers a full calendar year
-    #     of regime cycles with ~593 bars. Continuous aggregate from 1m (migration 005) provides
-    #     the OHLCV; this config is for direct IBKR fetch if needed.
-    "4h": (365, True),
+    # 4h: ~1.625 bars/day/symbol (equity RTH). 730 days (2yr) clears the 1000-real-bar floor
+    #     (~1,186 bars) for reliable HMM/GARCH estimation across all session types.
+    "4h": (730, True),
     # 1d: macro regime coverage. 1 bar/day/symbol. 2555 days = 7 years reaches back to 2019 —
     #     the last clean pre-distortion baseline before COVID, zero-rate era, QE infinity,
     #     2022 rate shock, and AI mania. Capturing these distinct macro regimes is essential
