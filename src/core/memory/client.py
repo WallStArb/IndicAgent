@@ -170,9 +170,10 @@ class MemoryClient:
         except Exception as error:
             elapsed_ms = (time.monotonic() - t0) * 1000.0
             MEMORY_RECALL_LATENCY_MS.record(elapsed_ms, {"tier": "1", "symbol": symbol})
-            # Distinguish timeout from generic error — both recorded as timeout for
-            # downstream alerting purposes (MEM-04 timeout counter).
-            MEMORY_RECALL_RESULTS_TOTAL.add(1, {"tier": "1", "result": "timeout"})
+            # Use "error" label for generic non-timeout exceptions (WR-02). This keeps
+            # timeout (embed latency budget exceeded) distinct from DB errors and other
+            # failures in the memory_recall_results_total OTel metric.
+            MEMORY_RECALL_RESULTS_TOTAL.add(1, {"tier": "1", "result": "error"})
             log.warning("memory_client.recall_failed", agent_id=agent_id, error=str(error))
             return []
 
