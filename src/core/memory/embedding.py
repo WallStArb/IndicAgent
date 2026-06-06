@@ -2,12 +2,14 @@
 EmbeddingService — Ring 0 text-to-vector adapter for agent memory.
 
 Serializes a SignalContext (or any object with matching attributes) into a
-percentile-based text string and calls the Ollama nomic-embed-text model to
-produce a 768-dimensional embedding vector.
+percentile-based text string and calls litellm.aembedding() to produce a
+768-dimensional embedding vector.
 
 Design decisions:
     D-05: embedding_text stored alongside the vector for audit and re-embedding.
-    D-06: nomic-embed-text via Ollama — same model as Mem0 config, no new infra.
+    D-06: embeddings route via litellm.aembedding() — consistent with all other
+          LLM calls in the system. Default model ollama/nomic-embed-text (768-dim,
+          local Ollama, no new infra). Swap via EMBEDDING_MODEL in .env.
     D-22: percentile fields (rsi_pct, atr_pct, ...) not raw values — comparable
           across instruments and market conditions.
     D-13/D-19: embed() returns None on any failure, never raises.
@@ -23,7 +25,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-import httpx
+import litellm
 import structlog
 
 from src.observability.metrics import MEMORY_EMBED_LATENCY_MS
@@ -34,39 +36,46 @@ log = structlog.get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODEL = "nomic-embed-text"
+_DEFAULT_MODEL = "ollama/nomic-embed-text"
 _EMBED_DIM = 768
-_DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-_HTTP_TIMEOUT = 10.0  # seconds — generous; embedding model is local
 
 
 class EmbeddingService:
-    """Convert a signal context into a 768-dim embedding via Ollama nomic-embed-text.
+    """Convert a signal context into a 768-dim embedding via litellm.aembedding().
 
     Usage::
 
-        svc = EmbeddingService()
+        svc = EmbeddingService(model="ollama/nomic-embed-text",
+                               api_base="http://localhost:11434")
         text = svc.serialize(context)          # percentile-based text string
         vector = await svc.embed(text)          # list[float](768) or None
         vector, text = await svc.embed_context(context)  # convenience combo
 
     The caller (MemoryEpisodeWriter) persists `embedding_text` alongside the
     vector so re-embedding after a model change is always possible (D-05).
+
+    The model is routed through litellm.aembedding() for provider consistency.
+    For ollama/ prefixed models, api_base must point to the Ollama server.
     """
 
     EMBED_DIM: int = _EMBED_DIM
 
     def __init__(
         self,
-        ollama_base_url: str = _DEFAULT_OLLAMA_BASE_URL,
-        model: str = _MODEL,
-        http_client: httpx.AsyncClient | None = None,
+        model: str = _DEFAULT_MODEL,
+        api_base: str | None = None,
+        # Legacy parameter accepted for backward compatibility; ignored.
+        ollama_base_url: str | None = None,
     ) -> None:
-        self._base_url = ollama_base_url.rstrip("/")
         self._model = model
-        # Caller may inject a shared client; if not, we create a private one.
-        self._client = http_client
-        self._owns_client = http_client is None
+        # For ollama/ models, api_base routes the call to the local server.
+        # When caller passes ollama_base_url (legacy), treat it as api_base.
+        if api_base is not None:
+            self._api_base: str | None = api_base
+        elif ollama_base_url is not None:
+            self._api_base = ollama_base_url
+        else:
+            self._api_base = None
 
     # ------------------------------------------------------------------
     # Serialization
@@ -87,7 +96,7 @@ class EmbeddingService:
                 attribute access. Missing fields fall back to safe defaults.
 
         Returns:
-            A single space-delimited string suitable as Ollama prompt input.
+            A single space-delimited string suitable as LiteLLM embedding input.
         """
         # --- Identity tokens (mandatory) ---
         symbol = getattr(context, "symbol", "UNK")
@@ -161,26 +170,23 @@ class EmbeddingService:
     # ------------------------------------------------------------------
 
     async def embed(self, text: str) -> list[float] | None:
-        """Call Ollama nomic-embed-text and return a 768-dim vector.
+        """Call litellm.aembedding and return a 768-dim vector.
 
         Args:
             text: The serialized embedding text (output of serialize()).
 
         Returns:
-            list[float] of length 768, or None on HTTP error, timeout, or
-            dimension mismatch. Never raises (D-13/D-19).
+            list[float] of length 768, or None on error or dimension mismatch.
+            Never raises (D-13/D-19).
         """
         t0 = time.monotonic()
-        client = await self._get_client()
         try:
-            response = await client.post(
-                f"{self._base_url}/api/embeddings",
-                json={"model": self._model, "prompt": text},
-                timeout=_HTTP_TIMEOUT,
+            response = await litellm.aembedding(
+                model=self._model,
+                input=[text],
+                api_base=self._api_base,
             )
-            response.raise_for_status()
-            data = response.json()
-            vector: list[float] = data["embedding"]
+            vector: list[float] = response.data[0]["embedding"]
 
             if len(vector) != _EMBED_DIM:
                 log.warning(
@@ -205,30 +211,32 @@ class EmbeddingService:
             return None
 
     async def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
-        """Embed a list of texts sequentially (Ollama API is single-prompt).
+        """Embed a list of texts in a single litellm.aembedding batch call.
+
+        LiteLLM accepts a list as the `input` parameter; the response contains
+        one entry per item in the same order. Each item is validated independently
+        — a dim mismatch on one entry does not fail the others.
 
         Args:
             texts: List of serialized embedding texts.
 
         Returns:
             List of vectors (or None entries for failures), same length as input.
-            OTel records each call with batch="true" label.
+            OTel records the call with batch="true" label.
         """
-        results: list[list[float] | None] = []
-        client = await self._get_client()
+        if not texts:
+            return []
 
-        for text in texts:
-            t0 = time.monotonic()
-            try:
-                response = await client.post(
-                    f"{self._base_url}/api/embeddings",
-                    json={"model": self._model, "prompt": text},
-                    timeout=_HTTP_TIMEOUT,
-                )
-                response.raise_for_status()
-                data = response.json()
-                vector: list[float] = data["embedding"]
-
+        t0 = time.monotonic()
+        try:
+            response = await litellm.aembedding(
+                model=self._model,
+                input=texts,
+                api_base=self._api_base,
+            )
+            results: list[list[float] | None] = []
+            for item in response.data:
+                vector: list[float] = item["embedding"]
                 if len(vector) != _EMBED_DIM:
                     log.warning(
                         "embedding_dimension_mismatch",
@@ -237,22 +245,21 @@ class EmbeddingService:
                         model=self._model,
                     )
                     results.append(None)
-                    continue
+                else:
+                    results.append(vector)
 
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "true"})
-                results.append(vector)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "true"})
+            return results
 
-            except Exception as error:
-                log.warning(
-                    "embedding_failed",
-                    model=self._model,
-                    error=str(error),
-                    error_type=type(error).__name__,
-                )
-                results.append(None)
-
-        return results
+        except Exception as error:
+            log.warning(
+                "embedding_failed",
+                model=self._model,
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            return [None] * len(texts)
 
     async def embed_context(self, context: Any) -> tuple[list[float] | None, str]:
         """Serialize context, embed it, and return (vector, embedding_text).
@@ -273,17 +280,8 @@ class EmbeddingService:
         return vector, text
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Lifecycle (no-op — litellm manages its own transport)
     # ------------------------------------------------------------------
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Return the shared client, creating it lazily if not injected."""
-        if self._client is None:
-            self._client = httpx.AsyncClient()
-        return self._client
-
     async def aclose(self) -> None:
-        """Close the underlying HTTP client if we own it."""
-        if self._owns_client and self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        """No-op: litellm manages its own HTTP transport."""

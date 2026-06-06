@@ -2,16 +2,16 @@
 
 Locks the contracts:
   - D-22: serialize uses percentile tokens (rsi_pct, atr_pct), never raw values
-  - D-13/D-19: embed() returns None on HTTP error or dimension mismatch, never raises
+  - D-13/D-19: embed() returns None on litellm error or dimension mismatch, never raises
   - embed_context() returns (None, text) on failure — text always returned for audit (D-05)
+  - LiteLLM routing: embed() and embed_batch() call litellm.aembedding, never raw httpx
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 
 from src.core.memory.embedding import EmbeddingService
@@ -46,6 +46,13 @@ def _context_minimal() -> SimpleNamespace:
         hmm_regime="trending_up",
         vol_regime="normal",
     )
+
+
+def _make_litellm_response(vectors: list[list[float]]) -> MagicMock:
+    """Build a fake litellm EmbeddingResponse with one or more vectors."""
+    response = MagicMock()
+    response.data = [{"embedding": v} for v in vectors]
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -116,48 +123,44 @@ def test_serialize_swing_structure_token():
 
 
 # ---------------------------------------------------------------------------
-# embed() tests
+# embed() tests — mocked via litellm.aembedding
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_embed_returns_none_on_http_error():
-    """embed() returns None when the HTTP call raises — never propagates exception."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.side_effect = httpx.ConnectError("connection refused")
-
-    svc = EmbeddingService(http_client=mock_client)
-    result = await svc.embed("ES 5m at_close regime:trending_up")
-
+async def test_embed_returns_none_on_litellm_error():
+    """embed() returns None when litellm.aembedding raises — never propagates."""
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(side_effect=Exception("connection refused")),
+    ):
+        svc = EmbeddingService()
+        result = await svc.embed("ES 5m at_close regime:trending_up")
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_embed_returns_none_on_timeout():
     """embed() returns None on timeout — never propagates exception."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.side_effect = httpx.ReadTimeout("timeout")
-
-    svc = EmbeddingService(http_client=mock_client)
-    result = await svc.embed("ES 5m at_close regime:trending_up")
-
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(side_effect=TimeoutError("timeout")),
+    ):
+        svc = EmbeddingService()
+        result = await svc.embed("ES 5m at_close regime:trending_up")
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_embed_returns_none_on_dim_mismatch():
-    """embed() returns None when Ollama returns a vector of wrong dimension."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    # Return 384-dim vector (wrong — nomic-embed-text should be 768)
-    mock_response.json.return_value = {"embedding": [0.1] * 384}
-
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.return_value = mock_response
-
-    svc = EmbeddingService(http_client=mock_client)
-    result = await svc.embed("ES 5m at_close regime:trending_up")
-
+    """embed() returns None when litellm returns a vector of wrong dimension."""
+    fake_response = _make_litellm_response([[0.1] * 384])  # wrong — should be 768
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(return_value=fake_response),
+    ):
+        svc = EmbeddingService()
+        result = await svc.embed("ES 5m at_close regime:trending_up")
     assert (
         result is None
     ), f"Expected None for dim-mismatch but got vector of len {len(result) if result else 'None'}"
@@ -165,19 +168,87 @@ async def test_embed_returns_none_on_dim_mismatch():
 
 @pytest.mark.asyncio
 async def test_embed_returns_vector_on_success():
-    """embed() returns a 768-dim list[float] on a successful Ollama response."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"embedding": [0.1] * 768}
-
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.return_value = mock_response
-
-    svc = EmbeddingService(http_client=mock_client)
-    result = await svc.embed("ES 5m at_close regime:trending_up")
-
+    """embed() returns a 768-dim list[float] on a successful litellm response."""
+    fake_response = _make_litellm_response([[0.1] * 768])
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(return_value=fake_response),
+    ):
+        svc = EmbeddingService()
+        result = await svc.embed("ES 5m at_close regime:trending_up")
     assert result is not None
     assert len(result) == 768
+
+
+@pytest.mark.asyncio
+async def test_embed_passes_model_and_api_base():
+    """embed() forwards model and api_base to litellm.aembedding."""
+    fake_response = _make_litellm_response([[0.5] * 768])
+    mock_aembedding = AsyncMock(return_value=fake_response)
+    with patch("src.core.memory.embedding.litellm.aembedding", new=mock_aembedding):
+        svc = EmbeddingService(model="ollama/nomic-embed-text", api_base="http://localhost:11434")
+        await svc.embed("test text")
+    mock_aembedding.assert_called_once_with(
+        model="ollama/nomic-embed-text",
+        input=["test text"],
+        api_base="http://localhost:11434",
+    )
+
+
+# ---------------------------------------------------------------------------
+# embed_batch() tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_returns_vectors():
+    """embed_batch() returns a same-length list of 768-dim vectors."""
+    fake_response = _make_litellm_response([[0.1] * 768, [0.2] * 768])
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(return_value=fake_response),
+    ):
+        svc = EmbeddingService()
+        results = await svc.embed_batch(["text one", "text two"])
+    assert len(results) == 2
+    assert all(r is not None and len(r) == 768 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_returns_none_per_mismatch():
+    """embed_batch() returns None for items with wrong dimension."""
+    fake_response = _make_litellm_response([[0.1] * 768, [0.2] * 384])  # second is wrong
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(return_value=fake_response),
+    ):
+        svc = EmbeddingService()
+        results = await svc.embed_batch(["text one", "text two"])
+    assert results[0] is not None and len(results[0]) == 768
+    assert results[1] is None
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_returns_all_none_on_error():
+    """embed_batch() returns [None]*len(texts) when litellm raises."""
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(side_effect=Exception("offline")),
+    ):
+        svc = EmbeddingService()
+        results = await svc.embed_batch(["a", "b", "c"])
+    assert results == [None, None, None]
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_empty_input():
+    """embed_batch([]) returns [] without calling litellm."""
+    mock_aembedding = AsyncMock()
+    with patch("src.core.memory.embedding.litellm.aembedding", new=mock_aembedding):
+        svc = EmbeddingService()
+        results = await svc.embed_batch([])
+    assert results == []
+    mock_aembedding.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -188,12 +259,13 @@ async def test_embed_returns_vector_on_success():
 @pytest.mark.asyncio
 async def test_embed_context_returns_text_even_on_failure():
     """embed_context() always returns the serialized text even when embedding fails (D-05)."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.side_effect = httpx.ConnectError("offline")
-
-    svc = EmbeddingService(http_client=mock_client)
-    ctx = _context_minimal()
-    vector, text = await svc.embed_context(ctx)
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(side_effect=Exception("offline")),
+    ):
+        svc = EmbeddingService()
+        ctx = _context_minimal()
+        vector, text = await svc.embed_context(ctx)
 
     assert vector is None
     assert isinstance(text, str)
@@ -203,17 +275,15 @@ async def test_embed_context_returns_text_even_on_failure():
 
 @pytest.mark.asyncio
 async def test_embed_context_returns_vector_and_text_on_success():
-    """embed_context() returns (list[float](768), text) when Ollama succeeds."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"embedding": [0.5] * 768}
-
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.post.return_value = mock_response
-
-    svc = EmbeddingService(http_client=mock_client)
-    ctx = _context_with_percentiles()
-    vector, text = await svc.embed_context(ctx)
+    """embed_context() returns (list[float](768), text) when litellm succeeds."""
+    fake_response = _make_litellm_response([[0.5] * 768])
+    with patch(
+        "src.core.memory.embedding.litellm.aembedding",
+        new=AsyncMock(return_value=fake_response),
+    ):
+        svc = EmbeddingService()
+        ctx = _context_with_percentiles()
+        vector, text = await svc.embed_context(ctx)
 
     assert vector is not None
     assert len(vector) == 768
