@@ -32,6 +32,7 @@ def _make_settings(
     openrouter_models="",
 ):
     s = MagicMock()
+    s.llm_models = ""
     s.ollama_enabled = ollama_enabled
     s.ollama_model = ollama_model
     s.ollama_base_url = ollama_base_url

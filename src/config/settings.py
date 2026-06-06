@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
 
     # LLM providers
+    llm_models: str = Field(
+        default="",
+        validation_alias="LLM_MODELS",
+        description=(
+            "Comma-separated LiteLLM model strings. When set, overrides Ollama + OpenRouter "
+            "provider list entirely. Examples: 'deepseek/deepseek-chat', "
+            "'anthropic/claude-3-5-sonnet-latest', 'openrouter/deepseek/deepseek-chat'. "
+            "Provider API keys (DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, etc.) are read from env."
+        ),
+    )
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_models: str = Field(
         default=(
