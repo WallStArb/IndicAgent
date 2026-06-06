@@ -75,7 +75,10 @@ def build_memory_client(
         from src.core.memory.client import MemoryClient  # noqa: PLC0415
         from src.core.memory.embedding import EmbeddingService  # noqa: PLC0415
 
-        embedding = EmbeddingService(ollama_base_url=settings.ollama_base_url)
+        embedding = EmbeddingService(
+            model=settings.embedding_model,
+            api_base=settings.ollama_base_url,
+        )
         episodic = PgvectorEpisodicBackend(pool=db_pool)
         calibration = PgvectorCalibrationBackend(pool=db_pool)
         regime = PgvectorRegimeBackend(pool=db_pool)
@@ -125,7 +128,10 @@ def build_memory_writer(
         from src.core.memory.embedding import EmbeddingService  # noqa: PLC0415
         from src.core.memory.writer import MemoryEpisodeWriter  # noqa: PLC0415
 
-        embedding = EmbeddingService(ollama_base_url=settings.ollama_base_url)
+        embedding = EmbeddingService(
+            model=settings.embedding_model,
+            api_base=settings.ollama_base_url,
+        )
         writer = MemoryEpisodeWriter(
             pool=db_pool,
             embedding=embedding,
