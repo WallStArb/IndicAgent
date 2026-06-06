@@ -1,6 +1,6 @@
 # Signals Foundation — Why signal_ledger exists and what it owns
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-06-05
 
 ---
 
@@ -149,7 +149,7 @@ NULL `entry_zone_low` or `entry_zone_high` routes the signal to the DLQ at write
 | `bars_to_activation` | INTEGER | Bars elapsed from signal fire to activation |
 | `exit_at` | TIMESTAMPTZ | When the signal exited. **Column is `exit_at`, NOT `exit_ts`.** |
 | `exit_price` | FLOAT | Exit price |
-| `exit_reason` | TEXT | `stop_loss`, `target_1`, `target_2`, `ttl_expired`, `chandelier_stop`, `condition_expired` |
+| `exit_reason` | TEXT | `stop_loss`, `target_2`, `target_3`, `ttl_expired`, `chandelier_stop`, `condition_expired`. Note: `target_1` is **not** an exit reason — T1 advances the chandelier floor (`be_floor`) and continues the trade. Only T2+ produce target-based exits. |
 | `outcome` | TEXT | 8-class outcome label (see Lifecycle doc) |
 | `pnl_r` | FLOAT | P&L in risk units (1R = 1x the initial stop distance) |
 | `mae` | FLOAT | Maximum adverse excursion in pnl_r units |
@@ -254,7 +254,7 @@ Applies three independent multipliers to confidence after alpha decay:
 
 `CISScorer` produces a composite intelligence score (`cis_score` 0–1) from the full feature vector across six buckets (trend, momentum, structure, volume, volatility, macro). Applied before the quality gate so the quality multipliers act on CIS-adjusted confidence.
 
-`cis_score` and `bucket_scores` are written to `signal_ledger` at fire time and are immutable — they reflect the market state at the moment of signal generation, not any later recalibration.
+`cis_score` and `bucket_scores` are written to `signal_ledger` at fire time and are immutable — they reflect the regime at the moment of signal generation, not any later recalibration.
 
 ### Time-of-day adjustment (apply_tod_adjustment)
 
@@ -296,6 +296,75 @@ The pipeline includes two adaptive feedback loops that operate over longer time 
 **Shadow mode gate** — Every plugin is auto-enrolled in `shadow_registry` at startup. Shadow signals traverse the full pipeline and generate outcomes in `signal_ledger` (`is_shadow=TRUE`) but are excluded from `select_winner()` — they never reach the execution stream.
 
 Promotion to live: `n >= 100` AND `bootstrap_ci_lower(pnl_r) > 0.0` (statistically positive expected value at 95% confidence). Demotion back to shadow: `EV[R] < -0.05` for 3 consecutive evaluation cycles. The gate enforces that every live plugin has demonstrated edge under real market conditions, not just backtested conditions.
+
+---
+
+## Trade Geometry: How stop_loss and targets Are Computed
+
+`stop_loss` and `targets` are computed by `src/intelligence/trading/trade_framer.py` via `frame_trade()`, called by every I7 plugin before it emits a signal. Once written to `signal_ledger`, these values are immutable — they represent the trade geometry at the moment of signal fire.
+
+### Stop resolution
+
+Stop levels are resolved from a structural hierarchy — each level is tried in order; the first valid level wins:
+
+```
+FVG gap edge → demand/supply zone proximal → sweep level → order block → swing high/low → EMA → S/R level → ATR fallback
+```
+
+The ATR fallback (`entry ± atr * 0.50`) is the last resort. Every stop above it is a structural level with market meaning.
+
+### Adaptive ATR buffer (`_adaptive_buffer`)
+
+All ATR-based buffer distances — for both stops and targets — are scaled through `_adaptive_buffer(features, base_mult, regime_type)` rather than using raw ATR multiples. This replaces a previous discrete 3-regime step function.
+
+```
+base_mult × garch_mult × hurst_tighten × shock_floor, capped at ADAPTIVE_BUFFER_HARD_CAP (1.40)
+```
+
+**GARCH scaling (continuous):** `garch_vol_ratio` (ratio of current GARCH sigma to historical baseline) is clipped to `[0.70, 1.50]` and mapped piecewise-linearly through three calibrated anchors:
+
+| vol_ratio | garch_mult |
+|-----------|------------|
+| 0.70 | 0.80 |
+| 1.00 | 1.00 |
+| 1.50 | 1.35 |
+
+Transitions between anchors are linear — no discrete regime cliff. A bar at `vol_ratio=1.49` gets a proportionally larger buffer than a quiet bar.
+
+**Hurst tightening (confirmation only):** When the Hurst exponent confirms the signal's regime type, structural levels are more reliable and the buffer narrows by up to 8%. Hurst never widens — it is already upstream in the regime gate, so widening would double-count.
+
+- Trend signal + H ≥ 0.55 → tighten by up to `(H - 0.55) × 0.16`
+- Mean-reversion signal + H ≤ 0.45 → tighten by up to `(0.45 - H) × 0.16`
+- Conflict (e.g. trend signal in low-Hurst market) → no adjustment
+
+**Shock floor:** A single extreme bar (`garch_shock > 3.0`) forces the buffer to at least `base_mult × 1.35` (regime-2 anchor), regardless of the sustained regime classification. Guards against GARCH regime lag on shock bars.
+
+**Fallback:** If `garch_vol_ratio` is missing (GARCH not yet warmed up), `garch_mult` defaults to 1.00 — identical to pre-warmup behavior.
+
+### Target candidates
+
+Target candidates are gathered by `_collect_target_candidates()` and filtered through an ATR range gate (`entry + atr×0.5 < candidate < entry + atr×max_mult`). All of the following are considered:
+
+| Source | Fields | Gate |
+|--------|--------|------|
+| Volume Profile | `poc_price`, `vah`, `val` (session VP); rolling variants | VP proximity logic |
+| Nearest structure | `nearest_resistance` / `nearest_support` | Direction-aware |
+| VWAP bands | `vwap_upper_band` / `vwap_lower_band` | Direction-aware |
+| **Weekly pivots** | `weekly_r1`, `weekly_r2` (long); `weekly_s1`, `weekly_s2` (short) | ATR range only |
+| **Fibonacci cluster** | `nearest_fib_level` | `fib_cluster_strength >= 0.5` (lone levels excluded) |
+| **Asian session H/L** | `asian_session_high` / `asian_session_low` | Direction-aware + ATR range |
+| **AVWAP bands** | `avwap_upper_band` / `avwap_lower_band` | Direction-aware |
+
+**Bold** rows are institutional levels — all computed upstream in I3/I4 and fed in via `features`. The ATR range filter prevents a distant weekly pivot from appearing as T1 on a small daily range.
+
+`_pick_targets()` selects T1/T2/T3 from the candidate list by RR threshold — no change to this logic from the candidate stage.
+
+### What does NOT change
+
+- ATR calculation — Wilder's 14-period is correct; `_adaptive_buffer` scales the result, never recomputes it
+- The structural stop hierarchy — order of fallback levels is unchanged
+- `_resolve_stop_long` / `_resolve_stop_short` — kept separate (genuine directional asymmetry in zone/sweep semantics)
+- `_pick_targets()` and RR thresholds — unchanged; only the candidate pool expands
 
 ---
 

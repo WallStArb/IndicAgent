@@ -2,6 +2,7 @@
 Description=IndicAgent Lineage Writer — persists signal lineage events to signal_lineage (Phase 73)
 After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
+PartOf=indicagent-intelligence-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

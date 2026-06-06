@@ -2,6 +2,7 @@
 Description=IndicAgent CTX Writer — batch persist qualitative context events and snapshots
 After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
+PartOf=indicagent-intelligence-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

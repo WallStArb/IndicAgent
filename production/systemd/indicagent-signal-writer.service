@@ -2,6 +2,7 @@
 Description=IndicAgent Signal Writer Agent — I7 signals → signal_ledger
 After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
+PartOf=indicagent-intelligence-pipeline.service
 
 [Service]
 Type=simple

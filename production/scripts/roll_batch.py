@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """roll_batch — nightly calendar-driven futures roll promotion.
 
+Version: 1.0
+Status: current
+Last Updated: 2026-06-06
+
 Replaces RollComputeAgent (24/7 streaming) and ContractMetadataWriterAgent
 (Kafka consumer) with a single oneshot script that:
 

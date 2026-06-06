@@ -2,6 +2,7 @@
 Description=IndicAgent Signal Tracker Compute — evaluate signal lifecycle (DB-ignorant)
 After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
+PartOf=indicagent-intelligence-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

@@ -2,6 +2,10 @@
 """
 Full Data Reset — wipes all signal-derived tables and re-runs backfill + lifecycle replay.
 
+Version: 1.1
+Status: current
+Last Updated: 2026-06-06
+
 Run this whenever framing logic (stop/target geometry) or lifecycle logic changes
 substantially enough that historical P&L is no longer trustworthy.
 
@@ -210,15 +214,13 @@ def _post_verify(conn) -> None:
         n_with_pnl = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM signal_outcomes WHERE pnl_r = 0.0")
         n_zero = cur.fetchone()[0]
-        cur.execute(
-            "SELECT COUNT(*) FROM signal_outcomes WHERE entry_zone_low IS NOT NULL OR "
-            "EXISTS (SELECT 1 FROM signal_ledger sl WHERE sl.signal_id = signal_outcomes.signal_id "
-            "AND sl.entry_zone_low IS NOT NULL) LIMIT 1"
-        )
+        cur.execute("SELECT COUNT(*) FROM signal_ledger WHERE entry_zone_low IS NOT NULL")
+        n_with_zones = cur.fetchone()[0]
 
     print(f"  signal_ledger rows:          {n_signals:>10,}")
     print(f"  outcomes with pnl_r:         {n_with_pnl:>10,}")
     print(f"  outcomes with zero pnl_r:    {n_zero:>10,}")
+    print(f"  signals with entry zones:    {n_with_zones:>10,}")
 
     # Spot check zone bounds on a sample signal
     with conn.cursor() as cur:
