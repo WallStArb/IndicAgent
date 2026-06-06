@@ -127,39 +127,53 @@ class EmbeddingService:
             tokens.append(f"hmm_prob:{hmm_prob:.2f}")
 
         # Trend score — CTF composite trend (0-1 percentile space)
-        trend_score = getattr(context, "trend_score", None) or getattr(context, "ctf_trend", None)
+        # Use explicit `is None` guards throughout this block — `or`-chaining treats
+        # 0.0 as falsy, which silently drops extreme-percentile readings (WR-01).
+        trend_score = getattr(context, "trend_score", None)
+        if trend_score is None:
+            trend_score = getattr(context, "ctf_trend", None)
         if trend_score is not None:
             tokens.append(f"trend:{trend_score:.2f}")
 
         # CTF composite score (cross-timeframe confluence, 0-1)
-        ctf_score = getattr(context, "ctf_score", None) or getattr(context, "ctf_composite", None)
+        ctf_score = getattr(context, "ctf_score", None)
+        if ctf_score is None:
+            ctf_score = getattr(context, "ctf_composite", None)
         if ctf_score is not None:
             tokens.append(f"ctf:{ctf_score:.2f}")
 
         # RSI percentile rank across recent bars — NOT the raw RSI value
-        rsi_pct = getattr(context, "rsi_pct", None) or getattr(context, "rsi_percentile", None)
+        rsi_pct = getattr(context, "rsi_pct", None)
+        if rsi_pct is None:
+            rsi_pct = getattr(context, "rsi_percentile", None)
         if rsi_pct is not None:
             tokens.append(f"rsi_pct:{rsi_pct:.2f}")
 
         # ATR percentile — volatility positioning relative to history
-        atr_pct = getattr(context, "atr_pct", None) or getattr(context, "atr_percentile", None)
+        atr_pct = getattr(context, "atr_pct", None)
+        if atr_pct is None:
+            atr_pct = getattr(context, "atr_percentile", None)
         if atr_pct is not None:
             tokens.append(f"atr_pct:{atr_pct:.2f}")
 
         # Swing structure — HL (higher-low), LH (lower-high), HH, LL, etc.
-        swing_structure = getattr(context, "swing_structure", None) or getattr(
-            context, "swing", None
-        )
+        swing_structure = getattr(context, "swing_structure", None)
+        if swing_structure is None:
+            swing_structure = getattr(context, "swing", None)
         if swing_structure is not None:
             tokens.append(f"swing:{swing_structure}")
 
         # Volume relative percentile — above/below average session volume
-        vol_pct = getattr(context, "vol_pct", None) or getattr(context, "volume_percentile", None)
+        vol_pct = getattr(context, "vol_pct", None)
+        if vol_pct is None:
+            vol_pct = getattr(context, "volume_percentile", None)
         if vol_pct is not None:
             tokens.append(f"vol_pct:{vol_pct:.2f}")
 
         # Momentum percentile (Rate-of-Change or MACD histogram percentile)
-        mom_pct = getattr(context, "momentum_pct", None) or getattr(context, "roc_pct", None)
+        mom_pct = getattr(context, "momentum_pct", None)
+        if mom_pct is None:
+            mom_pct = getattr(context, "roc_pct", None)
         if mom_pct is not None:
             tokens.append(f"mom_pct:{mom_pct:.2f}")
 
@@ -197,8 +211,6 @@ class EmbeddingService:
                 )
                 return None
 
-            elapsed_ms = (time.monotonic() - t0) * 1000
-            MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "false"})
             return vector
 
         except Exception as error:
@@ -209,6 +221,13 @@ class EmbeddingService:
                 error_type=type(error).__name__,
             )
             return None
+
+        finally:
+            # Record latency on all exit paths: success, dim-mismatch, and exception.
+            # Degraded calls (dim-mismatch, Ollama errors) must appear in the histogram
+            # so p95 reflects real failure behaviour, not only healthy calls (WR-03).
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "false"})
 
     async def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
         """Embed a list of texts in a single litellm.aembedding batch call.
