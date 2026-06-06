@@ -46,22 +46,6 @@ def _scan_codebase(terms: list[str]) -> dict[str, list[tuple[Path, int, str]]]:
     return hits
 
 
-def _rules_for_mode(
-    rules: list[GlossaryRule], mode: str, specific_term: str | None
-) -> list[GlossaryRule]:
-    if specific_term:
-        matched = [r for r in rules if specific_term in r.banned or specific_term == r.canonical]
-        if not matched:
-            print(f"No glossary entry found with banned term or canonical name: '{specific_term}'")
-            sys.exit(1)
-        return matched
-    if mode == "deprecated":
-        return [r for r in rules if r.status == "deprecated" and r.banned]
-    if mode == "retired":
-        return [r for r in rules if r.status == "retired" and r.banned]
-    return [r for r in rules if r.status in ("deprecated", "retired") and r.banned]
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Scan codebase for deprecated/retired glossary terms."
@@ -78,12 +62,23 @@ def main() -> int:
     args = parser.parse_args()
 
     rules = parse_glossary()
-    mode = "deprecated" if args.deprecated else ("retired" if args.retired else "all")
-    target_rules = _rules_for_mode(rules, mode, args.term)
+
+    if args.term:
+        target_rules = [r for r in rules if args.term in r.banned or args.term == r.canonical]
+        if not target_rules:
+            print(f"No glossary entry found with banned term or canonical name: '{args.term}'")
+            return 1
+    elif args.deprecated:
+        target_rules = [r for r in rules if r.status == "deprecated" and r.banned]
+    elif args.retired:
+        target_rules = [r for r in rules if r.status == "retired" and r.banned]
+    else:
+        target_rules = [r for r in rules if r.status in ("deprecated", "retired") and r.banned]
 
     if args.term and target_rules:
-        rule = target_rules[0]
-        print(f"Matched rule: `{rule.canonical}` — scanning all banned terms: {rule.banned}\n")
+        print(
+            f"Matched rule: `{target_rules[0].canonical}` — scanning all banned terms: {target_rules[0].banned}\n"
+        )
 
     # Collect all banned terms to scan (flatten across rules)
     all_banned: dict[str, GlossaryRule] = {}
