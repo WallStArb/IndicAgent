@@ -202,24 +202,28 @@ def targets_from_floats(
     return t_objs, rr_t1, rr_t2
 
 
+_STRUCTURAL_STOP_TYPES = frozenset(
+    {
+        "demand_zone",
+        "supply_zone",
+        "sweep_level",
+        "ob_bottom",
+        "ob_top",
+        "swing_low",
+        "swing_high",
+        "sr_support",
+        "sr_resistance",
+        "fvg_low",
+        "fvg_high",
+        "ema_21_support",
+        "ema_21_resistance",
+    }
+)
+
+
 def _stop_type_to_structure_type(stop_type: str) -> str:
     """Map raw stop_type string to canonical stop_structure_type label."""
-    _MAP = {
-        "demand_zone": "demand_zone",
-        "supply_zone": "supply_zone",
-        "sweep_level": "sweep_level",
-        "ob_bottom": "ob_bottom",
-        "ob_top": "ob_top",
-        "swing_low": "swing_low",
-        "swing_high": "swing_high",
-        "sr_support": "sr_support",
-        "sr_resistance": "sr_resistance",
-        "fvg_low": "fvg_low",
-        "fvg_high": "fvg_high",
-        "ema_21_support": "ema_21_support",
-        "ema_21_resistance": "ema_21_resistance",
-    }
-    return _MAP.get(stop_type, "atr_fallback")
+    return stop_type if stop_type in _STRUCTURAL_STOP_TYPES else "atr_fallback"
 
 
 def _get_structure_age_bars(stop_type: str, features: dict[str, Any]) -> int | None:

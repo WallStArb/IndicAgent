@@ -241,8 +241,7 @@ def make_signal_from_frame(
         )
 
     # Gate 2: stop_type is always resolved by frame_trade() — "atr" is the fallback,
-    # "unknown" never occurs. This assert is defensive documentation only.
-    assert tf.stop_type != "unknown", "frame_trade() must always resolve a stop_type"
+    # "unknown" never occurs.
 
     # Gate 3: minimum risk/reward to first target; all targets on correct side of entry
     target_prices = [t.price for t in tf.targets]
