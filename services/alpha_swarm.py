@@ -141,6 +141,13 @@ class AlphaSwarm(BaseGroupCoordinator):
         # gate on `if context.memory_client is not None` before reading.
         self._memory_client = build_memory_client(self.settings, self._pool)
 
+        # Phase 097: inject the MemoryClient (or None when disabled) into every
+        # agent so that context.memory_client is the live client at compute time.
+        # set_memory_client() is a post-construction setter on BaseAIWorker (MEM-01).
+        for agent in self._agents:
+            if hasattr(agent, "set_memory_client"):
+                agent.set_memory_client(self._memory_client)
+
         # MLEvaluator requires async _setup_models() call — find by type.
         ml = next((a for a in self._agents if isinstance(a, MLEvaluator)), None)
         if ml is not None:

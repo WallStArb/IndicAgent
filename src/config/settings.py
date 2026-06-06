@@ -175,6 +175,15 @@ class Settings(BaseSettings):
             "labeled episodes. Leave False until shadow gate passes."
         ),
     )
+    embedding_model: str = Field(
+        default="ollama/nomic-embed-text",
+        validation_alias="EMBEDDING_MODEL",
+        description=(
+            "LiteLLM model string for agent-memory embeddings (Phase 097). "
+            "Routed via litellm.aembedding(). Default ollama/nomic-embed-text "
+            "(768-dim, local Ollama, no new infra). Swap via EMBEDDING_MODEL in .env."
+        ),
+    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
