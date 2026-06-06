@@ -1603,7 +1603,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 3/3 | Planned | - |
-| 097. Zep Episodic Memory | v2.8 | 9/9 | Complete   | 2026-06-06 |
+| 097. Zep Episodic Memory | v2.8 | 9/9 | Complete    | 2026-06-06 |
 | 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
 | 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
 | 101. Composite Fitness Function | v2.8 | 6/6 | Planned | - |
