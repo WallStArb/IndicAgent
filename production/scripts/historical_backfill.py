@@ -1837,18 +1837,10 @@ def main() -> None:
                                 sym = instrument.symbol
                                 print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
 
-                        # All asset classes: derive 4h from 1m as a gap-fill pass.
-                        # 4h is fetched directly from IBKR at 730d depth in the loop above.
-                        # This derivation supplements any slots IBKR didn't return (e.g. thin
-                        # pre/after-hours windows). ON CONFLICT DO NOTHING makes it idempotent.
-                        bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
-                        if bars_1m:
-                            aggregated_4h = aggregate_bars_from_1m(bars_1m, "4h")
-                            n = store_bars(db_conn, aggregated_4h, instrument.symbol, "4h")
-                            total_bars += n
-                            print(f"  {instrument.symbol}/4h (derived from 1m): {n} bars")
-                        else:
-                            print(f"  {instrument.symbol}/4h: no 1m bars — skipping 4h derivation")
+                        # 4h bars are fetched directly from IBKR at 730d depth above.
+                        # No derivation needed: 1m only covers 14d (named contract, no rolls)
+                        # which is inferior in both depth and price series to the direct fetch.
+                        # Gaps in IBKR 4h data are handled by the gap detection + refetch path.
 
                     except Exception as e:
                         print(f"  {instrument.symbol}: error — {e}")
