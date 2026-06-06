@@ -211,8 +211,6 @@ class EmbeddingService:
                 )
                 return None
 
-            elapsed_ms = (time.monotonic() - t0) * 1000
-            MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "false"})
             return vector
 
         except Exception as error:
@@ -223,6 +221,13 @@ class EmbeddingService:
                 error_type=type(error).__name__,
             )
             return None
+
+        finally:
+            # Record latency on all exit paths: success, dim-mismatch, and exception.
+            # Degraded calls (dim-mismatch, Ollama errors) must appear in the histogram
+            # so p95 reflects real failure behaviour, not only healthy calls (WR-03).
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            MEMORY_EMBED_LATENCY_MS.record(elapsed_ms, {"batch": "false"})
 
     async def embed_batch(self, texts: list[str]) -> list[list[float] | None]:
         """Embed a list of texts in a single litellm.aembedding batch call.
