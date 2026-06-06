@@ -20,7 +20,7 @@
 - ✅ **v2.5 Data Quality & Intelligence Completion** — Phases 69–83 (shipped 2026-05-16; all 15 phases complete including 70, 80, 81, 82, 83)
 - ✅ **v2.6 Foundation Hardening & Signal Transform** — Phases 084–092 (shipped 2026-05-20)
 - ✅ **v2.7 Mathematical Correctness, Storage & Hardening** — Phases 093, 100, 100.5, 104-109 (shipped 2026-05-29)
-- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103, 110-114 (in progress)
+- 🚧 **v2.8 AI Platform & Evolvable Agents** — Phases 094-099, 101-103, 110-116 (in progress)
 
 ## Phases
 
@@ -866,7 +866,7 @@ Plans:
 </details>
 
 <details>
-<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-114) — IN PROGRESS</summary>
+<summary>v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-116) — IN PROGRESS</summary>
 
 **Milestone Goal**: Execute the AI platform stack with measurable evidence gates at every layer (Phases 094-099), then build evolvable agent infrastructure (Phases 101-103, 114). Naming and infrastructure alignment (110-113) completed. Each dependency earns its place before the next is added.
 
@@ -1183,7 +1183,7 @@ Plans:
   3. `AGENT_MEMORY_ENABLED` flag is `False` by default; enabling it requires shadow-mode recall quality validation showing confidence stability improvement
   4. Memory recall p95 latency is measured via OTel histogram and documented; must not exceed 50ms to remain within agent `latency_budget_ms`
 
-**Plans:** 6/6 plans complete
+**Plans:** 8/9 plans executed
 
 Plans:
 
@@ -1472,7 +1472,7 @@ Reviewed 2026-04-27: removed 4 stale items, consolidated 2, reworded 1.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104-109 shipped). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-114).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 complete (64+65+66 shipped 2026-05-14). v2.4 complete (Phases 67-68 shipped 2026-04-23). v2.5 complete (Phases 69-83 shipped 2026-05-16). v2.6 complete (Phases 084-092 shipped 2026-05-20). v2.7 complete (Phases 093, 100, 100.5, 104-109 shipped). Next: v2.8 AI Platform & Evolvable Agents (Phases 094-099, 101-103, 110-116).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -1603,7 +1603,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 111. Full Naming Alignment | v2.8 | 4/4 | Complete    | 2026-05-31 |
 | 095. Pydantic AI Agent Execution Layer | v2.8 | 8 plans written/0 executed | Planned | - |
 | 096. Agent Registry | v2.8 | 3/3 | Planned | - |
-| 097. Zep Episodic Memory | v2.8 | 6/6 | Complete   | 2026-06-06 |
+| 097. Zep Episodic Memory | v2.8 | 8/9 | In Progress|  |
 | 098. DSPy Offline Optimizer | v2.8 | 0/TBD | Not started | - |
 | 099. Guardrails AI Validation | v2.8 | 0/TBD | Not started | - |
 | 101. Composite Fitness Function | v2.8 | 6/6 | Planned | - |
@@ -1612,4 +1612,5 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 112. Intelligence Pipeline Signal Integrity | v2.8 | 5/5 | Complete    | 2026-06-02 |
 | 113. Architecture Hardening | v2.8 | 1/1 | Complete   | 2026-06-03 |
 | 114. Occam's Razor | v2.8 | 4/4 plans written/0 executed | Planned | - |
+| 115. Framing Audit Trail | v2.8 | 5/5 | Complete | 2026-06-05 |
 | 116. SR Consensus — Multi-Method Support/Resistance | v2.8 | 3/3 | Complete    | 2026-06-05 |

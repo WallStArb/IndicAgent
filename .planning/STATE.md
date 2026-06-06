@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: AI Platform & Evolvable Agents
 status: milestone_complete
-last_updated: "2026-06-05T23:50:46.412Z"
+last_updated: "2026-06-06T06:34:33.680Z"
 progress:
   total_phases: 19
   completed_phases: 2
-  total_plans: 32
-  completed_plans: 15
+  total_plans: 35
+  completed_plans: 17
   percent: 11
 ---
 
@@ -19,7 +19,7 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 097 — Zep Episodic Memory
+**Current focus:** Phase 097 — agent-memory
 
 ## v2.8 AI Platform Phases (7/13 complete)
 
@@ -36,12 +36,13 @@ See: .planning/PROJECT.md
 | 112 | Intelligence Pipeline Signal Integrity | SIGINT-01–05 | Complete (5/5 plans, 2026-06-02) |
 | 113 | Architecture Hardening | ARCH-01 | Complete (1/1 plan, 2026-06-03) |
 | 114 | Occam's Razor | OCCAM-01–04 | 4/4 plans (revised with review feedback, ready to execute) |
-| 115 | Framing Audit Trail | FRAME-01–05 | 5/5 plans (ready to execute) |
+| 115 | Framing Audit Trail | FRAME-01–05 | Complete (5/5 plans, 2026-06-05) |
+| 116 | SR Consensus | SR-01–03 | Complete (3/3 plans, 2026-06-05) |
 | 101 | Composite Fitness Function | FIT-01–06 | 6/6 plans (reviewed, ready to execute) |
 | 102 | Genetic Infrastructure (gated on FIT-06) | GENE-01–04 | 0/4 plans |
 | 103 | Reproductive Operators (gated on FIT-06 + GENE) | REPRO-01–04 | 0/4 plans |
 
-**Coverage:** 53/53 v2.8 requirements mapped + Phase 115 (5 FRAME reqs).
+**Coverage:** 53/53 v2.8 requirements mapped + Phase 115 (5 FRAME reqs) + Phase 116 (3 SR reqs).
 
 ## Evidence Gates
 
