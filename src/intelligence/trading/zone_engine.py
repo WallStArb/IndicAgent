@@ -32,6 +32,17 @@ DEDUP_TOLERANCE_ATR = 1.0  # wider than CLUSTER_RADIUS_ATR to suppress same-leve
 _SINGLE_STRENGTH_WEIGHT = 0.6
 _SINGLE_PROXIMITY_WEIGHT = 0.4
 _MAX_DIVERSITY_TIERS = 5  # distinct source_tiers possible in a consensus cluster
+# Maximum structural stop distance per TF — levels beyond this belong to a higher TF.
+# Used by trade_framer (stop cap) and sr_consensus (proximity gate radius).
+MAX_STOP_ATR_MULTIPLIER_BY_TF: dict[str, float] = {
+    "1m": 3.0,
+    "5m": 4.0,
+    "15m": 5.0,
+    "1h": 6.0,
+    "4h": 8.0,
+    "1d": 8.0,
+}
+MAX_STOP_ATR_MULTIPLIER_DEFAULT = 5.0
 
 
 @dataclass
@@ -123,13 +134,6 @@ _VP_DIRECTION: dict[int, tuple[str, str, str, str, str]] = {
     -1: ("vah", "vah_rolling", "vah", "nearest_hvn_above", "hvn_above"),
 }
 
-# SR-semantic VP direction: direction=1 means resistance (above price), direction=-1 means support (below price).
-# DIFFERENT from _VP_DIRECTION which uses trade direction (1=long -> support-side val/hvn_below).
-_SR_VP_DIRECTION: dict[int, tuple[str, str, str, str, str]] = {
-    -1: ("val", "val_rolling", "val", "nearest_hvn_below", "hvn_below"),
-    1: ("vah", "vah_rolling", "vah", "nearest_hvn_above", "hvn_above"),
-}
-
 
 def _resolve_strength(features: dict, name: str, default: float) -> float:
     key = _STRENGTH_FIELD.get(name)
@@ -172,99 +176,33 @@ def _dedup(candidates: list[ZoneCandidate], atr: float) -> list[ZoneCandidate]:
     return result
 
 
-def collect_candidates(
+def _collect_raw(
     features: dict[str, Any],
-    direction: int,
-    entry: float,
-    stop: float,
-) -> list[ZoneCandidate]:
-    """Collect deduplicated structural price candidates strictly between stop and entry.
-
-    Returns list sorted by price ascending.
-    """
-    tf = features.get("timeframe", "")
-    atr = get_atr(features) or 0.5
-    if direction == 1:
-        lo, hi = stop, entry
-        specs = _SUPPORT_SPECS
-    else:
-        lo, hi = entry, stop
-        specs = _RESISTANCE_SPECS
-
-    raw: list[ZoneCandidate] = []
-    for feat_key, name, default_str, tier, family in specs:
-        price = _fval(features, feat_key)
-        if price <= EPSILON or not (lo < price < hi):
-            continue
-        strength = _resolve_strength(features, name, default_str)
-        raw.append(
-            ZoneCandidate(
-                price=price, name=name, strength=strength, source_tier=tier, source_family=family
-            )
-        )
-
-    # Volume profile (session vs rolling based on TF; poc is common, companion varies by direction)
-    poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
-    if direction not in _VP_DIRECTION:
-        raise ValueError(f"zone_engine: direction must be 1 or -1, got {direction!r}")
-    c_sess, c_roll, c_name, hvn_key, hvn_name = _VP_DIRECTION[direction]
-    companion = _select_vp(features, tf, c_sess, c_roll)
-    hvn = _fval(features, hvn_key)
-    for price, name in [(poc, "poc"), (companion, c_name), (hvn, hvn_name)]:
-        if price > EPSILON and lo < price < hi:
-            raw.append(
-                ZoneCandidate(
-                    price=price,
-                    name=name,
-                    strength=0.8 if name == "poc" else 0.7,
-                    source_tier="i4",
-                    source_family=f"vp_{name}",
-                )
-            )
-
-    return _dedup(raw, atr)
-
-
-def collect_sr_candidates(
-    features: dict[str, Any],
-    direction: int,
-    price: float,
+    specs: tuple,
+    lo: float,
+    hi: float,
     atr: float,
-    max_dist: float,
+    vp_direction_key: int,
 ) -> list[ZoneCandidate]:
-    """Collect SR candidates for ctx_SRConsensus proximity gate.
-
-    direction=-1: support (below price), lo=price-max_dist, hi=price (strict)
-    direction=+1: resistance (above price), lo=price, hi=price+max_dist (strict)
-    """
-    if direction == 1:
-        lo, hi = price, price + max_dist
-        specs = _RESISTANCE_SPECS
-    else:
-        lo, hi = price - max_dist, price
-        specs = _SUPPORT_SPECS
-
+    """Shared inner loop: iterate specs + VP block, dedup. Used by both collect_candidates
+    and collect_sr_candidates. vp_direction_key indexes _VP_DIRECTION directly."""
     tf = features.get("timeframe", "")
     raw: list[ZoneCandidate] = []
     for feat_key, name, default_str, tier, family in specs:
         p = _fval(features, feat_key)
         if p <= EPSILON or not (lo < p < hi):
             continue
-        strength = _resolve_strength(features, name, default_str)
         raw.append(
             ZoneCandidate(
-                price=p, name=name, strength=strength, source_tier=tier, source_family=family
+                price=p,
+                name=name,
+                strength=_resolve_strength(features, name, default_str),
+                source_tier=tier,
+                source_family=family,
             )
         )
-
-    # VP block: use _SR_VP_DIRECTION (SR-semantic: 1=resistance->vah, -1=support->val)
-    # NOT _VP_DIRECTION (trade-semantic: 1=long->val)
     poc = _select_vp(features, tf, "poc_price", "poc_price_rolling")
-    if direction not in _SR_VP_DIRECTION:
-        raise ValueError(
-            f"zone_engine: collect_sr_candidates direction must be 1 or -1, got {direction!r}"
-        )
-    c_sess, c_roll, c_name, hvn_key, hvn_name = _SR_VP_DIRECTION[direction]
+    c_sess, c_roll, c_name, hvn_key, hvn_name = _VP_DIRECTION[vp_direction_key]
     companion = _select_vp(features, tf, c_sess, c_roll)
     hvn = _fval(features, hvn_key)
     for p, name in [(poc, "poc"), (companion, c_name), (hvn, hvn_name)]:
@@ -278,8 +216,54 @@ def collect_sr_candidates(
                     source_family=f"vp_{name}",
                 )
             )
+    return _dedup(raw, atr)
 
-    return sorted(_dedup(raw, atr), key=lambda c: c.price)
+
+def collect_candidates(
+    features: dict[str, Any],
+    direction: int,
+    entry: float,
+    stop: float,
+) -> list[ZoneCandidate]:
+    """Collect deduplicated structural price candidates strictly between stop and entry."""
+    if direction not in _VP_DIRECTION:
+        raise ValueError(f"zone_engine: direction must be 1 or -1, got {direction!r}")
+    atr = get_atr(features) or 0.5
+    if direction == 1:
+        lo, hi = stop, entry
+        specs = _SUPPORT_SPECS
+    else:
+        lo, hi = entry, stop
+        specs = _RESISTANCE_SPECS
+    return _collect_raw(features, specs, lo, hi, atr, direction)
+
+
+def collect_sr_candidates(
+    features: dict[str, Any],
+    direction: int,
+    price: float,
+    atr: float,
+    max_dist: float,
+) -> list[ZoneCandidate]:
+    """Collect SR candidates for ctx_SRConsensus proximity gate.
+
+    direction=-1: support (below price), lo=price-max_dist, hi=price (strict)
+    direction=+1: resistance (above price), lo=price, hi=price+max_dist (strict)
+
+    VP lookup uses -direction because SR semantics are inverted vs trade semantics:
+    resistance (direction=1) maps to the vah/hvn_above side (_VP_DIRECTION[-1]).
+    """
+    if direction not in (1, -1):
+        raise ValueError(
+            f"zone_engine: collect_sr_candidates direction must be 1 or -1, got {direction!r}"
+        )
+    if direction == 1:
+        lo, hi = price, price + max_dist
+        specs = _RESISTANCE_SPECS
+    else:
+        lo, hi = price - max_dist, price
+        specs = _SUPPORT_SPECS
+    return _collect_raw(features, specs, lo, hi, atr, -direction)
 
 
 def find_best_level(

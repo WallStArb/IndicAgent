@@ -153,7 +153,7 @@ class SupportResistancePlugin:
             )
             for _, idx in members
         )
-        strength = len(members) * (vol_sum / len(members))
+        strength = vol_sum
         return {"level": avg_level, "strength": strength, "latest_idx": latest_idx}
 
 

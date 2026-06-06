@@ -50,7 +50,11 @@ import structlog as _structlog
 from src.observability.metrics import STOP_BUFFER_MULT_DISTRIBUTION
 
 from .plugin_utils import _fval
-from .zone_engine import resolve_structural_zone
+from .zone_engine import (
+    MAX_STOP_ATR_MULTIPLIER_BY_TF,
+    MAX_STOP_ATR_MULTIPLIER_DEFAULT,
+    resolve_structural_zone,
+)
 
 _logger = _structlog.get_logger(__name__)
 
@@ -87,17 +91,6 @@ ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
     "4h": 8.0,
     "1d": 8.0,
 }
-# Maximum structural stop distance per TF — levels beyond this belong to a higher TF
-# and produce nonsensical risk/targets when used as a 5m/1m stop anchor.
-MAX_STOP_ATR_MULTIPLIER_BY_TF: dict[str, float] = {
-    "1m": 3.0,
-    "5m": 4.0,
-    "15m": 5.0,
-    "1h": 6.0,
-    "4h": 8.0,
-    "1d": 8.0,
-}
-MAX_STOP_ATR_MULTIPLIER_DEFAULT = 5.0
 VP_PROXIMITY_THRESHOLD_ATR = 0.5  # Volume Profile: price within VAH/VAL ± ATR×0.5 activates regime
 
 # ATR target multipliers for fallback (RR-based)

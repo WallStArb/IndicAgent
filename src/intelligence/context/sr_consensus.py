@@ -6,17 +6,14 @@ from typing import Any
 
 from src.intelligence.plugins import InputSpec
 from src.intelligence.trading.atr_utils import get_atr
-from src.intelligence.trading.trade_framer import (
+from src.intelligence.trading.zone_engine import (
+    EPSILON,
     MAX_STOP_ATR_MULTIPLIER_BY_TF,
     MAX_STOP_ATR_MULTIPLIER_DEFAULT,
-)
-from src.intelligence.trading.zone_engine import (
     ZoneCandidate,
     collect_sr_candidates,
     find_best_level,
 )
-
-EPSILON = 1e-9
 
 
 @dataclass
