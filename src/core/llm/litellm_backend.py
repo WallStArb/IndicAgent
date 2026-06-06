@@ -129,6 +129,8 @@ class LiteLLMBackend:
 
     def _build_providers(self) -> list[str]:
         """Build ordered list of LiteLLM model strings from settings."""
+        if self._settings.llm_models:
+            return [m.strip() for m in self._settings.llm_models.split(",") if m.strip()]
         providers: list[str] = []
         if self._settings.ollama_enabled:
             providers.append(f"ollama/{self._settings.ollama_model}")
