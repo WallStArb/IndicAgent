@@ -53,6 +53,8 @@ _TRUNCATE_TABLES: list[tuple[str, str]] = [
     ("shadow_transition_log", "shadow promotion/demotion history"),
     ("calibration_curves", "confidence calibration curves"),
     ("confidence_calibration", "confidence calibration data"),
+    ("ml_signal_training", "ML training rows — pnl_r/win labels from bad outcomes"),
+    ("signal_lineage", "signal lifecycle events keyed by signal_id — orphaned after wipe"),
     ("swarm_agent_weights", "swarm training weights (trained on bad data)"),
     ("llm_calls", "LLM audit trail (signal_ids will be orphaned after wipe)"),
     # signal_outcomes before signal_ledger (mirrors backfill --clean order)
