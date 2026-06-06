@@ -93,6 +93,16 @@ class _FailingEmbeddingService:
         return (None, "")
 
 
+class _SlowEmbeddingService:
+    """Fake EmbeddingService that hangs indefinitely (simulates Ollama timeout)."""
+
+    async def embed_context(self, context):
+        import asyncio
+
+        await asyncio.sleep(10)  # Will be cancelled by wait_for
+        return ([0.0] * 768, "")
+
+
 class _FakeEpisodicBackend:
     """Fake EpisodicBackend returning canned episodes."""
 
@@ -138,8 +148,15 @@ def _make_client(
     partial_n: int = 0,
     raise_episodic: bool = False,
     use_failing_embed: bool = False,
+    use_slow_embed: bool = False,
+    embed_timeout_ms: int = 30,
 ) -> MemoryClient:
-    embed = _FailingEmbeddingService() if use_failing_embed else _FakeEmbeddingService()
+    if use_slow_embed:
+        embed = _SlowEmbeddingService()
+    elif use_failing_embed:
+        embed = _FailingEmbeddingService()
+    else:
+        embed = _FakeEmbeddingService()
     return MemoryClient(
         episodic=_FakeEpisodicBackend(episodes=episodes, raise_on_recall=raise_episodic),
         calibration=_FakeCalibrationBackend(stats=cal_stats, partial_n=partial_n),
@@ -147,6 +164,7 @@ def _make_client(
         mem0=_FakeMem0Backend(),
         embedding=embed,
         recall_limit=10,
+        embed_timeout_ms=embed_timeout_ms,
     )
 
 
@@ -202,6 +220,16 @@ async def test_recall_embedding_failure_returns_empty():
     """recall() returns [] when EmbeddingService returns None (embedding failed)."""
     episodes = [_make_episode(0)]
     client = _make_client(episodes=episodes, use_failing_embed=True)
+    result = await client.recall(_SimpleContext(), agent_id="test_agent")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_recall_embed_timeout_returns_empty():
+    """recall() returns [] when embed_context exceeds embed_timeout_ms — never raises."""
+    episodes = [_make_episode(0)]
+    # Slow embed with very short timeout (1ms) so it always fires in tests
+    client = _make_client(episodes=episodes, use_slow_embed=True, embed_timeout_ms=1)
     result = await client.recall(_SimpleContext(), agent_id="test_agent")
     assert result == []
 
