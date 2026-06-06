@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 GLOSSARY_PATH = Path(__file__).parent.parent / "docs" / "foundation" / "glossary.md"
-GLOSSARY_SKIP = (Path(__file__).parent.parent / "docs" / "foundation" / "glossary.md").resolve()
 
 
 @dataclass
@@ -80,16 +79,20 @@ def parse_glossary(path: Path = GLOSSARY_PATH) -> list[GlossaryRule]:
     return rules
 
 
-def _extract_prose_lines(path: Path) -> list[tuple[int, str]]:
+def _extract_prose_lines(path: Path, raw_lines: list[str] | None = None) -> list[tuple[int, str]]:
     """Return (1-based lineno, text) for prose content to scan.
 
     For .md files: all lines.
     For .py files: comment lines and content inside triple-quoted strings.
-    """
-    if path.suffix == ".md":
-        return [(i + 1, line) for i, line in enumerate(path.read_text().splitlines())]
 
-    lines = path.read_text().splitlines()
+    NOTE: fires on any unclosed triple-quote, not just true docstrings —
+    acceptable tradeoff for a line-by-line scanner.
+    """
+    lines = raw_lines if raw_lines is not None else path.read_text().splitlines()
+
+    if path.suffix == ".md":
+        return [(i + 1, line) for i, line in enumerate(lines)]
+
     result: list[tuple[int, str]] = []
     in_docstring = False
     docstring_char: str | None = None
@@ -152,8 +155,10 @@ def scan_file(path: Path, rules: list[GlossaryRule]) -> list[Violation]:
     violations: list[Violation] = []
     enforced_rules = [r for r in rules if r.banned]
 
+    raw_lines = path.read_text().splitlines()
+
     # --- Prose scan ---
-    prose_lines = _extract_prose_lines(path)
+    prose_lines = _extract_prose_lines(path, raw_lines)
     for lineno, text in prose_lines:
         for rule in enforced_rules:
             for banned in rule.banned:
@@ -173,7 +178,7 @@ def scan_file(path: Path, rules: list[GlossaryRule]) -> list[Violation]:
 
     # --- Identifier scan (Python only) ---
     if path.suffix == ".py":
-        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+        for lineno, line in enumerate(raw_lines, 1):
             for m in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", line):
                 identifier = m.group(1)
                 for rule in enforced_rules:
@@ -213,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Skip the glossary itself — it contains banned terms by definition
-    files = [f for f in files if f.resolve() != GLOSSARY_SKIP]
+    files = [f for f in files if f.resolve() != GLOSSARY_PATH.resolve()]
 
     rules = parse_glossary()
     if not rules:
