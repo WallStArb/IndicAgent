@@ -59,7 +59,6 @@ import asyncio
 import concurrent.futures
 import json
 import sys
-import time
 from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -84,7 +83,7 @@ from src.core.bar_normalizer import (
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
-from src.core.service_utils import TF_SECONDS
+from src.core.service_utils import TF_SECONDS, min_bars_for_tf
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
@@ -213,7 +212,7 @@ def _upsert_contract_metadata(db_conn: Any, metadata: list[ContractMetadata]) ->
     return len(params)
 
 
-def fetch_per_contract(
+async def fetch_per_contract(
     provider: IBKRProvider,
     instrument: Any,  # Instrument object
     timeframe: str,
@@ -292,7 +291,7 @@ def fetch_per_contract(
 
         # Try to qualify the contract
         try:
-            qualified = asyncio.run(provider.qualify_instrument(contract_instrument))
+            qualified = await provider.qualify_instrument(contract_instrument)
             if not qualified:
                 print(f"    {contract_sym}: skip (qualify failed)")
                 continue
@@ -301,14 +300,12 @@ def fetch_per_contract(
             start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
-            ohlcv_bars = asyncio.run(
-                provider.fetch_historical_bars(
-                    symbol=contract_sym,
-                    timeframe=timeframe,
-                    start=start_dt,
-                    end=end_dt,
-                    continuous=False,  # Always named contract for per-contract mode
-                )
+            ohlcv_bars = await provider.fetch_historical_bars(
+                symbol=contract_sym,
+                timeframe=timeframe,
+                start=start_dt,
+                end=end_dt,
+                continuous=False,  # Always named contract for per-contract mode
             )
 
             # Convert bar dicts
@@ -353,7 +350,7 @@ def fetch_per_contract(
 
                 print(f"    {contract_sym}/{timeframe}: {n} bars")
 
-            time.sleep(1)  # IBKR pacing between contracts
+            await asyncio.sleep(1)  # IBKR pacing between contracts
 
         except Exception as e:
             print(f"    {contract_sym}: error — {e}")
@@ -366,76 +363,43 @@ def fetch_per_contract(
 
 
 # ---------------------------------------------------------------------------
-# Plugin lists — keep in sync with services
+# Plugin lists — sourced from register_plugins (single source of truth)
 # ---------------------------------------------------------------------------
-I1_PLUGINS = [
-    "RSI",
-    "MovingAverages",
-    "MAComposite",
-    "MACD",
-    "ATR",
-    "BollingerBands",
-    "Stochastic",
-    "CCI",
-    "WilliamsR",
-    "MFI",
-    "OBV",
-    "VWAP",
-    "Supertrend",
-    "ADX",
-    "KeltnerChannels",
-    "DonchianChannels",
-    "ROC_PPO",
-    "ind_CMF",
-    "ind_Aroon",
-    "ind_HistoricalVolatility",
-    "ind_ChandelierExit",
-    "ind_ParabolicSAR",
-    "ind_StochRSI",
-]
-I2_PLUGINS = [
-    "evt_RSIEvents",
-    "evt_StochasticEvents",
-    "evt_ADXEvents",
-    "evt_VolumeEvents",
-    "evt_MomentumAcceleration",
-    "evt_DonchianPosition",
-    "evt_OBVMomentum",
-    "cmp_DerivativeOscillator",
-    "cmp_ExhaustionScore",
-    "cmp_AccelerationRegime",
-]
-I3_PLUGINS = [
-    "struct_MACDEvents",
-    "struct_SwingDetector",
-    "struct_SupportResistance",
-    "struct_TrendStructure",
-]
-I4_PLUGINS = [
-    "ctx_VolatilityRegime",
-    "ctx_TrendRegime",
-    "ctx_MomentumContext",
-    "ctx_GARCHVolatility",
-]
-I5_PLUGINS = [
-    "RSIDivergence",
-    "BollingerSqueeze",
-    "VolumeDivergence",
-    "Confluence",
-    "TrendConfluence",
-    "patt_CandlestickPatterns",
-]
-from src.intelligence.register_plugins import TIER_I6, TIER_I7, TIER_SMC
+from src.intelligence.register_plugins import (
+    TIER_I1,
+    TIER_I2,
+    TIER_I3,
+    TIER_I4,
+    TIER_I5,
+    TIER_I6,
+    TIER_I7,
+    TIER_SMC,
+)
 
+I1_PLUGINS = TIER_I1
+I2_PLUGINS = TIER_I2
+I3_PLUGINS = TIER_I3
+I4_PLUGINS = TIER_I4
+I5_PLUGINS = TIER_I5
 SMC_PLUGINS = TIER_SMC
 I6_PLUGINS = TIER_I6
 I7_PLUGINS = TIER_I7
 
-MIN_BARS = 50
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
 # Larger than live service batch (50) — replay has no latency pressure and benefits from
 # fewer commits over millions of bars.
 _FEATURE_BATCH_SIZE = 2000
+
+# Plugin error tracking — count failures per plugin name, emit on first occurrence.
+# Never suppress silently: a crashing plugin produces missing features and garbage signals.
+_plugin_error_counts: dict[str, int] = defaultdict(int)
+
+
+def _log_plugin_error(name: str, symbol: str, tf: str, error: Exception) -> None:
+    _plugin_error_counts[name] += 1
+    if _plugin_error_counts[name] == 1:
+        print(f"  [plugin error] {name} ({symbol}/{tf}): {error}")
+
 
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
 #
@@ -507,7 +471,7 @@ def run_i1_plugins(
         plugin_states: per-(name, symbol, tf) state dict; mutated in place to
             isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
     """
-    if len(bar_history) < MIN_BARS:
+    if len(bar_history) < min_bars_for_tf(timeframe):
         return {}
 
     df = pd.DataFrame(list(bar_history))
@@ -526,8 +490,8 @@ def run_i1_plugins(
                     {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
                 )
                 frames["features"] = features
-        except Exception:
-            pass  # individual plugin failure never kills the replay
+        except Exception as error:
+            _log_plugin_error(name, symbol, timeframe, error)
 
     return features
 
@@ -576,8 +540,8 @@ def run_analysis_pipeline(
                     intelligence.update(out)
                     features.update(out)
                     frames["features"] = features
-            except Exception:
-                pass
+            except Exception as error:
+                _log_plugin_error(name, symbol, timeframe, error)
 
     intelligence_cache.setdefault(symbol, {})[timeframe] = intelligence
     return intelligence
@@ -941,14 +905,30 @@ def run_i7_and_persist(
     Returns:
         Number of ledger entries inserted (0 if no signals fired).
     """
-    if len(bar_history) < MIN_BARS:
+    if len(bar_history) < min_bars_for_tf(timeframe):
         return 0
 
     df = pd.DataFrame(list(bar_history))
-    frames: dict[str, Any] = {"main": df, "features": features}
+    # I7 plugins build their internal features dict by merging typed sub-dicts:
+    #   features = {**(frames.get("i1") or {}), **(frames.get("i4") or {}), ...}
+    # The live executor populates these from the typed IntelligenceEvent tiers.
+    # Backfill has one merged flat dict — put it in all tier slots so every plugin
+    # finds its features regardless of which tier key it reads from.
+    # Also set "symbol" so get_atr_with_floor_from_frames can apply the tick floor.
+    frames: dict[str, Any] = {
+        "main": df,
+        "features": features,
+        "i1": features,
+        "i2": features,
+        "i3": features,
+        "i4": features,
+        "i5": features,
+        "smc": features,
+        "i6": features,
+        "symbol": symbol,
+    }
 
     raw_signals = []
-    _plugin_errors: dict[str, str] = {}
     for name in I7_PLUGINS:
         try:
             plugin = registry.get_pattern(name)
@@ -957,13 +937,9 @@ def run_i7_and_persist(
                 result["setup_plugin"] = name
                 raw_signals.append(result)
         except Exception as error:
-            _plugin_errors[name] = str(error)
+            _log_plugin_error(name, symbol, timeframe, error)
 
     if not raw_signals:
-        if _plugin_errors and not hasattr(run_i7_and_persist, "_errors_logged"):
-            run_i7_and_persist._errors_logged = True  # type: ignore[attr-defined]
-            for plugin_name, error in list(_plugin_errors.items())[:3]:
-                print(f"    [I7 error] {plugin_name}: {error}")
         return 0
 
     trend_regime = float(features.get("trend_regime", 0.0))
@@ -1176,8 +1152,14 @@ def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
     for bar in bars_1m:
         ts = bar["timestamp"]
         if minutes < 1440:
+            # Floor using total elapsed minutes from midnight so multi-hour TFs (e.g. 4h)
+            # snap to correct boundaries. Minute-only floor (ts.minute // minutes) breaks
+            # for any TF where minutes >= 60 because ts.hour is left unchanged.
+            total = ts.hour * 60 + ts.minute
+            floored_total = (total // minutes) * minutes
             floored = ts.replace(
-                minute=(ts.minute // minutes) * minutes,
+                hour=floored_total // 60,
+                minute=floored_total % 60,
                 second=0,
                 microsecond=0,
             )
@@ -1351,97 +1333,123 @@ def replay_symbol(
     # across symbols. Scoped to this symbol so state never bleeds into the next symbol.
     plugin_states: dict[tuple[str, str, str], dict] = {}
 
-    signal_counts: dict[str, int] = {}
+    # Per-TF accumulators — maintained across the merged event stream.
+    _TF_SORT_KEY: dict[str, int] = {"1m": 0, "5m": 1, "15m": 2, "1h": 3, "4h": 4, "1d": 5}
+    feature_buffers: dict[str, list] = defaultdict(list)
+    total_features_by_tf: dict[str, int] = defaultdict(int)
+    total_signals_by_tf: dict[str, int] = defaultdict(int)
+    bars_processed_by_tf: dict[str, int] = defaultdict(int)
+    bars_total_by_tf: dict[str, int] = {tf: len(b) for tf, b in bars_by_tf.items()}
 
+    for tf, count in bars_total_by_tf.items():
+        print(f"  {symbol}/{tf}: replaying {count:,} bars...")
+
+    # Merge all TF bar streams into a single chronological event sequence.
+    # Lower TFs sort before higher TFs at the same timestamp — this ensures 1m bars are
+    # processed before the 1h bar that closes at the same timestamp, so intelligence_cache
+    # reflects only contemporaneous information when cross-TF context is injected.
+    # Processing TFs sequentially (old approach) injected future 1m intel into past 1h
+    # signal computation — a look-ahead bias that corrupts all cross-TF signals.
+    events: list[tuple[datetime, int, str, dict]] = []
+    for tf, bars in bars_by_tf.items():
+        sort_key = _TF_SORT_KEY.get(tf, 99)
+        for bar in bars:
+            events.append((bar["timestamp"], sort_key, tf, bar))
+    events.sort(key=lambda e: (e[0], e[1]))
+
+    tf_hierarchy = ["1m", "5m", "15m", "1h"]
+
+    for _ts, _sort, tf, bar in events:
+        ts = bar["timestamp"]
+        history_key = f"{symbol}:{tf}"
+        bar_histories[history_key].append(bar)
+        history = bar_histories[history_key]
+        bars_processed_by_tf[tf] += 1
+
+        # Skip indicator computation and signal emission on synthetic flat-fill bars.
+        # Running quantitative indicators on fabricated prices produces misleading
+        # features and signals built on noise. Bar is still appended to history above
+        # so real bars that follow have correct context.
+        if bar.get("source") == SOURCE_SYNTHETIC_FILL:
+            continue
+
+        # I1
+        i1_features = run_i1_plugins(history, symbol, tf, plugin_states)
+        if not i1_features:
+            continue  # not enough bars yet — warmup window not satisfied
+
+        # Build frames with cross-TF context (for I6 confluence).
+        # Because we process bars chronologically across all TFs, intelligence_cache
+        # here contains only intel from timestamps <= ts — no look-ahead.
+        df = pd.DataFrame(list(history))
+        frames: dict[str, Any] = {"main": df, "features": i1_features}
+        for other_tf in tf_hierarchy:
+            if other_tf == tf:
+                continue
+            other_key = f"{symbol}:{other_tf}"
+            if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
+                frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
+            cached = intelligence_cache.get(symbol, {}).get(other_tf)
+            if cached:
+                frames[f"intel_{other_tf}"] = cached
+
+        # I2 → I6
+        intelligence = run_analysis_pipeline(frames, intelligence_cache, symbol, tf, plugin_states)
+
+        # Merge all features for I7
+        all_features = {**i1_features, **intelligence}
+
+        # Build IntelligenceEvent and buffer for batch insert
+        event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
+        written_feature_ts: datetime | None = None
+        if event is not None:
+            feature_buffers[tf].append(_event_to_sync_params(event))
+            written_feature_ts = ts
+            total_features_by_tf[tf] += 1
+            if len(feature_buffers[tf]) >= _FEATURE_BATCH_SIZE:
+                _insert_features_sync(db_conn, feature_buffers[tf])
+                feature_buffers[tf].clear()
+
+        # I7 → signal_ledger (skipped in seed/warmup mode)
+        if not skip_signals:
+            n = run_i7_and_persist(
+                history,
+                all_features,
+                symbol,
+                tf,
+                ts,
+                db_conn,
+                feature_ts=written_feature_ts,
+                feature_tf=(tf if written_feature_ts is not None else None),
+            )
+            total_signals_by_tf[tf] += n
+
+        processed = bars_processed_by_tf[tf]
+        if processed % 1000 == 0:
+            total = bars_total_by_tf[tf]
+            count = total_features_by_tf[tf] if skip_signals else total_signals_by_tf[tf]
+            label = "features" if skip_signals else "signals"
+            print(f"    {symbol}/{tf}: {processed:,}/{total:,} bars, {count} {label}")
+
+    # Flush remaining feature buffers for all TFs
+    for tf, buf in feature_buffers.items():
+        if buf:
+            _insert_features_sync(db_conn, buf)
+
+    signal_counts: dict[str, int] = {}
     for tf in timeframes:
         if tf not in bars_by_tf:
             continue
+        count = total_features_by_tf[tf] if skip_signals else total_signals_by_tf[tf]
+        signal_counts[tf] = count
+        label = "feature rows written" if skip_signals else "signals inserted"
+        print(f"  {symbol}/{tf}: done — {count} {label}")
 
-        bars = bars_by_tf[tf]
-        total_signals = 0
-        total_features = 0
-        print(f"  {symbol}/{tf}: replaying {len(bars):,} bars...")
-
-        feature_buffer: list[tuple] = []
-
-        for i, bar in enumerate(bars):
-            ts = bar["timestamp"]
-            history_key = f"{symbol}:{tf}"
-            bar_histories[history_key].append(bar)
-            history = bar_histories[history_key]
-
-            # I1
-            i1_features = run_i1_plugins(history, symbol, tf, plugin_states)
-            if not i1_features:
-                continue  # not enough bars yet
-
-            # Build frames with cross-TF context (for I6 confluence)
-            df = pd.DataFrame(list(history))
-            frames: dict[str, Any] = {"main": df, "features": i1_features}
-
-            tf_hierarchy = ["1m", "5m", "15m", "1h"]
-            for other_tf in tf_hierarchy:
-                if other_tf == tf:
-                    continue
-                other_key = f"{symbol}:{other_tf}"
-                if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
-                    frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
-                cached = intelligence_cache.get(symbol, {}).get(other_tf)
-                if cached:
-                    frames[f"intel_{other_tf}"] = cached
-
-            # I2 → I6
-            intelligence = run_analysis_pipeline(
-                frames, intelligence_cache, symbol, tf, plugin_states
-            )
-
-            # Merge all features for I7
-            all_features = {**i1_features, **intelligence}
-
-            # Build IntelligenceEvent and buffer for batch insert
-            event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
-            written_feature_ts: datetime | None = None
-            if event is not None:
-                feature_buffer.append(_event_to_sync_params(event))
-                written_feature_ts = ts
-                total_features += 1
-                if len(feature_buffer) >= _FEATURE_BATCH_SIZE:
-                    _insert_features_sync(db_conn, feature_buffer)
-                    feature_buffer.clear()
-
-            # I7 → signal_ledger (skipped in seed/warmup mode)
-            if not skip_signals:
-                n = run_i7_and_persist(
-                    history,
-                    all_features,
-                    symbol,
-                    tf,
-                    ts,
-                    db_conn,
-                    feature_ts=written_feature_ts,
-                    feature_tf=(tf if written_feature_ts is not None else None),
-                )
-                total_signals += n
-
-            if (i + 1) % 1000 == 0:
-                if skip_signals:
-                    print(
-                        f"    {symbol}/{tf}: {i + 1:,}/{len(bars):,} bars, {total_features} features"
-                    )  # noqa: E501
-                else:
-                    print(
-                        f"    {symbol}/{tf}: {i + 1:,}/{len(bars):,} bars, {total_signals} signals"
-                    )
-
-        # Flush remaining buffered feature rows
-        if feature_buffer:
-            _insert_features_sync(db_conn, feature_buffer)
-
-        signal_counts[tf] = total_features if skip_signals else total_signals
-        if skip_signals:
-            print(f"  {symbol}/{tf}: done — {total_features} feature rows written")
-        else:
-            print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
+    if _plugin_error_counts:
+        total_errors = sum(_plugin_error_counts.values())
+        print(
+            f"  {symbol}: {total_errors} plugin errors across {len(_plugin_error_counts)} plugins — check logs above"
+        )
 
     return signal_counts
 
@@ -1650,203 +1658,213 @@ def main() -> None:
     # --------------- Stage 1: IBKR Fetch ---------------
     if not args.replay_only:
         print("=== Stage 1: IBKR Fetch ===")
-        provider = IBKRProvider(
-            host=settings.ib_host,
-            port=settings.ib_port,
-            client_id=args.client_id,
-        )
-        if not asyncio.run(provider.connect()):
-            print("Cannot connect to TWS — aborting fetch stage")
-            if args.fetch_only:
-                db_conn.close()
-                return
-            print("Continuing with replay-only...")
-        else:
+
+        async def _run_fetch_stage() -> int:
+            provider = IBKRProvider(
+                host=settings.ib_host,
+                port=settings.ib_port,
+                client_id=args.client_id,
+            )
+            if not await provider.connect():
+                print("Cannot connect to TWS — aborting fetch stage")
+                return -1
+
             end_dt = datetime.now(tz=UTC)
             total_bars = 0
-            # Fetch each requested TF using its configured depth and contract type.
-            # --days caps ALL TF fetch depths when provided; otherwise use _TF_FETCH_CONFIG
-            # defaults.
             fetch_tfs = [tf for tf in timeframes if tf in _TF_FETCH_CONFIG]
             print(f"  Fetching TFs: {fetch_tfs}")
             print()
-            for instrument in contracts:
-                try:
-                    qualified = asyncio.run(provider.qualify_instrument(instrument))
-                    if not qualified:
-                        print(f"  {instrument.symbol}: skipped (qualify failed)")
-                        continue
-
-                    # Per-contract mode for futures: fetch each contract in roll chain
-                    if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
-                        print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
-                        for tf in fetch_tfs:
-                            fetch_days, _ = _TF_FETCH_CONFIG[tf]
-                            if args.days:
-                                fetch_days = min(fetch_days, args.days)
-                            print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
-                            bars, metadata = fetch_per_contract(
-                                provider=provider,
-                                instrument=instrument,
-                                timeframe=tf,
-                                fetch_days=fetch_days,
-                                end_dt=end_dt,
-                                db_conn=db_conn,
-                            )
-                            total_bars += bars
-                        continue  # Skip the standard continuous fetch loop
-
-                    # Standard mode: use continuous contract for longer timeframes
-                    fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
-                    for tf in fetch_tfs:
-                        fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
-                        if args.days:
-                            fetch_days = min(fetch_days, args.days)
-
-                        start_dt = (end_dt - timedelta(days=fetch_days)).replace(
-                            hour=0, minute=0, second=0, microsecond=0
-                        )
-
-                        gaps = detect_gaps(
-                            db_conn,
-                            instrument.symbol,
-                            tf,
-                            start_dt,
-                            end_dt,
-                            session_id=instrument.session_id,
-                            exchange=instrument.exchange,
-                        )
-                        if not gaps:
-                            print(f"  {instrument.symbol}/{tf}: no gaps found.")
-                            fetched_tfs.add(tf)
+            try:
+                for instrument in contracts:
+                    try:
+                        qualified = await provider.qualify_instrument(instrument)
+                        if not qualified:
+                            print(f"  {instrument.symbol}: skipped (qualify failed)")
                             continue
 
-                        print(f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, fetching...")
+                        # Per-contract mode for futures: fetch each contract in roll chain
+                        if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
+                            print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
+                            for tf in fetch_tfs:
+                                fetch_days, _ = _TF_FETCH_CONFIG[tf]
+                                if args.days:
+                                    fetch_days = min(fetch_days, args.days)
+                                print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
+                                bars, metadata = await fetch_per_contract(
+                                    provider=provider,
+                                    instrument=instrument,
+                                    timeframe=tf,
+                                    fetch_days=fetch_days,
+                                    end_dt=end_dt,
+                                    db_conn=db_conn,
+                                )
+                                total_bars += bars
+                            continue  # Skip the standard continuous fetch loop
 
-                        # Skip continuous contracts for short windows (no rolls needed)
-                        use_cont = (
-                            use_continuous
-                            and (fetch_days > 14)
-                            and (instrument.asset_class == AssetClass.FUTURES)
-                        )
-                        for gap_start, gap_end in gaps:
-                            try:
-                                ohlcv_bars = asyncio.run(
-                                    provider.fetch_historical_bars(
+                        # Standard mode: use continuous contract for longer timeframes
+                        fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
+                        for tf in fetch_tfs:
+                            fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
+                            if args.days:
+                                fetch_days = min(fetch_days, args.days)
+
+                            start_dt = (end_dt - timedelta(days=fetch_days)).replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            )
+
+                            gaps = detect_gaps(
+                                db_conn,
+                                instrument.symbol,
+                                tf,
+                                start_dt,
+                                end_dt,
+                                session_id=instrument.session_id,
+                                exchange=instrument.exchange,
+                            )
+                            if not gaps:
+                                print(f"  {instrument.symbol}/{tf}: no gaps found.")
+                                fetched_tfs.add(tf)
+                                continue
+
+                            print(
+                                f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, fetching..."
+                            )
+
+                            # Skip continuous contracts for short windows (no rolls needed)
+                            use_cont = (
+                                use_continuous
+                                and (fetch_days > 14)
+                                and (instrument.asset_class == AssetClass.FUTURES)
+                            )
+                            for gap_start, gap_end in gaps:
+                                try:
+                                    ohlcv_bars = await provider.fetch_historical_bars(
                                         symbol=instrument.symbol,
                                         timeframe=tf,
                                         start=gap_start,
                                         end=gap_end,
                                         continuous=use_cont,
                                     )
-                                )
-                                bar_dicts = [
-                                    {
-                                        "timestamp": b.timestamp,
-                                        "open": b.open,
-                                        "high": b.high,
-                                        "low": b.low,
-                                        "close": b.close,
-                                        "volume": b.volume,
-                                        "source": b.source,
-                                    }
-                                    for b in ohlcv_bars
-                                ]
-                                canonical = normalize_bars(
-                                    bar_dicts,
-                                    symbol=instrument.symbol,
-                                    timeframe=tf,
-                                    start=gap_start,
-                                    end=gap_end,
-                                )
-                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
-                                total_bars += n
-                                if n > 0:
-                                    fetched_tfs.add(tf)
-                                print(f"    Fetched {n} bars for gap {gap_start} to {gap_end}")
-                            except Exception as e:
-                                print(f"    Gap {gap_start} error — {e}")
-                            time.sleep(2)  # IBKR pacing
+                                    bar_dicts = [
+                                        {
+                                            "timestamp": b.timestamp,
+                                            "open": b.open,
+                                            "high": b.high,
+                                            "low": b.low,
+                                            "close": b.close,
+                                            "volume": b.volume,
+                                            "source": b.source,
+                                        }
+                                        for b in ohlcv_bars
+                                    ]
+                                    canonical = normalize_bars(
+                                        bar_dicts,
+                                        symbol=instrument.symbol,
+                                        timeframe=tf,
+                                        start=gap_start,
+                                        end=gap_end,
+                                    )
+                                    n = store_bars(db_conn, canonical, instrument.symbol, tf)
+                                    total_bars += n
+                                    if n > 0:
+                                        fetched_tfs.add(tf)
+                                    print(f"    Fetched {n} bars for gap {gap_start} to {gap_end}")
+                                except Exception as e:
+                                    print(f"    Gap {gap_start} error — {e}")
+                                await asyncio.sleep(2)  # IBKR pacing
 
-                    # FX and crypto: fetch deeper 1m window and derive any TFs
-                    # that IBKR didn't return bars for in the named fetch above.
-                    if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
-                        missing_tfs = [
-                            tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
-                        ]
-                        if missing_tfs:
-                            deep_days = (
-                                _1M_DAYS_FX
-                                if instrument.asset_class == AssetClass.FX
-                                else _1M_DAYS_CRYPTO
-                            )
-                            deep_start = (end_dt - timedelta(days=deep_days)).replace(
-                                hour=0, minute=0, second=0, microsecond=0
-                            )
-                            try:
-                                deep_bars = asyncio.run(
-                                    provider.fetch_historical_bars(
+                        # FX and crypto: fetch deeper 1m window and derive any TFs
+                        # that IBKR didn't return bars for in the named fetch above.
+                        if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
+                            missing_tfs = [
+                                tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
+                            ]
+                            if missing_tfs:
+                                deep_days = (
+                                    _1M_DAYS_FX
+                                    if instrument.asset_class == AssetClass.FX
+                                    else _1M_DAYS_CRYPTO
+                                )
+                                deep_start = (end_dt - timedelta(days=deep_days)).replace(
+                                    hour=0, minute=0, second=0, microsecond=0
+                                )
+                                try:
+                                    deep_bars = await provider.fetch_historical_bars(
                                         symbol=instrument.symbol,
                                         timeframe="1m",
                                         start=deep_start,
                                         end=end_dt,
                                         continuous=False,
                                     )
-                                )
-                                deep_dicts = [
-                                    {
-                                        "timestamp": b.timestamp,
-                                        "open": b.open,
-                                        "high": b.high,
-                                        "low": b.low,
-                                        "close": b.close,
-                                        "volume": b.volume,
-                                        "source": b.source,
-                                    }
-                                    for b in deep_bars
-                                ]
-                                canonical_1m = normalize_bars(
-                                    deep_dicts,
-                                    symbol=instrument.symbol,
-                                    timeframe="1m",
-                                    start=deep_start,
-                                    end=end_dt,
-                                )
-                                n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
-                                print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
-                            except Exception as e:
-                                print(f"  {instrument.symbol}/1m deep fetch error — {e}")
-                            bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
-                            if bars_1m:
-                                for derived_tf in missing_tfs:
-                                    aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
-                                    n = store_bars(
-                                        db_conn, aggregated, instrument.symbol, derived_tf
+                                    deep_dicts = [
+                                        {
+                                            "timestamp": b.timestamp,
+                                            "open": b.open,
+                                            "high": b.high,
+                                            "low": b.low,
+                                            "close": b.close,
+                                            "volume": b.volume,
+                                            "source": b.source,
+                                        }
+                                        for b in deep_bars
+                                    ]
+                                    canonical_1m = normalize_bars(
+                                        deep_dicts,
+                                        symbol=instrument.symbol,
+                                        timeframe="1m",
+                                        start=deep_start,
+                                        end=end_dt,
                                     )
-                                    total_bars += n
-                                    sym = instrument.symbol
-                                    print(f"  {sym}/{derived_tf} (derived from 1m): {n} bars")
+                                    n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
+                                    print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
+                                except Exception as e:
+                                    print(f"  {instrument.symbol}/1m deep fetch error — {e}")
+                                bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
+                                if bars_1m:
+                                    for derived_tf in missing_tfs:
+                                        aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
+                                        n = store_bars(
+                                            db_conn, aggregated, instrument.symbol, derived_tf
+                                        )
+                                        total_bars += n
+                                        sym = instrument.symbol
+                                        print(f"  {sym}/{derived_tf} (derived from 1m): {n} bars")
+                                else:
+                                    print(
+                                        f"  {instrument.symbol}: no 1m bars — skipping derivation"
+                                    )
                             else:
-                                print(f"  {instrument.symbol}: no 1m bars — skipping derivation")
+                                sym = instrument.symbol
+                                print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
+
+                        # All asset classes: derive 4h from 1m as a gap-fill pass.
+                        # 4h is fetched directly from IBKR at 730d depth in the loop above.
+                        # This derivation supplements any slots IBKR didn't return (e.g. thin
+                        # pre/after-hours windows). ON CONFLICT DO NOTHING makes it idempotent.
+                        bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
+                        if bars_1m:
+                            aggregated_4h = aggregate_bars_from_1m(bars_1m, "4h")
+                            n = store_bars(db_conn, aggregated_4h, instrument.symbol, "4h")
+                            total_bars += n
+                            print(f"  {instrument.symbol}/4h (derived from 1m): {n} bars")
                         else:
-                            sym = instrument.symbol
-                            print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
+                            print(f"  {instrument.symbol}/4h: no 1m bars — skipping 4h derivation")
 
-                    # All asset classes: derive 4h from 1m (4h is never fetched directly).
-                    bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
-                    if bars_1m:
-                        aggregated_4h = aggregate_bars_from_1m(bars_1m, "4h")
-                        n = store_bars(db_conn, aggregated_4h, instrument.symbol, "4h")
-                        total_bars += n
-                        print(f"  {instrument.symbol}/4h (derived from 1m): {n} bars")
-                    else:
-                        print(f"  {instrument.symbol}/4h: no 1m bars — skipping 4h derivation")
+                    except Exception as e:
+                        print(f"  {instrument.symbol}: error — {e}")
+                    await asyncio.sleep(2)  # IBKR pacing between instruments
+            finally:
+                await provider.disconnect()
+            return total_bars
 
-                except Exception as e:
-                    print(f"  {instrument.symbol}: error — {e}")
-                time.sleep(2)  # IBKR pacing between instruments
-            asyncio.run(provider.disconnect())
-            print(f"\nStage 1 complete: {total_bars:,} total bars stored\n")
+        result = asyncio.run(_run_fetch_stage())
+        if result == -1:
+            if args.fetch_only:
+                db_conn.close()
+                return
+            print("Continuing with replay-only...")
+        else:
+            print(f"\nStage 1 complete: {result:,} total bars stored\n")
 
     # --------------- Stage 2: Intelligence Replay ---------------
     if not args.fetch_only:

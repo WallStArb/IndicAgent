@@ -134,12 +134,88 @@ def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
     assert result[0]["volume"] == 0
 
 
+def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
+    """4h aggregation must group to 00:00, 04:00, 08:00, ... boundaries.
+
+    Bug: the old minute-only floor left ts.hour unchanged, making each hour
+    its own bucket and producing 1h bars stored as 4h.
+    """
+    from production.scripts.historical_backfill import aggregate_bars_from_1m
+
+    def _bar(h: int, m: int, close: float) -> dict:
+        return {
+            "timestamp": datetime(2026, 3, 7, h, m, tzinfo=UTC),
+            "open": close - 0.5,
+            "high": close + 1,
+            "low": close - 1,
+            "close": close,
+            "volume": 100,
+        }
+
+    bars = [
+        _bar(0, 0, 100.0),
+        _bar(0, 30, 101.0),
+        _bar(1, 0, 102.0),
+        _bar(2, 0, 103.0),
+        _bar(3, 30, 104.0),
+        _bar(4, 0, 200.0),
+        _bar(5, 0, 201.0),
+        _bar(7, 30, 202.0),
+    ]
+    result = aggregate_bars_from_1m(bars, "4h")
+    assert (
+        len(result) == 2
+    ), f"Expected 2 4h windows, got {len(result)}: {[r['timestamp'] for r in result]}"
+    assert result[0]["timestamp"] == datetime(2026, 3, 7, 0, 0, tzinfo=UTC)
+    assert result[1]["timestamp"] == datetime(2026, 3, 7, 4, 0, tzinfo=UTC)
+    assert result[0]["open"] == bars[0]["open"]
+    assert result[0]["close"] == bars[4]["close"]  # last bar in 00:00-03:59 window
+    assert result[0]["volume"] == 500  # 5 bars × 100
+    assert result[1]["volume"] == 300  # 3 bars × 100
+
+
+def test_aggregate_bars_from_1m_1h_floors_correctly():
+    """1h aggregation: bars at 09:00-09:59 and 10:00-10:59 form two buckets."""
+    from production.scripts.historical_backfill import aggregate_bars_from_1m
+
+    bars = [
+        {
+            "timestamp": datetime(2026, 3, 7, 9, 0, tzinfo=UTC),
+            "open": 1,
+            "high": 2,
+            "low": 0,
+            "close": 1.5,
+            "volume": 10,
+        },
+        {
+            "timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC),
+            "open": 1.5,
+            "high": 2,
+            "low": 1,
+            "close": 2,
+            "volume": 20,
+        },
+        {
+            "timestamp": datetime(2026, 3, 7, 10, 0, tzinfo=UTC),
+            "open": 2,
+            "high": 3,
+            "low": 1.5,
+            "close": 2.5,
+            "volume": 30,
+        },
+    ]
+    result = aggregate_bars_from_1m(bars, "1h")
+    assert len(result) == 2
+    assert result[0]["timestamp"] == datetime(2026, 3, 7, 9, 0, tzinfo=UTC)
+    assert result[1]["timestamp"] == datetime(2026, 3, 7, 10, 0, tzinfo=UTC)
+
+
 # ---------------------------------------------------------------------------
 # CIS field propagation tests (Phase 25-01)
 # ---------------------------------------------------------------------------
 
 
-def _make_bar_history(n: int = 55) -> deque:
+def _make_bar_history(n: int = 120) -> deque:
     """Return a deque of n minimal bar dicts for testing."""
     base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = deque(maxlen=200)
@@ -162,7 +238,7 @@ def test_build_ledger_entries_sets_market_entry_price_to_bar_close():
     from production.scripts.historical_backfill import _build_ledger_entries
     from src.intelligence.trading.aggregator import AggregatedResult
 
-    bar_history = _make_bar_history(n=55)
+    bar_history = _make_bar_history(n=120)
     expected_close = bar_history[-1]["close"]  # 100.5 + 54 = 154.5
 
     result = AggregatedResult(
@@ -359,18 +435,22 @@ def test_insert_signals_sync_writes_cis_fields():
     ):
         _insert_signals_sync(mock_conn, [entry])
 
-    # Two execute_batch calls: one for signal_ledger (17 cols), one for signal_outcomes (2 cols)
+    # Two execute_batch calls: one for signal_ledger (32 cols), one for signal_outcomes (2 cols)
     assert len(captured_params) == 2
     row = captured_params[0]
-    # _INSERT_SYNC_SQL tuple (17 elements, fire-time only, no status/signal_quality):
+    # _INSERT_SYNC_SQL tuple (32 elements):
     # 0=signal_id,1=ts,2=symbol,3=tf,4=setup_plugin,5=signal_type,
-    # 6=direction,7=entry_price,8=stop_loss,9=targets(json),10=was_selected,
-    # 11=feature_ts,12=feature_tf,13=cis_score,14=bucket_scores(json),15=weights_version,
-    # 16=market_entry_price
-    assert len(row) == 17, f"Expected 17-element tuple, got {len(row)}"
-    assert row[13] == 0.55, f"Expected cis_score=0.55, got {row[13]}"
-    assert row[14] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[14]}"
-    assert row[15] == 1, f"Expected weights_version=1, got {row[15]}"
+    # 6=direction,7=was_selected,8=is_shadow,9=signal_computed_at,
+    # 10=feature_ts,11=feature_tf,12=hmm_regime_at_fire,13=garch_sigma_at_fire,
+    # 14=ttl_bars,15=entry_price,16=stop_loss,17=targets(json),18=entry_zone_low,
+    # 19=entry_zone_high,20=market_entry_price,21=cis_score,22=bucket_scores(json),
+    # 23=weights_version,24=expires_at,25=feature_schema_version,
+    # 26=stop_basis,27=stop_type_col,28=structural_stop_distance_atr,
+    # 29=adaptive_buffer_mult,30=plugin_regime_type,31=stop_structure_age_bars
+    assert len(row) == 32, f"Expected 32-element tuple, got {len(row)}"
+    assert row[21] == 0.55, f"Expected cis_score=0.55, got {row[21]}"
+    assert row[22] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[22]}"
+    assert row[23] == 1, f"Expected weights_version=1, got {row[23]}"
 
 
 def test_run_i7_and_persist_cis_null_when_no_raw_signals():
@@ -418,7 +498,7 @@ def test_run_i1_plugins_isolates_state_between_symbols():
     mock_registry = MagicMock()
     mock_registry.get_indicator.return_value = plugin
 
-    history = _make_bar_history(n=55)
+    history = _make_bar_history(n=120)
     plugin_states_sym1: dict = {}
     plugin_states_sym2: dict = {}
 
@@ -456,7 +536,7 @@ def test_run_i1_plugins_state_written_back_after_compute():
     mock_registry = MagicMock()
     mock_registry.get_indicator.return_value = plugin
 
-    history = _make_bar_history(n=55)
+    history = _make_bar_history(n=120)
     plugin_states: dict = {}
 
     with patch("production.scripts.historical_backfill.registry", mock_registry):
@@ -549,7 +629,7 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     mock_replay.assert_called_once_with(
         "ESH6", mock_conn, ["1m", "5m"], since=ts, skip_signals=False
     )
-    mock_conn.commit.assert_called_once()
+    mock_conn.commit.assert_not_called()  # autocommit=True; no explicit commit
     mock_conn.close.assert_called_once()
 
 
@@ -603,13 +683,21 @@ def _ts_bf(hour, minute):
 
 class TestRunI1Plugins:
     def test_returns_empty_when_insufficient_bars(self):
-        from historical_backfill import MIN_BARS, run_i1_plugins
+        from historical_backfill import run_i1_plugins
+
+        from src.core.service_utils import min_bars_for_tf
+
+        MIN_BARS = min_bars_for_tf("5m")
 
         history = deque([_backfill_bar(_ts_bf(9, i)) for i in range(MIN_BARS - 1)], maxlen=200)
         assert run_i1_plugins(history, "ESH6", "5m", {}) == {}
 
     def test_returns_features_dict_when_enough_bars(self):
-        from historical_backfill import MIN_BARS, run_i1_plugins
+        from historical_backfill import run_i1_plugins
+
+        from src.core.service_utils import min_bars_for_tf
+
+        MIN_BARS = min_bars_for_tf("5m")
 
         history = deque(
             [
@@ -622,7 +710,11 @@ class TestRunI1Plugins:
         assert isinstance(run_i1_plugins(history, "ESH6", "5m", {}), dict)
 
     def test_plugin_exception_does_not_propagate(self):
-        from historical_backfill import MIN_BARS, run_i1_plugins
+        from historical_backfill import run_i1_plugins
+
+        from src.core.service_utils import min_bars_for_tf
+
+        MIN_BARS = min_bars_for_tf("5m")
 
         history = deque([_backfill_bar(_ts_bf(9, i)) for i in range(MIN_BARS)], maxlen=200)
         register_all_plugins()
@@ -1002,11 +1094,11 @@ class TestCISColumnsInSQL:
             _insert_signals_sync(mock_conn, [entry])
         # Two execute_batch calls: ledger row + outcomes row
         assert len(captured) == 2
-        row = captured[0]  # ledger row (17 fire-time cols, no status/signal_quality)
-        assert len(row) == 17
-        assert row[13] is None  # cis_score
-        assert row[14] is None  # bucket_scores
-        assert row[15] is None  # weights_version
+        row = captured[0]  # ledger row (32 cols)
+        assert len(row) == 32
+        assert row[21] is None  # cis_score
+        assert row[22] is None  # bucket_scores
+        assert row[23] is None  # weights_version
 
 
 class TestDetectGaps:
