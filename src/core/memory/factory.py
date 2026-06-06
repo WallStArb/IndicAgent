@@ -90,8 +90,15 @@ def build_memory_client(
             regime=regime,
             mem0=mem0,
             embedding=embedding,
+            recall_limit=settings.memory_recall_limit,
+            embed_timeout_ms=settings.memory_embed_timeout_ms,
         )
-        log.info("memory.client_built", agent_memory_enabled=True)
+        log.info(
+            "memory.client_built",
+            agent_memory_enabled=True,
+            recall_limit=settings.memory_recall_limit,
+            embed_timeout_ms=settings.memory_embed_timeout_ms,
+        )
         return client
 
     except Exception as error:

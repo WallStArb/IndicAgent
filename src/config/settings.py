@@ -184,6 +184,23 @@ class Settings(BaseSettings):
             "(768-dim, local Ollama, no new infra). Swap via EMBEDDING_MODEL in .env."
         ),
     )
+    memory_recall_limit: int = Field(
+        default=10,
+        validation_alias="MEMORY_RECALL_LIMIT",
+        description=(
+            "Maximum episodic episodes returned per recall() call (Phase 097). "
+            "Increase to retrieve more historical analogues at higher recall latency cost."
+        ),
+    )
+    memory_embed_timeout_ms: int = Field(
+        default=30,
+        validation_alias="MEMORY_EMBED_TIMEOUT_MS",
+        description=(
+            "Millisecond timeout for the embedding step inside MemoryClient.recall() "
+            "(Phase 097). Caps the Ollama HTTP latency contribution to the total "
+            "50ms recall budget. On timeout: recall returns []."
+        ),
+    )
     llm_timeout_sec: float = Field(
         default=60.0,
         validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
