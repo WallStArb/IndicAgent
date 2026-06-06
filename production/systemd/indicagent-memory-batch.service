@@ -1,0 +1,16 @@
+[Unit]
+Description=IndicAgent Nightly Agent Memory Backfill + Calibration Promotion Batch
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python production/scripts/memory_batch.py
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
