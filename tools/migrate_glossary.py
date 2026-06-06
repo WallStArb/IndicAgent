@@ -81,6 +81,10 @@ def main() -> int:
     mode = "deprecated" if args.deprecated else ("retired" if args.retired else "all")
     target_rules = _rules_for_mode(rules, mode, args.term)
 
+    if args.term and target_rules:
+        rule = target_rules[0]
+        print(f"Matched rule: `{rule.canonical}` — scanning all banned terms: {rule.banned}\n")
+
     # Collect all banned terms to scan (flatten across rules)
     all_banned: dict[str, GlossaryRule] = {}
     for rule in target_rules:
