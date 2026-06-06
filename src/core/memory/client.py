@@ -24,6 +24,7 @@ Ring 0 — no Ring 1 imports.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -71,6 +72,7 @@ class MemoryClient:
         mem0: Mem0Backend,
         embedding: EmbeddingService,
         recall_limit: int = 10,
+        embed_timeout_ms: int = 30,
     ) -> None:
         self._episodic = episodic
         self._calibration = calibration
@@ -78,6 +80,7 @@ class MemoryClient:
         self._mem0 = mem0
         self._embedding = embedding
         self._recall_limit = recall_limit
+        self._embed_timeout_ms = embed_timeout_ms
 
     # ------------------------------------------------------------------
     # Public API
@@ -94,6 +97,13 @@ class MemoryClient:
         Embeds `context`, extracts cohort keys (symbol, hmm_regime, entry_type,
         regime_epoch), delegates to EpisodicBackend, and records MEM-04 metrics.
 
+        Latency budget (MEM-04 / D-13):
+            The embed step is bounded by self._embed_timeout_ms (default 30ms) via
+            asyncio.wait_for. The HNSW+rerank step uses the backend's own 40ms timeout
+            (config timeout_ms). Total recall budget = embed_timeout (30ms) + backend
+            timeout (40ms). p95 is measured empirically in memory_recall_benchmark.py.
+            On embed timeout: returns [], records timeout counter, never raises.
+
         Args:
             context: Duck-typed SignalContext (Ring 0 cannot import Ring 1 types).
             agent_id: Calling agent ID.
@@ -109,8 +119,24 @@ class MemoryClient:
         symbol = str(getattr(context, "symbol", "") or "")
 
         try:
-            # Embed the context via EmbeddingService (returns (vector|None, text))
-            embedding_vector, _embedding_text = await self._embedding.embed_context(context)
+            # Embed the context — bounded by embed_timeout_ms to cap its latency
+            # contribution. Query context is new per bar; precomputation is not viable.
+            try:
+                embedding_vector, _embedding_text = await asyncio.wait_for(
+                    self._embedding.embed_context(context),
+                    timeout=self._embed_timeout_ms / 1000.0,
+                )
+            except TimeoutError:
+                elapsed_ms = (time.monotonic() - t0) * 1000.0
+                MEMORY_RECALL_LATENCY_MS.record(elapsed_ms, {"tier": "1", "symbol": symbol})
+                MEMORY_RECALL_RESULTS_TOTAL.add(1, {"tier": "1", "result": "timeout"})
+                log.warning(
+                    "memory_client.embed_timeout",
+                    agent_id=agent_id,
+                    embed_timeout_ms=self._embed_timeout_ms,
+                )
+                return []
+
             if embedding_vector is None:
                 # Embedding failed — record miss and return empty
                 MEMORY_RECALL_RESULTS_TOTAL.add(1, {"tier": "1", "result": "miss"})
