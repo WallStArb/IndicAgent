@@ -33,7 +33,7 @@ class SignalStatus(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Signal outcome constants — 8-class taxonomy (authoritative source)
+# Signal outcome constants — 8-class classification (authoritative source)
 # ---------------------------------------------------------------------------
 
 from src.intelligence.trading.signal_outcome import (  # noqa: E501
