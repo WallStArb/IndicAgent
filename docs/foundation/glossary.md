@@ -128,15 +128,15 @@ Unqualified `weight` in code is a naming violation. Always prefix with context.
 
 ---
 
-## Instrument Taxonomy Terms
+## Instrument Vocabulary Terms
 
 ### `vocabulary`
 
 The controlled set of valid tags and their categorical structure. Defined in the `tag_vocabulary` table. A vocabulary entry specifies: the tag name, its category, its description, and its measurement contract (factor series, method, lookback).
 
-**Not:** "taxonomy," "ontology," or "classification scheme" — these are synonyms that introduce ambiguity. The canonical term is **vocabulary**. The table is `tag_vocabulary`. The doc is this system.
+**Not:** "ontology" or "classification scheme" — these introduce ambiguity. Also not "taxonomy" when used as a loose synonym for the tag system — the tag vocabulary is flat (no parent/child hierarchy); use `taxonomy` only when describing a genuine hierarchical structure.
 
-**Banned:** taxonomy, ontology, classification scheme
+**Banned:** ontology, classification scheme
 **Status:** active
 
 ---
@@ -361,6 +361,17 @@ A daemon that maintains the state of a business object over time. Consumes event
 A stateless computation unit in the I1-I7 intelligence pipeline. Receives a data frame, returns a dict of computed features. Has no Kafka connection, no DB access, no side effects. Named `PascalCasePlugin`.
 
 **Not:** an agent, a service, or a daemon. Plugins are called synchronously within `IntelligencePipeline`.
+
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `taxonomy`
+
+A hierarchical classification system with explicit parent/child relationships between categories. Use only when describing a genuine tree structure — a system where categories contain sub-categories with inherited properties.
+
+**Not:** a synonym for `vocabulary`. The tag system is a `vocabulary` — a flat controlled set of terms with measurement contracts. No tag inherits from another. If there is no hierarchy, use `vocabulary`.
 
 **Banned:** (none)
 **Status:** active
