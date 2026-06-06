@@ -461,6 +461,7 @@ def run_i1_plugins(
     symbol: str,
     timeframe: str,
     plugin_states: dict[tuple[str, str, str], dict],
+    df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Run all I1 indicator plugins on the current bar history.
 
@@ -470,11 +471,13 @@ def run_i1_plugins(
     Args:
         plugin_states: per-(name, symbol, tf) state dict; mutated in place to
             isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
+        df: pre-built DataFrame for bar_history; constructed here if not provided.
     """
     if len(bar_history) < min_bars_for_tf(timeframe):
         return {}
 
-    df = pd.DataFrame(list(bar_history))
+    if df is None:
+        df = pd.DataFrame(list(bar_history))
     frames: dict[str, Any] = {"main": df, "features": {}}
     features: dict[str, Any] = {}
 
@@ -889,6 +892,8 @@ def run_i7_and_persist(
     db_conn: Any,
     feature_ts: datetime | None = None,
     feature_tf: str | None = None,
+    df: pd.DataFrame | None = None,
+    signal_buffer: list | None = None,
 ) -> int:
     """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
 
@@ -901,14 +906,17 @@ def run_i7_and_persist(
         db_conn: psycopg2 connection (None for dry-run)
         feature_ts: timestamp of the intelligence_features row for this bar (None if not written)
         feature_tf: timeframe of the intelligence_features row (None if not written)
+        df: pre-built DataFrame for bar_history; constructed here if not provided.
+        signal_buffer: if provided, entries are appended here instead of inserted immediately.
 
     Returns:
-        Number of ledger entries inserted (0 if no signals fired).
+        Number of ledger entries produced (0 if no signals fired).
     """
     if len(bar_history) < min_bars_for_tf(timeframe):
         return 0
 
-    df = pd.DataFrame(list(bar_history))
+    if df is None:
+        df = pd.DataFrame(list(bar_history))
     # I7 plugins build their internal features dict by merging typed sub-dicts:
     #   features = {**(frames.get("i1") or {}), **(frames.get("i4") or {}), ...}
     # The live executor populates these from the typed IntelligenceEvent tiers.
@@ -955,8 +963,11 @@ def run_i7_and_persist(
         bar_history=bar_history,
     )
 
-    if entries and db_conn is not None:
-        _insert_signals_sync(db_conn, entries)
+    if entries:
+        if signal_buffer is not None:
+            signal_buffer.extend(entries)
+        elif db_conn is not None:
+            _insert_signals_sync(db_conn, entries)
 
     return len(entries)
 
@@ -1336,6 +1347,7 @@ def replay_symbol(
     # Per-TF accumulators — maintained across the merged event stream.
     _TF_SORT_KEY: dict[str, int] = {"1m": 0, "5m": 1, "15m": 2, "1h": 3, "4h": 4, "1d": 5}
     feature_buffers: dict[str, list] = defaultdict(list)
+    signal_buffers: dict[str, list] = defaultdict(list)
     total_features_by_tf: dict[str, int] = defaultdict(int)
     total_signals_by_tf: dict[str, int] = defaultdict(int)
     bars_processed_by_tf: dict[str, int] = defaultdict(int)
@@ -1373,15 +1385,23 @@ def replay_symbol(
         if bar.get("source") == SOURCE_SYNTHETIC_FILL:
             continue
 
-        # I1
-        i1_features = run_i1_plugins(history, symbol, tf, plugin_states)
+        # Warmup guard: skip until enough bars exist for stable indicator output.
+        # Checked here so pd.DataFrame is never constructed on warmup bars.
+        if len(history) < min_bars_for_tf(tf):
+            continue
+
+        # Build DataFrame once for this bar event — shared across I1, frames, and I7.
+        # Avoids 3 redundant constructions of the same 200-row deque per bar.
+        df = pd.DataFrame(list(history))
+
+        # I1 — pass pre-built df
+        i1_features = run_i1_plugins(history, symbol, tf, plugin_states, df=df)
         if not i1_features:
-            continue  # not enough bars yet — warmup window not satisfied
+            continue
 
         # Build frames with cross-TF context (for I6 confluence).
         # Because we process bars chronologically across all TFs, intelligence_cache
         # here contains only intel from timestamps <= ts — no look-ahead.
-        df = pd.DataFrame(list(history))
         frames: dict[str, Any] = {"main": df, "features": i1_features}
         for other_tf in tf_hierarchy:
             if other_tf == tf:
@@ -1421,8 +1441,13 @@ def replay_symbol(
                 db_conn,
                 feature_ts=written_feature_ts,
                 feature_tf=(tf if written_feature_ts is not None else None),
+                df=df,
+                signal_buffer=signal_buffers[tf],
             )
             total_signals_by_tf[tf] += n
+            if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:
+                _insert_signals_sync(db_conn, signal_buffers[tf])
+                signal_buffers[tf].clear()
 
         processed = bars_processed_by_tf[tf]
         if processed % 1000 == 0:
@@ -1431,10 +1456,13 @@ def replay_symbol(
             label = "features" if skip_signals else "signals"
             print(f"    {symbol}/{tf}: {processed:,}/{total:,} bars, {count} {label}")
 
-    # Flush remaining feature buffers for all TFs
+    # Flush remaining feature and signal buffers for all TFs
     for tf, buf in feature_buffers.items():
         if buf:
             _insert_features_sync(db_conn, buf)
+    for tf, buf in signal_buffers.items():
+        if buf:
+            _insert_signals_sync(db_conn, buf)
 
     signal_counts: dict[str, int] = {}
     for tf in timeframes:
@@ -1574,8 +1602,8 @@ def main() -> None:
     parser.add_argument(
         "--workers",
         type=int,
-        default=4,
-        help="Parallel worker processes for replay stage (default: 4). Use 1 to disable.",
+        default=8,
+        help="Parallel worker processes for replay stage (default: 8). Use 1 to disable.",
     )
     parser.add_argument(
         "--per-contract",
