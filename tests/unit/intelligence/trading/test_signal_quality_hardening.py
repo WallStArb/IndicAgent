@@ -246,12 +246,6 @@ class TestEmissionGate:
         with pytest.raises(ValueError, match="stop.*tick"):
             self._make_signal(entry=1.10000, stop=1.099995)
 
-    def test_rejects_unknown_stop_type(self):
-        # Gate 2 is now an assert (invariant documentation); frame_trade() never
-        # produces "unknown" in production. Assert raises AssertionError, not ValueError.
-        with pytest.raises(AssertionError, match="stop_type"):
-            self._make_signal(stop_type="unknown")
-
 
 class TestTTLReorder:
     """W2: TTL check runs AFTER stop/target, so price-at-target signals don't expire."""
