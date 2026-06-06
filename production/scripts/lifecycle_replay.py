@@ -2,6 +2,10 @@
 """
 Lifecycle Replay Script — batch replay of historical signal outcomes.
 
+Version: 1.2
+Status: current
+Last Updated: 2026-06-06
+
 Evaluates dual-track outcomes (zone track + market track) for all signals
 that lack outcomes, by replaying market_data_ohlcv bars chronologically
 per (symbol, timeframe).
@@ -56,6 +60,8 @@ from src.intelligence.trading.lifecycle_tracker import (
     evaluate_market_entry,
     evaluate_signal,
 )
+from src.observability.metrics import flush_and_shutdown_metrics
+from src.observability.otel import OTelInitError, init_otel_providers
 
 logger = logging.getLogger(__name__)
 
@@ -1207,7 +1213,12 @@ async def main_async():
 def main():
     """Entry point for async main."""
     asyncio.run(main_async())
+    flush_and_shutdown_metrics()
 
 
 if __name__ == "__main__":
+    try:
+        init_otel_providers("lifecycle-replay")
+    except OTelInitError as error:
+        print(f"[warn] OTel init failed — metrics disabled: {error}")
     main()

@@ -1,6 +1,6 @@
 # Signals Lifecycle — State machine, transitions, and outcome classification
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-06-05
 
 ---
 
@@ -160,7 +160,9 @@ class SignalState:
     mfe: float = 0.0           # Maximum favorable excursion (pnl_r units)
     market_mae: float = 0.0    # Parallel market-entry track MAE
     market_mfe: float = 0.0    # Parallel market-entry track MFE
-    chandelier_state: dict     # Trailing stop state (initialized on first active bar)
+    chandelier_state: dict     # Trailing stop state (initialized on first active bar).
+                               # Keys: trailing_stop, highest_high, lowest_low, vol, be_floor.
+                               # be_floor advances at T1/T2 to clamp the chandelier floor.
     staleness_consecutive: int # Consecutive bars with staleness_score > 0.5
     activated_at: datetime     # For bars_in_trade computation
     active_bars_elapsed: int   # Total active bars since signal fire (TTL countdown)
@@ -176,10 +178,31 @@ MAE/MFE are maintained in-memory and written to `signal_outcomes` on exit (not p
 `evaluate_signal()` checks exits in this strict order for active signals:
 
 1. **Stop loss** — `bar.low <= stop_loss` (long) or `bar.high >= stop_loss` (short). Conservative: stop checked before target on the same bar.
-2. **Target hits** — checks highest target first for maximum credit. A bar that both touches stop and target is classified as a stop (conservative).
-3. **Chandelier trailing stop** — ATR-based trailing stop (3x multiplier, updates each bar to preserve gains). Initialized on first active bar using `garch_sigma_at_fire` (preferred) or `atr_14` (fallback).
+2. **Target hits** — checks highest target first for maximum credit. A bar that both touches stop and target is classified as a stop (conservative). **T1 does not exit** — it advances the chandelier floor (see below). Only T2 and T3 produce target-based exits.
+3. **Chandelier trailing stop with breakeven floor** — ATR-based trailing stop (3x multiplier, updates each bar to preserve gains). Initialized on first active bar using `garch_sigma_at_fire` (preferred) or `atr_14` (fallback). After T1 is hit, the chandelier stop is clamped so it can never trail below entry price (`be_floor = entry`). After T2 is hit, clamped to never trail below T1 price (`be_floor = target_1`). The clamp applies before the exit check — the chandelier remains the sole exit mechanism; `be_floor` is a floor constraint on its level, not a parallel path. Exit log payload includes `be_floor_active: bool` for analytics.
 4. **Staleness condition_expired** — 3 consecutive bars with composite staleness score > 0.5. Staleness = `0.6 * hmm_regime_drift + 0.4 * garch_sigma_ratio`. Fires when the market regime has fundamentally shifted from when the signal fired.
 5. **TTL expiry** — `bar_time >= expires_at`. Always last, only after all price-based checks. Uses pre-computed `expires_at` for deterministic replay — never `datetime.now()`.
+
+### Chandelier floor state
+
+`chandelier_state` carries one additional field after the T1/T2 floor design:
+
+```python
+"be_floor": float | None  # None → entry_price (after T1) → target_1_price (after T2)
+```
+
+Floor advancement runs before the chandelier exit check each bar:
+- T1 hit and `be_floor is None` → set `be_floor = entry_price`
+- T2 hit and `be_floor is not None` → advance `be_floor = target_1_price`
+
+The clamp in the chandelier exit check:
+```python
+if be_floor is not None:
+    trailing_stop = max(trailing_stop, be_floor)  # long
+    trailing_stop = min(trailing_stop, be_floor)  # short
+```
+
+`stop_loss` is never modified — it remains the signal's permanent risk anchor. `be_floor` is transient state in `chandelier_state`; it is not persisted to `signal_outcomes`.
 
 ### NULL expires_at handling (D-17)
 
@@ -220,6 +243,8 @@ Every closed signal receives exactly one outcome:
 The stop outcome distinction (`stopped_at_entry` vs `stopped_in_trade`) is resolved by `_classify_stop_outcome(mfe, bars_in_trade)` in `lifecycle_tracker.py`. The raw stop exit only knows a stop was hit — the service layer enriches it with `bars_in_trade` context.
 
 Chandelier stop exits and `condition_expired` exits both resolve to `stopped_in_trade` — they only fire after the trade has been active long enough for the chandelier to build.
+
+**Effect of the chandelier floor on outcomes:** T1 is no longer a terminal exit. A trade that reaches T1 and subsequently exits via chandelier produces `stopped_in_trade` with `pnl_r >= 0` — the floor guarantees the exit price never falls below entry, but `exit_price` is the actual `trailing_stop` value at the moment price breaches it (recorded exactly, not approximated). If the chandelier has risen above entry before price reverses, `pnl_r > 0`; if it exits exactly at the floor, `pnl_r = 0`. The `target_1` outcome label is only reachable if a future change re-introduces a T1-terminal path. Profitable target-hit outcomes now effectively start at `target_1_2` (T2 reached) or `target_full` (all targets reached). Downstream ML training queries should be aware that `outcome = 'target_1'` will not appear in data generated post-deployment of this design.
 
 ---
 

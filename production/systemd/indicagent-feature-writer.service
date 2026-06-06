@@ -2,6 +2,7 @@
 Description=IndicAgent Feature Writer Service — Redpanda to TimescaleDB
 After=network-online.target indicagent-wave3.target
 Requires=indicagent-infrastructure.target
+PartOf=indicagent-intelligence-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

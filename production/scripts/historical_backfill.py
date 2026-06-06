@@ -2,6 +2,10 @@
 """
 Historical Backfill Pipeline
 
+Version: 1.4
+Status: current
+Last Updated: 2026-06-06
+
 Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV bars from IBKR and stores
 them in market_data_ohlcv. Short timeframes use named contracts; longer timeframes
 use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
@@ -71,7 +75,7 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.bar_normalizer import (
     SOURCE_DERIVED_1M,
     SOURCE_SYNTHETIC_FILL,
@@ -86,6 +90,8 @@ from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
+from src.observability.metrics import flush_and_shutdown_metrics
+from src.observability.otel import OTelInitError, init_otel_providers
 from src.persistence.repository.signal_ledger_repository import LedgerEntry
 from src.providers import IBKRProvider
 
@@ -585,7 +591,8 @@ def run_analysis_pipeline(
 _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i3, i4, i5, smc, i6
+    bar, technical_indicators, pattern_detections, regime_features,
+    confluence_scores, smc, cross_timeframe_context
 ) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -664,10 +671,8 @@ def _event_to_sync_params(event: Any) -> tuple:
 
     Column order matches _INSERT_FEATURE_SYNC_SQL:
       ts, symbol, tf, platform, source, schema_version,
-      bar, i1, i3, i4, i5, smc, i6
-
-    bar and i1 are serialized with model_dump() (include None values for completeness).
-    i3, i4, i5, smc, i6 are serialized with model_dump(exclude_none=True) for compactness.
+      bar, technical_indicators, pattern_detections, regime_features,
+      confluence_scores, smc, cross_timeframe_context
     """
     return (
         event.ts,  # datetime — psycopg2 native
@@ -676,13 +681,13 @@ def _event_to_sync_params(event: Any) -> tuple:
         event.platform,
         event.source,
         event.schema_version,
-        json.dumps(event.bar.model_dump()),  # bar: include all fields
-        json.dumps(event.i1.model_dump()),  # i1: include all fields
-        json.dumps(event.i3.model_dump(exclude_none=True)),  # i3: sparse (extra='forbid')
-        json.dumps(event.i4.model_dump(exclude_none=True)),  # i4: sparse
-        json.dumps(event.i5.model_dump(exclude_none=True)),  # i5: sparse
-        json.dumps(event.smc.model_dump(exclude_none=True)),  # smc: sparse
-        json.dumps(event.i6.model_dump(exclude_none=True)),  # i6: sparse
+        json.dumps(event.bar.model_dump()),  # bar
+        json.dumps(event.i1.model_dump()),  # technical_indicators
+        json.dumps(event.i3.model_dump(exclude_none=True)),  # pattern_detections
+        json.dumps(event.i4.model_dump(exclude_none=True)),  # regime_features
+        json.dumps(event.i5.model_dump(exclude_none=True)),  # confluence_scores
+        json.dumps(event.smc.model_dump(exclude_none=True)),  # smc
+        json.dumps(event.i6.model_dump(exclude_none=True)),  # cross_timeframe_context
     )
 
 
@@ -944,6 +949,7 @@ def run_i7_and_persist(
     frames: dict[str, Any] = {"main": df, "features": features}
 
     raw_signals = []
+    _plugin_errors: dict[str, str] = {}
     for name in I7_PLUGINS:
         try:
             plugin = registry.get_pattern(name)
@@ -951,10 +957,14 @@ def run_i7_and_persist(
             if result and result.get("direction", 0) != 0:
                 result["setup_plugin"] = name
                 raw_signals.append(result)
-        except Exception:
-            pass
+        except Exception as error:
+            _plugin_errors[name] = str(error)
 
     if not raw_signals:
+        if _plugin_errors and not hasattr(run_i7_and_persist, "_errors_logged"):
+            run_i7_and_persist._errors_logged = True  # type: ignore[attr-defined]
+            for plugin_name, error in list(_plugin_errors.items())[:3]:
+                print(f"    [I7 error] {plugin_name}: {error}")
         return 0
 
     trend_regime = float(features.get("trend_regime", 0.0))
@@ -1014,7 +1024,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     futures_bases: list[str] = list(
         dict.fromkeys(
             inst.base
-            for inst in settings.contracts
+            for inst in get_active_contracts(settings)
             if inst.asset_class == AssetClass.FUTURES and inst.base
         )
     )
@@ -1155,7 +1165,9 @@ def detect_gaps(
 
 def connect_db(settings: Settings) -> Any:
     """Create a synchronous psycopg2 connection from Settings DSN."""
-    return psycopg2.connect(dsn=settings.database_url)
+    conn = psycopg2.connect(dsn=settings.database_url)
+    conn.autocommit = True
+    return conn
 
 
 def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
@@ -1328,6 +1340,10 @@ def replay_symbol(
         print(f"  {symbol}: no bars found in DB — run fetch stage first")
         return {}
 
+    # Release the read transaction so idle_in_transaction_session_timeout
+    # doesn't kill the connection during the multi-minute processing loop.
+    db_conn.commit()
+
     # Shared state across timeframes for cross-TF context
     bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
     intelligence_cache: dict[str, dict] = {}
@@ -1446,9 +1462,9 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
     """
     symbol, db_url, timeframes, since_dt, skip_signals = args
     conn = psycopg2.connect(dsn=db_url)
+    conn.autocommit = True
     try:
         counts = replay_symbol(symbol, conn, timeframes, since=since_dt, skip_signals=skip_signals)
-        conn.commit()
         return symbol, sum(counts.values()), counts
     finally:
         conn.close()
@@ -1531,8 +1547,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--timeframes",
-        default="1m,5m,15m,1h,1d",
-        help="Comma-separated timeframes (default: 1m,5m,15m,1h,1d)",
+        default="1m,5m,15m,1h,4h,1d",
+        help="Comma-separated timeframes (default: 1m,5m,15m,1h,4h,1d)",
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
@@ -1594,7 +1610,7 @@ def main() -> None:
     timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
 
     # Filter contracts
-    contracts = settings.contracts
+    contracts = get_active_contracts(settings)
     if args.symbols:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
         # Match on full contract symbol (e.g. ESM6) OR base symbol (e.g. ES)
@@ -1898,7 +1914,7 @@ def main() -> None:
                 print(f"  {contract.symbol} total: {symbol_total} signals")
         else:
             worker_args = [
-                (contract.symbol, settings.database_url, timeframes, since_dt)
+                (contract.symbol, settings.database_url, timeframes, since_dt, False)
                 for contract in contracts
             ]
             print(f"  Spawning {args.workers} workers for {len(contracts)} symbols...")
@@ -1920,8 +1936,13 @@ def main() -> None:
         print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_ledger")
 
     db_conn.close()
+    flush_and_shutdown_metrics()
     print("\nBackfill complete.")
 
 
 if __name__ == "__main__":
+    try:
+        init_otel_providers("historical-backfill")
+    except OTelInitError as error:
+        print(f"[warn] OTel init failed — metrics disabled: {error}")
     main()
