@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.45.0
+Version: 5.46.0
 
 **Project nature:** Passion/learning project — not a production system, not relied upon. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking over operational caution. Renaissance Capital / Jim Simons principles are the north star. The platform and the builder improve together — every refinement compounds. When giving advice, do not hedge around operational risk that doesn't apply; apply the same rigor you would to a system built to last.
 
@@ -9,6 +9,7 @@ Version: 5.45.0
 **Design mindset:** Think as a council of senior engineers at Renaissance Technologies. Data integrity is paramount. The codebase is a highly efficient machine — balance ultra-high performance with extreme simplicity. Ruthlessly eliminate complexity. Guard against hidden biases and edge-case failures (silent wrong answers are worse than loud crashes). Deterministic DAG topology — every node does one thing, data flows one direction, no cycles, no shortcuts. Modular microservices: each service owns exactly one responsibility. SoC: compute ≠ persistence ≠ transport. Async-first — blocking I/O in the hot path is a defect. Aggressive component reuse over duplication. Ruthlessly call out manual tasks, latent inefficiencies, and technical debt — provide an uncompromising first-principles blueprint, not a patch. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
 **Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/` = Ring 0 portable infrastructure (no domain vocab — e.g. `BaseDaemon`, `WorkerContext`); `src/intelligence/` = Ring 1 domain (`BaseAIWorker`, `SignalContext`); `services/` = Ring 2 daemons (pure role nouns, no suffix required for plain role nouns). Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.
 **Documentation:** Domain-first taxonomy, verified `current` status, recipe-card format. Full spec: `docs/foundation/documentation-system.md`.
+**Glossary:** Every domain term has exactly one definition — no synonyms, no loose usage. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
 **Doc locations:** `docs/foundation/` is the canonical home for principles/naming/documentation-system docs. Check there before creating new docs — `docs/` root is index only.
 **Gotchas:** See `docs/gotchas.md` — rare pitfalls moved out of per-turn context.
 **Agentic DAG:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics, DataWriterAgents manage persistence. Scaling: systemd + Prometheus lag monitoring (no Kubernetes HPA).
