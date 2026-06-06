@@ -29,36 +29,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import asyncpg
 import structlog
-from opentelemetry import metrics as _otel_metrics
 
 from src.config.settings import Settings
 from src.core.database_manager import create_pool as create_db_pool
-from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
+from src.observability.metrics import (
+    JOB_COMPLETED_TOTAL,
+    MEMORY_COHORTS_PROMOTED_TOTAL,
+    MEMORY_COHORTS_QUARANTINED_TOTAL,
+    MEMORY_EPISODES_LABELED,
+    MEMORY_PROMOTION_SKIPPED_N_ELIGIBLE,
+    flush_and_shutdown_metrics,
+)
 
 _logger = structlog.get_logger("memory_batch")
 
-# ---------------------------------------------------------------------------
-# OTel metrics
-# ---------------------------------------------------------------------------
-
-_meter = _otel_metrics.get_meter("indicagent")
-
-_COHORTS_PROMOTED = _meter.create_counter(
-    "memory_cohorts_promoted_total",
-    description="Memory calibration cohorts promoted (N>=30)",
-)
-_COHORTS_QUARANTINED = _meter.create_counter(
-    "memory_cohorts_quarantined_total",
-    description="Memory calibration cohorts flagged for feedback-loop quarantine",
-)
-_PROMOTION_SKIPPED_N_ELIGIBLE = _meter.create_counter(
-    "memory_promotion_skipped_n_eligible",
-    description="Cohorts skipped because >20% of episodes have NULL n_eligible",
-)
-_LABELED_GAUGE = _meter.create_gauge(
-    "memory_episodes_labeled",
-    description="Total rows in memory_episodes_labeled after backfill run",
-)
+# Metric aliases kept short for readability within this module
+_COHORTS_PROMOTED = MEMORY_COHORTS_PROMOTED_TOTAL
+_COHORTS_QUARANTINED = MEMORY_COHORTS_QUARANTINED_TOTAL
+_PROMOTION_SKIPPED_N_ELIGIBLE = MEMORY_PROMOTION_SKIPPED_N_ELIGIBLE
+_LABELED_GAUGE = MEMORY_EPISODES_LABELED
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -479,54 +468,55 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
             inserted = 0
             for row in ready_rows:
                 try:
-                    result = await conn.fetchval(
-                        """
-                        INSERT INTO memory_episodes_labeled
-                            (id, ts, written_at, labeled_at, kind, signal_id,
-                             symbol, timeframe, agent_id, embedding, embedding_text,
-                             hmm_regime, vol_regime, entry_type, regime_epoch,
-                             n_eligible, memory_assisted, outcome,
-                             pnl_r, mae, mfe, bars_in_trade, payload)
-                        VALUES ($1, $2, $3, NOW(), $4::memory_episode_kind, $5,
-                                $6, $7, $8, $9, $10,
-                                $11, $12, $13, $14,
-                                $15, $16, $17,
-                                $18, $19, $20, $21, $22)
-                        ON CONFLICT (id, ts) DO NOTHING
-                        RETURNING id
-                        """,
-                        row["id"],
-                        row["ts"],
-                        row["written_at"],
-                        row["kind"],
-                        row["signal_id"],
-                        row["symbol"],
-                        row["timeframe"],
-                        row["agent_id"],
-                        row["embedding"],
-                        row["embedding_text"],
-                        row["hmm_regime"],
-                        row["vol_regime"],
-                        row["entry_type"],
-                        row["regime_epoch"],
-                        row["n_eligible"],
-                        row["memory_assisted"],
-                        row["outcome"],
-                        row["pnl_r"],
-                        row["mae"],
-                        row["mfe"],
-                        row["bars_in_trade"],
-                        row["payload"],
-                    )
-                    if result is not None:
-                        inserted += 1
-                        # Mark raw episode as resolved
-                        await conn.execute(
-                            "UPDATE memory_episodes_raw SET outcome = $1 WHERE id = $2 AND ts = $3",
-                            row["outcome"],
+                    async with conn.transaction():
+                        result = await conn.fetchval(
+                            """
+                            INSERT INTO memory_episodes_labeled
+                                (id, ts, written_at, labeled_at, kind, signal_id,
+                                 symbol, timeframe, agent_id, embedding, embedding_text,
+                                 hmm_regime, vol_regime, entry_type, regime_epoch,
+                                 n_eligible, memory_assisted, outcome,
+                                 pnl_r, mae, mfe, bars_in_trade, payload)
+                            VALUES ($1, $2, $3, NOW(), $4::memory_episode_kind, $5,
+                                    $6, $7, $8, $9, $10,
+                                    $11, $12, $13, $14,
+                                    $15, $16, $17,
+                                    $18, $19, $20, $21, $22)
+                            ON CONFLICT (id, ts) DO NOTHING
+                            RETURNING id
+                            """,
                             row["id"],
                             row["ts"],
+                            row["written_at"],
+                            row["kind"],
+                            row["signal_id"],
+                            row["symbol"],
+                            row["timeframe"],
+                            row["agent_id"],
+                            row["embedding"],
+                            row["embedding_text"],
+                            row["hmm_regime"],
+                            row["vol_regime"],
+                            row["entry_type"],
+                            row["regime_epoch"],
+                            row["n_eligible"],
+                            row["memory_assisted"],
+                            row["outcome"],
+                            row["pnl_r"],
+                            row["mae"],
+                            row["mfe"],
+                            row["bars_in_trade"],
+                            row["payload"],
                         )
+                        if result is not None:
+                            inserted += 1
+                            # Mark raw episode as resolved (atomic with the INSERT above)
+                            await conn.execute(
+                                "UPDATE memory_episodes_raw SET outcome = $1 WHERE id = $2 AND ts = $3",
+                                row["outcome"],
+                                row["id"],
+                                row["ts"],
+                            )
                 except Exception as error:
                     _logger.warning(
                         "memory_batch.backfill_job.insert_error",
@@ -551,6 +541,7 @@ async def run_backfill_job(conn: asyncpg.Connection, dry_run: bool) -> None:
                 FROM memory_episodes_raw r2
                 JOIN signal_ledger_full sl ON sl.signal_id = r2.signal_id
                 JOIN market_data_ohlcv m ON m.symbol = r2.symbol
+                    AND m.timeframe = r2.timeframe
                     AND m.timestamp >= sl.timestamp
                     AND m.timestamp <= COALESCE(sl.exit_at, NOW())
                 WHERE r2.n_eligible IS NULL AND r2.signal_id IS NOT NULL
@@ -684,18 +675,18 @@ async def run_promotion_job(conn: asyncpg.Connection, dry_run: bool) -> None:
         mean_prediction = sum(pnl_values) / len(pnl_values)
 
         # Brier decomposition (using binary outcome: pnl > 0)
-        # reliability = mean squared deviation of prediction from observed frequency
-        # resolution = mean squared deviation of observed from base rate
-        # skill_score = 1 - brier/brier_base (negative = worse than trivial)
+        # brier_score  = mean squared error of scalar forecast vs binary outcomes
+        # reliability  = squared deviation of mean forecast from observed win rate
+        #                (calibration error; zero means forecast = actual rate)
+        # resolution   = 0 for a single-bin forecast (no per-bin variation possible)
+        # skill_score  = 1 - brier/brier_base (negative = worse than climatology)
         binary_outcomes = [1.0 if p > 0 else 0.0 for p in pnl_values]
         brier_score = sum((mean_prediction - o) ** 2 for o in binary_outcomes) / len(
             binary_outcomes
         )
         brier_base = base_rate * (1 - base_rate)  # Variance of climatology
-        reliability_score = sum((mean_prediction - o) ** 2 for o in binary_outcomes) / len(
-            binary_outcomes
-        )
-        resolution_score = (actual_rate - base_rate) ** 2
+        reliability_score = (mean_prediction - actual_rate) ** 2
+        resolution_score = 0.0  # Single-bin forecast; no per-bin variation
         skill_score = 1.0 - (brier_score / brier_base) if brier_base > 0 else 0.0
 
         # Calibration error
@@ -1087,37 +1078,51 @@ def _two_proportion_z_test(x1: int, n1: int, x2: int, n2: int) -> float | None:
 
 
 def _compute_correction_factor(pnl_values: list[float]) -> tuple[float | None, bool]:
-    """Compute correction factor; only stable when consistent across 3 rolling sub-windows.
+    """Compute calibration correction factor; only stable when consistent across 3 sub-windows.
+
+    Correction factor = actual_win_rate / mean_prediction, where mean_prediction is
+    the mean pnl_r (used as the scalar forecast proxy). A factor > 1 means the agent
+    under-predicts win rate; < 1 means over-predicts. An agent should multiply its
+    confidence by this factor to match the observed win rate.
 
     Returns (correction_factor, correction_factor_stable).
-    correction_factor is None when not stable.
+    correction_factor is None when not computable or not stable.
     """
     n = len(pnl_values)
     if n < _MIN_SAMPLE_N:
         return None, False
 
-    mean_total = sum(pnl_values) / n
-    if mean_total == 0:
+    mean_prediction = sum(pnl_values) / n
+    if abs(mean_prediction) < 1e-6:
         return None, False
 
-    # Split into 3 sub-windows
+    actual_rate = sum(1.0 for p in pnl_values if p > 0) / n
+    correction_factor_value = actual_rate / mean_prediction
+
+    # Check stability across 3 rolling sub-windows
     third = n // 3
     windows = [
         pnl_values[:third],
         pnl_values[third : 2 * third],
         pnl_values[2 * third :],
     ]
-    window_means = [sum(w) / len(w) if w else 0.0 for w in windows]
-    if any(m == 0 for m in window_means):
-        return None, False
+    sub_factors: list[float] = []
+    for w in windows:
+        if not w:
+            return None, False
+        w_mean = sum(w) / len(w)
+        if abs(w_mean) < 1e-6:
+            return None, False
+        w_rate = sum(1.0 for p in w if p > 0) / len(w)
+        sub_factors.append(w_rate / w_mean)
 
-    # Check stability: all sub-window correction factors within 20% of each other
-    factors = [mean_total / m for m in window_means]
-    mean_factor = sum(factors) / len(factors)
-    max_deviation = max(abs(f - mean_factor) / abs(mean_factor) for f in factors)
+    mean_sub = sum(sub_factors) / len(sub_factors)
+    if abs(mean_sub) < 1e-6:
+        return None, False
+    max_deviation = max(abs(f - mean_sub) / abs(mean_sub) for f in sub_factors)
     is_stable = max_deviation < 0.20
 
-    return (mean_total, is_stable) if is_stable else (None, False)
+    return (correction_factor_value, is_stable) if is_stable else (None, False)
 
 
 # ---------------------------------------------------------------------------
