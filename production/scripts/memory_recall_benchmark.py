@@ -262,17 +262,14 @@ async def run_benchmark(
     ctx = _BenchContext()
     latencies: list[float] = []
 
-    # Separate embed timing (only meaningful in fake mode — negligible by design)
-    embed_times: list[float] = []
-
+    # WR-04: measure embed as part of recall(), not as a separate external call.
+    # The prior code called embed_context() twice per iteration — once externally
+    # for timing, then again internally via client.recall(). In --live-embed mode
+    # this doubled Ollama HTTP requests. The total recall latency is the authoritative
+    # end-to-end measurement; in fake-embed mode, embed contribution is negligible
+    # by design so hnsw_p95 ~ total_p95.
     print(f"\n  Running {n_calls} recall() calls (embed_mode={embed_mode})...")
     for i in range(n_calls):
-        # Time embed step independently
-        t_embed_start = time.monotonic()
-        _ = await embedding.embed_context(ctx)
-        embed_times.append((time.monotonic() - t_embed_start) * 1000.0)
-
-        # Time full recall path
         t0 = time.monotonic()
         await client.recall(ctx, agent_id=_BENCH_AGENT_ID)
         latencies.append((time.monotonic() - t0) * 1000.0)
@@ -281,21 +278,22 @@ async def run_benchmark(
             print(f"    {i + 1}/{n_calls} calls done")
 
     latencies.sort()
-    embed_times.sort()
 
     def pct(values: list[float], p: float) -> float:
         idx = int(len(values) * p / 100)
         return round(values[min(idx, len(values) - 1)], 3)
 
-    # HNSW+rerank latency = total recall - embed contribution
-    # In fake mode embed_p50 ≈ 0, so hnsw_p95 ≈ total_p95
     total_p50 = pct(latencies, 50)
     total_p95 = pct(latencies, 95)
     total_p99 = pct(latencies, 99)
-    embed_p50 = pct(embed_times, 50)
-    embed_p95 = pct(embed_times, 95)
-    hnsw_p50 = max(0.0, total_p50 - embed_p50)
-    hnsw_p95 = max(0.0, total_p95 - pct(embed_times, 95))
+
+    # In fake-embed mode embed latency is ~0 so hnsw_p95 ~ total_p95.
+    # In live-embed mode total_p95 includes real Ollama latency.
+    # Report embed contribution as 0 in fake mode; live mode shows full path.
+    embed_p50 = 0.0 if not live_embed else float("nan")
+    embed_p95 = 0.0 if not live_embed else float("nan")
+    hnsw_p50 = total_p50 if not live_embed else float("nan")
+    hnsw_p95 = total_p95 if not live_embed else float("nan")
 
     return {
         "total_p50_ms": total_p50,
