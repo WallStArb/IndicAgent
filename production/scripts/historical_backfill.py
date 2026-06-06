@@ -416,10 +416,10 @@ def _log_plugin_error(name: str, symbol: str, tf: str, error: Exception) -> None
 #
 # Named contract for 1m (IBKR ~35d limit on front-month futures); continuous back-adjusted for rest.
 _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
-    # 1m: named contract (no roll crossings). 14d = 2 full Mon–Fri weekly cycles = ~5,460 bars,
-    #     capturing time-of-day and day-of-week intraday patterns. Still well within IBKR's
-    #     capturing time-of-day and day-of-week intraday patterns.
-    "1m": (14, True),
+    # 1m: named contract (no roll crossings). 30d = ~1 calendar month = ~11,700 bars,
+    #     capturing time-of-day, day-of-week, and monthly intraday patterns. Well within
+    #     IBKR's ~35d named contract limit; 5 chunks at 6d each.
+    "1m": (30, True),
     # 5m: Continuous back-adjusted. 90 days covers
     #     3 months of intraday + weekly regime cycles, yielding ~600+ signals — enough to
     #     populate all 51 regression cells with statistically meaningful outcomes.
@@ -1727,7 +1727,8 @@ def main() -> None:
                                 continue
 
                             print(
-                                f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, fetching..."
+                                f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, "
+                                f"fetching full window {start_dt.date()} to {end_dt.date()}..."
                             )
 
                             # Skip continuous contracts for short windows (no rolls needed)
@@ -1736,42 +1737,48 @@ def main() -> None:
                                 and (fetch_days > 14)
                                 and (instrument.asset_class == AssetClass.FUTURES)
                             )
-                            for gap_start, gap_end in gaps:
-                                try:
-                                    ohlcv_bars = await provider.fetch_historical_bars(
-                                        symbol=instrument.symbol,
-                                        timeframe=tf,
-                                        start=gap_start,
-                                        end=gap_end,
-                                        continuous=use_cont,
-                                    )
-                                    bar_dicts = [
-                                        {
-                                            "timestamp": b.timestamp,
-                                            "open": b.open,
-                                            "high": b.high,
-                                            "low": b.low,
-                                            "close": b.close,
-                                            "volume": b.volume,
-                                            "source": b.source,
-                                        }
-                                        for b in ohlcv_bars
-                                    ]
-                                    canonical = normalize_bars(
-                                        bar_dicts,
-                                        symbol=instrument.symbol,
-                                        timeframe=tf,
-                                        start=gap_start,
-                                        end=gap_end,
-                                    )
-                                    n = store_bars(db_conn, canonical, instrument.symbol, tf)
-                                    total_bars += n
-                                    if n > 0:
-                                        fetched_tfs.add(tf)
-                                    print(f"    Fetched {n} bars for gap {gap_start} to {gap_end}")
-                                except Exception as e:
-                                    print(f"    Gap {gap_start} error — {e}")
-                                await asyncio.sleep(2)  # IBKR pacing
+                            # Fetch the full window in one call; the provider chunks at
+                            # _MAX_CHUNK_DAYS[tf] (364d for 4h/1h/1d) with 10s between
+                            # chunks. Per-gap fetching sent N×IBKR requests + N×2s sleep
+                            # for trivially small windows — absurdly slow on initial backfill.
+                            # ON CONFLICT DO NOTHING makes this idempotent.
+                            try:
+                                ohlcv_bars = await provider.fetch_historical_bars(
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=start_dt,
+                                    end=end_dt,
+                                    continuous=use_cont,
+                                )
+                                bar_dicts = [
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
+                                    for b in ohlcv_bars
+                                ]
+                                canonical = normalize_bars(
+                                    bar_dicts,
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=start_dt,
+                                    end=end_dt,
+                                )
+                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
+                                total_bars += n
+                                if n > 0:
+                                    fetched_tfs.add(tf)
+                                print(
+                                    f"  {instrument.symbol}/{tf}: stored {n} bars "
+                                    f"({len(gaps)} gaps filled)"
+                                )
+                            except Exception as e:
+                                print(f"  {instrument.symbol}/{tf}: fetch error — {e}")
 
                         # FX and crypto: fetch deeper 1m window and derive any TFs
                         # that IBKR didn't return bars for in the named fetch above.
