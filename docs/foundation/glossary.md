@@ -248,10 +248,10 @@ The probability of observing a result at least as extreme as the measured one, a
 
 The coefficient of determination — the fraction of an instrument's return variance explained by the factor. Used as a secondary gate alongside p-value. A low r² tag may be statistically significant but practically irrelevant.
 
-**Code surface:** `min_r2` column in `tag_vocabulary`, `evidence` JSONB in `instrument_tags`.
-
 **Banned:** (none)
 **Status:** active
+
+**Code surface:** `min_r2` column in `tag_vocabulary`, `evidence` JSONB in `instrument_tags`.
 
 ---
 
