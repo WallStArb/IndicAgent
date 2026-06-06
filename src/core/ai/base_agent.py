@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from src.core.ai.agent_dependencies import AgentDependencies
     from src.core.ai.lineage import LineageRecorder
     from src.core.llm.chain import LLMProviderChain
+    from src.core.memory.client import MemoryClient  # ring0-ok: TYPE_CHECKING only, not at runtime
     from src.intelligence.ai.context import (  # ring0-ok: TYPE_CHECKING only, not at runtime
         SignalContext,
         Tier,
@@ -98,6 +99,7 @@ class BaseAIWorker(BaseDaemon, ABC):
         *,
         dependencies: AgentDependencies | None = None,
         name: str | None = None,
+        memory_client: MemoryClient | None = None,
         **kwargs: Any,
     ) -> None:
         # If name not provided, use class name or agent_id
@@ -107,7 +109,18 @@ class BaseAIWorker(BaseDaemon, ABC):
         self._timeout_s = self.latency_budget_ms / 1000.0
         self._lineage: LineageRecorder | None = None
         self._llm: LLMProviderChain | None = None
+        self._memory_client: MemoryClient | None = memory_client
         self._agent_labels: dict[str, str] = {"agent_id": self.agent_id, "group": self.group}
+
+    def set_memory_client(self, memory_client: MemoryClient | None) -> None:
+        """Inject or replace the MemoryClient after construction.
+
+        Called by the group coordinator (e.g. AlphaSwarm) after building its
+        MemoryClient so that agents receive the live client without requiring
+        every agent constructor signature to accept it. Setting None is valid
+        and corresponds to AGENT_MEMORY_ENABLED=False.
+        """
+        self._memory_client = memory_client
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Validate result_type and self-register agent in _REGISTRY.
@@ -424,7 +437,9 @@ class BaseAIWorker(BaseDaemon, ABC):
         # unclear — consider omitting called_at from the base dict for this path.
         audit_context = self._build_audit_context(context, prompt, call_id="")
 
-        worker_ctx = WorkerContext(signal_context=context, llm_chain=self._llm)
+        worker_ctx = WorkerContext(
+            signal_context=context, llm_chain=self._llm, memory_client=self._memory_client
+        )
         adapter = make_llm_adapter(
             worker_context=worker_ctx,
             system=system,
