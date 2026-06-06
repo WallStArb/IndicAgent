@@ -358,6 +358,15 @@ check_glossary_terms() {
     fi
 
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+    if [ ! -x "$PYTHON_BIN" ]; then
+        PYTHON_BIN=$(which python3 2>/dev/null || echo "")
+    fi
+
+    if [ -z "$PYTHON_BIN" ]; then
+        echo "  SKIPPED: python not found"
+        return 0
+    fi
+
     SCRIPT="${REPO_ROOT}/tools/check_glossary.py"
 
     if [ ! -f "$SCRIPT" ]; then
