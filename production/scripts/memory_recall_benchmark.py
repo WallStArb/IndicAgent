@@ -367,16 +367,18 @@ async def main(args: argparse.Namespace) -> None:
 
     pool = await create_db_pool(settings.database_url, min_size=1, max_size=3)
 
+    # Seed
+    print("\n[1/4] Seeding BENCH cohort...")
+    n_seeded = await seed_bench_rows(pool)
+    print(f"  Inserted {n_seeded} rows into memory_episodes_labeled")
+
+    # --seed-only: rows are retained in DB; exit before the try/finally cleanup block.
+    if args.seed_only:
+        print("\nSeed-only mode - rows retained. Run cleanup manually when done.")
+        await pool.close()
+        return
+
     try:
-        # Seed
-        print("\n[1/4] Seeding BENCH cohort...")
-        n_seeded = await seed_bench_rows(pool)
-        print(f"  Inserted {n_seeded} rows into memory_episodes_labeled")
-
-        if args.seed_only:
-            print("\nSeed-only mode — exiting before benchmark.")
-            return
-
         # Benchmark
         print("\n[2/4] Running benchmark...")
         stats = await run_benchmark(
