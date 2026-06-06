@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 GLOSSARY_PATH = Path(__file__).parent.parent / "docs" / "foundation" / "glossary.md"
+GLOSSARY_SKIP = (Path(__file__).parent.parent / "docs" / "foundation" / "glossary.md").resolve()
 
 
 @dataclass
@@ -210,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         print("check_glossary.py: no files provided")
         return 0
+
+    # Skip the glossary itself — it contains banned terms by definition
+    files = [f for f in files if f.resolve() != GLOSSARY_SKIP]
 
     rules = parse_glossary()
     if not rules:
