@@ -6,7 +6,7 @@ handling for free by subclassing BaseProvider.
 
 Adding a new provider = one thin subclass + one systemd unit.
 
-Renaissance Agentic DAG — ProviderAgent taxonomy:
+Renaissance Agentic DAG — ProviderAgent hierarchy:
   ProviderAgent: external source → Kafka, no compute, no DB.
 
 Phase 54-03 — Provider Abstraction Layer.

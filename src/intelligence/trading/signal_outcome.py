@@ -4,7 +4,7 @@ from enum import Enum
 
 
 class SignalOutcome(str, Enum):
-    """Signal exit outcome — the 8-class taxonomy used as ML training labels.
+    """Signal exit outcome — the 8-class classification used as ML training labels.
 
     Extends str so asyncpg accepts values directly and .value matches DB strings.
     No DB migration needed for existing rows — values are identical to current strings.
