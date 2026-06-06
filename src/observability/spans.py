@@ -17,11 +17,7 @@ ATTR_FLUSH_MS = "flush_ms"
 
 @asynccontextmanager
 async def observed_span(name: str, tracer=None, **attrs):
-    """Async context manager: creates a span, records exceptions, sets ERROR status.
-
-    For use only in the two pipeline span sites in intelligence_pipeline_agent.py.
-    All other spans are owned by base classes.
-    """
+    """Async context manager: creates a span, records exceptions, sets ERROR status."""
     _tracer = tracer or trace.get_tracer("indicagent")
     with _tracer.start_as_current_span(name, attributes=attrs) as span:
         try:

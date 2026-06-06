@@ -23,7 +23,7 @@ from src.observability.metrics import (
     LLM_EMPTY_RESPONSES,
     LLM_PARSE_FAILURES,
 )
-from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF
+from src.observability.spans import ATTR_AGENT_ID, ATTR_SYMBOL, ATTR_TF, observed_span
 
 if TYPE_CHECKING:
     from src.core.ai.agent_dependencies import AgentDependencies
@@ -251,13 +251,30 @@ class BaseAIWorker(BaseDaemon, ABC):
             error=error,
         )
 
+    def _require_llm(self) -> None:
+        if self._llm is None:
+            raise RuntimeError(
+                f"{self.__class__.__name__} ({self.agent_id}): _llm is None — "
+                "agent must be constructed inside _setup() after super()._setup()"
+            )
+
+    def _agent_span(self, name: str, context: SignalContext, **extra):
+        """Return an observed_span pre-populated with standard agent attributes."""
+        return observed_span(
+            name,
+            tracer=self.tracer,
+            agent_id=self.agent_id,
+            symbol=context.symbol,
+            tf=context.timeframe,
+            **extra,
+        )
+
     def _build_audit_context(
-        self, context: SignalContext, prompt: str, call_id: str
+        self, context: SignalContext, prompt: str, call_id: str, *, include_called_at: bool = True
     ) -> dict[str, Any]:
         """Build the base audit_context dict for an LLM call."""
         audit_context: dict[str, Any] = {
             "call_id": call_id,
-            "called_at": format_iso_ts(datetime.now(UTC)),
             "symbol": context.symbol,
             "signal_id": str(context.signal_id) if context.signal_id else None,
             "group_name": self.group,
@@ -268,6 +285,8 @@ class BaseAIWorker(BaseDaemon, ABC):
             "succeeded": True,
             "parse_success": True,
         }
+        if include_called_at:
+            audit_context["called_at"] = format_iso_ts(datetime.now(UTC))
         if context.smc is not None:
             regime = getattr(context.smc, "hmm_regime", None)
             if regime is not None:
@@ -294,43 +313,26 @@ class BaseAIWorker(BaseDaemon, ABC):
         Returns (response, call_id). call_id is used by agents to publish
         corrective parse_success=False updates via _report_parse_failure().
         """
-        if self._llm is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__} ({self.agent_id}): _llm is None — "
-                "agent must be constructed inside _setup() after super()._setup()"
+        self._require_llm()
+        async with self._agent_span("agent.llm_generate", context, model=model) as span:
+            call_id = str(uuid4())
+            audit_context = self._build_audit_context(context, prompt, call_id)
+
+            if extra_audit:
+                audit_context.update(extra_audit)
+
+            result = await self._llm.generate(
+                prompt=prompt,
+                system=system,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                model=model,
+                audit_context=audit_context,
             )
-        with self.tracer.start_as_current_span(
-            "agent.llm_generate",
-            attributes={
-                ATTR_AGENT_ID: self.agent_id,
-                ATTR_SYMBOL: context.symbol,
-                ATTR_TF: context.timeframe,
-                "model": model,
-            },
-        ) as span:
-            try:
-                call_id = str(uuid4())
-                audit_context = self._build_audit_context(context, prompt, call_id)
-
-                if extra_audit:
-                    audit_context.update(extra_audit)
-
-                result = await self._llm.generate(
-                    prompt=prompt,
-                    system=system,
-                    max_tokens=max_tokens,
-                    timeout=timeout,
-                    model=model,
-                    audit_context=audit_context,
-                )
-                if result is None:
-                    span.set_attribute("llm.empty_response", True)
-                    LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
-                return result, call_id
-            except Exception as error:
-                span.set_status(StatusCode.ERROR, str(error))
-                span.record_exception(error)
-                raise
+            if result is None:
+                span.set_attribute("llm.empty_response", True)
+                LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
+            return result, call_id
 
     async def _llm_generate_structured(
         self,
@@ -351,45 +353,29 @@ class BaseAIWorker(BaseDaemon, ABC):
         Returns (result, call_id). result is None when instructor exhausts retries.
         Caller must invoke _report_parse_failure(call_id) on None result.
         """
-        if self._llm is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__} ({self.agent_id}): _llm is None — "
-                "agent must be constructed inside _setup() after super()._setup()"
+        self._require_llm()
+        async with self._agent_span("agent.llm_generate_structured", context) as span:
+            call_id = str(uuid4())
+            audit_context = self._build_audit_context(context, prompt, call_id)
+
+            # Do NOT pre-merge extra_audit here (WR-04): chain.generate_structured
+            # already merges extra_audit into the audit row. Pre-merging here and then
+            # passing extra_audit again would apply the fields twice. Let the chain
+            # handle merging via its extra_audit parameter.
+
+            result = await self._llm.generate_structured(
+                prompt=prompt,
+                system=system,
+                response_model=response_model,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                audit_context=audit_context,
+                extra_audit=extra_audit,
             )
-        with self.tracer.start_as_current_span(
-            "agent.llm_generate_structured",
-            attributes={
-                ATTR_AGENT_ID: self.agent_id,
-                ATTR_SYMBOL: context.symbol,
-                ATTR_TF: context.timeframe,
-            },
-        ) as span:
-            try:
-                call_id = str(uuid4())
-                audit_context = self._build_audit_context(context, prompt, call_id)
-
-                # Do NOT pre-merge extra_audit here (WR-04): chain.generate_structured
-                # already merges extra_audit into the audit row. Pre-merging here and then
-                # passing extra_audit again would apply the fields twice. Let the chain
-                # handle merging via its extra_audit parameter.
-
-                result = await self._llm.generate_structured(
-                    prompt=prompt,
-                    system=system,
-                    response_model=response_model,
-                    max_tokens=max_tokens,
-                    timeout=timeout,
-                    audit_context=audit_context,
-                    extra_audit=extra_audit,
-                )
-                if result is None:
-                    span.set_attribute("llm.empty_response", True)
-                    LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
-                return result, call_id
-            except Exception as error:
-                span.set_status(StatusCode.ERROR, str(error))
-                span.record_exception(error)
-                raise
+            if result is None:
+                span.set_attribute("llm.empty_response", True)
+                LLM_EMPTY_RESPONSES.add(1, self._agent_labels)
+            return result, call_id
 
     async def _run_typed(
         self,
@@ -431,11 +417,10 @@ class BaseAIWorker(BaseDaemon, ABC):
 
         # Build audit base with placeholder call_id. The LLMAdapter stamps a fresh
         # call_id per physical request, so retries produce distinct llm_calls rows.
-        # TODO: _build_audit_context also sets called_at=datetime.now() here, but
-        # llm_adapter._request() overwrites it with a fresh timestamp. The first
-        # timestamp is discarded. Low cost (one datetime.now()), but the intent is
-        # unclear — consider omitting called_at from the base dict for this path.
-        audit_context = self._build_audit_context(context, prompt, call_id="")
+        # called_at excluded — llm_adapter._request() stamps it per request.
+        audit_context = self._build_audit_context(
+            context, prompt, call_id="", include_called_at=False
+        )
 
         worker_ctx = WorkerContext(
             signal_context=context, llm_chain=self._llm, memory_client=self._memory_client
@@ -448,32 +433,16 @@ class BaseAIWorker(BaseDaemon, ABC):
             audit_context=audit_context,
         )
 
-        # TODO: this try/except span pattern is identical to _llm_generate and
-        # _llm_generate_structured, and to what observed_span() does automatically.
-        # Once observed_span's "pipeline-only" restriction is lifted, consolidate
-        # all three methods to use observed_span for consistent error recording.
-        with self.tracer.start_as_current_span(
-            "agent.run_typed",
-            attributes={
-                ATTR_AGENT_ID: self.agent_id,
-                ATTR_SYMBOL: context.symbol,
-                ATTR_TF: context.timeframe,
-            },
-        ) as span:
-            try:
-                # output_type= is the pydantic-ai 1.0 kwarg (Pitfall 2: not result_type=).
-                # Single-use agent per call (Pitfall 3: adapter closures fresh audit base).
-                agent: Agent[None, BaseModel] = Agent(
-                    adapter,
-                    output_type=self.result_type,
-                    retries=1,
-                )
-                result = await agent.run(prompt)
-                return result.output  # Pitfall 5: .output not .data
-            except Exception as error:
-                span.set_status(StatusCode.ERROR, str(error))
-                span.record_exception(error)
-                raise
+        async with self._agent_span("agent.run_typed", context):
+            # output_type= is the pydantic-ai 1.0 kwarg (Pitfall 2: not result_type=).
+            # Single-use agent per call (Pitfall 3: adapter closures fresh audit base).
+            agent: Agent[None, BaseModel] = Agent(
+                adapter,
+                output_type=self.result_type,
+                retries=1,
+            )
+            result = await agent.run(prompt)
+            return result.output  # Pitfall 5: .output not .data
 
     async def _report_parse_failure(self, call_id: str) -> None:
         """Publish a corrective parse_success=False update for the given call_id.
