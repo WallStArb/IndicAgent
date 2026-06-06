@@ -147,61 +147,72 @@ def _check_identifier_for_banned(identifier: str, banned_term: str) -> bool:
     return banned_words[0] in tokens
 
 
+def _build_compiled_rules(
+    rules: list[GlossaryRule],
+) -> list[tuple[GlossaryRule, str, re.Pattern[str]]]:
+    """Pre-compile regex for each (rule, banned_term) pair."""
+    result: list[tuple[GlossaryRule, str, re.Pattern[str]]] = []
+    for rule in rules:
+        if not rule.banned:
+            continue
+        for banned in rule.banned:
+            pattern = re.compile(r"\b" + re.escape(banned) + r"\b", re.IGNORECASE)
+            result.append((rule, banned, pattern))
+    return result
+
+
 def scan_file(path: Path, rules: list[GlossaryRule]) -> list[Violation]:
     """Scan a file for glossary violations.
 
     Checks active, deprecated, and retired entries — all banned synonyms are enforced.
     """
     violations: list[Violation] = []
-    enforced_rules = [r for r in rules if r.banned]
+    compiled = _build_compiled_rules(rules)
 
     raw_lines = path.read_text().splitlines()
+
+    # Track prose hits for O(1) dedup in identifier scan
+    prose_keys: set[tuple[int, str]] = set()
 
     # --- Prose scan ---
     prose_lines = _extract_prose_lines(path, raw_lines)
     for lineno, text in prose_lines:
-        for rule in enforced_rules:
-            for banned in rule.banned:
-                pattern = r"\b" + re.escape(banned) + r"\b"
-                if re.search(pattern, text, re.IGNORECASE):
-                    violations.append(
-                        Violation(
-                            status=rule.status,
-                            lineno=lineno,
-                            line=text.strip(),
-                            banned_term=banned,
-                            canonical=rule.canonical,
-                            scan_type="prose",
-                            replaced_by=rule.replaced_by,
-                        )
+        for rule, banned, pattern in compiled:
+            if pattern.search(text):
+                violations.append(
+                    Violation(
+                        status=rule.status,
+                        lineno=lineno,
+                        line=text.strip(),
+                        banned_term=banned,
+                        canonical=rule.canonical,
+                        scan_type="prose",
+                        replaced_by=rule.replaced_by,
                     )
+                )
+                prose_keys.add((lineno, banned))
 
     # --- Identifier scan (Python only) ---
     if path.suffix == ".py":
         for lineno, line in enumerate(raw_lines, 1):
             for m in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b", line):
                 identifier = m.group(1)
-                for rule in enforced_rules:
-                    for banned in rule.banned:
-                        if _check_identifier_for_banned(identifier, banned):
-                            already = any(
-                                v.lineno == lineno
-                                and v.banned_term == banned
-                                and v.scan_type == "prose"
-                                for v in violations
-                            )
-                            if not already:
-                                violations.append(
-                                    Violation(
-                                        status=rule.status,
-                                        lineno=lineno,
-                                        line=line.strip(),
-                                        banned_term=banned,
-                                        canonical=rule.canonical,
-                                        scan_type="identifier",
-                                        replaced_by=rule.replaced_by,
-                                    )
-                                )
+                for rule, banned, _pattern in compiled:
+                    if not _check_identifier_for_banned(identifier, banned):
+                        continue
+                    if (lineno, banned) in prose_keys:
+                        continue
+                    violations.append(
+                        Violation(
+                            status=rule.status,
+                            lineno=lineno,
+                            line=line.strip(),
+                            banned_term=banned,
+                            canonical=rule.canonical,
+                            scan_type="identifier",
+                            replaced_by=rule.replaced_by,
+                        )
+                    )
 
     return violations
 
