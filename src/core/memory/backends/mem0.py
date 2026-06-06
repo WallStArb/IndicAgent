@@ -24,6 +24,7 @@ Ring 0 — no Ring 1 imports.
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -55,15 +56,18 @@ class Mem0BackendImpl:
         self._unavailable: bool = False  # set True when mem0ai missing or init fails
 
         # Build MEM0_CONFIG (D-18 / design Section 8) — used lazily in _get_client().
+        # Parse DB connection details from settings.database_url (postgresql DSN) so
+        # credentials are never hardcoded and respect env-var overrides.
+        _parsed = urllib.parse.urlparse(settings.database_url)
         self._config: dict[str, Any] = {
             "vector_store": {
                 "provider": "pgvector",
                 "config": {
-                    "host": "localhost",
-                    "port": 5432,
-                    "dbname": "indicagent",
-                    "user": "postgres",
-                    "password": "postgres",
+                    "host": _parsed.hostname or "localhost",
+                    "port": _parsed.port or 5432,
+                    "dbname": (_parsed.path or "/indicagent").lstrip("/"),
+                    "user": _parsed.username or "postgres",
+                    "password": _parsed.password or "",
                     "collection_name": "mem0_memories",
                     "embedding_model_dims": 768,
                 },
