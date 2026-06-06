@@ -33,6 +33,9 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 
 **Not:** a Kafka message, an OTel metric, or a statistical signal-to-noise ratio. When "signal" appears in those contexts, use the domain-specific term instead: `message`, `metric`, `edge`.
 
+**Banned:** (none)
+**Status:** active
+
 **Code surface:** `signal_ledger` table, `SignalTracker`, `SignalWriter`.
 
 ---
@@ -42,6 +45,9 @@ A time-stamped, scored trade hypothesis with a defined entry, direction, and exi
 A discrete market state that conditions the behavior of indicators, signals, and factor relationships. Produced by the HMM classifier. Examples: trending, mean-reverting, high-volatility, low-volatility.
 
 **Not:** a synonym for "market condition" in general prose. Regime is a specific technical term — it refers to a classified HMM state or a named factor performance state (see `factor_regime`).
+
+**Banned:** market condition, market state, market environment
+**Status:** active
 
 **Disambiguation:**
 - `regime` (unqualified) — the HMM-classified market state
@@ -58,6 +64,9 @@ A measurable market force against which an instrument's sensitivity is computed.
 
 **Not:** an intelligence pipeline tier (I1-I7), a risk factor in the colloquial sense, or a "factor ETF" (MTUM, QUAL). Those are instruments that express factor exposures, not factors themselves.
 
+**Banned:** (none)
+**Status:** active
+
 **Disambiguation:**
 - `factor` — a market force with a canonical measurement proxy
 - `factor series` — the specific instrument used to proxy a factor (e.g. TLT for the rate factor)
@@ -72,6 +81,9 @@ A statistically validated, repeatable edge — a pattern whose forward return ex
 
 **Not:** a synonym for "returns," "outperformance," or "good signal." Every use of "alpha" is a statistical claim, not a qualitative one.
 
+**Banned:** outperformance
+**Status:** active
+
 **Code surface:** `AlphaSwarm`, `pnl_r` in `signal_ledger` (the measured alpha per signal).
 
 ---
@@ -82,6 +94,9 @@ The expected value of a signal or strategy per unit of risk, measured empiricall
 
 **Not:** an intuition, a thesis, or a belief. Edge is a number. If you cannot state the p-value and sample size, you do not have an edge — you have a hypothesis.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `beta`
@@ -89,6 +104,9 @@ The expected value of a signal or strategy per unit of risk, measured empiricall
 An OLS regression coefficient measuring an instrument's return sensitivity to a factor. Signed (direction) and scaled (magnitude). Computed over a defined lookback window with an associated p-value and r².
 
 **Not:** the colloquial "market beta" alone. Every beta in this system names its factor: `equity_beta`, `rate_beta`, `gold_beta`. Unqualified `beta` is ambiguous and should not appear in code or docs.
+
+**Banned:** (none)
+**Status:** active
 
 **Code surface:** `evidence` JSONB in `instrument_tags`, primitive names in `tag_vocabulary`.
 
@@ -105,6 +123,9 @@ A dimensionless scalar in [0.0, 1.0] expressing the strength or confidence of a 
 
 Unqualified `weight` in code is a naming violation. Always prefix with context.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ## Instrument Taxonomy Terms
@@ -115,6 +136,9 @@ The controlled set of valid tags and their categorical structure. Defined in the
 
 **Not:** "taxonomy," "ontology," or "classification scheme" — these are synonyms that introduce ambiguity. The canonical term is **vocabulary**. The table is `tag_vocabulary`. The doc is this system.
 
+**Banned:** taxonomy, ontology, classification scheme
+**Status:** active
+
 ---
 
 ### `tag`
@@ -122,6 +146,9 @@ The controlled set of valid tags and their categorical structure. Defined in the
 A named label applied to an instrument that describes a relationship between the instrument and a factor or role. A tag is a hypothesis — it asserts that a measurable relationship exists. Tags with `measurement_type != 'definitional'` are validated by the TagAuditor and expire if p > threshold.
 
 **Not:** a metadata label, a category, or an attribute in the loose sense. Every tag is a falsifiable claim.
+
+**Banned:** metadata label
+**Status:** active
 
 **Code surface:** `instrument_tags` table, `tag_vocabulary` table.
 
@@ -133,6 +160,9 @@ A quantity directly computable from market data with no derivation from other pr
 
 **Not:** a tag. Tags are named regions derived from threshold queries on primitives. Primitives are the continuous underlying measurements.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `exposure`
@@ -140,6 +170,9 @@ A quantity directly computable from market data with no derivation from other pr
 A tag category describing what an instrument fundamentally IS — its asset class and market segment. Definitional — never empirically validated because the classification does not change with market conditions. Examples: `eq_broad`, `fi_treasury`, `crypto`.
 
 **Not:** how an instrument behaves. Behavior is captured by `sensitivity`, `factor_regime`, and `macro_driver` tags.
+
+**Banned:** (none)
+**Status:** active
 
 ---
 
@@ -149,6 +182,9 @@ A tag category describing how an instrument's price responds to factor moves. Em
 
 **Not:** exposure (what it is) or factor_regime (how it performs in a regime).
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `factor_regime`
@@ -156,6 +192,9 @@ A tag category describing how an instrument's price responds to factor moves. Em
 A tag category describing an instrument's conditional performance in a named market factor state. Examples: `risk_on`, `risk_off`, `defensive`, `growth`, `value`, `momentum`. Empirically measured via correlation or beta against factor proxies.
 
 **Not:** sensitivity (which measures response to factor moves, not regime performance) or regime (the HMM state itself).
+
+**Banned:** (none)
+**Status:** active
 
 ---
 
@@ -165,6 +204,9 @@ A tag category describing an instrument's historical outperformance relative to 
 
 **Not:** a dynamic measurement. Cycle position tags are static institutional priors, not computed classifications.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `signal_role`
@@ -173,6 +215,9 @@ A tag category describing how an instrument functions within the portfolio and s
 
 **Not:** what the instrument IS (exposure) or how it behaves (sensitivity, factor_regime).
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `macro_driver`
@@ -180,6 +225,9 @@ A tag category describing how an instrument functions within the portfolio and s
 A tag category describing the primary macroeconomic force that drives an instrument's returns. Examples: `fed_policy`, `oil_price`, `china_demand`, `geopolitical`. Empirically measured via beta against a canonical macro proxy.
 
 **Not:** sensitivity (which is a price-level response measurement). Macro driver identifies the causal force; sensitivity measures the magnitude of response.
+
+**Banned:** (none)
+**Status:** active
 
 ---
 
@@ -191,6 +239,9 @@ The probability of observing a result at least as extreme as the measured one, a
 
 **Not:** a confidence level. p = 0.05 means 5% false positive rate, not 95% confidence that the relationship exists.
 
+**Banned:** confidence level
+**Status:** active
+
 ---
 
 ### `r²`
@@ -199,6 +250,9 @@ The coefficient of determination — the fraction of an instrument's return vari
 
 **Code surface:** `min_r2` column in `tag_vocabulary`, `evidence` JSONB in `instrument_tags`.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `mutual information`
@@ -206,6 +260,9 @@ The coefficient of determination — the fraction of an instrument's return vari
 An information-theoretic measure of statistical dependence between two variables that captures nonlinear relationships. Used to measure the `regime_classifier` tag — how much does the instrument's return distribution depend on HMM regime state?
 
 **Not:** correlation, which only captures linear dependence. Mutual information detects any statistical dependency.
+
+**Banned:** (none)
+**Status:** active
 
 **Code surface:** `measurement_type = 'mutual_information'` in `tag_vocabulary`.
 
@@ -217,6 +274,9 @@ Correlation computed at multiple time lags between two return series. Used to me
 
 **Not:** contemporaneous correlation. Cross-correlation is a function of lag, not a single number.
 
+**Banned:** (none)
+**Status:** active
+
 **Code surface:** `measurement_type = 'cross_correlation'` in `tag_vocabulary`.
 
 ---
@@ -227,6 +287,9 @@ The time for a measured relationship's effective weight to decay to 50% of its e
 
 **Not:** the expiry date of a tag. A tag with decayed weight is not expired — it is discounted until re-estimated.
 
+**Banned:** (none)
+**Status:** active
+
 **Code surface:** `half_life_days` (planned addition to `tag_vocabulary`), `evidence` JSONB field.
 
 ---
@@ -236,6 +299,9 @@ The time for a measured relationship's effective weight to decay to 50% of its e
 Derived from statistical measurement on market data. An `source='empirical'` tag has been computed by the TagAuditor with p < threshold and r² > min_r2. Empirical rows take precedence over human rows for the same `(symbol, tag)` pair.
 
 **Not:** "data-driven" in the loose sense. Empirical is a precision claim — it means the tag survived a defined statistical test on a defined lookback window.
+
+**Banned:** (none)
+**Status:** active
 
 **Disambiguation:**
 - `source='human'` — asserted by a human; seed prior; never auto-expired
@@ -252,6 +318,9 @@ A Ring 2 runtime process that runs continuously, has a systemd unit, and connect
 
 **Not:** any background process. Specifically: a `BaseDaemon` subclass in `services/` with a systemd unit.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `writer`
@@ -259,6 +328,9 @@ A Ring 2 runtime process that runs continuously, has a systemd unit, and connect
 A daemon whose sole responsibility is persisting data from a Kafka stream to the database. Inherits `BaseWriter`. Performs no computation — computation happens upstream in the intelligence pipeline.
 
 **Not:** any service that writes to the DB. A service that computes and writes is an `Analyzer` or `Tracker`, not a `Writer`.
+
+**Banned:** (none)
+**Status:** active
 
 ---
 
@@ -268,6 +340,9 @@ A daemon that validates data integrity and self-heals. Reads from DB or streams,
 
 **Not:** a logger or monitor. An auditor writes corrections, not just observations.
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `tracker`
@@ -276,6 +351,9 @@ A daemon that maintains the state of a business object over time. Consumes event
 
 **Not:** a monitor (which watches but does not maintain state) or a writer (which persists but does not compute state).
 
+**Banned:** (none)
+**Status:** active
+
 ---
 
 ### `plugin`
@@ -283,6 +361,9 @@ A daemon that maintains the state of a business object over time. Consumes event
 A stateless computation unit in the I1-I7 intelligence pipeline. Receives a data frame, returns a dict of computed features. Has no Kafka connection, no DB access, no side effects. Named `PascalCasePlugin`.
 
 **Not:** an agent, a service, or a daemon. Plugins are called synchronously within `IntelligencePipeline`.
+
+**Banned:** (none)
+**Status:** active
 
 ---
 
