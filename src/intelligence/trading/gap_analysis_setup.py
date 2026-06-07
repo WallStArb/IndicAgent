@@ -1,4 +1,10 @@
-"""I7 Gap Analysis setup detection plugin."""
+"""I7 Gap Analysis setup detection plugin.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -50,11 +56,6 @@ class GapAnalysisSetupPlugin:
     min_gap_atr_mult: float = 0.3
     continuation_atr_mult: float = 1.0
     volume_confirm_ratio: float = 1.5
-    stop_atr_fade: float = 1.0
-    stop_atr_cont: float = 1.5
-    target_atr_cont: float = 2.0
-    target_atr_cont2: float = 3.0
-    target_atr_fade_ext: float = 0.5
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -119,27 +120,17 @@ class GapAnalysisSetupPlugin:
         else:
             bias = "fade"
 
-        # GAP-03: Entry, stop, and targets — all bias-dependent
+        # GAP-03: Entry — bias-dependent
         if bias == "fade":
             # Fade trades AGAINST the gap direction: upward gap → short, downward gap → long.
             # direction here reflects gap direction; fade_direction is the trade direction.
             fade_direction = -direction
             entry_type = "at_limit"
-            entry = open_[-1]
-            stop = open_[-1] - fade_direction * self.stop_atr_fade * atr
-            targets = [
-                round(prior_close, 2),
-                round(prior_close + fade_direction * self.target_atr_fade_ext * atr, 2),
-            ]
+            entry = float(open_[-1])
             direction = fade_direction
         else:
             entry_type = "at_pullback"
-            entry = open_[-1] + (-direction * 0.25 * atr)
-            stop = open_[-1] - direction * self.stop_atr_cont * atr
-            targets = [
-                round(open_[-1] + direction * self.target_atr_cont * atr, 2),
-                round(open_[-1] + direction * self.target_atr_cont2 * atr, 2),
-            ]
+            entry = float(open_[-1] + (-direction * 0.25 * atr))
 
         # GAP-03: Confidence
         base = min(1.0, gap_size_atr / 2.0)
@@ -160,26 +151,19 @@ class GapAnalysisSetupPlugin:
         bias_abbr = "cont" if bias == "continuation" else "fade"
         signal_type = f"gap_{bias_abbr}_{'long' if direction == 1 else 'short'}"
 
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         features_snapshot = capture_signal_features(
             features,
             direction,
             "session",
             confidence,
         )
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, float(entry), float(stop))
-        _tf = TradeFrame(
-            entry=float(entry),
-            entry_type=entry_type,
-            stop=float(stop),
-            stop_type="atr",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=float(entry) - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=float(entry) + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
         signal = make_signal_from_frame(
-            _tf,
+            tf,
             symbol=symbol,
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

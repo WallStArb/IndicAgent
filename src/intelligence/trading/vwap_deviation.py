@@ -1,4 +1,10 @@
-"""I7 VWAP Deviation setup detection plugin."""
+"""I7 VWAP Deviation setup detection plugin.
+
+Renaissance principles:
+- Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+- Zone correction prevents stopped_at_entry outcomes
+- Tick-size validation at emission gate
+"""
 
 from __future__ import annotations
 
@@ -13,7 +19,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
 
@@ -47,7 +53,6 @@ class VWAPDeviationPlugin:
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", lookback=100),)
     regime_type: str = "mean_reversion"
     sigma_threshold: float = 2.0
-    atr_stop_multiplier: float = 1.5
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -96,19 +101,6 @@ class VWAPDeviationPlugin:
 
         entry = price
 
-        # Stop loss
-        if direction == 1:
-            stop = entry - atr * self.atr_stop_multiplier
-        else:
-            stop = entry + atr * self.atr_stop_multiplier
-
-        # Targets: T1 = vwap, T2 = opposite 1σ band
-        if direction == 1:
-            t2 = vwap_upper_1 if vwap_upper_1 > 0 else vwap + vwap_std
-        else:
-            t2 = vwap_lower_1 if vwap_lower_1 > 0 else vwap - vwap_std
-        targets = [round(float(vwap), 2), round(float(t2), 2)]
-
         # ── Confidence ──
 
         # Deviation score (0.40): sigma excess beyond 2σ, capped at 4σ
@@ -149,20 +141,13 @@ class VWAPDeviationPlugin:
         signal_type = "vwap_reversion_long" if direction == 1 else "vwap_reversion_short"
         regime_ctx = "vwap_extended_low" if direction == 1 else "vwap_extended_high"
 
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_limit",
-            stop=stop,
-            stop_type="atr",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
+            return no_signal()
+
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),

@@ -12,7 +12,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 from .signal_schema import make_signal_from_frame
-from .trade_framer import ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER, TradeFrame, targets_from_floats
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -21,6 +21,11 @@ class LiquiditySweepReclaimPlugin:
 
     Gate: sweep_detected == 1.0 AND sweep_reclaimed == 1.0.
     Optional confidence boosts from FVG, order block, and cross-timeframe confluence.
+
+    Renaissance principles:
+    - Structural stop hierarchy via frame_trade() (no arbitrary ATR multipliers)
+    - Zone correction prevents stopped_at_entry outcomes
+    - Tick-size validation at emission gate
     """
 
     name: str = "trad_LiquiditySweepReclaim"
@@ -78,27 +83,11 @@ class LiquiditySweepReclaimPlugin:
 
         entry = float(close[-1])
 
-        # Stop loss — below sweep_level for longs, above for shorts
-        if direction == 1:
-            stop = sweep_level - atr * 0.5
-        else:
-            stop = sweep_level + atr * 0.5
-
-        # Guard: stop must be on the correct side of entry.
-        # If price hasn't yet reclaimed sweep_level, stop inverts — skip signal.
-        if direction == 1 and stop >= entry:
+        # Renaissance: Use frame_trade() for structural stop hierarchy
+        signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
+        tf = frame_trade(signal_type, direction, entry, features, atr, regime_type=self.regime_type)
+        if not tf.viable:
             return no_signal()
-        if direction == -1 and stop <= entry:
-            return no_signal()
-
-        # Targets
-        if direction == 1:
-            t1 = entry + atr * 1.5
-            t2 = entry + atr * 3.0
-        else:
-            t1 = entry - atr * 1.5
-            t2 = entry - atr * 3.0
-        targets = [round(t1, 2), round(t2, 2)]
 
         # Confidence scoring — base derived from sweep depth (continuous)
         sweep_depth_atr = float(features.get("sweep_depth_pct", 0.0))
@@ -145,22 +134,10 @@ class LiquiditySweepReclaimPlugin:
         confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
-        signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
+        regime_context = "any"
 
-        _t_objs, _rr_t1, _rr_t2 = targets_from_floats(targets, entry, stop)
-        _tf = TradeFrame(
-            entry=entry,
-            entry_type="at_close",
-            stop=stop,
-            stop_type="sweep_level",
-            targets=_t_objs,
-            rr_t1=_rr_t1,
-            rr_t2=_rr_t2,
-            zone_low=entry - ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-            zone_high=entry + ATR_ZONE_PLUGIN_FALLBACK_MULTIPLIER * atr,
-        )
         return make_signal_from_frame(
-            _tf,
+            tf,
             symbol=frames.get("symbol", ""),
             timeframe=features.get("timeframe", ""),
             timestamp=features.get("timestamp", ""),
@@ -168,7 +145,7 @@ class LiquiditySweepReclaimPlugin:
             setup_plugin=self.name,
             direction=direction,
             confidence=confidence,
-            regime_context="any",
+            regime_context=regime_context,
             supporting_factors=supporting,
             features_snapshot=capture_signal_features(features, direction, "smc", confidence),
         )
