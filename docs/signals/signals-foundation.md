@@ -1,6 +1,6 @@
 # Signals Foundation — Why signal_ledger exists and what it owns
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-06-05
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-06-05
 
 ---
 
@@ -9,7 +9,7 @@
 `signal_ledger` is the persistent record of every I7 trading setup detected by the intelligence pipeline, including its full lifecycle outcome. It solves three problems that ephemeral in-memory state cannot:
 
 1. **Labeled training data** — The ML scoring model (Phase 094+) needs feature vectors paired with real-world outcomes. `signal_ledger` is that dataset: every row links back to `intelligence_features` via `(symbol, feature_ts, feature_tf)` and carries the 8-class outcome label once the trade closes.
-2. **Lifecycle recovery** — Service restarts, data gaps, and replay scenarios all need a durable record of which signals were pending or active. The `SignalTrackerComputeAgent` bootstraps from this table on startup.
+2. **Lifecycle recovery** — Service restarts, data gaps, and replay scenarios all need a durable record of which signals were pending or active. The `SignalTracker` bootstraps from this table on startup.
 3. **Audit trail** — Every I7 plugin fires, whether or not it eventually enters a zone. Every regime-suppressed signal is logged. This creates an empirical feedback loop for gate calibration (regime gates, shadow promotion, CIS weight tuning).
 
 **Who reads this doc:** Engineers building new signal types, debugging lifecycle issues (why did signal X never activate?), or writing ML training queries. Start here before touching `signal_ledger` schema or any lifecycle service.
@@ -20,12 +20,12 @@
 
 ### Why signal_ledger instead of ephemeral in-memory state?
 
-The real-time pipeline (`SignalTrackerComputeAgent`) is intentionally DB-ignorant — it holds all active signal state in memory and publishes `LifecycleTransition` events to Kafka. The `LifecycleWriterAgent` consumes those events and writes to `signal_ledger`. This split exists because DB I/O is unpredictable and the hot path cannot block on it.
+The real-time pipeline (`SignalTracker`) is intentionally DB-ignorant — it holds all active signal state in memory and publishes `LifecycleTransition` events to Kafka. The `LifecycleWriter` consumes those events and writes to `signal_ledger`. This split exists because DB I/O is unpredictable and the hot path cannot block on it.
 
 `signal_ledger` is the persistent projection of that in-memory state. It persists because:
 - Service restarts would lose all pending signal state otherwise
 - Historical outcomes are required for ML training (you cannot reconstruct them from bar data alone)
-- The replay auditor (`SignalReplayAuditorAgent`) needs to find signals the live tracker missed
+- The replay auditor (`SignalReplayAuditor`) needs to find signals the live tracker missed
 
 ### Two-table design: signal_ledger + signal_outcomes
 
@@ -46,7 +46,7 @@ The `signal_ledger_full` view joins both tables and is the canonical query surfa
 
 Both fields exist and serve different purposes:
 
-- **`was_selected`** (`BOOLEAN`) — `TRUE` for the single signal the aggregator picked as the winner on that bar (highest-ranked regime-eligible, non-shadow signal). Only one signal per bar per symbol/timeframe can be `was_selected=TRUE`. This flag gates the `SignalMetricsComputeAgent` query (`WHERE was_selected = true`) — metrics are only computed for signals that were actually presented for potential execution.
+- **`was_selected`** (`BOOLEAN`) — `TRUE` for the single signal the aggregator picked as the winner on that bar (highest-ranked regime-eligible, non-shadow signal). Only one signal per bar per symbol/timeframe can be `was_selected=TRUE`. This flag gates the `SignalMetricsAnalyzer` query (`WHERE was_selected = true`) — metrics are only computed for signals that were actually presented for potential execution.
 - **`is_shadow`** (`BOOLEAN`) — `TRUE` for signals from plugins that are in shadow mode (not yet promoted in `shadow_registry`). Shadow signals fire and are tracked in full (lifecycle, MAE/MFE, outcome) but never enter the execution stream. They accumulate outcome data toward the promotion gate (`n >= 100 AND bootstrap_ci_lower(pnl_r) > 0.0`).
 
 A signal can be `is_shadow=TRUE` and still get an outcome. A signal can be `was_selected=FALSE` and still be live (it fired but wasn't the winner). The two flags are orthogonal.
@@ -69,7 +69,7 @@ All ML training queries gate on `signal_schema_version = 'v1'`. If schema issues
 | `at_reclaim` | Entry at the current close after a sweep/reclaim event | Liquidity sweep and liquidity hunt setups — confirmation that price reclaimed the level |
 | `zone_proximal` | Entry at the proximal edge of a supply/demand zone | Supply/demand setups where the zone has geometric extent |
 
-`entry_type` is stored in `signal_ledger` (restored by migration 095) and used by `SignalMetricsComputeAgent` to segment performance by entry style — `at_pullback` setups have structurally different activation rates than `at_close`.
+`entry_type` is stored in `signal_ledger` (restored by migration 095) and used by `SignalMetricsAnalyzer` to segment performance by entry style — `at_pullback` setups have structurally different activation rates than `at_close`.
 
 ---
 
@@ -82,7 +82,7 @@ I7 plugins (36 setups) + CISScorer aggregator
   → IntelligencePipelineAgent (_process_i7)
   → signal_processor.py (rank, regime gate, shadow gate, select winner)
   → intelligence.i7.signals Kafka topic  (full ranked list per bar)
-  → SignalWriterAgent
+  → SignalWriter
   → signal_ledger INSERT + signal_outcomes seed (status='pending')
 ```
 
@@ -94,10 +94,10 @@ NULL `entry_zone_low` or `entry_zone_high` routes the signal to the DLQ at write
 
 | Service | What it reads | Why |
 |---------|--------------|-----|
-| `SignalTrackerComputeAgent` | `pending`/`active` signals with `exit_at IS NULL` | Bootstrap on startup; populates in-memory active index |
-| `SignalReplayAuditorAgent` | `pending`/`active` with `expires_at < NOW()` | Recover outcomes for signals the live tracker missed |
-| `SignalMetricsComputeAgent` | Resolved signals (`outcome IS NOT NULL`) where `was_selected=true` | Compute per-setup performance metrics every 15 min |
-| `GraduationComputeAgent` | Shadow signals with `outcome IS NOT NULL`, `is_shadow=true` | Evaluate promotion gate for shadow plugins |
+| `SignalTracker` | `pending`/`active` signals with `exit_at IS NULL` | Bootstrap on startup; populates in-memory active index |
+| `SignalReplayAuditor` | `pending`/`active` with `expires_at < NOW()` | Recover outcomes for signals the live tracker missed |
+| `SignalMetricsAnalyzer` | Resolved signals (`outcome IS NOT NULL`) where `was_selected=true` | Compute per-setup performance metrics every 15 min |
+| `GraduationAnalyzer` | Shadow signals with `outcome IS NOT NULL`, `is_shadow=true` | Evaluate promotion gate for shadow plugins |
 | ML training queries | All `v1` signals with `outcome IS NOT NULL` | Feature-label pairs for model training |
 
 ---

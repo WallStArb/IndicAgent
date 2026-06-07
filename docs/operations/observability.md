@@ -2,7 +2,7 @@
 
 **Version:** 2.8
 **Last Updated:** 2026-05-28
-**Status:** Operational
+**Status:** current
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** Operational
+**Status:** current
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---

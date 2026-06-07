@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** Operational
+**Status:** current
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
@@ -33,7 +33,7 @@ HOT PATH (deterministic, I1-I7):
 
 OUT-OF-BAND (AI/LLM, I8):
   I7 signal → AlphaSwarm (LLM agents evaluate quality)
-  I7 signal → NarrativeComputeAgent (generates explanation)
+  I7 signal → NarrativeSwarm (generates explanation)
   signal_ledger outcomes → ML training (offline)
   LLMs consume pipeline outputs, never sit on the critical path.
 ```
@@ -109,7 +109,7 @@ I8  AI narrative                 — LLM analysis per signal (Ollama local, defa
 | **I1 Foundation** | Raw indicator values | Mathematical foundation — all higher layers read these |
 | **I2 Composite** | Indicator interactions | Crossovers, acceleration — turns continuous values into events |
 | **I3 Structure** | Price structure facts | Swings, S/R, session levels — the market's geometry |
-| **I4 Regime** | Market state classification | Prevents fighting the market — trend vs ranging vs volatile |
+| **I4 Regime** | Regime classification | Prevents fighting the market — trend vs ranging vs volatile |
 | **I5 Patterns** | Discrete pattern events | Divergence, squeeze, H&S — recognizable formations |
 | **SMC** | Institutional footprints | BOS/CHoCH, FVG, OB — order flow evidence |
 | **I6 Confluence** | Multi-timeframe agreement | Single-TF signals are noisy — confluence confirms |
@@ -125,19 +125,19 @@ I8  AI narrative                 — LLM analysis per signal (Ollama local, defa
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Provider Layer                          │
-│  IBKRProviderAgent → market.bars.raw.ibkr                      │
+│  IBKRProvider → market.bars.raw.ibkr                      │
 │                          ↓                                      │
-│              ProviderMergerAgent (failover, routing)            │
+│              ProviderMerger (failover, routing)            │
 │                          ↓                                      │
 │                market.bars (canonical 1m)                       │
 │                          ↓                                      │
-│         BarAggregatorComputeAgent (1m → HTF)                    │
+│         BarAggregator (1m → HTF)                    │
 │                          ↓                                      │
 │                market.bars.htf (5m/15m/1h/4h/1d)               │
 └─────────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│         IntelligencePipelineComputeAgent (I1-I7 in-process)     │
+│         IntelligencePipeline (I1-I7 in-process)     │
 │                                                                  │
 │  Bar → [I1 parallel] → I2 → I3 → I4 → I5 → SMC → I6 → [I7 parallel] │
 │                                                                  │
@@ -150,8 +150,8 @@ I8  AI narrative                 — LLM analysis per signal (Ollama local, defa
                           ↓                 ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Persistence Layer                           │
-│  FeatureWriterAgent → intelligence_features (TimescaleDB)       │
-│  SignalWriterAgent → signal_ledger (TimescaleDB)                │
+│  FeatureWriter → intelligence_features (TimescaleDB)       │
+│  SignalWriter → signal_ledger (TimescaleDB)                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -309,7 +309,7 @@ Regime conditioning: weights loaded per current HMM regime_type
   symbol-specific weights take precedence; '*' wildcard is fallback
 ```
 
-`IntelligencePipelineComputeAgent` loads weights at startup and refreshes every hour. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
+`IntelligencePipeline` loads weights at startup and refreshes every hour. No Redis — weights flow: `signal_metrics` table → in-memory `_perf_weights` dict.
 
 **Composition:** CIS governs which *direction* has cross-tier confirmation. Performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
 

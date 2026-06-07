@@ -1,18 +1,18 @@
-# Agents Writers — BaseWriterAgent & the Persistence Pattern
+# Agents Writers — BaseWriter & the Persistence Pattern
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
 
 ---
 
 ## Purpose
 
-`BaseWriterAgent` is the second layer of the agent hierarchy, sitting above `BaseAgent`. It adds everything needed to move data from Kafka into TimescaleDB safely: bounded buffering, size-and-time flush triggers, offset commit gating, overflow protection, and DLQ routing.
+`BaseWriter` is the second layer of the agent hierarchy, sitting above `BaseAgent`. It adds everything needed to move data from Kafka into TimescaleDB safely: bounded buffering, size-and-time flush triggers, offset commit gating, overflow protection, and DLQ routing.
 
 **Audience:** Engineers adding a new persistence service, debugging a stalled writer, or investigating DLQ events.
 
-The separation between `BaseAgent` and `BaseWriterAgent` exists because compute agents and writer agents have opposite failure modes. A compute agent that crashes loses nothing — messages stay in Kafka. A writer agent that crashes mid-batch risks writing partial rows. `BaseWriterAgent` makes the atomic batch guarantee concrete: flush succeeds and offset commits, or flush fails and the batch stays buffered for retry.
+The separation between `BaseAgent` and `BaseWriter` exists because compute agents and writer agents have opposite failure modes. A compute agent that crashes loses nothing — messages stay in Kafka. A writer agent that crashes mid-batch risks writing partial rows. `BaseWriter` makes the atomic batch guarantee concrete: flush succeeds and offset commits, or flush fails and the batch stays buffered for retry.
 
-WriterAgents are the **only agents with DB write access**. They must never appear on the compute hot path.
+Writers are the **only agents with DB write access**. They must never appear on the compute hot path.
 
 ---
 
@@ -83,7 +83,7 @@ async def _setup(self) -> None:
     self._pool = await asyncpg.create_pool(dsn=...)
 ```
 
-It reads `bootstrap_servers` from `self.settings`, sets `enable_auto_commit=False`, and assigns the result to `self._consumer`. Manual offset commit is mandatory — `BaseWriterAgent._do_flush()` calls `self._consumer.commit()` only after `_flush_batch` succeeds.
+It reads `bootstrap_servers` from `self.settings`, sets `enable_auto_commit=False`, and assigns the result to `self._consumer`. Manual offset commit is mandatory — `BaseWriter._do_flush()` calls `self._consumer.commit()` only after `_flush_batch` succeeds.
 
 ### Overflow Protection
 
@@ -95,7 +95,7 @@ It reads `bootstrap_servers` from `self.settings`, sets `enable_auto_commit=Fals
 
 ### `_parse_payload` Return Contract
 
-This is the most important contract in `BaseWriterAgent`. The return value controls the fate of the message:
+This is the most important contract in `BaseWriter`. The return value controls the fate of the message:
 
 | Return value | Meaning | What happens |
 |-------------|---------|--------------|
@@ -116,11 +116,11 @@ PERSISTENCE_BATCH_LATENCY.record((time.monotonic() - t0) * 1000, {"agent_id": se
 
 ### `PERSISTENCE_CONSUMER_LAG`
 
-`BaseWriterAgent` overrides `_report_consumer_lag()` to report `len(self._buffer)` as the lag gauge. This runs every 15 seconds as a background task. The service auditor reads this metric (via `_AGENT_ID_TO_UNIT` in `service_auditor_agent.py`) to detect stalled writers and trigger restarts.
+`BaseWriter` overrides `_report_consumer_lag()` to report `len(self._buffer)` as the lag gauge. This runs every 15 seconds as a background task. The service auditor reads this metric (via `_AGENT_ID_TO_UNIT` in `service_auditor_agent.py`) to detect stalled writers and trigger restarts.
 
 ### Per-Writer Metrics (automatic)
 
-`BaseWriterAgent` creates these per-agent metrics in `__init__` (no subclass code needed):
+`BaseWriter` creates these per-agent metrics in `__init__` (no subclass code needed):
 
 | Metric | Type | Purpose |
 |--------|------|---------|
@@ -138,10 +138,10 @@ PERSISTENCE_BATCH_LATENCY.record((time.monotonic() - t0) * 1000, {"agent_id": se
 ### New Writer Agent Recipe
 
 ```python
-from src.core.agent.base_writer import BaseWriterAgent
+from src.core.agent.base_writer import BaseWriter
 import asyncpg
 
-class MyWriterAgent(BaseWriterAgent):
+class MyWriter(BaseWriter):
 
     # Tune flush behavior
     BATCH_SIZE = 200
@@ -226,7 +226,7 @@ P99 flush latency above 500ms usually indicates DB connection pool exhaustion or
 
 ### `_consumer` Must Be Assigned in `_setup()`
 
-`BaseWriterAgent._do_flush()` calls `self._consumer.commit()`. If `self._consumer` is `None` (because `_setup()` was not called or `_create_consumer()` was not called), offset commits silently skip. Consumer lag will never decrease on restart. Always verify that `_setup()` assigns `self._consumer` before `_run()` starts.
+`BaseWriter._do_flush()` calls `self._consumer.commit()`. If `self._consumer` is `None` (because `_setup()` was not called or `_create_consumer()` was not called), offset commits silently skip. Consumer lag will never decrease on restart. Always verify that `_setup()` assigns `self._consumer` before `_run()` starts.
 
 ---
 

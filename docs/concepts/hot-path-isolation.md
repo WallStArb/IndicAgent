@@ -24,20 +24,20 @@ The invariant: **no component on the hot path may call I/O.** Hot-path state is 
 ## How IndicAgent Applies It
 
 ```
-Hot:  IBKR TWS → Redpanda Streams → IntelligencePipelineComputeAgent   (sub-ms)
+Hot:  IBKR TWS → Redpanda Streams → IntelligencePipeline   (sub-ms)
 Warm: Streams → I1-I7 plugin DAG → ranked signals + feature vectors    (<10ms)
-Cold: FeatureWriterAgent + SignalWriterAgent → TimescaleDB              (async batch)
+Cold: FeatureWriter + SignalWriter → TimescaleDB              (async batch)
 ```
 
-The intelligence pipeline (I1-I7) is fully DB-ignorant. It reads from in-memory plugin state (loaded at startup, updated per bar) and publishes results to Kafka topics. Dedicated WriterAgents (`FeatureWriterAgent`, `SignalWriterAgent`, `LifecycleWriterAgent`) consume those topics and handle persistence asynchronously.
+The intelligence pipeline (I1-I7) is fully DB-ignorant. It reads from in-memory plugin state (loaded at startup, updated per bar) and publishes results to Kafka topics. Dedicated Writers (`FeatureWriter`, `SignalWriter`, `LifecycleWriter`) consume those topics and handle persistence asynchronously.
 
 Performance weights, CIS weights, and regime state are loaded at startup and refreshed on a timer (not per-bar). Plugin state is checkpointed to local disk — not to the database.
 
 ## Invariants
 
-- The real-time pipeline (`IntelligencePipelineComputeAgent`) must never import or call `database_manager`.
+- The real-time pipeline (`IntelligencePipeline`) must never import or call `database_manager`.
 - Plugin `compute()` and `compute_next()` methods must be pure functions of their input + internal state.
-- WriterAgents consume from topics — they never receive direct calls from compute agents.
+- Writers consume from topics — they never receive direct calls from compute agents.
 - A `TimescaleDB` outage must have zero impact on signal generation latency or throughput.
 
 ## Recipe

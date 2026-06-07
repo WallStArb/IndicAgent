@@ -42,7 +42,7 @@ Eight tiers produce a typed `IntelligenceEvent` carrier that accumulates outputs
 
 The `IntelligenceEvent` (defined in `src/intelligence/schemas.py`) is the carrier — it accumulates outputs from each tier and is passed forward. Every I7 signal is emitted with the full I1-I7 feature context that produced it.
 
-**Execution:** All I1-I7 tiers run inside `IntelligencePipelineComputeAgent` as a unified in-process pipeline. This eliminates inter-service Kafka latency for the tight coupling between tiers. I8 (AI Narrative) runs as a separate service for latency isolation — it is non-blocking and does not gate signal generation.
+**Execution:** All I1-I7 tiers run inside `IntelligencePipeline` as a unified in-process pipeline. This eliminates inter-service Kafka latency for the tight coupling between tiers. I8 (AI Narrative) runs as a separate service for latency isolation — it is non-blocking and does not gate signal generation.
 
 ## Invariants
 

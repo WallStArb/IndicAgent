@@ -80,14 +80,14 @@ Override default with `OLLAMA_MODEL` in `.env`. Swarm agent latency with gemma4:
 | Component | Purpose | Status |
 |-----------|---------|--------|
 | `BaseAIAgent` | Universal base: wall-clock timing, timeout enforcement, exception handling, OTel tracing, graceful shutdown | Active |
-| `BaseGroupService` | Shared dispatcher: Kafka consumer/producer, DB pool, `AIContextCache`, `LLMProviderChain`, agent dispatch, graduation loop | Active |
+| `BaseGroupCoordinator` | Shared dispatcher: Kafka consumer/producer, DB pool, `AIContextCache`, `LLMProviderChain`, agent dispatch, graduation loop | Active |
 | `IAIAgent` Protocol | Interface: `agent_id`, `group`, `tiers_needed`, `shadow_only`, `latency_budget_ms`, `prompt_version` | Active |
 | `AIContext` / `AIContextCache` | Tiered context (I1-I7, SMC) per bar; in-memory cache with 5-min TTL; `render_full_context()` for LLM prompts | Active |
 | `LineageRecorder` | Full ancestry tracking per agent call; periodic Kafka flush | Active |
 
 **Mandatory attributes on all `BaseAIAgent` subclasses:** `agent_id`, `group`, `tiers_needed`, `latency_budget_ms`, `shadow_only`, `prompt_version`.
 
-**`BaseGroupService` construction rule:** agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
+**`BaseGroupCoordinator` construction rule:** agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 
 ### 2.4 Swarm Agents (Active)
 
@@ -223,7 +223,7 @@ MCP enables agents to pull historical data on demand instead of relying solely o
 **Decision: extend our stack.** LangChain would bypass or duplicate:
 - Circuit breakers, semantic cache, token budgets, guardrails
 - Kafka audit pipeline (`llm_calls` table)
-- `BaseAIAgent` / `BaseGroupService` framework
+- `BaseAIAgent` / `BaseGroupCoordinator` framework
 - Shadow mode governance
 
 All providers are OpenAI-compatible — tool calling is just `tools` param + `tool_calls` response parsing. ~50 lines of code vs. a heavy abstraction layer.
@@ -419,7 +419,7 @@ IBKR TWS → 1m bars → Redpanda → intelligence_pipeline_agent (I1-I7, 132 pl
                               AIContextCache.build() → AIContext
                                           ↓
                               Skeptic/Correlation/RegimeCoherence/Counterfactual
-                              (BaseGroupService dispatches in parallel, 120s budget each)
+                              (BaseGroupCoordinator dispatches in parallel, 120s budget each)
                                           ↓
                               OllamaProvider (gemma4:e4b) → multiplier per agent
                                           ↓

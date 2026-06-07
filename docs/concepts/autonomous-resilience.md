@@ -26,11 +26,11 @@ Resilience is layered: detect failure early (watchdogs), isolate it (circuit bre
 
 **Circuit breakers** (`src/observability/circuit_breaker.py`): States are `CLOSED` (normal) → `OPEN` (failing) → `HALF_OPEN` (testing recovery). For manual tracking outside `call()`: use `allow_request()` (time-based OPEN→HALF_OPEN check) and `record_success()` (closes from HALF_OPEN). Do not call `record_failure()` and expect automatic recovery without one of these.
 
-**DLQ:** `BaseWriterAgent._parse_payload` returns `None` (route whole payload to DLQ) or `[]` (valid parse, no signals — do not DLQ). Every DLQ event increments `agent_dlq_total`. DLQ messages are quarantined for investigation, not silently dropped.
+**DLQ:** `BaseWriter._parse_payload` returns `None` (route whole payload to DLQ) or `[]` (valid parse, no signals — do not DLQ). Every DLQ event increments `agent_dlq_total`. DLQ messages are quarantined for investigation, not silently dropped.
 
-**Service Auditor (`ServiceAuditorAgent`):** Monitors all services via systemd unit state. `_DAG_ORDER` in `services/service_auditor_agent.py` defines restart sequence — services earlier in the DAG restart before services that depend on them. `_LAG_THRESHOLDS` defines consumer lag thresholds per service.
+**Service Auditor (`ServiceAuditor`):** Monitors all services via systemd unit state. `_DAG_ORDER` in `services/service_auditor_agent.py` defines restart sequence — services earlier in the DAG restart before services that depend on them. `_LAG_THRESHOLDS` defines consumer lag thresholds per service.
 
-**Parity Auditor:** `ParityAuditorAgent` certifies feature writes after 60 consecutive clean parity cycles. If parity fails, the auditor flags the write path for investigation before corruption compounds.
+**Parity Auditor:** `ParityAuditor` certifies feature writes after 60 consecutive clean parity cycles. If parity fails, the auditor flags the write path for investigation before corruption compounds.
 
 ## Invariants
 

@@ -1,6 +1,6 @@
 # Agents Foundation — BaseAgent Contract & Fundamental Patterns
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
 
 ---
 
@@ -142,7 +142,7 @@ The logger is pre-bound with `agent=name`. Standard event names (use these consi
 
 Never use `event=` as a keyword argument to structlog — it collides with the positional event argument. Use `signal=`, `payload=`, `data=` instead.
 
-Log files: `logs/<agent_snake_case>_agent.log`. For example, `FooBarComputeAgent` logs to `logs/foo_bar_compute_agent.log`. BaseAgent derives this path automatically from the `name` argument — pass `name="foo_bar_compute_agent"` to get the right file.
+Log files: `logs/<agent_snake_case>_agent.log`. For example, `BarAggregator` logs to `logs/bar_aggregator.log`. BaseAgent derives this path automatically from the `name` argument — pass `name="bar_aggregator"` to get the right file.
 
 ---
 
@@ -154,7 +154,7 @@ Log files: `logs/<agent_snake_case>_agent.log`. For example, `FooBarComputeAgent
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient
 
-class MyComputeAgent(BaseAgent):
+BaseAgent:(BaseAgent):
 
     async def _setup(self) -> None:
         self._consumer = KafkaConsumerClient(
@@ -197,18 +197,18 @@ class MyComputeAgent(BaseAgent):
 
 The class name, file name, systemd unit, and log file all derive from the same concept name:
 
-- `alpha_signal` → `AlphaSignalComputeAgent` / `services/alpha_signal_agent.py` / `indicagent-alpha-signal` / `logs/alpha_signal_agent.log`
+- `alpha_signal` → `AlphaSwarm` / `services/alpha_signal_agent.py` / `indicagent-alpha-signal` / `logs/alpha_signal_agent.log`
 
 Role suffixes map to invariant responsibilities:
 
 | Suffix | Role |
 |--------|------|
-| `ProviderAgent` | External protocol → typed Kafka events. No compute, no DB. |
-| `MergerAgent` | Fan-in multiple raw streams → one authoritative stream. |
-| `ComputeAgent` | Deterministic transformation. DB-ignorant, Kafka→Kafka. |
-| `WriterAgent` | Kafka → batch DB write. Only role with DB write access. |
-| `TrackerAgent` | Business object lifecycle state tracking. |
-| `AuditorAgent` | Data integrity validation, not data mutation. |
+| `Provider` | External protocol → typed Kafka events. No compute, no DB. |
+| `Merger` | Fan-in multiple raw streams → one authoritative stream. |
+| Hot-path service | DB-ignorant, Kafka→Kafka. Deterministic transformation. |
+| Writer | Kafka → batch DB write. Only role with DB write access. |
+| `Tracker` | Business object lifecycle state tracking. |
+| `Auditor` | Data integrity validation, not data mutation. |
 
 ---
 
@@ -251,14 +251,14 @@ Every agent operates inside a strict DAG (Directed Acyclic Graph). Before writin
 
 | Role | DB reads | DB writes | Kafka reads | Kafka writes |
 |------|----------|-----------|-------------|--------------|
-| `ProviderAgent` | No | No | No | Yes (raw topic only) |
-| `MergerAgent` | No | No | Yes | Yes (canonical topic only) |
-| `ComputeAgent` | **No** | **No** | Yes | Yes |
-| `WriterAgent` | No | **Yes** | Yes | No |
-| `TrackerAgent` | Yes | Yes | Yes | Yes |
-| `AuditorAgent` | Yes | No | Yes | Yes (gap requests only) |
+| `Provider` | No | No | No | Yes (raw topic only) |
+| `Merger` | No | No | Yes | Yes (canonical topic only) |
+| Analyzer/Aggregator | **No** | **No** | Yes | Yes |
+| Writer | No | **Yes** | Yes | No |
+| `Tracker` | Yes | Yes | Yes | Yes |
+| `Auditor` | Yes | No | Yes | Yes (gap requests only) |
 
-**The critical rule for ComputeAgents:** DB access is a DAG violation. If your `ComputeAgent` needs historical data, that data must arrive via Kafka from a service that read it — not via a direct DB query in the hot path.
+**Critical DAG principle:** DB access is a DAG violation. If your service needs historical data, that data must arrive via Kafka from a service that read it — not via a direct DB query in the hot path.
 
 The full DAG mandate and all seven architectural invariants are in `docs/foundation/foundation-design-principles.md` (Principle 11) and `docs/architecture/architecture-dag-topology.md`.
 
@@ -266,7 +266,7 @@ The full DAG mandate and all seven architectural invariants are in `docs/foundat
 
 ## See Also
 
-- `docs/agents/agents-writers.md` — BaseWriterAgent and the persistence pattern
+- `docs/agents/agents-writers.md` — BaseWriter and the persistence pattern
 - `docs/agents/agents-operations.md` — service mesh management and DAG topology
 - `docs/architecture/architecture-dag-topology.md` — full system map: every service, topic, and invariant
 - `docs/foundation/foundation-design-principles.md` — DAG invariants (Principle 11) and all architectural north stars

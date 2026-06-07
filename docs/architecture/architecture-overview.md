@@ -26,9 +26,9 @@ IndicAgent is a real-time market intelligence platform that processes raw market
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           LAYER 0: DATA INGESTION                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  IBKR TWS → IBKRProviderAgent → market.bars.raw.ibkr                        │
+│  IBKR TWS → IBKRProvider → market.bars.raw.ibkr                        │
 │                              ↓                                               │
-│                    ProviderMergerAgent (failover, routing)                   │
+│                    ProviderMerger (failover, routing)                   │
 │                              ↓                                               │
 │                    market.bars (canonical 1m)                                │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -36,16 +36,16 @@ IndicAgent is a real-time market intelligence platform that processes raw market
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          LAYER 1: BAR PROCESSING                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  BarAggregatorComputeAgent (1m → HTF: 5m, 15m, 1h, 4h, 1d)                  │
+│  BarAggregator (1m → HTF: 5m, 15m, 1h, 4h, 1d)                  │
 │                    ↓                                                         │
-│  BarWriterAgent → market_data_ohlcv (DB)                                     │
-│  BarAuditorAgent → gap detection → market.events.gap_requests               │
+│  BarWriter → market_data_ohlcv (DB)                                     │
+│  BarAuditor → gap detection → market.events.gap_requests               │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    LAYER 2: INTELLIGENCE COMPUTATION (I1-I7)                │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  IntelligencePipelineComputeAgent — unified in-process pipeline            │
+│  IntelligencePipeline — unified in-process pipeline            │
 │                                                                             │
 │  ┌────────────────────────────────────────────────────────────────────┐   │
 │  │ I1: Technical Indicators (28 plugins)                              │   │
@@ -64,28 +64,28 @@ IndicAgent is a real-time market intelligence platform that processes raw market
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        LAYER 3: SIGNAL LIFECYCLE                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  SignalTrackerComputeAgent → lifecycle.transitions (DB-ignorant)              │
-│  SignalReplayAuditorAgent → TTL expiry, reads entry_zone from DB             │
-│  SignalAuditorAgent → coverage validation → intelligence.signal.audit       │
-│  SignalMetricsComputeAgent → performance metrics (timer-triggered)           │
+│  SignalTracker → lifecycle.transitions (DB-ignorant)              │
+│  SignalReplayAuditor → TTL expiry, reads entry_zone from DB             │
+│  SignalAuditor → coverage validation → intelligence.signal.audit       │
+│  SignalMetricsAnalyzer → performance metrics (timer-triggered)           │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          LAYER 4: PERSISTENCE                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  FeatureWriterAgent → intelligence_features                                 │
-│  SignalWriterAgent → signal_ledger                                          │
-│  LifecycleWriterAgent → signal_outcomes                                     │
-│  SignalMetricsWriterAgent → signal_metrics tables                           │
-│  LLMWriterAgent → llm_calls, llm_model_scores                                │
-│  LineageWriterAgent → signal_lineage                                        │
+│  FeatureWriter → intelligence_features                                 │
+│  SignalWriter → signal_ledger                                          │
+│  LifecycleWriter → signal_outcomes                                     │
+│  SignalMetricsWriter → signal_metrics tables                           │
+│  LLMWriter → llm_calls, llm_model_scores                                │
+│  LineageWriter → signal_lineage                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       LAYER 5: AI INTELLIGENCE (I8)                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  NarrativeGroupComputeAgent → LLM analysis → narratives + llm.calls        │
-│  AlphaSwarmComputeAgent → multi-agent signal refinement                      │
+│  NarrativeSwarm → LLM analysis → narratives + llm.calls        │
+│  AlphaSwarm → multi-agent signal refinement                      │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -102,7 +102,7 @@ IndicAgent is a real-time market intelligence platform that processes raw market
 
 **Hot Path (sub-ms latency):**
 ```
-IBKR TWS → IntelligencePipelineComputeAgent → I1-I7 compute → Kafka publish
+IBKR TWS → IntelligencePipeline → I1-I7 compute → Kafka publish
 ```
 - Zero database touches
 - In-memory state (plugin checkpoints)
@@ -110,7 +110,7 @@ IBKR TWS → IntelligencePipelineComputeAgent → I1-I7 compute → Kafka publis
 
 **Warm Path (Kafka buffer, ~10ms):**
 ```
-Kafka topics → Consumer groups → WriterAgents → DB batch commit
+Kafka topics → Consumer groups → Writers → DB batch commit
 ```
 - Redpanda provides durability and replay
 - Consumer groups enable parallel processing
@@ -132,11 +132,11 @@ DB queries → API → Dashboard UI / External consumers
 
 | Suffix | Role | DB Access | Example |
 |--------|------|------------|---------|
-| `ProviderAgent` | External source → Kafka | No | `IBKRProviderAgent` |
-| `ComputeAgent` | Math/stats transform | No | `IntelligencePipelineComputeAgent` |
-| `WriterAgent` | DB persistence from Kafka | Yes | `FeatureWriterAgent` |
-| `TrackerAgent` | Business object lifecycle | No | `SignalTrackerComputeAgent` |
-| `AuditorAgent` | Data integrity validation | No | `BarAuditorAgent`, `ParityAuditorAgent` |
+| `Provider` | External source → Kafka | No | `IBKRProvider` |
+| Hot-path service | Math/stats transform | No | `IntelligencePipeline` |
+| Writer | DB persistence from Kafka | Yes | `FeatureWriter` |
+| `Tracker` | Business object lifecycle | No | `SignalTracker` |
+| `Auditor` | Data integrity validation | No | `BarAuditor`, `ParityAuditor` |
 
 ### Service DAG (Canonical Order)
 
@@ -309,9 +309,9 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | `lifecycle.transitions` | Signal state changes | `LifecycleEvent` |
 
 **Consumer Groups:**
-- `feature_writer_group` — FeatureWriterAgent
-- `signal_writer_group` — SignalWriterAgent
-- `ai_narrative` — NarrativeGroupComputeAgent
+- `feature_writer_group` — FeatureWriter
+- `signal_writer_group` — SignalWriter
+- `ai_narrative` — NarrativeSwarm
 
 **See:** `docs/data/data-streaming.md`
 

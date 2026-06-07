@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0
 **Last Updated:** 2026-05-28
-**Status:** Operational
+**Status:** current
 **Milestone:** v2.8 — AI Platform + Evolvable Agents
 
 ---
@@ -56,7 +56,7 @@ HOW to implement I8 AI agents: agent protocol, LLM provider chain, swarm agents,
 ### Narrative Service
 
 - **Service:** `indicagent-narrative-compute`
-- **Agent:** `NarrativeComputeAgent` (`src/intelligence/ai/narrative/narrative_agent.py`)
+- **Agent:** `NarrativeSwarm` (`src/intelligence/ai/narrative/narrative_agent.py`)
 - **Health:** `:9113` metrics endpoint
 - **Latency:** Varies by model and hardware
 
@@ -70,11 +70,11 @@ The alpha swarm is an async intelligence overlay for I7 signals. It runs after s
 
 ```
 intelligence.i7.signals
-  -> AlphaSwarmComputeAgent
-       -> BaseMultiplierAgent subclasses (parallel dispatch)
+  -> AlphaSwarm
+       -> BaseGroupCoordinator subclasses (parallel dispatch)
        -> LineageRecorder
        -> topic_signal_lineage()
-  -> LineageWriterAgent
+  -> LineageWriter
        -> signal_lineage
   -> writer-owned projection
        -> signal_ledger swarm columns
@@ -84,12 +84,12 @@ intelligence.i7.signals
 
 | Agent | Class | Purpose | Budget | Status |
 |-------|-------|---------|--------|--------|
-| Skeptic | `SkepticAgentComputeAgent` | Estimates holistic failure probability | 120s | Shadow |
-| Correlation | `CorrelationAgentComputeAgent` | Judges cross-asset coherence | 120s | Shadow |
-| Regime Coherence | `RegimeCoherenceAgentComputeAgent` | Checks setup vs current regime | 120s | Shadow |
-| Counterfactual | `CounterfactualAgentComputeAgent` | Tests what must be true for signal to work | 120s | Shadow |
+| Skeptic | `SkepticEvaluator` | Estimates holistic failure probability | 120s | Shadow |
+| Correlation | `CorrelationEvaluator` | Judges cross-asset coherence | 120s | Shadow |
+| Regime Coherence | `RegimeCoherenceEvaluator` | Checks setup vs current regime | 120s | Shadow |
+| Counterfactual | `CounterfactualEvaluator` | Tests what must be true for signal to work | 120s | Shadow |
 | ML Scorer v1 | `MLScorerV1Agent` | Local ML model signal score | 50ms | Shadow |
-| Narrative | `NarrativeComputeAgent` | Market narrative prose (on-demand HTTP) | — | Live |
+| Narrative | `NarrativeSwarm` | Market narrative prose (on-demand HTTP) | — | Live |
 
 **LLM latency:** With gemma4:e4b on AMD ROCm, p50 ~47-52s — within 120s budget.
 
@@ -99,9 +99,9 @@ intelligence.i7.signals
 
 ## Agent Protocol
 
-### BaseAIAgent Contract
+### BaseAIWorker Contract
 
-All AI agents extend `BaseAIAgent` from `src/core/ai/base_agent.py`:
+All AI agents extend `BaseAIWorker` from `src/core/ai/base_agent.py`:
 
 **Five mandatory class attributes:**
 
@@ -272,12 +272,12 @@ The infrastructure for evolvable AI agents is operational. eAI agents (v2.8 road
 | Signal ledger outcome tracking | Live | Fitness evaluation data accumulates per signal |
 | `LineageRecorder` | Live | Full ancestry tracking per agent call |
 | Skeptic agent | Live | Adversarial coevolution — challenges other swarm agents |
-| `BaseAIAgent` framework | Live | Agent parameter variations implement genome mutations |
+| `BaseAIWorker` framework | Live | Agent parameter variations implement genome mutations |
 | `llm_calls` audit trail | Live | Every LLM call persisted with prompt version; outcome back-filled |
 | `bootstrap_ci_lower()` | Live | Statistical gate in `src/core/stats_utils.py` |
 | `ShadowTransitionEvent` | Live | Promotion/demotion published to `topic_shadow_transitions` |
 
-**Design principle:** eAI agents are `BaseAIAgent` subclasses with an additional `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied to the genome dict between evaluation cycles. The shadow governance lifecycle handles statistical gating before any mutant agent affects production scoring.
+**Design principle:** eAI agents are `BaseAIWorker` subclasses with an additional `genome` parameter dict. Reproductive operators (mutation, crossover, selection) are applied to the genome dict between evaluation cycles. The shadow governance lifecycle handles statistical gating before any mutant agent affects production scoring.
 
 See `docs/ideas/ai-03-evolvable-ai-agents.md` for the full research vision and `docs/ideas/eai-phase-recommendations.md` for the v2.8 implementation roadmap.
 
@@ -304,7 +304,7 @@ LineageRecorder.record(
 )
 ```
 
-**Publishes to:** `topic_signal_lineage()` → `LineageWriterAgent` → `signal_lineage` hypertable.
+**Publishes to:** `topic_signal_lineage()` → `LineageWriter` → `signal_lineage` hypertable.
 
 **This is the ONLY swarm write path.** Do not write to `alpha_multiplier_shadow` or `signal_transform_log` (deprecated targets).
 
@@ -318,21 +318,21 @@ LineageRecorder.record(
 
 ## Group Services
 
-### AlphaSwarmComputeAgent
+### AlphaSwarm
 
 - **Service:** `indicagent-alpha-swarm`
 - **File:** `services/alpha_swarm_agent.py`
 - **Purpose:** Dispatches swarm agents in parallel, aggregates outputs, publishes lineage
 - **Topics:** Consumes `intelligence.i7.signals`, publishes `swarm.alpha` and `signal_lineage`
 
-### NarrativeGroupComputeAgent
+### NarrativeSwarm
 
 - **Service:** `indicagent-narrative-compute`
 - **File:** `services/narrative_group_compute_agent.py`
 - **Purpose:** Generates on-demand narratives per signal
 - **Topics:** Consumes `intelligence.i7.signals`, publishes `narratives:*:*`
 
-### BaseGroupService
+### BaseGroupCoordinator
 
 Shared dispatcher for all group services:
 - Kafka consumer/producer
@@ -428,10 +428,10 @@ Begin your response with {{ and end with }}.
 
 ```python
 # src/intelligence/ai/alpha/my_agent.py
-from src.core.ai.base_agent import BaseAIAgent
+from src.core.ai.base_agent import BaseAIWorker
 from src.intelligence.ai.alpha.my_agent_prompts import ACTIVE_VERSION
 
-class MyAgentComputeAgent(BaseAIAgent):
+class MyEvaluator(BaseAIWorker):
     agent_id = "my_agent_v1"
     group = "alpha"
     tiers_needed = frozenset([Tier.I4, Tier.I6])  # What this agent needs
@@ -486,14 +486,14 @@ OUTPUT ONLY RAW JSON. NO PROSE. Begin your response with {{ and end with }}.
 
 ```python
 # services/alpha_swarm_agent.py
-from src.intelligence.ai.alpha.my_agent import MyAgentComputeAgent
+from src.intelligence.ai.alpha.my_agent import MyEvaluator
 
-class AlphaSwarmComputeAgent(BaseGroupService):
+class AlphaSwarm(BaseGroupCoordinator):
     def _setup(self):
         # ...after super()._setup()...
         self._agents = {
-            "skeptic_v1": SkepticAgentComputeAgent(...),
-            "my_agent_v1": MyAgentComputeAgent(...),
+            "skeptic_v1": SkepticEvaluator(...),
+            "my_agent_v1": MyEvaluator(...),
             # ...
         }
 ```

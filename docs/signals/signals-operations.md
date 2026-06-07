@@ -1,12 +1,12 @@
 # Signals Operations — Debugging lifecycle services and signal health
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-05-29
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-05-29
 
 ---
 
 ## Purpose
 
-This document covers how to operate and debug the three signal lifecycle services: `SignalTrackerComputeAgent`, `SignalReplayAuditorAgent`, and `SignalMetricsComputeAgent`. A new engineer should be able to diagnose orphaned signals, investigate metric anomalies, and understand what is happening during a live debugging session using only this doc.
+This document covers how to operate and debug the three signal lifecycle services: `SignalTracker`, `SignalReplayAuditor`, and `SignalMetricsAnalyzer`. A new engineer should be able to diagnose orphaned signals, investigate metric anomalies, and understand what is happening during a live debugging session using only this doc.
 
 **Who reads this doc:** Engineers debugging live signal behavior (why didn't this signal activate?), investigating why metrics are stale, or diagnosing mismatches between signals fired and outcomes recorded.
 
@@ -20,29 +20,29 @@ Each service owns a different part of the signal lifecycle problem:
 
 | Service | Owns | Why separate |
 |---------|------|-------------|
-| `SignalTrackerComputeAgent` | Real-time lifecycle evaluation | Must be in the hot bar-processing loop. DB-ignorant — cannot tolerate DB latency. Publishes transitions to Kafka. |
-| `SignalReplayAuditorAgent` | Recovering missed outcomes | Runs periodically (every 5 min), reads `market_data_ohlcv`, replays bar-by-bar. DB-aware. Only handles signals the live tracker missed. |
-| `SignalMetricsComputeAgent` | Performance metrics computation | Timer-triggered every 15 min. Reads resolved signals, computes per-setup stats. Not in the hot path at all. |
+| `SignalTracker` | Real-time lifecycle evaluation | Must be in the hot bar-processing loop. DB-ignorant — cannot tolerate DB latency. Publishes transitions to Kafka. |
+| `SignalReplayAuditor` | Recovering missed outcomes | Runs periodically (every 5 min), reads `market_data_ohlcv`, replays bar-by-bar. DB-aware. Only handles signals the live tracker missed. |
+| `SignalMetricsAnalyzer` | Performance metrics computation | Timer-triggered every 15 min. Reads resolved signals, computes per-setup stats. Not in the hot path at all. |
 
 Separating these ensures that a slow metrics computation cycle never delays real-time signal tracking, and a replay auditor query never blocks new transitions from being written.
 
 ### Why does signal replay exist?
 
-The live tracker (`SignalTrackerComputeAgent`) processes bars in real time. If the service restarts, it bootstraps from `signal_ledger` and picks up pending/active signals. But there is a gap: bars that arrived during the service's downtime are not replayed. Any signal that should have activated or exited during that window will be stuck as `pending`/`active` forever.
+The live tracker (`SignalTracker`) processes bars in real time. If the service restarts, it bootstraps from `signal_ledger` and picks up pending/active signals. But there is a gap: bars that arrived during the service's downtime are not replayed. Any signal that should have activated or exited during that window will be stuck as `pending`/`active` forever.
 
-`SignalReplayAuditorAgent` solves this by querying all `v1` signals where `exit_at IS NULL` and `expires_at < NOW()`, then replaying each one bar-by-bar against `market_data_ohlcv`. It uses the same `evaluate_signal()` function as the live tracker — identical evaluation logic, no divergence.
+`SignalReplayAuditor` solves this by querying all `v1` signals where `exit_at IS NULL` and `expires_at < NOW()`, then replaying each one bar-by-bar against `market_data_ohlcv`. It uses the same `evaluate_signal()` function as the live tracker — identical evaluation logic, no divergence.
 
 North-star health metric: `signal_replay_unresolved_gauge == 0`.
 
 ### Two-path safety
 
-Both the live tracker and the replay auditor publish `LifecycleTransition(type=EXIT)` events to the same `lifecycle.transitions` Kafka topic. `LifecycleWriterAgent` uses `WHERE exit_at IS NULL` on all exit writes — the second writer is always a safe no-op. First writer wins. This means there is no risk of double-counting outcomes or corrupting state if both services resolve the same signal.
+Both the live tracker and the replay auditor publish `LifecycleTransition(type=EXIT)` events to the same `lifecycle.transitions` Kafka topic. `LifecycleWriter` uses `WHERE exit_at IS NULL` on all exit writes — the second writer is always a safe no-op. First writer wins. This means there is no risk of double-counting outcomes or corrupting state if both services resolve the same signal.
 
 ---
 
 ## Architecture: The Service Trio
 
-### SignalTrackerComputeAgent
+### SignalTracker
 
 - **Systemd unit:** `indicagent-signal-tracker-compute`
 - **Log file:** `logs/signal_tracker_compute_agent.log`
@@ -61,7 +61,7 @@ On startup, the bootstrap query loads all `pending`/`active` signals from the la
 
 Bootstrap failure (3 retries with 2/4/8s backoff) publishes a `bootstrap_failed` health event to `health.events` and proceeds with empty state. The replay auditor will recover any signals that were missed.
 
-### SignalReplayAuditorAgent
+### SignalReplayAuditor
 
 - **Systemd unit:** `indicagent-signal-replay`
 - **Log file:** `logs/signal_replay_auditor_agent.log`
@@ -80,12 +80,12 @@ Signals with NULL `entry_zone_low` or `entry_zone_high` are skipped (logged as `
 
 Signals with no bar data in `market_data_ohlcv` for the signal window emit `SIGNAL_REPLAY_OHLCV_GAP_TOTAL` and are skipped — they remain unresolved until bar data arrives (or indefinitely if data was never collected for that window).
 
-### SignalMetricsComputeAgent
+### SignalMetricsAnalyzer
 
 - **Systemd unit:** `indicagent-signal-metrics-compute`
 - **Log file:** `logs/signal_metrics_compute_agent.log`
 - **Consumes:** DB (`signal_ledger_full` where `outcome IS NOT NULL` and `was_selected = true`)
-- **Produces:** `intelligence.signal_metrics` (consumed by `SignalMetricsWriterAgent` → `setup_performance` table)
+- **Produces:** `intelligence.signal_metrics` (consumed by `SignalMetricsWriter` → `setup_performance` table)
 - **Cycle:** Every 900 seconds (15 minutes)
 - **Lookback window:** 90 days of resolved signals
 
@@ -102,31 +102,31 @@ Each cycle:
 
 ### What each service reads and writes
 
-**SignalTrackerComputeAgent:**
+**SignalTracker:**
 - Reads: `market_data_ohlcv` (indirectly via Kafka bars), `signal_ledger_full` (bootstrap only)
-- Writes: `lifecycle.transitions` Kafka topic (consumed by `LifecycleWriterAgent`)
+- Writes: `lifecycle.transitions` Kafka topic (consumed by `LifecycleWriter`)
 - Never writes to DB directly
 
-**SignalReplayAuditorAgent:**
+**SignalReplayAuditor:**
 - Reads: `signal_ledger_full`, `market_data_ohlcv`
 - Writes: `lifecycle.transitions` Kafka topic
 
-**LifecycleWriterAgent (the actual DB writer — shared by both above):**
+**LifecycleWriter (the actual DB writer — shared by both above):**
 - Reads: `lifecycle.transitions` Kafka topic
 - Writes: `signal_outcomes` table (activation and exit fields)
 
-**SignalMetricsComputeAgent:**
+**SignalMetricsAnalyzer:**
 - Reads: `signal_ledger_full` (resolved signals), `instruments` (tick sizes), `signal_metrics_dq_failures` (DQ dedup bootstrap)
-- Writes: `intelligence.signal_metrics` Kafka topic (consumed by `SignalMetricsWriterAgent`)
-- `SignalMetricsWriterAgent` writes: `setup_performance`, `signal_metrics_dq_failures` tables
+- Writes: `intelligence.signal_metrics` Kafka topic (consumed by `SignalMetricsWriter`)
+- `SignalMetricsWriter` writes: `setup_performance`, `signal_metrics_dq_failures` tables
 
 ### Kafka topics involved
 
 | Topic | Producer | Consumer |
 |-------|---------|---------|
-| `intelligence.i7.signals` | `IntelligencePipelineAgent` | `SignalWriterAgent`, `SignalTrackerComputeAgent` |
-| `lifecycle.transitions` | `SignalTrackerComputeAgent`, `SignalReplayAuditorAgent` | `LifecycleWriterAgent` |
-| `intelligence.signal_metrics` | `SignalMetricsComputeAgent` | `SignalMetricsWriterAgent` |
+| `intelligence.i7.signals` | `IntelligencePipelineAgent` | `SignalWriter`, `SignalTracker` |
+| `lifecycle.transitions` | `SignalTracker`, `SignalReplayAuditor` | `LifecycleWriter` |
+| `intelligence.signal_metrics` | `SignalMetricsAnalyzer` | `SignalMetricsWriter` |
 
 ---
 
@@ -136,11 +136,11 @@ Each cycle:
 
 1. Add the metric column to `signal_outcomes` via migration.
 2. Update the `Transition` dataclass in `lifecycle_tracker.py` to carry the new field.
-3. Populate it in `evaluate_signal()` or in `SignalTrackerComputeAgent._enrich_exit_transition()`.
+3. Populate it in `evaluate_signal()` or in `SignalTracker._enrich_exit_transition()`.
 4. Update `_transition_to_lifecycle()` in `signal_tracker_compute_agent.py` to include it in the EXIT data dict.
 5. Update `_BATCH_EXIT_SQL` and `batch_execute("exit", ...)` in `signal_ledger_repository.py`.
 6. Update `_build_exit_transition()` in `signal_replay_auditor_agent.py` to handle the new field (replay path must stay in sync with live path).
-7. If the metric should appear in `setup_performance`, add it to `compute_signal_metrics()` in `src/intelligence/metrics/compute.py` and update the `SignalMetricsWriterAgent` write logic.
+7. If the metric should appear in `setup_performance`, add it to `compute_signal_metrics()` in `src/intelligence/metrics/compute.py` and update the `SignalMetricsWriter` write logic.
 
 ### Adding a new exit condition
 
@@ -172,8 +172,8 @@ LIMIT 20;
 ```
 
 **Common causes:**
-1. `SignalReplayAuditorAgent` is down — check `systemctl status indicagent-signal-replay`.
-2. `LifecycleWriterAgent` is down — transitions are being published but not persisted. Check `systemctl status indicagent-lifecycle-writer`.
+1. `SignalReplayAuditor` is down — check `systemctl status indicagent-signal-replay`.
+2. `LifecycleWriter` is down — transitions are being published but not persisted. Check `systemctl status indicagent-lifecycle-writer`.
 3. No bar data for the signal window in `market_data_ohlcv` — check `signal_replay_ohlcv_gap_total` metric.
 4. Signal has NULL zone fields — check `signal_replay_null_zone_total`. These will never be resolved by replay.
 
@@ -197,7 +197,7 @@ ORDER BY expires_at ASC;
 These should be resolved by the replay auditor within 5 minutes. If they persist:
 1. Check replay auditor logs: `tail -50 logs/signal_replay_auditor_agent.log`
 2. Check `signal_replay_unresolved_gauge` in Grafana
-3. Check whether `LifecycleWriterAgent` consumer lag is elevated: `docker exec redpanda rpk group describe lifecycle_writer_group -t`
+3. Check whether `LifecycleWriter` consumer lag is elevated: `docker exec redpanda rpk group describe lifecycle_writer_group -t`
 
 ### Metrics compute lag
 
@@ -222,7 +222,7 @@ docker exec redpanda rpk group describe signal_tracker_compute -t
 docker exec redpanda rpk group describe signal_tracker_compute_signals -t
 ```
 
-If `SignalMetricsComputeAgent` is running but metrics are still stale, check the log for DQ failures or cycle errors: `tail -50 logs/signal_metrics_compute_agent.log`. A DQ failure in `validate_signal_row()` does NOT stop metric computation — it only publishes a `metrics_dq_failure` event. Cycle errors (exceptions) are logged at ERROR level and increment `signal_metrics_compute_cycle_errors_total`.
+If `SignalMetricsAnalyzer` is running but metrics are still stale, check the log for DQ failures or cycle errors: `tail -50 logs/signal_metrics_compute_agent.log`. A DQ failure in `validate_signal_row()` does NOT stop metric computation — it only publishes a `metrics_dq_failure` event. Cycle errors (exceptions) are logged at ERROR level and increment `signal_metrics_compute_cycle_errors_total`.
 
 ### Signals not activating that should be
 
@@ -248,11 +248,11 @@ WHERE symbol = 'ESM6' AND timeframe = '1m'
 ORDER BY timestamp ASC;
 ```
 
-**Step 3:** If no bars touched the zone, activation is correct (signal is waiting). If bars did overlap and the signal is still pending, check whether `SignalTrackerComputeAgent` has the signal in its active index — it may have missed it if the service was down when the signal arrived. Check: `tail -100 logs/signal_tracker_compute_agent.log | grep <signal_id>`.
+**Step 3:** If no bars touched the zone, activation is correct (signal is waiting). If bars did overlap and the signal is still pending, check whether `SignalTracker` has the signal in its active index — it may have missed it if the service was down when the signal arrived. Check: `tail -100 logs/signal_tracker_compute_agent.log | grep <signal_id>`.
 
 **Step 4:** If the signal was not in the tracker's index, it can be recovered by the replay auditor once `expires_at` is reached. If you want to force immediate recovery, restart the replay auditor cycle: `sudo systemctl restart indicagent-signal-replay`.
 
-### Bootstrap failure (SignalTrackerComputeAgent)
+### Bootstrap failure (SignalTracker)
 
 If the tracker fails to bootstrap from DB (after 3 retries), it starts with empty state and publishes a `bootstrap_failed` health event to `health.events`. The tracker is still running and will ingest new signals from Kafka — it just missed the pre-existing pending signals.
 
@@ -291,7 +291,7 @@ If bootstrap failed, the replay auditor will recover outcomes for signals that e
 3. Check `expires_at` — if in the past, replay auditor should have resolved it.
 4. Check replay auditor logs for the signal_id: `grep <uuid> logs/signal_replay_auditor_agent.log`
 5. Check whether there are bars in `market_data_ohlcv` for the signal's symbol/timeframe/window.
-6. Check `LifecycleWriterAgent` lag and logs — transitions may have been published but not consumed.
+6. Check `LifecycleWriter` lag and logs — transitions may have been published but not consumed.
 7. If all else fails, check the `lifecycle.transitions` Kafka topic for the signal_id: `docker exec redpanda rpk topic consume {env}.lifecycle.transitions --from-beginning | grep <uuid>` (replace `{env}.` with your env prefix, e.g. `dev.lifecycle.transitions`; production uses no prefix: `lifecycle.transitions`)
 
 ---

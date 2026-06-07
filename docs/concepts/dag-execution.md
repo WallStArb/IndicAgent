@@ -61,9 +61,9 @@ When designing a DAG-executed system:
 
 The principle above describes the theory. In IndicAgent, it materialises as seven non-negotiable architectural invariants — the operational expression of the DAG mandate:
 
-1. `ProviderMergerAgent` is the sole writer to `market.bars`
+1. `ProviderMerger` is the sole writer to `market.bars`
 2. I1–I7 runs entirely in-process — Kafka is a sink, not an inter-stage pipe
-3. No ComputeAgent touches the database
+3. Hot-path services are DB-ignorant
 4. All topic keys via `stream_keys.py` — no hardcoded strings
 5. No agent calls another agent directly
 6. All timestamps UTC

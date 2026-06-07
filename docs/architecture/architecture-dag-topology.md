@@ -7,7 +7,7 @@
 
 ## Overview
 
-The IndicAgent pipeline is an event-driven, Agentic DAG (Directed Acyclic Graph). Data flows from raw market data through a provider abstraction layer, bar aggregation tier, unified intelligence compute (I1–I7), and finally into persistence via WriterAgents. All inter-agent communication is via Redpanda topics.
+The IndicAgent pipeline is an event-driven, Agentic DAG (Directed Acyclic Graph). Data flows from raw market data through a provider abstraction layer, bar aggregation tier, unified intelligence compute (I1–I7), and finally into persistence via Writers. All inter-agent communication is via Redpanda topics.
 
 ---
 
@@ -17,12 +17,12 @@ Each agent has exactly one role, expressed in its class name suffix:
 
 | Role Suffix | Responsibility | DB Access | Example |
 |-------------|---------------|-----------|---------|
-| `ProviderAgent` | External source → Kafka raw topic. No compute. | None | `IBKRProviderAgent` |
-| `MergerAgent` | Multi-source routing + auto-failover. DB-ignorant. | None | `ProviderMergerAgent` |
-| `ComputeAgent` | Math/stats transform. DB-ignorant. | None | `IntelligencePipelineComputeAgent` |
-| `WriterAgent` | DB persistence only. | Write | `FeatureWriterAgent`, `SignalWriterAgent` |
-| `TrackerAgent` | Business object lifecycle. | Read/Write | `SignalTrackerComputeAgent` |
-| `AuditorAgent` | Data integrity validation + self-healing. | Read | `BarAuditorAgent`, `ParityAuditorAgent` |
+| `Provider` | External source → Kafka raw topic. No compute. | None | `IBKRProvider` |
+| `Merger` | Multi-source routing + auto-failover. DB-ignorant. | None | `ProviderMerger` |
+| Hot-path service | Math/stats transform. DB-ignorant. | None | `IntelligencePipeline` |
+| Writer | DB persistence only. | Write | `FeatureWriter`, `SignalWriter` |
+| `Tracker` | Business object lifecycle. | Read/Write | `SignalTracker` |
+| `Auditor` | Data integrity validation + self-healing. | Read | `BarAuditor`, `ParityAuditor` |
 
 All agents extend `BaseAgent` (`src/core/agent/base.py`). See `docs/agents/agents-foundation.md` for lifecycle contract.
 
@@ -37,43 +37,43 @@ graph TD
     end
 
     subgraph ProviderLayer["Provider Layer"]
-        IBKR["IBKRProviderAgent\n:9129"]
+        IBKR["IBKRProvider\n:9129"]
         TWS --> IBKR
     end
 
     subgraph MergerLayer["Merger Layer"]
-        MERGER["ProviderMergerAgent\n:9130"]
+        MERGER["ProviderMerger\n:9130"]
     end
 
     subgraph BarTier["Bar Processing Tier"]
-        BAGG["BarAggregatorComputeAgent\n:9120"]
-        BWRITE["BarWriterAgent\n:9121"]
-        BAUDIT["BarAuditorAgent\n:9123"]
+        BAGG["BarAggregator\n:9120"]
+        BWRITE["BarWriter\n:9121"]
+        BAUDIT["BarAuditor\n:9123"]
         ROLL["roll-batch timer\nnightly 8pm"]
     end
 
     subgraph IntelTier["Intelligence Compute Tier"]
-        PIPELINE["IntelligencePipelineComputeAgent\n:9125\nI1→I7 UNIFIED\n132 plugins"]
+        PIPELINE["IntelligencePipeline\n:9125\nI1→I7 UNIFIED\n132 plugins"]
     end
 
     subgraph PersistTier["Persistence Tier"]
-        FWRITE["FeatureWriterAgent\n:9116"]
-        SWRITE["SignalWriterAgent\n:9119"]
-        STRACK["SignalTrackerComputeAgent\n:9115"]
-        LCWRITE["LifecycleWriterAgent"]
+        FWRITE["FeatureWriter\n:9116"]
+        SWRITE["SignalWriter\n:9119"]
+        STRACK["SignalTracker\n:9115"]
+        LCWRITE["LifecycleWriter"]
         LLMWRITE["LLMWriterService\n:9117"]
-        SMCOMP["SignalMetricsComputeAgent\n:9126"]
-        SMWRITE["SignalMetricsWriterAgent\n:9127"]
+        SMCOMP["SignalMetricsAnalyzer\n:9126"]
+        SMWRITE["SignalMetricsWriter\n:9127"]
     end
 
     subgraph SidePaths["Parallel / Side-Channel"]
         CROSS["CrossAssetService\n:9118"]
-        SNAP["FeatureSnapshotWriterAgent\n:9132"]
-        PARITY["ParityAuditorAgent\n:9133"]
-        NARR["NarrativeGroupComputeAgent\n:9113\nI8 (Ollama-primary)"]
-        SAUDIT["SignalAuditorAgent\n:9128"]
-        SREPLAY["SignalReplayAuditorAgent"]
-        SVCAUDIT["ServiceAuditorAgent\n:9131"]
+        SNAP["FeatureSnapshotWriter\n:9132"]
+        PARITY["ParityAuditor\n:9133"]
+        NARR["NarrativeSwarm\n:9113\nI8 (Ollama-primary)"]
+        SAUDIT["SignalAuditor\n:9128"]
+        SREPLAY["SignalReplayAuditor"]
+        SVCAUDIT["ServiceAuditor\n:9131"]
     end
 
     subgraph DB["TimescaleDB"]
@@ -128,24 +128,24 @@ graph TD
 
 ### 1. Provider Isolation
 
-**Pattern:** `ProviderMergerAgent` is the sole writer to `market.bars`.
+**Pattern:** `ProviderMerger` is the sole writer to `market.bars`.
 
 - Providers publish to provider-specific topics (`market.bars.raw.<provider>`)
 - Merger routes canonical bars to `market.bars`
 - Downstream consumers are isolated from provider topology changes
 - Adding/removing a provider requires zero downstream changes
 
-**What this prevents:** In typical systems, changing from IBKR to Bloomberg requires modifying every service that consumes market data. In IndicAgent, add a `BloombergProviderAgent` → publish to `market.bars.raw.bbg` → done. The Merger handles routing. Zero downstream changes.
+**What this prevents:** In typical systems, changing from IBKR to Bloomberg requires modifying every service that consumes market data. In IndicAgent, add a `BloombergProvider` → publish to `market.bars.raw.bbg` → done. The Merger handles routing. Zero downstream changes.
 
 **Why this matters:** Provider diversification becomes a configuration decision, not a development project.
 
 ### 2. In-Process Intelligence
 
-**Pattern:** `IntelligencePipelineComputeAgent` runs I1→I7 entirely in-memory.
+**Pattern:** `IntelligencePipeline` runs I1→I7 entirely in-memory.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│              IntelligencePipelineComputeAgent (I1→I7)                  │
+│              IntelligencePipeline (I1→I7)                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  market.bars → I1 (28 plugins) → tiered outputs                        │
@@ -193,21 +193,21 @@ intelligence.smc (tiered JSONB) ──┘
 
 ### 4. Compute vs Persistence Separation
 
-**Pattern:** WriterAgents are the ONLY agents with DB write access.
+**Pattern:** Writers are the ONLY agents with DB write access.
 
 ```
-Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
+Compute (DB-ignorant) → Kafka → Writer (DB access only)
 ```
 
 | Agent | Reads | Writes | DB Access |
 |-------|-------|--------|-----------|
-| `IntelligencePipelineComputeAgent` | `market.bars` | Kafka topics | None |
-| `FeatureWriterAgent` | `intelligence.journal` | `intelligence_features` | Write |
-| `SignalWriterAgent` | `intelligence.i7.signals` | `signal_ledger` | Write |
+| `IntelligencePipeline` | `market.bars` | Kafka topics | None |
+| `FeatureWriter` | `intelligence.journal` | `intelligence_features` | Write |
+| `SignalWriter` | `intelligence.i7.signals` | `signal_ledger` | Write |
 
 **What this prevents:** Most systems mix compute and persistence — indicators write directly to DB. When DB slows down, indicators slow down. When DB goes down, indicators stop.
 
-**Why this matters:** Compute agents don't know or care that persistence exists. They publish to Kafka and continue. WriterAgents can batch, retry, or pause without affecting hot path.
+**Why this matters:** Compute agents don't know or care that persistence exists. They publish to Kafka and continue. Writers can batch, retry, or pause without affecting hot path.
 
 ### 5. Hot/Warm/Cold Tier Separation
 
@@ -222,32 +222,32 @@ Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
 ## Primary Data Flow
 
 ### 1. Provider Layer
-`IBKRProviderAgent` connects to IBKR TWS at `127.0.0.1:7497` (Docker container) and emits 1m bars to `market.bars.raw.ibkr`. It never writes to `market.bars` directly — that is the MergerAgent's exclusive responsibility.
+`IBKRProvider` connects to IBKR TWS at `127.0.0.1:7497` (Docker container) and emits 1m bars to `market.bars.raw.ibkr`. It never writes to `market.bars` directly — that is the Merger's exclusive responsibility.
 
 ### 2. Merger Layer
-`ProviderMergerAgent` subscribes to all `market.bars.raw.<provider>` topics and routes the authoritative provider's bars to `market.bars`. Auto-failover when primary is silent. A `ProviderQualityEvent` side-channel publishes latency, failover, and recovery events.
+`ProviderMerger` subscribes to all `market.bars.raw.<provider>` topics and routes the authoritative provider's bars to `market.bars`. Auto-failover when primary is silent. A `ProviderQualityEvent` side-channel publishes latency, failover, and recovery events.
 
 ### 3. Bar Processing Tier
 
 | Agent | Input | Output | Purpose |
 |-------|-------|--------|---------|
-| `BarAggregatorComputeAgent` | `market.bars` (1m) | `market.bars.htf` | 1m → 5m/15m/1h/4h/1d aggregation |
-| `BarWriterAgent` | `market.bars` + `.htf` | `market_data_ohlcv` | Batch-write OHLCV to DB |
-| `BarAuditorAgent` | `market.bars.htf` | `market.events.gap_requests` | Gap detection |
+| `BarAggregator` | `market.bars` (1m) | `market.bars.htf` | 1m → 5m/15m/1h/4h/1d aggregation |
+| `BarWriter` | `market.bars` + `.htf` | `market_data_ohlcv` | Batch-write OHLCV to DB |
+| `BarAuditor` | `market.bars.htf` | `market.events.gap_requests` | Gap detection |
 | `roll-batch` timer (nightly 8pm) | calendar logic | `contract_metadata` | Futures roll detection + promotion |
 
 ### 4. Intelligence Compute
 
-`IntelligencePipelineComputeAgent` subscribes to both `market.bars` (1m) and `market.bars.htf`. Each bar triggers a full I1–I7 pipeline run in-memory across 132 plugins. Output published to `intelligence.journal` (tiered JSONB) and `intelligence.i7.signals` (winner signal).
+`IntelligencePipeline` subscribes to both `market.bars` (1m) and `market.bars.htf`. Each bar triggers a full I1–I7 pipeline run in-memory across 132 plugins. Output published to `intelligence.journal` (tiered JSONB) and `intelligence.i7.signals` (winner signal).
 
 ### 5. Persistence Tier
 
 | Agent | Input | Output | Purpose |
 |-------|-------|--------|---------|
-| `FeatureWriterAgent` | `intelligence.journal` | `intelligence_features` | Full I1-I7 vectors (ML training) |
-| `SignalWriterAgent` | `intelligence.i7.signals` | `signal_ledger` | All ranked I7 signals |
-| `SignalTrackerComputeAgent` | `intelligence.i7.signals` | `lifecycle.transitions` | Lifecycle: activation, MAE/MFE, outcome |
-| `LifecycleWriterAgent` | `lifecycle.transitions` | `signal_outcomes` | Persists lifecycle updates |
+| `FeatureWriter` | `intelligence.journal` | `intelligence_features` | Full I1-I7 vectors (ML training) |
+| `SignalWriter` | `intelligence.i7.signals` | `signal_ledger` | All ranked I7 signals |
+| `SignalTracker` | `intelligence.i7.signals` | `lifecycle.transitions` | Lifecycle: activation, MAE/MFE, outcome |
+| `LifecycleWriter` | `lifecycle.transitions` | `signal_outcomes` | Persists lifecycle updates |
 | `LLMWriterService` | `llm.calls` | `llm_calls` | LLM audit log + outcome back-fill |
 
 ### 6. Parallel / Side-Channel
@@ -255,9 +255,9 @@ Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
 | Service | Input | Purpose |
 |---------|-------|---------|
 | `CrossAssetService` | `market.data.quality` + cross-asset streams | Spread dynamics |
-| `ParityAuditorAgent` | `intelligence.journal` | Data integrity validation |
-| `NarrativeGroupComputeAgent` | `intelligence.i7.signals` | I8 LLM narratives (Ollama-primary) |
-| `SignalReplayAuditorAgent` | DB poll | expires_at TTL expiry evaluation |
+| `ParityAuditor` | `intelligence.journal` | Data integrity validation |
+| `NarrativeSwarm` | `intelligence.i7.signals` | I8 LLM narratives (Ollama-primary) |
+| `SignalReplayAuditor` | DB poll | expires_at TTL expiry evaluation |
 
 ---
 
@@ -265,17 +265,17 @@ Compute (DB-ignorant) → Kafka → WriterAgent (DB access only)
 
 | Topic | Producer | Consumers | Content |
 |-------|----------|-----------|---------|
-| `market.bars.raw.ibkr` | `IBKRProviderAgent` | `ProviderMergerAgent` | Raw 1m bars |
-| `market.bars.raw.<provider>` | Any `ProviderAgent` | `ProviderMergerAgent` | Provider-specific bars |
-| `market.bars` | `ProviderMergerAgent` | Bar tier, Pipeline | Canonical 1m bars |
-| `market.bars.htf` | `BarAggregatorComputeAgent` | Bar tier, Pipeline | HTF bars (5m-1d) |
-| `market.data.quality` | `ProviderMergerAgent` | `CrossAssetService` | Provider quality events |
-| `market.events.gap_requests` | `BarAuditorAgent` | `IBKRProviderAgent` | Gap fill requests |
+| `market.bars.raw.ibkr` | `IBKRProvider` | `ProviderMerger` | Raw 1m bars |
+| `market.bars.raw.<provider>` | Any `Provider` | `ProviderMerger` | Provider-specific bars |
+| `market.bars` | `ProviderMerger` | Bar tier, Pipeline | Canonical 1m bars |
+| `market.bars.htf` | `BarAggregator` | Bar tier, Pipeline | HTF bars (5m-1d) |
+| `market.data.quality` | `ProviderMerger` | `CrossAssetService` | Provider quality events |
+| `market.events.gap_requests` | `BarAuditor` | `IBKRProvider` | Gap fill requests |
 | `market.events.roll` | `roll-batch` timer | Pipeline | Futures roll events |
-| `intelligence.journal` | `IntelligencePipelineComputeAgent` | FeatureWriter, Narrative, Parity | Full I1-I7 tiered JSONB |
-| `intelligence.i7.signals` | `IntelligencePipelineComputeAgent` | SignalWriter, Tracker | Winner I7 signal |
-| `narratives` | `NarrativeGroupComputeAgent` | `LLMWriterService` | I8 LLM analysis |
-| `llm.calls` | `NarrativeGroupComputeAgent` | `LLMWriterService` | LLM call records |
+| `intelligence.journal` | `IntelligencePipeline` | FeatureWriter, Narrative, Parity | Full I1-I7 tiered JSONB |
+| `intelligence.i7.signals` | `IntelligencePipeline` | SignalWriter, Tracker | Winner I7 signal |
+| `narratives` | `NarrativeSwarm` | `LLMWriterService` | I8 LLM analysis |
+| `llm.calls` | `NarrativeSwarm` | `LLMWriterService` | LLM call records |
 
 All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
@@ -287,26 +287,26 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/ibkr_provider_agent.py` | `IBKRProviderAgent` | `indicagent-ibkr-provider` | :9129 |
-| `services/provider_merger_agent.py` | `ProviderMergerAgent` | `indicagent-provider-merger` | :9130 |
-| `services/bar_aggregator_agent.py` | `BarAggregatorComputeAgent` | `indicagent-bar-aggregator-compute` | :9120 |
-| `services/bar_writer_agent.py` | `BarWriterAgent` | `indicagent-bar-writer` | :9121 |
-| `services/bar_auditor_agent.py` | `BarAuditorAgent` | `indicagent-bar-auditor` | :9123 |
+| `services/ibkr_provider_agent.py` | `IBKRProvider` | `indicagent-ibkr-provider` | :9129 |
+| `services/provider_merger_agent.py` | `ProviderMerger` | `indicagent-provider-merger` | :9130 |
+| `services/bar_aggregator_agent.py` | `BarAggregator` | `indicagent-bar-aggregator-compute` | :9120 |
+| `services/bar_writer_agent.py` | `BarWriter` | `indicagent-bar-writer` | :9121 |
+| `services/bar_auditor_agent.py` | `BarAuditor` | `indicagent-bar-auditor` | :9123 |
 | `production/scripts/roll_batch.py` | roll-batch timer | `indicagent-roll-batch` (timer, 8pm) | — |
 
 **Intelligence layer:**
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/intelligence_pipeline_agent.py` | `IntelligencePipelineComputeAgent` | `indicagent-intelligence-pipeline` | :9125 |
-| `services/feature_writer_agent.py` | `FeatureWriterAgent` | `indicagent-feature-writer` | :9116 |
-| `services/feature_snapshot_writer_agent.py` | `FeatureSnapshotWriterAgent` | `indicagent-feature-snapshot-writer` | :9132 |
-| `services/signal_writer_agent.py` | `SignalWriterAgent` | `indicagent-signal-writer` | :9119 |
-| `services/signal_tracker_compute_agent.py` | `SignalTrackerComputeAgent` | `indicagent-signal-tracker-compute` | :9115 |
-| `services/lifecycle_writer_agent.py` | `LifecycleWriterAgent` | `indicagent-lifecycle-writer` | — |
-| `services/signal_metrics_compute_agent.py` | `SignalMetricsComputeAgent` | `indicagent-signal-metrics-compute` | :9126 |
-| `services/signal_metrics_writer_agent.py` | `SignalMetricsWriterAgent` | `indicagent-signal-metrics-writer` | :9127 |
-| `services/narrative_group_compute_agent.py` | `NarrativeGroupComputeAgent` | `indicagent-ai-narrative` | :9113 |
+| `services/intelligence_pipeline_agent.py` | `IntelligencePipeline` | `indicagent-intelligence-pipeline` | :9125 |
+| `services/feature_writer_agent.py` | `FeatureWriter` | `indicagent-feature-writer` | :9116 |
+| `services/feature_snapshot_writer_agent.py` | `FeatureSnapshotWriter` | `indicagent-feature-snapshot-writer` | :9132 |
+| `services/signal_writer_agent.py` | `SignalWriter` | `indicagent-signal-writer` | :9119 |
+| `services/signal_tracker_compute_agent.py` | `SignalTracker` | `indicagent-signal-tracker-compute` | :9115 |
+| `services/lifecycle_writer_agent.py` | `LifecycleWriter` | `indicagent-lifecycle-writer` | — |
+| `services/signal_metrics_compute_agent.py` | `SignalMetricsAnalyzer` | `indicagent-signal-metrics-compute` | :9126 |
+| `services/signal_metrics_writer_agent.py` | `SignalMetricsWriter` | `indicagent-signal-metrics-writer` | :9127 |
+| `services/narrative_group_compute_agent.py` | `NarrativeSwarm` | `indicagent-ai-narrative` | :9113 |
 | `services/llm_writer_service.py` | `LLMWriterService` | `indicagent-llm-writer` | :9117 |
 | `services/cross_asset_service.py` | `CrossAssetService` | `indicagent-cross-asset` | :9118 |
 
@@ -314,35 +314,35 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/parity_auditor_agent.py` | `ParityAuditorAgent` | `indicagent-parity-auditor` | :9133 |
-| `services/signal_auditor_agent.py` | `SignalAuditorAgent` | `indicagent-signal-auditor` | :9128 |
-| `services/signal_replay_auditor_agent.py` | `SignalReplayAuditorAgent` | `indicagent-signal-replay` | — |
-| `services/service_auditor_agent.py` | `ServiceAuditorAgent` | `indicagent-service-auditor` | :9131 |
+| `services/parity_auditor_agent.py` | `ParityAuditor` | `indicagent-parity-auditor` | :9133 |
+| `services/signal_auditor_agent.py` | `SignalAuditor` | `indicagent-signal-auditor` | :9128 |
+| `services/signal_replay_auditor_agent.py` | `SignalReplayAuditor` | `indicagent-signal-replay` | — |
+| `services/service_auditor_agent.py` | `ServiceAuditor` | `indicagent-service-auditor` | :9131 |
 
 **ML layer (timer-triggered):**
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/ml_data_quality_agent.py` | `MLDataQualityAuditorAgent` | `indicagent-ml-data-quality` (timer) | — |
-| `services/ml_discovery_agent.py` | `MLDiscoveryComputeAgent` | `indicagent-ml-discovery` (timer) | — |
-| `services/ml_orchestrator_agent.py` | `MLOrchestratorComputeAgent` | `indicagent-ml-orchestrator` (timer) | — |
+| `services/ml_data_quality_agent.py` | `MLDataQualityAuditor` | `indicagent-ml-data-quality` (timer) | — |
+| `services/ml_discovery_agent.py` | `MLDiscoveryAnalyzer` | `indicagent-ml-discovery` (timer) | — |
+| `services/ml_orchestrator_agent.py` | `MLOrchestrator` | `indicagent-ml-orchestrator` (timer) | — |
 
 **Swarm layer:**
 
 | File | Class | Unit | Port |
 |------|-------|------|------|
-| `services/alpha_swarm_agent.py` | `AlphaSwarmComputeAgent` | `indicagent-alpha-swarm` | — |
-| `services/lineage_writer_agent.py` | `LineageWriterAgent` | `indicagent-lineage-writer` | — |
+| `services/alpha_swarm_agent.py` | `AlphaSwarm` | `indicagent-alpha-swarm` | — |
+| `services/lineage_writer_agent.py` | `LineageWriter` | `indicagent-lineage-writer` | — |
 
 ---
 
 ## Architectural Invariants
 
-1. **`ProviderMergerAgent` is the sole writer to `market.bars`.** All downstream consumers isolated from provider topology.
+1. **`ProviderMerger` is the sole writer to `market.bars`.** All downstream consumers isolated from provider topology.
 
-2. **I1–I7 runs entirely in-process.** `IntelligencePipelineComputeAgent` computes all 132 plugins in-memory before publishing. Kafka is a sink, not an inter-stage pipe.
+2. **I1–I7 runs entirely in-process.** `IntelligencePipeline` computes all 132 plugins in-memory before publishing. Kafka is a sink, not an inter-stage pipe.
 
-3. **No ComputeAgent touches the database.** Only `WriterAgent`, `TrackerAgent`, and `AuditorAgent` perform DB operations.
+3. **Hot-path services are DB-ignorant.** Only Writer, Tracker, and Auditor services touch the database.
 
 4. **All topic keys via `stream_keys.py`.** No hardcoded topic strings.
 

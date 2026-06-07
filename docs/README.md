@@ -32,6 +32,8 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 | File | Description |
 |------|-------------|
 | `principles.md` | Renaissance principles applied to market intelligence |
+| `glossary.md` | Controlled vocabulary — every domain term has exactly one definition |
+| `product-laws.md` | Six philosophical and economic principles governing product reality |
 | `naming-system.md` | Complete vocabulary system — rings, taxonomy, surfaces, evolution |
 | `documentation-system.md` | Documentation taxonomy, recipe-card format, verification lifecycle |
 | `ai-working-rules.md` | AI agent development rules |

@@ -946,7 +946,7 @@ Note: per-plugin implementation detail (VolatilityRegime, KalmanTrend specific i
 
 Structure:
 - **Problem:** a signal that works globally is weaker than one that works in a specific regime; non-stationarity makes global rules unreliable
-- **Principle:** classify market state continuously; condition all signals on current regime; never apply a rule learned in one regime to another
+- **Principle:** classify regime continuously; condition all signals on current regime; never apply a rule learned in one regime to another
 - **How IndicAgent applies it:** I4 regime classifiers (HMM, BOCPD, Kalman, GARCH, volatility), regime gate in I7, per-regime weight tables in `signal_metrics`
 - **Invariants:** every I7 signal must declare which regimes it is valid in; performance weights are regime-conditioned; a signal cannot override a regime suppression gate
 - **Recipe:** regime segmentation design (how many regimes, how to detect transitions, how to handle regime uncertainty)
@@ -1025,11 +1025,11 @@ git commit -m "docs(concepts): add adaptive-intelligence, remove evolvable-ai (L
 
 **Files:**
 - Modify: `docs/concepts/swarm-intelligence.md` (rewrite in place)
-- Note: BaseAIAgent/BaseGroupService API detail is already in `intelligence-ai.md` — do not repeat
+- Note: BaseAIAgent/BaseGroupCoordinator API detail is already in `intelligence-ai.md` — do not repeat
 
 - [ ] **Step 1: Read source** (`docs/concepts/swarm-intelligence.md`, 142 lines)
 
-Agent Framework section (BaseAIAgent, BaseGroupService, LineageRecorder) is implementation detail — strip. The Alpha Swarm section, MoA composition, and shadow governance rationale are conceptual.
+Agent Framework section (BaseAIAgent, BaseGroupCoordinator, LineageRecorder) is implementation detail — strip. The Alpha Swarm section, MoA composition, and shadow governance rationale are conceptual.
 
 - [ ] **Step 2: Rewrite**
 
@@ -1090,7 +1090,7 @@ How you build a smart system on that foundation.
 | [Progressive Intelligence Extraction](progressive-intelligence-extraction.md) | Raw data → actionable intelligence through 8 tiers (I1-I8) |
 | [Plugin Composability](plugin-composability.md) | Intelligence as independently-testable units with declared dependencies |
 | [DAG Execution](dag-execution.md) | Topological ordering derives parallelism from the dependency graph |
-| [Regime Awareness](regime-awareness.md) | Signals conditioned on market state, not absolute thresholds |
+| [Regime Awareness](regime-awareness.md) | Signals conditioned on regime, not absolute thresholds |
 
 ## Layer 3 — Trust and Quality
 

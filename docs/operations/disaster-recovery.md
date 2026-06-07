@@ -1,7 +1,7 @@
 # Disaster Recovery Procedures
 
-**Version:** 2.8
-**Last Updated:** 2026-05-28
+**Version:** 2.9
+**Last Updated:** 2026-06-07
 
 ---
 
@@ -72,7 +72,7 @@ find $BACKUP_DIR -name "full-*.dump.gz" -mtime +7 -delete
 
 **Create systemd timer:**
 ```ini
-# /etc/systemd/system/indicant-backup.service
+# /etc/systemd/system/indicagent-backup.service
 [Unit]
 Description=IndicAgent Database Backup
 
@@ -81,7 +81,7 @@ Type=oneshot
 User=bg
 ExecStart=/usr/local/bin/indicagent-backup.sh
 
-# /etc/systemd/system/indicant-backup.timer
+# /etc/systemd/system/indicagent-backup.timer
 [Unit]
 Description=Daily IndicAgent backup
 
@@ -95,8 +95,8 @@ WantedBy=timers.target
 
 **Enable:**
 ```bash
-sudo systemctl enable indicant-backup.timer
-sudo systemctl start indicant-backup.timer
+sudo systemctl enable indicagent-backup.timer
+sudo systemctl start indicagent-backup.timer
 ```
 
 ---
@@ -107,9 +107,9 @@ sudo systemctl start indicant-backup.timer
 
 ```bash
 # Stop writers first (prevent data corruption)
-sudo systemctl stop indicant-feature-writer \
-                    indicant-signal-writer \
-                    indicant-lifecycle-writer
+sudo systemctl stop indicagent-feature-writer \
+                    indicagent-signal-writer \
+                    indicagent-lifecycle-writer
 
 # Drop existing database (caution!)
 PGPASSWORD=postgres psql -U postgres -h localhost \
@@ -124,9 +124,9 @@ PGPASSWORD=postgres pg_restore -U postgres -h localhost \
   -d indicagent -F c /var/backups/indicagent/full-YYYYMMDD-HHMMSS.dump.gz
 
 # Restart writers
-sudo systemctl start indicant-feature-writer \
-                    indicant-signal-writer \
-                    indicant-lifecycle-writer
+sudo systemctl start indicagent-feature-writer \
+                    indicagent-signal-writer \
+                    indicagent-lifecycle-writer
 ```
 
 ### Partial Restore (Single Table)
@@ -149,31 +149,30 @@ TimescaleDB supports PITR if WAL archiving is enabled. Not covered here — see 
 
 ## Plugin State Backup
 
-Plugin state checkpoints live in `/tmp/plugin_states_checkpoint.json`.
+Plugin state checkpoints live in `cache/pipeline_checkpoint.json` (plugin states + Kalman filter) and `cache/bar_replay_checkpoint.json` (live replay cursor). Both are relative to the repo root.
 
 ### Backup
 
 ```bash
-# Copy checkpoint to backup directory
-cp /tmp/plugin_states_checkpoint.json \
-   /var/backups/indicagent/plugin_states-$(date +%Y%m%d-%H%M%S).json
+cp cache/pipeline_checkpoint.json \
+   /var/backups/indicagent/pipeline_checkpoint-$(date +%Y%m%d-%H%M%S).json
 ```
 
 ### Restore
 
 ```bash
 # Stop services that use plugin state
-sudo systemctl stop indicant-intelligence-pipeline
+sudo systemctl stop indicagent-intelligence-pipeline
 
 # Restore checkpoint
-cp /var/backups/indicagent/plugin_states-YYYYMMDD-HHMMSS.json \
-   /tmp/plugin_states_checkpoint.json
+cp /var/backups/indicagent/pipeline_checkpoint-YYYYMMDD-HHMMSS.json \
+   cache/pipeline_checkpoint.json
 
 # Restart services
-sudo systemctl start indicant-intelligence-pipeline
+sudo systemctl start indicagent-intelligence-pipeline
 ```
 
-**Note:** Plugin state is not critical — services rebuild state from DB on restart. Backup only useful to save warmup time.
+**Note:** Plugin state is not critical — delete both cache files to force a cold restart. Services rebuild Kalman/GARCH/HMM state from DB bars on the next replay.
 
 ---
 
@@ -196,7 +195,7 @@ cp production/docker-compose.yml $BACKUP_DIR/
 
 ```bash
 # Stop services
-sudo systemctl stop indicant-*
+sudo systemctl stop indicagent-*
 
 # Restore .env
 cp /var/backups/indicagent/config/env-YYYYMMDD.backup .env
@@ -207,7 +206,7 @@ sudo cp /var/backups/indicagent/config/systemd/*.service \
 sudo systemctl daemon-reload
 
 # Restart services
-bash production/scripts/start_all_services.sh
+sudo systemctl start indicagent-ibkr-provider indicagent-provider-merger indicagent-intelligence-pipeline
 ```
 
 ---
@@ -247,7 +246,7 @@ sudo systemctl stop *-writer
 
 # 2. Restore from last known good backup
 PGPASSWORD=postgres pg_restore -U postgres -h localhost \
-  -d indicant /var/backups/indicagent/full-YYYYMMDD.dump.gz
+  -d indicagent /var/backups/indicagent/full-YYYYMMDD.dump.gz
 
 # 3. Restart writers
 sudo systemctl start *-writer
@@ -274,14 +273,14 @@ cd production && docker compose up -d
 
 # 5. Restore database
 PGPASSWORD=postgres pg_restore -U postgres -h localhost \
-  -d indicant /var/backups/indicagent/full-latest.dump.gz
+  -d indicagent /var/backups/indicagent/full-latest.dump.gz
 
 # 6. Restore systemd units
 sudo cp /var/backups/indicagent/config/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # 7. Start services
-bash production/scripts/start_all_services.sh
+sudo systemctl start indicagent-ibkr-provider indicagent-provider-merger indicagent-intelligence-pipeline
 ```
 
 ---

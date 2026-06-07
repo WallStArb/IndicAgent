@@ -52,7 +52,7 @@ Scrape endpoint: `:8000/metrics`. Grafana at `:3001`.
 - `prometheus_client` must never be imported — OTel SDK only.
 - Counters: `.add(1, {"label": val})`. Histograms: `.record(val, {"label": val})`. Point gauges: `.set(value, {"label": val})`. Wrong call pattern silently fails.
 - The `llm_calls` composite PK is `(call_id, called_at)` — ON CONFLICT must include both columns.
-- `prompt_version` class attribute is mandatory on every `BaseAIAgent` subclass — enables prompt A/B testing in `llm_calls`.
+- `prompt_version` class attribute is mandatory on every `BaseAIWorker` subclass — enables prompt A/B testing in `llm_calls`.
 
 ## Recipe
 

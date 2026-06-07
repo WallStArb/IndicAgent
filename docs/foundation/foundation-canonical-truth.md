@@ -13,22 +13,22 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 
 | Entity | Canonical stream | Canonical table | Canonical writer | Notes |
 |---|---|---|---|---|
-| Raw provider bars | `{env}.market.bars.raw.{provider}` | None | Provider-specific `ProviderAgent` | Provider payloads are immutable protocol translations. |
-| Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriterAgent` | `ProviderMergerAgent` selects the authoritative stream event; writer persists. |
-| Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriterAgent` | HTF bars are computed from canonical 1m bars. |
+| Raw provider bars | `{env}.market.bars.raw.{provider}` | None | Provider-specific `Provider` | Provider payloads are immutable protocol translations. |
+| Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. |
+| Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriter` | HTF bars are computed from canonical 1m bars. |
 | Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`production/scripts/roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
-| Full I1-I7 feature record | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriterAgent` | Canonical per-bar feature persistence unit. |
-| Ranked I7 signals | `{env}.intelligence.i7.signals` | `signal_ledger` | `SignalWriterAgent` | Signal writer owns initial ledger rows. |
-| Signal lifecycle transitions | lifecycle transition topic from `stream_keys.py` | `signal_ledger` | `LifecycleWriterAgent` | Tracker computes transitions; writer persists status/outcome updates. |
-| Signal-affecting lineage | `topic_signal_lineage()` | `signal_lineage` | `LineageWriterAgent` | Canonical audit trail for transforms and swarm `agent_prediction` events. |
+| Full I1-I7 feature record | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriter` | Canonical per-bar feature persistence unit. |
+| Ranked I7 signals | `{env}.intelligence.i7.signals` | `signal_ledger` | `SignalWriter` | Signal writer owns initial ledger rows. |
+| Signal lifecycle transitions | lifecycle transition topic from `stream_keys.py` | `signal_ledger` | `LifecycleWriter` | Tracker computes transitions; writer persists status/outcome updates. |
+| Signal-affecting lineage | `topic_signal_lineage()` | `signal_lineage` | `LineageWriter` | Canonical audit trail for transforms and swarm `agent_prediction` events. |
 | Swarm ledger projection | aggregate adjustment event or lineage-derived projection | `signal_ledger` swarm columns | Writer-owned projection | Derived convenience fields: `adjusted_confidence`, `swarm_multiplier`, `swarm_agent_count`; rebuildable from lineage. |
-| Signal performance metrics | signal metrics topic from `stream_keys.py` | `signal_metrics` tables | `SignalMetricsWriterAgent` | Metrics compute may read canonical outcomes; writer persists metrics. |
-| Qualitative raw context | `{env}.ctx.*.raw` | `ctx_events` | `CtxWriterAgent` | Raw qualitative facts are append-only. |
-| Qualitative context windows | `{env}.ctx.snapshot` | `ctx_snapshots` | `CtxWriterAgent` | Source of truth for event-time validity. |
-| Quant-facing context cache | None | `intelligence_features.ctx` | `FeatureWriterAgent` or optional bridge job | Denormalized projection only; not canonical truth. |
-| LLM call audit | `{env}.llm.calls` | `llm_calls` | `LLMWriterAgent` | Every call, including failures, is training/audit data. |
-| LLM outcomes | `{env}.llm.outcomes` | `llm_calls` outcome columns | `LLMWriterAgent` | Outcome backfill annotates historical call records. |
-| Narratives | `{env}.narratives` | `llm_calls` / narrative projection | `LLMWriterAgent` | Narrative text is explanatory, not a production signal unless promoted separately. |
+| Signal performance metrics | signal metrics topic from `stream_keys.py` | `signal_metrics` tables | `SignalMetricsWriter` | Metrics compute may read canonical outcomes; writer persists metrics. |
+| Qualitative raw context | `{env}.ctx.*.raw` | `ctx_events` | `ContextWriter` | Raw qualitative facts are append-only. |
+| Qualitative context windows | `{env}.ctx.snapshot` | `ctx_snapshots` | `ContextWriter` | Source of truth for event-time validity. |
+| Quant-facing context cache | None | `intelligence_features.ctx` | `FeatureWriter` or optional bridge job | Denormalized projection only; not canonical truth. |
+| LLM call audit | `{env}.llm.calls` | `llm_calls` | `LLMWriter` | Every call, including failures, is training/audit data. |
+| LLM outcomes | `{env}.llm.outcomes` | `llm_calls` outcome columns | `LLMWriter` | Outcome backfill annotates historical call records. |
+| Narratives | `{env}.narratives` | `llm_calls` / narrative projection | `LLMWriter` | Narrative text is explanatory, not a production signal unless promoted separately. |
 | Shadow transitions | `{env}.intelligence.shadow.transitions` | shadow governance tables | shadow writer/auditor agents | Shadow state is audit/promotion metadata. |
 
 ## Projection Rules

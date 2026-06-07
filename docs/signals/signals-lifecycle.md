@@ -1,6 +1,6 @@
 # Signals Lifecycle — State machine, transitions, and outcome classification
 
-**Version:** 2.8.0 | **Status:** Operational | **Last Updated:** 2026-06-05
+**Version:** 2.8.0 | **Status:** current | **Last Updated:** 2026-06-05
 
 ---
 
@@ -18,8 +18,8 @@ This document covers the full lifecycle of a signal from I7 emission to final ou
 
 The lifecycle pipeline follows the DB-ignorant compute pattern:
 
-- **`SignalTrackerComputeAgent`** — pure compute. Reads bar data from Kafka. Maintains all active signal state in memory. Calls `evaluate_signal()` for every bar. Never writes to DB. Publishes `LifecycleTransition` events to the `lifecycle.transitions` Kafka topic.
-- **`LifecycleWriterAgent`** — pure persistence. Consumes `lifecycle.transitions`. Batch-writes all state changes to `signal_outcomes` in `signal_ledger`. Deduplicates via `WHERE exit_at IS NULL` guards on exit writes.
+- **`SignalTracker`** — pure compute. Reads bar data from Kafka. Maintains all active signal state in memory. Calls `evaluate_signal()` for every bar. Never writes to DB. Publishes `LifecycleTransition` events to the `lifecycle.transitions` Kafka topic.
+- **`LifecycleWriter`** — pure persistence. Consumes `lifecycle.transitions`. Batch-writes all state changes to `signal_outcomes` in `signal_ledger`. Deduplicates via `WHERE exit_at IS NULL` guards on exit writes.
 
 This split exists because DB writes are I/O-bound and cannot sit in the hot bar-processing loop.
 
@@ -27,10 +27,10 @@ This split exists because DB writes are I/O-bound and cannot sit in the hot bar-
 
 Every signal has two potential resolution paths:
 
-1. **Live tracker** — `SignalTrackerComputeAgent` processes bars in real time and resolves most signals as they happen.
-2. **Replay auditor** — `SignalReplayAuditorAgent` runs every 5 minutes, finds signals whose `expires_at` has elapsed and `exit_at IS NULL`, and replays them bar-by-bar against `market_data_ohlcv` using the same `evaluate_signal()` logic.
+1. **Live tracker** — `SignalTracker` processes bars in real time and resolves most signals as they happen.
+2. **Replay auditor** — `SignalReplayAuditor` runs every 5 minutes, finds signals whose `expires_at` has elapsed and `exit_at IS NULL`, and replays them bar-by-bar against `market_data_ohlcv` using the same `evaluate_signal()` logic.
 
-Both paths publish `LifecycleTransition(type=EXIT)` events. `LifecycleWriterAgent` uses `WHERE exit_at IS NULL` on all exit writes — the second writer is always a safe no-op. First writer wins.
+Both paths publish `LifecycleTransition(type=EXIT)` events. `LifecycleWriter` uses `WHERE exit_at IS NULL` on all exit writes — the second writer is always a safe no-op. First writer wins.
 
 ### Temporal guard (D-01)
 
@@ -76,7 +76,7 @@ status = 'regime_suppressed'  (seeded into signal_outcomes at INSERT time, never
   -- never enters the zone-track activation path
 ```
 
-Note: `regime_suppressed` is stamped at signal emission, not via a lifecycle transition. The `SHADOW_OUTCOME` transition type carries the post-tracking counterfactual outcome fields (`shadow_mae`, `shadow_mfe`, `shadow_outcome`) and is consumed by `LifecycleWriterAgent` which writes them to `signal_outcomes` without changing `status`.
+Note: `regime_suppressed` is stamped at signal emission, not via a lifecycle transition. The `SHADOW_OUTCOME` transition type carries the post-tracking counterfactual outcome fields (`shadow_mae`, `shadow_mfe`, `shadow_outcome`) and is consumed by `LifecycleWriter` which writes them to `signal_outcomes` without changing `status`.
 
 Status values are **raw strings**: `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"`. No enum in the database — `SignalStatus(str, Enum)` in `signal_ledger_repository.py` extends `str` for zero-migration compatibility.
 
@@ -93,7 +93,7 @@ Status values are **raw strings**: `"pending"`, `"active"`, `"regime_suppressed"
 
 ## Signal Origin: Fields Written at Emission
 
-When `SignalWriterAgent` inserts a signal into `signal_ledger`, these fields are populated:
+When `SignalWriter` inserts a signal into `signal_ledger`, these fields are populated:
 
 | Field | Value at emission |
 |-------|------------------|
@@ -132,7 +132,7 @@ if bar_overlaps_zone and bar_time >= signal_timestamp:  # D-01 temporal guard
         zone_entry_pct = (activation_price - zone_low) / zone_span   # 0=proximal
 ```
 
-On activation, `LifecycleWriterAgent` writes:
+On activation, `LifecycleWriter` writes:
 - `status = 'active'`
 - `activated_at = bar_time`
 - `activation_price` (capped at zone boundary — not necessarily bar.high/low)
@@ -143,7 +143,7 @@ On activation, `LifecycleWriterAgent` writes:
 
 ## Tracker Update Loop
 
-`SignalTrackerComputeAgent._evaluate_bar()` runs for every bar on every (symbol, timeframe) that has active signals. For each signal:
+`SignalTracker._evaluate_bar()` runs for every bar on every (symbol, timeframe) that has active signals. For each signal:
 
 1. Count active bars (`high != low` — empty overnight gaps excluded).
 2. For active signals: compute chandelier trailing stop state and staleness score.
@@ -290,7 +290,7 @@ If a new version is needed:
 
 ## Signal Generator Warmup
 
-After a service restart, `IntelligencePipelineComputeAgent` needs approximately 50 live 1-minute bars (about 50 minutes) for plugin state to warm up before I7 setups fire. The consumer group is not rewound on restart. No signals will fire during warmup — this is expected behavior, not a bug.
+After a service restart, `IntelligencePipeline` needs approximately 50 live 1-minute bars (about 50 minutes) for plugin state to warm up before I7 setups fire. The consumer group is not rewound on restart. No signals will fire during warmup — this is expected behavior, not a bug.
 
 ---
 

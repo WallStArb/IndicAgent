@@ -53,7 +53,7 @@ Layer 4 — Operational Excellence     (how you run it reliably at scale)
 | `progressive-intelligence-extraction.md` | Raw market data → actionable intelligence through 8 increasingly sophisticated tiers (I1-I8) |
 | `plugin-composability.md` | Intelligence as independently-testable units with declared I/O dependencies — the shell is empty |
 | `dag-execution.md` | Topological ordering (Kahn's algorithm) derives parallelism from the dependency graph automatically |
-| `regime-awareness.md` | Signals conditioned on market state, not absolute thresholds — a rule that works globally is weaker than one that works in a regime |
+| `regime-awareness.md` | Signals conditioned on regime, not absolute thresholds — a rule that works globally is weaker than one that works in a regime |
 
 ### Layer 3 — Trust and Quality
 
@@ -133,7 +133,7 @@ Files renamed to concept-level names. Old filenames deleted after rewrite commit
 | `dag-execution.md` | keep name | Strip implementation details of Kahn's algorithm code → rescue to intelligence-plugins.md; keep graph theory rationale and recipe |
 | `incremental-computation.md` | keep name | Largely at right level already; minor strip of state lifecycle implementation detail |
 | `regime-classification.md` | `regime-awareness.md` | Rename reflects concept not implementation; strip per-plugin implementation detail |
-| `swarm-intelligence.md` | keep name | Strip BaseAIAgent/BaseGroupService API detail → already in intelligence-ai.md; keep MoA rationale and recipe |
+| `swarm-intelligence.md` | keep name | Strip BaseAIAgent/BaseGroupCoordinator API detail → already in intelligence-ai.md; keep MoA rationale and recipe |
 
 ### New Docs (5 files, written from scratch)
 
