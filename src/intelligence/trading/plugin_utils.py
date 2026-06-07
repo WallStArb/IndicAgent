@@ -91,6 +91,9 @@ def validate_stop_against_zone(
     Renaissance invariant: Every signal must have a non-zero trading window.
     Stops inside zones cause "stopped_at_entry" outcomes — dead-on-arrival signals.
 
+    Correction uses ATR_STOP_FALLBACK_MULTIPLIER (2.0) for consistency with frame_trade().
+    This is more conservative than 1.25x ATR and provides a wider buffer against noise.
+
     Args:
         zone_low: Entry zone low bound.
         zone_high: Entry zone high bound.
@@ -104,15 +107,21 @@ def validate_stop_against_zone(
 
     Raises:
         ValueError: If stop is inside zone AND no ATR provided for correction,
-                    or if correction would exceed 1.5 ATR (extreme misconfiguration).
+                    or if correction would exceed 3.0 ATR (extreme misconfiguration).
 
     Examples:
         >>> validate_stop_against_zone(zone_low=100.0, zone_high=100.5, stop_loss=99.9, direction=1, atr=1.0)
         99.9  # Valid - stop below zone for long
         >>> validate_stop_against_zone(zone_low=100.0, zone_high=100.5, stop_loss=100.05, direction=1, atr=1.0)
-        99.75  # Auto-corrected - stop was inside zone, moved 1.25 ATR below zone_low
+        98.0  # Auto-corrected - stop was inside zone, moved 2.0 ATR below zone_low
     """
-    epsilon = 1e-9
+    from structlog import get_logger
+
+    from .trade_framer import ATR_STOP_FALLBACK_MULTIPLIER, EPSILON_TOLERANCE
+
+    _logger = get_logger()
+    epsilon = EPSILON_TOLERANCE
+    correction_multiplier = ATR_STOP_FALLBACK_MULTIPLIER  # 2.0 ATR
 
     if direction == 1:  # Long
         if stop_loss < zone_low - epsilon:
@@ -126,17 +135,29 @@ def validate_stop_against_zone(
                 f"Provide ATR for auto-correction or fix stop placement logic."
             )
 
-        # Auto-correct: place stop 1.25 ATR below zone_low
-        corrected_stop = zone_low - (atr * 1.25)
-        correction_distance = zone_low - corrected_stop
+        # Measure how far original stop is inside zone (Renaissance: detect plugin bugs)
+        original_inside_distance = stop_loss - zone_low
 
-        if correction_distance > atr * 1.5:
+        # Auto-correct: place stop 2.0 ATR below zone_low (Renaissance: conservative buffer)
+        corrected_stop = zone_low - (atr * correction_multiplier)
+
+        # Guard against extreme misconfig: if original stop is >3×ATR inside zone, reject
+        if original_inside_distance > atr * 3.0:
             raise ValueError(
-                f"{plugin_name}: stop correction too extreme ({correction_distance:.2f} ATR). "
-                f"Original stop {stop_loss}, zone [{zone_low}, {zone_high}]. "
+                f"{plugin_name}: stop correction too extreme (stop {stop_loss:.2f} is "
+                f"{original_inside_distance:.2f} ATR inside zone [{zone_low}, {zone_high}]). "
                 f"Review plugin stop calculation logic."
             )
 
+        _logger.warning(
+            "stop_inside_zone_corrected",
+            setup_type=plugin_name,
+            original_stop=stop_loss,
+            corrected_stop=corrected_stop,
+            zone_low=zone_low,
+            zone_high=zone_high,
+            correction_atr_multiplier=correction_multiplier,
+        )
         return corrected_stop
 
     else:  # Short (direction == -1)
@@ -151,17 +172,29 @@ def validate_stop_against_zone(
                 f"Provide ATR for auto-correction or fix stop placement logic."
             )
 
-        # Auto-correct: place stop 1.25 ATR above zone_high
-        corrected_stop = zone_high + (atr * 1.25)
-        correction_distance = corrected_stop - zone_high
+        # Measure how far original stop is inside zone (Renaissance: detect plugin bugs)
+        original_inside_distance = zone_high - stop_loss
 
-        if correction_distance > atr * 1.5:
+        # Auto-correct: place stop 2.0 ATR above zone_high (Renaissance: conservative buffer)
+        corrected_stop = zone_high + (atr * correction_multiplier)
+
+        # Guard against extreme misconfig: if original stop is >3×ATR inside zone, reject
+        if original_inside_distance > atr * 3.0:
             raise ValueError(
-                f"{plugin_name}: stop correction too extreme ({correction_distance:.2f} ATR). "
-                f"Original stop {stop_loss}, zone [{zone_low}, {zone_high}]. "
+                f"{plugin_name}: stop correction too extreme (stop {stop_loss:.2f} is "
+                f"{original_inside_distance:.2f} ATR inside zone [{zone_low}, {zone_high}]). "
                 f"Review plugin stop calculation logic."
             )
 
+        _logger.warning(
+            "stop_inside_zone_corrected",
+            setup_type=plugin_name,
+            original_stop=stop_loss,
+            corrected_stop=corrected_stop,
+            zone_low=zone_low,
+            zone_high=zone_high,
+            correction_atr_multiplier=correction_multiplier,
+        )
         return corrected_stop
 
 

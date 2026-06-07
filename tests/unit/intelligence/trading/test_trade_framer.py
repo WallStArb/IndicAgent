@@ -181,3 +181,96 @@ class TestStopDistanceCap:
         frame = frame_trade("trend_long", 1, entry, features, atr=atr)
         # Should not be capped — structural stop preserved
         assert frame.stop < entry - atr * 4.5, f"stop {frame.stop} was incorrectly capped for 1h"
+
+
+@pytest.mark.unit
+class TestZoneValidation:
+    """validate_stop_against_zone ensures stops are outside entry zones."""
+
+    def test_long_stop_below_zone_passes(self):
+        """Long: stop < zone_low is valid."""
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        result = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=99.0, direction=1, atr=2.0
+        )
+        assert result == 99.0, "Valid stop should be returned unchanged"
+
+    def test_long_stop_inside_zone_corrected(self):
+        """Long: stop >= zone_low is corrected to zone_low - 2×ATR."""
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        result = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=101.0, direction=1, atr=2.0
+        )
+        assert result == 96.0, "Stop should be corrected to zone_low - 2×ATR"
+
+    def test_short_stop_above_zone_passes(self):
+        """Short: stop > zone_high is valid."""
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        result = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=106.0, direction=-1, atr=2.0
+        )
+        assert result == 106.0, "Valid stop should be returned unchanged"
+
+    def test_short_stop_inside_zone_corrected(self):
+        """Short: stop <= zone_high is corrected to zone_high + 2×ATR."""
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        result = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=104.0, direction=-1, atr=2.0
+        )
+        assert result == 109.0, "Stop should be corrected to zone_high + 2×ATR"
+
+    def test_stop_at_zone_edge_is_corrected(self):
+        """Stop exactly at zone edge (within epsilon) is considered inside zone."""
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        # Long: stop == zone_low - 1e-10 (inside due to floating point precision)
+        result_long = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=100.0, direction=1, atr=2.0
+        )
+        assert result_long < 100.0, "Stop at zone_low edge should be corrected"
+
+        # Short: stop == zone_high
+        result_short = validate_stop_against_zone(
+            zone_low=100.0, zone_high=105.0, stop_loss=105.0, direction=-1, atr=2.0
+        )
+        assert result_short > 105.0, "Stop at zone_high edge should be corrected"
+
+    def test_no_atr_raises_value_error(self):
+        """Stop inside zone without ATR raises ValueError."""
+        import pytest
+
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        with pytest.raises(ValueError, match="inside entry zone"):
+            validate_stop_against_zone(
+                zone_low=100.0, zone_high=105.0, stop_loss=101.0, direction=1, atr=None
+            )
+
+    def test_extreme_correction_raises_value_error(self):
+        """Correction beyond 3×ATR distance raises ValueError."""
+        import pytest
+
+        from src.intelligence.trading.plugin_utils import validate_stop_against_zone
+
+        # zone_low=100, stop=110 (10 points inside), atr=2 → correction would be 96
+        # That's a 4-point correction distance, which is 2×ATR, so should pass
+        # But if we set zone_low=100, stop=200 with atr=10, that's 100 points = 10×ATR
+        with pytest.raises(ValueError, match="too extreme"):
+            validate_stop_against_zone(
+                zone_low=100.0, zone_high=105.0, stop_loss=200.0, direction=1, atr=10.0
+            )
+
+    def test_frame_trade_calls_zone_validation(self):
+        """frame_trade() delegates to validate_stop_against_zone() for zone violations."""
+        # This test verifies the integration: when stop would be inside zone,
+        # frame_trade() calls validate_stop_against_zone() which logs and corrects
+        features = {"atr_14": 5.0, "timeframe": "1m"}
+        frame = frame_trade("test_long", 1, 450.0, features, atr=5.0)
+
+        # After frame_trade() resolves zone and validates, stop should be outside zone
+        assert frame.stop < frame.zone_low, "Long stop must be below zone_low"
+        assert frame.viable, "Frame should be viable with corrected stop"
