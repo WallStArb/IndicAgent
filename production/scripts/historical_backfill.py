@@ -981,6 +981,8 @@ def run_i7_and_persist(
     feature_tf: str | None = None,
     df: pd.DataFrame | None = None,
     signal_buffer: list | None = None,
+    calibration_curves: dict | None = None,
+    perf_weights: dict | None = None,
 ) -> int:
     """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
 
@@ -1038,7 +1040,13 @@ def run_i7_and_persist(
         return 0
 
     trend_regime = float(features.get("trend_regime", 0.0))
-    agg_result = aggregate(raw_signals, trend_regime=trend_regime, features=features)
+    agg_result = aggregate(
+        raw_signals,
+        trend_regime=trend_regime,
+        features=features,
+        calibration_curves=calibration_curves,
+        perf_weights=perf_weights,
+    )
     entries = _build_ledger_entries(
         agg_result,
         symbol,
