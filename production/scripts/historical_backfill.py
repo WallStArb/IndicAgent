@@ -1392,6 +1392,8 @@ def replay_symbol(
     timeframes: list[str] | None = None,
     since: datetime | None = None,
     skip_signals: bool = False,
+    calibration_curves: dict | None = None,
+    perf_weights: dict | None = None,
 ) -> dict[str, int]:
     """Replay bars for *symbol* through the I1→I7 pipeline.
 
@@ -1538,6 +1540,8 @@ def replay_symbol(
                 feature_tf=(tf if written_feature_ts is not None else None),
                 df=df,
                 signal_buffer=signal_buffers[tf],
+                calibration_curves=calibration_curves,
+                perf_weights=perf_weights,
             )
             total_signals_by_tf[tf] += n
             if len(signal_buffers[tf]) >= _FEATURE_BATCH_SIZE:

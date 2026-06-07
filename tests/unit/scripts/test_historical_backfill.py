@@ -1340,3 +1340,37 @@ def test_run_i7_and_persist_passes_calibration_to_aggregate():
 
     assert captured.get("calibration_curves") == cal_curves
     assert captured.get("perf_weights") == perf_wts
+
+
+# ---------------------------------------------------------------------------
+# Task 3: replay_symbol threads calibration to run_i7_and_persist
+# ---------------------------------------------------------------------------
+
+
+def test_replay_symbol_threads_calibration_to_run_i7():
+    """calibration_curves and perf_weights are forwarded to run_i7_and_persist."""
+    from unittest.mock import MagicMock, patch
+
+    from production.scripts.historical_backfill import replay_symbol
+
+    captured = {}
+
+    def fake_run_i7(history, features, symbol, tf, ts, db_conn, **kwargs):
+        captured["calibration_curves"] = kwargs.get("calibration_curves")
+        captured["perf_weights"] = kwargs.get("perf_weights")
+        return 0
+
+    cal_curves = {("vwap_deviation", "1m"): ([0.0, 1.0], [0.0, 1.0])}
+    perf_wts = {"vwap_deviation": (0.8, 120)}
+
+    mock_conn = MagicMock()
+    with patch("production.scripts.historical_backfill.fetch_bars", return_value=[]):
+        result = replay_symbol(
+            "ESM6",
+            mock_conn,
+            ["1m"],
+            calibration_curves=cal_curves,
+            perf_weights=perf_wts,
+        )
+
+    assert result == {}
