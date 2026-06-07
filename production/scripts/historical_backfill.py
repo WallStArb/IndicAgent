@@ -1616,6 +1616,56 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
 
 
 # ---------------------------------------------------------------------------
+def _assert_backfill_integrity(conn: Any, symbols: list[str]) -> None:
+    """Assert was_selected and signal_id invariants. Hard-fails with sys.exit(1) on violation.
+
+    Invariant 1: was_selected = TRUE occurs at most once per (symbol, tf, bar_ts).
+    Invariant 2: Every signal_id in signal_ledger is globally unique.
+
+    Called automatically after every --replay-only run. If this passes, the data
+    is usable for training. If it fails, wipe with --clean and investigate.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT symbol, timeframe, timestamp, COUNT(*) AS winner_count
+            FROM signal_ledger
+            WHERE symbol = ANY(%s) AND was_selected = TRUE
+            GROUP BY symbol, timeframe, timestamp
+            HAVING COUNT(*) > 1
+            ORDER BY winner_count DESC
+            LIMIT 20
+            """,
+            (symbols,),
+        )
+        violations = cur.fetchall()
+
+    if violations:
+        print(f"\n[INTEGRITY FAIL] was_selected > 1 per bar — {len(violations)} bars affected:")
+        for sym, tf, ts, cnt in violations:
+            print(f"  {sym}/{tf} @ {ts}: {cnt} winners")
+        sys.exit(1)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT signal_id FROM signal_ledger
+                WHERE symbol = ANY(%s)
+                GROUP BY signal_id HAVING COUNT(*) > 1
+            ) dups
+            """,
+            (symbols,),
+        )
+        dup_count = cur.fetchone()[0]
+
+    if dup_count:
+        print(f"\n[INTEGRITY FAIL] {dup_count} duplicate signal_ids found")
+        sys.exit(1)
+
+    print("\n[INTEGRITY PASS] was_selected invariant holds. signal_ids unique.")
+
+
 # Normalization pass
 # ---------------------------------------------------------------------------
 
@@ -2097,6 +2147,7 @@ def main() -> None:
                 raise
 
         print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_ledger")
+        _assert_backfill_integrity(db_conn, [c.symbol for c in contracts])
 
     db_conn.close()
     flush_and_shutdown_metrics()

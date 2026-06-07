@@ -1381,3 +1381,67 @@ def test_replay_symbol_threads_calibration_to_run_i7():
         )
 
     assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Task 5: _assert_backfill_integrity
+# ---------------------------------------------------------------------------
+
+
+def test_assert_backfill_integrity_passes_clean_data():
+    """No violations → prints PASS and returns normally."""
+    from unittest.mock import MagicMock
+
+    from production.scripts.historical_backfill import _assert_backfill_integrity
+
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = []
+    cur.fetchone.return_value = (0,)
+
+    _assert_backfill_integrity(conn, ["ESM6"])
+
+
+def test_assert_backfill_integrity_fails_on_multiple_winners(capsys):
+    """was_selected > 1 per bar → sys.exit(1)."""
+    from datetime import UTC, datetime
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from production.scripts.historical_backfill import _assert_backfill_integrity
+
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+    cur.fetchall.return_value = [("ESM6", "1m", ts, 2)]
+
+    with pytest.raises(SystemExit) as exc_info:
+        _assert_backfill_integrity(conn, ["ESM6"])
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "INTEGRITY FAIL" in captured.out
+    assert "ESM6/1m" in captured.out
+
+
+def test_assert_backfill_integrity_fails_on_duplicate_signal_ids(capsys):
+    """Duplicate signal_ids → sys.exit(1) even if was_selected is clean."""
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from production.scripts.historical_backfill import _assert_backfill_integrity
+
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = []
+    cur.fetchone.return_value = (3,)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _assert_backfill_integrity(conn, ["ESM6"])
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "INTEGRITY FAIL" in captured.out
+    assert "duplicate signal_ids" in captured.out
