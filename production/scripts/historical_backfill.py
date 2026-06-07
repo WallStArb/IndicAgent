@@ -63,10 +63,11 @@ from collections import defaultdict, deque
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
+
+from src.intelligence.trading.signal_schema import make_signal_id
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -88,6 +89,7 @@ from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.schemas import FEATURE_SCHEMA_VERSION
+from src.intelligence.setup_performance_updater import _compute_perf_multipliers
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.observability.metrics import flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -759,7 +761,8 @@ def _build_ledger_entries(
     if not result.all_ranked:
         return []
 
-    bar_close = float(bar_history[-1]["close"]) if bar_history else None
+    last_bar = bar_history[-1] if bar_history else None
+    bar_close = float(last_bar["close"]) if last_bar else None
     tf_secs = TF_SECONDS.get(timeframe, 60)
     garch_sigma = features.get("garch_sigma")
     hmm_regime = features.get("hmm_regime")
@@ -777,15 +780,35 @@ def _build_ledger_entries(
             except (OverflowError, TypeError, ValueError):
                 expires_at = None
 
+        setup_plugin = sig.get("setup_plugin", "unknown")
+        direction = int(sig.get("direction", 0))
+        if last_bar is not None:
+            sid = make_signal_id(
+                symbol=symbol,
+                feature_ts_ns=int(timestamp.timestamp() * 1e9),
+                feature_tf=timeframe,
+                open_=float(last_bar["open"]),
+                high=float(last_bar["high"]),
+                low=float(last_bar["low"]),
+                close=float(last_bar["close"]),
+                volume=float(last_bar["volume"]),
+                setup_plugin=setup_plugin,
+                direction=direction,
+            )
+        else:
+            from uuid import uuid4
+
+            sid = str(uuid4())
+
         entries.append(
             LedgerEntry(
-                signal_id=str(uuid4()),
+                signal_id=sid,
                 timestamp=timestamp,
                 symbol=symbol,
                 timeframe=timeframe,
-                setup_plugin=sig.get("setup_plugin", "unknown"),
+                setup_plugin=setup_plugin,
                 signal_type=sig.get("signal_type", "unknown"),
-                direction=int(sig.get("direction", 0)),
+                direction=direction,
                 was_selected=was_selected,
                 is_shadow=bool(sig.get("is_shadow", False)),
                 is_backfill=True,
@@ -881,6 +904,70 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             cur, _INSERT_OUTCOMES_SYNC_SQL, outcomes_params, page_size=1000
         )
     conn.commit()
+
+
+def _load_calibration_curves(
+    conn: Any, symbol: str = "*"
+) -> dict[tuple[str, str], tuple[list, list]]:
+    """Load calibration curves from DB as 2-tuple keyed dict for aggregate().
+
+    The DB stores 3-tuple keys (plugin, tf, symbol). aggregate() uses 2-tuple
+    (plugin, tf). Symbol-specific curves take precedence over the global '*' sentinel.
+
+    Returns {} when the table is empty — aggregate() falls back to raw confidence.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT setup_plugin, timeframe, symbol, curve_data "
+            "FROM calibration_curves "
+            "WHERE symbol = %s OR symbol = '*'",
+            (symbol,),
+        )
+        rows = cur.fetchall()
+
+    result: dict[tuple[str, str], tuple[list, list]] = {}
+    for plugin, tf, row_symbol, curve_data in rows:
+        if not curve_data:
+            continue
+        bp = curve_data.get("breakpoints")
+        vals = curve_data.get("values")
+        if not bp or not vals:
+            continue
+        key = (plugin, tf)
+        if key not in result or row_symbol != "*":
+            result[key] = (bp, vals)
+    return result
+
+
+def _load_perf_weights(conn: Any) -> dict[str, tuple[float, int]]:
+    """Load perf multipliers from setup_performance using the same Sharpe-rank
+    formula as the live pipeline (_compute_perf_multipliers).
+
+    Returns {} when no setups have sample_size >= MIN_SAMPLE_SIZE (100).
+    """
+    from src.intelligence.setup_performance_updater import MIN_SAMPLE_SIZE
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio "
+            "FROM setup_performance WHERE sample_size >= %s",
+            (MIN_SAMPLE_SIZE,),
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        return {}
+
+    stats = {
+        plugin: {
+            "win_rate": win_rate,
+            "avg_pnl_r": avg_pnl_r,
+            "sample_size": sample_size,
+            "sharpe_ratio": sharpe_ratio,
+        }
+        for plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio in rows
+    }
+    return _compute_perf_multipliers(stats)
 
 
 def run_i7_and_persist(
@@ -1496,6 +1583,7 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
         (symbol, total_signals, counts_by_tf)
     """
     symbol, db_url, timeframes, since_dt, skip_signals = args
+    register_all_plugins()
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
     try:

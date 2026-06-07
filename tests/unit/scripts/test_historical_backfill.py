@@ -625,7 +625,7 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     assert sym == "ESH6"
     assert total == 4
     assert counts == fake_counts
-    mock_register.assert_not_called()  # registry inherited via Linux fork
+    mock_register.assert_called_once_with()
     mock_replay.assert_called_once_with(
         "ESH6", mock_conn, ["1m", "5m"], since=ts, skip_signals=False
     )
@@ -1172,3 +1172,94 @@ class TestDetectGaps:
             datetime(2026, 1, 2, 16, 0, tzinfo=UTC),
             datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 1: _load_calibration_curves and _load_perf_weights
+# ---------------------------------------------------------------------------
+
+
+def test_load_calibration_curves_empty_table():
+    """Returns empty dict when calibration_curves table has no rows."""
+    from production.scripts.historical_backfill import _load_calibration_curves
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+    result = _load_calibration_curves(conn)
+    assert result == {}
+
+
+def test_load_calibration_curves_builds_two_tuple_key():
+    """DB rows with 3-tuple (plugin, tf, symbol) become 2-tuple (plugin, tf) keys.
+
+    Symbol-specific row beats global '*' row for the same (plugin, tf).
+    """
+    from production.scripts.historical_backfill import _load_calibration_curves
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+        (
+            "vwap_deviation",
+            "1m",
+            "*",
+            {"breakpoints": [0.1, 0.5, 0.9], "values": [0.15, 0.5, 0.85]},
+        ),
+        (
+            "vwap_deviation",
+            "1m",
+            "ESM6",
+            {"breakpoints": [0.2, 0.6, 0.9], "values": [0.25, 0.6, 0.88]},
+        ),
+        ("momentum_burst", "5m", "*", {"breakpoints": [0.0, 1.0], "values": [0.0, 1.0]}),
+    ]
+    result = _load_calibration_curves(conn, symbol="ESM6")
+    assert ("vwap_deviation", "1m") in result
+    assert ("momentum_burst", "5m") in result
+    bp, vals = result[("vwap_deviation", "1m")]
+    assert bp == [0.2, 0.6, 0.9]
+
+
+def test_load_calibration_curves_skips_rows_missing_data():
+    """Rows with missing breakpoints or values are silently skipped."""
+    from production.scripts.historical_backfill import _load_calibration_curves
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+        ("vwap_deviation", "1m", "*", {"breakpoints": [], "values": []}),
+        ("momentum_burst", "5m", "*", None),
+    ]
+    result = _load_calibration_curves(conn)
+    assert result == {}
+
+
+def test_load_perf_weights_empty_table():
+    """Returns empty dict when setup_performance has no eligible rows."""
+    from production.scripts.historical_backfill import _load_perf_weights
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+    result = _load_perf_weights(conn)
+    assert result == {}
+
+
+def test_load_perf_weights_returns_multipliers():
+    """Rows from setup_performance are converted to (perf_multiplier, sample_size) tuples.
+
+    _compute_perf_multipliers sorts by sharpe_ratio ascending. Best Sharpe
+    gets lowest multiplier (sorts first under ascending adjusted_rank).
+    """
+    from production.scripts.historical_backfill import _load_perf_weights
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+        ("vwap_deviation", 0.62, 0.25, 150, 1.5),
+        ("momentum_burst", 0.55, 0.15, 120, 0.8),
+    ]
+    result = _load_perf_weights(conn)
+    assert "vwap_deviation" in result
+    assert "momentum_burst" in result
+    for plugin, val in result.items():
+        mult, size = val
+        assert 0.5 <= mult <= 1.5
+        assert isinstance(size, int)
+    assert result["vwap_deviation"][0] < result["momentum_burst"][0]
