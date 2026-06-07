@@ -1599,7 +1599,17 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
     conn = psycopg2.connect(dsn=db_url)
     conn.autocommit = True
     try:
-        counts = replay_symbol(symbol, conn, timeframes, since=since_dt, skip_signals=skip_signals)
+        calibration_curves = _load_calibration_curves(conn, symbol=symbol)
+        perf_weights = _load_perf_weights(conn)
+        counts = replay_symbol(
+            symbol,
+            conn,
+            timeframes,
+            since=since_dt,
+            skip_signals=skip_signals,
+            calibration_curves=calibration_curves,
+            perf_weights=perf_weights,
+        )
         return symbol, sum(counts.values()), counts
     finally:
         conn.close()
@@ -2050,9 +2060,18 @@ def main() -> None:
         grand_total = 0
 
         if args.workers == 1:
+            perf_weights = _load_perf_weights(db_conn)
             for contract in contracts:
                 print(f"\n{contract.symbol}:")
-                counts = replay_symbol(contract.symbol, db_conn, timeframes, since=since_dt)
+                calibration_curves = _load_calibration_curves(db_conn, symbol=contract.symbol)
+                counts = replay_symbol(
+                    contract.symbol,
+                    db_conn,
+                    timeframes,
+                    since=since_dt,
+                    calibration_curves=calibration_curves,
+                    perf_weights=perf_weights,
+                )
                 symbol_total = sum(counts.values())
                 grand_total += symbol_total
                 print(f"  {contract.symbol} total: {symbol_total} signals")

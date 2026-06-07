@@ -602,12 +602,13 @@ def test_i2_plugins_list_matches_tier_i2():
 
 
 def test_replay_worker_calls_replay_symbol_and_returns_tuple():
-    """_replay_worker opens its own connection, calls replay_symbol, and returns
-    (symbol, total_signals, counts_by_tf)."""
+    """_replay_worker opens its own connection, loads calibration, calls replay_symbol,
+    and returns (symbol, total_signals, counts_by_tf)."""
     from production.scripts.historical_backfill import _replay_worker
 
     fake_counts = {"1m": 3, "5m": 1}
     mock_conn = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value.fetchall.return_value = []
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     with (
@@ -627,7 +628,13 @@ def test_replay_worker_calls_replay_symbol_and_returns_tuple():
     assert counts == fake_counts
     mock_register.assert_called_once_with()
     mock_replay.assert_called_once_with(
-        "ESH6", mock_conn, ["1m", "5m"], since=ts, skip_signals=False
+        "ESH6",
+        mock_conn,
+        ["1m", "5m"],
+        since=ts,
+        skip_signals=False,
+        calibration_curves={},
+        perf_weights={},
     )
     mock_conn.commit.assert_not_called()  # autocommit=True; no explicit commit
     mock_conn.close.assert_called_once()
